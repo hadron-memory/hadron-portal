@@ -7,10 +7,10 @@ export const load: PageServerLoad = async ({ locals }) => {
   const apiClient = gqlClient(locals.token);
   const [orgsData, clientsData] = await Promise.all([
     apiClient.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY).catch(() => ({ myOrganizations: [] as Organization[] })),
-    apiClient.request<{ clients: Client[] }>(MY_CLIENTS_QUERY).catch(() => ({ clients: [] as Client[] })),
+    apiClient.request<{ myClients: Client[] }>(MY_CLIENTS_QUERY).catch(() => ({ myClients: [] as Client[] })),
   ]);
   return {
     orgs: orgsData.myOrganizations,
-    clients: clientsData.clients,
+    clients: clientsData.myClients,
   };
 };

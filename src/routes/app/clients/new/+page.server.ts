@@ -1,4 +1,4 @@
-import { redirect, fail } from '@sveltejs/kit';
+import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { CREATE_CLIENT_MUTATION, MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
@@ -33,6 +33,7 @@ export const actions: Actions = {
       // Pass the rawKey via search param so the detail page can show it once
       redirect(303, `/app/clients/${data.createClient.client.id}?newKey=${encodeURIComponent(data.createClient.rawKey)}`);
     } catch (e: unknown) {
+      if (isRedirect(e)) throw e;
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to create client' });
     }
   },

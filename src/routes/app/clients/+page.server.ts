@@ -5,7 +5,7 @@ import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
   const data = await gqlClient(locals.token)
-    .request<{ clients: Client[] }>(MY_CLIENTS_QUERY)
-    .catch(() => ({ clients: [] as Client[] }));
-  return { clients: data.clients };
+    .request<{ myClients: Client[] }>(MY_CLIENTS_QUERY)
+    .catch(() => ({ myClients: [] as Client[] }));
+  return { clients: data.myClients };
 };

@@ -1,4 +1,4 @@
-import { redirect, fail } from '@sveltejs/kit';
+import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { CREATE_GRAPH_CONFIG_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
@@ -22,6 +22,7 @@ export const actions: Actions = {
       });
       redirect(303, `/app/orgs/${params.id}/graphs`);
     } catch (e: unknown) {
+      if (isRedirect(e)) throw e;
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to create graph' });
     }
   },

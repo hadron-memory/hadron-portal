@@ -1,6 +1,7 @@
 export interface GraphConfig {
   id: string;
   organizationId: string;
+  owner?: UserSummary | null;
   name: string;
   source: string | null;
   readBranch: string | null;
@@ -21,6 +22,14 @@ export interface GraphSubscription {
   organization: OrgSummary;
 }
 
+export interface ClientGraphSub {
+  id: string;
+  graph: GraphConfig;
+  subscriptionType: string;   // "READ_ONLY" | "READ_WRITE"
+  namespace: string | null;
+  createdAt: string;
+}
+
 export interface OrgSummary {
   id: string;
   name: string;
@@ -32,6 +41,7 @@ export interface Organization {
   name: string;
   slug: string;
   githubInstallationId: number | null;
+  owner?: UserSummary | null;
   createdAt: string;
   updatedAt: string;
   members?: OrgMember[];
@@ -68,4 +78,5 @@ export interface Client {
   lastUsedAt: string | null;
   user?: UserSummary | null;
   graphs?: GraphConfig[];
+  subscriptions?: ClientGraphSub[];
 }

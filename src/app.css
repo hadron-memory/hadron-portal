@@ -1,1 +1,23 @@
 @import 'tailwindcss';
+
+/* Class-based dark mode — add `dark` class to <html> to activate */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Light-mode overrides for form controls.
+ * Uses html:not(.dark) for higher specificity than bg-zinc-* utilities,
+ * so pages don't need to be updated individually.
+ */
+html:not(.dark) input:not([type='submit']):not([type='button']):not([type='checkbox']):not([type='radio']):not([type='file']),
+html:not(.dark) select,
+html:not(.dark) textarea {
+  background-color: white;
+  color: rgb(24 24 27); /* zinc-900 */
+  border-color: rgb(212 212 216); /* zinc-300 */
+  color-scheme: light;
+}
+
+html:not(.dark) input::placeholder,
+html:not(.dark) textarea::placeholder {
+  color: rgb(161 161 170); /* zinc-400 */
+}

@@ -3,9 +3,11 @@
 
   interface Props {
     user?: { login: string; name: string | null; avatarUrl: string | null } | null;
+    dark?: boolean;
+    onToggleTheme?: () => void;
   }
 
-  let { user }: Props = $props();
+  let { user, dark = true, onToggleTheme }: Props = $props();
 
   const controllerUrl = env.PUBLIC_CONTROLLER_URL ?? 'http://localhost:4000';
 
@@ -14,41 +16,59 @@
   }
 
   let menuOpen = $state(false);
+  const menuLinkClass = $derived(
+    dark
+      ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
+      : 'text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900'
+  );
 </script>
 
-<nav class="border-b border-zinc-800 bg-zinc-950">
+<nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
   <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
     <!-- Logo -->
-    <a href="/" class="flex items-center gap-2 font-semibold text-white">
-      <svg class="h-6 w-6 text-indigo-400" viewBox="0 0 24 24" fill="currentColor">
-        <circle cx="12" cy="12" r="3" />
-        <circle cx="4" cy="6" r="2" />
-        <circle cx="20" cy="6" r="2" />
-        <circle cx="4" cy="18" r="2" />
-        <circle cx="20" cy="18" r="2" />
-        <line x1="12" y1="12" x2="4" y2="6" stroke="currentColor" stroke-width="1.5" />
-        <line x1="12" y1="12" x2="20" y2="6" stroke="currentColor" stroke-width="1.5" />
-        <line x1="12" y1="12" x2="4" y2="18" stroke="currentColor" stroke-width="1.5" />
-        <line x1="12" y1="12" x2="20" y2="18" stroke="currentColor" stroke-width="1.5" />
-      </svg>
-      Hadron
+    <a href="/">
+      <img src={dark ? '/img/hadron-logo-v2-dark.png' : '/img/hadron-logo-v2.png'} alt="Hadron" class="h-9 w-auto" />
     </a>
 
     <!-- Centre links -->
-    <div class="hidden items-center gap-6 text-sm text-zinc-400 sm:flex">
-      <a href="/browse" class="transition hover:text-white">Browse graphs</a>
+    <div class="hidden items-center gap-6 text-sm sm:flex {dark ? 'text-zinc-400' : 'text-zinc-500'}">
+      <a href="/browse" class="transition {dark ? 'hover:text-white' : 'hover:text-zinc-900'}">Browse graphs</a>
       {#if user}
-        <a href="/app/dashboard" class="transition hover:text-white">Dashboard</a>
+        <a href="/app/dashboard" class="transition {dark ? 'hover:text-white' : 'hover:text-zinc-900'}">Dashboard</a>
       {/if}
     </div>
 
-    <!-- Auth -->
+    <!-- Auth + theme toggle -->
     <div class="flex items-center gap-3">
+      <!-- Theme toggle -->
+      <button
+        type="button"
+        onclick={() => onToggleTheme?.()}
+        class="rounded-md p-1.5 transition {dark ? 'text-zinc-400 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'}"
+        title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+      >
+        {#if dark}
+          <!-- Sun -->
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+        {:else}
+          <!-- Moon -->
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+        {/if}
+      </button>
+
       {#if user}
         <div class="relative">
           <button
+            type="button"
             onclick={() => (menuOpen = !menuOpen)}
-            class="flex items-center gap-2 rounded-full text-sm text-zinc-300 transition hover:text-white"
+            class="flex items-center gap-2 rounded-full text-sm transition {dark ? 'text-zinc-300 hover:text-white' : 'text-zinc-600 hover:text-zinc-900'}"
           >
             {#if user.avatarUrl}
               <img src={user.avatarUrl} alt={user.login} class="h-7 w-7 rounded-full" />
@@ -61,14 +81,14 @@
 
           {#if menuOpen}
             <div
-              class="absolute right-0 mt-2 w-44 rounded-lg border border-zinc-800 bg-zinc-900 py-1 shadow-xl"
+              class="absolute right-0 mt-2 w-44 rounded-lg border py-1 shadow-xl {dark ? 'border-zinc-800 bg-zinc-900' : 'border-zinc-200 bg-white'}"
               role="menu"
             >
-              <a href="/app/dashboard" class="block px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white" role="menuitem" onclick={() => (menuOpen = false)}>Dashboard</a>
-              <a href="/app/orgs" class="block px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white" role="menuitem" onclick={() => (menuOpen = false)}>Organizations</a>
-              <a href="/app/clients" class="block px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-white" role="menuitem" onclick={() => (menuOpen = false)}>Clients</a>
-              <hr class="my-1 border-zinc-800" />
-              <a href="/auth/signout" class="block px-4 py-2 text-sm text-zinc-400 hover:bg-zinc-800 hover:text-white" role="menuitem">Sign out</a>
+              <a href="/app/dashboard" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Dashboard</a>
+              <a href="/app/orgs" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Organizations</a>
+              <a href="/app/clients" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Clients</a>
+              <hr class="my-1 {dark ? 'border-zinc-800' : 'border-zinc-200'}" />
+              <a href="/auth/signout" class="block px-4 py-2 text-sm {dark ? 'text-zinc-400 hover:bg-zinc-800 hover:text-white' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}" role="menuitem">Sign out</a>
             </div>
           {/if}
         </div>

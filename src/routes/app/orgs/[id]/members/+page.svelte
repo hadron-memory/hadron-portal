@@ -7,14 +7,18 @@
 
   const memberIds = $derived(new Set((org.members ?? []).map((m: { user: { id: string } }) => m.user.id)));
   const nonMembers = $derived((data.allUsers ?? []).filter((u: { id: string }) => !memberIds.has(u.id)));
+
+  function submitOnChange(e: Event) {
+    (e.currentTarget as HTMLSelectElement).form?.requestSubmit();
+  }
 </script>
 
 <svelte:head><title>Members · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-8">
   <div>
-    <a href="/app/orgs/{org.id}" class="text-sm text-zinc-400 hover:text-white">← {org.name}</a>
-    <h1 class="mt-1 text-2xl font-bold text-white">Members</h1>
+    <a href="/app/orgs/{org.id}" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← {org.name}</a>
+    <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Members</h1>
   </div>
 
   {#if form?.error}
@@ -22,20 +26,20 @@
   {/if}
 
   <!-- Member list -->
-  <section class="divide-y divide-zinc-800 rounded-xl border border-zinc-800 overflow-hidden">
+  <section class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
     {#each (org.members ?? []) as m (m.id)}
-      <div class="flex items-center gap-4 bg-zinc-900 px-5 py-4">
+      <div class="flex items-center gap-4 bg-white px-5 py-4 dark:bg-zinc-900">
         {#if m.user.avatarUrl}
           <img src={m.user.avatarUrl} alt={m.user.login} class="h-8 w-8 rounded-full" />
         {/if}
         <div class="flex-1 min-w-0">
-          <p class="font-medium text-white truncate">{m.user.name ?? m.user.login}</p>
+          <p class="font-medium text-zinc-900 truncate dark:text-white">{m.user.name ?? m.user.login}</p>
           <p class="text-xs text-zinc-500">@{m.user.login}</p>
         </div>
         <!-- Role update -->
         <form method="POST" action="?/update" use:enhance class="flex items-center gap-2">
           <input type="hidden" name="userId" value={m.user.id} />
-          <select name="role" onchange={(e) => (e.currentTarget as HTMLSelectElement).form?.requestSubmit()} class="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-300">
+          <select name="role" onchange={submitOnChange} class="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-300">
             {#each ['READER', 'CONTRIBUTOR', 'ADMIN'] as role}
               <option value={role} selected={m.role === role}>{role}</option>
             {/each}
@@ -53,10 +57,10 @@
   <!-- Invite -->
   {#if nonMembers.length > 0}
     <section>
-      <h2 class="mb-3 font-semibold text-white">Invite a user</h2>
+      <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Invite a user</h2>
       <form method="POST" action="?/add" use:enhance class="flex items-end gap-3">
         <div class="flex-1">
-          <label for="userId" class="mb-1 block text-xs text-zinc-400">User</label>
+          <label for="userId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">User</label>
           <select id="userId" name="userId" class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
             {#each nonMembers as u (u.id)}
               <option value={u.id}>{u.name ?? u.login} (@{u.login})</option>
@@ -64,7 +68,7 @@
           </select>
         </div>
         <div>
-          <label for="role" class="mb-1 block text-xs text-zinc-400">Role</label>
+          <label for="role" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
           <select id="role" name="role" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
             <option value="READER">Reader</option>
             <option value="CONTRIBUTOR">Contributor</option>

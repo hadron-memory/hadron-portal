@@ -6,6 +6,7 @@ export const GRAPH_CONFIG_FIELDS = /* GraphQL */ `
   fragment GraphConfigFields on GraphConfig {
     id
     organizationId
+    owner { id login name avatarUrl }
     name
     source
     readBranch
@@ -24,6 +25,7 @@ export const ORG_FIELDS = /* GraphQL */ `
     name
     slug
     githubInstallationId
+    owner { id login name avatarUrl }
     createdAt
     updatedAt
   }
@@ -45,6 +47,16 @@ export const CLIENT_FIELDS = /* GraphQL */ `
   }
 `;
 
+export const CLIENT_GRAPH_SUB_FIELDS = /* GraphQL */ `
+  fragment ClientGraphSubFields on ClientGraphSub {
+    id
+    subscriptionType
+    namespace
+    createdAt
+    graph { ...GraphConfigFields }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -60,6 +72,7 @@ export const PUBLIC_GRAPHS_QUERY = /* GraphQL */ `
 
 export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
+  ${GRAPH_CONFIG_FIELDS}
   query MyOrganizations {
     myOrganizations {
       ...OrgFields
@@ -107,11 +120,11 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
 export const MY_CLIENTS_QUERY = /* GraphQL */ `
   ${CLIENT_FIELDS}
   ${GRAPH_CONFIG_FIELDS}
-  query Clients {
-    clients {
+  ${CLIENT_GRAPH_SUB_FIELDS}
+  query MyClients {
+    myClients {
       ...ClientFields
-      user { id login name avatarUrl }
-      graphs { ...GraphConfigFields }
+      subscriptions { ...ClientGraphSubFields }
     }
   }
 `;
@@ -119,11 +132,12 @@ export const MY_CLIENTS_QUERY = /* GraphQL */ `
 export const CLIENT_QUERY = /* GraphQL */ `
   ${CLIENT_FIELDS}
   ${GRAPH_CONFIG_FIELDS}
+  ${CLIENT_GRAPH_SUB_FIELDS}
   query Client($label: String!) {
     client(label: $label) {
       ...ClientFields
       user { id login name avatarUrl }
-      graphs { ...GraphConfigFields }
+      subscriptions { ...ClientGraphSubFields }
     }
   }
 `;
@@ -254,6 +268,13 @@ export const CREATE_CLIENT_MUTATION = /* GraphQL */ `
   }
 `;
 
+export const REGENERATE_API_KEY_MUTATION = /* GraphQL */ `
+  ${CLIENT_FIELDS}
+  mutation RegenerateApiKey($id: ID!) {
+    regenerateApiKey(id: $id) { rawKey client { ...ClientFields } }
+  }
+`;
+
 export const REVOKE_CLIENT_MUTATION = /* GraphQL */ `
   mutation RevokeClient($label: String!) { revokeClient(label: $label) }
 `;
@@ -261,10 +282,11 @@ export const REVOKE_CLIENT_MUTATION = /* GraphQL */ `
 export const SUBSCRIBE_CLIENT_TO_GRAPH_MUTATION = /* GraphQL */ `
   ${CLIENT_FIELDS}
   ${GRAPH_CONFIG_FIELDS}
-  mutation SubscribeClientToGraph($clientId: ID!, $graphId: ID!) {
-    subscribeClientToGraph(clientId: $clientId, graphId: $graphId) {
+  ${CLIENT_GRAPH_SUB_FIELDS}
+  mutation SubscribeClientToGraph($clientId: ID!, $graphId: ID!, $subscriptionType: String, $namespace: String) {
+    subscribeClientToGraph(clientId: $clientId, graphId: $graphId, subscriptionType: $subscriptionType, namespace: $namespace) {
       ...ClientFields
-      graphs { ...GraphConfigFields }
+      subscriptions { ...ClientGraphSubFields }
     }
   }
 `;
@@ -272,10 +294,11 @@ export const SUBSCRIBE_CLIENT_TO_GRAPH_MUTATION = /* GraphQL */ `
 export const UNSUBSCRIBE_CLIENT_FROM_GRAPH_MUTATION = /* GraphQL */ `
   ${CLIENT_FIELDS}
   ${GRAPH_CONFIG_FIELDS}
+  ${CLIENT_GRAPH_SUB_FIELDS}
   mutation UnsubscribeClientFromGraph($clientId: ID!, $graphId: ID!) {
     unsubscribeClientFromGraph(clientId: $clientId, graphId: $graphId) {
       ...ClientFields
-      graphs { ...GraphConfigFields }
+      subscriptions { ...ClientGraphSubFields }
     }
   }
 `;
