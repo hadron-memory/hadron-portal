@@ -26,6 +26,7 @@ export const handle: Handle = async ({ event, resolve }) => {
         name: (payload.name as string | undefined) ?? null,
         avatarUrl: (payload.avatarUrl as string | undefined) ?? null,
         roles: (payload.roles as string[] | undefined) ?? [],
+        canInvite: (payload.canInvite as boolean | undefined) ?? false,
       };
     } else {
       // Expired — clear the cookie

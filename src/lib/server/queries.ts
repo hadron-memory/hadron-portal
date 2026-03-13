@@ -302,3 +302,87 @@ export const UNSUBSCRIBE_CLIENT_FROM_GRAPH_MUTATION = /* GraphQL */ `
     }
   }
 `;
+
+// ---------------------------------------------------------------------------
+// Invite fragments, queries & mutations
+// ---------------------------------------------------------------------------
+
+export const ORG_INVITE_FIELDS = /* GraphQL */ `
+  fragment OrgInviteFields on OrgInvite {
+    id
+    email
+    organization { id name slug }
+    invitedBy { id login name avatarUrl }
+    status
+    token
+    createdAt
+    expiresAt
+  }
+`;
+
+export const MY_INVITES_QUERY = /* GraphQL */ `
+  ${ORG_INVITE_FIELDS}
+  query MyInvites {
+    myInvites { ...OrgInviteFields }
+  }
+`;
+
+export const ORGANIZATION_INVITES_QUERY = /* GraphQL */ `
+  ${ORG_INVITE_FIELDS}
+  query OrganizationInvites($orgId: ID!) {
+    organizationInvites(orgId: $orgId) { ...OrgInviteFields }
+  }
+`;
+
+export const INVITE_BY_TOKEN_QUERY = /* GraphQL */ `
+  ${ORG_INVITE_FIELDS}
+  query InviteByToken($token: String!) {
+    inviteByToken(token: $token) { ...OrgInviteFields }
+  }
+`;
+
+export const ACCEPT_INVITE_BY_TOKEN_MUTATION = /* GraphQL */ `
+  ${ORG_INVITE_FIELDS}
+  mutation AcceptInviteByToken($token: String!) {
+    acceptInviteByToken(token: $token) { ...OrgInviteFields }
+  }
+`;
+
+export const CREATE_ORGANIZATION_INVITE_MUTATION = /* GraphQL */ `
+  ${ORG_INVITE_FIELDS}
+  mutation CreateOrganizationInvite($orgId: ID!, $email: String!) {
+    createOrganizationInvite(orgId: $orgId, email: $email) { ...OrgInviteFields }
+  }
+`;
+
+export const ACCEPT_INVITE_MUTATION = /* GraphQL */ `
+  ${ORG_INVITE_FIELDS}
+  mutation AcceptInvite($inviteId: ID!) {
+    acceptInvite(inviteId: $inviteId) { ...OrgInviteFields }
+  }
+`;
+
+export const DECLINE_INVITE_MUTATION = /* GraphQL */ `
+  ${ORG_INVITE_FIELDS}
+  mutation DeclineInvite($inviteId: ID!) {
+    declineInvite(inviteId: $inviteId) { ...OrgInviteFields }
+  }
+`;
+
+export const CANCEL_INVITE_MUTATION = /* GraphQL */ `
+  ${ORG_INVITE_FIELDS}
+  mutation CancelInvite($inviteId: ID!) {
+    cancelInvite(inviteId: $inviteId) { ...OrgInviteFields }
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// Ownership transfer
+// ---------------------------------------------------------------------------
+
+export const TRANSFER_ORGANIZATION_OWNERSHIP_MUTATION = /* GraphQL */ `
+  ${ORG_FIELDS}
+  mutation TransferOrganizationOwnership($orgId: ID!, $newOwnerId: ID!) {
+    transferOrganizationOwnership(orgId: $orgId, newOwnerId: $newOwnerId) { ...OrgFields }
+  }
+`;

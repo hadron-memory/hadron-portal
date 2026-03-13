@@ -7,6 +7,7 @@ declare global {
         name: string | null;
         avatarUrl: string | null;
         roles: string[];
+        canInvite: boolean;
       } | null;
       token: string | null;
     }
