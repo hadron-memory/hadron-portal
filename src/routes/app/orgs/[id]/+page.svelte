@@ -28,7 +28,11 @@
             <img src={m.user.avatarUrl} alt={m.user.login} class="h-5 w-5 rounded-full" />
           {/if}
           <span class="text-zinc-700 dark:text-zinc-300">{m.user.name ?? m.user.login}</span>
-          <span class="text-xs text-zinc-500">{m.role}</span>
+          {#if m.user.id === org.owner?.id}
+            <span class="rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Owner</span>
+          {:else}
+            <span class="text-xs text-zinc-500">{m.role}</span>
+          {/if}
         </div>
       {/each}
     </div>

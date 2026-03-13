@@ -61,7 +61,20 @@ export interface UserSummary {
   login: string;
   name: string | null;
   avatarUrl: string | null;
+  email?: string | null;
   roles?: string[];
+  canInvite?: boolean;
+}
+
+export interface OrgInvite {
+  id: string;
+  email: string;
+  organization: OrgSummary;
+  invitedBy: UserSummary;
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'CANCELLED';
+  token?: string | null;
+  createdAt: string;
+  expiresAt: string;
 }
 
 export interface Client {
