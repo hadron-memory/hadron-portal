@@ -144,7 +144,7 @@ export const CLIENT_QUERY = /* GraphQL */ `
 
 export const USERS_QUERY = /* GraphQL */ `
   query Users {
-    users { id login name avatarUrl email roles }
+    users { id login name avatarUrl roles }
   }
 `;
 

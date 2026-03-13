@@ -18,8 +18,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       INVITE_BY_TOKEN_QUERY, { token: params.token },
     );
     invite = result.inviteByToken;
-  } catch {
-    // invalid or expired token
+  } catch (e: unknown) {
+    console.error('Failed to fetch invite by token:', e);
   }
 
   const signInUrl = `${controllerUrl}/auth/github?redirect=${encodeURIComponent(url.pathname)}`;

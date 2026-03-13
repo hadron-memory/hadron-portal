@@ -83,6 +83,9 @@ export const actions: Actions = {
   cancelInvite: async ({ request, locals }) => {
     const fd = await request.formData();
     const inviteId = String(fd.get('inviteId') ?? '');
+    if (!inviteId) {
+      return fail(400, { error: 'Invite ID is required' });
+    }
     try {
       await gqlClient(locals.token).request(CANCEL_INVITE_MUTATION, { inviteId });
     } catch (e: unknown) {
