@@ -4,11 +4,23 @@
 
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
-  const navItems = [
+  const consumerNav = [
     { href: '/app/dashboard', label: 'Dashboard' },
+    { href: '/app/graphs', label: 'My Graphs' },
+    { href: '/browse', label: 'Browse Marketplace' },
+    { href: '/app/setup', label: 'AI Setup' },
+  ];
+
+  const fullNav = [
+    { href: '/app/dashboard', label: 'Dashboard' },
+    { href: '/app/graphs', label: 'My Graphs' },
+    { href: '/browse', label: 'Browse Marketplace' },
     { href: '/app/orgs', label: 'Organizations' },
     { href: '/app/clients', label: 'Clients' },
+    { href: '/app/setup', label: 'AI Setup' },
   ];
+
+  const navItems = $derived(data.hasExplicitOrg ? fullNav : consumerNav);
 </script>
 
 <div class="mx-auto flex max-w-7xl gap-8 px-4 py-8">

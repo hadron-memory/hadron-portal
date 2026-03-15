@@ -56,6 +56,7 @@ export interface Organization {
   id: string;
   name: string;
   domain: string;
+  isPersonal: boolean;
   githubInstallationId: number | null;
   githubAppId: string | null;
   hasGithubAppPrivateKey: boolean;

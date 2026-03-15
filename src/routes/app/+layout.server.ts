@@ -1,9 +1,20 @@
 import { redirect } from '@sveltejs/kit';
+import { gqlClient } from '$lib/server/api';
+import { MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
+import type { Organization } from '$lib/types';
 import type { LayoutServerLoad } from './$types';
 
-export const load: LayoutServerLoad = ({ locals, url }) => {
+export const load: LayoutServerLoad = async ({ locals, url }) => {
   if (!locals.user) {
     redirect(303, `/?redirect=${encodeURIComponent(url.pathname)}`);
   }
-  return { user: locals.user };
+  const apiClient = gqlClient(locals.token);
+  const orgsData = await apiClient
+    .request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
+    .catch(() => ({ myOrganizations: [] as Organization[] }));
+
+  const orgs = orgsData.myOrganizations;
+  const hasExplicitOrg = orgs.some((o) => !o.isPersonal);
+
+  return { user: locals.user, orgs, hasExplicitOrg };
 };

@@ -1,19 +1,22 @@
 import { gqlClient } from '$lib/server/api';
 import {
-  MY_ORGANIZATIONS_QUERY,
   MY_CLIENTS_QUERY,
+  MY_GRAPHS_QUERY,
 } from '$lib/server/queries';
-import type { Organization, Client } from '$lib/types';
+import type { Client, Graph } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, parent }) => {
   const apiClient = gqlClient(locals.token);
-  const [orgsData, clientsData] = await Promise.all([
-    apiClient.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY).catch(() => ({ myOrganizations: [] as Organization[] })),
+  const parentData = await parent();
+  const [clientsData, graphsData] = await Promise.all([
     apiClient.request<{ myClients: Client[] }>(MY_CLIENTS_QUERY).catch(() => ({ myClients: [] as Client[] })),
+    apiClient.request<{ myGraphs: Graph[] }>(MY_GRAPHS_QUERY).catch(() => ({ myGraphs: [] as Graph[] })),
   ]);
   return {
-    orgs: orgsData.myOrganizations,
+    orgs: parentData.orgs,
+    hasExplicitOrg: parentData.hasExplicitOrg,
     clients: clientsData.myClients,
+    graphs: graphsData.myGraphs,
   };
 };

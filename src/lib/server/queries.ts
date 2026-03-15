@@ -25,6 +25,7 @@ export const ORG_FIELDS = /* GraphQL */ `
     id
     name
     domain
+    isPersonal
     githubInstallationId
     githubAppId
     hasGithubAppPrivateKey
@@ -498,6 +499,15 @@ export const NODE_USAGE_QUERY = /* GraphQL */ `
       tokensIn
       tokensOut
       createdAt
+    }
+  }
+`;
+
+export const MY_GRAPHS_QUERY = /* GraphQL */ `
+  ${GRAPH_FIELDS}
+  query MyGraphs {
+    myGraphs {
+      ...GraphFields
     }
   }
 `;
