@@ -16,9 +16,9 @@
   <aside class="w-48 shrink-0">
     <div class="mb-4 flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
       {#if data.user.avatarUrl}
-        <img src={data.user.avatarUrl} alt={data.user.githubUsername} class="h-6 w-6 rounded-full" />
+        <img src={data.user.avatarUrl} alt={data.user.name ?? data.user.githubUsername ?? data.user.email ?? ''} class="h-6 w-6 rounded-full" />
       {/if}
-      <span class="truncate font-medium text-zinc-700 dark:text-zinc-200">{data.user.name ?? data.user.githubUsername}</span>
+      <span class="truncate font-medium text-zinc-700 dark:text-zinc-200">{data.user.name ?? data.user.githubUsername ?? data.user.email}</span>
     </div>
     <nav class="flex flex-col gap-1">
       {#each navItems as item}

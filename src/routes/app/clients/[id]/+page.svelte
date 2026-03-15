@@ -20,6 +20,8 @@
     copied = true;
     setTimeout(() => (copied = false), 2000);
   }
+
+  let editingSubId = $state<string | null>(null);
 </script>
 
 <svelte:head><title>{client.label} · Hadron</title></svelte:head>
@@ -33,14 +35,14 @@
         {client.label}
       </h1>
       {#if client.user}
-        <p class="text-sm text-zinc-500">Owned by {client.user.name ?? client.user.githubUsername}</p>
+        <p class="text-sm text-zinc-500">Owned by {client.user.name ?? client.user.githubUsername ?? client.user.email}</p>
       {/if}
     </div>
     <form method="POST" action="?/revoke" use:enhance onsubmit={(e) => {
-      if (!confirm(`Revoke client "${client.label}"? This cannot be undone.`)) e.preventDefault();
+      if (!confirm(`Delete client "${client.label}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
       else goto('/app/clients');
     }}>
-      <button type="submit" class="rounded-md border border-red-800 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950">Revoke</button>
+      <button type="submit" class="rounded-md border border-red-800 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950">Delete</button>
     </form>
   </div>
 
@@ -107,32 +109,67 @@
 
   <!-- Bundle subscriptions -->
   <section>
-    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Bundle subscriptions
+    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Graph Bundle Subscriptions
       <span class="ml-1 text-sm font-normal text-zinc-500">({client.bundleSubscriptions?.length ?? 0})</span>
     </h2>
 
     {#if client.bundleSubscriptions?.length}
       <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
         {#each client.bundleSubscriptions as sub (sub.id)}
-          <div class="flex items-center gap-4 bg-white px-5 py-4 dark:bg-zinc-900">
-            <div class="flex-1 min-w-0">
-              <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.bundle.name}</p>
-              <p class="text-xs text-zinc-500">
-                {sub.subscriptionType === 'READ_WRITE' ? 'Read/Write' : 'Read Only'}
-                {#if sub.trainingMode} · Training mode{/if}
-              </p>
+          {#if editingSubId === sub.id}
+            <div class="bg-white px-5 py-4 dark:bg-zinc-900">
+              <div class="mb-3 flex items-center justify-between">
+                <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.bundle.name}</p>
+                <form method="POST" action="?/unsubscribe" use:enhance onsubmit={() => { editingSubId = null; }}>
+                  <input type="hidden" name="bundleId" value={sub.bundle.id} />
+                  <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+                </form>
+              </div>
+              <form method="POST" action="?/subscribe" use:enhance onsubmit={() => { editingSubId = null; }}>
+                <input type="hidden" name="bundleId" value={sub.bundle.id} />
+                <div class="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
+                    <select name="subscriptionType" value={sub.subscriptionType} class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
+                      <option value="READ_ONLY">Read Only</option>
+                      <option value="READ_WRITE">Read/Write</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Training mode</label>
+                    <select name="trainingMode" value={sub.trainingMode ? 'true' : 'false'} class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
+                      <option value="false">Off</option>
+                      <option value="true">On</option>
+                    </select>
+                  </div>
+                  <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
+                  <button type="button" onclick={() => { editingSubId = null; }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+                </div>
+              </form>
             </div>
-            <form method="POST" action="?/unsubscribe" use:enhance>
-              <input type="hidden" name="bundleId" value={sub.bundle.id} />
-              <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
-            </form>
-          </div>
+          {:else}
+            <button
+              type="button"
+              onclick={() => { editingSubId = sub.id; }}
+              class="flex w-full items-center gap-4 bg-white px-5 py-4 text-left transition hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800/50"
+            >
+              <div class="flex-1 min-w-0">
+                <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.bundle.name}</p>
+                <p class="text-xs text-zinc-500">
+                  {sub.subscriptionType === 'READ_WRITE' ? 'Read/Write' : 'Read Only'}
+                  {#if sub.trainingMode} · Training mode{/if}
+                </p>
+              </div>
+              <span class="text-xs text-zinc-400">Edit</span>
+            </button>
+          {/if}
         {/each}
       </div>
     {:else}
-      <p class="mb-4 text-sm text-zinc-500">No bundle subscriptions yet.</p>
+      <p class="mb-4 text-sm text-zinc-500">No graph bundle subscriptions yet.</p>
     {/if}
 
+    <h3 class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">Add subscription</h3>
     {#if availableBundles.length > 0}
       <form method="POST" action="?/subscribe" use:enhance class="flex flex-wrap items-end gap-3">
         <div>
@@ -159,6 +196,8 @@
         </div>
         <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Subscribe</button>
       </form>
+    {:else}
+      <p class="text-sm text-zinc-500">All available bundles are already subscribed. Create new bundles on the organization page.</p>
     {/if}
   </section>
 </div>

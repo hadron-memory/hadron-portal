@@ -22,7 +22,8 @@ export const handle: Handle = async ({ event, resolve }) => {
       event.locals.token = token;
       event.locals.user = {
         id: payload.sub as string,
-        githubUsername: payload.githubUsername as string,
+        githubUsername: (payload.githubUsername as string | undefined) ?? null,
+        email: (payload.email as string | undefined) ?? null,
         name: (payload.name as string | undefined) ?? null,
         avatarUrl: (payload.avatarUrl as string | undefined) ?? null,
         roles: (payload.roles as string[] | undefined) ?? [],

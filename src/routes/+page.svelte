@@ -1,11 +1,7 @@
 <script lang="ts">
-  import { env } from '$env/dynamic/public';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
-
-  const controllerUrl = env.PUBLIC_CONTROLLER_URL ?? 'http://localhost:4000';
-  const signInUrl = `${controllerUrl}/auth/github?redirect=${encodeURIComponent('/app/dashboard')}`;
 
   const features = [
     {
@@ -60,16 +56,16 @@
   </p>
   <div class="flex flex-wrap items-center justify-center gap-4">
     <a
-      href={signInUrl}
+      href="/signup"
       class="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow transition hover:bg-indigo-500"
     >
-      Get started free
+      Get Started
     </a>
     <a
-      href="/browse"
+      href="/signin"
       class="rounded-lg border border-zinc-300 px-6 py-3 text-base font-semibold text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
     >
-      Browse public graphs
+      Login
     </a>
   </div>
 </section>

@@ -1,19 +1,11 @@
 <script lang="ts">
-  import { env } from '$env/dynamic/public';
-
   interface Props {
-    user?: { githubUsername: string; name: string | null; avatarUrl: string | null } | null;
+    user?: { githubUsername: string | null; email: string | null; name: string | null; avatarUrl: string | null } | null;
     dark?: boolean;
     onToggleTheme?: () => void;
   }
 
   let { user, dark = true, onToggleTheme }: Props = $props();
-
-  const controllerUrl = env.PUBLIC_CONTROLLER_URL ?? 'http://localhost:4000';
-
-  function signInUrl(redirect = '/app/dashboard') {
-    return `${controllerUrl}/auth/github?redirect=${encodeURIComponent(redirect)}`;
-  }
 
   let menuOpen = $state(false);
   const menuLinkClass = $derived(
@@ -71,9 +63,9 @@
             class="flex items-center gap-2 rounded-full text-sm transition {dark ? 'text-zinc-300 hover:text-white' : 'text-zinc-600 hover:text-zinc-900'}"
           >
             {#if user.avatarUrl}
-              <img src={user.avatarUrl} alt={user.githubUsername} class="h-7 w-7 rounded-full" />
+              <img src={user.avatarUrl} alt={user.name ?? user.githubUsername ?? user.email ?? ''} class="h-7 w-7 rounded-full" />
             {/if}
-            <span class="hidden sm:inline">{user.name ?? user.githubUsername}</span>
+            <span class="hidden sm:inline">{user.name ?? user.githubUsername ?? user.email}</span>
             <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" />
             </svg>
@@ -94,10 +86,10 @@
         </div>
       {:else}
         <a
-          href={signInUrl()}
+          href="/signin"
           class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-500"
         >
-          Sign in with GitHub
+          Sign in
         </a>
       {/if}
     </div>

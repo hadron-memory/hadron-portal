@@ -1,23 +1,14 @@
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
-  ORGANIZATION_QUERY,
   UPDATE_GRAPH_MUTATION,
   SYNC_GRAPH_MUTATION,
   CREATE_GRAPH_SUBSCRIPTION_MUTATION,
   DELETE_GRAPH_SUBSCRIPTION_MUTATION,
 } from '$lib/server/queries';
-import type { Organization } from '$lib/types';
-import type { Actions, PageServerLoad } from './$types';
+import type { Actions } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals }) => {
-  const data = await gqlClient(locals.token).request<{ organization: Organization }>(
-    ORGANIZATION_QUERY, { id: params.id },
-  );
-  const graph = (data.organization?.graphs ?? []).find((g) => g.id === params.gid);
-  if (!graph) throw new Error('Graph not found');
-  return { org: data.organization, graph };
-};
+// Data is provided by the parent +layout.server.ts (org, graph, graphNodes, etc.)
 
 export const actions: Actions = {
   update: async ({ request, params, locals }) => {

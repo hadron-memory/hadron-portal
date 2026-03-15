@@ -33,16 +33,20 @@
       {@const isMemberOwner = m.role === 'OWNER'}
       <div class="flex items-center gap-4 bg-white px-5 py-4 dark:bg-zinc-900">
         {#if m.user.avatarUrl}
-          <img src={m.user.avatarUrl} alt={m.user.githubUsername} class="h-8 w-8 rounded-full" />
+          <img src={m.user.avatarUrl} alt={m.user.name ?? m.user.githubUsername ?? m.user.email ?? ''} class="h-8 w-8 rounded-full" />
         {/if}
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2">
-            <p class="font-medium text-zinc-900 truncate dark:text-white">{m.user.name ?? m.user.githubUsername}</p>
+            <p class="font-medium text-zinc-900 truncate dark:text-white">{m.user.name ?? m.user.githubUsername ?? m.user.email}</p>
             {#if isMemberOwner}
               <span class="rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Owner</span>
             {/if}
           </div>
-          <p class="text-xs text-zinc-500">@{m.user.githubUsername}</p>
+          {#if m.user.githubUsername}
+            <p class="text-xs text-zinc-500">@{m.user.githubUsername}</p>
+          {:else if m.user.email}
+            <p class="text-xs text-zinc-500">{m.user.email}</p>
+          {/if}
         </div>
 
         {#if isMemberOwner}
@@ -77,7 +81,7 @@
           <label for="userId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">User</label>
           <select id="userId" name="userId" class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
             {#each nonMembers as u (u.id)}
-              <option value={u.id}>{u.name ?? u.githubUsername} (@{u.githubUsername})</option>
+              <option value={u.id}>{u.name ?? u.githubUsername ?? u.email}{u.githubUsername ? ` (@${u.githubUsername})` : ''}</option>
             {/each}
           </select>
         </div>

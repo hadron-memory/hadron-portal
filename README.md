@@ -11,7 +11,7 @@ Connects to the [hadron-controller](https://github.com/baragaun/hadron-controlle
 | Framework | SvelteKit 2 + Svelte 5 (runes) |
 | Styling | Tailwind CSS v4 |
 | GraphQL | `graphql-request` (server-side only) |
-| Auth | GitHub OAuth via hadron-controller → JWT cookie |
+| Auth | GitHub OAuth or email magic link via hadron-controller → JWT cookie |
 | Language | TypeScript strict |
 
 ## Prerequisites
@@ -40,24 +40,35 @@ Both variables point to the same controller; the `PUBLIC_` prefix makes SvelteKi
 
 ## Auth flow
 
-Authentication is handled entirely by hadron-controller:
+Authentication is handled by hadron-controller. Two identity providers are supported:
 
-1. "Sign in" → `GET {CONTROLLER_URL}/auth/github?redirect=/app/dashboard`
+**GitHub OAuth:**
+1. "Continue with GitHub" → `GET {CONTROLLER_URL}/auth/github?redirect=/app/dashboard`
 2. GitHub OAuth → controller exchanges code, upserts user, issues JWT
 3. Controller redirects to `{FRONTEND}/auth/callback?token=<jwt>`
+
+**Email magic link:**
+1. "Continue with Email" → `POST {CONTROLLER_URL}/auth/email` with `{ email }`
+2. Controller sends a magic-link email via Resend
+3. User clicks link → controller verifies token, upserts user, issues JWT
+4. Controller redirects to `{FRONTEND}/auth/callback?token=<jwt>`
+
+**Common flow (both providers):**
 4. `/auth/callback` sets `hadron_token` httpOnly cookie, redirects to dashboard
 5. `src/hooks.server.ts` decodes the JWT on every request → `event.locals.user` / `event.locals.token`
 6. `/auth/signout` clears the cookie
 
-The frontend never sees or stores the GitHub OAuth credentials.
+The frontend never sees or stores OAuth credentials or email tokens.
 
 ## Routes
 
 | Path | Description |
 |---|---|
 | `/` | Landing page — hero, features, public graph preview |
+| `/signup` | Create account (GitHub or email) |
+| `/signin` | Sign in (GitHub or email) |
 | `/browse` | Browse all public graphs (no auth required) |
-| `/auth/callback` | OAuth callback — sets cookie and redirects |
+| `/auth/callback` | Auth callback — sets cookie and redirects |
 | `/auth/signout` | Clears auth cookie |
 | `/app/dashboard` | Summary: my orgs and clients |
 | `/app/orgs` | List organisations |

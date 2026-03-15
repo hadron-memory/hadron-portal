@@ -26,7 +26,7 @@
           <span class="text-2xl">{typeIcon[client.clientType] ?? '🔑'}</span>
           <div class="flex-1 min-w-0">
             <p class="font-semibold text-zinc-900 dark:text-white">{client.label}</p>
-            <p class="text-xs text-zinc-500">{client.clientType}{client.user ? ` · ${client.user.name ?? client.user.githubUsername}` : ''}</p>
+            <p class="text-xs text-zinc-500">{client.clientType}{client.user ? ` · ${client.user.name ?? client.user.githubUsername ?? client.user.email}` : ''}</p>
           </div>
           <div class="text-right text-xs text-zinc-500">
             <p>{client.bundleSubscriptions?.length ?? 0} bundle sub{client.bundleSubscriptions?.length === 1 ? '' : 's'}</p>

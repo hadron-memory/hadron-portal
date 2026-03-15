@@ -57,6 +57,8 @@ export interface Organization {
   name: string;
   domain: string;
   githubInstallationId: number | null;
+  githubAppId: string | null;
+  hasGithubAppPrivateKey: boolean;
   createdAt: string;
   updatedAt: string;
   members?: OrgMember[];
@@ -75,13 +77,104 @@ export interface OrgMember {
 
 export interface UserSummary {
   id: string;
-  githubUsername: string;
+  githubUsername: string | null;
   name: string | null;
   avatarUrl: string | null;
   email?: string | null;
   roles?: string[];
   maxReferrals?: number | null;
 }
+
+// ---------------------------------------------------------------------------
+// Node / Edge types (from hadron-controller GraphQL)
+// ---------------------------------------------------------------------------
+
+export interface GraphNodeSummary {
+  id: string;
+  loc: string;
+  name: string;
+  title: string;
+  description: string | null;
+  tags: string[];
+  namespace: string;
+}
+
+export interface GraphEdge {
+  id: string;
+  label: string;
+  source: GraphNodeSummary;
+  target: GraphNodeSummary;
+}
+
+export interface GraphNode {
+  id: string;
+  graphId: string;
+  loc: string;
+  name: string;
+  title: string;
+  alias: string | null;
+  description: string | null;
+  content: string | null;
+  tokens: number | null;
+  tags: string[];
+  namespace: string;
+  ownerRepo: string | null;
+  isRunnable: boolean | null;
+  createdAt: string;
+  updatedAt: string;
+  outgoingEdges: GraphEdge[];
+  incomingEdges: GraphEdge[];
+}
+
+// ---------------------------------------------------------------------------
+// Graph view types (derived from GraphNode[])
+// ---------------------------------------------------------------------------
+
+export interface TreeEntry {
+  id: string;       // loc
+  name: string;
+  hasActions: boolean;
+  isVirtual: boolean;
+}
+
+export interface TopicNode {
+  id: string;
+  rel: string;       // edge label
+  loc: string;       // target loc
+  name: string;
+}
+
+export interface Topic {
+  id: string;         // loc
+  name: string;
+  depth: number;
+  description: string;
+  tags: string[];
+  domain: string;     // first segment of loc
+  nodes: TopicNode[]; // outgoing edges
+}
+
+export interface FolderNode {
+  id: string;
+  name: string;
+  domain: string;
+  isDomain: boolean;
+}
+
+export interface HierEdge {
+  from: string;
+  to: string;
+}
+
+export interface GraphViewData {
+  topics: Topic[];
+  folderNodes: FolderNode[];
+  hierEdges: HierEdge[];
+}
+
+// ---------------------------------------------------------------------------
+// Client types
+// ---------------------------------------------------------------------------
 
 export interface Client {
   id: string;

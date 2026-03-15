@@ -6,12 +6,10 @@
   const g = $derived(data.graph);
 </script>
 
-<svelte:head><title>{g.name} · Hadron</title></svelte:head>
+<svelte:head><title>{g.name} &middot; Settings &middot; Hadron</title></svelte:head>
 
 <div class="space-y-8">
   <div>
-    <a href="/app/orgs/{data.org.id}/graphs" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Graphs</a>
-    <h1 class="mt-1 font-mono text-2xl font-bold text-zinc-900 dark:text-white">{g.name}</h1>
     <div class="mt-1 flex flex-wrap gap-3 text-sm text-zinc-500">
       {#if g.syncStatus}
         <span>Sync: {g.syncStatus}</span>

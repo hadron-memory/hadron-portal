@@ -26,6 +26,8 @@ export const ORG_FIELDS = /* GraphQL */ `
     name
     domain
     githubInstallationId
+    githubAppId
+    hasGithubAppPrivateKey
     createdAt
     updatedAt
   }
@@ -98,7 +100,7 @@ export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
       members {
         id
         role
-        user { id githubUsername name avatarUrl }
+        user { id githubUsername name avatarUrl email }
       }
       graphs {
         ...GraphFields
@@ -119,7 +121,7 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
         role
         canInvite
         createdAt
-        user { id githubUsername name avatarUrl }
+        user { id githubUsername name avatarUrl email }
       }
       graphs {
         ...GraphFields
@@ -160,7 +162,7 @@ export const CLIENT_QUERY = /* GraphQL */ `
   query Client($id: ID!) {
     client(id: $id) {
       ...ClientFields
-      user { id githubUsername name avatarUrl }
+      user { id githubUsername name avatarUrl email }
       bundleSubscriptions { ...ClientBundleSubFields }
     }
   }
@@ -206,7 +208,7 @@ export const ADD_MEMBER_MUTATION = /* GraphQL */ `
   mutation AddOrganizationMember($orgId: ID!, $userId: ID!, $role: Role!) {
     addOrganizationMember(orgId: $orgId, userId: $userId, role: $role) {
       id role canInvite createdAt
-      user { id githubUsername name avatarUrl }
+      user { id githubUsername name avatarUrl email }
     }
   }
 `;
@@ -215,7 +217,7 @@ export const UPDATE_MEMBER_MUTATION = /* GraphQL */ `
   mutation UpdateOrganizationMember($orgId: ID!, $userId: ID!, $role: Role!) {
     updateOrganizationMember(orgId: $orgId, userId: $userId, role: $role) {
       id role
-      user { id githubUsername name avatarUrl }
+      user { id githubUsername name avatarUrl email }
     }
   }
 `;
@@ -386,5 +388,91 @@ export const LINK_GITHUB_APP_MUTATION = /* GraphQL */ `
   ${ORG_FIELDS}
   mutation LinkGithubApp($orgId: ID!, $installationId: Int!) {
     linkGithubApp(orgId: $orgId, installationId: $installationId) { ...OrgFields }
+  }
+`;
+
+export const UPDATE_ORG_GITHUB_APP_MUTATION = /* GraphQL */ `
+  ${ORG_FIELDS}
+  mutation UpdateOrgGithubApp($orgId: ID!, $appId: String!, $privateKey: String!) {
+    updateOrgGithubApp(orgId: $orgId, appId: $appId, privateKey: $privateKey) { ...OrgFields }
+  }
+`;
+
+export const UNLINK_GITHUB_APP_MUTATION = /* GraphQL */ `
+  ${ORG_FIELDS}
+  mutation UnlinkGithubApp($orgId: ID!) {
+    unlinkGithubApp(orgId: $orgId) { ...OrgFields }
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// Node / Edge fragments & queries
+// ---------------------------------------------------------------------------
+
+export const NODE_FIELDS = /* GraphQL */ `
+  fragment NodeFields on Node {
+    id
+    graphId
+    loc
+    name
+    title
+    alias
+    description
+    content
+    tokens
+    tags
+    namespace
+    ownerRepo
+    isRunnable
+    createdAt
+    updatedAt
+    outgoingEdges {
+      id
+      label
+      target { id loc name title description tags namespace }
+    }
+    incomingEdges {
+      id
+      label
+      source { id loc name title description tags namespace }
+    }
+  }
+`;
+
+export const GRAPH_NODES_QUERY = /* GraphQL */ `
+  ${NODE_FIELDS}
+  query GraphNodes($limit: Int) {
+    nodes(limit: $limit) {
+      ...NodeFields
+    }
+  }
+`;
+
+export const NODE_QUERY = /* GraphQL */ `
+  ${NODE_FIELDS}
+  query Node($loc: String!) {
+    node(loc: $loc) {
+      ...NodeFields
+    }
+  }
+`;
+
+export const UPSERT_NODE_MUTATION = /* GraphQL */ `
+  ${NODE_FIELDS}
+  mutation UpsertNode($input: NodeInput!) {
+    upsertNode(input: $input) { ...NodeFields }
+  }
+`;
+
+export const DELETE_NODE_MUTATION = /* GraphQL */ `
+  mutation DeleteNode($loc: String!) {
+    deleteNode(loc: $loc)
+  }
+`;
+
+export const MOVE_NODE_MUTATION = /* GraphQL */ `
+  ${NODE_FIELDS}
+  mutation MoveNode($from: String!, $to: String!) {
+    moveNode(from: $from, to: $to) { ...NodeFields }
   }
 `;
