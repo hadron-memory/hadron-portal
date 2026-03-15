@@ -470,6 +470,32 @@ export const DELETE_NODE_MUTATION = /* GraphQL */ `
   }
 `;
 
+export const GRAPH_USAGE_SUMMARY_QUERY = /* GraphQL */ `
+  query GraphUsageSummary($graphId: ID!) {
+    graphUsageSummary(graphId: $graphId) {
+      nodeLoc
+      type
+      count
+    }
+  }
+`;
+
+export const NODE_USAGE_QUERY = /* GraphQL */ `
+  query NodeUsage($loc: String!, $limit: Int) {
+    nodeUsage(loc: $loc, limit: $limit) {
+      id
+      type
+      nodeLoc
+      clientId
+      sessionId
+      model
+      tokensIn
+      tokensOut
+      createdAt
+    }
+  }
+`;
+
 export const MOVE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
   mutation MoveNode($from: String!, $to: String!) {

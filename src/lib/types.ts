@@ -127,6 +127,28 @@ export interface GraphNode {
 }
 
 // ---------------------------------------------------------------------------
+// Usage types
+// ---------------------------------------------------------------------------
+
+export interface UsageSummaryEntry {
+  nodeLoc: string;
+  type: string;
+  count: number;
+}
+
+export interface UsageEvent {
+  id: string;
+  type: string;
+  nodeLoc: string | null;
+  clientId: string | null;
+  sessionId: string | null;
+  model: string | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
 // Graph view types (derived from GraphNode[])
 // ---------------------------------------------------------------------------
 

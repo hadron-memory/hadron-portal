@@ -1,7 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import type { PageData } from './$types';
-  let { data }: { data: PageData } = $props();
+  import type { PageData, ActionData } from './$types';
+  let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
 </script>
 
@@ -13,10 +13,24 @@
       <a href="/app/orgs/{org.id}" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← {org.name}</a>
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Graphs</h1>
     </div>
-    <a href="/app/orgs/{org.id}/graphs/new" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
-      + Add graph
-    </a>
+    <div class="flex items-center gap-3">
+      <form method="POST" action="?/syncAll" use:enhance>
+        <button type="submit" class="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
+          ↻ Sync all
+        </button>
+      </form>
+      <a href="/app/orgs/{org.id}/graphs/new" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+        + Add graph
+      </a>
+    </div>
   </div>
+
+  {#if form?.error}
+    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {/if}
+  {#if form?.synced}
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">All graphs synced.</div>
+  {/if}
 
   {#if !org.graphs?.length}
     <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
