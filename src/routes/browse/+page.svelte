@@ -1,48 +1,76 @@
 <script lang="ts">
-  import type { PageData } from './$types';
+  import { enhance } from '$app/forms';
+  import type { PageData, ActionData } from './$types';
 
-  let { data }: { data: PageData } = $props();
+  let { data, form }: { data: PageData; form: ActionData } = $props();
+
+  let search = $state('');
+
+  const filtered = $derived(
+    data.graphs.filter((g) => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      return g.name.toLowerCase().includes(q);
+    })
+  );
 </script>
 
 <svelte:head>
-  <title>Browse public graphs · Hadron</title>
+  <title>Browse graphs · Hadron</title>
 </svelte:head>
 
 <div class="mx-auto max-w-7xl px-4 py-12">
   <div class="mb-8">
-    <h1 class="text-3xl font-bold text-zinc-900 dark:text-white">Public graphs</h1>
-    <p class="mt-2 text-zinc-500 dark:text-zinc-400">Open knowledge graphs available to any organisation.</p>
+    <h1 class="text-3xl font-bold text-zinc-900 dark:text-white">Browse graphs</h1>
+    <p class="mt-2 text-zinc-500 dark:text-zinc-400">Find AI knowledge graphs for any purpose. Grab one to give your AI agent instant expertise.</p>
   </div>
 
-  {#if data.graphs.length === 0}
+  {#if form?.error}
+    <div class="mb-6 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {/if}
+
+  <div class="mb-6">
+    <input
+      type="text"
+      placeholder="Search graphs..."
+      bind:value={search}
+      class="w-full max-w-md rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+    />
+  </div>
+
+  {#if filtered.length === 0}
     <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-      No public graphs yet.
+      {search ? 'No graphs match your search.' : 'No public graphs yet.'}
     </div>
   {:else}
     <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-      {#each data.graphs as graph (graph.id)}
-        <div class="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-6 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
-          <div>
-            <p class="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-300">{graph.name}</p>
-            <p class="mt-0.5 text-xs text-zinc-500">{graph.organizationId}</p>
+      {#each filtered as graph (graph.id)}
+        <div class="flex flex-col justify-between gap-4 rounded-xl border border-zinc-200 bg-white p-6 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
+          <div class="space-y-3">
+            <div>
+              <p class="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-300">{graph.name}</p>
+            </div>
+
+            <div class="flex flex-wrap gap-2 text-xs">
+              {#if graph.source}
+                <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">git-backed</span>
+              {:else}
+                <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">DB-only</span>
+              {/if}
+              {#if graph.lastSyncedAt}
+                <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                  synced {new Date(graph.lastSyncedAt).toLocaleDateString()}
+                </span>
+              {/if}
+            </div>
           </div>
 
-          <div class="flex flex-wrap gap-2 text-xs">
-            {#if graph.source}
-              <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">git-backed</span>
-            {:else}
-              <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">DB-only</span>
-            {/if}
-            {#if graph.readBranch}
-              <span class="rounded bg-zinc-100 px-2 py-0.5 font-mono text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{graph.readBranch}</span>
-            {/if}
-          </div>
-
-          {#if graph.lastSyncedAt}
-            <p class="text-xs text-zinc-500">
-              Last synced {new Date(graph.lastSyncedAt).toLocaleString()}
-            </p>
-          {/if}
+          <form method="POST" action="?/addToMyGraphs" use:enhance>
+            <input type="hidden" name="graphId" value={graph.id} />
+            <button type="submit" class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+              Use this graph
+            </button>
+          </form>
         </div>
       {/each}
     </div>

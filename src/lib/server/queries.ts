@@ -91,6 +91,12 @@ export const PUBLIC_GRAPHS_QUERY = /* GraphQL */ `
   }
 `;
 
+export const ADD_TO_MY_GRAPHS_MUTATION = /* GraphQL */ `
+  mutation AddToMyGraphs($graphId: ID!) {
+    addToMyGraphs(graphId: $graphId)
+  }
+`;
+
 export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${GRAPH_FIELDS}
