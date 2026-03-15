@@ -25,8 +25,8 @@
     </div>
 
     <div>
-      <label for="type" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
-      <select id="type" name="type" class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
+      <label for="clientType" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+      <select id="clientType" name="clientType" class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
         <option value="WORKSTATION">💻 Workstation</option>
         <option value="AGENT">🤖 Agent</option>
         <option value="CLOUD">☁️ Cloud</option>
@@ -35,15 +35,12 @@
     </div>
 
     <div>
-      <p class="mb-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300">Roles</p>
-      <div class="flex gap-4">
-        {#each ['READER', 'CONTRIBUTOR', 'ADMIN'] as role}
-          <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-            <input type="checkbox" name="roles" value={role} checked={role === 'READER'} class="rounded border-zinc-600 bg-zinc-800" />
-            {role}
-          </label>
-        {/each}
-      </div>
+      <label for="role" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Role</label>
+      <select id="role" name="role" class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
+        <option value="READER">Reader</option>
+        <option value="CONTRIBUTOR">Contributor</option>
+        <option value="ADMIN">Admin</option>
+      </select>
     </div>
 
     <div>

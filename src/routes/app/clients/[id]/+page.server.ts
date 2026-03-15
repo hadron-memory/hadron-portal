@@ -4,8 +4,8 @@ import {
   MY_CLIENTS_QUERY,
   REGENERATE_API_KEY_MUTATION,
   REVOKE_CLIENT_MUTATION,
-  SUBSCRIBE_CLIENT_TO_GRAPH_MUTATION,
-  UNSUBSCRIBE_CLIENT_FROM_GRAPH_MUTATION,
+  SUBSCRIBE_CLIENT_TO_BUNDLE_MUTATION,
+  UNSUBSCRIBE_CLIENT_FROM_BUNDLE_MUTATION,
   MY_ORGANIZATIONS_QUERY,
 } from '$lib/server/queries';
 import type { Client, Organization } from '$lib/types';
@@ -40,14 +40,8 @@ export const actions: Actions = {
   },
 
   revoke: async ({ params, locals }) => {
-    const data = await gqlClient(locals.token)
-      .request<{ myClients: Array<{ id: string; label: string }> }>(
-        /* GraphQL */ `query { myClients { id label } }`,
-      ).catch(() => ({ myClients: [] as Array<{ id: string; label: string }> }));
-    const client = data.myClients.find((c) => c.id === params.id);
-    if (!client) return fail(404, { error: 'Client not found' });
     try {
-      await gqlClient(locals.token).request(REVOKE_CLIENT_MUTATION, { label: client.label });
+      await gqlClient(locals.token).request(REVOKE_CLIENT_MUTATION, { id: params.id });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to revoke' });
     }
@@ -55,12 +49,12 @@ export const actions: Actions = {
 
   subscribe: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const graphId = String(fd.get('graphId') ?? '');
+    const bundleId = String(fd.get('bundleId') ?? '');
     const subscriptionType = String(fd.get('subscriptionType') ?? 'READ_ONLY');
-    const namespace = String(fd.get('namespace') ?? '').trim() || null;
+    const trainingMode = fd.get('trainingMode') === 'true';
     try {
-      await gqlClient(locals.token).request(SUBSCRIBE_CLIENT_TO_GRAPH_MUTATION, {
-        clientId: params.id, graphId, subscriptionType, namespace,
+      await gqlClient(locals.token).request(SUBSCRIBE_CLIENT_TO_BUNDLE_MUTATION, {
+        clientId: params.id, bundleId, subscriptionType, trainingMode,
       });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to subscribe' });
@@ -69,9 +63,9 @@ export const actions: Actions = {
 
   unsubscribe: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const graphId = String(fd.get('graphId') ?? '');
+    const bundleId = String(fd.get('bundleId') ?? '');
     try {
-      await gqlClient(locals.token).request(UNSUBSCRIBE_CLIENT_FROM_GRAPH_MUTATION, { clientId: params.id, graphId });
+      await gqlClient(locals.token).request(UNSUBSCRIBE_CLIENT_FROM_BUNDLE_MUTATION, { clientId: params.id, bundleId });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to unsubscribe' });
     }

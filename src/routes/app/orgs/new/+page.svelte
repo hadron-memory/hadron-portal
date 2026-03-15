@@ -5,13 +5,13 @@
   let { form }: { form: ActionData } = $props();
 
   let name = $state('');
-  let slug = $state('');
+  let domain = $state('');
   $effect(() => { if (form?.name) name = form.name; });
-  $effect(() => { if (form?.slug) slug = form.slug; });
+  $effect(() => { if (form?.domain) domain = form.domain; });
 
-  // Auto-generate slug from name
+  // Auto-generate domain from name
   function onNameInput() {
-    slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    domain = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 </script>
 
@@ -40,12 +40,12 @@
     </div>
 
     <div>
-      <label for="slug" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Slug</label>
+      <label for="domain" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Domain</label>
       <div class="flex items-center gap-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 focus-within:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900">
         <span class="text-zinc-500 text-sm select-none">hadrongraph.io/</span>
         <input
-          id="slug" name="slug" type="text" required
-          bind:value={slug}
+          id="domain" name="domain" type="text" required
+          bind:value={domain}
           pattern="[a-z0-9-]+"
           placeholder="acme-corp"
           class="flex-1 bg-transparent font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none dark:text-white dark:placeholder-zinc-500"

@@ -11,7 +11,7 @@
     <div>
       <a href="/app/orgs" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Organizations</a>
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{org.name}</h1>
-      <p class="font-mono text-sm text-zinc-500">{org.slug}</p>
+      <p class="font-mono text-sm text-zinc-500">{org.domain}</p>
     </div>
   </div>
 
@@ -25,10 +25,10 @@
       {#each (org.members ?? []).slice(0, 8) as m (m.id)}
         <div class="flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-sm dark:border-zinc-800 dark:bg-zinc-900">
           {#if m.user.avatarUrl}
-            <img src={m.user.avatarUrl} alt={m.user.login} class="h-5 w-5 rounded-full" />
+            <img src={m.user.avatarUrl} alt={m.user.githubUsername} class="h-5 w-5 rounded-full" />
           {/if}
-          <span class="text-zinc-700 dark:text-zinc-300">{m.user.name ?? m.user.login}</span>
-          {#if m.user.id === org.owner?.id}
+          <span class="text-zinc-700 dark:text-zinc-300">{m.user.name ?? m.user.githubUsername}</span>
+          {#if m.role === 'OWNER'}
             <span class="rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Owner</span>
           {:else}
             <span class="text-xs text-zinc-500">{m.role}</span>

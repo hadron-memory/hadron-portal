@@ -9,21 +9,21 @@ export const actions: Actions = {
   default: async ({ request, locals }) => {
     const fd = await request.formData();
     const name = String(fd.get('name') ?? '').trim();
-    const slug = String(fd.get('slug') ?? '').trim();
+    const domain = String(fd.get('domain') ?? '').trim();
 
-    if (!name || !slug) return fail(400, { error: 'Name and slug are required', name, slug });
-    if (!/^[a-z0-9-]+$/.test(slug)) return fail(400, { error: 'Slug must be lowercase letters, numbers, and hyphens only', name, slug });
+    if (!name || !domain) return fail(400, { error: 'Name and domain are required', name, domain });
+    if (!/^[a-z0-9-]+$/.test(domain)) return fail(400, { error: 'Domain must be lowercase letters, numbers, and hyphens only', name, domain });
 
     try {
       const data = await gqlClient(locals.token).request<{ createOrganization: { id: string } }>(
         CREATE_ORGANIZATION_MUTATION,
-        { name, slug },
+        { name, domain },
       );
       redirect(303, `/app/orgs/${data.createOrganization.id}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       const msg = e instanceof Error ? e.message : 'Failed to create organization';
-      return fail(500, { error: msg, name, slug });
+      return fail(500, { error: msg, name, domain });
     }
   },
 };

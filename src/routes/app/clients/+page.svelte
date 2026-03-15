@@ -23,13 +23,13 @@
     <div class="space-y-3">
       {#each data.clients as client (client.id)}
         <a href="/app/clients/{client.id}" class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
-          <span class="text-2xl">{typeIcon[client.type] ?? '🔑'}</span>
+          <span class="text-2xl">{typeIcon[client.clientType] ?? '🔑'}</span>
           <div class="flex-1 min-w-0">
             <p class="font-semibold text-zinc-900 dark:text-white">{client.label}</p>
-            <p class="text-xs text-zinc-500">{client.type}{client.user ? ` · ${client.user.name ?? client.user.login}` : ''}</p>
+            <p class="text-xs text-zinc-500">{client.clientType}{client.user ? ` · ${client.user.name ?? client.user.githubUsername}` : ''}</p>
           </div>
           <div class="text-right text-xs text-zinc-500">
-            <p>{client.graphs?.length ?? 0} graph{client.graphs?.length === 1 ? '' : 's'}</p>
+            <p>{client.bundleSubscriptions?.length ?? 0} bundle sub{client.bundleSubscriptions?.length === 1 ? '' : 's'}</p>
             {#if client.expiresAt}
               <p class="text-yellow-600">expires {new Date(client.expiresAt).toLocaleDateString()}</p>
             {/if}

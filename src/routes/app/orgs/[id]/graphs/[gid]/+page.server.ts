@@ -2,8 +2,8 @@ import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
   ORGANIZATION_QUERY,
-  UPDATE_GRAPH_CONFIG_MUTATION,
-  SYNC_GRAPH_CONFIG_MUTATION,
+  UPDATE_GRAPH_MUTATION,
+  SYNC_GRAPH_MUTATION,
   CREATE_GRAPH_SUBSCRIPTION_MUTATION,
   DELETE_GRAPH_SUBSCRIPTION_MUTATION,
 } from '$lib/server/queries';
@@ -23,7 +23,7 @@ export const actions: Actions = {
   update: async ({ request, params, locals }) => {
     const fd = await request.formData();
     try {
-      await gqlClient(locals.token).request(UPDATE_GRAPH_CONFIG_MUTATION, {
+      await gqlClient(locals.token).request(UPDATE_GRAPH_MUTATION, {
         id: params.gid,
         source: String(fd.get('source') ?? '').trim() || null,
         readBranch: String(fd.get('readBranch') ?? '').trim() || null,
@@ -38,7 +38,7 @@ export const actions: Actions = {
 
   sync: async ({ params, locals }) => {
     try {
-      await gqlClient(locals.token).request(SYNC_GRAPH_CONFIG_MUTATION, { id: params.gid });
+      await gqlClient(locals.token).request(SYNC_GRAPH_MUTATION, { id: params.gid });
       return { synced: true };
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Sync failed' });

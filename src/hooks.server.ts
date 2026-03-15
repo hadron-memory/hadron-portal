@@ -22,11 +22,10 @@ export const handle: Handle = async ({ event, resolve }) => {
       event.locals.token = token;
       event.locals.user = {
         id: payload.sub as string,
-        login: payload.login as string,
+        githubUsername: payload.githubUsername as string,
         name: (payload.name as string | undefined) ?? null,
         avatarUrl: (payload.avatarUrl as string | undefined) ?? null,
         roles: (payload.roles as string[] | undefined) ?? [],
-        canInvite: (payload.canInvite as boolean | undefined) ?? false,
       };
     } else {
       // Expired — clear the cookie

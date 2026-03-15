@@ -3,11 +3,10 @@ declare global {
     interface Locals {
       user: {
         id: string;
-        login: string;
+        githubUsername: string;
         name: string | null;
         avatarUrl: string | null;
         roles: string[];
-        canInvite: boolean;
       } | null;
       token: string | null;
     }

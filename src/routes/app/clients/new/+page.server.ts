@@ -15,20 +15,19 @@ export const actions: Actions = {
   default: async ({ request, locals }) => {
     const fd = await request.formData();
     const label = String(fd.get('label') ?? '').trim();
-    const type = String(fd.get('type') ?? 'WORKSTATION');
-    const roles = fd.getAll('roles').map(String);
+    const clientType = String(fd.get('clientType') ?? 'WORKSTATION');
+    const role = String(fd.get('role') ?? 'READER');
     const organizationId = String(fd.get('organizationId') ?? '').trim() || null;
     const description = String(fd.get('description') ?? '').trim() || null;
     const namespace = String(fd.get('namespace') ?? '').trim() || null;
     const expiresAt = String(fd.get('expiresAt') ?? '').trim() || null;
 
     if (!label) return fail(400, { error: 'Label is required' });
-    if (roles.length === 0) return fail(400, { error: 'At least one role is required' });
 
     try {
       const data = await gqlClient(locals.token).request<{ createClient: { client: { id: string }; rawKey: string } }>(
         CREATE_CLIENT_MUTATION,
-        { label, type, roles, organizationId, userId: locals.user?.id ?? null, description, namespace, expiresAt },
+        { label, clientType, role, organizationId, userId: locals.user?.id ?? null, description, namespace, expiresAt },
       );
       // Pass the rawKey via search param so the detail page can show it once
       redirect(303, `/app/clients/${data.createClient.client.id}?newKey=${encodeURIComponent(data.createClient.rawKey)}`);

@@ -12,8 +12,16 @@
   <div>
     <a href="/app/orgs/{data.org.id}/graphs" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Graphs</a>
     <h1 class="mt-1 font-mono text-2xl font-bold text-zinc-900 dark:text-white">{g.name}</h1>
-    {#if g.lastSyncedAt}
-      <p class="text-sm text-zinc-500">Last synced {new Date(g.lastSyncedAt).toLocaleString()}</p>
+    <div class="mt-1 flex flex-wrap gap-3 text-sm text-zinc-500">
+      {#if g.syncStatus}
+        <span>Sync: {g.syncStatus}</span>
+      {/if}
+      {#if g.lastSyncedAt}
+        <span>Last synced {new Date(g.lastSyncedAt).toLocaleString()}</span>
+      {/if}
+    </div>
+    {#if g.syncError}
+      <p class="mt-1 text-sm text-red-400">Sync error: {g.syncError}</p>
     {/if}
   </div>
 
@@ -77,7 +85,7 @@
           <div class="flex items-center gap-4 bg-white px-5 py-4 dark:bg-zinc-900">
             <div class="flex-1">
               <p class="text-sm text-zinc-900 dark:text-white">{s.organization.name}</p>
-              <p class="font-mono text-xs text-zinc-500">{s.organization.slug}</p>
+              <p class="font-mono text-xs text-zinc-500">{s.organization.domain}</p>
             </div>
             <span class="text-xs text-zinc-500">{s.role}</span>
             <form method="POST" action="?/unsubscribe" use:enhance>

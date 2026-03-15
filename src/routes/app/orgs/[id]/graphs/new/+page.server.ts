@@ -1,6 +1,6 @@
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { CREATE_GRAPH_CONFIG_MUTATION } from '$lib/server/queries';
+import { CREATE_GRAPH_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ params }) => ({ orgId: params.id });
@@ -17,7 +17,7 @@ export const actions: Actions = {
     if (!name) return fail(400, { error: 'Name is required' });
 
     try {
-      await gqlClient(locals.token).request(CREATE_GRAPH_CONFIG_MUTATION, {
+      await gqlClient(locals.token).request(CREATE_GRAPH_MUTATION, {
         orgId: params.id, name, source, readBranch, writeBranch, visibility,
       });
       redirect(303, `/app/orgs/${params.id}/graphs`);
