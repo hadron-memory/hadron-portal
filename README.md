@@ -1,6 +1,8 @@
 # hadron-web
 
-SvelteKit SaaS frontend for [Hadron](https://hadrongraph.io) — a versioned knowledge graph platform for AI agents and developer tools.
+SvelteKit SaaS frontend for [Hadron](https://hadrongraph.io) — a knowledge graph platform for AI agents.
+
+Serves both consumers (browse marketplace, one-click setup) and teams (org management, graph sync, role-based access). The UI adapts automatically: users with only a personal workspace see a simplified consumer experience; users with organizations see the full enterprise navigation.
 
 Connects to the [hadron-controller](https://github.com/baragaun/hadron-controller) GraphQL API.
 
@@ -54,35 +56,64 @@ Authentication is handled by hadron-controller. Two identity providers are suppo
 4. Controller redirects to `{FRONTEND}/auth/callback?token=<jwt>`
 
 **Common flow (both providers):**
-4. `/auth/callback` sets `hadron_token` httpOnly cookie, redirects to dashboard
-5. `src/hooks.server.ts` decodes the JWT on every request → `event.locals.user` / `event.locals.token`
-6. `/auth/signout` clears the cookie
+4. `/auth/callback` sets `hadron_token` httpOnly cookie
+5. New users are redirected to `/app/setup` (config file download); returning users go to `/app/dashboard`
+6. `src/hooks.server.ts` decodes the JWT on every request → `event.locals.user` / `event.locals.token`
+7. `/auth/signout` clears the cookie
+
+**Marketplace intent preservation:** Sign-up/sign-in pages accept a `?graph=<id>` query param. After auth, the user is redirected to `/browse?addGraph=<id>` which auto-adds the graph to their personal workspace.
 
 The frontend never sees or stores OAuth credentials or email tokens.
 
 ## Routes
 
+### Public (no auth required)
+
 | Path | Description |
 |---|---|
 | `/` | Landing page — hero, features, public graph preview |
-| `/signup` | Create account (GitHub or email) |
-| `/signin` | Sign in (GitHub or email) |
-| `/browse` | Browse all public graphs (no auth required) |
+| `/signup` | Create account (GitHub or email); accepts `?graph=<id>` for marketplace intent |
+| `/signin` | Sign in (GitHub or email); accepts `?graph=<id>` |
+| `/browse` | Marketplace — browse all public graphs, "Use this graph" buttons |
 | `/auth/callback` | Auth callback — sets cookie and redirects |
 | `/auth/signout` | Clears auth cookie |
-| `/app/dashboard` | Summary: my orgs and clients |
+
+### Consumer (authenticated, personal workspace)
+
+| Path | Description |
+|---|---|
+| `/app/dashboard` | Overview — graph stats, quick links, marketplace CTA |
+| `/app/graphs` | My Graphs — all graphs across personal workspace and orgs |
+| `/app/setup` | AI Setup — one-time config file download (Claude, Cursor, Windsurf) |
+
+### Enterprise (authenticated, visible when user has explicit orgs)
+
+| Path | Description |
+|---|---|
 | `/app/orgs` | List organisations |
 | `/app/orgs/new` | Create organisation |
 | `/app/orgs/[id]` | Org overview |
 | `/app/orgs/[id]/members` | Manage org members |
-| `/app/orgs/[id]/graphs` | List + manage graph configs |
+| `/app/orgs/[id]/graphs` | List + manage graphs (with sync-all) |
 | `/app/orgs/[id]/graphs/new` | Add graph config |
 | `/app/orgs/[id]/graphs/[gid]` | Graph settings, sync, org subscriptions |
+| `/app/orgs/[id]/graphs/[gid]/nodes` | Node list with usage stats and sorting |
+| `/app/orgs/[id]/graphs/[gid]/browse` | Force-directed graph visualization |
+| `/app/orgs/[id]/bundles` | Manage graph bundles |
 | `/app/clients` | List API clients |
 | `/app/clients/new` | Create API client |
-| `/app/clients/[id]` | Client detail, graph subscriptions |
+| `/app/clients/[id]` | Client detail, bundle subscriptions |
 
 All `/app/*` routes require authentication and redirect to `/` otherwise.
+
+## Adaptive sidebar
+
+The sidebar navigation adapts based on the user's context:
+
+- **Consumer** (only personal workspace): Dashboard, My Graphs, Browse Marketplace, AI Setup
+- **Enterprise** (has explicit orgs): Dashboard, My Graphs, Browse Marketplace, Organizations, Clients, AI Setup
+
+The transition is automatic — creating an organization reveals the enterprise navigation items.
 
 ## Development
 
