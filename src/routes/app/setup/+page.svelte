@@ -15,7 +15,7 @@
 
   const tools = [
     { id: 'claude-desktop', name: 'Claude Desktop', path: '~/Library/Application Support/Claude/claude_desktop_config.json', pathWin: '%APPDATA%\\Claude\\claude_desktop_config.json' },
-    { id: 'claude-code', name: 'Claude Code', path: '.claude/settings.json (in project root)', pathWin: '.claude\\settings.json (in project root)' },
+    { id: 'claude-code', name: 'Claude Code', path: '.mcp.json (in project root)', pathWin: '.mcp.json (in project root)' },
     { id: 'cursor', name: 'Cursor', path: '.cursor/mcp.json (in project root)', pathWin: '.cursor\\mcp.json (in project root)' },
     { id: 'windsurf', name: 'Windsurf', path: '.windsurf/mcp.json (in project root)', pathWin: '.windsurf\\mcp.json (in project root)' },
   ];
@@ -49,7 +49,7 @@
     a.href = url;
     const filenames: Record<string, string> = {
       'claude-desktop': 'claude_desktop_config.json',
-      'claude-code': 'settings.json',
+      'claude-code': 'mcp.json',
       'cursor': 'mcp.json',
       'windsurf': 'mcp.json',
     };
