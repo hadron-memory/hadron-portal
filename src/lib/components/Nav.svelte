@@ -80,7 +80,7 @@
               <a href="/app/orgs" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Organizations</a>
               <a href="/app/clients" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Clients</a>
               <hr class="my-1 {dark ? 'border-zinc-800' : 'border-zinc-200'}" />
-              <a href="/auth/signout" class="block px-4 py-2 text-sm {dark ? 'text-zinc-400 hover:bg-zinc-800 hover:text-white' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}" role="menuitem">Sign out</a>
+              <a href="/auth/signout" data-sveltekit-reload class="block px-4 py-2 text-sm {dark ? 'text-zinc-400 hover:bg-zinc-800 hover:text-white' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}" role="menuitem">Sign out</a>
             </div>
           {/if}
         </div>

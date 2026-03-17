@@ -83,6 +83,19 @@ export const GRAPH_BUNDLE_FIELDS = /* GraphQL */ `
 // Queries
 // ---------------------------------------------------------------------------
 
+export const ME_QUERY = /* GraphQL */ `
+  query Me {
+    me {
+      id
+      githubUsername
+      name
+      avatarUrl
+      email
+      roles
+    }
+  }
+`;
+
 export const PUBLIC_GRAPHS_QUERY = /* GraphQL */ `
   ${GRAPH_FIELDS}
   query PublicGraphs {
