@@ -87,7 +87,7 @@ export interface UserSummary {
 }
 
 // ---------------------------------------------------------------------------
-// Node / Edge types (from hadron-controller GraphQL)
+// Node / Edge types (from hadron-server GraphQL)
 // ---------------------------------------------------------------------------
 
 export interface NodeSummary {
