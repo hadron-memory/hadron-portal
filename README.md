@@ -18,15 +18,16 @@ Connects to the [hadron-controller](https://github.com/baragaun/hadron-controlle
 
 ## Prerequisites
 
-- Node.js ≥ 20
+- Node.js ≥ 22 (see `.nvmrc`)
+- [pnpm](https://pnpm.io/) ≥ 10
 - [hadron-controller](https://github.com/baragaun/hadron-controller) running (defaults to `http://localhost:4000`)
 
 ## Setup
 
 ```bash
 cp .env.example .env
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 Open [http://localhost:5173](http://localhost:5173).
@@ -118,8 +119,8 @@ The transition is automatic — creating an organization reveals the enterprise 
 ## Development
 
 ```bash
-npm run dev        # start dev server on :5173
-npm run check      # svelte-check type checking
-npm run build      # production build
-npm run preview    # preview production build
+pnpm run dev        # start dev server on :5173
+pnpm run check      # svelte-check type checking
+pnpm run build      # production build
+pnpm run preview    # preview production build
 ```

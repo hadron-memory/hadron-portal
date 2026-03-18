@@ -32,5 +32,10 @@
     "vis-data": "^8.0.3",
     "vis-network": "^10.0.2"
   },
-  "type": "module"
+  "type": "module",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
 }
