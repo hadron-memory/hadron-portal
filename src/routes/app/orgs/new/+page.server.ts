@@ -1,9 +1,12 @@
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { requireNonConsumer } from '$lib/server/guards';
 import { CREATE_ORGANIZATION_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = () => ({});
+export const load: PageServerLoad = async ({ parent }) => {
+  await requireNonConsumer(parent);
+};
 
 export const actions: Actions = {
   default: async ({ request, locals }) => {

@@ -15,7 +15,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
   ]);
   return {
     orgs: parentData.orgs,
-    hasExplicitOrg: parentData.hasExplicitOrg,
+    isConsumerMode: parentData.isConsumerMode,
     clients: clientsData.myClients,
     memories: memoriesData.myMemories,
   };

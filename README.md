@@ -107,14 +107,14 @@ The frontend never sees or stores OAuth credentials or email tokens.
 
 All `/app/*` routes require authentication and redirect to `/` otherwise.
 
-## Adaptive sidebar
+## Adaptive sidebar (consumer mode)
 
-The sidebar navigation adapts based on the user's context:
+The UI adapts based on whether the user is in **consumer mode** — determined by having exactly one organization with `isVisible: null` (the auto-created org for users who signed up without an invitation).
 
-- **Consumer** (only personal workspace): Dashboard, My Graphs, Browse Marketplace, AI Setup
-- **Enterprise** (has explicit orgs): Dashboard, My Graphs, Browse Marketplace, Organizations, Clients, AI Setup
+- **Consumer mode**: Dashboard, My Memories, Browse Marketplace, AI Setup. Organization and client management routes redirect to the dashboard.
+- **Full mode**: Dashboard, My Memories, Browse Marketplace, Organizations, Clients, AI Setup.
 
-The transition is automatic — creating an organization reveals the enterprise navigation items.
+The transition is automatic — when a user creates a real organization or is invited to one, the full navigation appears. The `isConsumerMode` flag is derived server-side in the `/app` layout and flows through `$page.data`.
 
 ## Development
 

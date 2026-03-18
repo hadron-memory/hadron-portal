@@ -1,5 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { requireNonConsumer } from '$lib/server/guards';
 import {
   MY_CLIENTS_QUERY,
   REGENERATE_API_KEY_MUTATION,
@@ -11,7 +12,8 @@ import {
 import type { Client, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
+  await requireNonConsumer(parent);
   const [clientsData, orgsData] = await Promise.all([
     gqlClient(locals.token).request<{ myClients: Client[] }>(MY_CLIENTS_QUERY)
       .catch(() => ({ myClients: [] as Client[] })),

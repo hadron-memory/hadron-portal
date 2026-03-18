@@ -1,5 +1,6 @@
 import { error, fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATION_QUERY, LINK_GITHUB_APP_MUTATION, UPDATE_ORG_GITHUB_APP_MUTATION, UNLINK_GITHUB_APP_MUTATION } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -12,7 +13,8 @@ function extractGqlError(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
 }
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, parent }) => {
+  await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ organization: Organization | null }>(
     ORGANIZATION_QUERY,
     { id: params.id },

@@ -1,10 +1,12 @@
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATION_QUERY, DELETE_MEMORY_MUTATION, SYNC_MEMORY_MUTATION } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, parent }) => {
+  await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ organization: Organization }>(
     ORGANIZATION_QUERY, { id: params.id },
   );

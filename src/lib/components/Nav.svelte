@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { page } from '$app/stores';
+
   interface Props {
     user?: { githubUsername: string | null; email: string | null; name: string | null; avatarUrl: string | null } | null;
     dark?: boolean;
@@ -8,6 +10,7 @@
   let { user, dark = true, onToggleTheme }: Props = $props();
 
   let menuOpen = $state(false);
+  const isConsumerMode = $derived(!!$page.data.isConsumerMode);
   const menuLinkClass = $derived(
     dark
       ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
@@ -77,8 +80,10 @@
               role="menu"
             >
               <a href="/app/dashboard" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Dashboard</a>
-              <a href="/app/orgs" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Organizations</a>
-              <a href="/app/clients" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Clients</a>
+              {#if !isConsumerMode}
+                <a href="/app/orgs" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Organizations</a>
+                <a href="/app/clients" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Clients</a>
+              {/if}
               <hr class="my-1 {dark ? 'border-zinc-800' : 'border-zinc-200'}" />
               <a href="/auth/signout" data-sveltekit-reload class="block px-4 py-2 text-sm {dark ? 'text-zinc-400 hover:bg-zinc-800 hover:text-white' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}" role="menuitem">Sign out</a>
             </div>

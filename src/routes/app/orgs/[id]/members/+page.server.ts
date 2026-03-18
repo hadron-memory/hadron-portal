@@ -1,5 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATION_QUERY,
   USERS_QUERY,
@@ -10,7 +11,8 @@ import {
 import type { Organization, UserSummary } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, parent }) => {
+  await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
   const [orgData, usersData] = await Promise.all([
     client.request<{ organization: Organization }>(ORGANIZATION_QUERY, { id: params.id }),

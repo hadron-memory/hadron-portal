@@ -21,7 +21,7 @@
       <p class="text-sm text-zinc-500 dark:text-zinc-400">Clients</p>
       <p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{data.clients.length}</p>
     </div>
-    {#if data.hasExplicitOrg}
+    {#if !data.isConsumerMode}
       <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
         <p class="text-sm text-zinc-500 dark:text-zinc-400">Organizations</p>
         <p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{data.orgs.filter(o => !o.isPersonal).length}</p>
@@ -81,7 +81,7 @@
   </section>
 
   <!-- Organizations (only for users with explicit orgs) -->
-  {#if data.hasExplicitOrg}
+  {#if !data.isConsumerMode}
     <section>
       <div class="mb-4 flex items-center justify-between">
         <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Organizations</h2>

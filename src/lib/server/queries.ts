@@ -26,6 +26,7 @@ export const ORG_FIELDS = /* GraphQL */ `
     name
     domain
     isPersonal
+    isVisible
     githubInstallationId
     githubAppId
     hasGithubAppPrivateKey

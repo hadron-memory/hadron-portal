@@ -14,7 +14,7 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
     .catch(() => ({ myOrganizations: [] as Organization[] }));
 
   const orgs = orgsData.myOrganizations;
-  const hasExplicitOrg = orgs.some((o) => !o.isPersonal);
+  const isConsumerMode = orgs.length === 1 && orgs[0].isVisible === null;
 
-  return { user: locals.user, orgs, hasExplicitOrg };
+  return { user: locals.user, orgs, isConsumerMode };
 };

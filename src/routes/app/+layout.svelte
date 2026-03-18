@@ -20,7 +20,7 @@
     { href: '/app/setup', label: 'AI Setup' },
   ];
 
-  const navItems = $derived(data.hasExplicitOrg ? fullNav : consumerNav);
+  const navItems = $derived(data.isConsumerMode ? consumerNav : fullNav);
 </script>
 
 <div class="mx-auto flex max-w-7xl gap-8 px-4 py-8">

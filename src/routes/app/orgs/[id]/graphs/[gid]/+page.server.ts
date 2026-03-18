@@ -1,14 +1,17 @@
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { requireNonConsumer } from '$lib/server/guards';
 import {
   UPDATE_MEMORY_MUTATION,
   SYNC_MEMORY_MUTATION,
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
 } from '$lib/server/queries';
-import type { Actions } from './$types';
+import type { Actions, PageServerLoad } from './$types';
 
-// Data is provided by the parent +layout.server.ts (org, memory, memoryNodes, etc.)
+export const load: PageServerLoad = async ({ parent }) => {
+  await requireNonConsumer(parent);
+};
 
 export const actions: Actions = {
   update: async ({ request, params, locals }) => {
