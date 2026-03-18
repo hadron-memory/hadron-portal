@@ -28,7 +28,7 @@
   {/if}
   {#if form?.success || form?.synced}
     <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {form.synced ? 'Graph synced.' : 'Changes saved.'}
+      {form.synced ? 'Memory synced.' : 'Changes saved.'}
     </div>
   {/if}
 

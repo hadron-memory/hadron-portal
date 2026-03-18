@@ -26,10 +26,10 @@
   let treeOpen = $state(true);
 </script>
 
-<div class="space-y-0">
+<div class="space-y-4">
   <!-- Header -->
   <div class="mb-4">
-    <a href="/app/orgs/{data.org.id}/graphs" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">&larr; Graphs</a>
+    <a href="/app/orgs/{data.org.id}/graphs" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">&larr; Memories</a>
     <h1 class="mt-1 font-mono text-2xl font-bold text-zinc-900 dark:text-white">{data.graph.name}</h1>
   </div>
 
@@ -50,7 +50,7 @@
 
   <!-- Content with optional tree sidebar -->
   {#if showTree}
-    <div class="flex gap-0" style="min-height: 600px;">
+    <div class="flex gap-4" style="min-height: 600px;">
       <!-- Tree sidebar -->
       {#if treeOpen}
         <aside class="w-64 shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-950 dark:border-zinc-800">
