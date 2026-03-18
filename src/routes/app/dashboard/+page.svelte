@@ -24,7 +24,7 @@
     {#if !data.isConsumerMode}
       <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
         <p class="text-sm text-zinc-500 dark:text-zinc-400">Organizations</p>
-        <p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{data.orgs.filter(o => !o.isPersonal).length}</p>
+        <p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{data.orgs.filter(o => o.isVisible !== null).length}</p>
       </div>
     {:else}
       <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -90,7 +90,7 @@
         </a>
       </div>
       <div class="grid gap-4 sm:grid-cols-2">
-        {#each data.orgs.filter(o => !o.isPersonal) as org (org.id)}
+        {#each data.orgs.filter(o => o.isVisible !== null) as org (org.id)}
           <a href="/app/orgs/{org.id}" class="rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
             <p class="font-semibold text-zinc-900 dark:text-white">{org.name}</p>
             <p class="mt-0.5 font-mono text-xs text-zinc-500">{org.domain}</p>

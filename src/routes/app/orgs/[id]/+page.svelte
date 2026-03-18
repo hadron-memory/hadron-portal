@@ -11,6 +11,9 @@
   const isUsingCustomApp = $derived(!!org.githubAppId);
   let showCustomSetup = $state(false);
   let showSetupGuide = $state(false);
+  let selectedIntegration = $state('');
+  const hasGithubConfigured = $derived(!!org.githubInstallationId || isUsingCustomApp);
+  let showGithubConfig = $state(false);
 
   const installUrl = $derived(
     appSlug
@@ -115,9 +118,9 @@
     {/if}
   </section>
 
-  <!-- GitHub Integration -->
+  <!-- Integrations -->
   <section>
-    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">GitHub Integration</h2>
+    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Integrations</h2>
 
     {#if form?.error}
       <div class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
@@ -135,33 +138,81 @@
       <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Hadron GitHub App installed and linked to this organization.</div>
     {/if}
 
-    <!-- Status overview -->
-    <div class="mb-5 flex flex-wrap items-center gap-3 text-sm">
-      <div class="flex items-center gap-2">
-        <span class="inline-block h-2.5 w-2.5 rounded-full {org.githubInstallationId ? 'bg-green-500' : 'bg-zinc-400'}"></span>
-        <span class="text-zinc-600 dark:text-zinc-400">
-          {#if org.githubInstallationId}
-            Connected <span class="font-mono text-xs text-zinc-500">(#{org.githubInstallationId})</span>
-          {:else}
-            Not connected
-          {/if}
-        </span>
-      </div>
-      {#if isUsingCustomApp}
-        <div class="flex items-center gap-2">
-          <span class="inline-block h-2.5 w-2.5 rounded-full {org.hasGithubAppPrivateKey ? 'bg-green-500' : 'bg-amber-500'}"></span>
-          <span class="text-zinc-600 dark:text-zinc-400">Custom app credentials</span>
+    <!-- Configured integrations -->
+    {#if hasGithubConfigured}
+      <div class="mb-4 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" class="text-zinc-700 dark:text-zinc-300"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+            <div>
+              <p class="text-sm font-medium text-zinc-900 dark:text-white">GitHub</p>
+              <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                <span class="inline-block h-2 w-2 rounded-full {org.githubInstallationId ? 'bg-green-500' : 'bg-amber-500'}"></span>
+                {#if org.githubInstallationId}
+                  Connected <span class="font-mono">(#{org.githubInstallationId})</span>
+                {:else}
+                  Credentials saved, needs installation ID
+                {/if}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              onclick={() => { showGithubConfig = !showGithubConfig; selectedIntegration = ''; }}
+              class="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              {showGithubConfig ? 'Hide' : 'Edit'}
+            </button>
+            <form method="POST" action="?/unlinkGithub" use:scrollEnhance
+              onsubmit={(e) => { if (!confirm('Disconnect GitHub? This removes the installation ID and any stored credentials.')) e.preventDefault(); }}
+            >
+              <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">Disconnect</button>
+            </form>
+          </div>
         </div>
-      {/if}
-      {#if org.githubInstallationId || isUsingCustomApp}
-        <form method="POST" action="?/unlinkGithub" use:scrollEnhance
-          onsubmit={(e) => { if (!confirm('Disconnect the GitHub App? This removes the installation ID and any stored credentials.')) e.preventDefault(); }}
-        >
-          <button type="submit" class="text-xs text-red-500 hover:text-red-400 underline">Disconnect</button>
-        </form>
-      {/if}
+
+        {#if showGithubConfig}
+          <div class="mt-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            {@render githubConfigPanel()}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Add integration -->
+    <div class="flex items-center gap-3">
+      <label for="addIntegration" class="text-sm text-zinc-600 dark:text-zinc-400">Add:</label>
+      <select
+        id="addIntegration"
+        bind:value={selectedIntegration}
+        class="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+      >
+        <option value="">Select integration...</option>
+        {#if !hasGithubConfigured}
+          <option value="github">GitHub</option>
+        {/if}
+      </select>
+      <button
+        onclick={() => { showGithubConfig = true; }}
+        disabled={!selectedIntegration}
+        class="rounded-lg px-4 py-1.5 text-sm font-medium transition
+          {selectedIntegration
+            ? 'bg-indigo-600 text-white hover:bg-indigo-500'
+            : 'bg-zinc-200 text-zinc-400 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-600'}"
+      >
+        Configure
+      </button>
     </div>
 
+    <!-- GitHub config panel (when adding new) -->
+    {#if showGithubConfig && !hasGithubConfigured}
+      <div class="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-800 dark:bg-zinc-900/50">
+        {@render githubConfigPanel()}
+      </div>
+    {/if}
+  </section>
+
+  {#snippet githubConfigPanel()}
     <!-- Official Hadron App (1-click install) -->
     {#if hasOfficialApp && !isUsingCustomApp}
       {#if org.githubInstallationId}
@@ -181,7 +232,7 @@
           {/if}
         </div>
       {:else}
-        <div class="mb-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+        <div class="mb-4">
           <p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
             Install the Hadron GitHub App to allow syncing memories from your repositories. You'll choose which repositories to grant access to.
           </p>
@@ -213,9 +264,9 @@
       </div>
     {/if}
 
-    <!-- Custom App setup (always visible if no official app, or toggled) -->
+    <!-- Custom App setup -->
     {#if !hasOfficialApp || showCustomSetup || isUsingCustomApp}
-      <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-800 dark:bg-zinc-900/50">
+      <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-900">
         {#if hasOfficialApp}
           <p class="mb-4 text-sm text-zinc-500">
             For GitHub Enterprise Server or full credential isolation, you can configure your own GitHub App.
@@ -238,7 +289,7 @@
             {showSetupGuide ? 'Hide setup guide' : 'Show setup guide'}
           </button>
           {#if showSetupGuide}
-            <div class="mt-3 rounded-lg border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-700 dark:bg-zinc-900">
+            <div class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm dark:border-zinc-700 dark:bg-zinc-800">
               <h3 class="mb-3 font-semibold text-zinc-900 dark:text-white">How to set up your own GitHub App</h3>
               <ol class="list-inside list-decimal space-y-4 text-zinc-700 dark:text-zinc-300">
                 <li>
@@ -340,7 +391,7 @@
         </div>
       </div>
     {/if}
-  </section>
+  {/snippet}
 
   <!-- Subscriptions -->
   {#if org.subscriptions?.length}
