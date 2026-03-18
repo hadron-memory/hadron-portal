@@ -10,14 +10,14 @@
   let showCreate = $state(false);
 </script>
 
-<svelte:head><title>Graph Bundles · {org.name} · Hadron</title></svelte:head>
+<svelte:head><title>Memory Bundles · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-6">
   <div class="flex items-start justify-between">
     <div>
       <a href="/app/orgs/{org.id}" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">&larr; {org.name}</a>
-      <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Graph Bundles</h1>
-      <p class="text-sm text-zinc-500">Group graphs into bundles for client subscriptions.</p>
+      <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Memory Bundles</h1>
+      <p class="text-sm text-zinc-500">Group memories into bundles for client subscriptions.</p>
     </div>
     <button
       onclick={() => { showCreate = !showCreate; }}
@@ -52,15 +52,15 @@
   {/if}
 
   <!-- Bundle list -->
-  {#if !org.graphBundles?.length && !showCreate}
-    <p class="text-sm text-zinc-500">No graph bundles yet. Create one to group graphs for client subscriptions.</p>
+  {#if !org.memoryBundles?.length && !showCreate}
+    <p class="text-sm text-zinc-500">No memory bundles yet. Create one to group memories for client subscriptions.</p>
   {/if}
 
-  {#each org.graphBundles ?? [] as bundle (bundle.id)}
+  {#each org.memoryBundles ?? [] as bundle (bundle.id)}
     {@const isExpanded = expandedId === bundle.id}
     {@const isEditing = editingId === bundle.id}
-    {@const graphIdsInBundle = new Set(bundle.graphs.map((g) => g.graph.id))}
-    {@const availableGraphs = (org.graphs ?? []).filter((g) => !graphIdsInBundle.has(g.id))}
+    {@const memoryIdsInBundle = new Set(bundle.items.map((item) => item.memory.id))}
+    {@const availableMemories = (org.memories ?? []).filter((m) => !memoryIdsInBundle.has(m.id))}
 
     <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
       <!-- Header -->
@@ -78,7 +78,7 @@
             <p class="text-xs text-zinc-500">{bundle.description}</p>
           {/if}
         </div>
-        <span class="text-xs text-zinc-400">{bundle.graphs.length} graph{bundle.graphs.length !== 1 ? 's' : ''}</span>
+        <span class="text-xs text-zinc-400">{bundle.items.length} memor{bundle.items.length !== 1 ? 'ies' : 'y'}</span>
       </button>
 
       <!-- Expanded content -->
@@ -116,43 +116,43 @@
             </div>
           {/if}
 
-          <!-- Graphs in this bundle -->
-          <h4 class="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">Graphs in this bundle</h4>
-          {#if bundle.graphs.length}
+          <!-- Memories in this bundle -->
+          <h4 class="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">Memories in this bundle</h4>
+          {#if bundle.items.length}
             <div class="mb-3 divide-y divide-zinc-200 rounded-lg border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-              {#each bundle.graphs as bg (bg.id)}
+              {#each bundle.items as item (item.id)}
                 <div class="flex items-center justify-between bg-zinc-50 px-4 py-3 dark:bg-zinc-900">
-                  <p class="font-mono text-sm text-zinc-900 dark:text-zinc-200">{bg.graph.name}</p>
-                  <form method="POST" action="?/removeGraph" use:enhance>
+                  <p class="font-mono text-sm text-zinc-900 dark:text-zinc-200">{item.memory.name}</p>
+                  <form method="POST" action="?/removeMemory" use:enhance>
                     <input type="hidden" name="bundleId" value={bundle.id} />
-                    <input type="hidden" name="graphId" value={bg.graph.id} />
+                    <input type="hidden" name="memoryId" value={item.memory.id} />
                     <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
                   </form>
                 </div>
               {/each}
             </div>
           {:else}
-            <p class="mb-3 text-sm text-zinc-500">No graphs added yet.</p>
+            <p class="mb-3 text-sm text-zinc-500">No memories added yet.</p>
           {/if}
 
-          <!-- Add graph -->
-          {#if availableGraphs.length > 0}
-            <form method="POST" action="?/addGraph" use:enhance class="flex items-end gap-3">
+          <!-- Add memory -->
+          {#if availableMemories.length > 0}
+            <form method="POST" action="?/addMemory" use:enhance class="flex items-end gap-3">
               <input type="hidden" name="bundleId" value={bundle.id} />
               <div>
-                <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add graph</label>
-                <select name="graphId" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white">
-                  {#each availableGraphs as g (g.id)}
-                    <option value={g.id}>{g.name}</option>
+                <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
+                <select name="memoryId" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white">
+                  {#each availableMemories as m (m.id)}
+                    <option value={m.id}>{m.name}</option>
                   {/each}
                 </select>
               </div>
               <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">Add</button>
             </form>
-          {:else if (org.graphs ?? []).length === 0}
-            <p class="text-xs text-zinc-500">No graphs in this organization yet.</p>
+          {:else if (org.memories ?? []).length === 0}
+            <p class="text-xs text-zinc-500">No memories in this organization yet.</p>
           {:else}
-            <p class="text-xs text-zinc-500">All graphs are already in this bundle.</p>
+            <p class="text-xs text-zinc-500">All memories are already in this bundle.</p>
           {/if}
         </div>
       {/if}

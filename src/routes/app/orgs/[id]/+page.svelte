@@ -67,17 +67,17 @@
     </div>
   </section>
 
-  <!-- Graphs -->
+  <!-- Memories -->
   <section>
     <div class="mb-3 flex items-center justify-between">
-      <h2 class="font-semibold text-zinc-900 dark:text-white">Graphs <span class="ml-1 text-sm font-normal text-zinc-500">({org.graphs?.length ?? 0})</span></h2>
+      <h2 class="font-semibold text-zinc-900 dark:text-white">Memories <span class="ml-1 text-sm font-normal text-zinc-500">({org.memories?.length ?? 0})</span></h2>
       <a href="/app/orgs/{org.id}/graphs" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
     </div>
-    {#if !org.graphs?.length}
-      <p class="text-sm text-zinc-500">No graphs yet.</p>
+    {#if !org.memories?.length}
+      <p class="text-sm text-zinc-500">No memories yet.</p>
     {:else}
       <div class="grid gap-3 sm:grid-cols-2">
-        {#each org.graphs as g (g.id)}
+        {#each org.memories as g (g.id)}
           <a href="/app/orgs/{org.id}/graphs/{g.id}" class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
             <div class="flex items-center justify-between">
               <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{g.name}</p>
@@ -92,23 +92,23 @@
     {/if}
   </section>
 
-  <!-- Graph Bundles -->
+  <!-- Memory Bundles -->
   <section>
     <div class="mb-3 flex items-center justify-between">
-      <h2 class="font-semibold text-zinc-900 dark:text-white">Graph Bundles <span class="ml-1 text-sm font-normal text-zinc-500">({org.graphBundles?.length ?? 0})</span></h2>
+      <h2 class="font-semibold text-zinc-900 dark:text-white">Memory Bundles <span class="ml-1 text-sm font-normal text-zinc-500">({org.memoryBundles?.length ?? 0})</span></h2>
       <a href="/app/orgs/{org.id}/bundles" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
     </div>
-    {#if !org.graphBundles?.length}
-      <p class="text-sm text-zinc-500">No graph bundles yet.</p>
+    {#if !org.memoryBundles?.length}
+      <p class="text-sm text-zinc-500">No memory bundles yet.</p>
     {:else}
       <div class="grid gap-3 sm:grid-cols-2">
-        {#each org.graphBundles as b (b.id)}
+        {#each org.memoryBundles as b (b.id)}
           <a href="/app/orgs/{org.id}/bundles" class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
             <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{b.name}</p>
             {#if b.description}
               <p class="mt-1 text-xs text-zinc-500">{b.description}</p>
             {/if}
-            <p class="mt-1 text-xs text-zinc-400">{b.graphs.length} graph{b.graphs.length !== 1 ? 's' : ''}</p>
+            <p class="mt-1 text-xs text-zinc-400">{b.items.length} memor{b.items.length !== 1 ? 'ies' : 'y'}</p>
           </a>
         {/each}
       </div>
@@ -183,7 +183,7 @@
       {:else}
         <div class="mb-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
           <p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
-            Install the Hadron GitHub App to allow syncing graphs from your repositories. You'll choose which repositories to grant access to.
+            Install the Hadron GitHub App to allow syncing memories from your repositories. You'll choose which repositories to grant access to.
           </p>
           {#if installUrl}
             <a
@@ -222,7 +222,7 @@
           </p>
         {:else}
           <p class="mb-4 text-sm text-zinc-500">
-            Configure a GitHub App to enable graph syncing from your repositories.
+            Configure a GitHub App to enable memory syncing from your repositories.
           </p>
         {/if}
 
@@ -250,7 +250,7 @@
                     <li>Set the Homepage URL to any URL (e.g. your company website)</li>
                     <li>Under Webhook, set the URL to <code class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">https://&lt;your-controller&gt;/github/webhook</code> and set a webhook secret (must match <code class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">GITHUB_WEBHOOK_SECRET</code> in the controller)</li>
                     <li>Subscribe to <span class="font-medium text-zinc-700 dark:text-zinc-300">Push</span> events (for auto-sync on merge)</li>
-                    <li>Under Repository permissions, set <span class="font-medium text-zinc-700 dark:text-zinc-300">Contents</span> to <span class="font-medium text-zinc-700 dark:text-zinc-300">Read & write</span> (needed for creating PRs with graph changes)</li>
+                    <li>Under Repository permissions, set <span class="font-medium text-zinc-700 dark:text-zinc-300">Contents</span> to <span class="font-medium text-zinc-700 dark:text-zinc-300">Read & write</span> (needed for creating PRs with memory changes)</li>
                     <li>Under "Where can this GitHub App be installed?", select "Only on this account"</li>
                     <li>Click "Create GitHub App"</li>
                   </ul>
@@ -274,7 +274,7 @@
                   <span class="font-medium">Install the app</span>
                   <ul class="ml-6 mt-1 list-disc space-y-1 text-zinc-500 dark:text-zinc-400">
                     <li>Back on GitHub, click "Install App" in the left sidebar, then click "Install"</li>
-                    <li>Select the repositories that contain Hadron graphs</li>
+                    <li>Select the repositories that contain Hadron memories</li>
                     <li>After installing, check the URL &mdash; it ends with <code class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">/installations/XXXXXXXX</code></li>
                     <li>That number is your <span class="font-medium text-zinc-700 dark:text-zinc-300">Installation ID</span> &mdash; enter it below</li>
                   </ul>
@@ -345,11 +345,11 @@
   <!-- Subscriptions -->
   {#if org.subscriptions?.length}
     <section>
-      <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Subscribed graphs <span class="ml-1 text-sm font-normal text-zinc-500">({org.subscriptions.length})</span></h2>
+      <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Subscribed memories <span class="ml-1 text-sm font-normal text-zinc-500">({org.subscriptions.length})</span></h2>
       <div class="grid gap-3 sm:grid-cols-2">
         {#each org.subscriptions as s (s.id)}
           <div class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <p class="font-mono text-sm text-indigo-600 dark:text-indigo-300">{s.graph.name}</p>
+            <p class="font-mono text-sm text-indigo-600 dark:text-indigo-300">{s.memory.name}</p>
             <p class="mt-1 text-xs text-zinc-500">Role: {s.role}</p>
           </div>
         {/each}

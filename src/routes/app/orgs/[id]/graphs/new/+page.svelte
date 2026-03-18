@@ -4,12 +4,12 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 </script>
 
-<svelte:head><title>Add graph · Hadron</title></svelte:head>
+<svelte:head><title>Add memory · Hadron</title></svelte:head>
 
 <div class="max-w-lg">
   <div class="mb-6">
-    <a href="/app/orgs/{data.orgId}/graphs" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Graphs</a>
-    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">Add graph</h1>
+    <a href="/app/orgs/{data.orgId}/graphs" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Memories</a>
+    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">Add memory</h1>
   </div>
 
   <form method="POST" use:enhance class="space-y-5">
@@ -18,7 +18,7 @@
     {/if}
 
     <div>
-      <label for="name" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Graph name <span class="text-zinc-500">(e.g. owner/repo)</span></label>
+      <label for="name" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Memory name <span class="text-zinc-500">(e.g. owner/repo)</span></label>
       <input id="name" name="name" type="text" required placeholder="my-org/my-repo"
         class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
     </div>
@@ -51,7 +51,7 @@
     </div>
 
     <button type="submit" class="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500">
-      Add graph
+      Add memory
     </button>
   </form>
 </div>

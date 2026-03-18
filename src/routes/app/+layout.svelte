@@ -6,14 +6,14 @@
 
   const consumerNav = [
     { href: '/app/dashboard', label: 'Dashboard' },
-    { href: '/app/graphs', label: 'My Graphs' },
+    { href: '/app/graphs', label: 'My Memories' },
     { href: '/browse', label: 'Browse Marketplace' },
     { href: '/app/setup', label: 'AI Setup' },
   ];
 
   const fullNav = [
     { href: '/app/dashboard', label: 'Dashboard' },
-    { href: '/app/graphs', label: 'My Graphs' },
+    { href: '/app/graphs', label: 'My Memories' },
     { href: '/browse', label: 'Browse Marketplace' },
     { href: '/app/orgs', label: 'Organizations' },
     { href: '/app/clients', label: 'Clients' },

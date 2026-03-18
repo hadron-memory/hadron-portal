@@ -1,20 +1,20 @@
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
-  UPDATE_GRAPH_MUTATION,
-  SYNC_GRAPH_MUTATION,
-  CREATE_GRAPH_SUBSCRIPTION_MUTATION,
-  DELETE_GRAPH_SUBSCRIPTION_MUTATION,
+  UPDATE_MEMORY_MUTATION,
+  SYNC_MEMORY_MUTATION,
+  CREATE_MEMORY_SUBSCRIPTION_MUTATION,
+  DELETE_MEMORY_SUBSCRIPTION_MUTATION,
 } from '$lib/server/queries';
 import type { Actions } from './$types';
 
-// Data is provided by the parent +layout.server.ts (org, graph, graphNodes, etc.)
+// Data is provided by the parent +layout.server.ts (org, memory, memoryNodes, etc.)
 
 export const actions: Actions = {
   update: async ({ request, params, locals }) => {
     const fd = await request.formData();
     try {
-      await gqlClient(locals.token).request(UPDATE_GRAPH_MUTATION, {
+      await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
         id: params.gid,
         source: String(fd.get('source') ?? '').trim() || null,
         readBranch: String(fd.get('readBranch') ?? '').trim() || null,
@@ -29,7 +29,7 @@ export const actions: Actions = {
 
   sync: async ({ params, locals }) => {
     try {
-      await gqlClient(locals.token).request(SYNC_GRAPH_MUTATION, { id: params.gid });
+      await gqlClient(locals.token).request(SYNC_MEMORY_MUTATION, { id: params.gid });
       return { synced: true };
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Sync failed' });
@@ -41,7 +41,7 @@ export const actions: Actions = {
     const orgId = String(fd.get('orgId') ?? '');
     const role = String(fd.get('role') ?? 'READER');
     try {
-      await gqlClient(locals.token).request(CREATE_GRAPH_SUBSCRIPTION_MUTATION, { graphId: params.gid, orgId, role });
+      await gqlClient(locals.token).request(CREATE_MEMORY_SUBSCRIPTION_MUTATION, { memoryId: params.gid, orgId, role });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to add subscription' });
     }
@@ -51,7 +51,7 @@ export const actions: Actions = {
     const fd = await request.formData();
     const orgId = String(fd.get('orgId') ?? '');
     try {
-      await gqlClient(locals.token).request(DELETE_GRAPH_SUBSCRIPTION_MUTATION, { graphId: params.gid, orgId });
+      await gqlClient(locals.token).request(DELETE_MEMORY_SUBSCRIPTION_MUTATION, { memoryId: params.gid, orgId });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to remove subscription' });
     }

@@ -4,9 +4,9 @@
 
   const controllerUrl = env.PUBLIC_CONTROLLER_URL ?? 'http://localhost:4000';
 
-  const graphId = $derived(page.url.searchParams.get('graph'));
+  const memoryId = $derived(page.url.searchParams.get('memory') ?? page.url.searchParams.get('graph'));
   const postAuthRedirect = $derived(
-    graphId ? `/browse?addGraph=${graphId}` : '/app/dashboard'
+    memoryId ? `/browse?addMemory=${memoryId}` : '/app/dashboard'
   );
   const githubUrl = $derived(
     `${controllerUrl}/auth/github?redirect=${encodeURIComponent(postAuthRedirect)}`
@@ -99,7 +99,7 @@
     {/if}
 
     <p class="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-      Don't have an account? <a href="/signup{graphId ? `?graph=${graphId}` : ''}" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Create account</a>
+      Don't have an account? <a href="/signup{memoryId ? `?memory=${memoryId}` : ''}" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Create account</a>
     </p>
   </div>
 </div>

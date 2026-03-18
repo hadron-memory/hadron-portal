@@ -24,7 +24,7 @@
 
     <!-- Centre links -->
     <div class="hidden items-center gap-6 text-sm sm:flex {dark ? 'text-zinc-400' : 'text-zinc-500'}">
-      <a href="/browse" class="transition {dark ? 'hover:text-white' : 'hover:text-zinc-900'}">Browse graphs</a>
+      <a href="/browse" class="transition {dark ? 'hover:text-white' : 'hover:text-zinc-900'}">Browse memories</a>
       {#if user}
         <a href="/app/dashboard" class="transition {dark ? 'hover:text-white' : 'hover:text-zinc-900'}">Dashboard</a>
       {/if}

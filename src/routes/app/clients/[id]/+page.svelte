@@ -9,7 +9,7 @@
   // Collect accessible bundles from orgs for the subscribe dropdown
   const subscribedBundleIds = $derived(new Set((client.bundleSubscriptions ?? []).map((s) => s.bundle.id)));
   const availableBundles = $derived(
-    (data.orgs ?? []).flatMap((o) => o.graphBundles ?? []).filter((b) => !subscribedBundleIds.has(b.id))
+    (data.orgs ?? []).flatMap((o) => o.memoryBundles ?? []).filter((b) => !subscribedBundleIds.has(b.id))
   );
 
   const typeIcon: Record<string, string> = { WORKSTATION: '💻', CLOUD: '☁️', IOT: '📡', AGENT: '🤖' };
@@ -109,7 +109,7 @@
 
   <!-- Bundle subscriptions -->
   <section>
-    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Graph Bundle Subscriptions
+    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Memory Bundle Subscriptions
       <span class="ml-1 text-sm font-normal text-zinc-500">({client.bundleSubscriptions?.length ?? 0})</span>
     </h2>
 
@@ -166,7 +166,7 @@
         {/each}
       </div>
     {:else}
-      <p class="mb-4 text-sm text-zinc-500">No graph bundle subscriptions yet.</p>
+      <p class="mb-4 text-sm text-zinc-500">No memory bundle subscriptions yet.</p>
     {/if}
 
     <h3 class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">Add subscription</h3>

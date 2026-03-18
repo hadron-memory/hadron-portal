@@ -1,10 +1,10 @@
-import type { GraphNode, TreeEntry, Topic, FolderNode, HierEdge, GraphViewData } from './types';
+import type { MemoryNode, TreeEntry, Topic, FolderNode, HierEdge, GraphViewData } from './types';
 
 /**
- * Build a flat list of TreeEntry objects from GraphNode[].
+ * Build a flat list of TreeEntry objects from MemoryNode[].
  * Synthesizes virtual folder nodes for intermediate paths that have no real node.
  */
-export function buildTreeEntries(nodes: GraphNode[]): TreeEntry[] {
+export function buildTreeEntries(nodes: MemoryNode[]): TreeEntry[] {
   const locSet = new Set(nodes.map((n) => n.loc));
   const entries: TreeEntry[] = [];
   const seen = new Set<string>();
@@ -43,9 +43,9 @@ export function buildTreeEntries(nodes: GraphNode[]): TreeEntry[] {
 }
 
 /**
- * Build GraphViewData from a flat list of GraphNode[] for the TopicGraph component.
+ * Build GraphViewData from a flat list of MemoryNode[] for the TopicGraph component.
  */
-export function buildGraphViewData(nodes: GraphNode[]): GraphViewData {
+export function buildGraphViewData(nodes: MemoryNode[]): GraphViewData {
   const locSet = new Set(nodes.map((n) => n.loc));
   const topics: Topic[] = [];
   const folderNodeMap = new Map<string, FolderNode>();

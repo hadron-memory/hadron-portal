@@ -2,8 +2,8 @@
 // Fragments
 // ---------------------------------------------------------------------------
 
-export const GRAPH_FIELDS = /* GraphQL */ `
-  fragment GraphFields on Graph {
+export const MEMORY_FIELDS = /* GraphQL */ `
+  fragment MemoryFields on Memory {
     id
     organizationId
     name
@@ -65,15 +65,15 @@ export const CLIENT_BUNDLE_SUB_FIELDS = /* GraphQL */ `
   }
 `;
 
-export const GRAPH_BUNDLE_FIELDS = /* GraphQL */ `
-  fragment GraphBundleFields on GraphBundle {
+export const MEMORY_BUNDLE_FIELDS = /* GraphQL */ `
+  fragment MemoryBundleFields on MemoryBundle {
     id
     organizationId
     name
     description
-    graphs {
+    items {
       id
-      graph { id name }
+      memory { id name }
     }
     createdAt
   }
@@ -96,24 +96,24 @@ export const ME_QUERY = /* GraphQL */ `
   }
 `;
 
-export const PUBLIC_GRAPHS_QUERY = /* GraphQL */ `
-  ${GRAPH_FIELDS}
-  query PublicGraphs {
-    publicGraphs {
-      ...GraphFields
+export const PUBLIC_MEMORIES_QUERY = /* GraphQL */ `
+  ${MEMORY_FIELDS}
+  query PublicMemories {
+    publicMemories {
+      ...MemoryFields
     }
   }
 `;
 
-export const ADD_TO_MY_GRAPHS_MUTATION = /* GraphQL */ `
-  mutation AddToMyGraphs($graphId: ID!) {
-    addToMyGraphs(graphId: $graphId)
+export const ADD_TO_MY_MEMORIES_MUTATION = /* GraphQL */ `
+  mutation AddToMyMemories($memoryId: ID!) {
+    addToMyMemories(memoryId: $memoryId)
   }
 `;
 
 export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
-  ${GRAPH_FIELDS}
+  ${MEMORY_FIELDS}
   query MyOrganizations {
     myOrganizations {
       ...OrgFields
@@ -122,8 +122,8 @@ export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
         role
         user { id githubUsername name avatarUrl email }
       }
-      graphs {
-        ...GraphFields
+      memories {
+        ...MemoryFields
       }
     }
   }
@@ -131,8 +131,8 @@ export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
 
 export const ORGANIZATION_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
-  ${GRAPH_FIELDS}
-  ${GRAPH_BUNDLE_FIELDS}
+  ${MEMORY_FIELDS}
+  ${MEMORY_BUNDLE_FIELDS}
   query Organization($id: ID!) {
     organization(id: $id) {
       ...OrgFields
@@ -143,22 +143,22 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
         createdAt
         user { id githubUsername name avatarUrl email }
       }
-      graphs {
-        ...GraphFields
+      memories {
+        ...MemoryFields
         subscriptions {
           id
           role
           organization { id name domain }
         }
       }
-      graphBundles {
-        ...GraphBundleFields
+      memoryBundles {
+        ...MemoryBundleFields
       }
       subscriptions {
         id
         role
         activated
-        graph { ...GraphFields }
+        memory { ...MemoryFields }
         organization { id name domain }
       }
     }
@@ -225,8 +225,8 @@ export const DELETE_ORGANIZATION_MUTATION = /* GraphQL */ `
 `;
 
 export const ADD_MEMBER_MUTATION = /* GraphQL */ `
-  mutation AddOrganizationMember($orgId: ID!, $userId: ID!, $role: Role!) {
-    addOrganizationMember(orgId: $orgId, userId: $userId, role: $role) {
+  mutation AddOrgMember($orgId: ID!, $userId: ID!, $role: Role!) {
+    addOrgMember(orgId: $orgId, userId: $userId, role: $role) {
       id role canInvite createdAt
       user { id githubUsername name avatarUrl email }
     }
@@ -234,8 +234,8 @@ export const ADD_MEMBER_MUTATION = /* GraphQL */ `
 `;
 
 export const UPDATE_MEMBER_MUTATION = /* GraphQL */ `
-  mutation UpdateOrganizationMember($orgId: ID!, $userId: ID!, $role: Role!) {
-    updateOrganizationMember(orgId: $orgId, userId: $userId, role: $role) {
+  mutation UpdateOrgMember($orgId: ID!, $userId: ID!, $role: Role!) {
+    updateOrgMember(orgId: $orgId, userId: $userId, role: $role) {
       id role
       user { id githubUsername name avatarUrl email }
     }
@@ -243,105 +243,105 @@ export const UPDATE_MEMBER_MUTATION = /* GraphQL */ `
 `;
 
 export const REMOVE_MEMBER_MUTATION = /* GraphQL */ `
-  mutation RemoveOrganizationMember($orgId: ID!, $userId: ID!) {
-    removeOrganizationMember(orgId: $orgId, userId: $userId)
+  mutation RemoveOrgMember($orgId: ID!, $userId: ID!) {
+    removeOrgMember(orgId: $orgId, userId: $userId)
   }
 `;
 
-export const CREATE_GRAPH_MUTATION = /* GraphQL */ `
-  ${GRAPH_FIELDS}
-  mutation CreateGraph(
+export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
+  ${MEMORY_FIELDS}
+  mutation CreateMemory(
     $orgId: ID!, $name: String!, $source: String,
     $readBranch: String, $writeBranch: String, $visibility: Visibility
   ) {
-    createGraph(
+    createMemory(
       orgId: $orgId, name: $name, source: $source,
       readBranch: $readBranch, writeBranch: $writeBranch,
       visibility: $visibility
-    ) { ...GraphFields }
+    ) { ...MemoryFields }
   }
 `;
 
-export const UPDATE_GRAPH_MUTATION = /* GraphQL */ `
-  ${GRAPH_FIELDS}
-  mutation UpdateGraph(
+export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
+  ${MEMORY_FIELDS}
+  mutation UpdateMemory(
     $id: ID!, $source: String, $readBranch: String,
     $writeBranch: String, $visibility: Visibility
   ) {
-    updateGraph(
+    updateMemory(
       id: $id, source: $source, readBranch: $readBranch,
       writeBranch: $writeBranch, visibility: $visibility
-    ) { ...GraphFields }
+    ) { ...MemoryFields }
   }
 `;
 
-export const DELETE_GRAPH_MUTATION = /* GraphQL */ `
-  mutation DeleteGraph($id: ID!) { deleteGraph(id: $id) }
+export const DELETE_MEMORY_MUTATION = /* GraphQL */ `
+  mutation DeleteMemory($id: ID!) { deleteMemory(id: $id) }
 `;
 
-export const SYNC_GRAPH_MUTATION = /* GraphQL */ `
-  ${GRAPH_FIELDS}
-  mutation SyncGraph($id: ID!) {
-    syncGraph(id: $id) { ...GraphFields }
+export const SYNC_MEMORY_MUTATION = /* GraphQL */ `
+  ${MEMORY_FIELDS}
+  mutation SyncMemory($id: ID!) {
+    syncMemory(id: $id) { ...MemoryFields }
   }
 `;
 
-export const SET_GRAPH_SOURCE_TOKEN_MUTATION = /* GraphQL */ `
-  ${GRAPH_FIELDS}
-  mutation SetGraphSourceToken($id: ID!, $token: String!, $expiresAt: String) {
-    setGraphSourceToken(id: $id, token: $token, expiresAt: $expiresAt) { ...GraphFields }
+export const SET_MEMORY_SOURCE_TOKEN_MUTATION = /* GraphQL */ `
+  ${MEMORY_FIELDS}
+  mutation SetMemorySourceToken($id: ID!, $token: String!, $expiresAt: String) {
+    setMemorySourceToken(id: $id, token: $token, expiresAt: $expiresAt) { ...MemoryFields }
   }
 `;
 
-export const CREATE_GRAPH_SUBSCRIPTION_MUTATION = /* GraphQL */ `
-  mutation CreateGraphSubscription($graphId: ID!, $orgId: ID!, $role: Role!) {
-    createGraphSubscription(graphId: $graphId, orgId: $orgId, role: $role) {
+export const CREATE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
+  mutation CreateMemorySubscription($memoryId: ID!, $orgId: ID!, $role: Role!) {
+    createMemorySubscription(memoryId: $memoryId, orgId: $orgId, role: $role) {
       id role createdAt
-      graph { id name }
+      memory { id name }
       organization { id name domain }
     }
   }
 `;
 
-export const DELETE_GRAPH_SUBSCRIPTION_MUTATION = /* GraphQL */ `
-  mutation DeleteGraphSubscription($graphId: ID!, $orgId: ID!) {
-    deleteGraphSubscription(graphId: $graphId, orgId: $orgId)
+export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
+  mutation DeleteMemorySubscription($memoryId: ID!, $orgId: ID!) {
+    deleteMemorySubscription(memoryId: $memoryId, orgId: $orgId)
   }
 `;
 
 // ---------------------------------------------------------------------------
-// Graph Bundle mutations
+// Memory Bundle mutations
 // ---------------------------------------------------------------------------
 
-export const CREATE_GRAPH_BUNDLE_MUTATION = /* GraphQL */ `
-  ${GRAPH_BUNDLE_FIELDS}
-  mutation CreateGraphBundle($orgId: ID!, $name: String!, $description: String) {
-    createGraphBundle(orgId: $orgId, name: $name, description: $description) { ...GraphBundleFields }
+export const CREATE_MEMORY_BUNDLE_MUTATION = /* GraphQL */ `
+  ${MEMORY_BUNDLE_FIELDS}
+  mutation CreateMemoryBundle($orgId: ID!, $name: String!, $description: String) {
+    createMemoryBundle(orgId: $orgId, name: $name, description: $description) { ...MemoryBundleFields }
   }
 `;
 
-export const UPDATE_GRAPH_BUNDLE_MUTATION = /* GraphQL */ `
-  ${GRAPH_BUNDLE_FIELDS}
-  mutation UpdateGraphBundle($id: ID!, $name: String, $description: String) {
-    updateGraphBundle(id: $id, name: $name, description: $description) { ...GraphBundleFields }
+export const UPDATE_MEMORY_BUNDLE_MUTATION = /* GraphQL */ `
+  ${MEMORY_BUNDLE_FIELDS}
+  mutation UpdateMemoryBundle($id: ID!, $name: String, $description: String) {
+    updateMemoryBundle(id: $id, name: $name, description: $description) { ...MemoryBundleFields }
   }
 `;
 
-export const DELETE_GRAPH_BUNDLE_MUTATION = /* GraphQL */ `
-  mutation DeleteGraphBundle($id: ID!) { deleteGraphBundle(id: $id) }
+export const DELETE_MEMORY_BUNDLE_MUTATION = /* GraphQL */ `
+  mutation DeleteMemoryBundle($id: ID!) { deleteMemoryBundle(id: $id) }
 `;
 
-export const ADD_GRAPH_TO_BUNDLE_MUTATION = /* GraphQL */ `
-  ${GRAPH_BUNDLE_FIELDS}
-  mutation AddGraphToBundle($bundleId: ID!, $graphId: ID!) {
-    addGraphToBundle(bundleId: $bundleId, graphId: $graphId) { ...GraphBundleFields }
+export const ADD_MEMORY_TO_BUNDLE_MUTATION = /* GraphQL */ `
+  ${MEMORY_BUNDLE_FIELDS}
+  mutation AddMemoryToBundle($bundleId: ID!, $memoryId: ID!) {
+    addMemoryToBundle(bundleId: $bundleId, memoryId: $memoryId) { ...MemoryBundleFields }
   }
 `;
 
-export const REMOVE_GRAPH_FROM_BUNDLE_MUTATION = /* GraphQL */ `
-  ${GRAPH_BUNDLE_FIELDS}
-  mutation RemoveGraphFromBundle($bundleId: ID!, $graphId: ID!) {
-    removeGraphFromBundle(bundleId: $bundleId, graphId: $graphId) { ...GraphBundleFields }
+export const REMOVE_MEMORY_FROM_BUNDLE_MUTATION = /* GraphQL */ `
+  ${MEMORY_BUNDLE_FIELDS}
+  mutation RemoveMemoryFromBundle($bundleId: ID!, $memoryId: ID!) {
+    removeMemoryFromBundle(bundleId: $bundleId, memoryId: $memoryId) { ...MemoryBundleFields }
   }
 `;
 
@@ -432,7 +432,7 @@ export const UNLINK_GITHUB_APP_MUTATION = /* GraphQL */ `
 export const NODE_FIELDS = /* GraphQL */ `
   fragment NodeFields on Node {
     id
-    graphId
+    memoryId
     loc
     name
     title
@@ -490,9 +490,9 @@ export const DELETE_NODE_MUTATION = /* GraphQL */ `
   }
 `;
 
-export const GRAPH_USAGE_SUMMARY_QUERY = /* GraphQL */ `
-  query GraphUsageSummary($graphId: ID!) {
-    graphUsageSummary(graphId: $graphId) {
+export const MEMORY_USAGE_SUMMARY_QUERY = /* GraphQL */ `
+  query MemoryUsageSummary($memoryId: ID!) {
+    memoryUsageSummary(memoryId: $memoryId) {
       nodeLoc
       type
       count
@@ -516,11 +516,11 @@ export const NODE_USAGE_QUERY = /* GraphQL */ `
   }
 `;
 
-export const MY_GRAPHS_QUERY = /* GraphQL */ `
-  ${GRAPH_FIELDS}
-  query MyGraphs {
-    myGraphs {
-      ...GraphFields
+export const MY_MEMORIES_QUERY = /* GraphQL */ `
+  ${MEMORY_FIELDS}
+  query MyMemories {
+    myMemories {
+      ...MemoryFields
     }
   }
 `;

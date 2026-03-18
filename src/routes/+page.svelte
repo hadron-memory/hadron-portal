@@ -7,7 +7,7 @@
     {
       icon: '🔗',
       title: 'Graph-native',
-      body: 'Nodes, edges, and namespaces form a queryable knowledge graph synced directly from your GitHub repos.',
+      body: 'Nodes, edges, and namespaces form a queryable knowledge memory synced directly from your GitHub repos.',
     },
     {
       icon: '🤖',
@@ -17,41 +17,41 @@
     {
       icon: '🏢',
       title: 'Multi-tenant',
-      body: 'Organisations own and share graphs. Clients subscribe to exactly the graphs they need — no more, no less.',
+      body: 'Organisations own and share memories. Clients subscribe to exactly the memories they need — no more, no less.',
     },
     {
       icon: '🔒',
       title: 'Access control',
-      body: 'Public graphs anyone can browse. Private graphs shared with specific organisations via subscriptions.',
+      body: 'Public memories anyone can browse. Private memories shared with specific organisations via subscriptions.',
     },
     {
       icon: '⚡',
       title: 'Always in sync',
-      body: 'Graphs are cloned from GitHub on startup and can be re-synced on demand via the API or a webhook.',
+      body: 'Memories are cloned from GitHub on startup and can be re-synced on demand via the API or a webhook.',
     },
     {
       icon: '📦',
       title: 'Marketplace ready',
-      body: 'Browse and subscribe to public graphs from the community. Publish your own for others to discover.',
+      body: 'Browse and subscribe to public memories from the community. Publish your own for others to discover.',
     },
   ];
 </script>
 
 <svelte:head>
-  <title>Hadron — Knowledge graph platform for AI agents</title>
+  <title>Hadron — Knowledge memory platform for AI agents</title>
 </svelte:head>
 
 <!-- Hero -->
 <section class="mx-auto max-w-7xl px-4 pb-16 pt-24 text-center">
   <div class="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-sm text-indigo-600 dark:text-indigo-400">
-    Open platform · Public graphs available
+    Open platform · Public memories available
   </div>
   <h1 class="mb-6 text-5xl font-bold tracking-tight text-zinc-900 dark:text-white sm:text-6xl">
-    Knowledge graphs for<br />
+    Knowledge memories for<br />
     <span class="text-indigo-600 dark:text-indigo-400">AI agents &amp; teams</span>
   </h1>
   <p class="mx-auto mb-10 max-w-2xl text-lg text-zinc-600 dark:text-zinc-400">
-    Hadron gives AI agents and developer tools a shared, versioned knowledge graph — synced from
+    Hadron gives AI agents and developer tools a shared, versioned knowledge memory — synced from
     your GitHub repos and queryable via GraphQL.
   </p>
   <div class="flex flex-wrap items-center justify-center gap-4">
@@ -85,19 +85,19 @@
 </section>
 
 <!-- Public graphs preview -->
-{#if data.publicGraphs.length > 0}
+{#if data.publicMemories.length > 0}
   <section class="mx-auto max-w-7xl px-4 py-16">
     <div class="mb-6 flex items-center justify-between">
-      <h2 class="text-xl font-semibold text-zinc-900 dark:text-white">Public graphs</h2>
+      <h2 class="text-xl font-semibold text-zinc-900 dark:text-white">Public memories</h2>
       <a href="/browse" class="text-sm text-indigo-600 transition hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300">View all →</a>
     </div>
     <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {#each data.publicGraphs as graph (graph.id)}
+      {#each data.publicMemories as memory (memory.id)}
         <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-          <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{graph.name}</p>
-          {#if graph.lastSyncedAt}
+          <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{memory.name}</p>
+          {#if memory.lastSyncedAt}
             <p class="mt-1 text-xs text-zinc-500">
-              Last synced {new Date(graph.lastSyncedAt).toLocaleDateString()}
+              Last synced {new Date(memory.lastSyncedAt).toLocaleDateString()}
             </p>
           {/if}
         </div>

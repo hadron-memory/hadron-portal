@@ -3,7 +3,7 @@
 
   let { data }: { data: PageData } = $props();
 
-  const graphCount = $derived(data.graphs.length);
+  const memoryCount = $derived(data.memories.length);
 </script>
 
 <svelte:head><title>Dashboard · Hadron</title></svelte:head>
@@ -14,8 +14,8 @@
   <!-- Quick stats -->
   <div class="grid gap-4 sm:grid-cols-3">
     <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-      <p class="text-sm text-zinc-500 dark:text-zinc-400">Graphs</p>
-      <p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{graphCount}</p>
+      <p class="text-sm text-zinc-500 dark:text-zinc-400">Memories</p>
+      <p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{memoryCount}</p>
     </div>
     <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <p class="text-sm text-zinc-500 dark:text-zinc-400">Clients</p>
@@ -30,16 +30,16 @@
       <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
         <p class="text-sm text-zinc-500 dark:text-zinc-400">Status</p>
         <p class="mt-1 text-sm font-medium text-green-600 dark:text-green-400">
-          {graphCount > 0 ? 'Ready' : 'Getting started'}
+          {memoryCount > 0 ? 'Ready' : 'Getting started'}
         </p>
       </div>
     {/if}
   </div>
 
-  <!-- My Graphs preview -->
+  <!-- My Memories preview -->
   <section>
     <div class="mb-4 flex items-center justify-between">
-      <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">My Graphs</h2>
+      <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">My Memories</h2>
       <div class="flex gap-2">
         <a href="/browse" class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
           Browse marketplace
@@ -49,32 +49,32 @@
         </a>
       </div>
     </div>
-    {#if data.graphs.length === 0}
+    {#if data.memories.length === 0}
       <div class="rounded-xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
-        <p class="text-zinc-500 dark:text-zinc-400">You haven't added any graphs yet.</p>
+        <p class="text-zinc-500 dark:text-zinc-400">You haven't added any memories yet.</p>
         <p class="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
-          <a href="/browse" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Browse the marketplace</a> to find knowledge graphs for your AI agent.
+          <a href="/browse" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Browse the marketplace</a> to find knowledge memories for your AI agent.
         </p>
       </div>
     {:else}
       <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {#each data.graphs.slice(0, 6) as graph (graph.id)}
+        {#each data.memories.slice(0, 6) as memory (memory.id)}
           <div class="rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
-            <p class="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-300">{graph.name}</p>
+            <p class="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-300">{memory.name}</p>
             <div class="mt-2 flex flex-wrap gap-2 text-xs">
               <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                {graph.syncStatus === 'OK' ? 'Synced' : graph.syncStatus.toLowerCase()}
+                {memory.syncStatus === 'OK' ? 'Synced' : memory.syncStatus.toLowerCase()}
               </span>
-              {#if graph.source}
+              {#if memory.source}
                 <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">git-backed</span>
               {/if}
             </div>
           </div>
         {/each}
       </div>
-      {#if data.graphs.length > 6}
+      {#if data.memories.length > 6}
         <p class="mt-3 text-sm text-zinc-500">
-          <a href="/app/graphs" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">View all {data.graphs.length} graphs →</a>
+          <a href="/app/graphs" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">View all {data.memories.length} memories →</a>
         </p>
       {/if}
     {/if}
@@ -96,7 +96,7 @@
             <p class="mt-0.5 font-mono text-xs text-zinc-500">{org.domain}</p>
             <div class="mt-3 flex gap-4 text-xs text-zinc-500 dark:text-zinc-400">
               <span>{org.members?.length ?? 0} member{org.members?.length === 1 ? '' : 's'}</span>
-              <span>{org.graphs?.length ?? 0} graph{org.graphs?.length === 1 ? '' : 's'}</span>
+              <span>{org.memories?.length ?? 0} memor{org.memories?.length === 1 ? 'y' : 'ies'}</span>
             </div>
           </a>
         {/each}

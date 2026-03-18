@@ -129,7 +129,7 @@
         <p class="rounded-lg bg-zinc-100 px-4 py-2 font-mono text-zinc-900 dark:bg-zinc-800 dark:text-zinc-200">
           {selectedToolInfo.path}
         </p>
-        <p class="mt-3">Then restart {selectedToolInfo.name}. Your AI will now have access to your Hadron graphs.</p>
+        <p class="mt-3">Then restart {selectedToolInfo.name}. Your AI will now have access to your Hadron memories.</p>
       </div>
     </section>
 
@@ -142,11 +142,11 @@
 
     {#if setup.graphs && setup.graphs.length > 0}
       <section>
-        <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">Your graphs</h2>
+        <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">Your memories</h2>
         <div class="space-y-2">
-          {#each setup.graphs as graph}
+          {#each setup.graphs as memory}
             <div class="rounded-lg border border-zinc-200 bg-white px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900">
-              <span class="font-mono text-sm text-indigo-600 dark:text-indigo-300">{graph.name}</span>
+              <span class="font-mono text-sm text-indigo-600 dark:text-indigo-300">{memory.name}</span>
             </div>
           {/each}
         </div>

@@ -26,7 +26,7 @@
           <p class="font-mono text-xs text-zinc-500">{org.domain}</p>
           <div class="mt-4 flex gap-6 text-sm text-zinc-500 dark:text-zinc-400">
             <span>{org.members?.length ?? 0} member{org.members?.length === 1 ? '' : 's'}</span>
-            <span>{org.graphs?.length ?? 0} graph{org.graphs?.length === 1 ? '' : 's'}</span>
+            <span>{org.memories?.length ?? 0} memor{org.memories?.length === 1 ? 'y' : 'ies'}</span>
           </div>
         </a>
       {/each}

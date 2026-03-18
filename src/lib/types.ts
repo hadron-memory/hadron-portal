@@ -1,4 +1,4 @@
-export interface Graph {
+export interface Memory {
   id: string;
   organizationId: string;
   name: string;
@@ -12,30 +12,30 @@ export interface Graph {
   lastSyncedAt: string | null;
   createdAt: string;
   updatedAt: string;
-  subscriptions?: GraphSubscription[];
+  subscriptions?: MemorySubscription[];
 }
 
-export interface GraphSubscription {
+export interface MemorySubscription {
   id: string;
   role: string;
   activated: boolean;
   createdAt: string;
-  graph: Graph;
+  memory: Memory;
   organization: OrgSummary;
 }
 
-export interface GraphBundle {
+export interface MemoryBundle {
   id: string;
   organizationId: string;
   name: string;
   description: string | null;
-  graphs: GraphBundleGraph[];
+  items: MemoryBundleItem[];
   createdAt: string;
 }
 
-export interface GraphBundleGraph {
+export interface MemoryBundleItem {
   id: string;
-  graph: { id: string; name: string };
+  memory: { id: string; name: string };
 }
 
 export interface ClientBundleSub {
@@ -63,9 +63,9 @@ export interface Organization {
   createdAt: string;
   updatedAt: string;
   members?: OrgMember[];
-  graphs?: Graph[];
-  graphBundles?: GraphBundle[];
-  subscriptions?: GraphSubscription[];
+  memories?: Memory[];
+  memoryBundles?: MemoryBundle[];
+  subscriptions?: MemorySubscription[];
 }
 
 export interface OrgMember {
@@ -90,7 +90,7 @@ export interface UserSummary {
 // Node / Edge types (from hadron-controller GraphQL)
 // ---------------------------------------------------------------------------
 
-export interface GraphNodeSummary {
+export interface NodeSummary {
   id: string;
   loc: string;
   name: string;
@@ -100,16 +100,16 @@ export interface GraphNodeSummary {
   namespace: string;
 }
 
-export interface GraphEdge {
+export interface NodeEdge {
   id: string;
   label: string;
-  source: GraphNodeSummary;
-  target: GraphNodeSummary;
+  source: NodeSummary;
+  target: NodeSummary;
 }
 
-export interface GraphNode {
+export interface MemoryNode {
   id: string;
-  graphId: string;
+  memoryId: string;
   loc: string;
   name: string;
   title: string;
@@ -123,8 +123,8 @@ export interface GraphNode {
   isRunnable: boolean | null;
   createdAt: string;
   updatedAt: string;
-  outgoingEdges: GraphEdge[];
-  incomingEdges: GraphEdge[];
+  outgoingEdges: NodeEdge[];
+  incomingEdges: NodeEdge[];
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +150,7 @@ export interface UsageEvent {
 }
 
 // ---------------------------------------------------------------------------
-// Graph view types (derived from GraphNode[])
+// Graph view types (derived from MemoryNode[])
 // ---------------------------------------------------------------------------
 
 export interface TreeEntry {

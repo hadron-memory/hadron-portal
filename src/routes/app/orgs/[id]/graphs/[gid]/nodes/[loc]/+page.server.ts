@@ -1,12 +1,12 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { NODE_QUERY, DELETE_NODE_MUTATION } from '$lib/server/queries';
-import type { GraphNode } from '$lib/types';
+import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
   const loc = decodeURIComponent(params.loc);
-  const data = await gqlClient(locals.token).request<{ node: GraphNode | null }>(
+  const data = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
     NODE_QUERY, { loc },
   );
   if (!data.node) throw new Error(`Node not found: ${loc}`);

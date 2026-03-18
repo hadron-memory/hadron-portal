@@ -1,12 +1,12 @@
 import { gqlClient } from '$lib/server/api';
-import { MY_GRAPHS_QUERY } from '$lib/server/queries';
-import type { Graph } from '$lib/types';
+import { MY_MEMORIES_QUERY } from '$lib/server/queries';
+import type { Memory } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
   const apiClient = gqlClient(locals.token);
   const data = await apiClient
-    .request<{ myGraphs: Graph[] }>(MY_GRAPHS_QUERY)
-    .catch(() => ({ myGraphs: [] as Graph[] }));
-  return { graphs: data.myGraphs };
+    .request<{ myMemories: Memory[] }>(MY_MEMORIES_QUERY)
+    .catch(() => ({ myMemories: [] as Memory[] }));
+  return { memories: data.myMemories };
 };
