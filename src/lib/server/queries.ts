@@ -43,6 +43,7 @@ export const CLIENT_FIELDS = /* GraphQL */ `
     role
     apiKeyShown
     namespace
+    agentTools
     organizationId
     userId
     expiresAt
@@ -354,15 +355,26 @@ export const CREATE_CLIENT_MUTATION = /* GraphQL */ `
   mutation CreateClient(
     $label: String!, $clientType: ClientType!, $role: Role!,
     $description: String, $namespace: String,
-    $organizationId: String, $userId: String, $expiresAt: String
+    $organizationId: String, $userId: String, $expiresAt: String,
+    $agentTools: [String!]
   ) {
     createClient(
       label: $label, clientType: $clientType, role: $role,
       description: $description, namespace: $namespace,
-      organizationId: $organizationId, userId: $userId, expiresAt: $expiresAt
+      organizationId: $organizationId, userId: $userId, expiresAt: $expiresAt,
+      agentTools: $agentTools
     ) {
       rawKey
       client { ...ClientFields }
+    }
+  }
+`;
+
+export const UPDATE_CLIENT_MUTATION = /* GraphQL */ `
+  ${CLIENT_FIELDS}
+  mutation UpdateClient($id: ID!, $description: String, $agentTools: [String!]) {
+    updateClient(id: $id, description: $description, agentTools: $agentTools) {
+      ...ClientFields
     }
   }
 `;

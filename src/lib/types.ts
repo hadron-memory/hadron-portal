@@ -207,6 +207,7 @@ export interface Client {
   role: string;
   apiKeyShown: boolean;
   namespace: string | null;
+  agentTools: string[];
   organizationId: string | null;
   userId: string | null;
   expiresAt: string | null;

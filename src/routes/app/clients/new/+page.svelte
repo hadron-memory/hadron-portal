@@ -65,6 +65,26 @@
         class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
     </div>
 
+    <fieldset>
+      <legend class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AI agent tools <span class="text-zinc-500">(select the tools this client will use)</span></legend>
+      <div class="space-y-2">
+        {#each [
+          { value: 'CLAUDE_CODE', label: 'Claude Code' },
+          { value: 'CURSOR', label: 'Cursor' },
+          { value: 'WINDSURF', label: 'Windsurf' },
+          { value: 'CLAUDE_DESKTOP', label: 'Claude Desktop' },
+          { value: 'CODEX', label: 'Codex CLI' },
+          { value: 'CLINE', label: 'Cline' },
+        ] as tool (tool.value)}
+          <label class="flex items-center gap-2 text-sm text-zinc-300">
+            <input type="checkbox" name="agentTools" value={tool.value}
+              class="rounded border-zinc-600 bg-zinc-800 text-indigo-500 focus:ring-indigo-500" />
+            {tool.label}
+          </label>
+        {/each}
+      </div>
+    </fieldset>
+
     <div>
       <label for="expiresAt" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Expires <span class="text-zinc-500">(optional)</span></label>
       <input id="expiresAt" name="expiresAt" type="date"

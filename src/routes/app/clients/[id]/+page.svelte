@@ -1,6 +1,8 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
+  import { env } from '$env/dynamic/public';
+  import JSZip from 'jszip';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -14,14 +16,161 @@
 
   const typeIcon: Record<string, string> = { WORKSTATION: '💻', CLOUD: '☁️', IOT: '📡', AGENT: '🤖' };
 
-  let copied = $state(false);
-  async function copyKey(key: string) {
-    await navigator.clipboard.writeText(key);
-    copied = true;
-    setTimeout(() => (copied = false), 2000);
-  }
+  const AGENT_TOOL_OPTIONS = [
+    { value: 'CLAUDE_CODE', label: 'Claude Code' },
+    { value: 'CURSOR', label: 'Cursor' },
+    { value: 'WINDSURF', label: 'Windsurf' },
+    { value: 'CLAUDE_DESKTOP', label: 'Claude Desktop' },
+    { value: 'CODEX', label: 'Codex CLI' },
+    { value: 'CLINE', label: 'Cline' },
+  ];
 
   let editingSubId = $state<string | null>(null);
+  let downloading = $state(false);
+  let agentToolsForm = $state<HTMLFormElement>();
+  let selectedTools = $state<Set<string>>(new Set(client.agentTools ?? []));
+
+  function toggleTool(value: string) {
+    if (selectedTools.has(value)) {
+      selectedTools.delete(value);
+    } else {
+      selectedTools.add(value);
+    }
+    selectedTools = new Set(selectedTools); // trigger reactivity
+    setTimeout(() => agentToolsForm?.requestSubmit(), 0);
+  }
+
+  // ── Zip download ──────────────────────────────────────────────────────
+  const controllerUrl = env.PUBLIC_CONTROLLER_URL ?? 'http://localhost:4000';
+  const mcpUrl = $derived(
+    controllerUrl.includes('localhost')
+      ? controllerUrl + '/mcp'
+      : controllerUrl.replace(/\/$/, '') + '/mcp'
+  );
+
+  function mcpConfig(apiKey: string) {
+    return {
+      mcpServers: {
+        hadron: {
+          url: mcpUrl,
+          headers: { Authorization: `Bearer ${apiKey}` },
+        },
+      },
+    };
+  }
+
+  const INSTRUCTIONS_MD = `# Hadron Graph — AI Instructions
+
+This project is connected to Hadron Graph, a knowledge graph platform.
+You have access to the following MCP tools:
+
+- **h-find-node** — Search nodes by name, tags, or description
+- **h-read-node** — Read a node's full content and edges
+- **h-read-next-node** — Navigate to sibling nodes
+- **h-create-node** — Create or update a node
+- **h-move-node** — Rename or move a node
+- **h-run-action** — Load an action node and resolve dependencies
+- **h-start-session** / **h-end-session** — Track work sessions
+- **h-validate** — Check for broken edges and sparse nodes
+- **h-sync-graph** — Trigger a GitHub source sync
+
+Use these tools to read and contribute to the project's knowledge graph.
+Start by searching for relevant nodes before creating new ones.
+`;
+
+  async function generateAndDownloadZip(apiKey: string) {
+    const zip = new JSZip();
+    const tools = client.agentTools ?? [];
+    const config = mcpConfig(apiKey);
+    const configJson = JSON.stringify(config, null, 2);
+
+    if (tools.includes('CLAUDE_CODE')) {
+      zip.file('.mcp.json', configJson);
+    }
+    if (tools.includes('CURSOR')) {
+      zip.file('.cursor/mcp.json', configJson);
+    }
+    if (tools.includes('WINDSURF')) {
+      zip.file('.windsurf/mcp.json', configJson);
+    }
+    if (tools.includes('CLAUDE_DESKTOP')) {
+      zip.file('claude_desktop_config.json', configJson);
+    }
+    if (tools.includes('CODEX')) {
+      zip.file('.codex/mcp.json', configJson);
+    }
+    if (tools.includes('CLINE')) {
+      zip.file('.cline/mcp.json', configJson);
+    }
+
+    zip.file('.hadron/INSTRUCTIONS.md', INSTRUCTIONS_MD);
+
+    const readmeLines = [
+      'Hadron Graph — Setup Files',
+      '==========================',
+      '',
+      'Extract this zip in your project root.',
+      '',
+    ];
+    if (tools.includes('CLAUDE_CODE')) {
+      readmeLines.push('Claude Code:  Add the following line to your CLAUDE.md:');
+      readmeLines.push('              @import .hadron/INSTRUCTIONS.md');
+      readmeLines.push('');
+    }
+    if (tools.includes('CURSOR')) {
+      readmeLines.push('Cursor:       Copy the contents of .hadron/INSTRUCTIONS.md');
+      readmeLines.push('              into your .cursorrules file.');
+      readmeLines.push('');
+    }
+    if (tools.includes('WINDSURF')) {
+      readmeLines.push('Windsurf:     Copy the contents of .hadron/INSTRUCTIONS.md');
+      readmeLines.push('              into your .windsurfrules file.');
+      readmeLines.push('');
+    }
+    if (tools.includes('CLAUDE_DESKTOP')) {
+      readmeLines.push('Claude Desktop: Move claude_desktop_config.json to:');
+      readmeLines.push('              macOS: ~/Library/Application Support/Claude/');
+      readmeLines.push('              Windows: %APPDATA%\\Claude\\');
+      readmeLines.push('');
+    }
+    readmeLines.push('Your API key is embedded in the config files.');
+    readmeLines.push('Keep these files private — do not commit them to public repos.');
+
+    zip.file('README.txt', readmeLines.join('\n'));
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hadron-setup-${client.label}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function downloadSetupZip() {
+    if (!selectedTools.size) return;
+    if (!confirm('This will generate a new API key and invalidate the previous one. Any existing projects using the old setup files will stop working.\n\nContinue?')) return;
+    downloading = true;
+    try {
+      const res = await fetch('/api/regenerate-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: client.id }),
+      });
+      if (!res.ok) {
+        alert('Failed to generate API key. Please try again.');
+        return;
+      }
+      const { rawKey } = await res.json();
+      if (!rawKey) {
+        alert('Failed to generate API key. Please try again.');
+        return;
+      }
+      await generateAndDownloadZip(rawKey);
+    } finally {
+      downloading = false;
+    }
+  }
 </script>
 
 <svelte:head><title>{client.label} · Hadron</title></svelte:head>
@@ -76,35 +225,6 @@
         <p class="mt-1 text-zinc-900 dark:text-white">{new Date(client.lastUsedAt).toLocaleDateString()}</p>
       </div>
     {/if}
-  </section>
-
-  <!-- API Key -->
-  <section>
-    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">API Key</h2>
-    {#if data.newKey}
-      <p class="mb-2 text-sm text-amber-700 dark:text-yellow-400">
-        Save this key now — it won't be shown again after you leave this page.
-      </p>
-    {/if}
-    <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
-      <code class="flex-1 break-all font-mono text-sm text-zinc-900 dark:text-zinc-100">
-        {data.newKey ? data.newKey : '••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••••'}
-      </code>
-      {#if data.newKey}
-        <button
-          onclick={() => copyKey(data.newKey ?? '')}
-          class="shrink-0 rounded border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >
-          {copied ? 'Copied' : 'Copy'}
-        </button>
-      {:else}
-        <form method="POST" action="?/regenerate" use:enhance>
-          <button type="submit" class="shrink-0 rounded border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 transition hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
-            Regenerate key
-          </button>
-        </form>
-      {/if}
-    </div>
   </section>
 
   <!-- Bundle subscriptions -->
@@ -199,5 +319,45 @@
     {:else}
       <p class="text-sm text-zinc-500">All available bundles are already subscribed. Create new bundles on the organization page.</p>
     {/if}
+  </section>
+
+  <!-- Client Configuration -->
+  <section>
+    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Client Configuration</h2>
+
+    <form method="POST" action="?/updateAgentTools" use:enhance={() => {
+        return async ({ update }) => { await update({ reset: false }); };
+      }}
+      bind:this={agentToolsForm}>
+      {#each [...selectedTools] as tool}
+        <input type="hidden" name="agentTools" value={tool} />
+      {/each}
+      <div class="space-y-2 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        {#each AGENT_TOOL_OPTIONS as tool (tool.value)}
+          <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <input type="checkbox"
+              checked={selectedTools.has(tool.value)}
+              onclick={() => toggleTool(tool.value)}
+              class="rounded border-zinc-600 bg-zinc-800 text-indigo-500 focus:ring-indigo-500" />
+            {tool.label}
+          </label>
+        {/each}
+      </div>
+    </form>
+
+    <div class="mt-4">
+      <button onclick={downloadSetupZip}
+        disabled={downloading || !selectedTools.size}
+        class="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+        {downloading ? 'Generating...' : 'Download setup files (.zip)'}
+      </button>
+      <p class="mt-2 text-xs text-zinc-500">
+        {#if selectedTools.size}
+          Generates a fresh API key and bundles MCP config files for your selected tools. Extract in your project root.
+        {:else}
+          Select at least one AI agent tool above to enable download.
+        {/if}
+      </p>
+    </div>
   </section>
 </div>

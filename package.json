@@ -26,6 +26,7 @@
     "clsx": "^2.0.0",
     "graphql": "^16.0.0",
     "graphql-request": "^7.0.0",
+    "jszip": "^3.10.1",
     "lucide-svelte": "^0.469.0",
     "marked": "^17.0.4",
     "tailwind-merge": "^2.0.0",

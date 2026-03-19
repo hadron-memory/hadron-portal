@@ -7,6 +7,7 @@ import {
   REVOKE_CLIENT_MUTATION,
   SUBSCRIBE_CLIENT_TO_BUNDLE_MUTATION,
   UNSUBSCRIBE_CLIENT_FROM_BUNDLE_MUTATION,
+  UPDATE_CLIENT_MUTATION,
   MY_ORGANIZATIONS_QUERY,
 } from '$lib/server/queries';
 import type { Client, Organization } from '$lib/types';
@@ -70,6 +71,16 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(UNSUBSCRIBE_CLIENT_FROM_BUNDLE_MUTATION, { clientId: params.id, bundleId });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to unsubscribe' });
+    }
+  },
+
+  updateAgentTools: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const agentTools = fd.getAll('agentTools').map(String);
+    try {
+      await gqlClient(locals.token).request(UPDATE_CLIENT_MUTATION, { id: params.id, agentTools });
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to update agent tools' });
     }
   },
 };

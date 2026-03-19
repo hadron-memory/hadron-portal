@@ -23,13 +23,14 @@ export const actions: Actions = {
     const description = String(fd.get('description') ?? '').trim() || null;
     const namespace = String(fd.get('namespace') ?? '').trim() || null;
     const expiresAt = String(fd.get('expiresAt') ?? '').trim() || null;
+    const agentTools = fd.getAll('agentTools').map(String);
 
     if (!label) return fail(400, { error: 'Label is required' });
 
     try {
       const data = await gqlClient(locals.token).request<{ createClient: { client: { id: string }; rawKey: string } }>(
         CREATE_CLIENT_MUTATION,
-        { label, clientType, role, organizationId, userId: locals.user?.id ?? null, description, namespace, expiresAt },
+        { label, clientType, role, organizationId, userId: locals.user?.id ?? null, description, namespace, expiresAt, agentTools },
       );
       // Pass the rawKey via search param so the detail page can show it once
       redirect(303, `/app/clients/${data.createClient.client.id}?newKey=${encodeURIComponent(data.createClient.rawKey)}`);
