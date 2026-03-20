@@ -8,10 +8,10 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const client = $derived(data.client);
 
-  // Collect accessible bundles from orgs for the subscribe dropdown
-  const subscribedBundleIds = $derived(new Set((client.bundleSubscriptions ?? []).map((s) => s.bundle.id)));
-  const availableBundles = $derived(
-    (data.orgs ?? []).flatMap((o) => o.memoryBundles ?? []).filter((b) => !subscribedBundleIds.has(b.id))
+  // Collect accessible agents from orgs for the subscribe dropdown
+  const subscribedAgentIds = $derived(new Set((client.agentSubscriptions ?? []).map((s) => s.agent.id)));
+  const availableAgents = $derived(
+    (data.orgs ?? []).flatMap((o) => o.agents ?? []).filter((a) => !subscribedAgentIds.has(a.id))
   );
 
   const typeIcon: Record<string, string> = { WORKSTATION: '💻', CLOUD: '☁️', IOT: '📡', AGENT: '🤖' };
@@ -227,26 +227,26 @@ Start by searching for relevant nodes before creating new ones.
     {/if}
   </section>
 
-  <!-- Bundle subscriptions -->
+  <!-- Agent subscriptions -->
   <section>
-    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Memory Bundle Subscriptions
-      <span class="ml-1 text-sm font-normal text-zinc-500">({client.bundleSubscriptions?.length ?? 0})</span>
+    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Agent Subscriptions
+      <span class="ml-1 text-sm font-normal text-zinc-500">({client.agentSubscriptions?.length ?? 0})</span>
     </h2>
 
-    {#if client.bundleSubscriptions?.length}
+    {#if client.agentSubscriptions?.length}
       <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-        {#each client.bundleSubscriptions as sub (sub.id)}
+        {#each client.agentSubscriptions as sub (sub.id)}
           {#if editingSubId === sub.id}
             <div class="bg-white px-5 py-4 dark:bg-zinc-900">
               <div class="mb-3 flex items-center justify-between">
-                <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.bundle.name}</p>
+                <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
                 <form method="POST" action="?/unsubscribe" use:enhance onsubmit={() => { editingSubId = null; }}>
-                  <input type="hidden" name="bundleId" value={sub.bundle.id} />
+                  <input type="hidden" name="agentId" value={sub.agent.id} />
                   <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
                 </form>
               </div>
               <form method="POST" action="?/subscribe" use:enhance onsubmit={() => { editingSubId = null; }}>
-                <input type="hidden" name="bundleId" value={sub.bundle.id} />
+                <input type="hidden" name="agentId" value={sub.agent.id} />
                 <div class="flex flex-wrap items-end gap-3">
                   <div>
                     <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
@@ -274,7 +274,7 @@ Start by searching for relevant nodes before creating new ones.
               class="flex w-full items-center gap-4 bg-white px-5 py-4 text-left transition hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800/50"
             >
               <div class="flex-1 min-w-0">
-                <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.bundle.name}</p>
+                <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
                 <p class="text-xs text-zinc-500">
                   {sub.subscriptionType === 'READ_WRITE' ? 'Read/Write' : 'Read Only'}
                   {#if sub.trainingMode} · Training mode{/if}
@@ -286,17 +286,17 @@ Start by searching for relevant nodes before creating new ones.
         {/each}
       </div>
     {:else}
-      <p class="mb-4 text-sm text-zinc-500">No memory bundle subscriptions yet.</p>
+      <p class="mb-4 text-sm text-zinc-500">No agent subscriptions yet.</p>
     {/if}
 
     <h3 class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">Add subscription</h3>
-    {#if availableBundles.length > 0}
+    {#if availableAgents.length > 0}
       <form method="POST" action="?/subscribe" use:enhance class="flex flex-wrap items-end gap-3">
         <div>
-          <label for="bundleId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Bundle</label>
-          <select id="bundleId" name="bundleId" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white">
-            {#each availableBundles as b (b.id)}
-              <option value={b.id}>{b.name}</option>
+          <label for="agentId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Agent</label>
+          <select id="agentId" name="agentId" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white">
+            {#each availableAgents as a (a.id)}
+              <option value={a.id}>{a.name}</option>
             {/each}
           </select>
         </div>
@@ -317,7 +317,7 @@ Start by searching for relevant nodes before creating new ones.
         <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Subscribe</button>
       </form>
     {:else}
-      <p class="text-sm text-zinc-500">All available bundles are already subscribed. Create new bundles on the organization page.</p>
+      <p class="text-sm text-zinc-500">All available agents are already subscribed. Create new agents on the organization page.</p>
     {/if}
   </section>
 

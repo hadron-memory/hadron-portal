@@ -52,10 +52,10 @@ export const CLIENT_FIELDS = /* GraphQL */ `
   }
 `;
 
-export const CLIENT_BUNDLE_SUB_FIELDS = /* GraphQL */ `
-  fragment ClientBundleSubFields on ClientBundleSub {
+export const CLIENT_AGENT_SUB_FIELDS = /* GraphQL */ `
+  fragment ClientAgentSubFields on ClientAgentSub {
     id
-    bundle {
+    agent {
       id
       name
       description
@@ -66,13 +66,13 @@ export const CLIENT_BUNDLE_SUB_FIELDS = /* GraphQL */ `
   }
 `;
 
-export const MEMORY_BUNDLE_FIELDS = /* GraphQL */ `
-  fragment MemoryBundleFields on MemoryBundle {
+export const AGENT_FIELDS = /* GraphQL */ `
+  fragment AgentFields on Agent {
     id
     organizationId
     name
     description
-    items {
+    memoryItems {
       id
       memory { id name }
     }
@@ -133,7 +133,7 @@ export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
 export const ORGANIZATION_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}
-  ${MEMORY_BUNDLE_FIELDS}
+  ${AGENT_FIELDS}
   query Organization($id: ID!) {
     organization(id: $id) {
       ...OrgFields
@@ -152,8 +152,8 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
           organization { id name domain }
         }
       }
-      memoryBundles {
-        ...MemoryBundleFields
+      agents {
+        ...AgentFields
       }
       subscriptions {
         id
@@ -168,23 +168,23 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
 
 export const MY_CLIENTS_QUERY = /* GraphQL */ `
   ${CLIENT_FIELDS}
-  ${CLIENT_BUNDLE_SUB_FIELDS}
+  ${CLIENT_AGENT_SUB_FIELDS}
   query MyClients {
     myClients {
       ...ClientFields
-      bundleSubscriptions { ...ClientBundleSubFields }
+      agentSubscriptions { ...ClientAgentSubFields }
     }
   }
 `;
 
 export const CLIENT_QUERY = /* GraphQL */ `
   ${CLIENT_FIELDS}
-  ${CLIENT_BUNDLE_SUB_FIELDS}
+  ${CLIENT_AGENT_SUB_FIELDS}
   query Client($id: ID!) {
     client(id: $id) {
       ...ClientFields
       user { id githubUsername name avatarUrl email }
-      bundleSubscriptions { ...ClientBundleSubFields }
+      agentSubscriptions { ...ClientAgentSubFields }
     }
   }
 `;
@@ -311,38 +311,38 @@ export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
 `;
 
 // ---------------------------------------------------------------------------
-// Memory Bundle mutations
+// Agent mutations
 // ---------------------------------------------------------------------------
 
-export const CREATE_MEMORY_BUNDLE_MUTATION = /* GraphQL */ `
-  ${MEMORY_BUNDLE_FIELDS}
-  mutation CreateMemoryBundle($orgId: ID!, $name: String!, $description: String) {
-    createMemoryBundle(orgId: $orgId, name: $name, description: $description) { ...MemoryBundleFields }
+export const CREATE_AGENT_MUTATION = /* GraphQL */ `
+  ${AGENT_FIELDS}
+  mutation CreateAgent($orgId: ID!, $name: String!, $description: String) {
+    createAgent(orgId: $orgId, name: $name, description: $description) { ...AgentFields }
   }
 `;
 
-export const UPDATE_MEMORY_BUNDLE_MUTATION = /* GraphQL */ `
-  ${MEMORY_BUNDLE_FIELDS}
-  mutation UpdateMemoryBundle($id: ID!, $name: String, $description: String) {
-    updateMemoryBundle(id: $id, name: $name, description: $description) { ...MemoryBundleFields }
+export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
+  ${AGENT_FIELDS}
+  mutation UpdateAgent($id: ID!, $name: String, $description: String) {
+    updateAgent(id: $id, name: $name, description: $description) { ...AgentFields }
   }
 `;
 
-export const DELETE_MEMORY_BUNDLE_MUTATION = /* GraphQL */ `
-  mutation DeleteMemoryBundle($id: ID!) { deleteMemoryBundle(id: $id) }
+export const DELETE_AGENT_MUTATION = /* GraphQL */ `
+  mutation DeleteAgent($id: ID!) { deleteAgent(id: $id) }
 `;
 
-export const ADD_MEMORY_TO_BUNDLE_MUTATION = /* GraphQL */ `
-  ${MEMORY_BUNDLE_FIELDS}
-  mutation AddMemoryToBundle($bundleId: ID!, $memoryId: ID!) {
-    addMemoryToBundle(bundleId: $bundleId, memoryId: $memoryId) { ...MemoryBundleFields }
+export const ADD_MEMORY_TO_AGENT_MUTATION = /* GraphQL */ `
+  ${AGENT_FIELDS}
+  mutation AddMemoryToAgent($agentId: ID!, $memoryId: ID!) {
+    addMemoryToAgent(agentId: $agentId, memoryId: $memoryId) { ...AgentFields }
   }
 `;
 
-export const REMOVE_MEMORY_FROM_BUNDLE_MUTATION = /* GraphQL */ `
-  ${MEMORY_BUNDLE_FIELDS}
-  mutation RemoveMemoryFromBundle($bundleId: ID!, $memoryId: ID!) {
-    removeMemoryFromBundle(bundleId: $bundleId, memoryId: $memoryId) { ...MemoryBundleFields }
+export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
+  ${AGENT_FIELDS}
+  mutation RemoveMemoryFromAgent($agentId: ID!, $memoryId: ID!) {
+    removeMemoryFromAgent(agentId: $agentId, memoryId: $memoryId) { ...AgentFields }
   }
 `;
 
@@ -390,24 +390,24 @@ export const REVOKE_CLIENT_MUTATION = /* GraphQL */ `
   mutation RevokeClient($id: ID!) { revokeClient(id: $id) }
 `;
 
-export const SUBSCRIBE_CLIENT_TO_BUNDLE_MUTATION = /* GraphQL */ `
+export const SUBSCRIBE_CLIENT_TO_AGENT_MUTATION = /* GraphQL */ `
   ${CLIENT_FIELDS}
-  ${CLIENT_BUNDLE_SUB_FIELDS}
-  mutation SubscribeClientToBundle($clientId: ID!, $bundleId: ID!, $subscriptionType: SubscriptionType, $trainingMode: Boolean) {
-    subscribeClientToBundle(clientId: $clientId, bundleId: $bundleId, subscriptionType: $subscriptionType, trainingMode: $trainingMode) {
+  ${CLIENT_AGENT_SUB_FIELDS}
+  mutation SubscribeClientToAgent($clientId: ID!, $agentId: ID!, $subscriptionType: SubscriptionType, $trainingMode: Boolean) {
+    subscribeClientToAgent(clientId: $clientId, agentId: $agentId, subscriptionType: $subscriptionType, trainingMode: $trainingMode) {
       ...ClientFields
-      bundleSubscriptions { ...ClientBundleSubFields }
+      agentSubscriptions { ...ClientAgentSubFields }
     }
   }
 `;
 
-export const UNSUBSCRIBE_CLIENT_FROM_BUNDLE_MUTATION = /* GraphQL */ `
+export const UNSUBSCRIBE_CLIENT_FROM_AGENT_MUTATION = /* GraphQL */ `
   ${CLIENT_FIELDS}
-  ${CLIENT_BUNDLE_SUB_FIELDS}
-  mutation UnsubscribeClientFromBundle($clientId: ID!, $bundleId: ID!) {
-    unsubscribeClientFromBundle(clientId: $clientId, bundleId: $bundleId) {
+  ${CLIENT_AGENT_SUB_FIELDS}
+  mutation UnsubscribeClientFromAgent($clientId: ID!, $agentId: ID!) {
+    unsubscribeClientFromAgent(clientId: $clientId, agentId: $agentId) {
       ...ClientFields
-      bundleSubscriptions { ...ClientBundleSubFields }
+      agentSubscriptions { ...ClientAgentSubFields }
     }
   }
 `;

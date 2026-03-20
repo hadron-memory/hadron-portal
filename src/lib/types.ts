@@ -24,23 +24,23 @@ export interface MemorySubscription {
   organization: OrgSummary;
 }
 
-export interface MemoryBundle {
+export interface Agent {
   id: string;
   organizationId: string;
   name: string;
   description: string | null;
-  items: MemoryBundleItem[];
+  memoryItems: AgentMemoryItem[];
   createdAt: string;
 }
 
-export interface MemoryBundleItem {
+export interface AgentMemoryItem {
   id: string;
   memory: { id: string; name: string };
 }
 
-export interface ClientBundleSub {
+export interface ClientAgentSub {
   id: string;
-  bundle: { id: string; name: string; description: string | null };
+  agent: { id: string; name: string; description: string | null };
   subscriptionType: 'READ_ONLY' | 'READ_WRITE';
   trainingMode: boolean;
   createdAt: string;
@@ -64,7 +64,7 @@ export interface Organization {
   updatedAt: string;
   members?: OrgMember[];
   memories?: Memory[];
-  memoryBundles?: MemoryBundle[];
+  agents?: Agent[];
   subscriptions?: MemorySubscription[];
 }
 
@@ -214,5 +214,5 @@ export interface Client {
   createdAt: string;
   lastUsedAt: string | null;
   user?: UserSummary | null;
-  bundleSubscriptions?: ClientBundleSub[];
+  agentSubscriptions?: ClientAgentSub[];
 }

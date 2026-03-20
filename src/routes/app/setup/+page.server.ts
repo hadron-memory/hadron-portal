@@ -7,7 +7,7 @@ interface SetupInfo {
   clientId?: string;
   orgId?: string;
   orgName?: string;
-  bundleId?: string;
+  agentId?: string;
   graphs?: { id: string; name: string }[];
 }
 

@@ -5,8 +5,8 @@ import {
   MY_CLIENTS_QUERY,
   REGENERATE_API_KEY_MUTATION,
   REVOKE_CLIENT_MUTATION,
-  SUBSCRIBE_CLIENT_TO_BUNDLE_MUTATION,
-  UNSUBSCRIBE_CLIENT_FROM_BUNDLE_MUTATION,
+  SUBSCRIBE_CLIENT_TO_AGENT_MUTATION,
+  UNSUBSCRIBE_CLIENT_FROM_AGENT_MUTATION,
   UPDATE_CLIENT_MUTATION,
   MY_ORGANIZATIONS_QUERY,
 } from '$lib/server/queries';
@@ -52,12 +52,12 @@ export const actions: Actions = {
 
   subscribe: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const bundleId = String(fd.get('bundleId') ?? '');
+    const agentId = String(fd.get('agentId') ?? '');
     const subscriptionType = String(fd.get('subscriptionType') ?? 'READ_ONLY');
     const trainingMode = fd.get('trainingMode') === 'true';
     try {
-      await gqlClient(locals.token).request(SUBSCRIBE_CLIENT_TO_BUNDLE_MUTATION, {
-        clientId: params.id, bundleId, subscriptionType, trainingMode,
+      await gqlClient(locals.token).request(SUBSCRIBE_CLIENT_TO_AGENT_MUTATION, {
+        clientId: params.id, agentId, subscriptionType, trainingMode,
       });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to subscribe' });
@@ -66,9 +66,9 @@ export const actions: Actions = {
 
   unsubscribe: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const bundleId = String(fd.get('bundleId') ?? '');
+    const agentId = String(fd.get('agentId') ?? '');
     try {
-      await gqlClient(locals.token).request(UNSUBSCRIBE_CLIENT_FROM_BUNDLE_MUTATION, { clientId: params.id, bundleId });
+      await gqlClient(locals.token).request(UNSUBSCRIBE_CLIENT_FROM_AGENT_MUTATION, { clientId: params.id, agentId });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to unsubscribe' });
     }

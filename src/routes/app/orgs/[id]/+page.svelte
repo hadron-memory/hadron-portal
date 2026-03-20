@@ -95,23 +95,23 @@
     {/if}
   </section>
 
-  <!-- Memory Bundles -->
+  <!-- Agents -->
   <section>
     <div class="mb-3 flex items-center justify-between">
-      <h2 class="font-semibold text-zinc-900 dark:text-white">Memory Bundles <span class="ml-1 text-sm font-normal text-zinc-500">({org.memoryBundles?.length ?? 0})</span></h2>
+      <h2 class="font-semibold text-zinc-900 dark:text-white">Agents <span class="ml-1 text-sm font-normal text-zinc-500">({org.agents?.length ?? 0})</span></h2>
       <a href="/app/orgs/{org.id}/bundles" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
     </div>
-    {#if !org.memoryBundles?.length}
-      <p class="text-sm text-zinc-500">No memory bundles yet.</p>
+    {#if !org.agents?.length}
+      <p class="text-sm text-zinc-500">No agents yet.</p>
     {:else}
       <div class="grid gap-3 sm:grid-cols-2">
-        {#each org.memoryBundles as b (b.id)}
+        {#each org.agents as a (a.id)}
           <a href="/app/orgs/{org.id}/bundles" class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
-            <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{b.name}</p>
-            {#if b.description}
-              <p class="mt-1 text-xs text-zinc-500">{b.description}</p>
+            <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{a.name}</p>
+            {#if a.description}
+              <p class="mt-1 text-xs text-zinc-500">{a.description}</p>
             {/if}
-            <p class="mt-1 text-xs text-zinc-400">{b.items.length} memor{b.items.length !== 1 ? 'ies' : 'y'}</p>
+            <p class="mt-1 text-xs text-zinc-400">{a.memoryItems.length} memor{a.memoryItems.length !== 1 ? 'ies' : 'y'}</p>
           </a>
         {/each}
       </div>

@@ -29,7 +29,7 @@
             <p class="text-xs text-zinc-500">{client.clientType}{client.user ? ` · ${client.user.name ?? client.user.githubUsername ?? client.user.email}` : ''}</p>
           </div>
           <div class="text-right text-xs text-zinc-500">
-            <p>{client.bundleSubscriptions?.length ?? 0} bundle sub{client.bundleSubscriptions?.length === 1 ? '' : 's'}</p>
+            <p>{client.agentSubscriptions?.length ?? 0} agent sub{client.agentSubscriptions?.length === 1 ? '' : 's'}</p>
             {#if client.expiresAt}
               <p class="text-yellow-600">expires {new Date(client.expiresAt).toLocaleDateString()}</p>
             {/if}
