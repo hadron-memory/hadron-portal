@@ -159,7 +159,7 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
         id
         role
         activated
-        memory { ...MemoryFields }
+        memory { ...MemoryFields organization { id name domain } }
         organization { id name domain }
       }
     }

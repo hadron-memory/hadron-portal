@@ -25,6 +25,7 @@
     return JSON.stringify({
       mcpServers: {
         hadron: {
+          type: 'http',
           url: mcpUrl,
           headers: {
             Authorization: `Bearer ${setup.apiKey}`,

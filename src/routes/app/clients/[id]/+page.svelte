@@ -52,6 +52,7 @@
     return {
       mcpServers: {
         hadron: {
+          type: 'http',
           url: mcpUrl,
           headers: { Authorization: `Bearer ${apiKey}` },
         },

@@ -1,6 +1,7 @@
 export interface Memory {
   id: string;
   organizationId: string;
+  organization?: OrgSummary;
   name: string;
   source: string | null;
   readBranch: string | null;

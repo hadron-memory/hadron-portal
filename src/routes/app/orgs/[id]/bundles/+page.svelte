@@ -60,7 +60,9 @@
     {@const isExpanded = expandedId === agent.id}
     {@const isEditing = editingId === agent.id}
     {@const memoryIdsInAgent = new Set(agent.memoryItems.map((item) => item.memory.id))}
-    {@const availableMemories = (org.memories ?? []).filter((m) => !memoryIdsInAgent.has(m.id))}
+    {@const subscribedMemories = (org.subscriptions ?? []).map((s) => s.memory)}
+    {@const allMemories = [...(org.memories ?? []), ...subscribedMemories]}
+    {@const availableMemories = allMemories.filter((m) => !memoryIdsInAgent.has(m.id))}
 
     <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
       <!-- Header -->
@@ -149,8 +151,8 @@
               </div>
               <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">Add</button>
             </form>
-          {:else if (org.memories ?? []).length === 0}
-            <p class="text-xs text-zinc-500">No memories in this organization yet.</p>
+          {:else if allMemories.length === 0}
+            <p class="text-xs text-zinc-500">No memories available. Add owned or subscribed memories first.</p>
           {:else}
             <p class="text-xs text-zinc-500">All memories are already in this agent.</p>
           {/if}
