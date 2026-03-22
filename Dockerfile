@@ -1,7 +1,7 @@
 FROM node:22-alpine AS build
-RUN apk add --no-cache curl && \
+RUN apk add --no-cache curl gnupg && \
     curl -sLf --retry 3 --tlsv1.2 --proto "=https" 'https://cli.doppler.com/install.sh' | sh && \
-    apk del curl
+    apk del curl gnupg
 RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
@@ -11,9 +11,9 @@ ARG DOPPLER_TOKEN
 RUN doppler run -- pnpm run build
 
 FROM node:22-alpine
-RUN apk add --no-cache curl && \
+RUN apk add --no-cache curl gnupg && \
     curl -sLf --retry 3 --tlsv1.2 --proto "=https" 'https://cli.doppler.com/install.sh' | sh && \
-    apk del curl
+    apk del curl gnupg
 WORKDIR /app
 COPY --from=build /app/build ./build
 COPY --from=build /app/package.json ./
