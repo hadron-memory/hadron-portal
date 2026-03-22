@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import { env } from '$env/dynamic/public';
 
-  const controllerUrl = env.PUBLIC_CONTROLLER_URL ?? 'http://localhost:4000';
+  const serverUrl = env.SERVER_URL ?? 'http://localhost:4000';
 
   // If coming from marketplace with a memory param, redirect back there after auth
   const memoryId = $derived(page.url.searchParams.get('memory') ?? page.url.searchParams.get('graph'));
@@ -10,7 +10,7 @@
     memoryId ? `/browse?addMemory=${memoryId}` : '/app/dashboard'
   );
   const githubUrl = $derived(
-    `${controllerUrl}/auth/github?redirect=${encodeURIComponent(postAuthRedirect)}`
+    `${serverUrl}/auth/github?redirect=${encodeURIComponent(postAuthRedirect)}`
   );
 
   let email = $state('');
@@ -23,7 +23,7 @@
     error = '';
     loading = true;
     try {
-      const res = await fetch(`${controllerUrl}/auth/email`, {
+      const res = await fetch(`${serverUrl}/auth/email`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),

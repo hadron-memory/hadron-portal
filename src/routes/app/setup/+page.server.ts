@@ -12,18 +12,18 @@ interface SetupInfo {
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
-  const controllerUrl = env.CONTROLLER_URL ?? 'http://localhost:4000';
+  const serverUrl = env.LOCAL_SERVER_URL ?? 'http://localhost:4000';
 
   try {
-    const res = await fetch(`${controllerUrl}/setup/info`, {
+    const res = await fetch(`${serverUrl}/setup/info`, {
       headers: { Authorization: `Bearer ${locals.token}` },
     });
     const setup: SetupInfo = await res.json();
-    return { setup, controllerUrl };
+    return { setup, serverUrl };
   } catch {
     return {
       setup: { hasSetup: false } as SetupInfo,
-      controllerUrl,
+      serverUrl,
     };
   }
 };

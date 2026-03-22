@@ -76,9 +76,9 @@
           { value: 'CODEX', label: 'Codex CLI' },
           { value: 'CLINE', label: 'Cline' },
         ] as tool (tool.value)}
-          <label class="flex items-center gap-2 text-sm text-zinc-300">
+          <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
             <input type="checkbox" name="agentTools" value={tool.value}
-              class="rounded border-zinc-600 bg-zinc-800 text-indigo-500 focus:ring-indigo-500" />
+              class="rounded border-zinc-300 bg-white text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
             {tool.label}
           </label>
         {/each}
