@@ -18,5 +18,5 @@ WORKDIR /app
 COPY --from=build /app/build ./build
 COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules ./node_modules
-EXPOSE 3000
+EXPOSE 10400
 CMD ["doppler", "run", "--", "node", "build"]
