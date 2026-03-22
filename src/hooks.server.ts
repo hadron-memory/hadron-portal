@@ -1,7 +1,7 @@
 import type { Handle } from '@sveltejs/kit';
 
 /** Decode the JWT payload without verifying the signature.
- *  Verification is the controller's responsibility; we just read the claims. */
+ *  Verification is the server's responsibility; we just read the claims. */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const [, payload] = token.split('.');

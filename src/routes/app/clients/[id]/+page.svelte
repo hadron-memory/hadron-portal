@@ -41,11 +41,11 @@
   }
 
   // ── Zip download ──────────────────────────────────────────────────────
-  const controllerUrl = env.PUBLIC_CONTROLLER_URL ?? 'http://localhost:4000';
+  const serverUrl = env.SERVER_URL ?? 'http://localhost:4000';
   const mcpUrl = $derived(
-    controllerUrl.includes('localhost')
-      ? controllerUrl + '/mcp'
-      : controllerUrl.replace(/\/$/, '') + '/mcp'
+    serverUrl.includes('localhost')
+      ? serverUrl + '/mcp'
+      : serverUrl.replace(/\/$/, '') + '/mcp'
   );
 
   function mcpConfig(apiKey: string) {
@@ -339,7 +339,7 @@ Start by searching for relevant nodes before creating new ones.
             <input type="checkbox"
               checked={selectedTools.has(tool.value)}
               onclick={() => toggleTool(tool.value)}
-              class="rounded border-zinc-600 bg-zinc-800 text-indigo-500 focus:ring-indigo-500" />
+              class="rounded border-zinc-300 bg-white text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
             {tool.label}
           </label>
         {/each}

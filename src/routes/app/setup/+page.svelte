@@ -5,9 +5,9 @@
 
   const setup = $derived(data.setup);
   const mcpUrl = $derived(
-    data.controllerUrl.includes('localhost')
-      ? data.controllerUrl + '/mcp'
-      : data.controllerUrl.replace(/\/$/, '') + '/mcp'
+    data.serverUrl.includes('localhost')
+      ? data.serverUrl + '/mcp'
+      : data.serverUrl.replace(/\/$/, '') + '/mcp'
   );
 
   let selectedTool = $state('claude-desktop');

@@ -299,7 +299,7 @@
                     <li>Or for a personal account: Settings &rarr; Developer settings &rarr; GitHub Apps &rarr; New GitHub App</li>
                     <li>Give it a name (e.g. <code class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">my-org-hadron-sync</code>)</li>
                     <li>Set the Homepage URL to any URL (e.g. your company website)</li>
-                    <li>Under Webhook, set the URL to <code class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">https://&lt;your-controller&gt;/github/webhook</code> and set a webhook secret (must match <code class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">GITHUB_WEBHOOK_SECRET</code> in the controller)</li>
+                    <li>Under Webhook, set the URL to <code class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">https://&lt;your-server&gt;/github/webhook</code> and set a webhook secret (must match <code class="rounded bg-zinc-200 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-800">GITHUB_WEBHOOK_SECRET</code> in the server)</li>
                     <li>Subscribe to <span class="font-medium text-zinc-700 dark:text-zinc-300">Push</span> events (for auto-sync on merge)</li>
                     <li>Under Repository permissions, set <span class="font-medium text-zinc-700 dark:text-zinc-300">Contents</span> to <span class="font-medium text-zinc-700 dark:text-zinc-300">Read & write</span> (needed for creating PRs with memory changes)</li>
                     <li>Under "Where can this GitHub App be installed?", select "Only on this account"</li>
