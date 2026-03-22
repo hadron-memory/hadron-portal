@@ -41,7 +41,7 @@
   }
 
   // ── Zip download ──────────────────────────────────────────────────────
-  const serverUrl = env.SERVER_URL ?? 'http://localhost:4000';
+  const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
   const mcpUrl = $derived(
     serverUrl.includes('localhost')
       ? serverUrl + '/mcp'

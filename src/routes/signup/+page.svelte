@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import { env } from '$env/dynamic/public';
 
-  const serverUrl = env.SERVER_URL ?? 'http://localhost:4000';
+  const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
 
   // If coming from marketplace with a memory param, redirect back there after auth
   const memoryId = $derived(page.url.searchParams.get('memory') ?? page.url.searchParams.get('graph'));
