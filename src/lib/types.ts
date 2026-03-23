@@ -39,7 +39,7 @@ export interface AgentMemoryItem {
   memory: { id: string; name: string };
 }
 
-export interface ClientAgentSub {
+export interface StationAgentSub {
   id: string;
   agent: { id: string; name: string; description: string | null };
   subscriptionType: 'READ_ONLY' | 'READ_WRITE';
@@ -142,7 +142,7 @@ export interface UsageEvent {
   id: string;
   type: string;
   nodeLoc: string | null;
-  clientId: string | null;
+  stationId: string | null;
   sessionId: string | null;
   model: string | null;
   tokensIn: number | null;
@@ -197,13 +197,13 @@ export interface GraphViewData {
 }
 
 // ---------------------------------------------------------------------------
-// Client types
+// Station types
 // ---------------------------------------------------------------------------
 
-export interface Client {
+export interface Station {
   id: string;
   label: string;
-  clientType: string;
+  stationType: string;
   description: string | null;
   role: string;
   apiKeyShown: boolean;
@@ -215,5 +215,5 @@ export interface Client {
   createdAt: string;
   lastUsedAt: string | null;
   user?: UserSummary | null;
-  agentSubscriptions?: ClientAgentSub[];
+  agentSubscriptions?: StationAgentSub[];
 }

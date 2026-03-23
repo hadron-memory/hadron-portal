@@ -18,8 +18,8 @@
       <p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{memoryCount}</p>
     </div>
     <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-      <p class="text-sm text-zinc-500 dark:text-zinc-400">Clients</p>
-      <p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{data.clients.length}</p>
+      <p class="text-sm text-zinc-500 dark:text-zinc-400">Stations</p>
+      <p class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{data.stations.length}</p>
     </div>
     {#if !data.isConsumerMode}
       <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

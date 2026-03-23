@@ -2,31 +2,31 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
-  MY_CLIENTS_QUERY,
+  MY_STATIONS_QUERY,
   REGENERATE_API_KEY_MUTATION,
-  REVOKE_CLIENT_MUTATION,
-  SUBSCRIBE_CLIENT_TO_AGENT_MUTATION,
-  UNSUBSCRIBE_CLIENT_FROM_AGENT_MUTATION,
-  UPDATE_CLIENT_MUTATION,
+  REVOKE_STATION_MUTATION,
+  SUBSCRIBE_STATION_TO_AGENT_MUTATION,
+  UNSUBSCRIBE_STATION_FROM_AGENT_MUTATION,
+  UPDATE_STATION_MUTATION,
   MY_ORGANIZATIONS_QUERY,
 } from '$lib/server/queries';
-import type { Client, Organization } from '$lib/types';
+import type { Station, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   await requireNonConsumer(parent);
-  const [clientsData, orgsData] = await Promise.all([
-    gqlClient(locals.token).request<{ myClients: Client[] }>(MY_CLIENTS_QUERY)
-      .catch(() => ({ myClients: [] as Client[] })),
+  const [stationsData, orgsData] = await Promise.all([
+    gqlClient(locals.token).request<{ myStations: Station[] }>(MY_STATIONS_QUERY)
+      .catch(() => ({ myStations: [] as Station[] })),
     gqlClient(locals.token).request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
       .catch(() => ({ myOrganizations: [] as Organization[] })),
   ]);
 
-  const client = clientsData.myClients.find((c) => c.id === params.id);
-  if (!client) throw error(404, 'Client not found');
+  const station = stationsData.myStations.find((c) => c.id === params.id);
+  if (!station) throw error(404, 'Station not found');
 
   const newKey = url.searchParams.get('newKey') ?? null;
-  return { client, newKey, orgs: orgsData.myOrganizations };
+  return { station, newKey, orgs: orgsData.myOrganizations };
 };
 
 export const actions: Actions = {
@@ -35,7 +35,7 @@ export const actions: Actions = {
       const result = await gqlClient(locals.token).request<{ regenerateApiKey: { rawKey: string } }>(
         REGENERATE_API_KEY_MUTATION, { id: params.id },
       );
-      redirect(303, `/app/clients/${params.id}?newKey=${encodeURIComponent(result.regenerateApiKey.rawKey)}`);
+      redirect(303, `/app/stations/${params.id}?newKey=${encodeURIComponent(result.regenerateApiKey.rawKey)}`);
     } catch (e: unknown) {
       if ((e as { status?: number }).status === 303) throw e;
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to regenerate key' });
@@ -44,7 +44,7 @@ export const actions: Actions = {
 
   revoke: async ({ params, locals }) => {
     try {
-      await gqlClient(locals.token).request(REVOKE_CLIENT_MUTATION, { id: params.id });
+      await gqlClient(locals.token).request(REVOKE_STATION_MUTATION, { id: params.id });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to revoke' });
     }
@@ -56,8 +56,8 @@ export const actions: Actions = {
     const subscriptionType = String(fd.get('subscriptionType') ?? 'READ_ONLY');
     const trainingMode = fd.get('trainingMode') === 'true';
     try {
-      await gqlClient(locals.token).request(SUBSCRIBE_CLIENT_TO_AGENT_MUTATION, {
-        clientId: params.id, agentId, subscriptionType, trainingMode,
+      await gqlClient(locals.token).request(SUBSCRIBE_STATION_TO_AGENT_MUTATION, {
+        stationId: params.id, agentId, subscriptionType, trainingMode,
       });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to subscribe' });
@@ -68,7 +68,7 @@ export const actions: Actions = {
     const fd = await request.formData();
     const agentId = String(fd.get('agentId') ?? '');
     try {
-      await gqlClient(locals.token).request(UNSUBSCRIBE_CLIENT_FROM_AGENT_MUTATION, { clientId: params.id, agentId });
+      await gqlClient(locals.token).request(UNSUBSCRIBE_STATION_FROM_AGENT_MUTATION, { stationId: params.id, agentId });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to unsubscribe' });
     }
@@ -78,7 +78,7 @@ export const actions: Actions = {
     const fd = await request.formData();
     const agentTools = fd.getAll('agentTools').map(String);
     try {
-      await gqlClient(locals.token).request(UPDATE_CLIENT_MUTATION, { id: params.id, agentTools });
+      await gqlClient(locals.token).request(UPDATE_STATION_MUTATION, { id: params.id, agentTools });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to update agent tools' });
     }

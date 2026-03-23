@@ -5,12 +5,12 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 </script>
 
-<svelte:head><title>New client · Hadron</title></svelte:head>
+<svelte:head><title>New station · Hadron</title></svelte:head>
 
 <div class="max-w-lg">
   <div class="mb-6">
-    <a href="/app/clients" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Clients</a>
-    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">New client</h1>
+    <a href="/app/stations" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Stations</a>
+    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">New station</h1>
   </div>
 
   <form method="POST" use:enhance class="space-y-5">
@@ -25,8 +25,8 @@
     </div>
 
     <div>
-      <label for="clientType" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
-      <select id="clientType" name="clientType" class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
+      <label for="stationType" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+      <select id="stationType" name="stationType" class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
         <option value="WORKSTATION">💻 Workstation</option>
         <option value="AGENT">🤖 Agent</option>
         <option value="CLOUD">☁️ Cloud</option>
@@ -66,7 +66,7 @@
     </div>
 
     <fieldset>
-      <legend class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AI agent tools <span class="text-zinc-500">(select the tools this client will use)</span></legend>
+      <legend class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AI agent tools <span class="text-zinc-500">(select the tools this station will use)</span></legend>
       <div class="space-y-2">
         {#each [
           { value: 'CLAUDE_CODE', label: 'Claude Code' },
@@ -92,7 +92,7 @@
     </div>
 
     <button type="submit" class="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500">
-      Create client
+      Create station
     </button>
   </form>
 </div>

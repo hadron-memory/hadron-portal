@@ -1,13 +1,13 @@
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { MY_CLIENTS_QUERY } from '$lib/server/queries';
-import type { Client } from '$lib/types';
+import { MY_STATIONS_QUERY } from '$lib/server/queries';
+import type { Station } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token)
-    .request<{ myClients: Client[] }>(MY_CLIENTS_QUERY)
-    .catch(() => ({ myClients: [] as Client[] }));
-  return { clients: data.myClients };
+    .request<{ myStations: Station[] }>(MY_STATIONS_QUERY)
+    .catch(() => ({ myStations: [] as Station[] }));
+  return { stations: data.myStations };
 };

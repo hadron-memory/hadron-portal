@@ -16,7 +16,7 @@
     { href: '/app/graphs', label: 'My Memories' },
     { href: '/app/marketplace', label: 'Browse Marketplace' },
     { href: '/app/orgs', label: 'Organizations' },
-    { href: '/app/clients', label: 'Clients' },
+    { href: '/app/stations', label: 'Stations' },
     { href: '/app/setup', label: 'AI Setup' },
   ];
 

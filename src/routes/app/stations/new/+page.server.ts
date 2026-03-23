@@ -1,7 +1,7 @@
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { CREATE_CLIENT_MUTATION, MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
+import { CREATE_STATION_MUTATION, MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -17,7 +17,7 @@ export const actions: Actions = {
   default: async ({ request, locals }) => {
     const fd = await request.formData();
     const label = String(fd.get('label') ?? '').trim();
-    const clientType = String(fd.get('clientType') ?? 'WORKSTATION');
+    const stationType = String(fd.get('stationType') ?? 'WORKSTATION');
     const role = String(fd.get('role') ?? 'READER');
     const organizationId = String(fd.get('organizationId') ?? '').trim() || null;
     const description = String(fd.get('description') ?? '').trim() || null;
@@ -28,15 +28,15 @@ export const actions: Actions = {
     if (!label) return fail(400, { error: 'Label is required' });
 
     try {
-      const data = await gqlClient(locals.token).request<{ createClient: { client: { id: string }; rawKey: string } }>(
-        CREATE_CLIENT_MUTATION,
-        { label, clientType, role, organizationId, userId: locals.user?.id ?? null, description, namespace, expiresAt, agentTools },
+      const data = await gqlClient(locals.token).request<{ createStation: { station: { id: string }; rawKey: string } }>(
+        CREATE_STATION_MUTATION,
+        { label, stationType, role, organizationId, userId: locals.user?.id ?? null, description, namespace, expiresAt, agentTools },
       );
       // Pass the rawKey via search param so the detail page can show it once
-      redirect(303, `/app/clients/${data.createClient.client.id}?newKey=${encodeURIComponent(data.createClient.rawKey)}`);
+      redirect(303, `/app/stations/${data.createStation.station.id}?newKey=${encodeURIComponent(data.createStation.rawKey)}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create client' });
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create station' });
     }
   },
 };

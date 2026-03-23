@@ -17,7 +17,7 @@
     <div>
       <a href="/app/orgs/{org.id}" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">&larr; {org.name}</a>
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Agents</h1>
-      <p class="text-sm text-zinc-500">Group memories into agents for client subscriptions.</p>
+      <p class="text-sm text-zinc-500">Group memories into agents for station subscriptions.</p>
     </div>
     <button
       onclick={() => { showCreate = !showCreate; }}
@@ -53,7 +53,7 @@
 
   <!-- Agent list -->
   {#if !org.agents?.length && !showCreate}
-    <p class="text-sm text-zinc-500">No agents yet. Create one to group memories for client subscriptions.</p>
+    <p class="text-sm text-zinc-500">No agents yet. Create one to group memories for station subscriptions.</p>
   {/if}
 
   {#each org.agents ?? [] as agent (agent.id)}

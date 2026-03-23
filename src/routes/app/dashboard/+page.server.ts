@@ -1,22 +1,22 @@
 import { gqlClient } from '$lib/server/api';
 import {
-  MY_CLIENTS_QUERY,
+  MY_STATIONS_QUERY,
   MY_MEMORIES_QUERY,
 } from '$lib/server/queries';
-import type { Client, Memory } from '$lib/types';
+import type { Station, Memory } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
   const apiClient = gqlClient(locals.token);
   const parentData = await parent();
-  const [clientsData, memoriesData] = await Promise.all([
-    apiClient.request<{ myClients: Client[] }>(MY_CLIENTS_QUERY).catch(() => ({ myClients: [] as Client[] })),
+  const [stationsData, memoriesData] = await Promise.all([
+    apiClient.request<{ myStations: Station[] }>(MY_STATIONS_QUERY).catch(() => ({ myStations: [] as Station[] })),
     apiClient.request<{ myMemories: Memory[] }>(MY_MEMORIES_QUERY).catch(() => ({ myMemories: [] as Memory[] })),
   ]);
   return {
     orgs: parentData.orgs,
     isConsumerMode: parentData.isConsumerMode,
-    clients: clientsData.myClients,
+    stations: stationsData.myStations,
     memories: memoriesData.myMemories,
   };
 };

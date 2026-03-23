@@ -6,10 +6,10 @@
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
-  const client = $derived(data.client);
+  const station = $derived(data.station);
 
   // Collect accessible agents from orgs for the subscribe dropdown
-  const subscribedAgentIds = $derived(new Set((client.agentSubscriptions ?? []).map((s) => s.agent.id)));
+  const subscribedAgentIds = $derived(new Set((station.agentSubscriptions ?? []).map((s) => s.agent.id)));
   const availableAgents = $derived(
     (data.orgs ?? []).flatMap((o) => o.agents ?? []).filter((a) => !subscribedAgentIds.has(a.id))
   );
@@ -28,7 +28,7 @@
   let editingSubId = $state<string | null>(null);
   let downloading = $state(false);
   let agentToolsForm = $state<HTMLFormElement>();
-  let selectedTools = $state<Set<string>>(new Set(client.agentTools ?? []));
+  let selectedTools = $state<Set<string>>(new Set(station.agentTools ?? []));
 
   function toggleTool(value: string) {
     if (selectedTools.has(value)) {
@@ -81,7 +81,7 @@ Start by searching for relevant nodes before creating new ones.
 
   async function generateAndDownloadZip(apiKey: string) {
     const zip = new JSZip();
-    const tools = client.agentTools ?? [];
+    const tools = station.agentTools ?? [];
     const config = mcpConfig(apiKey);
     const configJson = JSON.stringify(config, null, 2);
 
@@ -143,7 +143,7 @@ Start by searching for relevant nodes before creating new ones.
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `hadron-setup-${client.label}.zip`;
+    a.download = `hadron-setup-${station.label}.zip`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -156,7 +156,7 @@ Start by searching for relevant nodes before creating new ones.
       const res = await fetch('/api/regenerate-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientId: client.id }),
+        body: JSON.stringify({ stationId: station.id }),
       });
       if (!res.ok) {
         alert('Failed to generate API key. Please try again.');
@@ -174,23 +174,23 @@ Start by searching for relevant nodes before creating new ones.
   }
 </script>
 
-<svelte:head><title>{client.label} · Hadron</title></svelte:head>
+<svelte:head><title>{station.label} · Hadron</title></svelte:head>
 
 <div class="space-y-8">
   <div class="flex items-start justify-between">
     <div>
-      <a href="/app/clients" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Clients</a>
+      <a href="/app/stations" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Stations</a>
       <h1 class="mt-1 flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
-        <span>{typeIcon[client.clientType] ?? '🔑'}</span>
-        {client.label}
+        <span>{typeIcon[station.stationType] ?? '🔑'}</span>
+        {station.label}
       </h1>
-      {#if client.user}
-        <p class="text-sm text-zinc-500">Owned by {client.user.name ?? client.user.githubUsername ?? client.user.email}</p>
+      {#if station.user}
+        <p class="text-sm text-zinc-500">Owned by {station.user.name ?? station.user.githubUsername ?? station.user.email}</p>
       {/if}
     </div>
     <form method="POST" action="?/revoke" use:enhance onsubmit={(e) => {
-      if (!confirm(`Delete client "${client.label}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
-      else goto('/app/clients');
+      if (!confirm(`Delete station "${station.label}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
+      else goto('/app/stations');
     }}>
       <button type="submit" class="rounded-md border border-red-800 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950">Delete</button>
     </form>
@@ -204,26 +204,26 @@ Start by searching for relevant nodes before creating new ones.
   <section class="grid gap-3 text-sm sm:grid-cols-2">
     <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
       <p class="text-xs text-zinc-500">Type</p>
-      <p class="mt-1 font-medium text-zinc-900 dark:text-white">{client.clientType}</p>
+      <p class="mt-1 font-medium text-zinc-900 dark:text-white">{station.stationType}</p>
     </div>
     <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
       <p class="text-xs text-zinc-500">Role</p>
-      <p class="mt-1 font-medium text-zinc-900 dark:text-white">{client.role}</p>
+      <p class="mt-1 font-medium text-zinc-900 dark:text-white">{station.role}</p>
     </div>
-    {#if client.expiresAt}
+    {#if station.expiresAt}
       <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <p class="text-xs text-zinc-500">Expires</p>
-        <p class="mt-1 font-medium text-yellow-600 dark:text-yellow-300">{new Date(client.expiresAt).toLocaleDateString()}</p>
+        <p class="mt-1 font-medium text-yellow-600 dark:text-yellow-300">{new Date(station.expiresAt).toLocaleDateString()}</p>
       </div>
     {/if}
     <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
       <p class="text-xs text-zinc-500">Created</p>
-      <p class="mt-1 text-zinc-900 dark:text-white">{new Date(client.createdAt).toLocaleDateString()}</p>
+      <p class="mt-1 text-zinc-900 dark:text-white">{new Date(station.createdAt).toLocaleDateString()}</p>
     </div>
-    {#if client.lastUsedAt}
+    {#if station.lastUsedAt}
       <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
         <p class="text-xs text-zinc-500">Last used</p>
-        <p class="mt-1 text-zinc-900 dark:text-white">{new Date(client.lastUsedAt).toLocaleDateString()}</p>
+        <p class="mt-1 text-zinc-900 dark:text-white">{new Date(station.lastUsedAt).toLocaleDateString()}</p>
       </div>
     {/if}
   </section>
@@ -231,12 +231,12 @@ Start by searching for relevant nodes before creating new ones.
   <!-- Agent subscriptions -->
   <section>
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Agent Subscriptions
-      <span class="ml-1 text-sm font-normal text-zinc-500">({client.agentSubscriptions?.length ?? 0})</span>
+      <span class="ml-1 text-sm font-normal text-zinc-500">({station.agentSubscriptions?.length ?? 0})</span>
     </h2>
 
-    {#if client.agentSubscriptions?.length}
+    {#if station.agentSubscriptions?.length}
       <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-        {#each client.agentSubscriptions as sub (sub.id)}
+        {#each station.agentSubscriptions as sub (sub.id)}
           {#if editingSubId === sub.id}
             <div class="bg-white px-5 py-4 dark:bg-zinc-900">
               <div class="mb-3 flex items-center justify-between">
@@ -322,9 +322,9 @@ Start by searching for relevant nodes before creating new ones.
     {/if}
   </section>
 
-  <!-- Client Configuration -->
+  <!-- Station Configuration -->
   <section>
-    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Client Configuration</h2>
+    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Station Configuration</h2>
 
     <form method="POST" action="?/updateAgentTools" use:enhance={() => {
         return async ({ update }) => { await update({ reset: false }); };

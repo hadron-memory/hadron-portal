@@ -8,15 +8,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { clientId } = await request.json();
-  if (!clientId) {
-    return json({ error: 'clientId is required' }, { status: 400 });
+  const { stationId } = await request.json();
+  if (!stationId) {
+    return json({ error: 'stationId is required' }, { status: 400 });
   }
 
   try {
     const result = await gqlClient(locals.token).request<{
       regenerateApiKey: { rawKey: string };
-    }>(REGENERATE_API_KEY_MUTATION, { id: clientId });
+    }>(REGENERATE_API_KEY_MUTATION, { id: stationId });
 
     return json({ rawKey: result.regenerateApiKey.rawKey });
   } catch (e: unknown) {

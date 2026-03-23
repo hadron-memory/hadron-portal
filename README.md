@@ -101,9 +101,9 @@ The frontend never sees or stores OAuth credentials or email tokens.
 | `/app/orgs/[id]/graphs/[gid]/nodes` | Node list with usage stats and sorting |
 | `/app/orgs/[id]/graphs/[gid]/browse` | Force-directed graph visualization |
 | `/app/orgs/[id]/bundles` | Manage graph bundles |
-| `/app/clients` | List API clients |
-| `/app/clients/new` | Create API client |
-| `/app/clients/[id]` | Client detail, bundle subscriptions |
+| `/app/stations` | List API stations |
+| `/app/stations/new` | Create API station |
+| `/app/stations/[id]` | Station detail, bundle subscriptions |
 
 All `/app/*` routes require authentication and redirect to `/` otherwise.
 
@@ -111,8 +111,8 @@ All `/app/*` routes require authentication and redirect to `/` otherwise.
 
 The UI adapts based on whether the user is in **consumer mode** — determined by having exactly one organization with `isVisible: null` (the auto-created org for users who signed up without an invitation).
 
-- **Consumer mode**: Dashboard, My Memories, Browse Marketplace, AI Setup. Organization and client management routes redirect to the dashboard.
-- **Full mode**: Dashboard, My Memories, Browse Marketplace, Organizations, Clients, AI Setup.
+- **Consumer mode**: Dashboard, My Memories, Browse Marketplace, AI Setup. Organization and station management routes redirect to the dashboard.
+- **Full mode**: Dashboard, My Memories, Browse Marketplace, Organizations, Stations, AI Setup.
 
 The transition is automatic — when a user creates a real organization or is invited to one, the full navigation appears. The `isConsumerMode` flag is derived server-side in the `/app` layout and flows through `$page.data`.
 

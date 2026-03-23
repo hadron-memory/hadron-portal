@@ -4,7 +4,7 @@ import type { PageServerLoad } from './$types';
 interface SetupInfo {
   hasSetup: boolean;
   apiKey?: string;
-  clientId?: string;
+  stationId?: string;
   orgId?: string;
   orgName?: string;
   agentId?: string;

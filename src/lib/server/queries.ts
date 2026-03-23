@@ -34,11 +34,11 @@ export const ORG_FIELDS = /* GraphQL */ `
   }
 `;
 
-export const CLIENT_FIELDS = /* GraphQL */ `
-  fragment ClientFields on Client {
+export const STATION_FIELDS = /* GraphQL */ `
+  fragment StationFields on Station {
     id
     label
-    clientType
+    stationType
     description
     role
     apiKeyShown
@@ -52,8 +52,8 @@ export const CLIENT_FIELDS = /* GraphQL */ `
   }
 `;
 
-export const CLIENT_AGENT_SUB_FIELDS = /* GraphQL */ `
-  fragment ClientAgentSubFields on ClientAgentSub {
+export const STATION_AGENT_SUB_FIELDS = /* GraphQL */ `
+  fragment StationAgentSubFields on StationAgentSub {
     id
     agent {
       id
@@ -166,25 +166,25 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
   }
 `;
 
-export const MY_CLIENTS_QUERY = /* GraphQL */ `
-  ${CLIENT_FIELDS}
-  ${CLIENT_AGENT_SUB_FIELDS}
-  query MyClients {
-    myClients {
-      ...ClientFields
-      agentSubscriptions { ...ClientAgentSubFields }
+export const MY_STATIONS_QUERY = /* GraphQL */ `
+  ${STATION_FIELDS}
+  ${STATION_AGENT_SUB_FIELDS}
+  query MyStations {
+    myStations {
+      ...StationFields
+      agentSubscriptions { ...StationAgentSubFields }
     }
   }
 `;
 
-export const CLIENT_QUERY = /* GraphQL */ `
-  ${CLIENT_FIELDS}
-  ${CLIENT_AGENT_SUB_FIELDS}
-  query Client($id: ID!) {
-    client(id: $id) {
-      ...ClientFields
+export const STATION_QUERY = /* GraphQL */ `
+  ${STATION_FIELDS}
+  ${STATION_AGENT_SUB_FIELDS}
+  query Station($id: ID!) {
+    station(id: $id) {
+      ...StationFields
       user { id githubUsername name avatarUrl email }
-      agentSubscriptions { ...ClientAgentSubFields }
+      agentSubscriptions { ...StationAgentSubFields }
     }
   }
 `;
@@ -347,67 +347,67 @@ export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
 `;
 
 // ---------------------------------------------------------------------------
-// Client mutations
+// Station mutations
 // ---------------------------------------------------------------------------
 
-export const CREATE_CLIENT_MUTATION = /* GraphQL */ `
-  ${CLIENT_FIELDS}
-  mutation CreateClient(
-    $label: String!, $clientType: ClientType!, $role: Role!,
+export const CREATE_STATION_MUTATION = /* GraphQL */ `
+  ${STATION_FIELDS}
+  mutation CreateStation(
+    $label: String!, $stationType: StationType!, $role: Role!,
     $description: String, $namespace: String,
     $organizationId: String, $userId: String, $expiresAt: String,
     $agentTools: [String!]
   ) {
-    createClient(
-      label: $label, clientType: $clientType, role: $role,
+    createStation(
+      label: $label, stationType: $stationType, role: $role,
       description: $description, namespace: $namespace,
       organizationId: $organizationId, userId: $userId, expiresAt: $expiresAt,
       agentTools: $agentTools
     ) {
       rawKey
-      client { ...ClientFields }
+      station { ...StationFields }
     }
   }
 `;
 
-export const UPDATE_CLIENT_MUTATION = /* GraphQL */ `
-  ${CLIENT_FIELDS}
-  mutation UpdateClient($id: ID!, $description: String, $agentTools: [String!]) {
-    updateClient(id: $id, description: $description, agentTools: $agentTools) {
-      ...ClientFields
+export const UPDATE_STATION_MUTATION = /* GraphQL */ `
+  ${STATION_FIELDS}
+  mutation UpdateStation($id: ID!, $description: String, $agentTools: [String!]) {
+    updateStation(id: $id, description: $description, agentTools: $agentTools) {
+      ...StationFields
     }
   }
 `;
 
 export const REGENERATE_API_KEY_MUTATION = /* GraphQL */ `
-  ${CLIENT_FIELDS}
+  ${STATION_FIELDS}
   mutation RegenerateApiKey($id: ID!) {
-    regenerateApiKey(id: $id) { rawKey client { ...ClientFields } }
+    regenerateApiKey(id: $id) { rawKey station { ...StationFields } }
   }
 `;
 
-export const REVOKE_CLIENT_MUTATION = /* GraphQL */ `
-  mutation RevokeClient($id: ID!) { revokeClient(id: $id) }
+export const REVOKE_STATION_MUTATION = /* GraphQL */ `
+  mutation RevokeStation($id: ID!) { revokeStation(id: $id) }
 `;
 
-export const SUBSCRIBE_CLIENT_TO_AGENT_MUTATION = /* GraphQL */ `
-  ${CLIENT_FIELDS}
-  ${CLIENT_AGENT_SUB_FIELDS}
-  mutation SubscribeClientToAgent($clientId: ID!, $agentId: ID!, $subscriptionType: SubscriptionType, $trainingMode: Boolean) {
-    subscribeClientToAgent(clientId: $clientId, agentId: $agentId, subscriptionType: $subscriptionType, trainingMode: $trainingMode) {
-      ...ClientFields
-      agentSubscriptions { ...ClientAgentSubFields }
+export const SUBSCRIBE_STATION_TO_AGENT_MUTATION = /* GraphQL */ `
+  ${STATION_FIELDS}
+  ${STATION_AGENT_SUB_FIELDS}
+  mutation SubscribeStationToAgent($stationId: ID!, $agentId: ID!, $subscriptionType: SubscriptionType, $trainingMode: Boolean) {
+    subscribeStationToAgent(stationId: $stationId, agentId: $agentId, subscriptionType: $subscriptionType, trainingMode: $trainingMode) {
+      ...StationFields
+      agentSubscriptions { ...StationAgentSubFields }
     }
   }
 `;
 
-export const UNSUBSCRIBE_CLIENT_FROM_AGENT_MUTATION = /* GraphQL */ `
-  ${CLIENT_FIELDS}
-  ${CLIENT_AGENT_SUB_FIELDS}
-  mutation UnsubscribeClientFromAgent($clientId: ID!, $agentId: ID!) {
-    unsubscribeClientFromAgent(clientId: $clientId, agentId: $agentId) {
-      ...ClientFields
-      agentSubscriptions { ...ClientAgentSubFields }
+export const UNSUBSCRIBE_STATION_FROM_AGENT_MUTATION = /* GraphQL */ `
+  ${STATION_FIELDS}
+  ${STATION_AGENT_SUB_FIELDS}
+  mutation UnsubscribeStationFromAgent($stationId: ID!, $agentId: ID!) {
+    unsubscribeStationFromAgent(stationId: $stationId, agentId: $agentId) {
+      ...StationFields
+      agentSubscriptions { ...StationAgentSubFields }
     }
   }
 `;
@@ -518,7 +518,7 @@ export const NODE_USAGE_QUERY = /* GraphQL */ `
       id
       type
       nodeLoc
-      clientId
+      stationId
       sessionId
       model
       tokensIn
