@@ -7,6 +7,16 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     id
     organizationId
     name
+    shortDescription
+    description
+    tags
+    license
+    category0
+    category1
+    category2
+    iconUrl
+    heroUrl
+    homeUrl
     source
     readBranch
     writeBranch
@@ -252,12 +262,18 @@ export const REMOVE_MEMBER_MUTATION = /* GraphQL */ `
 export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation CreateMemory(
-    $orgId: ID!, $name: String!, $source: String,
-    $readBranch: String, $writeBranch: String, $visibility: MemoryVisibility
+    $orgId: ID!, $name: String!, $shortDescription: String, $description: String,
+    $tags: [String!], $license: String,
+    $category0: String, $category1: String, $category2: String,
+    $iconUrl: String, $heroUrl: String, $homeUrl: String,
+    $source: String, $readBranch: String, $writeBranch: String, $visibility: MemoryVisibility
   ) {
     createMemory(
-      orgId: $orgId, name: $name, source: $source,
-      readBranch: $readBranch, writeBranch: $writeBranch,
+      orgId: $orgId, name: $name, shortDescription: $shortDescription, description: $description,
+      tags: $tags, license: $license,
+      category0: $category0, category1: $category1, category2: $category2,
+      iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
+      source: $source, readBranch: $readBranch, writeBranch: $writeBranch,
       visibility: $visibility
     ) { ...MemoryFields }
   }
@@ -266,12 +282,19 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
 export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation UpdateMemory(
-    $id: ID!, $source: String, $readBranch: String,
-    $writeBranch: String, $visibility: MemoryVisibility
+    $id: ID!, $shortDescription: String, $description: String,
+    $tags: [String!], $license: String,
+    $category0: String, $category1: String, $category2: String,
+    $iconUrl: String, $heroUrl: String, $homeUrl: String,
+    $source: String, $readBranch: String, $writeBranch: String, $visibility: MemoryVisibility
   ) {
     updateMemory(
-      id: $id, source: $source, readBranch: $readBranch,
-      writeBranch: $writeBranch, visibility: $visibility
+      id: $id, shortDescription: $shortDescription, description: $description,
+      tags: $tags, license: $license,
+      category0: $category0, category1: $category1, category2: $category2,
+      iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
+      source: $source, readBranch: $readBranch, writeBranch: $writeBranch,
+      visibility: $visibility
     ) { ...MemoryFields }
   }
 `;

@@ -37,6 +37,62 @@
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Settings</h2>
     <form id="graph-settings" method="POST" action="?/update" use:enhance class="max-w-lg space-y-4">
       <div>
+        <label for="shortDescription" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Short description</label>
+        <input id="shortDescription" name="shortDescription" type="text" value={g.shortDescription ?? ''}
+          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+      </div>
+      <div>
+        <label for="description" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Description</label>
+        <textarea id="description" name="description" rows="3"
+          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none">{g.description ?? ''}</textarea>
+      </div>
+      <div>
+        <label for="tags" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Tags <span class="text-zinc-500">(comma-separated)</span></label>
+        <input id="tags" name="tags" type="text" value={(g.tags ?? []).join(', ')}
+          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+      </div>
+      <div class="grid grid-cols-3 gap-4">
+        <div>
+          <label for="category0" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Category</label>
+          <input id="category0" name="category0" type="text" value={g.category0 ?? ''}
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+        </div>
+        <div>
+          <label for="category1" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Subcategory</label>
+          <input id="category1" name="category1" type="text" value={g.category1 ?? ''}
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+        </div>
+        <div>
+          <label for="category2" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Sub-subcategory</label>
+          <input id="category2" name="category2" type="text" value={g.category2 ?? ''}
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label for="license" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">License</label>
+          <input id="license" name="license" type="text" value={g.license ?? ''}
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+        </div>
+        <div>
+          <label for="homeUrl" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Home URL</label>
+          <input id="homeUrl" name="homeUrl" type="url" value={g.homeUrl ?? ''}
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label for="iconUrl" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Icon URL</label>
+          <input id="iconUrl" name="iconUrl" type="url" value={g.iconUrl ?? ''}
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+        </div>
+        <div>
+          <label for="heroUrl" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Hero image URL</label>
+          <input id="heroUrl" name="heroUrl" type="url" value={g.heroUrl ?? ''}
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+        </div>
+      </div>
+      <div>
         <label for="source" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Git source URL</label>
         <input id="source" name="source" type="text" value={g.source ?? ''}
           class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
