@@ -130,6 +130,7 @@ export interface MemoryNode {
   tokens: number | null;
   tags: string[];
   namespace: string;
+  seq: number | null;
   ownerRepo: string | null;
   isRunnable: boolean | null;
   createdAt: string;

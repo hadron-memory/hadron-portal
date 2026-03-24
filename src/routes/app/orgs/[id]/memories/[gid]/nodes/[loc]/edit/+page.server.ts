@@ -25,6 +25,8 @@ export const actions: Actions = {
     const description = String(fd.get('description') ?? '').trim() || null;
     const alias = String(fd.get('alias') ?? '').trim() || null;
     const content = String(fd.get('content') ?? '').trim() || null;
+    const seqRaw = String(fd.get('seq') ?? '').trim();
+    const seq = seqRaw !== '' ? parseInt(seqRaw, 10) : null;
     const tagsStr = String(fd.get('tags') ?? '').trim();
     const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [];
 
@@ -47,6 +49,7 @@ export const actions: Actions = {
           description,
           alias,
           content,
+          seq,
           tags,
           edges,
         },

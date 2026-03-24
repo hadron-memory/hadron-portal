@@ -11,6 +11,7 @@
   let title = $state(node.title);
   let description = $state(node.description ?? '');
   let alias = $state(node.alias ?? '');
+  let seqStr = $state(node.seq !== null && node.seq !== undefined ? String(node.seq) : '');
   let tagsStr = $state(node.tags.join(', '));
   let content = $state(node.content ?? '');
 
@@ -73,6 +74,12 @@
       <div>
         <label for="alias" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Alias</label>
         <input id="alias" name="alias" type="text" bind:value={alias} placeholder="Optional"
+          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+      </div>
+
+      <div>
+        <label for="seq" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Seq <span class="text-zinc-500">(sort order among siblings)</span></label>
+        <input id="seq" name="seq" type="number" bind:value={seqStr} placeholder="Optional"
           class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
       </div>
 
