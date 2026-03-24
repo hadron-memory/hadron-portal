@@ -7,6 +7,7 @@ import {
   ADD_MEMBER_MUTATION,
   UPDATE_MEMBER_MUTATION,
   REMOVE_MEMBER_MUTATION,
+  CREATE_USER_INVITATION_MUTATION,
 } from '$lib/server/queries';
 import type { Organization, UserSummary } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -56,6 +57,30 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(REMOVE_MEMBER_MUTATION, { orgId: params.id, userId });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to remove member' });
+    }
+  },
+
+  invite: async ({ request, params, locals, url }) => {
+    const fd = await request.formData();
+    const name = String(fd.get('name') ?? '').trim() || null;
+    const email = String(fd.get('email') ?? '').trim() || null;
+    const memberRole = String(fd.get('memberRole') ?? 'READER');
+
+    try {
+      const data = await gqlClient(locals.token).request<{
+        createUserInvitation: { slug: string };
+      }>(CREATE_USER_INVITATION_MUTATION, {
+        orgId: params.id,
+        memberRole,
+        name,
+        email,
+        maxActivations: 1,
+        expiresInDays: 30,
+      });
+      const inviteUrl = `${url.origin}/invite/${data.createUserInvitation.slug}`;
+      return { inviteUrl };
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create invitation' });
     }
   },
 };

@@ -97,4 +97,38 @@
       </form>
     </section>
   {/if}
+
+  <!-- Invite new user -->
+  <section>
+    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Invite someone new</h2>
+
+    {#if form?.inviteUrl}
+      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+        <p class="mb-2">Invitation created! Share this link:</p>
+        <code class="block rounded bg-zinc-900 px-3 py-2 text-xs text-white select-all">{form.inviteUrl}</code>
+      </div>
+    {:else}
+      <form method="POST" action="?/invite" use:enhance class="flex flex-wrap items-end gap-3">
+        <div class="flex-1 min-w-[200px]">
+          <label for="inviteName" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Name <span class="text-zinc-600">(optional)</span></label>
+          <input id="inviteName" name="name" type="text" placeholder="Their name"
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+        </div>
+        <div class="flex-1 min-w-[200px]">
+          <label for="inviteEmail" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Email <span class="text-zinc-600">(optional)</span></label>
+          <input id="inviteEmail" name="email" type="email" placeholder="email@example.com"
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+        </div>
+        <div>
+          <label for="inviteRole" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
+          <select id="inviteRole" name="memberRole" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
+            <option value="READER">Reader</option>
+            <option value="CONTRIBUTOR">Contributor</option>
+            <option value="ADMIN">Admin</option>
+          </select>
+        </div>
+        <button type="submit" class="rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-600">Create invite link</button>
+      </form>
+    {/if}
+  </section>
 </div>

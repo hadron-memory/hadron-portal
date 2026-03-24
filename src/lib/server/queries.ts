@@ -263,6 +263,46 @@ export const REMOVE_MEMBER_MUTATION = /* GraphQL */ `
   }
 `;
 
+// ---------------------------------------------------------------------------
+// User Invitations
+// ---------------------------------------------------------------------------
+
+export const CREATE_USER_INVITATION_MUTATION = /* GraphQL */ `
+  mutation CreateUserInvitation(
+    $orgId: ID!, $memberRole: Role!, $name: String, $email: String,
+    $githubUsername: String, $maxActivations: Int, $expiresInDays: Int
+  ) {
+    createUserInvitation(
+      orgId: $orgId, memberRole: $memberRole, name: $name, email: $email,
+      githubUsername: $githubUsername, maxActivations: $maxActivations, expiresInDays: $expiresInDays
+    ) {
+      id slug memberRole name email githubUsername maxActivations expiresAt createdAt
+      organization { id name domain }
+    }
+  }
+`;
+
+export const INVITATION_QUERY = /* GraphQL */ `
+  query Invitation($slug: String!) {
+    invitation(slug: $slug) {
+      id slug memberRole name email githubUsername
+      maxActivations activationCount expiresAt createdAt
+      sender { id name githubUsername }
+      organization { id name domain }
+    }
+  }
+`;
+
+export const ACCEPT_INVITATION_MUTATION = /* GraphQL */ `
+  mutation AcceptInvitation($slug: String!) {
+    acceptInvitation(slug: $slug)
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// Memories
+// ---------------------------------------------------------------------------
+
 export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation CreateMemory(
