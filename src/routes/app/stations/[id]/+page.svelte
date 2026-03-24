@@ -92,21 +92,25 @@
 
   const INSTRUCTIONS_MD = `# Hadron Graph — AI Instructions
 
-This project is connected to Hadron Graph, a knowledge graph platform.
+This project is connected to Hadron, a knowledge graph that stores context
+across sessions — what's been learned, decided, and built.
+
 You have access to the following MCP tools:
 
+- **h-start-session** / **h-end-session** — Track work sessions
 - **h-find-node** — Search nodes by name, tags, or description
 - **h-read-node** — Read a node's full content and edges
-- **h-read-next-node** — Navigate to sibling nodes
-- **h-create-node** — Create or update a node
-- **h-move-node** — Rename or move a node
+- **h-read-next-node** — Navigate to the next sibling node, ordered by seq
+- **h-create-node** — Create or update a node (full upsert by loc)
+- **h-update-node** — Partially update a node (only provided fields change)
+- **h-move-node** — Rename or move a node to a new loc
 - **h-run-action** — Load an action node and resolve dependencies
-- **h-start-session** / **h-end-session** — Track work sessions
-- **h-validate** — Check for broken edges and sparse nodes
-- **h-sync-graph** — Trigger a GitHub source sync
+- **h-validate** — Validate graph structure (orphan nodes, broken edges)
+- **h-sync-graph** — Trigger a sync from the git source
 
-Use these tools to read and contribute to the project's knowledge graph.
-Start by searching for relevant nodes before creating new ones.
+Start each session with h-start-session. Use h-find-node and h-read-node
+to learn context before making changes. When you learn something new or
+notice outdated information, update the graph with h-create-node.
 `;
 
   // ── Zip generation ──────────────────────────────────────────────────
