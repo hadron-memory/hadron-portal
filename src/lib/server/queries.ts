@@ -125,6 +125,7 @@ export const ADD_TO_MY_MEMORIES_MUTATION = /* GraphQL */ `
 export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}
+  ${AGENT_FIELDS}
   query MyOrganizations {
     myOrganizations {
       ...OrgFields
@@ -135,6 +136,9 @@ export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
       }
       memories {
         ...MemoryFields
+      }
+      agents {
+        ...AgentFields
       }
     }
   }
