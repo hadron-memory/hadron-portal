@@ -6,7 +6,7 @@ import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ locals, url }) => {
   if (!locals.user) {
-    redirect(303, `/?redirect=${encodeURIComponent(url.pathname)}`);
+    redirect(303, `/signin?redirect=${encodeURIComponent(url.pathname)}`);
   }
   const apiClient = gqlClient(locals.token);
   const orgsData = await apiClient

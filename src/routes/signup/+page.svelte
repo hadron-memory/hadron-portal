@@ -6,8 +6,9 @@
 
   // If coming from marketplace with a memory param, redirect back there after auth
   const memoryId = $derived(page.url.searchParams.get('memory') ?? page.url.searchParams.get('graph'));
+  const redirectTo = $derived(page.url.searchParams.get('redirect'));
   const postAuthRedirect = $derived(
-    memoryId ? `/browse?addMemory=${memoryId}` : '/app/dashboard'
+    redirectTo ?? (memoryId ? `/browse?addMemory=${memoryId}` : '/app/dashboard')
   );
   const githubUrl = $derived(
     `${serverUrl}/auth/github?redirect=${encodeURIComponent(postAuthRedirect)}`
@@ -100,7 +101,7 @@
     {/if}
 
     <p class="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-      Already have an account? <a href="/signin{memoryId ? `?memory=${memoryId}` : ''}" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Sign in</a>
+      Already have an account? <a href="/signin{redirectTo ? `?redirect=${encodeURIComponent(redirectTo)}` : memoryId ? `?memory=${memoryId}` : ''}" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Sign in</a>
     </p>
   </div>
 </div>
