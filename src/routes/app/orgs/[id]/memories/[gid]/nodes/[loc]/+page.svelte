@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { invalidateAll } from '$app/navigation';
   import { onMount } from 'svelte';
   import type { PageData, ActionData } from './$types';
 
@@ -56,17 +57,95 @@
       .filter((n) => {
         if (n.loc === node.loc) return false;
         if (!n.loc.startsWith(node.loc + '.')) return false;
-        // Must be direct child (no more dots after the prefix)
         const rest = n.loc.slice(node.loc.length + 1);
         return !rest.includes('.');
       })
-      .sort((a, b) => a.loc.localeCompare(b.loc))
+      .sort((a, b) => {
+        // Sort by seq first (nodes with seq before those without), then by loc
+        if (a.seq !== null && b.seq !== null) return a.seq - b.seq;
+        if (a.seq !== null) return -1;
+        if (b.seq !== null) return 1;
+        return a.loc.localeCompare(b.loc);
+      })
   );
 
   const hasChildren = $derived(children.length > 0);
   const hasReferences = $derived(node.outgoingEdges.length > 0 || node.incomingEdges.length > 0);
   const showTabs = $derived(hasChildren || hasReferences);
   let activeTab = $state<'children' | 'references'>('children');
+
+  // ── Child drag-and-drop reordering ──────────────────────────────────────
+  const childrenReorderable = $derived(children.some((c) => c.seq !== null));
+  let dragChildLoc = $state<string | null>(null);
+  let dropChildTarget = $state<{ loc: string; position: 'before' | 'after' } | null>(null);
+  let childDragError = $state<string | null>(null);
+
+  function handleChildDragStart(e: DragEvent, loc: string) {
+    dragChildLoc = loc;
+    childDragError = null;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', loc);
+    }
+  }
+
+  function handleChildDragOver(e: DragEvent, loc: string) {
+    if (!dragChildLoc || dragChildLoc === loc) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const y = (e.clientY - rect.top) / rect.height;
+    dropChildTarget = { loc, position: y < 0.5 ? 'before' : 'after' };
+  }
+
+  function handleChildDragLeave(e: DragEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
+      dropChildTarget = null;
+    }
+  }
+
+  async function handleChildDrop(e: DragEvent) {
+    e.preventDefault();
+    if (!dragChildLoc || !dropChildTarget) { resetChildDrag(); return; }
+
+    const fromLoc = dragChildLoc;
+    const { loc: targetLoc, position } = dropChildTarget;
+    resetChildDrag();
+
+    // Compute new seq order
+    const ordered = [...children];
+    const fromIdx = ordered.findIndex((c) => c.loc === fromLoc);
+    const toIdx = ordered.findIndex((c) => c.loc === targetLoc);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const [moved] = ordered.splice(fromIdx, 1);
+    const insertIdx = position === 'before' ? (toIdx > fromIdx ? toIdx - 1 : toIdx) : (toIdx >= fromIdx ? toIdx : toIdx + 1);
+    ordered.splice(insertIdx, 0, moved);
+
+    // Persist new seq values
+    const seqUpdates = ordered.map((c, i) => ({ loc: c.loc, seq: i + 1 }));
+    try {
+      const fd = new FormData();
+      fd.set('updates', JSON.stringify(seqUpdates));
+      const res = await fetch('?/reorder', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('Reorder failed');
+      invalidateAll();
+    } catch (err) {
+      childDragError = err instanceof Error ? err.message : 'Reorder failed';
+      setTimeout(() => { childDragError = null; }, 3000);
+    }
+  }
+
+  function resetChildDrag() {
+    dragChildLoc = null;
+    dropChildTarget = null;
+  }
+
+  function childDropClass(loc: string): string {
+    if (!dropChildTarget || dropChildTarget.loc !== loc) return '';
+    return dropChildTarget.position === 'before' ? 'drop-before' : 'drop-after';
+  }
 </script>
 
 <svelte:head><title>{node.name || node.title} &middot; Hadron</title></svelte:head>
@@ -155,16 +234,32 @@
       </div>
 
       {#if activeTab === 'children' && hasChildren}
+        {#if childrenReorderable && childDragError}
+          <div class="mb-2 rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-300">{childDragError}</div>
+        {/if}
         <div class="space-y-1">
           {#each children as child}
-            <a
-              href="{basePath}/nodes/{encodeURIComponent(child.loc)}"
-              class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm hover:border-zinc-300 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-700"
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class="rounded-lg border border-zinc-200 dark:border-zinc-800 {childrenReorderable ? childDropClass(child.loc) : ''} {childrenReorderable ? 'cursor-grab' : ''}"
+              class:opacity-40={childrenReorderable && dragChildLoc === child.loc}
+              draggable={childrenReorderable ? 'true' : undefined}
+              ondragstart={(e) => childrenReorderable && handleChildDragStart(e, child.loc)}
+              ondragover={(e) => childrenReorderable && handleChildDragOver(e, child.loc)}
+              ondragleave={(e) => childrenReorderable && handleChildDragLeave(e)}
+              ondrop={(e) => childrenReorderable && handleChildDrop(e)}
+              ondragend={() => childrenReorderable && resetChildDrag()}
             >
-              <span class="inline-block h-2 w-2 rounded-full {child.isRunnable ? 'bg-green-500' : 'bg-indigo-400'}"></span>
-              <span class="font-medium text-zinc-900 dark:text-white">{child.name || child.title}</span>
-              <span class="font-mono text-xs text-zinc-500">{child.loc}</span>
-            </a>
+              <a
+                href="{basePath}/nodes/{encodeURIComponent(child.loc)}"
+                class="flex items-center gap-3 bg-white px-3 py-2 text-sm hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800 rounded-lg"
+              >
+                <span class="inline-block h-2 w-2 {child.seq !== null ? 'rounded-sm' : 'rounded-full'} {child.isRunnable ? 'bg-green-500' : 'bg-indigo-400'}"></span>
+                {#if child.seq !== null}<span class="text-xs tabular-nums text-zinc-500">{child.seq}.</span>{/if}
+                <span class="font-medium text-zinc-900 dark:text-white">{child.name || child.title}</span>
+                <span class="font-mono text-xs text-zinc-500">{child.loc}</span>
+              </a>
+            </div>
           {/each}
         </div>
       {/if}
@@ -229,3 +324,18 @@
     </div>
   {/if}
 </div>
+
+<style>
+  :global(.drop-before) {
+    border-top: 2px solid #6366f1 !important;
+  }
+  :global(.drop-after) {
+    border-bottom: 2px solid #6366f1 !important;
+  }
+  :global(.cursor-grab) {
+    cursor: grab;
+  }
+  :global(.cursor-grab:active) {
+    cursor: grabbing;
+  }
+</style>

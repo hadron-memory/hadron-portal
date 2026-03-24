@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_QUERY, DELETE_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_QUERY, DELETE_NODE_MUTATION, UPSERT_NODE_MUTATION } from '$lib/server/queries';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -32,5 +32,36 @@ export const actions: Actions = {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete' });
     }
     redirect(303, `/app/orgs/${params.id}/memories/${params.gid}/nodes`);
+  },
+
+  reorder: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const updatesJson = String(fd.get('updates') ?? '');
+    let updates: { loc: string; seq: number }[];
+    try {
+      updates = JSON.parse(updatesJson);
+    } catch {
+      return fail(400, { error: 'Invalid updates' });
+    }
+
+    const client = gqlClient(locals.token);
+    try {
+      for (const u of updates) {
+        // Fetch current node to get required fields for upsert
+        const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc });
+        if (!node) continue;
+        await client.request(UPSERT_NODE_MUTATION, {
+          input: {
+            memoryId: params.gid,
+            loc: u.loc,
+            name: node.name,
+            title: node.title,
+            seq: u.seq,
+          },
+        });
+      }
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Reorder failed' });
+    }
   },
 };
