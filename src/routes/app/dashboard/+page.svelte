@@ -44,7 +44,7 @@
         <a href="/browse" class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
           Browse marketplace
         </a>
-        <a href="/app/graphs" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
+        <a href="/app/my-memories" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
           View all →
         </a>
       </div>
@@ -74,7 +74,7 @@
       </div>
       {#if data.memories.length > 6}
         <p class="mt-3 text-sm text-zinc-500">
-          <a href="/app/graphs" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">View all {data.memories.length} memories →</a>
+          <a href="/app/my-memories" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">View all {data.memories.length} memories →</a>
         </p>
       {/if}
     {/if}

@@ -31,6 +31,6 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete' });
     }
-    redirect(303, `/app/orgs/${params.id}/graphs/${params.gid}/nodes`);
+    redirect(303, `/app/orgs/${params.id}/memories/${params.gid}/nodes`);
   },
 };

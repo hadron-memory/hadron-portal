@@ -5,7 +5,7 @@
 
   let { data }: { data: PageData } = $props();
 
-  const basePath = $derived(`/app/orgs/${data.org.id}/graphs/${data.graph.id}`);
+  const basePath = $derived(`/app/orgs/${data.org.id}/memories/${data.graph.id}`);
   const focusId = $derived($page.url.searchParams.get('focus') ?? undefined);
 </script>
 

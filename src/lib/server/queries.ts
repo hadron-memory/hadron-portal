@@ -253,7 +253,7 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation CreateMemory(
     $orgId: ID!, $name: String!, $source: String,
-    $readBranch: String, $writeBranch: String, $visibility: Visibility
+    $readBranch: String, $writeBranch: String, $visibility: MemoryVisibility
   ) {
     createMemory(
       orgId: $orgId, name: $name, source: $source,
@@ -267,7 +267,7 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation UpdateMemory(
     $id: ID!, $source: String, $readBranch: String,
-    $writeBranch: String, $visibility: Visibility
+    $writeBranch: String, $visibility: MemoryVisibility
   ) {
     updateMemory(
       id: $id, source: $source, readBranch: $readBranch,

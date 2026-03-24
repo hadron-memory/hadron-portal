@@ -55,6 +55,6 @@ export const actions: Actions = {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to save' });
     }
 
-    redirect(303, `/app/orgs/${params.id}/graphs/${params.gid}/nodes/${encodeURIComponent(loc)}`);
+    redirect(303, `/app/orgs/${params.id}/memories/${params.gid}/nodes/${encodeURIComponent(loc)}`);
   },
 };

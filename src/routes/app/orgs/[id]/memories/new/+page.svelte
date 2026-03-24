@@ -8,7 +8,7 @@
 
 <div class="max-w-lg">
   <div class="mb-6">
-    <a href="/app/orgs/{data.orgId}/graphs" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Memories</a>
+    <a href="/app/orgs/{data.orgId}/memories" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Memories</a>
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">Add memory</h1>
   </div>
 
@@ -46,6 +46,7 @@
       <label for="visibility" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
       <select id="visibility" name="visibility" class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
         <option value="PRIVATE">Private</option>
+        <option value="ORGANIZATION">Organization</option>
         <option value="PUBLIC">Public</option>
       </select>
     </div>

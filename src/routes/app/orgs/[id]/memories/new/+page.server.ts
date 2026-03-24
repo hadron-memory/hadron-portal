@@ -24,7 +24,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(CREATE_MEMORY_MUTATION, {
         orgId: params.id, name, source, readBranch, writeBranch, visibility,
       });
-      redirect(303, `/app/orgs/${params.id}/graphs`);
+      redirect(303, `/app/orgs/${params.id}/memories`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to create memory' });

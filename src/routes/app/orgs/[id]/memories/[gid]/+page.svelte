@@ -57,6 +57,7 @@
         <label for="visibility" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Visibility</label>
         <select id="visibility" name="visibility" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
           <option value="PRIVATE" selected={g.visibility === 'PRIVATE'}>Private</option>
+          <option value="ORGANIZATION" selected={g.visibility === 'ORGANIZATION'}>Organization</option>
           <option value="PUBLIC" selected={g.visibility === 'PUBLIC'}>Public</option>
         </select>
       </div>

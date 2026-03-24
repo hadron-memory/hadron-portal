@@ -74,14 +74,14 @@
   <section>
     <div class="mb-3 flex items-center justify-between">
       <h2 class="font-semibold text-zinc-900 dark:text-white">Memories <span class="ml-1 text-sm font-normal text-zinc-500">({org.memories?.length ?? 0})</span></h2>
-      <a href="/app/orgs/{org.id}/graphs" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
+      <a href="/app/orgs/{org.id}/memories" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
     </div>
     {#if !org.memories?.length}
       <p class="text-sm text-zinc-500">No memories yet.</p>
     {:else}
       <div class="grid gap-3 sm:grid-cols-2">
         {#each org.memories as g (g.id)}
-          <a href="/app/orgs/{org.id}/graphs/{g.id}" class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
+          <a href="/app/orgs/{org.id}/memories/{g.id}" class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
             <div class="flex items-center justify-between">
               <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{g.name}</p>
               <span class="rounded px-1.5 py-0.5 text-xs {g.visibility === 'PUBLIC' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{g.visibility}</span>
