@@ -14,12 +14,16 @@
   let copied = $state(false);
   let locCopied = $state(false);
 
-  // Markdown rendering (loaded client-side)
+  // Markdown rendering (reactive — re-renders when node.content changes)
   let renderedHtml = $state('');
+  let Marked: typeof import('marked').Marked | null = null;
 
   onMount(async () => {
-    if (node.content) {
-      const { Marked } = await import('marked');
+    Marked = (await import('marked')).Marked;
+  });
+
+  $effect(() => {
+    if (Marked && node.content) {
       const sanitizedMarked = new Marked({
         renderer: {
           html(token: { text: string }) {
@@ -31,6 +35,8 @@
         },
       });
       renderedHtml = sanitizedMarked.parse(node.content, { async: false }) as string;
+    } else {
+      renderedHtml = '';
     }
   });
 
