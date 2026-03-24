@@ -29,6 +29,7 @@
   let downloading = $state(false);
   let agentToolsForm = $state<HTMLFormElement>();
   let selectedTools = $state<Set<string>>(new Set(station.agentTools ?? []));
+  let withClientApp = $state(false);
 
   function toggleTool(value: string) {
     if (selectedTools.has(value)) {
@@ -42,13 +43,18 @@
 
   // ── Zip download ──────────────────────────────────────────────────────
   const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+  const clientAppUrl = 'http://localhost:3200';
+  const mcpBaseUrl = $derived(withClientApp ? clientAppUrl : serverUrl);
   const mcpUrl = $derived(
-    serverUrl.includes('localhost')
-      ? serverUrl + '/mcp'
-      : serverUrl.replace(/\/$/, '') + '/mcp'
+    mcpBaseUrl.includes('localhost')
+      ? mcpBaseUrl + '/mcp'
+      : mcpBaseUrl.replace(/\/$/, '') + '/mcp'
   );
 
-  function mcpConfig(apiKey: string) {
+  // ── Config builders ────────────────────────────────────────────────
+
+  /** MCP config for direct server connection (without client app) */
+  function directMcpConfig(apiKey: string) {
     return {
       mcpServers: {
         hadron: {
@@ -56,6 +62,30 @@
           url: mcpUrl,
           headers: { Authorization: `Bearer ${apiKey}` },
         },
+      },
+    };
+  }
+
+  /** MCP config for hadron-client app (localhost proxy) */
+  function clientAppMcpConfig(apiKey: string) {
+    return {
+      mcpServers: {
+        hadron: {
+          url: `${clientAppUrl}/mcp`,
+          headers: { Authorization: `Bearer ${apiKey}` },
+        },
+      },
+    };
+  }
+
+  /** Claude Code hooks config for hadron-client */
+  function claudeCodeHooksConfig() {
+    return {
+      hooks: {
+        SessionStart: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/session-start`, timeout: 5 }] }],
+        UserPromptSubmit: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/before-prompt`, timeout: 5 }] }],
+        PostToolUse: [{ matcher: 'mcp__hadron', hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/after-tool`, timeout: 5 }] }],
+        PostCompact: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/post-compact`, timeout: 5 }] }],
       },
     };
   }
@@ -79,30 +109,38 @@ Use these tools to read and contribute to the project's knowledge graph.
 Start by searching for relevant nodes before creating new ones.
 `;
 
+  // ── Zip generation ──────────────────────────────────────────────────
+
   async function generateAndDownloadZip(apiKey: string) {
     const zip = new JSZip();
     const tools = station.agentTools ?? [];
-    const config = mcpConfig(apiKey);
+
+    if (withClientApp) {
+      generateClientAppZip(zip, tools, apiKey);
+    } else {
+      generateDirectZip(zip, tools, apiKey);
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `hadron-setup-${station.label}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Zip contents for direct server connection (no client app) */
+  function generateDirectZip(zip: JSZip, tools: string[], apiKey: string) {
+    const config = directMcpConfig(apiKey);
     const configJson = JSON.stringify(config, null, 2);
 
-    if (tools.includes('CLAUDE_CODE')) {
-      zip.file('.mcp.json', configJson);
-    }
-    if (tools.includes('CURSOR')) {
-      zip.file('.cursor/mcp.json', configJson);
-    }
-    if (tools.includes('WINDSURF')) {
-      zip.file('.windsurf/mcp.json', configJson);
-    }
-    if (tools.includes('CLAUDE_DESKTOP')) {
-      zip.file('claude_desktop_config.json', configJson);
-    }
-    if (tools.includes('CODEX')) {
-      zip.file('.codex/mcp.json', configJson);
-    }
-    if (tools.includes('CLINE')) {
-      zip.file('.cline/mcp.json', configJson);
-    }
+    if (tools.includes('CLAUDE_CODE'))    zip.file('.mcp.json', configJson);
+    if (tools.includes('CURSOR'))         zip.file('.cursor/mcp.json', configJson);
+    if (tools.includes('WINDSURF'))       zip.file('.windsurf/mcp.json', configJson);
+    if (tools.includes('CLAUDE_DESKTOP')) zip.file('claude_desktop_config.json', configJson);
+    if (tools.includes('CODEX'))          zip.file('.codex/mcp.json', configJson);
+    if (tools.includes('CLINE'))          zip.file('.cline/mcp.json', configJson);
 
     zip.file('.hadron/INSTRUCTIONS.md', INSTRUCTIONS_MD);
 
@@ -136,16 +174,67 @@ Start by searching for relevant nodes before creating new ones.
     }
     readmeLines.push('Your API key is embedded in the config files.');
     readmeLines.push('Keep these files private — do not commit them to public repos.');
-
     zip.file('README.txt', readmeLines.join('\n'));
+  }
 
-    const blob = await zip.generateAsync({ type: 'blob' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `hadron-setup-${station.label}.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
+  /** Zip contents for hadron-client app (localhost proxy) */
+  function generateClientAppZip(zip: JSZip, tools: string[], apiKey: string) {
+    const config = clientAppMcpConfig(apiKey);
+    const configJson = JSON.stringify(config, null, 2);
+
+    // MCP config files per tool
+    if (tools.includes('CLAUDE_CODE'))    zip.file('.claude/mcp.json', configJson);
+    if (tools.includes('CURSOR'))         zip.file('.cursor/mcp.json', configJson);
+    if (tools.includes('WINDSURF'))       zip.file('.windsurf/mcp.json', configJson);
+    if (tools.includes('CLAUDE_DESKTOP')) zip.file('claude_desktop_config.json', configJson);
+    if (tools.includes('CODEX'))          zip.file('.codex/mcp.json', configJson);
+    if (tools.includes('CLINE'))          zip.file('.cline/mcp.json', configJson);
+
+    // Claude Code hooks (hadron-client injects prompts via hooks)
+    if (tools.includes('CLAUDE_CODE')) {
+      zip.file('.claude/settings.json', JSON.stringify(claudeCodeHooksConfig(), null, 2));
+    }
+
+    // hadron-client local config
+    zip.file('.hadron/config.json', JSON.stringify({
+      stationKey: apiKey,
+      defaultLevel: 'guided',
+    }, null, 2));
+
+    const readmeLines = [
+      'Hadron Graph — Setup Files (Client App)',
+      '========================================',
+      '',
+      'Extract this zip in your project root.',
+      '',
+      'Prerequisites:',
+      '  1. Install hadron-client:  pnpm install -g hadron-client',
+      '  2. Start the client app:   hadron-client start',
+      '     (runs on localhost:3200 by default)',
+      '',
+    ];
+    if (tools.includes('CLAUDE_CODE')) {
+      readmeLines.push('Claude Code:  MCP config and hooks are in .claude/');
+      readmeLines.push('              Hooks enable structured work phases and feedback.');
+      readmeLines.push('');
+    }
+    if (tools.includes('CURSOR')) {
+      readmeLines.push('Cursor:       MCP config is in .cursor/mcp.json');
+      readmeLines.push('');
+    }
+    if (tools.includes('WINDSURF')) {
+      readmeLines.push('Windsurf:     MCP config is in .windsurf/mcp.json');
+      readmeLines.push('');
+    }
+    if (tools.includes('CLAUDE_DESKTOP')) {
+      readmeLines.push('Claude Desktop: Move claude_desktop_config.json to:');
+      readmeLines.push('              macOS: ~/Library/Application Support/Claude/');
+      readmeLines.push('              Windows: %APPDATA%\\Claude\\');
+      readmeLines.push('');
+    }
+    readmeLines.push('Your station key is in .hadron/config.json and the MCP config files.');
+    readmeLines.push('Keep these files private — do not commit them to public repos.');
+    zip.file('README.txt', readmeLines.join('\n'));
   }
 
   async function downloadSetupZip() {
@@ -346,6 +435,22 @@ Start by searching for relevant nodes before creating new ones.
       </div>
     </form>
 
+    <div class="mt-4 flex items-center gap-4 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Client mode:</span>
+      <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+        <input type="radio" name="clientMode" checked={withClientApp}
+          onchange={() => { withClientApp = true; }}
+          class="text-indigo-500 focus:ring-indigo-500" />
+        With Hadron Client App
+      </label>
+      <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+        <input type="radio" name="clientMode" checked={!withClientApp}
+          onchange={() => { withClientApp = false; }}
+          class="text-indigo-500 focus:ring-indigo-500" />
+        Without app
+      </label>
+    </div>
+
     <div class="mt-4">
       <button onclick={downloadSetupZip}
         disabled={downloading || !selectedTools.size}
@@ -354,7 +459,12 @@ Start by searching for relevant nodes before creating new ones.
       </button>
       <p class="mt-2 text-xs text-zinc-500">
         {#if selectedTools.size}
-          Generates a fresh API key and bundles MCP config files for your selected tools. Extract in your project root.
+          Generates a fresh API key and bundles setup files for your selected tools.
+          {#if withClientApp}
+            Includes MCP config, hooks, and .hadron/config.json for the Hadron Client App (localhost:3200).
+          {:else}
+            Configured for direct server connection. Extract in your project root.
+          {/if}
         {:else}
           Select at least one AI agent tool above to enable download.
         {/if}

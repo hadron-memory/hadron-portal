@@ -24,7 +24,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(ADD_TO_MY_MEMORIES_MUTATION, { memoryId });
-      redirect(303, '/app/setup');
+      redirect(303, '/app/dashboard');
     } catch (e: unknown) {
       if (e && typeof e === 'object' && 'status' in e) throw e;
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to add memory' });

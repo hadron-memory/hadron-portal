@@ -28,9 +28,6 @@
     <!-- Centre links -->
     <div class="hidden items-center gap-6 text-sm sm:flex {dark ? 'text-zinc-400' : 'text-zinc-500'}">
       <a href={user ? '/app/marketplace' : '/browse'} class="transition {dark ? 'hover:text-white' : 'hover:text-zinc-900'}">Browse memories</a>
-      {#if user}
-        <a href="/app/dashboard" class="transition {dark ? 'hover:text-white' : 'hover:text-zinc-900'}">Dashboard</a>
-      {/if}
     </div>
 
     <!-- Auth + theme toggle -->
@@ -79,7 +76,6 @@
               class="absolute right-0 mt-2 w-44 rounded-lg border py-1 shadow-xl {dark ? 'border-zinc-800 bg-zinc-900' : 'border-zinc-200 bg-white'}"
               role="menu"
             >
-              <a href="/app/dashboard" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Dashboard</a>
               {#if !isConsumerMode}
                 <a href="/app/orgs" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Organizations</a>
                 <a href="/app/stations" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Stations</a>
