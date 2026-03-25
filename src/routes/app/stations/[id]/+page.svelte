@@ -129,7 +129,7 @@ notice outdated information, update the graph with h-create-node.
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `hadron-setup-${station.label}.zip`;
+    a.download = `hadron-setup-${station.name}.zip`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -283,7 +283,7 @@ notice outdated information, update the graph with h-create-node.
   }
 </script>
 
-<svelte:head><title>{station.label} · Hadron</title></svelte:head>
+<svelte:head><title>{station.name} · Hadron</title></svelte:head>
 
 <div class="space-y-8">
   <div class="flex items-start justify-between">
@@ -291,14 +291,14 @@ notice outdated information, update the graph with h-create-node.
       <a href="/app/stations" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Stations</a>
       <h1 class="mt-1 flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
         <span>{typeIcon[station.stationType] ?? '🔑'}</span>
-        {station.label}
+        {station.name}
       </h1>
       {#if station.user}
         <p class="text-sm text-zinc-500">Owned by {station.user.name ?? station.user.githubUsername ?? station.user.email}</p>
       {/if}
     </div>
     <form method="POST" action="?/revoke" use:enhance onsubmit={(e) => {
-      if (!confirm(`Delete station "${station.label}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
+      if (!confirm(`Delete station "${station.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
       else goto('/app/stations');
     }}>
       <button type="submit" class="rounded-md border border-red-800 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950">Delete</button>

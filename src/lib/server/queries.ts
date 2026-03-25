@@ -6,6 +6,7 @@ export const MEMORY_FIELDS = /* GraphQL */ `
   fragment MemoryFields on Memory {
     id
     organizationId
+    urn
     name
     shortDescription
     description
@@ -34,7 +35,7 @@ export const ORG_FIELDS = /* GraphQL */ `
   fragment OrgFields on Organization {
     id
     name
-    domain
+    urn
     isVisible
     githubInstallationId
     githubAppId
@@ -47,12 +48,12 @@ export const ORG_FIELDS = /* GraphQL */ `
 export const STATION_FIELDS = /* GraphQL */ `
   fragment StationFields on Station {
     id
-    label
+    urn
+    name
     stationType
     description
     role
     apiKeyShown
-    namespace
     agentTools
     organizationId
     userId
@@ -67,6 +68,7 @@ export const STATION_AGENT_SUB_FIELDS = /* GraphQL */ `
     id
     agent {
       id
+      urn
       name
       description
     }
@@ -80,6 +82,7 @@ export const AGENT_FIELDS = /* GraphQL */ `
   fragment AgentFields on Agent {
     id
     organizationId
+    urn
     name
     description
     memoryItems {
@@ -163,7 +166,7 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
         subscriptions {
           id
           role
-          organization { id name domain }
+          organization { id name urn }
         }
       }
       agents {
@@ -173,8 +176,8 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
         id
         role
         activated
-        memory { ...MemoryFields organization { id name domain } }
-        organization { id name domain }
+        memory { ...MemoryFields organization { id name urn } }
+        organization { id name urn }
       }
     }
   }
@@ -221,15 +224,15 @@ export const SEARCH_USERS_QUERY = /* GraphQL */ `
 
 export const CREATE_ORGANIZATION_MUTATION = /* GraphQL */ `
   ${ORG_FIELDS}
-  mutation CreateOrganization($name: String!, $domain: String!) {
-    createOrganization(name: $name, domain: $domain) { ...OrgFields }
+  mutation CreateOrganization($name: String!, $urn: String!) {
+    createOrganization(name: $name, urn: $urn) { ...OrgFields }
   }
 `;
 
 export const UPDATE_ORGANIZATION_MUTATION = /* GraphQL */ `
   ${ORG_FIELDS}
-  mutation UpdateOrganization($id: ID!, $name: String, $domain: String) {
-    updateOrganization(id: $id, name: $name, domain: $domain) { ...OrgFields }
+  mutation UpdateOrganization($id: ID!, $name: String, $urn: String) {
+    updateOrganization(id: $id, name: $name, urn: $urn) { ...OrgFields }
   }
 `;
 
@@ -277,7 +280,7 @@ export const CREATE_USER_INVITATION_MUTATION = /* GraphQL */ `
       githubUsername: $githubUsername, maxActivations: $maxActivations, expiresInDays: $expiresInDays
     ) {
       id slug memberRole name email githubUsername maxActivations expiresAt createdAt
-      organization { id name domain }
+      organization { id name urn }
     }
   }
 `;
@@ -288,7 +291,7 @@ export const INVITATION_QUERY = /* GraphQL */ `
       id slug memberRole name email githubUsername
       maxActivations activationCount expiresAt createdAt
       sender { id name githubUsername }
-      organization { id name domain }
+      organization { id name urn }
     }
   }
 `;
@@ -366,7 +369,7 @@ export const CREATE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
     createMemorySubscription(memoryId: $memoryId, orgId: $orgId, role: $role) {
       id role createdAt
       memory { id name }
-      organization { id name domain }
+      organization { id name urn }
     }
   }
 `;
@@ -420,14 +423,14 @@ export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
 export const CREATE_STATION_MUTATION = /* GraphQL */ `
   ${STATION_FIELDS}
   mutation CreateStation(
-    $label: String!, $stationType: StationType!, $role: Role!,
-    $description: String, $namespace: String,
+    $name: String!, $stationType: StationType!, $role: Role!,
+    $description: String,
     $organizationId: String, $userId: String, $expiresAt: String,
     $agentTools: [String!]
   ) {
     createStation(
-      label: $label, stationType: $stationType, role: $role,
-      description: $description, namespace: $namespace,
+      name: $name, stationType: $stationType, role: $role,
+      description: $description,
       organizationId: $organizationId, userId: $userId, expiresAt: $expiresAt,
       agentTools: $agentTools
     ) {
@@ -514,13 +517,11 @@ export const NODE_FIELDS = /* GraphQL */ `
     memoryId
     loc
     name
-    title
     alias
     description
     content
     tokens
     tags
-    namespace
     seq
     ownerRepo
     isRunnable
@@ -529,12 +530,12 @@ export const NODE_FIELDS = /* GraphQL */ `
     outgoingEdges {
       id
       label
-      target { id loc name title description tags namespace }
+      target { id loc name description tags }
     }
     incomingEdges {
       id
       label
-      source { id loc name title description tags namespace }
+      source { id loc name description tags }
     }
   }
 `;

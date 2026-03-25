@@ -23,7 +23,7 @@
       {#each data.orgs as org (org.id)}
         <a href="/app/orgs/{org.id}" class="rounded-xl border border-zinc-200 bg-white p-6 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
           <p class="text-lg font-semibold text-zinc-900 dark:text-white">{org.name}</p>
-          <p class="font-mono text-xs text-zinc-500">{org.domain}</p>
+          <p class="font-mono text-xs text-zinc-500">{org.urn}</p>
           <div class="mt-4 flex gap-6 text-sm text-zinc-500 dark:text-zinc-400">
             <span>{org.members?.length ?? 0} member{org.members?.length === 1 ? '' : 's'}</span>
             <span>{org.memories?.length ?? 0} memor{org.memories?.length === 1 ? 'y' : 'ies'}</span>

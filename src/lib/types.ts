@@ -2,6 +2,7 @@ export interface Memory {
   id: string;
   organizationId: string;
   organization?: OrgSummary;
+  urn: string;
   name: string;
   shortDescription: string | null;
   description: string | null;
@@ -38,6 +39,7 @@ export interface MemorySubscription {
 export interface Agent {
   id: string;
   organizationId: string;
+  urn: string;
   name: string;
   description: string | null;
   memoryItems: AgentMemoryItem[];
@@ -51,7 +53,7 @@ export interface AgentMemoryItem {
 
 export interface StationAgentSub {
   id: string;
-  agent: { id: string; name: string; description: string | null };
+  agent: { id: string; urn: string; name: string; description: string | null };
   subscriptionType: 'READ_ONLY' | 'READ_WRITE';
   trainingMode: boolean;
   createdAt: string;
@@ -60,13 +62,13 @@ export interface StationAgentSub {
 export interface OrgSummary {
   id: string;
   name: string;
-  domain: string;
+  urn: string;
 }
 
 export interface Organization {
   id: string;
   name: string;
-  domain: string;
+  urn: string;
   isVisible: boolean | null;
   githubInstallationId: number | null;
   githubAppId: string | null;
@@ -105,10 +107,8 @@ export interface NodeSummary {
   id: string;
   loc: string;
   name: string;
-  title: string;
   description: string | null;
   tags: string[];
-  namespace: string;
 }
 
 export interface NodeEdge {
@@ -123,13 +123,11 @@ export interface MemoryNode {
   memoryId: string;
   loc: string;
   name: string;
-  title: string;
   alias: string | null;
   description: string | null;
   content: string | null;
   tokens: number | null;
   tags: string[];
-  namespace: string;
   seq: number | null;
   ownerRepo: string | null;
   isRunnable: boolean | null;
@@ -213,12 +211,12 @@ export interface GraphViewData {
 
 export interface Station {
   id: string;
-  label: string;
+  urn: string;
+  name: string;
   stationType: string;
   description: string | null;
   role: string;
   apiKeyShown: boolean;
-  namespace: string | null;
   agentTools: string[];
   organizationId: string | null;
   userId: string | null;

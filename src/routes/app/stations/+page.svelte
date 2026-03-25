@@ -25,7 +25,7 @@
         <a href="/app/stations/{station.id}" class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
           <span class="text-2xl">{typeIcon[station.stationType] ?? '🔑'}</span>
           <div class="flex-1 min-w-0">
-            <p class="font-semibold text-zinc-900 dark:text-white">{station.label}</p>
+            <p class="font-semibold text-zinc-900 dark:text-white">{station.name}</p>
             <p class="text-xs text-zinc-500">{station.stationType}{station.user ? ` · ${station.user.name ?? station.user.githubUsername ?? station.user.email}` : ''}</p>
           </div>
           <div class="text-right text-xs text-zinc-500">

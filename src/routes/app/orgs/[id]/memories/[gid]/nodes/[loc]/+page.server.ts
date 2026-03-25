@@ -55,7 +55,6 @@ export const actions: Actions = {
             memoryId: params.gid,
             loc: u.loc,
             name: node.name,
-            title: node.title,
             seq: u.seq,
           },
         });

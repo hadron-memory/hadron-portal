@@ -8,7 +8,6 @@
   const basePath = $derived(`/app/orgs/${data.org.id}/memories/${data.graph.id}`);
 
   let name = $state(node.name);
-  let title = $state(node.title);
   let description = $state(node.description ?? '');
   let alias = $state(node.alias ?? '');
   let seqStr = $state(node.seq !== null && node.seq !== undefined ? String(node.seq) : '');
@@ -56,12 +55,6 @@
       <div>
         <label for="name" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Name</label>
         <input id="name" name="name" type="text" bind:value={name}
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none" />
-      </div>
-
-      <div>
-        <label for="title" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Title</label>
-        <input id="title" name="title" type="text" bind:value={title}
           class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none" />
       </div>
 

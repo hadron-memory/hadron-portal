@@ -21,7 +21,6 @@ export const actions: Actions = {
     const loc = decodeURIComponent(params.loc);
 
     const name = String(fd.get('name') ?? '').trim();
-    const title = String(fd.get('title') ?? '').trim() || name;
     const description = String(fd.get('description') ?? '').trim() || null;
     const alias = String(fd.get('alias') ?? '').trim() || null;
     const content = String(fd.get('content') ?? '').trim() || null;
@@ -45,7 +44,6 @@ export const actions: Actions = {
           memoryId: params.gid,
           loc,
           name,
-          title,
           description,
           alias,
           content,

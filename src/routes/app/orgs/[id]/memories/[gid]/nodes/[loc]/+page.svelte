@@ -154,7 +154,7 @@
   }
 </script>
 
-<svelte:head><title>{node.name || node.title} &middot; Hadron</title></svelte:head>
+<svelte:head><title>{node.name} &middot; Hadron</title></svelte:head>
 
 <div class="max-w-3xl space-y-4">
   <!-- Breadcrumb -->
@@ -172,7 +172,7 @@
 
   <!-- Header -->
   <div class="flex items-center gap-3">
-    <h1 class="text-xl font-bold text-zinc-900 dark:text-white">{node.name || node.title}</h1>
+    <h1 class="text-xl font-bold text-zinc-900 dark:text-white">{node.name}</h1>
     {#if node.isRunnable}
       <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">runnable</span>
     {/if}
@@ -262,7 +262,7 @@
               >
                 <span class="inline-block h-2 w-2 {child.seq !== null ? 'rounded-sm' : 'rounded-full'} {child.isRunnable ? 'bg-green-500' : 'bg-indigo-400'}"></span>
                 {#if child.seq !== null}<span class="text-xs tabular-nums text-zinc-500">{child.seq}.</span>{/if}
-                <span class="font-medium text-zinc-900 dark:text-white">{child.name || child.title}</span>
+                <span class="font-medium text-zinc-900 dark:text-white">{child.name}</span>
                 <span class="font-mono text-xs text-zinc-500">{child.loc}</span>
               </a>
             </div>

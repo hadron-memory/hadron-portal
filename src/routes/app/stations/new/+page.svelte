@@ -19,8 +19,8 @@
     {/if}
 
     <div>
-      <label for="label" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Label <span class="text-zinc-500">(unique identifier)</span></label>
-      <input id="label" name="label" type="text" required placeholder="my-workstation"
+      <label for="name" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name <span class="text-zinc-500">(unique identifier)</span></label>
+      <input id="name" name="name" type="text" required placeholder="my-workstation"
         class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
     </div>
 
@@ -59,13 +59,7 @@
         class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
     </div>
 
-    <div>
-      <label for="namespace" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Namespace restriction <span class="text-zinc-500">(optional, for CONTRIBUTORs)</span></label>
-      <input id="namespace" name="namespace" type="text" placeholder="my-org.my-repo"
-        class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
-    </div>
-
-    <fieldset>
+<fieldset>
       <legend class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AI agent tools <span class="text-zinc-500">(select the tools this station will use)</span></legend>
       <div class="space-y-2">
         {#each [

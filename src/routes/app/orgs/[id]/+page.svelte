@@ -43,7 +43,7 @@
     <div>
       <a href="/app/orgs" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Organizations</a>
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{org.name}</h1>
-      <p class="font-mono text-sm text-zinc-500">{org.domain}</p>
+      <p class="font-mono text-sm text-zinc-500">{org.urn}</p>
     </div>
   </div>
 

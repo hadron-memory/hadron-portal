@@ -78,7 +78,7 @@
                 <span class="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-300">{s.memory.name}</span>
                 <span class="rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">{s.role}</span>
               </div>
-              <p class="mt-1 text-xs text-zinc-500">from {s.memory.organization?.name ?? 'unknown'} ({s.memory.organization?.domain ?? ''})</p>
+              <p class="mt-1 text-xs text-zinc-500">from {s.memory.organization?.name ?? 'unknown'} ({s.memory.organization?.urn ?? ''})</p>
             </div>
             <form method="POST" action="?/unsubscribe" use:enhance onsubmit={(e) => { if (!confirm(`Unsubscribe from "${s.memory.name}"?`)) e.preventDefault(); }}>
               <input type="hidden" name="memoryId" value={s.memory.id} />

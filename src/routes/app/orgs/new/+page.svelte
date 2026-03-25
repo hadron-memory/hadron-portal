@@ -5,13 +5,13 @@
   let { form }: { form: ActionData } = $props();
 
   let name = $state('');
-  let domain = $state('');
+  let urn = $state('');
   $effect(() => { if (form?.name) name = form.name; });
-  $effect(() => { if (form?.domain) domain = form.domain; });
+  $effect(() => { if (form?.urn) urn = form.urn; });
 
-  // Auto-generate domain from name
+  // Auto-generate URN from name
   function onNameInput() {
-    domain = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    urn = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 </script>
 
@@ -40,12 +40,12 @@
     </div>
 
     <div>
-      <label for="domain" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Domain</label>
+      <label for="urn" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
       <div class="flex items-center gap-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 focus-within:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900">
         <span class="text-zinc-500 text-sm select-none">hadrongraph.io/</span>
         <input
-          id="domain" name="domain" type="text" required
-          bind:value={domain}
+          id="urn" name="urn" type="text" required
+          bind:value={urn}
           pattern="[a-z0-9-]+"
           placeholder="acme-corp"
           class="flex-1 bg-transparent font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none dark:text-white dark:placeholder-zinc-500"

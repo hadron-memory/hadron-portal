@@ -5,7 +5,7 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const inv = $derived(data.invitation as {
-    organization?: { name: string; domain: string };
+    organization?: { name: string; urn: string };
     sender?: { name?: string; githubUsername?: string };
     memberRole: string;
     name?: string;

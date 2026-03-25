@@ -133,7 +133,7 @@
             <div class="flex items-start gap-4 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-2">
-                  <a href="{basePath}/nodes/{encodeURIComponent(node.loc)}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{node.name || node.title}</a>
+                  <a href="{basePath}/nodes/{encodeURIComponent(node.loc)}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{node.name}</a>
                   {#if node.isRunnable}
                     <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs text-green-700 dark:bg-green-900 dark:text-green-300">runnable</span>
                   {/if}

@@ -140,7 +140,7 @@
           <div class="flex items-center gap-4 bg-white px-5 py-4 dark:bg-zinc-900">
             <div class="flex-1">
               <p class="text-sm text-zinc-900 dark:text-white">{s.organization.name}</p>
-              <p class="font-mono text-xs text-zinc-500">{s.organization.domain}</p>
+              <p class="font-mono text-xs text-zinc-500">{s.organization.urn}</p>
             </div>
             <span class="text-xs text-zinc-500">{s.role}</span>
             <form method="POST" action="?/unsubscribe" use:enhance>

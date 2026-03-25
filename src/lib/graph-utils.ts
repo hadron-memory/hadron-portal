@@ -32,7 +32,7 @@ export function buildTreeEntries(nodes: MemoryNode[]): TreeEntry[] {
       seen.add(n.loc);
       entries.push({
         id: n.loc,
-        name: n.name || n.title,
+        name: n.name,
         hasActions: n.isRunnable ?? false,
         isVirtual: false,
       });
@@ -63,12 +63,12 @@ export function buildGraphViewData(nodes: MemoryNode[]): GraphViewData {
         id: e.id,
         rel: e.label,
         loc: e.target.loc,
-        name: e.target.name || e.target.title,
+        name: e.target.name,
       }));
 
     topics.push({
       id: n.loc,
-      name: n.name || n.title,
+      name: n.name,
       depth,
       description: n.description ?? '',
       tags: n.tags,

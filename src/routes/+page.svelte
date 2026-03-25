@@ -7,7 +7,7 @@
     {
       icon: '🔗',
       title: 'Graph-native',
-      body: 'Nodes, edges, and namespaces form a queryable knowledge memory synced directly from your GitHub repos.',
+      body: 'Nodes and edges form a queryable knowledge memory synced directly from your GitHub repos.',
     },
     {
       icon: '🤖',
