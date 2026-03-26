@@ -101,6 +101,7 @@ export const ME_QUERY = /* GraphQL */ `
   query Me {
     me {
       id
+      handle
       githubUsername
       name
       avatarUrl
@@ -135,7 +136,7 @@ export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
       members {
         id
         role
-        user { id githubUsername name avatarUrl email }
+        user { id handle githubUsername name avatarUrl email }
       }
       memories {
         ...MemoryFields
@@ -159,7 +160,7 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
         role
         canInvite
         createdAt
-        user { id githubUsername name avatarUrl email }
+        user { id handle githubUsername name avatarUrl email }
       }
       memories {
         ...MemoryFields
@@ -200,7 +201,7 @@ export const STATION_QUERY = /* GraphQL */ `
   query Station($id: ID!) {
     station(id: $id) {
       ...StationFields
-      user { id githubUsername name avatarUrl email }
+      user { id handle githubUsername name avatarUrl email }
       agentSubscriptions { ...StationAgentSubFields }
     }
   }
@@ -208,13 +209,13 @@ export const STATION_QUERY = /* GraphQL */ `
 
 export const USERS_QUERY = /* GraphQL */ `
   query Users {
-    users { id githubUsername name avatarUrl email roles maxReferrals }
+    users { id handle githubUsername name avatarUrl email roles maxReferrals }
   }
 `;
 
 export const SEARCH_USERS_QUERY = /* GraphQL */ `
   query SearchUsers($query: String!) {
-    searchUsers(query: $query) { id githubUsername name avatarUrl email }
+    searchUsers(query: $query) { id handle githubUsername name avatarUrl email }
   }
 `;
 
@@ -246,7 +247,7 @@ export const ADD_MEMBER_MUTATION = /* GraphQL */ `
   mutation AddOrgMember($orgId: ID!, $userId: ID!, $role: Role!) {
     addOrgMember(orgId: $orgId, userId: $userId, role: $role) {
       id role canInvite createdAt
-      user { id githubUsername name avatarUrl email }
+      user { id handle githubUsername name avatarUrl email }
     }
   }
 `;
@@ -255,7 +256,7 @@ export const UPDATE_MEMBER_MUTATION = /* GraphQL */ `
   mutation UpdateOrgMember($orgId: ID!, $userId: ID!, $role: Role!) {
     updateOrgMember(orgId: $orgId, userId: $userId, role: $role) {
       id role
-      user { id githubUsername name avatarUrl email }
+      user { id handle githubUsername name avatarUrl email }
     }
   }
 `;

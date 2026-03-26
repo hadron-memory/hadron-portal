@@ -91,6 +91,7 @@ export interface OrgMember {
 
 export interface UserSummary {
   id: string;
+  handle: string | null;
   githubUsername: string | null;
   name: string | null;
   avatarUrl: string | null;
