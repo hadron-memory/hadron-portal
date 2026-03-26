@@ -23,9 +23,9 @@
     // Include ancestors of matching entries
     const ids = new Set(matching.map((e) => e.id));
     for (const entry of matching) {
-      const parts = entry.id.split(".");
+      const parts = entry.id.split(":");
       for (let i = 1; i < parts.length; i++) {
-        ids.add(parts.slice(0, i).join("."));
+        ids.add(parts.slice(0, i).join(":"));
       }
     }
     return entries.filter((e) => ids.has(e.id));
@@ -40,7 +40,7 @@
       const treeNode: TreeNode = { entry, children: [] };
       nodeMap.set(entry.id, treeNode);
 
-      const dotIdx = entry.id.lastIndexOf(".");
+      const dotIdx = entry.id.lastIndexOf(":");
       if (dotIdx === -1) {
         roots.push(treeNode);
       } else {
@@ -54,9 +54,16 @@
       }
     }
 
-    // Sort children by id
+    // Sort children: by seq first (if present), then alphabetically by id
     function sortChildren(nodes: TreeNode[]) {
-      nodes.sort((a, b) => a.entry.id.localeCompare(b.entry.id));
+      nodes.sort((a, b) => {
+        const aSeq = a.entry.seq;
+        const bSeq = b.entry.seq;
+        if (aSeq !== null && bSeq !== null) return aSeq - bSeq;
+        if (aSeq !== null) return -1;
+        if (bSeq !== null) return 1;
+        return a.entry.id.localeCompare(b.entry.id);
+      });
       for (const n of nodes) sortChildren(n.children);
     }
     sortChildren(roots);
@@ -70,7 +77,7 @@
   function isExpanded(id: string): boolean {
     if (search.trim()) return true;
     if (id in expanded) return expanded[id];
-    return !id.includes(".");
+    return !id.includes(":");
   }
 
   function toggle(id: string) {
@@ -89,9 +96,9 @@
   $effect(() => {
     const id = activeNodeId;
     if (!id) return;
-    const parts = id.split(".");
+    const parts = id.split(":");
     for (let i = 1; i < parts.length; i++) {
-      const ancestorId = parts.slice(0, i).join(".");
+      const ancestorId = parts.slice(0, i).join(":");
       if (!isExpanded(ancestorId)) {
         expanded[ancestorId] = true;
       }

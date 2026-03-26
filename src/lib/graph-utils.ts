@@ -22,6 +22,7 @@ export function buildTreeEntries(nodes: MemoryNode[]): TreeEntry[] {
         entries.push({
           id: ancestorLoc,
           name: parts[i - 1],
+          seq: null,
           hasActions: false,
           isVirtual: true,
         });
@@ -33,6 +34,7 @@ export function buildTreeEntries(nodes: MemoryNode[]): TreeEntry[] {
       entries.push({
         id: n.loc,
         name: n.name,
+        seq: n.seq,
         hasActions: n.isRunnable ?? false,
         isVirtual: false,
       });

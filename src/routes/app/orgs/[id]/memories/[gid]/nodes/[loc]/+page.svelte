@@ -43,15 +43,18 @@
 
   // Markdown rendering
   let renderedHtml = $state('');
-  let Marked: typeof import('marked').Marked | null = null;
+  let markedReady = $state(false);
+  let MarkedClass: typeof import('marked').Marked | null = null;
 
   onMount(async () => {
-    Marked = (await import('marked')).Marked;
+    MarkedClass = (await import('marked')).Marked;
+    markedReady = true;
   });
 
   $effect(() => {
-    if (Marked && node.content) {
-      const sanitizedMarked = new Marked({
+    // markedReady is $state so the effect re-runs after onMount
+    if (markedReady && MarkedClass && node.content) {
+      const m = new MarkedClass({
         renderer: {
           html(token: { text: string }) {
             return token.text
@@ -61,7 +64,7 @@
           },
         },
       });
-      renderedHtml = sanitizedMarked.parse(node.content, { async: false }) as string;
+      renderedHtml = m.parse(node.content, { async: false }) as string;
     } else {
       renderedHtml = '';
     }

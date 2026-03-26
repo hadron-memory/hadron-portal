@@ -167,6 +167,7 @@ export interface UsageEvent {
 export interface TreeEntry {
   id: string;       // loc
   name: string;
+  seq: number | null;
   hasActions: boolean;
   isVirtual: boolean;
 }
