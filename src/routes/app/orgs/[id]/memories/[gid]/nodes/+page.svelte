@@ -63,7 +63,7 @@
   const grouped = $derived.by(() => {
     const groups: Record<string, typeof nodes> = {};
     for (const n of sorted) {
-      const domain = n.loc.split('.')[0];
+      const domain = n.loc.split(':')[0];
       if (!groups[domain]) groups[domain] = [];
       groups[domain].push(n);
     }
@@ -71,7 +71,7 @@
   });
 
   const palette = ['#58a6ff', '#3fb950', '#d29922', '#bc8cff', '#f97583', '#56d4dd'];
-  const domains = $derived([...new Set(nodes.map((n) => n.loc.split('.')[0]))].sort());
+  const domains = $derived([...new Set(nodes.map((n) => n.loc.split(':')[0]))].sort());
   const domainColor = $derived.by(() => {
     const map: Record<string, string> = {};
     domains.forEach((d, i) => { map[d] = palette[i % palette.length]; });

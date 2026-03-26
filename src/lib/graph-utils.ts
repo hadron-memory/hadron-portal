@@ -14,9 +14,9 @@ export function buildTreeEntries(nodes: MemoryNode[]): TreeEntry[] {
 
   for (const n of sorted) {
     // Synthesize virtual parents that don't have a real node
-    const parts = n.loc.split('.');
+    const parts = n.loc.split(':');
     for (let i = 1; i < parts.length; i++) {
-      const ancestorLoc = parts.slice(0, i).join('.');
+      const ancestorLoc = parts.slice(0, i).join(':');
       if (!locSet.has(ancestorLoc) && !seen.has(ancestorLoc)) {
         seen.add(ancestorLoc);
         entries.push({
@@ -52,7 +52,7 @@ export function buildGraphViewData(nodes: MemoryNode[]): GraphViewData {
   const hierEdges: HierEdge[] = [];
 
   for (const n of nodes) {
-    const parts = n.loc.split('.');
+    const parts = n.loc.split(':');
     const domain = parts[0];
     const depth = parts.length - 1;
 
@@ -78,12 +78,12 @@ export function buildGraphViewData(nodes: MemoryNode[]): GraphViewData {
 
     // Build hierarchy edges (parent → child)
     if (parts.length > 1) {
-      const parentLoc = parts.slice(0, -1).join('.');
+      const parentLoc = parts.slice(0, -1).join(':');
       hierEdges.push({ from: parentLoc, to: n.loc });
 
       // Ensure intermediate folder nodes exist
       for (let i = 1; i < parts.length; i++) {
-        const folderLoc = parts.slice(0, i).join('.');
+        const folderLoc = parts.slice(0, i).join(':');
         if (!locSet.has(folderLoc) && !folderNodeMap.has(folderLoc)) {
           folderNodeMap.set(folderLoc, {
             id: folderLoc,

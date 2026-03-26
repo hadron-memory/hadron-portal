@@ -13,11 +13,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   );
   if (!data.node) throw new Error(`Node not found: ${loc}`);
 
-  // Build breadcrumb from loc segments
-  const parts = loc.split('.');
+  // Build breadcrumb from loc segments (colon-delimited)
+  const parts = loc.split(':');
   const breadcrumb = parts.map((part, i) => ({
     label: part,
-    path: parts.slice(0, i + 1).join('.'),
+    path: parts.slice(0, i + 1).join(':'),
   }));
 
   return { node: data.node, breadcrumb };
@@ -27,11 +27,34 @@ export const actions: Actions = {
   delete: async ({ params, locals }) => {
     const loc = decodeURIComponent(params.loc);
     try {
-      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { loc });
+      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { loc, memoryId: params.gid });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete' });
     }
     redirect(303, `/app/orgs/${params.id}/memories/${params.gid}/nodes`);
+  },
+
+  updateContent: async ({ request, params, locals }) => {
+    const loc = decodeURIComponent(params.loc);
+    const fd = await request.formData();
+    const content = String(fd.get('content') ?? '');
+
+    const client = gqlClient(locals.token);
+    try {
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc });
+      if (!node) return fail(404, { error: 'Node not found' });
+
+      await client.request(UPSERT_NODE_MUTATION, {
+        input: {
+          memoryId: params.gid,
+          loc,
+          name: node.name,
+          content,
+        },
+      });
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
+    }
   },
 
   reorder: async ({ request, params, locals }) => {
@@ -47,7 +70,6 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
     try {
       for (const u of updates) {
-        // Fetch current node to get required fields for upsert
         const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc });
         if (!node) continue;
         await client.request(UPSERT_NODE_MUTATION, {
