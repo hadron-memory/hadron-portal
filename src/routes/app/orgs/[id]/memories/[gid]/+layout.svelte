@@ -53,9 +53,9 @@
     <div class="flex gap-4" style="min-height: 600px;">
       <!-- Tree sidebar -->
       {#if treeOpen}
-        <aside class="w-64 shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-950 dark:border-zinc-800">
-          <div class="flex items-center justify-between border-b border-zinc-800 px-3 py-2">
-            <span class="text-xs font-semibold uppercase tracking-wide text-zinc-400">Tree</span>
+        <aside class="w-64 shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
+          <div class="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
+            <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
             <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
           </div>
           <TreeView entries={data.treeEntries} {basePath} />

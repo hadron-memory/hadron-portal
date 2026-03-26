@@ -202,13 +202,19 @@
   .search-input {
     width: 100%;
     padding: 6px 28px 6px 10px;
-    background: #161b22;
-    border: 1px solid #30363d;
+    background: white;
+    border: 1px solid #d4d4d8;
     border-radius: 6px;
-    color: #c9d1d9;
+    color: #27272a;
     font-size: 12px;
     outline: none;
     box-sizing: border-box;
+  }
+
+  :global(.dark) .search-input {
+    background: #161b22;
+    border-color: #30363d;
+    color: #c9d1d9;
   }
 
   .search-input:focus {
@@ -217,6 +223,10 @@
   }
 
   .search-input::placeholder {
+    color: #a1a1aa;
+  }
+
+  :global(.dark) .search-input::placeholder {
     color: #484f58;
   }
 
@@ -227,7 +237,7 @@
     transform: translateY(-50%);
     background: none;
     border: none;
-    color: #8b949e;
+    color: #71717a;
     cursor: pointer;
     font-size: 14px;
     padding: 0 4px;
@@ -235,15 +245,20 @@
   }
 
   .search-clear:hover {
-    color: #c9d1d9;
+    color: #27272a;
   }
+
+  :global(.dark) .search-clear { color: #8b949e; }
+  :global(.dark) .search-clear:hover { color: #c9d1d9; }
 
   .no-results {
     padding: 16px;
     text-align: center;
     font-size: 12px;
-    color: #8b949e;
+    color: #71717a;
   }
+
+  :global(.dark) .no-results { color: #8b949e; }
 
   .tree-view {
     padding: 4px 0 8px;
@@ -272,13 +287,20 @@
     padding: 0;
     border: none;
     background: none;
-    color: #484f58;
+    color: #a1a1aa;
     cursor: pointer;
     flex-shrink: 0;
     border-radius: 3px;
   }
 
+  :global(.dark) .chevron { color: #484f58; }
+
   .chevron:hover {
+    color: #52525b;
+    background: rgba(0, 0, 0, 0.05);
+  }
+
+  :global(.dark) .chevron:hover {
     color: #8b949e;
     background: rgba(255, 255, 255, 0.05);
   }
@@ -311,7 +333,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    color: #c9d1d9;
+    color: #27272a;
     text-decoration: none;
     padding: 2px 6px;
     border-radius: 4px;
@@ -320,22 +342,36 @@
     text-overflow: ellipsis;
   }
 
+  :global(.dark) .node-link { color: #c9d1d9; }
+
   .node-link:hover {
+    color: #09090b;
+    background: rgba(0, 0, 0, 0.05);
+  }
+
+  :global(.dark) .node-link:hover {
     color: #f0f6fc;
     background: rgba(255, 255, 255, 0.05);
   }
 
   .node-link.active {
+    color: #4f46e5;
+    background: rgba(79, 70, 229, 0.1);
+  }
+
+  :global(.dark) .node-link.active {
     color: #f0f6fc;
     background: rgba(88, 166, 255, 0.15);
   }
 
   .node-link.match {
-    color: #f0f6fc;
+    color: #09090b;
   }
 
+  :global(.dark) .node-link.match { color: #f0f6fc; }
+
   .node-label {
-    color: #8b949e;
+    color: #71717a;
     padding: 2px 6px;
     cursor: pointer;
     white-space: nowrap;
@@ -347,7 +383,11 @@
     text-align: left;
   }
 
+  :global(.dark) .node-label { color: #8b949e; }
+
   .node-label:hover {
-    color: #c9d1d9;
+    color: #27272a;
   }
+
+  :global(.dark) .node-label:hover { color: #c9d1d9; }
 </style>
