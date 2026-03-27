@@ -9,7 +9,10 @@
     data.memories.filter((m) => {
       if (!search) return true;
       const q = search.toLowerCase();
-      return m.name.toLowerCase().includes(q);
+      return m.name.toLowerCase().includes(q) ||
+        (m.urn ?? '').toLowerCase().includes(q) ||
+        (m.shortDescription ?? '').toLowerCase().includes(q) ||
+        m.tags.some((t) => t.toLowerCase().includes(q));
     })
   );
 </script>
@@ -59,9 +62,26 @@
     <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
       {#each filtered as memory (memory.id)}
         <div class="flex flex-col justify-between gap-4 rounded-xl border border-zinc-200 bg-white p-6 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
-          <div class="space-y-3">
-            <p class="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-300">{memory.name}</p>
-            <p class="font-mono text-xs text-zinc-400">{memory.urn}</p>
+          <div class="space-y-2">
+            <a href="/app/orgs/{memory.organizationId}/memories/{memory.id}" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{memory.name}</a>
+            <div class="flex items-center gap-1">
+              <p class="font-mono text-xs text-zinc-400">{memory.urn}</p>
+              <button onclick={() => navigator.clipboard.writeText(memory.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              </button>
+            </div>
+
+            {#if memory.shortDescription}
+              <p class="text-xs text-zinc-600 dark:text-zinc-400">{memory.shortDescription}</p>
+            {/if}
+
+            {#if memory.tags.length > 0}
+              <div class="flex flex-wrap gap-1">
+                {#each memory.tags as tag}
+                  <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{tag}</span>
+                {/each}
+              </div>
+            {/if}
 
             <div class="flex flex-wrap gap-2 text-xs">
               <span
@@ -81,11 +101,6 @@
               {/if}
               {#if memory.visibility === 'PUBLIC'}
                 <span class="rounded bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">public</span>
-              {/if}
-              {#if memory.lastSyncedAt}
-                <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                  synced {new Date(memory.lastSyncedAt).toLocaleDateString()}
-                </span>
               {/if}
             </div>
           </div>
