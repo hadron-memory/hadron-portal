@@ -1,30 +1,7 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
-  import type { PageData, ActionData } from './$types';
-
-  let { data, form }: { data: PageData; form: ActionData } = $props();
+  import type { PageData } from './$types';
+  let { data }: { data: PageData } = $props();
   const org = $derived(data.org);
-
-  let editingId = $state<string | null>(null);
-  let expandedId = $state<string | null>(null);
-  let showCreate = $state(false);
-
-  // Create form state
-  let createName = $state('');
-  let createSlug = $state('');
-  let createSlugEdited = $state(false);
-
-  $effect(() => {
-    if (!createSlugEdited) {
-      createSlug = createName.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-    }
-  });
-
-  const inputClass = "w-full max-w-md rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
-
-  function urnSlug(urn: string): string {
-    return urn.includes(':') ? urn.split(':').slice(1).join(':') : urn;
-  }
 </script>
 
 <svelte:head><title>Agents · {org.name} · Hadron</title></svelte:head>
@@ -32,178 +9,43 @@
 <div class="space-y-6">
   <div class="flex items-start justify-between">
     <div>
-      <a href="/app/orgs/{org.id}" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">&larr; {org.name}</a>
+      <nav class="flex items-center gap-1 text-sm">
+        <a href="/app/orgs" class="text-indigo-500 hover:underline dark:text-indigo-400">Organizations</a>
+        <span class="text-zinc-400">/</span>
+        <a href="/app/orgs/{org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{org.name}</a>
+        <span class="text-zinc-400">/</span>
+        <span class="text-zinc-700 dark:text-zinc-300">Agents</span>
+      </nav>
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Agents</h1>
       <p class="text-sm text-zinc-500">Group memories into agents for station subscriptions.</p>
     </div>
-    <button
-      onclick={() => { showCreate = !showCreate; createName = ''; createSlug = ''; createSlugEdited = false; }}
-      class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
-    >New Agent</button>
+    <a href="/app/orgs/{org.id}/bundles/new" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+      New Agent
+    </a>
   </div>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
-  {/if}
-
-  <!-- Create form -->
-  {#if showCreate}
-    <form method="POST" action="?/create" use:enhance={() => { return async ({ update }) => { showCreate = false; await update(); }; }} class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
-    >
-      <h3 class="mb-3 font-semibold text-zinc-900 dark:text-white">Create Agent</h3>
-      <input type="hidden" name="name" value={createSlug} />
-      <div class="mb-3">
-        <label for="createDisplayName" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Name</label>
-        <input id="createDisplayName" type="text" required placeholder="Engineering"
-          bind:value={createName}
-          class={inputClass} />
-      </div>
-      <div class="mb-3">
-        <label for="createSlug" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">URN</label>
-        <div class="flex items-stretch max-w-md">
-          <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
-          <input id="createSlug" type="text" required placeholder="engineering"
-            bind:value={createSlug}
-            oninput={() => createSlugEdited = true}
-            class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-        </div>
-      </div>
-      <div class="mb-4">
-        <label for="createDescription" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Description (optional)</label>
-        <input id="createDescription" name="description" type="text" placeholder="What this agent is for"
-          class={inputClass} />
-      </div>
-      <div class="flex gap-3">
-        <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Create</button>
-        <button type="button" onclick={() => { showCreate = false; }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
-      </div>
-    </form>
-  {/if}
-
-  <!-- Agent list -->
-  {#if !org.agents?.length && !showCreate}
-    <p class="text-sm text-zinc-500">No agents yet. Create one to group memories for station subscriptions.</p>
-  {/if}
-
-  {#each org.agents ?? [] as agent (agent.id)}
-    {@const isExpanded = expandedId === agent.id}
-    {@const isEditing = editingId === agent.id}
-    {@const memoryIdsInAgent = new Set(agent.memoryItems.map((item) => item.memory.id))}
-    {@const subscribedMemories = (org.subscriptions ?? []).map((s) => s.memory)}
-    {@const allMemories = [...(org.memories ?? []), ...subscribedMemories]}
-    {@const availableMemories = allMemories.filter((m) => !memoryIdsInAgent.has(m.id))}
-
-    <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <!-- Header -->
-      <button
-        type="button"
-        onclick={() => { expandedId = isExpanded ? null : agent.id; editingId = null; }}
-        class="flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
-          class="shrink-0 transition-transform {isExpanded ? 'rotate-90' : ''}"
-        ><polyline points="9 18 15 12 9 6"></polyline></svg>
-        <div class="flex-1 min-w-0">
-          <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{agent.name}</p>
-          <p class="font-mono text-xs text-zinc-400">{agent.urn}</p>
-          {#if agent.description}
-            <p class="text-xs text-zinc-500">{agent.description}</p>
-          {/if}
-        </div>
-        <span class="text-xs text-zinc-400">{agent.memoryItems.length} memor{agent.memoryItems.length !== 1 ? 'ies' : 'y'}</span>
-      </button>
-
-      <!-- Expanded content -->
-      {#if isExpanded}
-        <div class="border-t border-zinc-200 px-5 py-4 dark:border-zinc-800">
-          <!-- URN with copy -->
-          <div class="mb-4 flex items-center gap-2">
-            <span class="font-mono text-xs text-zinc-400">{agent.urn}</span>
-            <button onclick={() => navigator.clipboard.writeText(agent.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            </button>
-          </div>
-          <!-- Edit / Delete actions -->
-          {#if isEditing}
-            <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { editingId = null; await update(); }; }} class="mb-4">
-              <input type="hidden" name="id" value={agent.id} />
-              <div class="mb-3">
-                <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Name</label>
-                <input name="name" type="text" required value={agent.name}
-                  class={inputClass} />
-              </div>
-              <div class="mb-3">
-                <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">URN</label>
-                <div class="flex items-stretch max-w-md">
-                  <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
-                  <input name="urnSlug" type="text" required value={urnSlug(agent.urn)}
-                    class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-                </div>
-              </div>
-              <div class="mb-3">
-                <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Description</label>
-                <input name="description" type="text" value={agent.description ?? ''}
-                  class={inputClass} />
-              </div>
-              <div class="flex gap-3">
-                <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
-                <button type="button" onclick={() => { editingId = null; }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
-              </div>
-            </form>
-          {:else}
-            <div class="mb-4 flex items-center gap-3">
-              <button type="button" onclick={() => { editingId = agent.id; }}
-                class="text-xs leading-tight text-indigo-500 hover:text-indigo-400">Edit</button>
-              <form method="POST" action="?/delete" use:enhance class="flex"
-                onsubmit={(e) => { if (!confirm(`Delete agent "${agent.name}"?`)) e.preventDefault(); else expandedId = null; }}
-              >
-                <input type="hidden" name="id" value={agent.id} />
-                <button type="submit" class="text-xs leading-tight text-red-400 hover:text-red-300">Delete</button>
-              </form>
-            </div>
-          {/if}
-
-          <!-- Memories in this agent -->
-          <h4 class="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">Memories in this agent</h4>
-          {#if agent.memoryItems.length}
-            <div class="mb-3 divide-y divide-zinc-200 rounded-lg border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-              {#each agent.memoryItems as item (item.id)}
-                <div class="flex items-center justify-between bg-zinc-50 px-4 py-3 dark:bg-zinc-900">
-                  <p class="text-sm text-zinc-900 dark:text-zinc-200">{item.memory.name}</p>
-                  <p class="font-mono text-xs text-zinc-400">{item.memory.urn}</p>
-                  <form method="POST" action="?/removeMemory" use:enhance>
-                    <input type="hidden" name="agentId" value={agent.id} />
-                    <input type="hidden" name="memoryId" value={item.memory.id} />
-                    <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
-                  </form>
-                </div>
-              {/each}
-            </div>
-          {:else}
-            <p class="mb-3 text-sm text-zinc-500">No memories added yet.</p>
-          {/if}
-
-          <!-- Add memory -->
-          {#if availableMemories.length > 0}
-            <form method="POST" action="?/addMemory" use:enhance class="flex items-end gap-3">
-              <input type="hidden" name="agentId" value={agent.id} />
-              <div>
-                <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
-                <select name="memoryId" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                  {#each availableMemories as m (m.id)}
-                    <option value={m.id}>{m.name} ({m.urn})</option>
-                  {/each}
-                </select>
-              </div>
-              <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">Add</button>
-            </form>
-          {:else if allMemories.length === 0}
-            <p class="text-xs text-zinc-500">No memories available. Add owned or subscribed memories first.</p>
-          {:else}
-            <p class="text-xs text-zinc-500">All memories are already in this agent.</p>
-          {/if}
-        </div>
-      {/if}
+  {#if !org.agents?.length}
+    <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+      No agents yet. <a href="/app/orgs/{org.id}/bundles/new" class="text-indigo-600 hover:underline dark:text-indigo-400">Create one →</a>
     </div>
-  {/each}
+  {:else}
+    <div class="space-y-3">
+      {#each org.agents as agent (agent.id)}
+        <a
+          href="/app/orgs/{org.id}/bundles/{agent.id}"
+          class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
+        >
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-indigo-600 dark:text-indigo-300">{agent.name}</p>
+            <p class="font-mono text-xs text-zinc-400">{agent.urn}</p>
+            {#if agent.description}
+              <p class="mt-1 text-xs text-zinc-500">{agent.description}</p>
+            {/if}
+          </div>
+          <span class="text-xs text-zinc-400">{agent.memoryItems.length} memor{agent.memoryItems.length !== 1 ? 'ies' : 'y'}</span>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-zinc-400"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </a>
+      {/each}
+    </div>
+  {/if}
 </div>
