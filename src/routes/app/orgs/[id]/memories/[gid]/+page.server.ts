@@ -7,11 +7,17 @@ import {
   PUSH_MEMORY_TO_GIT_MUTATION,
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
+  MY_ORGANIZATIONS_QUERY,
 } from '$lib/server/queries';
+import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ parent }) => {
+export const load: PageServerLoad = async ({ locals, parent }) => {
   await requireNonConsumer(parent);
+  const data = await gqlClient(locals.token)
+    .request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
+    .catch(() => ({ myOrganizations: [] as Organization[] }));
+  return { allOrgs: data.myOrganizations };
 };
 
 export const actions: Actions = {
@@ -19,6 +25,7 @@ export const actions: Actions = {
     const fd = await request.formData();
     const displayName = String(fd.get('displayName') ?? '').trim() || undefined;
     const urnSlug = String(fd.get('urnSlug') ?? '').trim() || undefined;
+    const newOrgId = String(fd.get('organizationId') ?? '').trim() || undefined;
     const tagsRaw = String(fd.get('tags') ?? '').trim();
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : [];
     try {
@@ -26,6 +33,7 @@ export const actions: Actions = {
         id: params.gid,
         name: displayName,
         urn: urnSlug,
+        organizationId: newOrgId !== params.id ? newOrgId : undefined,
         shortDescription: String(fd.get('shortDescription') ?? '').trim() || null,
         description: String(fd.get('description') ?? '').trim() || null,
         tags,

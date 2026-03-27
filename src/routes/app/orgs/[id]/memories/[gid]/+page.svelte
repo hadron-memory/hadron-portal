@@ -57,6 +57,18 @@
           class={inputClass} />
       </div>
 
+      <!-- Organization -->
+      {#if (data as any).allOrgs && (data as any).allOrgs.length > 1}
+        <div>
+          <label for="organizationId" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Organization</label>
+          <select id="organizationId" name="organizationId" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+            {#each (data as any).allOrgs as org (org.id)}
+              <option value={org.id} selected={org.id === g.organizationId}>{org.name} ({org.urn})</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
+
       <!-- URN -->
       <div>
         <label for="urnSlugInput" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">URN</label>
