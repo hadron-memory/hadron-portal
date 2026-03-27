@@ -4,6 +4,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import {
   UPDATE_MEMORY_MUTATION,
   SYNC_MEMORY_MUTATION,
+  PUSH_MEMORY_TO_GIT_MUTATION,
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
 } from '$lib/server/queries';
@@ -52,6 +53,15 @@ export const actions: Actions = {
       return { synced: true };
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Sync failed' });
+    }
+  },
+
+  pushToGit: async ({ params, locals }) => {
+    try {
+      await gqlClient(locals.token).request(PUSH_MEMORY_TO_GIT_MUTATION, { id: params.gid });
+      return { pushed: true };
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Push to Git failed' });
     }
   },
 

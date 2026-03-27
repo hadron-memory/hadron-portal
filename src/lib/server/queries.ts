@@ -358,6 +358,12 @@ export const SYNC_MEMORY_MUTATION = /* GraphQL */ `
   }
 `;
 
+export const PUSH_MEMORY_TO_GIT_MUTATION = /* GraphQL */ `
+  mutation PushMemoryToGit($id: ID!) {
+    pushMemoryToGit(id: $id)
+  }
+`;
+
 export const SET_MEMORY_SOURCE_TOKEN_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation SetMemorySourceToken($id: ID!, $token: String!, $expiresAt: String) {

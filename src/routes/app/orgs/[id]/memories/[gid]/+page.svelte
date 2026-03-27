@@ -41,7 +41,7 @@
   {/if}
   {#if form?.success || form?.synced}
     <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {form.synced ? 'Memory synced.' : 'Changes saved.'}
+      {form.synced ? 'Memory synced.' : (form as any).pushed ? 'Pushed to Git.' : 'Changes saved.'}
     </div>
   {/if}
 
@@ -172,7 +172,12 @@
       <button type="submit" form="graph-settings" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
       <form method="POST" action="?/sync" use:enhance>
         <button type="submit" class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
-          Sync now
+          Sync from Git
+        </button>
+      </form>
+      <form method="POST" action="?/pushToGit" use:enhance>
+        <button type="submit" class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
+          Push to Git
         </button>
       </form>
     </div>
