@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { toSlug } from '$lib/slug';
   import type { PageData, ActionData } from './$types';
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -7,21 +8,17 @@
   let slug = $state('');
   let slugManuallyEdited = $state(false);
   let githubOpen = $state(false);
+  let colonWarning = $state(false);
 
-  // Auto-generate slug from name (kebab-case)
   $effect(() => {
     if (!slugManuallyEdited) {
-      slug = name
-        .toLowerCase()
-        .replace(/[^a-z0-9\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '');
+      slug = toSlug(name);
     }
   });
 
-  function onSlugInput() {
+  function onSlugInput(e: Event) {
     slugManuallyEdited = true;
+    colonWarning = (e.target as HTMLInputElement).value.includes(':');
   }
 </script>
 
@@ -55,8 +52,11 @@
         <input id="slug" type="text" required placeholder="my-knowledge-base"
           bind:value={slug}
           oninput={onSlugInput}
-          class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+          class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {colonWarning ? 'border-amber-500 focus:border-amber-500' : ''}" />
       </div>
+      {#if colonWarning}
+        <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">Colons are used as URN delimiters and should not appear in the slug.</p>
+      {/if}
     </div>
 
     <div>
