@@ -8,15 +8,22 @@
 <svelte:head><title>Memories · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-6">
+  <!-- Breadcrumb + header -->
   <div class="flex items-center justify-between">
     <div>
-      <a href="/app/orgs/{org.id}" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← {org.name}</a>
+      <nav class="flex items-center gap-1 text-sm">
+        <a href="/app/orgs" class="text-indigo-500 hover:underline dark:text-indigo-400">Organizations</a>
+        <span class="text-zinc-400">/</span>
+        <a href="/app/orgs/{org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{org.name}</a>
+        <span class="text-zinc-400">/</span>
+        <span class="text-zinc-700 dark:text-zinc-300">Memories</span>
+      </nav>
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Memories</h1>
     </div>
     <div class="flex items-center gap-3">
       <form method="POST" action="?/syncAll" use:enhance>
-        <button type="submit" class="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
-          ↻ Sync all
+        <button type="submit" class="cursor-pointer rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
+          Sync all
         </button>
       </form>
       <a href="/app/orgs/{org.id}/memories/new" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
@@ -44,11 +51,9 @@
       {#each org.memories as g (g.id)}
         <div class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
           <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2">
-              <a href="/app/orgs/{org.id}/memories/{g.id}" class="font-mono text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{g.name}</a>
-              <span class="font-mono text-xs text-zinc-400">{g.urn}</span>
-              <span class="rounded px-1.5 py-0.5 text-xs {g.visibility === 'PUBLIC' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{g.visibility}</span>
-            </div>
+            <a href="/app/orgs/{org.id}/memories/{g.id}" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{g.name}</a>
+            <span class="ml-2 rounded px-1.5 py-0.5 text-xs {g.visibility === 'PUBLIC' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{g.visibility}</span>
+            <p class="font-mono text-xs text-zinc-400">{g.urn}</p>
             <div class="mt-1 flex flex-wrap gap-3 text-xs text-zinc-500">
               {#if g.source}<span>git-backed</span>{:else}<span>DB-only</span>{/if}
               {#if g.readBranch}<span>branch: {g.readBranch}</span>{/if}
@@ -75,11 +80,9 @@
         {#each org.subscriptions as s (s.id)}
           <div class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
             <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-300">{s.memory.name}</span>
-                <span class="font-mono text-xs text-zinc-400">{s.memory.urn}</span>
-                <span class="rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">{s.role}</span>
-              </div>
+              <span class="text-sm font-semibold text-indigo-600 dark:text-indigo-300">{s.memory.name}</span>
+              <span class="ml-2 rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">{s.role}</span>
+              <p class="font-mono text-xs text-zinc-400">{s.memory.urn}</p>
               <p class="mt-1 text-xs text-zinc-500">from {s.memory.organization?.name ?? 'unknown'} ({s.memory.organization?.urn ?? ''})</p>
             </div>
             <form method="POST" action="?/unsubscribe" use:enhance onsubmit={(e) => { if (!confirm(`Unsubscribe from "${s.memory.name}"?`)) e.preventDefault(); }}>
@@ -104,7 +107,7 @@
           <select id="memoryId" name="memoryId" required class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
             <option value="">Select a memory...</option>
             {#each data.availableMemories as m (m.id)}
-              <option value={m.id}>{m.name}</option>
+              <option value={m.id}>{m.name} ({m.urn})</option>
             {/each}
           </select>
         </div>

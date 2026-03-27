@@ -116,6 +116,13 @@
       <!-- Expanded content -->
       {#if isExpanded}
         <div class="border-t border-zinc-200 px-5 py-4 dark:border-zinc-800">
+          <!-- URN with copy -->
+          <div class="mb-4 flex items-center gap-2">
+            <span class="font-mono text-xs text-zinc-400">{agent.urn}</span>
+            <button onclick={() => navigator.clipboard.writeText(agent.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            </button>
+          </div>
           <!-- Edit / Delete actions -->
           {#if isEditing}
             <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { editingId = null; await update(); }; }} class="mb-4">

@@ -30,8 +30,13 @@
   <!-- Header -->
   <div class="mb-4">
     <a href="/app/orgs/{data.org.id}/memories" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">&larr; Memories</a>
-    <h1 class="mt-1 font-mono text-2xl font-bold text-zinc-900 dark:text-white">{data.graph.name}</h1>
-    <p class="font-mono text-xs text-zinc-400">{data.graph.urn}</p>
+    <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{data.graph.name}</h1>
+    <div class="flex items-center gap-2">
+      <p class="font-mono text-xs text-zinc-400">{data.graph.urn}</p>
+      <button onclick={() => { navigator.clipboard.writeText(data.graph.urn); }} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+      </button>
+    </div>
   </div>
 
   <!-- Tabs -->
