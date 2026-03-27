@@ -1,12 +1,16 @@
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { CREATE_MEMORY_MUTATION } from '$lib/server/queries';
+import { CREATE_MEMORY_MUTATION, ORGANIZATION_QUERY } from '$lib/server/queries';
+import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, parent }) => {
+export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
-  return { orgId: params.id };
+  const data = await gqlClient(locals.token).request<{ organization: Organization }>(
+    ORGANIZATION_QUERY, { id: params.id },
+  );
+  return { org: data.organization };
 };
 
 export const actions: Actions = {
