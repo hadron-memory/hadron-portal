@@ -26,6 +26,7 @@
           <span class="text-2xl">{typeIcon[station.stationType] ?? '🔑'}</span>
           <div class="flex-1 min-w-0">
             <p class="font-semibold text-zinc-900 dark:text-white">{station.name}</p>
+            <p class="font-mono text-xs text-zinc-400">{station.urn}</p>
             <p class="text-xs text-zinc-500">{station.stationType}{station.user ? ` · ${station.user.name ?? station.user.githubUsername ?? station.user.email}` : ''}</p>
           </div>
           <div class="text-right text-xs text-zinc-500">
