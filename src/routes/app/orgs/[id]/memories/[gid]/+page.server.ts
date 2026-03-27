@@ -16,11 +16,15 @@ export const load: PageServerLoad = async ({ parent }) => {
 export const actions: Actions = {
   update: async ({ request, params, locals }) => {
     const fd = await request.formData();
+    const displayName = String(fd.get('displayName') ?? '').trim() || undefined;
+    const urnSlug = String(fd.get('urnSlug') ?? '').trim() || undefined;
     const tagsRaw = String(fd.get('tags') ?? '').trim();
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : [];
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
         id: params.gid,
+        name: displayName,
+        urn: urnSlug,
         shortDescription: String(fd.get('shortDescription') ?? '').trim() || null,
         description: String(fd.get('description') ?? '').trim() || null,
         tags,

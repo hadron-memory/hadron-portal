@@ -330,14 +330,14 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
 export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation UpdateMemory(
-    $id: ID!, $shortDescription: String, $description: String,
+    $id: ID!, $name: String, $urn: String, $shortDescription: String, $description: String,
     $tags: [String!], $license: String,
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
     $source: String, $readBranch: String, $writeBranch: String, $visibility: MemoryVisibility
   ) {
     updateMemory(
-      id: $id, shortDescription: $shortDescription, description: $description,
+      id: $id, name: $name, urn: $urn, shortDescription: $shortDescription, description: $description,
       tags: $tags, license: $license,
       category0: $category0, category1: $category1, category2: $category2,
       iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
