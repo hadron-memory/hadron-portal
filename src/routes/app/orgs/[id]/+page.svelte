@@ -110,7 +110,7 @@
   <section>
     <div class="mb-3 flex items-center justify-between">
       <h2 class="font-semibold text-zinc-900 dark:text-white">Agents <span class="ml-1 text-sm font-normal text-zinc-500">({org.agents?.length ?? 0})</span></h2>
-      <a href="/app/orgs/{org.id}/bundles" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
+      <a href="/app/orgs/{org.id}/agents" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
     </div>
     {#if !org.agents?.length}
       <p class="text-sm text-zinc-500">No agents yet.</p>
@@ -118,7 +118,7 @@
       <div class="grid gap-3 sm:grid-cols-2">
         {#each org.agents as a (a.id)}
           <div class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
-            <a href="/app/orgs/{org.id}/bundles" class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">{a.name}</a>
+            <a href="/app/orgs/{org.id}/agents" class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">{a.name}</a>
             <div class="flex items-center gap-1">
               <p class="font-mono text-xs text-zinc-400">{a.urn}</p>
               <button onclick={() => navigator.clipboard.writeText(a.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">

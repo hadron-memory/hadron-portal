@@ -25,7 +25,7 @@
       <span class="text-zinc-400">/</span>
       <a href="/app/orgs/{data.org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{data.org.name}</a>
       <span class="text-zinc-400">/</span>
-      <a href="/app/orgs/{data.org.id}/bundles" class="text-indigo-500 hover:underline dark:text-indigo-400">Agents</a>
+      <a href="/app/orgs/{data.org.id}/agents" class="text-indigo-500 hover:underline dark:text-indigo-400">Agents</a>
       <span class="text-zinc-400">/</span>
       <span class="text-zinc-700 dark:text-zinc-300">New</span>
     </nav>
@@ -65,7 +65,7 @@
 
     <div class="flex gap-3">
       <button type="submit" class="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500">Create Agent</button>
-      <a href="/app/orgs/{data.org.id}/bundles" class="rounded-lg border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</a>
+      <a href="/app/orgs/{data.org.id}/agents" class="rounded-lg border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</a>
     </div>
   </form>
 </div>

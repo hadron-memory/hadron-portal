@@ -51,7 +51,7 @@ export const actions: Actions = {
   delete: async ({ params, locals }) => {
     try {
       await gqlClient(locals.token).request(DELETE_AGENT_MUTATION, { id: params.aid });
-      redirect(303, `/app/orgs/${params.id}/bundles`);
+      redirect(303, `/app/orgs/${params.id}/agents`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       return fail(500, { error: extractGqlError(e, 'Failed to delete agent') });

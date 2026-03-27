@@ -39,7 +39,7 @@
     <span class="text-zinc-400">/</span>
     <a href="/app/orgs/{org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{org.name}</a>
     <span class="text-zinc-400">/</span>
-    <a href="/app/orgs/{org.id}/bundles" class="text-indigo-500 hover:underline dark:text-indigo-400">Agents</a>
+    <a href="/app/orgs/{org.id}/agents" class="text-indigo-500 hover:underline dark:text-indigo-400">Agents</a>
     <span class="text-zinc-400">/</span>
     <span class="text-zinc-700 dark:text-zinc-300">{agent.name}</span>
   </nav>

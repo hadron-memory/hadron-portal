@@ -24,7 +24,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(CREATE_AGENT_MUTATION, {
         orgId: params.id, name, description,
       });
-      redirect(303, `/app/orgs/${params.id}/bundles`);
+      redirect(303, `/app/orgs/${params.id}/agents`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to create agent' });

@@ -19,20 +19,20 @@
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Agents</h1>
       <p class="text-sm text-zinc-500">Group memories into agents for station subscriptions.</p>
     </div>
-    <a href="/app/orgs/{org.id}/bundles/new" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+    <a href="/app/orgs/{org.id}/agents/new" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
       New Agent
     </a>
   </div>
 
   {#if !org.agents?.length}
     <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-      No agents yet. <a href="/app/orgs/{org.id}/bundles/new" class="text-indigo-600 hover:underline dark:text-indigo-400">Create one →</a>
+      No agents yet. <a href="/app/orgs/{org.id}/agents/new" class="text-indigo-600 hover:underline dark:text-indigo-400">Create one →</a>
     </div>
   {:else}
     <div class="space-y-3">
       {#each org.agents as agent (agent.id)}
         <a
-          href="/app/orgs/{org.id}/bundles/{agent.id}"
+          href="/app/orgs/{org.id}/agents/{agent.id}"
           class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
         >
           <div class="flex-1 min-w-0">
