@@ -87,7 +87,7 @@ export const AGENT_FIELDS = /* GraphQL */ `
     description
     memoryItems {
       id
-      memory { id name }
+      memory { id urn name }
     }
     createdAt
   }

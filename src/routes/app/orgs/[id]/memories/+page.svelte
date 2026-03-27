@@ -46,6 +46,7 @@
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2">
               <a href="/app/orgs/{org.id}/memories/{g.id}" class="font-mono text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{g.name}</a>
+              <span class="font-mono text-xs text-zinc-400">{g.urn}</span>
               <span class="rounded px-1.5 py-0.5 text-xs {g.visibility === 'PUBLIC' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{g.visibility}</span>
             </div>
             <div class="mt-1 flex flex-wrap gap-3 text-xs text-zinc-500">
@@ -76,6 +77,7 @@
             <div class="flex-1 min-w-0">
               <div class="flex items-center gap-2">
                 <span class="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-300">{s.memory.name}</span>
+                <span class="font-mono text-xs text-zinc-400">{s.memory.urn}</span>
                 <span class="rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">{s.role}</span>
               </div>
               <p class="mt-1 text-xs text-zinc-500">from {s.memory.organization?.name ?? 'unknown'} ({s.memory.organization?.urn ?? ''})</p>

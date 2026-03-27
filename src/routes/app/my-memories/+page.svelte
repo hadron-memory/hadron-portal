@@ -61,6 +61,7 @@
         <div class="flex flex-col justify-between gap-4 rounded-xl border border-zinc-200 bg-white p-6 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
           <div class="space-y-3">
             <p class="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-300">{memory.name}</p>
+            <p class="font-mono text-xs text-zinc-400">{memory.urn}</p>
 
             <div class="flex flex-wrap gap-2 text-xs">
               <span

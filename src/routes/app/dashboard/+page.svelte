@@ -61,6 +61,7 @@
         {#each data.memories.slice(0, 6) as memory (memory.id)}
           <div class="rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
             <p class="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-300">{memory.name}</p>
+            <p class="font-mono text-xs text-zinc-400">{memory.urn}</p>
             <div class="mt-2 flex flex-wrap gap-2 text-xs">
               <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
                 {memory.syncStatus === 'OK' ? 'Synced' : memory.syncStatus.toLowerCase()}

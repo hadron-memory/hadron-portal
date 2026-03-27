@@ -31,6 +31,7 @@
   <div class="mb-4">
     <a href="/app/orgs/{data.org.id}/memories" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">&larr; Memories</a>
     <h1 class="mt-1 font-mono text-2xl font-bold text-zinc-900 dark:text-white">{data.graph.name}</h1>
+    <p class="font-mono text-xs text-zinc-400">{data.graph.urn}</p>
   </div>
 
   <!-- Tabs -->

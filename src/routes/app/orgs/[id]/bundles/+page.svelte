@@ -163,6 +163,7 @@
               {#each agent.memoryItems as item (item.id)}
                 <div class="flex items-center justify-between bg-zinc-50 px-4 py-3 dark:bg-zinc-900">
                   <p class="text-sm text-zinc-900 dark:text-zinc-200">{item.memory.name}</p>
+                  <p class="font-mono text-xs text-zinc-400">{item.memory.urn}</p>
                   <form method="POST" action="?/removeMemory" use:enhance>
                     <input type="hidden" name="agentId" value={agent.id} />
                     <input type="hidden" name="memoryId" value={item.memory.id} />
@@ -183,7 +184,7 @@
                 <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
                 <select name="memoryId" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                   {#each availableMemories as m (m.id)}
-                    <option value={m.id}>{m.name}</option>
+                    <option value={m.id}>{m.name} ({m.urn})</option>
                   {/each}
                 </select>
               </div>

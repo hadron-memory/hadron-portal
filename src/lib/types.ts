@@ -48,7 +48,7 @@ export interface Agent {
 
 export interface AgentMemoryItem {
   id: string;
-  memory: { id: string; name: string };
+  memory: { id: string; urn: string; name: string };
 }
 
 export interface StationAgentSub {

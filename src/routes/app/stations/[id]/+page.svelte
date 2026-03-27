@@ -350,6 +350,7 @@ notice outdated information, update the graph with h-create-node.
             <div class="bg-white px-5 py-4 dark:bg-zinc-900">
               <div class="mb-3 flex items-center justify-between">
                 <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
+                <p class="font-mono text-xs text-zinc-400">{sub.agent.urn}</p>
                 <form method="POST" action="?/unsubscribe" use:enhance onsubmit={() => { editingSubId = null; }}>
                   <input type="hidden" name="agentId" value={sub.agent.id} />
                   <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
@@ -385,6 +386,7 @@ notice outdated information, update the graph with h-create-node.
             >
               <div class="flex-1 min-w-0">
                 <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
+                <p class="font-mono text-xs text-zinc-400">{sub.agent.urn}</p>
                 <p class="text-xs text-zinc-500">
                   {sub.subscriptionType === 'READ_WRITE' ? 'Read/Write' : 'Read Only'}
                   {#if sub.trainingMode} · Training mode{/if}
@@ -406,7 +408,7 @@ notice outdated information, update the graph with h-create-node.
           <label for="agentId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Agent</label>
           <select id="agentId" name="agentId" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white">
             {#each availableAgents as a (a.id)}
-              <option value={a.id}>{a.name}</option>
+              <option value={a.id}>{a.name} ({a.urn})</option>
             {/each}
           </select>
         </div>

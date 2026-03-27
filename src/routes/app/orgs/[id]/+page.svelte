@@ -108,6 +108,7 @@
         {#each org.agents as a (a.id)}
           <a href="/app/orgs/{org.id}/bundles" class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
             <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{a.name}</p>
+            <p class="font-mono text-xs text-zinc-400">{a.urn}</p>
             {#if a.description}
               <p class="mt-1 text-xs text-zinc-500">{a.description}</p>
             {/if}
@@ -401,6 +402,7 @@
         {#each org.subscriptions as s (s.id)}
           <div class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
             <p class="font-mono text-sm text-indigo-600 dark:text-indigo-300">{s.memory.name}</p>
+            <p class="font-mono text-xs text-zinc-400">{s.memory.urn}</p>
             <p class="mt-1 text-xs text-zinc-500">Role: {s.role}</p>
           </div>
         {/each}

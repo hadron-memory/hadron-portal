@@ -49,6 +49,7 @@
           <div class="space-y-3">
             <div>
               <p class="font-mono text-sm font-semibold text-indigo-600 dark:text-indigo-300">{memory.name}</p>
+              <p class="font-mono text-xs text-zinc-400">{memory.urn}</p>
             </div>
 
             <div class="flex flex-wrap gap-2 text-xs">
