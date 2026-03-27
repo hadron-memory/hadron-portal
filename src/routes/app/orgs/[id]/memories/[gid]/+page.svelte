@@ -4,11 +4,24 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const g = $derived(data.graph);
+
+  let githubOpen = $state(false);
+
+  // Auto-open GitHub section if source is configured
+  $effect(() => {
+    if (g.source) githubOpen = true;
+  });
+
+  // Extract slug from URN (part after org:)
+  const urnSlug = $derived(g.urn ? g.urn.split(':').slice(1).join(':') : '');
+
+  const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 </script>
 
 <svelte:head><title>{g.name} &middot; Settings &middot; Hadron</title></svelte:head>
 
 <div class="space-y-8">
+  <!-- Sync status -->
   <div>
     <div class="mt-1 flex flex-wrap gap-3 text-sm text-zinc-500">
       {#if g.syncStatus}
@@ -36,93 +49,131 @@
   <section>
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Settings</h2>
     <form id="graph-settings" method="POST" action="?/update" use:enhance class="max-w-lg space-y-4">
+
+      <!-- Name (display name) -->
+      <div>
+        <label for="displayName" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Name</label>
+        <input id="displayName" type="text" value={g.name} disabled
+          class="{inputClass} opacity-70 cursor-not-allowed" />
+        <p class="mt-1 text-xs text-zinc-500">Display name cannot be changed yet.</p>
+      </div>
+
+      <!-- URN (read-only) -->
+      <div>
+        <label class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">URN</label>
+        <div class="flex items-stretch">
+          <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.org.urn}:</span>
+          <input type="text" value={urnSlug} disabled
+            class="w-full rounded-r-lg border border-zinc-300 bg-zinc-50 px-3 py-2 font-mono text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 cursor-not-allowed" />
+        </div>
+      </div>
+
       <div>
         <label for="shortDescription" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Short description</label>
         <input id="shortDescription" name="shortDescription" type="text" value={g.shortDescription ?? ''}
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+          class={inputClass} />
       </div>
       <div>
         <label for="description" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Description</label>
         <textarea id="description" name="description" rows="3"
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none">{g.description ?? ''}</textarea>
+          class={inputClass}>{g.description ?? ''}</textarea>
       </div>
       <div>
         <label for="tags" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Tags <span class="text-zinc-500">(comma-separated)</span></label>
         <input id="tags" name="tags" type="text" value={(g.tags ?? []).join(', ')}
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+          class={inputClass} />
       </div>
       <div class="grid grid-cols-3 gap-4">
         <div>
           <label for="category0" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Category</label>
           <input id="category0" name="category0" type="text" value={g.category0 ?? ''}
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+            class={inputClass} />
         </div>
         <div>
           <label for="category1" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Subcategory</label>
           <input id="category1" name="category1" type="text" value={g.category1 ?? ''}
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+            class={inputClass} />
         </div>
         <div>
           <label for="category2" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Sub-subcategory</label>
           <input id="category2" name="category2" type="text" value={g.category2 ?? ''}
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+            class={inputClass} />
         </div>
       </div>
       <div class="grid grid-cols-2 gap-4">
         <div>
           <label for="license" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">License</label>
           <input id="license" name="license" type="text" value={g.license ?? ''}
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+            class={inputClass} />
         </div>
         <div>
           <label for="homeUrl" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Home URL</label>
           <input id="homeUrl" name="homeUrl" type="url" value={g.homeUrl ?? ''}
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+            class={inputClass} />
         </div>
       </div>
       <div class="grid grid-cols-2 gap-4">
         <div>
           <label for="iconUrl" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Icon URL</label>
           <input id="iconUrl" name="iconUrl" type="url" value={g.iconUrl ?? ''}
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+            class={inputClass} />
         </div>
         <div>
           <label for="heroUrl" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Hero image URL</label>
           <input id="heroUrl" name="heroUrl" type="url" value={g.heroUrl ?? ''}
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
-        </div>
-      </div>
-      <div>
-        <label for="source" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Git source URL</label>
-        <input id="source" name="source" type="text" value={g.source ?? ''}
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
-      </div>
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label for="readBranch" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Read branch</label>
-          <input id="readBranch" name="readBranch" type="text" value={g.readBranch ?? ''}
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none" />
-        </div>
-        <div>
-          <label for="writeBranch" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Write branch</label>
-          <input id="writeBranch" name="writeBranch" type="text" value={g.writeBranch ?? ''}
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none" />
+            class={inputClass} />
         </div>
       </div>
       <div>
         <label for="visibility" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Visibility</label>
-        <select id="visibility" name="visibility" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
+        <select id="visibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
           <option value="PRIVATE" selected={g.visibility === 'PRIVATE'}>Private</option>
           <option value="ORGANIZATION" selected={g.visibility === 'ORGANIZATION'}>Organization</option>
           <option value="PUBLIC" selected={g.visibility === 'PUBLIC'}>Public</option>
         </select>
+      </div>
+
+      <!-- GitHub integration (collapsed unless source is set) -->
+      <div class="rounded-lg border border-zinc-200 dark:border-zinc-800">
+        <button
+          type="button"
+          onclick={() => githubOpen = !githubOpen}
+          class="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50 rounded-lg"
+        >
+          <span>GitHub integration {#if !g.source}<span class="font-normal text-zinc-500">(optional)</span>{/if}</span>
+          <svg width="12" height="12" viewBox="0 0 12 12" class="transition-transform {githubOpen ? 'rotate-90' : ''}">
+            <path d="M4 2 L8 6 L4 10" stroke="currentColor" fill="none" stroke-width="1.5" />
+          </svg>
+        </button>
+
+        {#if githubOpen}
+          <div class="space-y-4 border-t border-zinc-200 px-4 py-4 dark:border-zinc-800">
+            <div>
+              <label for="source" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Git source URL</label>
+              <input id="source" name="source" type="text" value={g.source ?? ''} placeholder="https://github.com/owner/repo.git"
+                class={inputClass} />
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label for="readBranch" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Read branch</label>
+                <input id="readBranch" name="readBranch" type="text" value={g.readBranch ?? ''} placeholder="main"
+                  class={inputClass} />
+              </div>
+              <div>
+                <label for="writeBranch" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Write branch</label>
+                <input id="writeBranch" name="writeBranch" type="text" value={g.writeBranch ?? ''} placeholder="hadron-updates"
+                  class={inputClass} />
+              </div>
+            </div>
+          </div>
+        {/if}
       </div>
     </form>
     <div class="mt-4 flex gap-3">
       <button type="submit" form="graph-settings" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
       <form method="POST" action="?/sync" use:enhance>
         <button type="submit" class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
-          ↻ Sync now
+          Sync now
         </button>
       </form>
     </div>
@@ -156,11 +207,11 @@
       <div class="flex-1">
         <label for="subOrgId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Organization ID</label>
         <input id="subOrgId" name="orgId" type="text" required placeholder="org-cuid"
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+          class="{inputClass} font-mono" />
       </div>
       <div>
         <label for="subRole" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
-        <select id="subRole" name="role" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
+        <select id="subRole" name="role" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
           <option value="READER">Reader</option>
           <option value="CONTRIBUTOR">Contributor</option>
         </select>
