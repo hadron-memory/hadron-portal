@@ -49,11 +49,12 @@ export const actions: Actions = {
   update: async ({ request, locals }) => {
     const fd = await request.formData();
     const id = String(fd.get('id') ?? '');
-    const name = String(fd.get('name') ?? '').trim();
+    const name = String(fd.get('name') ?? '').trim() || undefined;
+    const urnSlug = String(fd.get('urnSlug') ?? '').trim() || undefined;
     const description = String(fd.get('description') ?? '').trim() || null;
     if (!name) return fail(400, { error: 'Name is required' });
     try {
-      await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, { id, name, description });
+      await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, { id, name, urn: urnSlug, description });
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to update agent') });
     }

@@ -8,6 +8,23 @@
   let editingId = $state<string | null>(null);
   let expandedId = $state<string | null>(null);
   let showCreate = $state(false);
+
+  // Create form state
+  let createName = $state('');
+  let createSlug = $state('');
+  let createSlugEdited = $state(false);
+
+  $effect(() => {
+    if (!createSlugEdited) {
+      createSlug = createName.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    }
+  });
+
+  const inputClass = "w-full max-w-md rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
+
+  function urnSlug(urn: string): string {
+    return urn.includes(':') ? urn.split(':').slice(1).join(':') : urn;
+  }
 </script>
 
 <svelte:head><title>Agents · {org.name} · Hadron</title></svelte:head>
@@ -20,7 +37,7 @@
       <p class="text-sm text-zinc-500">Group memories into agents for station subscriptions.</p>
     </div>
     <button
-      onclick={() => { showCreate = !showCreate; }}
+      onclick={() => { showCreate = !showCreate; createName = ''; createSlug = ''; createSlugEdited = false; }}
       class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
     >New Agent</button>
   </div>
@@ -34,15 +51,27 @@
     <form method="POST" action="?/create" use:enhance={() => { return async ({ update }) => { showCreate = false; await update(); }; }} class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
     >
       <h3 class="mb-3 font-semibold text-zinc-900 dark:text-white">Create Agent</h3>
+      <input type="hidden" name="name" value={createSlug} />
       <div class="mb-3">
-        <label for="name" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Name</label>
-        <input id="name" name="name" type="text" required placeholder="e.g. production"
-          class="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+        <label for="createDisplayName" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Name</label>
+        <input id="createDisplayName" type="text" required placeholder="Engineering"
+          bind:value={createName}
+          class={inputClass} />
+      </div>
+      <div class="mb-3">
+        <label for="createSlug" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">URN</label>
+        <div class="flex items-stretch max-w-md">
+          <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+          <input id="createSlug" type="text" required placeholder="engineering"
+            bind:value={createSlug}
+            oninput={() => createSlugEdited = true}
+            class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+        </div>
       </div>
       <div class="mb-4">
-        <label for="description" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Description (optional)</label>
-        <input id="description" name="description" type="text" placeholder="What this agent is for"
-          class="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+        <label for="createDescription" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Description (optional)</label>
+        <input id="createDescription" name="description" type="text" placeholder="What this agent is for"
+          class={inputClass} />
       </div>
       <div class="flex gap-3">
         <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Create</button>
@@ -75,7 +104,8 @@
           class="shrink-0 transition-transform {isExpanded ? 'rotate-90' : ''}"
         ><polyline points="9 18 15 12 9 6"></polyline></svg>
         <div class="flex-1 min-w-0">
-          <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{agent.name}</p>
+          <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{agent.name}</p>
+          <p class="font-mono text-xs text-zinc-400">{agent.urn}</p>
           {#if agent.description}
             <p class="text-xs text-zinc-500">{agent.description}</p>
           {/if}
@@ -93,12 +123,20 @@
               <div class="mb-3">
                 <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Name</label>
                 <input name="name" type="text" required value={agent.name}
-                  class="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+                  class={inputClass} />
+              </div>
+              <div class="mb-3">
+                <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">URN</label>
+                <div class="flex items-stretch max-w-md">
+                  <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+                  <input name="urnSlug" type="text" required value={urnSlug(agent.urn)}
+                    class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+                </div>
               </div>
               <div class="mb-3">
                 <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Description</label>
                 <input name="description" type="text" value={agent.description ?? ''}
-                  class="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+                  class={inputClass} />
               </div>
               <div class="flex gap-3">
                 <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
@@ -124,7 +162,7 @@
             <div class="mb-3 divide-y divide-zinc-200 rounded-lg border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
               {#each agent.memoryItems as item (item.id)}
                 <div class="flex items-center justify-between bg-zinc-50 px-4 py-3 dark:bg-zinc-900">
-                  <p class="font-mono text-sm text-zinc-900 dark:text-zinc-200">{item.memory.name}</p>
+                  <p class="text-sm text-zinc-900 dark:text-zinc-200">{item.memory.name}</p>
                   <form method="POST" action="?/removeMemory" use:enhance>
                     <input type="hidden" name="agentId" value={agent.id} />
                     <input type="hidden" name="memoryId" value={item.memory.id} />
@@ -143,7 +181,7 @@
               <input type="hidden" name="agentId" value={agent.id} />
               <div>
                 <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
-                <select name="memoryId" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white">
+                <select name="memoryId" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                   {#each availableMemories as m (m.id)}
                     <option value={m.id}>{m.name}</option>
                   {/each}

@@ -394,8 +394,8 @@ export const CREATE_AGENT_MUTATION = /* GraphQL */ `
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($id: ID!, $name: String, $description: String) {
-    updateAgent(id: $id, name: $name, description: $description) { ...AgentFields }
+  mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String) {
+    updateAgent(id: $id, name: $name, urn: $urn, description: $description) { ...AgentFields }
   }
 `;
 
