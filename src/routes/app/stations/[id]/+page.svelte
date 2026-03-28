@@ -287,9 +287,17 @@ notice outdated information, update the graph with h-create-node.
 <svelte:head><title>{station.name} · Hadron</title></svelte:head>
 
 <div class="space-y-8">
+  <!-- Breadcrumb -->
+  <nav class="flex items-center gap-1 text-sm flex-wrap">
+    <a href="/app/dashboard" class="text-indigo-500 hover:underline dark:text-indigo-400">Dashboard</a>
+    <span class="text-zinc-400">/</span>
+    <a href="/app/stations" class="text-indigo-500 hover:underline dark:text-indigo-400">Stations</a>
+    <span class="text-zinc-400">/</span>
+    <span class="text-zinc-700 dark:text-zinc-300">{station.name}</span>
+  </nav>
+
   <div class="flex items-start justify-between">
     <div>
-      <a href="/app/stations" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Stations</a>
       <h1 class="mt-1 flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
         <span>{typeIcon[station.stationType] ?? '🔑'}</span>
         {station.name}
@@ -305,14 +313,14 @@ notice outdated information, update the graph with h-create-node.
       {/if}
     </div>
     <div class="flex items-center gap-2">
-      <button onclick={() => isEditing = !isEditing} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
-        {isEditing ? 'Cancel' : 'Edit'}
-      </button>
+      {#if !isEditing}
+        <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+      {/if}
       <form method="POST" action="?/revoke" use:enhance onsubmit={(e) => {
         if (!confirm(`Delete station "${station.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
         else goto('/app/stations');
       }}>
-        <button type="submit" class="rounded-md border border-red-800 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950">Delete</button>
+        <button type="submit" class="rounded-md border border-red-300 px-3 py-1 text-xs text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">Delete</button>
       </form>
     </div>
   </div>
@@ -332,11 +340,24 @@ notice outdated information, update the graph with h-create-node.
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
       </div>
       <div>
+        <label for="editType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+        <select id="editType" name="stationType" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+          <option value="WORKSTATION" selected={station.stationType === 'WORKSTATION'}>💻 Workstation</option>
+          <option value="CHATBOT" selected={station.stationType === 'CHATBOT'}>💬 Chatbot</option>
+          <option value="AGENT" selected={station.stationType === 'AGENT'}>🤖 Agent</option>
+          <option value="CLOUD" selected={station.stationType === 'CLOUD'}>☁️ Cloud</option>
+          <option value="IOT" selected={station.stationType === 'IOT'}>📡 IoT</option>
+        </select>
+      </div>
+      <div>
         <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
         <input id="editDescription" name="description" type="text" value={station.description ?? ''} placeholder="What this station is for"
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
       </div>
-      <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
+      <div class="flex gap-3">
+        <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
+        <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+      </div>
     </form>
   {/if}
 
@@ -397,34 +418,27 @@ notice outdated information, update the graph with h-create-node.
                       <option value="READ_WRITE">Read/Write</option>
                     </select>
                   </div>
-                  <div>
-                    <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Training mode</label>
-                    <select name="trainingMode" value={sub.trainingMode ? 'true' : 'false'} class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
-                      <option value="false">Off</option>
-                      <option value="true">On</option>
-                    </select>
-                  </div>
                   <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
                   <button type="button" onclick={() => { editingSubId = null; }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
                 </div>
               </form>
             </div>
           {:else}
-            <button
-              type="button"
-              onclick={() => { editingSubId = sub.id; }}
-              class="flex w-full items-center gap-4 bg-white px-5 py-4 text-left transition hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800/50"
-            >
+            <div class="flex w-full items-center gap-4 bg-white px-5 py-4 dark:bg-zinc-900">
               <div class="flex-1 min-w-0">
-                <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
-                <p class="font-mono text-xs text-zinc-400">{sub.agent.urn}</p>
+                <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
+                <div class="flex items-center gap-1">
+                  <p class="font-mono text-xs text-zinc-400">{sub.agent.urn}</p>
+                  <button onclick={() => navigator.clipboard.writeText(sub.agent.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  </button>
+                </div>
                 <p class="text-xs text-zinc-500">
                   {sub.subscriptionType === 'READ_WRITE' ? 'Read/Write' : 'Read Only'}
-                  {#if sub.trainingMode} · Training mode{/if}
                 </p>
               </div>
-              <span class="text-xs text-zinc-400">Edit</span>
-            </button>
+              <button type="button" onclick={() => { editingSubId = sub.id; }} class="text-xs text-indigo-500 hover:text-indigo-400">Edit</button>
+            </div>
           {/if}
         {/each}
       </div>
@@ -448,13 +462,6 @@ notice outdated information, update the graph with h-create-node.
           <select id="subscriptionType" name="subscriptionType" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
             <option value="READ_ONLY">Read Only</option>
             <option value="READ_WRITE">Read/Write</option>
-          </select>
-        </div>
-        <div>
-          <label for="trainingMode" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Training mode</label>
-          <select id="trainingMode" name="trainingMode" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
-            <option value="false">Off</option>
-            <option value="true">On</option>
           </select>
         </div>
         <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Subscribe</button>
