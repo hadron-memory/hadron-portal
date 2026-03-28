@@ -6,6 +6,9 @@
   const g = $derived(data.graph);
 
   let githubOpen = $state(false);
+  let saving = $state(false);
+  let syncing = $state(false);
+  let pushing = $state(false);
 
   // Auto-open GitHub section if source is configured
   $effect(() => {
@@ -16,14 +19,44 @@
   const urnSlug = $derived(g.urn ? g.urn.split(':').slice(1).join(':') : '');
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
+
+  function savingEnhance(formEl: HTMLFormElement) {
+    return enhance(formEl, () => {
+      saving = true;
+      return async ({ update }) => { saving = false; await update(); };
+    });
+  }
+  function syncingEnhance(formEl: HTMLFormElement) {
+    return enhance(formEl, () => {
+      syncing = true;
+      return async ({ update }) => { syncing = false; await update(); };
+    });
+  }
+  function pushingEnhance(formEl: HTMLFormElement) {
+    return enhance(formEl, () => {
+      pushing = true;
+      return async ({ update }) => { pushing = false; await update(); };
+    });
+  }
 </script>
 
 <svelte:head><title>{g.name} &middot; Settings &middot; Hadron</title></svelte:head>
 
 <div class="space-y-8">
-  <!-- Sync status -->
+  <!-- Breadcrumb + sync status -->
   <div>
-    <div class="mt-1 flex flex-wrap gap-3 text-sm text-zinc-500">
+    <nav class="flex items-center gap-1 text-sm flex-wrap">
+      <a href="/app/orgs" class="text-indigo-500 hover:underline dark:text-indigo-400">Organizations</a>
+      <span class="text-zinc-400">/</span>
+      <a href="/app/orgs/{data.org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{data.org.name}</a>
+      <span class="text-zinc-400">/</span>
+      <a href="/app/orgs/{data.org.id}/memories" class="text-indigo-500 hover:underline dark:text-indigo-400">Memories</a>
+      <span class="text-zinc-400">/</span>
+      <span class="text-zinc-700 dark:text-zinc-300">{g.name}</span>
+      <span class="text-zinc-400">/</span>
+      <span class="text-zinc-700 dark:text-zinc-300">Settings</span>
+    </nav>
+    <div class="mt-2 flex flex-wrap gap-3 text-sm text-zinc-500">
       {#if g.syncStatus}
         <span>Sync: {g.syncStatus}</span>
       {/if}
@@ -39,16 +72,16 @@
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
-  {#if form?.success || form?.synced}
+  {#if form?.success || form?.synced || (form as any)?.pushed}
     <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {form.synced ? 'Memory synced.' : (form as any).pushed ? 'Pushed to Git.' : 'Changes saved.'}
+      {form?.synced ? 'Memory synced.' : (form as any)?.pushed ? 'Pushed to Git.' : 'Changes saved.'}
     </div>
   {/if}
 
   <!-- Edit form -->
   <section>
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Settings</h2>
-    <form id="graph-settings" method="POST" action="?/update" use:enhance class="max-w-lg space-y-4">
+    <form id="graph-settings" method="POST" action="?/update" use:savingEnhance class="max-w-lg space-y-4">
 
       <!-- Name (display name) -->
       <div>
@@ -181,15 +214,17 @@
       </div>
     </form>
     <div class="mt-4 flex gap-3">
-      <button type="submit" form="graph-settings" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
-      <form method="POST" action="?/sync" use:enhance>
-        <button type="submit" class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
-          Sync from Git
+      <button type="submit" form="graph-settings" disabled={saving} class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+        {saving ? '⏳ Saving...' : 'Save'}
+      </button>
+      <form method="POST" action="?/sync" use:syncingEnhance>
+        <button type="submit" disabled={syncing} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white disabled:opacity-50">
+          {syncing ? '⏳ Syncing...' : 'Sync from Git'}
         </button>
       </form>
-      <form method="POST" action="?/pushToGit" use:enhance>
-        <button type="submit" class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
-          Push to Git
+      <form method="POST" action="?/pushToGit" use:pushingEnhance>
+        <button type="submit" disabled={pushing} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white disabled:opacity-50">
+          {pushing ? '⏳ Pushing...' : 'Push to Git'}
         </button>
       </form>
     </div>
