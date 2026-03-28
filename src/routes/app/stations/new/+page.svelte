@@ -28,6 +28,7 @@
       <label for="stationType" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
       <select id="stationType" name="stationType" class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
         <option value="WORKSTATION">💻 Workstation</option>
+        <option value="CHATBOT">💬 Chatbot</option>
         <option value="AGENT">🤖 Agent</option>
         <option value="CLOUD">☁️ Cloud</option>
         <option value="IOT">📡 IoT</option>

@@ -3,7 +3,7 @@
   let { data }: { data: PageData } = $props();
 
   const typeIcon: Record<string, string> = {
-    WORKSTATION: '💻', CLOUD: '☁️', IOT: '📡', AGENT: '🤖',
+    WORKSTATION: '💻', CHATBOT: '💬', CLOUD: '☁️', IOT: '📡', AGENT: '🤖',
   };
 </script>
 

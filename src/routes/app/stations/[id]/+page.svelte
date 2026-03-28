@@ -14,7 +14,8 @@
     (data.orgs ?? []).flatMap((o) => o.agents ?? []).filter((a) => !subscribedAgentIds.has(a.id))
   );
 
-  const typeIcon: Record<string, string> = { WORKSTATION: '💻', CLOUD: '☁️', IOT: '📡', AGENT: '🤖' };
+  const typeIcon: Record<string, string> = { WORKSTATION: '💻', CHATBOT: '💬', CLOUD: '☁️', IOT: '📡', AGENT: '🤖' };
+  let isEditing = $state(false);
 
   const AGENT_TOOL_OPTIONS = [
     { value: 'CLAUDE_CODE', label: 'Claude Code' },
@@ -303,16 +304,40 @@ notice outdated information, update the graph with h-create-node.
         <p class="text-sm text-zinc-500">Owned by {station.user.name ?? station.user.githubUsername ?? station.user.email}</p>
       {/if}
     </div>
-    <form method="POST" action="?/revoke" use:enhance onsubmit={(e) => {
-      if (!confirm(`Delete station "${station.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
-      else goto('/app/stations');
-    }}>
-      <button type="submit" class="rounded-md border border-red-800 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950">Delete</button>
-    </form>
+    <div class="flex items-center gap-2">
+      <button onclick={() => isEditing = !isEditing} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+        {isEditing ? 'Cancel' : 'Edit'}
+      </button>
+      <form method="POST" action="?/revoke" use:enhance onsubmit={(e) => {
+        if (!confirm(`Delete station "${station.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
+        else goto('/app/stations');
+      }}>
+        <button type="submit" class="rounded-md border border-red-800 px-3 py-1.5 text-sm text-red-400 hover:bg-red-950">Delete</button>
+      </form>
+    </div>
   </div>
 
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {/if}
+
+  <!-- Edit form -->
+  {#if isEditing}
+    <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
+      class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4 max-w-lg"
+    >
+      <div>
+        <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+        <input id="editName" name="name" type="text" value={station.name}
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+      </div>
+      <div>
+        <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
+        <input id="editDescription" name="description" type="text" value={station.description ?? ''} placeholder="What this station is for"
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+      </div>
+      <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
+    </form>
   {/if}
 
   <!-- Details -->
@@ -497,6 +522,33 @@ notice outdated information, update the graph with h-create-node.
           Select at least one AI agent tool above to enable download.
         {/if}
       </p>
+    </div>
+
+    <!-- API Key section -->
+    <div class="mt-6 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <h3 class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">API Key</h3>
+      {#if data.newKey}
+        <div class="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+          <p class="mb-1 text-xs font-medium text-amber-800 dark:text-amber-300">Copy this key now — it won't be shown again.</p>
+          <div class="flex items-center gap-2">
+            <code class="flex-1 rounded bg-white px-3 py-2 font-mono text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100 select-all break-all">{data.newKey}</code>
+            <button onclick={() => navigator.clipboard.writeText(data.newKey ?? '')} class="shrink-0 rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+              Copy
+            </button>
+          </div>
+        </div>
+        <p class="mb-3 text-xs text-zinc-500">MCP endpoint: <code class="font-mono">{mcpUrl}</code></p>
+      {:else}
+        <p class="mb-3 text-xs text-zinc-500">The API key was shown once when the station was created. Generate a new one if needed.</p>
+      {/if}
+      <form method="POST" action="?/regenerate" use:enhance onsubmit={(e) => {
+        if (!confirm('This will generate a new API key and invalidate the previous one. Continue?')) e.preventDefault();
+      }}>
+        <button type="submit" class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+          {data.newKey ? 'Regenerate again' : 'Generate new API key'}
+        </button>
+      </form>
+    </div>
     </div>
   </section>
 </div>
