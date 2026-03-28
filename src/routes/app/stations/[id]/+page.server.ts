@@ -32,9 +32,11 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
 export const actions: Actions = {
   update: async ({ request, params, locals }) => {
     const fd = await request.formData();
+    const name = String(fd.get('name') ?? '').trim() || undefined;
+    const stationType = String(fd.get('stationType') ?? '').trim() || undefined;
     const description = String(fd.get('description') ?? '').trim() || null;
     try {
-      await gqlClient(locals.token).request(UPDATE_STATION_MUTATION, { id: params.id, description });
+      await gqlClient(locals.token).request(UPDATE_STATION_MUTATION, { id: params.id, name, stationType, description });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to update station' });
     }

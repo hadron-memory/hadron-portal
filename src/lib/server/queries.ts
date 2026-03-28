@@ -449,8 +449,8 @@ export const CREATE_STATION_MUTATION = /* GraphQL */ `
 
 export const UPDATE_STATION_MUTATION = /* GraphQL */ `
   ${STATION_FIELDS}
-  mutation UpdateStation($id: ID!, $description: String, $agentTools: [String!]) {
-    updateStation(id: $id, description: $description, agentTools: $agentTools) {
+  mutation UpdateStation($id: ID!, $name: String, $stationType: StationType, $description: String, $agentTools: [String!]) {
+    updateStation(id: $id, name: $name, stationType: $stationType, description: $description, agentTools: $agentTools) {
       ...StationFields
     }
   }
