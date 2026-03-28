@@ -76,6 +76,8 @@
               class="absolute right-0 mt-2 w-44 rounded-lg border py-1 shadow-xl {dark ? 'border-zinc-800 bg-zinc-900' : 'border-zinc-200 bg-white'}"
               role="menu"
             >
+              <a href="/app/dashboard" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Dashboard</a>
+              <a href="/app/my-memories" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>My Memories</a>
               {#if !isConsumerMode}
                 <a href="/app/orgs" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Organizations</a>
                 <a href="/app/stations" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Stations</a>
