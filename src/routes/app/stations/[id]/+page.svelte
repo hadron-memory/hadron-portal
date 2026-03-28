@@ -549,6 +549,5 @@ notice outdated information, update the graph with h-create-node.
         </button>
       </form>
     </div>
-    </div>
   </section>
 </div>
