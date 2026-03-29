@@ -11,7 +11,8 @@
 
   let { entries, basePath }: { entries: TreeEntry[]; basePath: string } = $props();
 
-  let search = $state("");
+  // Use shared search state so graph can react to the same filter
+  let search = $derived(graphState.searchFilter);
 
   // Filter entries when searching
   let filteredEntries = $derived.by(() => {
@@ -132,10 +133,11 @@
     type="text"
     class="search-input"
     placeholder="Filter..."
-    bind:value={search}
+    value={search}
+    oninput={(e) => graphState.searchFilter = (e.target as HTMLInputElement).value}
   />
   {#if search}
-    <button class="search-clear" onclick={() => search = ""} aria-label="Clear search">&times;</button>
+    <button class="search-clear" onclick={() => graphState.searchFilter = ''} aria-label="Clear search">&times;</button>
   {/if}
 </div>
 

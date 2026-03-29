@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import TreeView from '$lib/components/TreeView.svelte';
+  import CopyUrn from '$lib/components/CopyUrn.svelte';
   import type { LayoutData } from './$types';
 
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
@@ -19,6 +20,7 @@
     return path.startsWith(tab.href);
   }
 
+  // If we're on the exact basePath (no sub-route), the default view is Browse
   const isBrowseActive = $derived($page.url.pathname.startsWith(`${basePath}/browse`));
   const isNodesActive = $derived($page.url.pathname.startsWith(`${basePath}/nodes`));
   const showTree = $derived(isBrowseActive || isNodesActive);
@@ -27,16 +29,19 @@
 </script>
 
 <div class="space-y-4">
-  <!-- Header -->
+  <!-- Breadcrumb + Header -->
   <div class="mb-4">
-    <a href="/app/orgs/{data.org.id}/memories" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">&larr; Memories</a>
+    <nav class="flex items-center gap-1 text-sm flex-wrap">
+      <a href="/app/orgs" class="text-indigo-500 hover:underline dark:text-indigo-400">Organizations</a>
+      <span class="text-zinc-400">/</span>
+      <a href="/app/orgs/{data.org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{data.org.name}</a>
+      <span class="text-zinc-400">/</span>
+      <a href="/app/orgs/{data.org.id}/memories" class="text-indigo-500 hover:underline dark:text-indigo-400">Memories</a>
+      <span class="text-zinc-400">/</span>
+      <span class="text-zinc-700 dark:text-zinc-300">{data.graph.name}</span>
+    </nav>
     <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{data.graph.name}</h1>
-    <div class="flex items-center gap-2">
-      <p class="font-mono text-xs text-zinc-400">{data.graph.urn}</p>
-      <button onclick={() => { navigator.clipboard.writeText(data.graph.urn); }} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-      </button>
-    </div>
+    <CopyUrn value={data.graph.urn} />
   </div>
 
   <!-- Tabs -->

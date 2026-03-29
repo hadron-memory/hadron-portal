@@ -51,7 +51,7 @@
       {#each org.memories as g (g.id)}
         <div class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
           <div class="flex-1 min-w-0">
-            <a href="/app/orgs/{org.id}/memories/{g.id}" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{g.name}</a>
+            <a href="/app/orgs/{org.id}/memories/{g.id}/browse" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{g.name}</a>
             <span class="ml-2 rounded px-1.5 py-0.5 text-xs {g.visibility === 'PUBLIC' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{g.visibility}</span>
             <p class="font-mono text-xs text-zinc-400">{g.urn}</p>
             <div class="mt-1 flex flex-wrap gap-3 text-xs text-zinc-500">

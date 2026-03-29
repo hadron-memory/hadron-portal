@@ -199,6 +199,50 @@
         focusNode(focusId);
       });
     }
+
+    // Store all node IDs for search filtering
+    allTopicIds = data.topics.map((t) => t.id);
+    allFolderIds = data.folderNodes.map((f) => f.id);
+  });
+
+  let allTopicIds: string[] = [];
+  let allFolderIds: string[] = [];
+
+  // React to search filter changes — show/hide nodes in the graph
+  $effect(() => {
+    if (!network || !nodesDataset) return;
+    const q = graphState.searchFilter.toLowerCase().trim();
+
+    if (!q) {
+      // Show all nodes
+      for (const id of allTopicIds) {
+        try { nodesDataset.update({ id, hidden: false }); } catch {}
+      }
+      for (const id of allFolderIds) {
+        try { nodesDataset.update({ id, hidden: !hierarchyVisible }); } catch {}
+      }
+      return;
+    }
+
+    // Filter: show only matching topics + their ancestors
+    const matchingIds = new Set<string>();
+    for (const t of data.topics) {
+      if (t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q)) {
+        matchingIds.add(t.id);
+        // Add ancestors
+        const parts = t.id.split(':');
+        for (let i = 1; i < parts.length; i++) {
+          matchingIds.add(parts.slice(0, i).join(':'));
+        }
+      }
+    }
+
+    for (const id of allTopicIds) {
+      try { nodesDataset.update({ id, hidden: !matchingIds.has(id) }); } catch {}
+    }
+    for (const id of allFolderIds) {
+      try { nodesDataset.update({ id, hidden: !matchingIds.has(id) }); } catch {}
+    }
   });
 </script>
 
@@ -221,8 +265,6 @@
     </div>
     <div class="controls">
       <button onclick={() => network?.fit()}>Fit</button>
-      <button class:active={hierarchyVisible} onclick={toggleHierarchy}>Hierarchy</button>
-      <button class:active={physicsEnabled} onclick={togglePhysics}>Physics</button>
     </div>
   </div>
 
