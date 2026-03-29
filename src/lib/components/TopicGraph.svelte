@@ -204,16 +204,18 @@
     // Store all node IDs for search filtering
     allTopicIds = data.topics.map((t) => t.id);
     allFolderIds = data.folderNodes.map((f) => f.id);
+    graphReady = true;
   });
 
   let allTopicIds: string[] = [];
   let allFolderIds: string[] = [];
+  let graphReady = $state(false);
 
   // React to search filter changes — show/hide nodes in the graph (debounced)
   let filterTimeout: ReturnType<typeof setTimeout> | null = null;
 
   $effect(() => {
-    if (!network || !nodesDataset) return;
+    if (!graphReady || !network || !nodesDataset) return;
     const raw = graphState.searchFilter;
 
     // Debounce: wait 300ms after last keystroke before updating the graph
