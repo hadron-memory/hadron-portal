@@ -94,6 +94,7 @@
 
   onDestroy(() => {
     graphState.selectedNodeId = null;
+    if (filterTimeout) clearTimeout(filterTimeout);
   });
 
   onMount(async () => {
@@ -208,42 +209,52 @@
   let allTopicIds: string[] = [];
   let allFolderIds: string[] = [];
 
-  // React to search filter changes — show/hide nodes in the graph
+  // React to search filter changes — show/hide nodes in the graph (debounced)
+  let filterTimeout: ReturnType<typeof setTimeout> | null = null;
+
   $effect(() => {
     if (!network || !nodesDataset) return;
-    const q = graphState.searchFilter.toLowerCase().trim();
+    const raw = graphState.searchFilter;
 
-    if (!q) {
-      // Show all nodes
-      for (const id of allTopicIds) {
-        try { nodesDataset.update({ id, hidden: false }); } catch {}
-      }
-      for (const id of allFolderIds) {
-        try { nodesDataset.update({ id, hidden: !hierarchyVisible }); } catch {}
-      }
-      return;
-    }
+    // Debounce: wait 300ms after last keystroke before updating the graph
+    if (filterTimeout) clearTimeout(filterTimeout);
+    filterTimeout = setTimeout(() => {
+      if (!network || !nodesDataset) return;
+      const q = raw.toLowerCase().trim();
 
-    // Filter: show only matching topics + their ancestors
-    const matchingIds = new Set<string>();
-    for (const t of data.topics) {
-      if (t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q)) {
-        matchingIds.add(t.id);
-        // Add ancestors
-        const parts = t.id.split(':');
-        for (let i = 1; i < parts.length; i++) {
-          matchingIds.add(parts.slice(0, i).join(':'));
+      if (!q) {
+        // Show all nodes
+        for (const id of allTopicIds) {
+          try { nodesDataset.update({ id, hidden: false }); } catch {}
+        }
+        for (const id of allFolderIds) {
+          try { nodesDataset.update({ id, hidden: !hierarchyVisible }); } catch {}
+        }
+        return;
+      }
+
+      // Filter: show only matching topics + their ancestors
+      const matchingIds = new Set<string>();
+      for (const t of data.topics) {
+        if (t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q)) {
+          matchingIds.add(t.id);
+          // Add ancestors
+          const parts = t.id.split(':');
+          for (let i = 1; i < parts.length; i++) {
+            matchingIds.add(parts.slice(0, i).join(':'));
+          }
         }
       }
-    }
 
-    for (const id of allTopicIds) {
-      try { nodesDataset.update({ id, hidden: !matchingIds.has(id) }); } catch {}
-    }
-    for (const id of allFolderIds) {
-      try { nodesDataset.update({ id, hidden: !matchingIds.has(id) }); } catch {}
-    }
+      for (const id of allTopicIds) {
+        try { nodesDataset.update({ id, hidden: !matchingIds.has(id) }); } catch {}
+      }
+      for (const id of allFolderIds) {
+        try { nodesDataset.update({ id, hidden: !matchingIds.has(id) }); } catch {}
+      }
+    }, 300);
   });
+
 </script>
 
 <div class="graph-wrapper">
