@@ -58,7 +58,7 @@
           {/if}
         </button>
       </div>
-      {#if agent.description && !isEditing}
+      {#if agent.description}
         <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{agent.description}</p>
       {/if}
     </div>
@@ -130,9 +130,9 @@
             </div>
             <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
               <input type="hidden" name="memoryId" value={item.memory.id} />
-              <select name="role" onchange={(e) => (e.target as HTMLSelectElement).form?.requestSubmit()} class="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                <option value="read" selected={item.role === 'read'}>Read</option>
-                <option value="read-write" selected={item.role === 'read-write'}>Read/Write</option>
+              <select name="role" onchange={(e) => (e.target as HTMLSelectElement).form?.requestSubmit()} class="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800 {item.role === 'read-write' ? 'text-green-700 dark:text-green-400' : 'text-amber-700 dark:text-amber-400'}">
+                <option value="read" selected={item.role === 'read'}>read</option>
+                <option value="read-write" selected={item.role === 'read-write'}>read-write</option>
               </select>
             </form>
             <form method="POST" action="?/removeMemory" use:enhance>

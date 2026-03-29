@@ -70,8 +70,8 @@
 
     <div>
       <label for="description" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description <span class="text-zinc-500">(optional)</span></label>
-      <input id="description" name="description" type="text" placeholder="What this agent is for"
-        class={inputClass} />
+      <textarea id="description" name="description" rows="3" placeholder="What this agent is for"
+        class={inputClass}></textarea>
     </div>
 
     <div class="flex gap-3">
