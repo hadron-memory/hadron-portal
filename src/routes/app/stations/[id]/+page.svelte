@@ -16,6 +16,13 @@
 
   const typeIcon: Record<string, string> = { WORKSTATION: '💻', CHATBOT: '💬', CLOUD: '☁️', IOT: '📡', AGENT: '🤖' };
   let isEditing = $state(false);
+  let copiedUrn = $state<string | null>(null);
+
+  function copyUrn(urn: string) {
+    navigator.clipboard.writeText(urn);
+    copiedUrn = urn;
+    setTimeout(() => { if (copiedUrn === urn) copiedUrn = null; }, 2000);
+  }
 
   // Compute effective memory access from all agent subscriptions
   interface EffectiveMemory { id: string; urn: string; name: string; access: 'read' | 'read-write'; agentName: string }
@@ -413,27 +420,6 @@ notice outdated information, update the graph with h-create-node.
     {/if}
   </section>
 
-  <!-- Accessible memories -->
-  {#if effectiveMemories.length > 0}
-    <section>
-      <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Accessible Memories
-        <span class="ml-1 text-sm font-normal text-zinc-500">({effectiveMemories.length})</span>
-      </h2>
-      <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-        {#each effectiveMemories as mem (mem.id)}
-          <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
-            <div class="flex-1 min-w-0">
-              <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{mem.name}</p>
-              <p class="font-mono text-xs text-zinc-400">{mem.urn}</p>
-            </div>
-            <span class="rounded px-2 py-0.5 text-xs {mem.access === 'read-write' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{mem.access}</span>
-            <span class="text-xs text-zinc-400">via {mem.agentName}</span>
-          </div>
-        {/each}
-      </div>
-    </section>
-  {/if}
-
   <!-- Agent subscriptions -->
   <section>
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Agent Subscriptions
@@ -470,12 +456,19 @@ notice outdated information, update the graph with h-create-node.
             </div>
           {:else}
             <div class="flex w-full items-center gap-4 bg-white px-5 py-4 dark:bg-zinc-900">
+              {#if sub.subscriptionType === 'READ_ONLY'}
+                <span title="Read only"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
+              {/if}
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
                 <div class="flex items-center gap-1">
                   <p class="font-mono text-xs text-zinc-400">{sub.agent.urn}</p>
-                  <button onclick={() => navigator.clipboard.writeText(sub.agent.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  <button onclick={() => copyUrn(sub.agent.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
+                    {#if copiedUrn === sub.agent.urn}
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    {:else}
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                    {/if}
                   </button>
                 </div>
                 <p class="text-xs text-zinc-500">
@@ -515,6 +508,39 @@ notice outdated information, update the graph with h-create-node.
       <p class="text-sm text-zinc-500">All available agents are already subscribed. Create new agents on the organization page.</p>
     {/if}
   </section>
+
+  <!-- Accessible memories -->
+  {#if effectiveMemories.length > 0}
+    <section>
+      <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Accessible Memories
+        <span class="ml-1 text-sm font-normal text-zinc-500">({effectiveMemories.length})</span>
+      </h2>
+      <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
+        {#each effectiveMemories as mem (mem.id)}
+          <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
+            {#if mem.access === 'read'}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            {/if}
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{mem.name}</p>
+              <div class="flex items-center gap-1">
+                <p class="font-mono text-xs text-zinc-400">{mem.urn}</p>
+                <button onclick={() => copyUrn(mem.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
+                  {#if copiedUrn === mem.urn}
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  {:else}
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                  {/if}
+                </button>
+              </div>
+            </div>
+            <span class="rounded px-2 py-0.5 text-xs {mem.access === 'read-write' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{mem.access}</span>
+            <span class="text-xs text-zinc-400">via {mem.agentName}</span>
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
 
   <!-- Station Configuration -->
   <section>
