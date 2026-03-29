@@ -129,7 +129,7 @@
             </div>
             <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
               <input type="hidden" name="memoryId" value={item.memory.id} />
-              <select name="role" onchange={(e) => (e.target as HTMLSelectElement).form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs font-medium {item.role === 'read-write' ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900 dark:text-green-300' : 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900 dark:text-amber-300'}">
+              <select name="role" onchange={(e) => (e.target as HTMLSelectElement).form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs font-medium {item.role === 'read-write' ? '[border-color:rgb(134,239,172)] [background-color:rgb(240,253,244)] [color:rgb(21,128,61)] dark:[border-color:rgb(22,101,52)] dark:[background-color:rgb(20,83,45)] dark:[color:rgb(134,239,172)]' : '[border-color:rgb(252,211,77)] [background-color:rgb(255,251,235)] [color:rgb(180,83,9)] dark:[border-color:rgb(120,53,15)] dark:[background-color:rgb(69,26,3)] dark:[color:rgb(252,211,77)]'}">
                 <option value="read" selected={item.role === 'read'}>read</option>
                 <option value="read-write" selected={item.role === 'read-write'}>read-write</option>
               </select>
