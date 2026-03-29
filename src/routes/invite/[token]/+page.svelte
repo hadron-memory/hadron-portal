@@ -68,13 +68,33 @@
             </button>
           </form>
         {:else}
-          <div class="mt-6 space-y-3">
+          <div class="mt-6 space-y-4">
             <p class="text-sm text-zinc-500">Sign in or create an account to accept this invitation.</p>
-            <div class="flex justify-center gap-3">
-              <a href="{serverUrl}/auth/github?redirect=/invite/{data.slug}" class="rounded-lg bg-zinc-800 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700">
-                Sign in with GitHub
-              </a>
+
+            <form method="POST" action="?/sendEmail" use:enhance class="space-y-3">
+              <div>
+                <label for="email" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Email address</label>
+                <input id="email" name="email" type="email" required placeholder="you@example.com"
+                  value={inv.name ? '' : ''}
+                  class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+              </div>
+              <button type="submit" class="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500">
+                Continue with email
+              </button>
+              {#if form?.emailSent}
+                <p class="text-sm text-green-400">Check your inbox — we sent you a sign-in link.</p>
+              {/if}
+            </form>
+
+            <div class="flex items-center gap-3">
+              <hr class="flex-1 border-zinc-700" />
+              <span class="text-xs text-zinc-500">or</span>
+              <hr class="flex-1 border-zinc-700" />
             </div>
+
+            <a href="{serverUrl}/auth/github?redirect=/invite/{data.slug}" class="block w-full rounded-lg bg-zinc-800 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-zinc-700">
+              Sign in with GitHub
+            </a>
           </div>
         {/if}
       </div>

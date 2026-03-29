@@ -1,4 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { env } from '$env/dynamic/public';
 import { gqlClient } from '$lib/server/api';
 import { INVITATION_QUERY, ACCEPT_INVITATION_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
@@ -34,5 +35,27 @@ export const actions: Actions = {
     }
 
     redirect(303, '/app/dashboard');
+  },
+
+  sendEmail: async ({ request, params }) => {
+    const fd = await request.formData();
+    const email = String(fd.get('email') ?? '').trim();
+    if (!email) return fail(400, { error: 'Email is required' });
+
+    const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+    try {
+      const res = await fetch(`${serverUrl}/auth/email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, redirect: `/invite/${params.token}` }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        return fail(500, { error: data.error ?? 'Failed to send email' });
+      }
+      return { emailSent: true };
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to send email' });
+    }
   },
 };
