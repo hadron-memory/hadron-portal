@@ -456,9 +456,11 @@ notice outdated information, update the graph with h-create-node.
             </div>
           {:else}
             <div class="flex w-full items-center gap-4 bg-white px-5 py-4 dark:bg-zinc-900">
-              {#if sub.subscriptionType === 'READ_ONLY'}
-                <span title="Read only"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
-              {/if}
+              <span class="w-3.5 shrink-0">
+                {#if sub.subscriptionType === 'READ_ONLY'}
+                  <span title="Read only"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
+                {/if}
+              </span>
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
                 <div class="flex items-center gap-1">
@@ -518,9 +520,11 @@ notice outdated information, update the graph with h-create-node.
       <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
         {#each effectiveMemories as mem (mem.id)}
           <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
-            {#if mem.access === 'read'}
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
-            {/if}
+            <span class="w-3.5 shrink-0">
+              {#if mem.access === 'read'}
+                <span title="Read only"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
+              {/if}
+            </span>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{mem.name}</p>
               <div class="flex items-center gap-1">
