@@ -349,7 +349,7 @@ notice outdated information, update the graph with h-create-node.
       {/if}
       {#if !hasWritableMemory && (station.agentSubscriptions?.length ?? 0) > 0}
         <p class="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
-          This station has no writable memory. The AI can read knowledge but cannot save anything. Add a read-write memory to an agent to enable writing.
+          This is a read-only station with no writable memory.
         </p>
       {/if}
     </div>
@@ -454,9 +454,9 @@ notice outdated information, update the graph with h-create-node.
                 <div class="flex flex-wrap items-end gap-3">
                   <div>
                     <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
-                    <select name="subscriptionType" value={sub.subscriptionType} class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
-                      <option value="READ_ONLY">Read Only</option>
-                      <option value="READ_WRITE">Read/Write</option>
+                    <select name="subscriptionType" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                      <option value="READ_ONLY" selected={sub.subscriptionType === 'READ_ONLY'}>Read Only</option>
+                      <option value="READ_WRITE" selected={sub.subscriptionType === 'READ_WRITE'}>Read/Write</option>
                     </select>
                   </div>
                   <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
