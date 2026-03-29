@@ -1,6 +1,5 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { goto } from '$app/navigation';
   import TreeView from '$lib/components/TreeView.svelte';
   import CopyUrn from '$lib/components/CopyUrn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -9,13 +8,6 @@
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
   const basePath = $derived(`/app/orgs/${data.org.id}/memories/${data.graph.id}`);
-
-  // Redirect base path to Browse tab
-  $effect(() => {
-    if ($page.url.pathname === basePath) {
-      goto(`${basePath}/browse`, { replaceState: true });
-    }
-  });
 
   const tabs = $derived([
     { href: `${basePath}/browse`, label: 'Browse' },

@@ -63,7 +63,7 @@
       {#each filtered as memory (memory.id)}
         <div class="flex flex-col justify-between gap-4 rounded-xl border border-zinc-200 bg-white p-6 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
           <div class="space-y-2">
-            <a href="/app/orgs/{memory.organizationId}/memories/{memory.id}" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{memory.name}</a>
+            <a href="/app/orgs/{memory.organizationId}/memories/{memory.id}/browse" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{memory.name}</a>
             <div class="flex items-center gap-1">
               <p class="font-mono text-xs text-zinc-400">{memory.urn}</p>
               <button onclick={() => navigator.clipboard.writeText(memory.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
