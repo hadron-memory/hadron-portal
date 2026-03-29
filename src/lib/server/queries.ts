@@ -117,6 +117,14 @@ export const ME_QUERY = /* GraphQL */ `
   }
 `;
 
+export const UPDATE_MY_PROFILE_MUTATION = /* GraphQL */ `
+  mutation UpdateMyProfile($name: String, $handle: String, $email: String) {
+    updateMyProfile(name: $name, handle: $handle, email: $email) {
+      id handle name email
+    }
+  }
+`;
+
 export const PUBLIC_MEMORIES_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
   query PublicMemories {
