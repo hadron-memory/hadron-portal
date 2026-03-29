@@ -1,5 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import CopyUrn from '$lib/components/CopyUrn.svelte';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -8,20 +10,11 @@
 
   let isEditing = $state(false);
   let confirmDelete = $state(false);
-  let urnCopied = $state(false);
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
   function urnSlug(urn: string): string {
     return urn.includes(':') ? urn.split(':').slice(1).join(':') : urn;
-  }
-
-  async function copyUrn() {
-    try {
-      await navigator.clipboard.writeText(agent.urn);
-      urnCopied = true;
-      setTimeout(() => (urnCopied = false), 2000);
-    } catch {}
   }
 
   const memoryIdsInAgent = $derived(new Set(agent.memoryItems.map((item) => item.memory.id)));
@@ -34,30 +27,18 @@
 
 <div class="max-w-2xl space-y-6">
   <!-- Breadcrumb -->
-  <nav class="flex items-center gap-1 text-sm flex-wrap">
-    <a href="/app/orgs" class="text-indigo-500 hover:underline dark:text-indigo-400">Organizations</a>
-    <span class="text-zinc-400">/</span>
-    <a href="/app/orgs/{org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{org.name}</a>
-    <span class="text-zinc-400">/</span>
-    <a href="/app/orgs/{org.id}/agents" class="text-indigo-500 hover:underline dark:text-indigo-400">Agents</a>
-    <span class="text-zinc-400">/</span>
-    <span class="text-zinc-700 dark:text-zinc-300">{agent.name}</span>
-  </nav>
+  <Breadcrumb items={[
+    { label: 'Organizations', href: '/app/orgs' },
+    { label: org.name, href: `/app/orgs/${org.id}` },
+    { label: 'Agents', href: `/app/orgs/${org.id}/agents` },
+    { label: agent.name },
+  ]} />
 
   <!-- Header -->
   <div class="flex items-start justify-between">
     <div>
       <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{agent.name}</h1>
-      <div class="flex items-center gap-2 mt-1">
-        <code class="font-mono text-sm text-zinc-500">{agent.urn}</code>
-        <button onclick={copyUrn} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-          {#if urnCopied}
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          {:else}
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-          {/if}
-        </button>
-      </div>
+      <CopyUrn value={agent.urn} />
       {#if agent.description}
         <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{agent.description}</p>
       {/if}

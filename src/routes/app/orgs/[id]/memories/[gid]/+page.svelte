@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -45,17 +46,13 @@
 <div class="space-y-8">
   <!-- Breadcrumb + sync status -->
   <div>
-    <nav class="flex items-center gap-1 text-sm flex-wrap">
-      <a href="/app/orgs" class="text-indigo-500 hover:underline dark:text-indigo-400">Organizations</a>
-      <span class="text-zinc-400">/</span>
-      <a href="/app/orgs/{data.org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{data.org.name}</a>
-      <span class="text-zinc-400">/</span>
-      <a href="/app/orgs/{data.org.id}/memories" class="text-indigo-500 hover:underline dark:text-indigo-400">Memories</a>
-      <span class="text-zinc-400">/</span>
-      <span class="text-zinc-700 dark:text-zinc-300">{g.name}</span>
-      <span class="text-zinc-400">/</span>
-      <span class="text-zinc-700 dark:text-zinc-300">Settings</span>
-    </nav>
+    <Breadcrumb items={[
+      { label: 'Organizations', href: '/app/orgs' },
+      { label: data.org.name, href: `/app/orgs/${data.org.id}` },
+      { label: 'Memories', href: `/app/orgs/${data.org.id}/memories` },
+      { label: g.name, href: `/app/orgs/${data.org.id}/memories/${g.id}/browse` },
+      { label: 'Settings' },
+    ]} />
     <div class="mt-2 flex flex-wrap gap-3 text-sm text-zinc-500">
       {#if g.syncStatus}
         <span>Sync: {g.syncStatus}</span>

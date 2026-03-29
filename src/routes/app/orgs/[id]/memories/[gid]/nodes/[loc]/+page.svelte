@@ -2,6 +2,8 @@
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { onMount } from 'svelte';
+  import CopyUrn from '$lib/components/CopyUrn.svelte';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -15,7 +17,6 @@
   let showSource = $state(false);
   let confirmDelete = $state(false);
   let copied = $state(false);
-  let urnCopied = $state(false);
 
   // Inline editing
   let editContent = $state('');
@@ -69,14 +70,6 @@
       renderedHtml = '';
     }
   });
-
-  async function copyUrn() {
-    try {
-      await navigator.clipboard.writeText(fullUrn);
-      urnCopied = true;
-      setTimeout(() => (urnCopied = false), 2000);
-    } catch { /* no-op */ }
-  }
 
   async function copyContent() {
     if (!node.content) return;
@@ -192,23 +185,17 @@
 
 <div class="max-w-3xl space-y-4">
   <!-- Breadcrumb: full path -->
-  <nav class="flex items-center gap-1 text-sm flex-wrap">
-    <a href="/app/orgs" class="text-indigo-500 hover:underline dark:text-indigo-400">Organizations</a>
-    <span class="text-zinc-400">/</span>
-    <a href="/app/orgs/{data.org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{data.org.name}</a>
-    <span class="text-zinc-400">/</span>
-    <a href="{basePath}" class="text-indigo-500 hover:underline dark:text-indigo-400">{data.graph.name}</a>
-    <span class="text-zinc-400">/</span>
-    <a href="{basePath}/nodes" class="text-indigo-500 hover:underline dark:text-indigo-400">Nodes</a>
-    {#each data.breadcrumb as segment, i}
-      <span class="text-zinc-400">/</span>
-      {#if i < data.breadcrumb.length - 1}
-        <a href="{basePath}/nodes/{encodeURIComponent(segment.path)}" class="text-indigo-500 hover:underline dark:text-indigo-400">{segment.label}</a>
-      {:else}
-        <span class="text-zinc-700 dark:text-zinc-300">{segment.label}</span>
-      {/if}
-    {/each}
-  </nav>
+  <Breadcrumb items={[
+    { label: 'Organizations', href: '/app/orgs' },
+    { label: data.org.name, href: `/app/orgs/${data.org.id}` },
+    { label: data.graph.name, href: basePath },
+    { label: 'Nodes', href: `${basePath}/nodes` },
+    ...data.breadcrumb.map((segment, i) =>
+      i < data.breadcrumb.length - 1
+        ? { label: segment.label, href: `${basePath}/nodes/${encodeURIComponent(segment.path)}` }
+        : { label: segment.label }
+    ),
+  ]} />
 
   <!-- Header -->
   <div class="flex items-center gap-3">
@@ -234,16 +221,7 @@
   {/if}
 
   <!-- URN -->
-  <div class="flex items-center gap-2">
-    <code class="font-mono text-sm text-zinc-500">{fullUrn}</code>
-    <button onclick={copyUrn} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-      {#if urnCopied}
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-      {:else}
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-      {/if}
-    </button>
-  </div>
+  <CopyUrn value={fullUrn} />
 
   {#if node.description}
     <p class="text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>

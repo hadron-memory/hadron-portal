@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData } from './$types';
   let { data }: { data: PageData } = $props();
   const org = $derived(data.org);
@@ -9,13 +10,11 @@
 <div class="space-y-6">
   <div class="flex items-start justify-between">
     <div>
-      <nav class="flex items-center gap-1 text-sm">
-        <a href="/app/orgs" class="text-indigo-500 hover:underline dark:text-indigo-400">Organizations</a>
-        <span class="text-zinc-400">/</span>
-        <a href="/app/orgs/{org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{org.name}</a>
-        <span class="text-zinc-400">/</span>
-        <span class="text-zinc-700 dark:text-zinc-300">Agents</span>
-      </nav>
+      <Breadcrumb items={[
+        { label: 'Organizations', href: '/app/orgs' },
+        { label: org.name, href: `/app/orgs/${org.id}` },
+        { label: 'Agents' },
+      ]} />
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Agents</h1>
       <p class="text-sm text-zinc-500">Group memories into agents for station subscriptions.</p>
     </div>

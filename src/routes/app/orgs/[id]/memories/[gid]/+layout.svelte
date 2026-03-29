@@ -2,6 +2,7 @@
   import { page } from '$app/stores';
   import TreeView from '$lib/components/TreeView.svelte';
   import CopyUrn from '$lib/components/CopyUrn.svelte';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { LayoutData } from './$types';
 
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
@@ -31,15 +32,12 @@
 <div class="space-y-4">
   <!-- Breadcrumb + Header -->
   <div class="mb-4">
-    <nav class="flex items-center gap-1 text-sm flex-wrap">
-      <a href="/app/orgs" class="text-indigo-500 hover:underline dark:text-indigo-400">Organizations</a>
-      <span class="text-zinc-400">/</span>
-      <a href="/app/orgs/{data.org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{data.org.name}</a>
-      <span class="text-zinc-400">/</span>
-      <a href="/app/orgs/{data.org.id}/memories" class="text-indigo-500 hover:underline dark:text-indigo-400">Memories</a>
-      <span class="text-zinc-400">/</span>
-      <span class="text-zinc-700 dark:text-zinc-300">{data.graph.name}</span>
-    </nav>
+    <Breadcrumb items={[
+      { label: 'Organizations', href: '/app/orgs' },
+      { label: data.org.name, href: `/app/orgs/${data.org.id}` },
+      { label: 'Memories', href: `/app/orgs/${data.org.id}/memories` },
+      { label: data.graph.name },
+    ]} />
     <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{data.graph.name}</h1>
     <CopyUrn value={data.graph.urn} />
   </div>

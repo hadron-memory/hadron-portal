@@ -3,6 +3,8 @@
   import { goto } from '$app/navigation';
   import { env } from '$env/dynamic/public';
   import JSZip from 'jszip';
+  import CopyUrn from '$lib/components/CopyUrn.svelte';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -16,13 +18,6 @@
 
   const typeIcon: Record<string, string> = { WORKSTATION: '💻', CHATBOT: '💬', CLOUD: '☁️', IOT: '📡', AGENT: '🤖' };
   let isEditing = $state(false);
-  let copiedUrn = $state<string | null>(null);
-
-  function copyUrn(urn: string) {
-    navigator.clipboard.writeText(urn);
-    copiedUrn = urn;
-    setTimeout(() => { if (copiedUrn === urn) copiedUrn = null; }, 2000);
-  }
 
   // Compute effective memory access from all agent subscriptions
   interface EffectiveMemory { id: string; urn: string; name: string; access: 'read' | 'read-write'; agentName: string }
@@ -324,13 +319,11 @@ notice outdated information, update the graph with h-create-node.
 
 <div class="space-y-8">
   <!-- Breadcrumb -->
-  <nav class="flex items-center gap-1 text-sm flex-wrap">
-    <a href="/app/dashboard" class="text-indigo-500 hover:underline dark:text-indigo-400">Dashboard</a>
-    <span class="text-zinc-400">/</span>
-    <a href="/app/stations" class="text-indigo-500 hover:underline dark:text-indigo-400">Stations</a>
-    <span class="text-zinc-400">/</span>
-    <span class="text-zinc-700 dark:text-zinc-300">{station.name}</span>
-  </nav>
+  <Breadcrumb items={[
+    { label: 'Dashboard', href: '/app/dashboard' },
+    { label: 'Stations', href: '/app/stations' },
+    { label: station.name },
+  ]} />
 
   <div class="flex items-start justify-between">
     <div>
@@ -338,12 +331,7 @@ notice outdated information, update the graph with h-create-node.
         <span>{typeIcon[station.stationType] ?? '🔑'}</span>
         <span class="text-zinc-400 font-normal">Station:</span> {station.name}
       </h1>
-      <div class="flex items-center gap-2 mt-1">
-        <code class="font-mono text-sm text-zinc-500">{station.urn}</code>
-        <button onclick={() => navigator.clipboard.writeText(station.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-        </button>
-      </div>
+      <CopyUrn value={station.urn} />
       {#if station.user}
         <p class="text-sm text-zinc-500">Owned by {station.user.name ?? station.user.githubUsername ?? station.user.email}</p>
       {/if}
@@ -473,16 +461,7 @@ notice outdated information, update the graph with h-create-node.
               </span>
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
-                <div class="flex items-center gap-1">
-                  <p class="font-mono text-xs text-zinc-400">{sub.agent.urn}</p>
-                  <button onclick={() => copyUrn(sub.agent.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-                    {#if copiedUrn === sub.agent.urn}
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                    {:else}
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                    {/if}
-                  </button>
-                </div>
+                <CopyUrn value={sub.agent.urn} size={10} />
                 {#if sub.agent.description}
                   <p class="text-xs text-zinc-500">{sub.agent.description}</p>
                 {/if}
@@ -540,16 +519,7 @@ notice outdated information, update the graph with h-create-node.
             </span>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{mem.name}</p>
-              <div class="flex items-center gap-1">
-                <p class="font-mono text-xs text-zinc-400">{mem.urn}</p>
-                <button onclick={() => copyUrn(mem.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-                  {#if copiedUrn === mem.urn}
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                  {:else}
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                  {/if}
-                </button>
-              </div>
+              <CopyUrn value={mem.urn} size={10} />
             </div>
             <span class="shrink-0 rounded-full px-2 py-0.5 text-xs {mem.access === 'read-write' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'}">{mem.access}</span>
             <span class="shrink-0 text-xs text-zinc-400">via {mem.agentName}</span>

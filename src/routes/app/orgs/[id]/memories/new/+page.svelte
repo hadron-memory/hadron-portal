@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { toSlug } from '$lib/slug';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -26,7 +27,12 @@
 
 <div class="max-w-lg">
   <div class="mb-6">
-    <a href="/app/orgs/{data.org.id}/memories" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">&larr; Memories</a>
+    <Breadcrumb items={[
+      { label: 'Organizations', href: '/app/orgs' },
+      { label: data.org.name, href: `/app/orgs/${data.org.id}` },
+      { label: 'Memories', href: `/app/orgs/${data.org.id}/memories` },
+      { label: 'New' },
+    ]} />
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">Add memory</h1>
   </div>
 

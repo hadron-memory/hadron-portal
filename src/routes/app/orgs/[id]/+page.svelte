@@ -2,6 +2,8 @@
   import { page } from '$app/stores';
   import { enhance } from '$app/forms';
   import { env } from '$env/dynamic/public';
+  import CopyUrn from '$lib/components/CopyUrn.svelte';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
@@ -41,14 +43,12 @@
 <div class="space-y-8">
   <div class="flex items-start justify-between">
     <div>
-      <a href="/app/orgs" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Organizations</a>
+      <Breadcrumb items={[
+        { label: 'Organizations', href: '/app/orgs' },
+        { label: org.name },
+      ]} />
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{org.name}</h1>
-      <div class="flex items-center gap-2">
-        <p class="font-mono text-sm text-zinc-500">{org.urn}</p>
-        <button onclick={() => navigator.clipboard.writeText(org.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-        </button>
-      </div>
+      <CopyUrn value={org.urn} />
     </div>
   </div>
 
@@ -91,12 +91,7 @@
               <a href="/app/orgs/{org.id}/memories/{g.id}/browse" class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">{g.name}</a>
               <span class="rounded px-1.5 py-0.5 text-xs {g.visibility === 'PUBLIC' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{g.visibility}</span>
             </div>
-            <div class="flex items-center gap-1">
-              <p class="font-mono text-xs text-zinc-400">{g.urn}</p>
-              <button onclick={() => navigator.clipboard.writeText(g.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-              </button>
-            </div>
+            <CopyUrn value={g.urn} size={10} />
             {#if g.lastSyncedAt}
               <p class="mt-1 text-xs text-zinc-500">Synced {new Date(g.lastSyncedAt).toLocaleDateString()}</p>
             {/if}
@@ -119,12 +114,7 @@
         {#each org.agents as a (a.id)}
           <div class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
             <a href="/app/orgs/{org.id}/agents" class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">{a.name}</a>
-            <div class="flex items-center gap-1">
-              <p class="font-mono text-xs text-zinc-400">{a.urn}</p>
-              <button onclick={() => navigator.clipboard.writeText(a.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-              </button>
-            </div>
+            <CopyUrn value={a.urn} size={10} />
             {#if a.description}
               <p class="mt-1 text-xs text-zinc-500">{a.description}</p>
             {/if}
@@ -418,12 +408,7 @@
         {#each org.subscriptions as s (s.id)}
           <div class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
             <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{s.memory.name}</p>
-            <div class="flex items-center gap-1">
-              <p class="font-mono text-xs text-zinc-400">{s.memory.urn}</p>
-              <button onclick={() => navigator.clipboard.writeText(s.memory.urn)} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-              </button>
-            </div>
+            <CopyUrn value={s.memory.urn} size={10} />
             <p class="mt-1 text-xs text-zinc-500">Role: {s.role}</p>
           </div>
         {/each}

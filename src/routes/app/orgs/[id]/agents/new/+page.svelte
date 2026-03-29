@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { toSlug } from '$lib/slug';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -28,15 +29,12 @@
 
 <div class="max-w-lg">
   <div class="mb-6">
-    <nav class="flex items-center gap-1 text-sm">
-      <a href="/app/orgs" class="text-indigo-500 hover:underline dark:text-indigo-400">Organizations</a>
-      <span class="text-zinc-400">/</span>
-      <a href="/app/orgs/{data.org.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{data.org.name}</a>
-      <span class="text-zinc-400">/</span>
-      <a href="/app/orgs/{data.org.id}/agents" class="text-indigo-500 hover:underline dark:text-indigo-400">Agents</a>
-      <span class="text-zinc-400">/</span>
-      <span class="text-zinc-700 dark:text-zinc-300">New</span>
-    </nav>
+    <Breadcrumb items={[
+      { label: 'Organizations', href: '/app/orgs' },
+      { label: data.org.name, href: `/app/orgs/${data.org.id}` },
+      { label: 'Agents', href: `/app/orgs/${data.org.id}/agents` },
+      { label: 'New' },
+    ]} />
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">New Agent</h1>
   </div>
 
