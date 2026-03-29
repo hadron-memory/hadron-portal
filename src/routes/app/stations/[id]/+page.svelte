@@ -486,10 +486,10 @@ notice outdated information, update the graph with h-create-node.
                 {#if sub.agent.description}
                   <p class="text-xs text-zinc-500">{sub.agent.description}</p>
                 {/if}
-                <span class="text-xs {sub.subscriptionType === 'READ_WRITE' ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}">
-                  {sub.subscriptionType === 'READ_WRITE' ? 'read-write' : 'read'}
-                </span>
               </div>
+              <span class="shrink-0 rounded-full px-2 py-0.5 text-xs {sub.subscriptionType === 'READ_WRITE' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'}">
+                {sub.subscriptionType === 'READ_WRITE' ? 'read-write' : 'read'}
+              </span>
               <button type="button" onclick={() => { editingSubId = sub.id; }} class="text-xs text-indigo-500 hover:text-indigo-400">Edit</button>
             </div>
           {/if}
@@ -551,8 +551,8 @@ notice outdated information, update the graph with h-create-node.
                 </button>
               </div>
             </div>
-            <span class="text-xs {mem.access === 'read-write' ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}">{mem.access}</span>
-            <span class="text-xs text-zinc-400">via {mem.agentName}</span>
+            <span class="shrink-0 rounded-full px-2 py-0.5 text-xs {mem.access === 'read-write' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'}">{mem.access}</span>
+            <span class="shrink-0 text-xs text-zinc-400">via {mem.agentName}</span>
           </div>
         {/each}
       </div>

@@ -130,7 +130,7 @@
             </div>
             <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
               <input type="hidden" name="memoryId" value={item.memory.id} />
-              <select name="role" onchange={(e) => (e.target as HTMLSelectElement).form?.requestSubmit()} class="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800 {item.role === 'read-write' ? 'text-green-700 dark:text-green-400' : 'text-amber-700 dark:text-amber-400'}">
+              <select name="role" onchange={(e) => (e.target as HTMLSelectElement).form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs {item.role === 'read-write' ? 'border-green-200 bg-green-100 text-green-700 dark:border-green-800 dark:bg-green-900 dark:text-green-300' : 'border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-900 dark:text-amber-300'}">
                 <option value="read" selected={item.role === 'read'}>read</option>
                 <option value="read-write" selected={item.role === 'read-write'}>read-write</option>
               </select>
