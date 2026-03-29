@@ -18,8 +18,26 @@
   }
 
   const memoryIdsInAgent = $derived(new Set(agent.memoryItems.map((item) => item.memory.id)));
-  const subscribedMemories = $derived((org.subscriptions ?? []).map((s) => s.memory));
-  const allMemories = $derived([...(org.memories ?? []), ...subscribedMemories]);
+  // Collect memories from all orgs the user has access to
+  const allMemories = $derived.by(() => {
+    const seen = new Set<string>();
+    const result: Array<{ id: string; urn: string; name: string; orgName?: string }> = [];
+    for (const o of (data as any).allOrgs ?? [org]) {
+      for (const m of o.memories ?? []) {
+        if (!seen.has(m.id)) {
+          seen.add(m.id);
+          result.push({ ...m, orgName: o.name });
+        }
+      }
+      for (const s of o.subscriptions ?? []) {
+        if (!seen.has(s.memory.id)) {
+          seen.add(s.memory.id);
+          result.push({ ...s.memory, orgName: s.memory.organization?.name ?? o.name });
+        }
+      }
+    }
+    return result;
+  });
   const availableMemories = $derived(allMemories.filter((m) => !memoryIdsInAgent.has(m.id)));
 </script>
 
@@ -37,7 +55,7 @@
   <!-- Header -->
   <div class="flex items-start justify-between">
     <div>
-      <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{agent.name}</h1>
+      <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Agent:</span> {agent.name}</h1>
       <CopyUrn value={agent.urn} />
       {#if agent.description}
         <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{agent.description}</p>
@@ -111,7 +129,7 @@
             </div>
             <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
               <input type="hidden" name="memoryId" value={item.memory.id} />
-              <select name="role" onchange={(e) => (e.target as HTMLSelectElement).form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs {item.role === 'read-write' ? 'border-green-200 bg-green-100 text-green-700 dark:border-green-800 dark:bg-green-900 dark:text-green-300' : 'border-amber-200 bg-amber-100 text-amber-700 dark:border-amber-800 dark:bg-amber-900 dark:text-amber-300'}">
+              <select name="role" onchange={(e) => (e.target as HTMLSelectElement).form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs font-medium {item.role === 'read-write' ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900 dark:text-green-300' : 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900 dark:text-amber-300'}">
                 <option value="read" selected={item.role === 'read'}>read</option>
                 <option value="read-write" selected={item.role === 'read-write'}>read-write</option>
               </select>
@@ -133,7 +151,7 @@
           <label for="addMemory" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
           <select id="addMemory" name="memoryId" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
             {#each availableMemories as m (m.id)}
-              <option value={m.id}>{m.name} ({m.urn})</option>
+              <option value={m.id}>{m.name} ({m.urn}){#if m.orgName && m.orgName !== org.name} — {m.orgName}{/if}</option>
             {/each}
           </select>
         </div>

@@ -3,6 +3,7 @@ import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATION_QUERY,
+  MY_ORGANIZATIONS_QUERY,
   UPDATE_AGENT_MUTATION,
   DELETE_AGENT_MUTATION,
   ADD_MEMORY_TO_AGENT_MUTATION,
@@ -30,7 +31,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const agent = data.organization.agents?.find((a) => a.id === params.aid);
   if (!agent) throw error(404, 'Agent not found');
 
-  return { org: data.organization, agent };
+  const allOrgsData = await gqlClient(locals.token)
+    .request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
+    .catch(() => ({ myOrganizations: [] as Organization[] }));
+
+  return { org: data.organization, agent, allOrgs: allOrgsData.myOrganizations };
 };
 
 export const actions: Actions = {
