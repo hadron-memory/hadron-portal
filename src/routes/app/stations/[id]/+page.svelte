@@ -48,6 +48,11 @@
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   });
 
+  const SYSTEM_MEMORY_URNS = ['hadronmemory.com:core'];
+  const systemMemories = $derived(effectiveMemories.filter((m) => SYSTEM_MEMORY_URNS.includes(m.urn)));
+  const userMemories = $derived(effectiveMemories.filter((m) => !SYSTEM_MEMORY_URNS.includes(m.urn)));
+  const hasWritableMemory = $derived(effectiveMemories.some((m) => m.access === 'read-write'));
+
   const AGENT_TOOL_OPTIONS = [
     { value: 'CLAUDE_CODE', label: 'Claude Code' },
     { value: 'CURSOR', label: 'Cursor' },
@@ -331,7 +336,7 @@ notice outdated information, update the graph with h-create-node.
     <div>
       <h1 class="mt-1 flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
         <span>{typeIcon[station.stationType] ?? '🔑'}</span>
-        {station.name}
+        <span class="text-zinc-400 font-normal">Station:</span> {station.name}
       </h1>
       <div class="flex items-center gap-2 mt-1">
         <code class="font-mono text-sm text-zinc-500">{station.urn}</code>
@@ -341,6 +346,11 @@ notice outdated information, update the graph with h-create-node.
       </div>
       {#if station.user}
         <p class="text-sm text-zinc-500">Owned by {station.user.name ?? station.user.githubUsername ?? station.user.email}</p>
+      {/if}
+      {#if !hasWritableMemory && (station.agentSubscriptions?.length ?? 0) > 0}
+        <p class="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+          This station has no writable memory. The AI can read knowledge but cannot save anything. Add a read-write memory to an agent to enable writing.
+        </p>
       {/if}
     </div>
     <div class="flex items-center gap-2">
@@ -422,7 +432,7 @@ notice outdated information, update the graph with h-create-node.
 
   <!-- Agent subscriptions -->
   <section>
-    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Agent Subscriptions
+    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Agents
       <span class="ml-1 text-sm font-normal text-zinc-500">({station.agentSubscriptions?.length ?? 0})</span>
     </h2>
 
@@ -473,7 +483,10 @@ notice outdated information, update the graph with h-create-node.
                     {/if}
                   </button>
                 </div>
-                <p class="text-xs text-zinc-500">
+                {#if sub.agent.description}
+                  <p class="text-xs text-zinc-500">{sub.agent.description}</p>
+                {/if}
+                <p class="text-xs text-zinc-400">
                   {sub.subscriptionType === 'READ_WRITE' ? 'Read/Write' : 'Read Only'}
                 </p>
               </div>
@@ -512,13 +525,13 @@ notice outdated information, update the graph with h-create-node.
   </section>
 
   <!-- Accessible memories -->
-  {#if effectiveMemories.length > 0}
+  {#if userMemories.length > 0}
     <section>
       <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Accessible Memories
-        <span class="ml-1 text-sm font-normal text-zinc-500">({effectiveMemories.length})</span>
+        <span class="ml-1 text-sm font-normal text-zinc-500">({userMemories.length})</span>
       </h2>
       <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-        {#each effectiveMemories as mem (mem.id)}
+        {#each userMemories as mem (mem.id)}
           <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
             <span class="w-3.5 shrink-0">
               {#if mem.access === 'read'}
@@ -543,10 +556,19 @@ notice outdated information, update the graph with h-create-node.
           </div>
         {/each}
       </div>
+      {#if systemMemories.length > 0}
+        <div class="mt-3">
+          <p class="mb-1 text-xs text-zinc-400">System memories (always available, read-only):</p>
+          {#each systemMemories as mem (mem.id)}
+            <p class="text-xs text-zinc-400"><span class="font-mono">{mem.urn}</span> — {mem.name}</p>
+          {/each}
+        </div>
+      {/if}
     </section>
   {/if}
 
-  <!-- Station Configuration -->
+  <!-- Station Configuration (not shown for chatbots) -->
+  {#if station.stationType !== 'CHATBOT'}
   <section>
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Station Configuration</h2>
 
@@ -632,4 +654,5 @@ notice outdated information, update the graph with h-create-node.
       </form>
     </div>
   </section>
+  {/if}
 </div>
