@@ -47,14 +47,15 @@
         {#if inv.sender}
           <p class="mt-2 text-sm text-zinc-500">
             {inv.sender.name ?? inv.sender.githubUsername ?? 'Someone'} invited you
-            {#if inv.organization}to join <strong class="text-zinc-900 dark:text-white">{inv.organization.name}</strong>{/if}
-            as a <strong class="text-zinc-900 dark:text-white">{inv.memberRole.toLowerCase()}</strong>.
+            {#if inv.organization}to join <strong class="text-zinc-900 dark:text-white">{inv.organization.name}</strong> as a <strong class="text-zinc-900 dark:text-white">{inv.memberRole.toLowerCase()}</strong>{:else}to join <strong class="text-zinc-900 dark:text-white">Hadron</strong>{/if}.
           </p>
         {:else if inv.organization}
           <p class="mt-2 text-sm text-zinc-500">
             You've been invited to join <strong class="text-zinc-900 dark:text-white">{inv.organization.name}</strong>
             as a <strong class="text-zinc-900 dark:text-white">{inv.memberRole.toLowerCase()}</strong>.
           </p>
+        {:else}
+          <p class="mt-2 text-sm text-zinc-500">You've been invited to join <strong class="text-zinc-900 dark:text-white">Hadron</strong>.</p>
         {/if}
 
         {#if form?.error}

@@ -157,14 +157,6 @@
           class={inputClass} />
         <p class="mt-1 text-xs text-zinc-500">If provided, only this GitHub user can accept the invite.</p>
       </div>
-      <div>
-        <label for="inviteUserRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Platform role</label>
-        <select id="inviteUserRole" name="inviteUserRole" class={inputClass}>
-          <option value="READER">Reader</option>
-          <option value="CONTRIBUTOR">Contributor</option>
-          <option value="ADMIN">Admin</option>
-        </select>
-      </div>
       <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Create invitation</button>
     </form>
   </section>
