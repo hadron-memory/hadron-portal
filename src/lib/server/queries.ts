@@ -71,6 +71,11 @@ export const STATION_AGENT_SUB_FIELDS = /* GraphQL */ `
       urn
       name
       description
+      memoryItems {
+        id
+        role
+        memory { id urn name }
+      }
     }
     subscriptionType
     trainingMode

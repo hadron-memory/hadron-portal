@@ -17,6 +17,30 @@
   const typeIcon: Record<string, string> = { WORKSTATION: '💻', CHATBOT: '💬', CLOUD: '☁️', IOT: '📡', AGENT: '🤖' };
   let isEditing = $state(false);
 
+  // Compute effective memory access from all agent subscriptions
+  interface EffectiveMemory { id: string; urn: string; name: string; access: 'read' | 'read-write'; agentName: string }
+  const effectiveMemories = $derived.by(() => {
+    const map = new Map<string, EffectiveMemory>();
+    for (const sub of station.agentSubscriptions ?? []) {
+      for (const item of sub.agent.memoryItems ?? []) {
+        const effective = sub.subscriptionType === 'READ_WRITE' && item.role === 'read-write'
+          ? 'read-write' as const
+          : 'read' as const;
+        const existing = map.get(item.memory.id);
+        if (!existing || (effective === 'read-write' && existing.access === 'read')) {
+          map.set(item.memory.id, {
+            id: item.memory.id,
+            urn: item.memory.urn,
+            name: item.memory.name,
+            access: effective,
+            agentName: sub.agent.name,
+          });
+        }
+      }
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  });
+
   const AGENT_TOOL_OPTIONS = [
     { value: 'CLAUDE_CODE', label: 'Claude Code' },
     { value: 'CURSOR', label: 'Cursor' },
@@ -388,6 +412,27 @@ notice outdated information, update the graph with h-create-node.
       </div>
     {/if}
   </section>
+
+  <!-- Accessible memories -->
+  {#if effectiveMemories.length > 0}
+    <section>
+      <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Accessible Memories
+        <span class="ml-1 text-sm font-normal text-zinc-500">({effectiveMemories.length})</span>
+      </h2>
+      <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
+        {#each effectiveMemories as mem (mem.id)}
+          <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{mem.name}</p>
+              <p class="font-mono text-xs text-zinc-400">{mem.urn}</p>
+            </div>
+            <span class="rounded px-2 py-0.5 text-xs {mem.access === 'read-write' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{mem.access}</span>
+            <span class="text-xs text-zinc-400">via {mem.agentName}</span>
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
 
   <!-- Agent subscriptions -->
   <section>
