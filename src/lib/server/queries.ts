@@ -117,6 +117,14 @@ export const ME_QUERY = /* GraphQL */ `
   }
 `;
 
+export const INVITE_USER_MUTATION = /* GraphQL */ `
+  mutation InviteUser($name: String, $email: String, $githubUsername: String, $maxActivations: Int, $expiresInDays: Int) {
+    inviteUser(name: $name, email: $email, githubUsername: $githubUsername, maxActivations: $maxActivations, expiresInDays: $expiresInDays) {
+      id slug name email githubUsername maxActivations expiresAt createdAt
+    }
+  }
+`;
+
 export const UPDATE_MY_PROFILE_MUTATION = /* GraphQL */ `
   mutation UpdateMyProfile($name: String, $handle: String, $email: String) {
     updateMyProfile(name: $name, handle: $handle, email: $email) {
