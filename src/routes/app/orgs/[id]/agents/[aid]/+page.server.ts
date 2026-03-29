@@ -61,9 +61,10 @@ export const actions: Actions = {
   addMemory: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const memoryId = String(fd.get('memoryId') ?? '');
+    const role = String(fd.get('role') ?? 'read');
     try {
       await gqlClient(locals.token).request(ADD_MEMORY_TO_AGENT_MUTATION, {
-        agentId: params.aid, memoryId,
+        agentId: params.aid, memoryId, role,
       });
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to add memory') });

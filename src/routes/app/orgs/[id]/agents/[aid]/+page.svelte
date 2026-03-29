@@ -123,6 +123,7 @@
               <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{item.memory.name}</p>
               <p class="font-mono text-xs text-zinc-400">{item.memory.urn}</p>
             </div>
+            <span class="rounded px-2 py-0.5 text-xs {item.role === 'read-write' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{item.role}</span>
             <form method="POST" action="?/removeMemory" use:enhance>
               <input type="hidden" name="memoryId" value={item.memory.id} />
               <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
@@ -142,6 +143,13 @@
             {#each availableMemories as m (m.id)}
               <option value={m.id}>{m.name} ({m.urn})</option>
             {/each}
+          </select>
+        </div>
+        <div>
+          <label for="memRole" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
+          <select id="memRole" name="role" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+            <option value="read">Read</option>
+            <option value="read-write">Read/Write</option>
           </select>
         </div>
         <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">Add</button>

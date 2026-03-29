@@ -87,6 +87,7 @@ export const AGENT_FIELDS = /* GraphQL */ `
     description
     memoryItems {
       id
+      role
       memory { id urn name }
     }
     createdAt
@@ -411,8 +412,8 @@ export const DELETE_AGENT_MUTATION = /* GraphQL */ `
 
 export const ADD_MEMORY_TO_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation AddMemoryToAgent($agentId: ID!, $memoryId: ID!) {
-    addMemoryToAgent(agentId: $agentId, memoryId: $memoryId) { ...AgentFields }
+  mutation AddMemoryToAgent($agentId: ID!, $memoryId: ID!, $role: String) {
+    addMemoryToAgent(agentId: $agentId, memoryId: $memoryId, role: $role) { ...AgentFields }
   }
 `;
 

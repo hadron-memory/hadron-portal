@@ -48,6 +48,7 @@ export interface Agent {
 
 export interface AgentMemoryItem {
   id: string;
+  role: string;
   memory: { id: string; urn: string; name: string };
 }
 
