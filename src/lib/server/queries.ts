@@ -519,6 +519,30 @@ export const UNSUBSCRIBE_STATION_FROM_AGENT_MUTATION = /* GraphQL */ `
 `;
 
 // ---------------------------------------------------------------------------
+// Sessions
+// ---------------------------------------------------------------------------
+
+export const SESSIONS_QUERY = /* GraphQL */ `
+  query Sessions($limit: Int, $offset: Int) {
+    sessions(limit: $limit, offset: $offset) {
+      id
+      type
+      stationId
+      repo
+      branch
+      llmModel
+      summary
+      inputTokens
+      outputTokens
+      turnCount
+      errorCount
+      startedAt
+      endedAt
+    }
+  }
+`;
+
+// ---------------------------------------------------------------------------
 // GitHub App
 // ---------------------------------------------------------------------------
 
