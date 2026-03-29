@@ -1,10 +1,14 @@
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { UPDATE_MY_PROFILE_MUTATION } from '$lib/server/queries';
+import { ME_QUERY, UPDATE_MY_PROFILE_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
-  return { user: locals.user };
+  // Load fresh user data from API (not from JWT which may be stale)
+  const data = await gqlClient(locals.token)
+    .request<{ me: Record<string, unknown> | null }>(ME_QUERY)
+    .catch(() => ({ me: null }));
+  return { user: data.me ?? locals.user };
 };
 
 export const actions: Actions = {
