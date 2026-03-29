@@ -102,7 +102,7 @@
       </div>
       <div>
         <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-        <input id="editDescription" name="description" type="text" value={agent.description ?? ''} placeholder="What this agent is for" class={inputClass} />
+        <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" class={inputClass}>{agent.description ?? ''}</textarea>
       </div>
       <div class="flex gap-3">
         <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
@@ -119,11 +119,22 @@
       <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
         {#each agent.memoryItems as item (item.id)}
           <div class="flex items-center gap-4 bg-white px-5 py-4 dark:bg-zinc-900">
+            <span class="w-3.5 shrink-0">
+              {#if item.role !== 'read-write'}
+                <span title="Read only"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
+              {/if}
+            </span>
             <div class="flex-1 min-w-0">
               <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{item.memory.name}</p>
               <p class="font-mono text-xs text-zinc-400">{item.memory.urn}</p>
             </div>
-            <span class="rounded px-2 py-0.5 text-xs {item.role === 'read-write' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{item.role}</span>
+            <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
+              <input type="hidden" name="memoryId" value={item.memory.id} />
+              <select name="role" onchange={(e) => (e.target as HTMLSelectElement).form?.requestSubmit()} class="rounded-md border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                <option value="read" selected={item.role === 'read'}>Read</option>
+                <option value="read-write" selected={item.role === 'read-write'}>Read/Write</option>
+              </select>
+            </form>
             <form method="POST" action="?/removeMemory" use:enhance>
               <input type="hidden" name="memoryId" value={item.memory.id} />
               <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>

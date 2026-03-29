@@ -422,6 +422,13 @@ export const ADD_MEMORY_TO_AGENT_MUTATION = /* GraphQL */ `
   }
 `;
 
+export const UPDATE_AGENT_MEMORY_ROLE_MUTATION = /* GraphQL */ `
+  ${AGENT_FIELDS}
+  mutation UpdateAgentMemoryRole($agentId: ID!, $memoryId: ID!, $role: String!) {
+    updateAgentMemoryRole(agentId: $agentId, memoryId: $memoryId, role: $role) { ...AgentFields }
+  }
+`;
+
 export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
   mutation RemoveMemoryFromAgent($agentId: ID!, $memoryId: ID!) {

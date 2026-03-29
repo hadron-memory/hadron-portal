@@ -6,6 +6,7 @@ import {
   UPDATE_AGENT_MUTATION,
   DELETE_AGENT_MUTATION,
   ADD_MEMORY_TO_AGENT_MUTATION,
+  UPDATE_AGENT_MEMORY_ROLE_MUTATION,
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
 } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
@@ -68,6 +69,19 @@ export const actions: Actions = {
       });
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to add memory') });
+    }
+  },
+
+  updateMemoryRole: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const memoryId = String(fd.get('memoryId') ?? '');
+    const role = String(fd.get('role') ?? 'read');
+    try {
+      await gqlClient(locals.token).request(UPDATE_AGENT_MEMORY_ROLE_MUTATION, {
+        agentId: params.aid, memoryId, role,
+      });
+    } catch (e: unknown) {
+      return fail(500, { error: extractGqlError(e, 'Failed to update memory role') });
     }
   },
 
