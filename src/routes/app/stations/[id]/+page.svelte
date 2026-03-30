@@ -485,7 +485,9 @@ notice outdated information, update the graph with h-create-node.
         {/if}
         <!-- Graph -->
         <div class="min-w-0 flex-1 overflow-hidden rounded-r-lg border border-zinc-200 dark:border-zinc-800" style="display: flex;">
-          <TopicGraph data={graphViewData} basePath="" />
+          {#key filteredStationNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',')}
+            <TopicGraph data={graphViewData} basePath="" />
+          {/key}
         </div>
       </div>
     {/if}
