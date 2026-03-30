@@ -41,7 +41,7 @@
   }
 </script>
 
-<div class="flex h-[400px] flex-col">
+<div class="flex h-full flex-col">
   <!-- Messages -->
   <div class="flex-1 overflow-y-auto p-4 space-y-4">
     {#if chat.messages.length === 0}
