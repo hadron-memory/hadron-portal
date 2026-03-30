@@ -5,10 +5,39 @@
   import JSZip from 'jszip';
   import CopyUrn from '$lib/components/CopyUrn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import { chatContext } from '$lib/stores/chat-context';
+  import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
+  import type { AIProvider, StationAIConfig } from '$lib/types';
+  import Chat from '$lib/components/Chat.svelte';
+  import { onDestroy } from 'svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const station = $derived(data.station);
+
+  // Provide station context to the floating chatbot
+  $effect(() => {
+    const agents = (station.agentSubscriptions ?? []).map((s) => s.agent.name);
+    const tools = station.agentTools ?? [];
+    chatContext.set({
+      pageContext: [
+        `The user is viewing station "${station.name}" (type: ${station.stationType}).`,
+        station.description ? `Description: ${station.description}` : '',
+        agents.length ? `Subscribed agents: ${agents.join(', ')}.` : 'No agents subscribed yet.',
+        tools.length ? `Selected AI tools: ${tools.join(', ')}.` : 'No AI tools selected yet.',
+        `Station URN: ${station.urn}`,
+        `Help this user configure Hadron for their station. Guide them through selecting tools, subscribing to agents, and downloading setup files. Answer based on their specific configuration above.`,
+      ].filter(Boolean).join('\n'),
+      stationId: station.id,
+      aiProvider: station.aiProvider,
+      aiModel: station.aiModel,
+      hasAiApiKey: station.hasAiApiKey,
+    });
+  });
+
+  onDestroy(() => {
+    chatContext.set({ pageContext: '' });
+  });
 
   // Collect accessible agents from orgs for the subscribe dropdown
   const subscribedAgentIds = $derived(new Set((station.agentSubscriptions ?? []).map((s) => s.agent.id)));
@@ -60,8 +89,52 @@
   let editingSubId = $state<string | null>(null);
   let downloading = $state(false);
   let agentToolsForm = $state<HTMLFormElement>();
-  let selectedTools = $state<Set<string>>(new Set(station.agentTools ?? []));
+  let selectedTools = $derived(new Set(station.agentTools ?? []));
   let withClientApp = $state(false);
+
+  // ── Chatbot AI config ──────────────────────────────────────────────
+  let aiProvider = $state<AIProvider>((station.aiProvider as AIProvider) ?? 'openai');
+  let aiApiKey = $state('');
+  let aiModel = $state(station.aiModel ?? DEFAULT_MODELS['openai']);
+  let chatActive = $state(false);
+  let chatKey = $state(0);
+
+  let aiConfig = $derived<StationAIConfig>({
+    provider: aiProvider,
+    apiKey: aiApiKey,
+    model: aiModel,
+  });
+
+  function onProviderChange(p: string) {
+    aiProvider = p as AIProvider;
+    aiModel = DEFAULT_MODELS[aiProvider];
+  }
+
+  async function saveAndStartChat() {
+    if (!aiApiKey.trim()) return;
+    // Save config to station
+    try {
+      const res = await fetch('/api/stations/ai-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stationId: station.id,
+          provider: aiProvider,
+          apiKey: aiApiKey,
+          model: aiModel,
+        }),
+      });
+      if (!res.ok) return;
+    } catch {
+      return;
+    }
+    chatKey++;
+    chatActive = true;
+  }
+
+  function disconnectChat() {
+    chatActive = false;
+  }
 
   function toggleTool(value: string) {
     if (selectedTools.has(value)) {
@@ -441,8 +514,8 @@ notice outdated information, update the graph with h-create-node.
                 <input type="hidden" name="agentId" value={sub.agent.id} />
                 <div class="flex flex-wrap items-end gap-3">
                   <div>
-                    <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
-                    <select name="subscriptionType" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                    <label for="subscriptionType-{sub.id}" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
+                    <select id="subscriptionType-{sub.id}" name="subscriptionType" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                       <option value="READ_ONLY" selected={sub.subscriptionType === 'READ_ONLY'}>Read Only</option>
                       <option value="READ_WRITE" selected={sub.subscriptionType === 'READ_WRITE'}>Read/Write</option>
                     </select>
@@ -539,6 +612,7 @@ notice outdated information, update the graph with h-create-node.
 
   <!-- Station Configuration (not shown for chatbots) -->
   {#if station.stationType !== 'CHATBOT'}
+  <!-- Station Configuration -->
   <section>
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Station Configuration</h2>
 
