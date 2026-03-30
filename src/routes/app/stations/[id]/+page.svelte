@@ -429,7 +429,6 @@ notice outdated information, update the graph with h-create-node.
     {:else}
       <!-- Filters -->
       <div class="flex flex-wrap items-center gap-4 mb-3">
-        <!-- Memory filter -->
         <div class="flex items-center gap-1.5 flex-wrap">
           <span class="text-xs text-zinc-500 mr-1">Memory:</span>
           {#each availableMemoryUrns as urn}
@@ -447,8 +446,6 @@ notice outdated information, update the graph with h-create-node.
             <button onclick={() => { activeMemoryUrns = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
           {/if}
         </div>
-
-        <!-- Node type filter -->
         <div class="flex items-center gap-1.5 flex-wrap">
           <span class="text-xs text-zinc-500 mr-1">Type:</span>
           {#each availableNodeTypes as t}
@@ -461,7 +458,6 @@ notice outdated information, update the graph with h-create-node.
             <button onclick={() => { activeNodeTypes = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
           {/if}
         </div>
-
         <span class="text-xs text-zinc-400">{filteredStationNodes.length} / {allStationNodes.length} nodes</span>
       </div>
       <div class="flex gap-0" style="min-height: calc(100vh - 320px);">
@@ -498,7 +494,41 @@ notice outdated information, update the graph with h-create-node.
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'nodes'}
     <div class="space-y-4">
-      <input type="text" placeholder="Filter nodes..." bind:value={nodeSearch}
+      <!-- Filters -->
+      <div class="flex flex-wrap items-center gap-4">
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-xs text-zinc-500 mr-1">Memory:</span>
+          {#each availableMemoryUrns as urn}
+            {@const mem = userMemories.find((m) => m.urn === urn)}
+            <button
+              onclick={() => toggleMemoryFilter(urn)}
+              class="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition {activeMemoryUrns.size === 0 || activeMemoryUrns.has(urn) ? '' : 'opacity-40'}"
+              style="background: {memoryColorMap[urn] ?? '#8b949e'}20; color: {memoryColorMap[urn] ?? '#8b949e'};"
+            >
+              <span class="inline-block h-2 w-2 rounded-full" style="background: {memoryColorMap[urn] ?? '#8b949e'};"></span>
+              {mem?.name ?? urn}
+            </button>
+          {/each}
+          {#if activeMemoryUrns.size > 0}
+            <button onclick={() => { activeMemoryUrns = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
+          {/if}
+        </div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-xs text-zinc-500 mr-1">Type:</span>
+          {#each availableNodeTypes as t}
+            <button
+              onclick={() => toggleNodeTypeFilter(t)}
+              class="rounded-full px-2.5 py-0.5 text-xs font-medium transition {activeNodeTypes.size === 0 || activeNodeTypes.has(t) ? 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300' : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600'}"
+            >{t}</button>
+          {/each}
+          {#if activeNodeTypes.size > 0}
+            <button onclick={() => { activeNodeTypes = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
+          {/if}
+        </div>
+        <span class="text-xs text-zinc-400">{filteredStationNodes.length} / {allStationNodes.length} nodes</span>
+      </div>
+
+      <input type="text" placeholder="Search nodes..." bind:value={nodeSearch}
         class="max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
 
       {#if filteredNodes.length === 0}
