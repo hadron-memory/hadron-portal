@@ -200,7 +200,6 @@
     { value: 'CLINE', label: 'Cline' },
   ];
 
-  let editingSubId = $state<string | null>(null);
   let downloading = $state(false);
   let agentToolsForm = $state<HTMLFormElement>();
   let selectedTools = $derived(new Set(station.agentTools ?? []));
@@ -582,42 +581,27 @@ notice outdated information, update the graph with h-create-node.
         {#if station.agentSubscriptions?.length}
           <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
             {#each station.agentSubscriptions as sub (sub.id)}
-              {#if editingSubId === sub.id}
-                <div class="bg-white px-5 py-4 dark:bg-zinc-900">
-                  <div class="mb-3 flex items-center justify-between">
-                    <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
-                    <form method="POST" action="?/unsubscribe" use:enhance onsubmit={() => { editingSubId = null; }}>
-                      <input type="hidden" name="agentId" value={sub.agent.id} />
-                      <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
-                    </form>
-                  </div>
-                  <form method="POST" action="?/subscribe" use:enhance onsubmit={() => { editingSubId = null; }}>
-                    <input type="hidden" name="agentId" value={sub.agent.id} />
-                    <div class="flex flex-wrap items-end gap-3">
-                      <div>
-                        <label class="mb-1 block text-xs text-zinc-500">Access</label>
-                        <select name="subscriptionType" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                          <option value="READ_ONLY" selected={sub.subscriptionType === 'READ_ONLY'}>Read Only</option>
-                          <option value="READ_WRITE" selected={sub.subscriptionType === 'READ_WRITE'}>Read/Write</option>
-                        </select>
-                      </div>
-                      <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
-                      <button type="button" onclick={() => { editingSubId = null; }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
-                    </div>
-                  </form>
+              <div class="flex w-full items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
+                  <CopyUrn value={sub.agent.urn} size={10} />
                 </div>
-              {:else}
-                <div class="flex w-full items-center gap-4 bg-white px-5 py-4 dark:bg-zinc-900">
-                  <div class="flex-1 min-w-0">
-                    <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
-                    <CopyUrn value={sub.agent.urn} size={10} />
-                  </div>
-                  <span class="shrink-0 rounded-full px-2 py-0.5 text-xs {sub.subscriptionType === 'READ_WRITE' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'}">
-                    {sub.subscriptionType === 'READ_WRITE' ? 'read-write' : 'read'}
-                  </span>
-                  <button type="button" onclick={() => { editingSubId = sub.id; }} class="text-xs text-indigo-500 hover:text-indigo-400">Edit</button>
-                </div>
-              {/if}
+                <!-- Inline access selector (auto-submits on change) -->
+                <form method="POST" action="?/subscribe" use:enhance class="shrink-0">
+                  <input type="hidden" name="agentId" value={sub.agent.id} />
+                  <select name="subscriptionType"
+                    onchange={(e) => e.target?.form?.requestSubmit()}
+                    class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
+                    <option value="READ_ONLY" selected={sub.subscriptionType === 'READ_ONLY'}>Read Only</option>
+                    <option value="READ_WRITE" selected={sub.subscriptionType === 'READ_WRITE'}>Read/Write</option>
+                  </select>
+                </form>
+                <!-- Remove button -->
+                <form method="POST" action="?/unsubscribe" use:enhance class="shrink-0">
+                  <input type="hidden" name="agentId" value={sub.agent.id} />
+                  <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+                </form>
+              </div>
             {/each}
           </div>
         {:else}
