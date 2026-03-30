@@ -5,11 +5,9 @@
   import JSZip from 'jszip';
   import CopyUrn from '$lib/components/CopyUrn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
-  import TopicGraph from '$lib/components/TopicGraph.svelte';
-  import TreeView from '$lib/components/TreeView.svelte';
+  import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import { chatContext } from '$lib/stores/chat-context';
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
-  import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import type { AIProvider, StationAIConfig } from '$lib/types';
   import Chat from '$lib/components/Chat.svelte';
   import { onMount, onDestroy } from 'svelte';
@@ -19,12 +17,11 @@
   const station = $derived(data.station);
 
   // ── Tab state ──────────────────────────────────────────────────────────
-  type TabId = 'chat' | 'memory' | 'nodes' | 'setup' | 'settings';
+  type TabId = 'chat' | 'memory' | 'setup' | 'settings';
   let activeTab = $state<TabId>('chat');
   const tabs: { id: TabId; label: string }[] = [
     { id: 'chat', label: 'Chat' },
     { id: 'memory', label: 'Memory' },
-    { id: 'nodes', label: 'Nodes' },
     { id: 'setup', label: 'Setup' },
     { id: 'settings', label: 'Settings' },
   ];
@@ -82,59 +79,6 @@
   const userMemories = $derived(effectiveMemories.filter((m) => !SYSTEM_MEMORY_URNS.includes(m.urn)));
   const hasWritableMemory = $derived(effectiveMemories.some((m) => m.access === 'read-write'));
 
-  // ── Shared filters (Memory tab + Nodes tab) ─────────────────────────────
-  const allStationNodes = $derived(data.stationNodes ?? []);
-
-  // Available memory URNs and node types for filter UI
-  const availableMemoryUrns = $derived([...new Set(allStationNodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean).sort());
-  const availableNodeTypes = $derived([...new Set(allStationNodes.map((n) => n.nodeType ?? 'info'))].sort());
-
-  let activeMemoryUrns = $state<Set<string>>(new Set()); // empty = all
-  let activeNodeTypes = $state<Set<string>>(new Set()); // empty = all
-
-  function toggleMemoryFilter(urn: string) {
-    if (activeMemoryUrns.has(urn)) activeMemoryUrns.delete(urn);
-    else activeMemoryUrns.add(urn);
-    activeMemoryUrns = new Set(activeMemoryUrns);
-  }
-
-  function toggleNodeTypeFilter(t: string) {
-    if (activeNodeTypes.has(t)) activeNodeTypes.delete(t);
-    else activeNodeTypes.add(t);
-    activeNodeTypes = new Set(activeNodeTypes);
-  }
-
-  const filteredStationNodes = $derived(
-    allStationNodes.filter((n) => {
-      if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(n.memory?.urn ?? '')) return false;
-      if (activeNodeTypes.size > 0 && !activeNodeTypes.has(n.nodeType ?? 'info')) return false;
-      return true;
-    })
-  );
-
-  // ── Graph + tree derived from filtered nodes ──────────────────────────
-  const graphViewData = $derived(buildGraphViewData(filteredStationNodes));
-  const treeEntries = $derived(buildTreeEntries(filteredStationNodes));
-  let treeOpen = $state(true);
-
-  // ── Nodes tab: text search on top of filters ──────────────────────────
-  let nodeSearch = $state('');
-  const filteredNodes = $derived(
-    filteredStationNodes.filter((n) => {
-      if (!nodeSearch) return true;
-      const q = nodeSearch.toLowerCase();
-      return n.name.toLowerCase().includes(q) || n.loc.toLowerCase().includes(q) || (n.description ?? '').toLowerCase().includes(q);
-    })
-  );
-
-  // Color palette for memories in nodes list
-  const memoryColors = ['#58a6ff', '#3fb950', '#d29922', '#bc8cff', '#f97583', '#56d4dd'];
-  const memoryColorMap = $derived.by(() => {
-    const map: Record<string, string> = {};
-    const urns = [...new Set((data.stationNodes ?? []).map((n) => n.memory?.urn ?? ''))];
-    urns.forEach((u, i) => { map[u] = memoryColors[i % memoryColors.length]; });
-    return map;
-  });
 
   // ── AI chat config ─────────────────────────────────────────────────────
   let aiProvider = $state<AIProvider>((station.aiProvider as AIProvider) ?? 'openai');
@@ -355,7 +299,7 @@ notice outdated information, update the graph with h-create-node.
       {#if chatActive}
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
           {#key chatKey}
-            <Chat config={aiConfig} systemPrompt={data.station ? [
+            <Chat config={aiConfig} stationId={station.id} systemPrompt={data.station ? [
               `Station: "${station.name}" (${station.stationType})`,
               `URN: ${station.urn}`,
               (station.agentSubscriptions ?? []).length ? `Agents: ${(station.agentSubscriptions ?? []).map(s => s.agent.name).join(', ')}` : '',
@@ -418,153 +362,10 @@ notice outdated information, update the graph with h-create-node.
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <!-- MEMORY TAB                                                        -->
+  <!-- MEMORY TAB (shared MemoryBrowser component)                       -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'memory'}
-    {#if (data.stationNodes ?? []).length === 0}
-      <div class="flex items-center justify-center rounded-xl border border-zinc-200 bg-white p-12 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900" style="min-height: 400px;">
-        No nodes accessible. Subscribe to agents with memories to see the knowledge graph.
-      </div>
-    {:else}
-      <!-- Filters -->
-      <div class="flex flex-wrap items-center gap-4 mb-3">
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <span class="text-xs text-zinc-500 mr-1">Memory:</span>
-          {#each availableMemoryUrns as urn}
-            {@const mem = userMemories.find((m) => m.urn === urn)}
-            <button
-              onclick={() => toggleMemoryFilter(urn)}
-              class="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition {activeMemoryUrns.size === 0 || activeMemoryUrns.has(urn) ? '' : 'opacity-40'}"
-              style="background: {memoryColorMap[urn] ?? '#8b949e'}20; color: {memoryColorMap[urn] ?? '#8b949e'};"
-            >
-              <span class="inline-block h-2 w-2 rounded-full" style="background: {memoryColorMap[urn] ?? '#8b949e'};"></span>
-              {mem?.name ?? urn}
-            </button>
-          {/each}
-          {#if activeMemoryUrns.size > 0}
-            <button onclick={() => { activeMemoryUrns = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
-          {/if}
-        </div>
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <span class="text-xs text-zinc-500 mr-1">Type:</span>
-          {#each availableNodeTypes as t}
-            <button
-              onclick={() => toggleNodeTypeFilter(t)}
-              class="rounded-full px-2.5 py-0.5 text-xs font-medium transition {activeNodeTypes.size === 0 || activeNodeTypes.has(t) ? 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300' : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600'}"
-            >{t}</button>
-          {/each}
-          {#if activeNodeTypes.size > 0}
-            <button onclick={() => { activeNodeTypes = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
-          {/if}
-        </div>
-        <span class="text-xs text-zinc-400">{filteredStationNodes.length} / {allStationNodes.length} nodes</span>
-      </div>
-      <div class="flex gap-0" style="min-height: calc(100vh - 320px);">
-        <!-- Tree sidebar -->
-        {#if treeOpen}
-          <aside class="w-64 shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
-            <div class="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
-              <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
-              <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
-            </div>
-            <TreeView entries={treeEntries} basePath="" />
-          </aside>
-        {:else}
-          <button
-            onclick={() => treeOpen = true}
-            class="mr-2 self-start rounded-lg border border-zinc-200 bg-zinc-100 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-200 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
-            title="Show tree"
-          >
-            Tree &rsaquo;
-          </button>
-        {/if}
-        <!-- Graph -->
-        <div class="min-w-0 flex-1 overflow-hidden rounded-r-lg border border-zinc-200 dark:border-zinc-800" style="display: flex;">
-          {#key filteredStationNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',')}
-            <TopicGraph data={graphViewData} basePath="" />
-          {/key}
-        </div>
-      </div>
-    {/if}
-  {/if}
-
-  <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <!-- NODES TAB                                                         -->
-  <!-- ═══════════════════════════════════════════════════════════════════ -->
-  {#if activeTab === 'nodes'}
-    <div class="space-y-4">
-      <!-- Filters -->
-      <div class="flex flex-wrap items-center gap-4">
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <span class="text-xs text-zinc-500 mr-1">Memory:</span>
-          {#each availableMemoryUrns as urn}
-            {@const mem = userMemories.find((m) => m.urn === urn)}
-            <button
-              onclick={() => toggleMemoryFilter(urn)}
-              class="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition {activeMemoryUrns.size === 0 || activeMemoryUrns.has(urn) ? '' : 'opacity-40'}"
-              style="background: {memoryColorMap[urn] ?? '#8b949e'}20; color: {memoryColorMap[urn] ?? '#8b949e'};"
-            >
-              <span class="inline-block h-2 w-2 rounded-full" style="background: {memoryColorMap[urn] ?? '#8b949e'};"></span>
-              {mem?.name ?? urn}
-            </button>
-          {/each}
-          {#if activeMemoryUrns.size > 0}
-            <button onclick={() => { activeMemoryUrns = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
-          {/if}
-        </div>
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <span class="text-xs text-zinc-500 mr-1">Type:</span>
-          {#each availableNodeTypes as t}
-            <button
-              onclick={() => toggleNodeTypeFilter(t)}
-              class="rounded-full px-2.5 py-0.5 text-xs font-medium transition {activeNodeTypes.size === 0 || activeNodeTypes.has(t) ? 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300' : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600'}"
-            >{t}</button>
-          {/each}
-          {#if activeNodeTypes.size > 0}
-            <button onclick={() => { activeNodeTypes = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
-          {/if}
-        </div>
-        <span class="text-xs text-zinc-400">{filteredStationNodes.length} / {allStationNodes.length} nodes</span>
-      </div>
-
-      <input type="text" placeholder="Search nodes..." bind:value={nodeSearch}
-        class="max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
-
-      {#if filteredNodes.length === 0}
-        <p class="text-sm text-zinc-500">{nodeSearch ? 'No matching nodes.' : 'No nodes accessible by this station.'}</p>
-      {:else}
-        <div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-zinc-200 bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-                <th class="px-4 py-2.5">Node</th>
-                <th class="px-4 py-2.5">Memory</th>
-                <th class="px-4 py-2.5">Type</th>
-                <th class="px-4 py-2.5">Description</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
-              {#each filteredNodes as node (node.id)}
-                <tr class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900">
-                  <td class="px-4 py-2.5">
-                    <div class="flex items-center gap-2">
-                      <span class="inline-block h-2 w-2 rounded-full" style="background: {memoryColorMap[node.memory?.urn ?? ''] ?? '#8b949e'};"></span>
-                      <span class="font-medium text-zinc-900 dark:text-white">{node.name}</span>
-                    </div>
-                    <p class="mt-0.5 pl-4 font-mono text-xs text-zinc-500">{node.loc}</p>
-                  </td>
-                  <td class="whitespace-nowrap px-4 py-2.5 text-xs text-zinc-500">{node.memory?.name ?? '—'}</td>
-                  <td class="px-4 py-2.5">
-                    <span class="rounded px-1.5 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{node.nodeType}</span>
-                  </td>
-                  <td class="max-w-xs truncate px-4 py-2.5 text-xs text-zinc-500">{node.description ?? '—'}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {/if}
-    </div>
+    <MemoryBrowser nodes={data.stationNodes ?? []} multiMemory={true} />
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
@@ -590,7 +391,7 @@ notice outdated information, update the graph with h-create-node.
                 <form method="POST" action="?/subscribe" use:enhance class="shrink-0">
                   <input type="hidden" name="agentId" value={sub.agent.id} />
                   <select name="subscriptionType"
-                    onchange={(e) => e.target?.form?.requestSubmit()}
+                    onchange={(e) => e.currentTarget?.form?.requestSubmit()}
                     class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
                     <option value="READ_ONLY" selected={sub.subscriptionType === 'READ_ONLY'}>Read Only</option>
                     <option value="READ_WRITE" selected={sub.subscriptionType === 'READ_WRITE'}>Read/Write</option>
@@ -637,7 +438,7 @@ notice outdated information, update the graph with h-create-node.
           <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
             {#each userMemories as mem (mem.id)}
               <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
-                <span class="inline-block h-2.5 w-2.5 rounded-full" style="background: {memoryColorMap[mem.urn] ?? '#8b949e'};"></span>
+                <span class="inline-block h-2.5 w-2.5 rounded-full bg-indigo-400"></span>
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{mem.name}</p>
                   <CopyUrn value={mem.urn} size={10} />
