@@ -133,6 +133,18 @@ export const UPDATE_MY_PROFILE_MUTATION = /* GraphQL */ `
   }
 `;
 
+export const JOIN_WAITING_LIST_MUTATION = /* GraphQL */ `
+  mutation JoinWaitingList($email: String!, $requestedFeatures: String) {
+    joinWaitingList(email: $email, requestedFeatures: $requestedFeatures)
+  }
+`;
+
+export const SEND_CONTACT_MESSAGE_MUTATION = /* GraphQL */ `
+  mutation SendContactMessage($name: String!, $email: String!, $message: String!) {
+    sendContactMessage(name: $name, email: $email, message: $message)
+  }
+`;
+
 export const PUBLIC_MEMORIES_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
   query PublicMemories {
