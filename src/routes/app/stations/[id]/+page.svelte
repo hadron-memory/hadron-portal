@@ -319,9 +319,9 @@ notice outdated information, update the graph with h-create-node.
   <!-- CHAT TAB                                                          -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'chat'}
-    <div class="flex flex-col" style="min-height: calc(100vh - 280px);">
+    <div class="flex flex-col" style="height: calc(100vh - 280px);">
       {#if chatActive}
-        <div class="flex-1 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden" style="min-height: 400px;">
+        <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
           {#key chatKey}
             <Chat config={aiConfig} systemPrompt={data.station ? [
               `Station: "${station.name}" (${station.stationType})`,
