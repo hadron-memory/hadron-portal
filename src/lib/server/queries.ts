@@ -565,6 +565,33 @@ export const STATION_AI_CONFIG_QUERY = /* GraphQL */ `
   }
 `;
 
+export const STATION_NODES_QUERY = /* GraphQL */ `
+  query StationNodes($stationId: ID!, $limit: Int) {
+    stationNodes(stationId: $stationId, limit: $limit) {
+      id
+      memoryId
+      nodeType
+      loc
+      name
+      description
+      tags
+      seq
+      isRunnable
+      memory { id urn name }
+      outgoingEdges {
+        id
+        label
+        target { id loc name }
+      }
+      incomingEdges {
+        id
+        label
+        source { id loc name }
+      }
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------

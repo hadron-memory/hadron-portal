@@ -136,6 +136,7 @@ export interface MemoryNode {
   isRunnable: boolean | null;
   createdAt: string;
   updatedAt: string;
+  memory?: { id: string; urn: string; name: string } | null;
   outgoingEdges: NodeEdge[];
   incomingEdges: NodeEdge[];
 }

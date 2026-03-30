@@ -9,24 +9,31 @@ import {
   UNSUBSCRIBE_STATION_FROM_AGENT_MUTATION,
   UPDATE_STATION_MUTATION,
   MY_ORGANIZATIONS_QUERY,
+  STATION_NODES_QUERY,
 } from '$lib/server/queries';
-import type { Station, Organization } from '$lib/types';
+import type { Station, Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   await requireNonConsumer(parent);
+  const client = gqlClient(locals.token);
   const [stationsData, orgsData] = await Promise.all([
-    gqlClient(locals.token).request<{ myStations: Station[] }>(MY_STATIONS_QUERY)
+    client.request<{ myStations: Station[] }>(MY_STATIONS_QUERY)
       .catch(() => ({ myStations: [] as Station[] })),
-    gqlClient(locals.token).request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
+    client.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
       .catch(() => ({ myOrganizations: [] as Organization[] })),
   ]);
 
   const station = stationsData.myStations.find((c) => c.id === params.id);
   if (!station) throw error(404, 'Station not found');
 
+  // Load all nodes accessible by this station
+  const nodesData = await client.request<{ stationNodes: MemoryNode[] }>(
+    STATION_NODES_QUERY, { stationId: params.id, limit: 500 },
+  ).catch(() => ({ stationNodes: [] as MemoryNode[] }));
+
   const newKey = url.searchParams.get('newKey') ?? null;
-  return { station, newKey, orgs: orgsData.myOrganizations };
+  return { station, newKey, orgs: orgsData.myOrganizations, stationNodes: nodesData.stationNodes };
 };
 
 export const actions: Actions = {
