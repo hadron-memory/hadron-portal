@@ -11,7 +11,7 @@
   import { buildGraphViewData } from '$lib/graph-utils';
   import type { AIProvider, StationAIConfig } from '$lib/types';
   import Chat from '$lib/components/Chat.svelte';
-  import { onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -110,8 +110,29 @@
   let chatActive = $state(false);
   let chatKey = $state(0);
   let aiConfigOpen = $state(false);
+  let aiConfigLoading = $state(true);
 
   let aiConfig = $derived<StationAIConfig>({ provider: aiProvider, apiKey: aiApiKey, model: aiModel });
+
+  // Load saved AI config on mount — auto-start chat if config exists
+  onMount(async () => {
+    if (station.hasAiApiKey) {
+      try {
+        const res = await fetch(`/api/stations/ai-config?stationId=${station.id}`);
+        if (res.ok) {
+          const { provider, apiKey, model } = await res.json();
+          if (provider && apiKey && model) {
+            aiProvider = provider as AIProvider;
+            aiApiKey = apiKey;
+            aiModel = model;
+            chatKey++;
+            chatActive = true;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    aiConfigLoading = false;
+  });
 
   function onProviderChange(e: Event) {
     const val = (e.target as HTMLSelectElement).value;

@@ -1,10 +1,37 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
+  STATION_AI_CONFIG_QUERY,
   UPDATE_STATION_AI_CONFIG_MUTATION,
   CLEAR_STATION_AI_CONFIG_MUTATION,
 } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
+
+export const GET: RequestHandler = async ({ url, locals }) => {
+  if (!locals.token) {
+    return json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const stationId = url.searchParams.get('stationId');
+  if (!stationId) {
+    return json({ error: 'stationId is required' }, { status: 400 });
+  }
+
+  try {
+    const data = await gqlClient(locals.token).request<{
+      stationAIConfig: { provider: string; apiKey: string; model: string } | null;
+    }>(STATION_AI_CONFIG_QUERY, { stationId });
+
+    if (!data.stationAIConfig) {
+      return json({ provider: null, apiKey: null, model: null });
+    }
+
+    return json(data.stationAIConfig);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Failed to load AI config';
+    return json({ error: msg }, { status: 500 });
+  }
+};
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
