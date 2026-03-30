@@ -54,13 +54,10 @@
     Hadron gives AI agents and developer tools a shared, versioned knowledge memory — synced from
     your GitHub repos and queryable via GraphQL.
   </p>
-  <div class="flex flex-wrap items-center justify-center gap-4">
-    <a
-      href="/signup"
-      class="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow transition hover:bg-indigo-500"
-    >
-      Get Started
-    </a>
+  <div class="flex flex-col items-center gap-4">
+    <p class="rounded-lg border border-zinc-300 bg-zinc-50 px-5 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+      Hadron is currently in pilot. An invitation is needed to create an account.
+    </p>
     <a
       href="/signin"
       class="rounded-lg border border-zinc-300 px-6 py-3 text-base font-semibold text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
@@ -84,28 +81,6 @@
   </div>
 </section>
 
-<!-- Public graphs preview -->
-{#if data.publicMemories.length > 0}
-  <section class="mx-auto max-w-7xl px-4 py-16">
-    <div class="mb-6 flex items-center justify-between">
-      <h2 class="text-xl font-semibold text-zinc-900 dark:text-white">Public memories</h2>
-      <a href="/browse" class="text-sm text-indigo-600 transition hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300">View all →</a>
-    </div>
-    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      {#each data.publicMemories as memory (memory.id)}
-        <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-          <p class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{memory.name}</p>
-          <p class="font-mono text-xs text-zinc-400">{memory.urn}</p>
-          {#if memory.lastSyncedAt}
-            <p class="mt-1 text-xs text-zinc-500">
-              Last synced {new Date(memory.lastSyncedAt).toLocaleDateString()}
-            </p>
-          {/if}
-        </div>
-      {/each}
-    </div>
-  </section>
-{/if}
 
 <!-- Footer -->
 <footer class="border-t border-zinc-200 py-8 text-center text-sm text-zinc-500 dark:border-zinc-800">

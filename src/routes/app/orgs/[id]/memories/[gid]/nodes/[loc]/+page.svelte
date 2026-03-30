@@ -200,6 +200,9 @@
   <!-- Header -->
   <div class="flex items-center gap-3">
     <h1 class="text-xl font-bold text-zinc-900 dark:text-white">{node.name}</h1>
+    {#if node.seq !== null && node.seq !== undefined}
+      <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">seq {node.seq}</span>
+    {/if}
     {#if node.isRunnable}
       <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">runnable</span>
     {/if}

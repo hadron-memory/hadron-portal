@@ -66,12 +66,14 @@
             </div>
           </div>
 
-          <form method="POST" action="?/addToMyMemories" use:enhance>
-            <input type="hidden" name="memoryId" value={memory.id} />
-            <button type="submit" class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
-              Use this memory
-            </button>
-          </form>
+          {#if data.isAuthenticated}
+            <form method="POST" action="?/addToMyMemories" use:enhance>
+              <input type="hidden" name="memoryId" value={memory.id} />
+              <button type="submit" class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+                Use this memory
+              </button>
+            </form>
+          {/if}
         </div>
       {/each}
     </div>

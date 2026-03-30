@@ -39,21 +39,16 @@
   <!-- My Memories preview -->
   <section>
     <div class="mb-4 flex items-center justify-between">
-      <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">My Memories</h2>
-      <div class="flex gap-2">
-        <a href="/browse" class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
-          Browse marketplace
-        </a>
-        <a href="/app/my-memories" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
-          View all →
-        </a>
-      </div>
+      <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Memories</h2>
+      <a href="/app/my-memories" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
+        View all →
+      </a>
     </div>
     {#if data.memories.length === 0}
       <div class="rounded-xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
         <p class="text-zinc-500 dark:text-zinc-400">You haven't added any memories yet.</p>
         <p class="mt-2 text-sm text-zinc-400 dark:text-zinc-500">
-          <a href="/browse" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Browse the marketplace</a> to find knowledge memories for your AI agent.
+          Create a memory in your organization to get started.
         </p>
       </div>
     {:else}
