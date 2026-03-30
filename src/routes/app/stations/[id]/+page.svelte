@@ -615,6 +615,7 @@ notice outdated information, update the graph with h-create-node.
 
   <!-- Station Configuration (not shown for chatbots) -->
   {#if station.stationType !== 'CHATBOT'}
+  <!-- Station Configuration -->
   <section>
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Station Configuration</h2>
 
