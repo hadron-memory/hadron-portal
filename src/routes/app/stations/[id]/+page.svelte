@@ -82,15 +82,45 @@
   const userMemories = $derived(effectiveMemories.filter((m) => !SYSTEM_MEMORY_URNS.includes(m.urn)));
   const hasWritableMemory = $derived(effectiveMemories.some((m) => m.access === 'read-write'));
 
-  // ── Graph view data from station nodes ─────────────────────────────────
-  const graphViewData = $derived(buildGraphViewData(data.stationNodes ?? []));
-  const treeEntries = $derived(buildTreeEntries(data.stationNodes ?? []));
+  // ── Shared filters (Memory tab + Nodes tab) ─────────────────────────────
+  const allStationNodes = $derived(data.stationNodes ?? []);
+
+  // Available memory URNs and node types for filter UI
+  const availableMemoryUrns = $derived([...new Set(allStationNodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean).sort());
+  const availableNodeTypes = $derived([...new Set(allStationNodes.map((n) => n.nodeType ?? 'info'))].sort());
+
+  let activeMemoryUrns = $state<Set<string>>(new Set()); // empty = all
+  let activeNodeTypes = $state<Set<string>>(new Set()); // empty = all
+
+  function toggleMemoryFilter(urn: string) {
+    if (activeMemoryUrns.has(urn)) activeMemoryUrns.delete(urn);
+    else activeMemoryUrns.add(urn);
+    activeMemoryUrns = new Set(activeMemoryUrns);
+  }
+
+  function toggleNodeTypeFilter(t: string) {
+    if (activeNodeTypes.has(t)) activeNodeTypes.delete(t);
+    else activeNodeTypes.add(t);
+    activeNodeTypes = new Set(activeNodeTypes);
+  }
+
+  const filteredStationNodes = $derived(
+    allStationNodes.filter((n) => {
+      if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(n.memory?.urn ?? '')) return false;
+      if (activeNodeTypes.size > 0 && !activeNodeTypes.has(n.nodeType ?? 'info')) return false;
+      return true;
+    })
+  );
+
+  // ── Graph + tree derived from filtered nodes ──────────────────────────
+  const graphViewData = $derived(buildGraphViewData(filteredStationNodes));
+  const treeEntries = $derived(buildTreeEntries(filteredStationNodes));
   let treeOpen = $state(true);
 
-  // ── Nodes tab: flat listing ────────────────────────────────────────────
+  // ── Nodes tab: text search on top of filters ──────────────────────────
   let nodeSearch = $state('');
   const filteredNodes = $derived(
-    (data.stationNodes ?? []).filter((n) => {
+    filteredStationNodes.filter((n) => {
       if (!nodeSearch) return true;
       const q = nodeSearch.toLowerCase();
       return n.name.toLowerCase().includes(q) || n.loc.toLowerCase().includes(q) || (n.description ?? '').toLowerCase().includes(q);
@@ -397,15 +427,42 @@ notice outdated information, update the graph with h-create-node.
         No nodes accessible. Subscribe to agents with memories to see the knowledge graph.
       </div>
     {:else}
-      <!-- Memory legend -->
-      <div class="flex flex-wrap gap-3 mb-2">
-        {#each userMemories as mem (mem.id)}
-          <div class="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
-            <span class="inline-block h-2.5 w-2.5 rounded-full" style="background: {memoryColorMap[mem.urn] ?? '#8b949e'};"></span>
-            {mem.name}
-            <span class="text-zinc-400">({mem.access})</span>
-          </div>
-        {/each}
+      <!-- Filters -->
+      <div class="flex flex-wrap items-center gap-4 mb-3">
+        <!-- Memory filter -->
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-xs text-zinc-500 mr-1">Memory:</span>
+          {#each availableMemoryUrns as urn}
+            {@const mem = userMemories.find((m) => m.urn === urn)}
+            <button
+              onclick={() => toggleMemoryFilter(urn)}
+              class="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition {activeMemoryUrns.size === 0 || activeMemoryUrns.has(urn) ? '' : 'opacity-40'}"
+              style="background: {memoryColorMap[urn] ?? '#8b949e'}20; color: {memoryColorMap[urn] ?? '#8b949e'};"
+            >
+              <span class="inline-block h-2 w-2 rounded-full" style="background: {memoryColorMap[urn] ?? '#8b949e'};"></span>
+              {mem?.name ?? urn}
+            </button>
+          {/each}
+          {#if activeMemoryUrns.size > 0}
+            <button onclick={() => { activeMemoryUrns = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
+          {/if}
+        </div>
+
+        <!-- Node type filter -->
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <span class="text-xs text-zinc-500 mr-1">Type:</span>
+          {#each availableNodeTypes as t}
+            <button
+              onclick={() => toggleNodeTypeFilter(t)}
+              class="rounded-full px-2.5 py-0.5 text-xs font-medium transition {activeNodeTypes.size === 0 || activeNodeTypes.has(t) ? 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300' : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600'}"
+            >{t}</button>
+          {/each}
+          {#if activeNodeTypes.size > 0}
+            <button onclick={() => { activeNodeTypes = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
+          {/if}
+        </div>
+
+        <span class="text-xs text-zinc-400">{filteredStationNodes.length} / {allStationNodes.length} nodes</span>
       </div>
       <div class="flex gap-0" style="min-height: calc(100vh - 320px);">
         <!-- Tree sidebar -->
