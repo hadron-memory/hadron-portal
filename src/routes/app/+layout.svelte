@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { LayoutData } from './$types';
   import { page } from '$app/stores';
+  import FloatingChat from '$lib/components/FloatingChat.svelte';
 
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
@@ -66,3 +67,5 @@
     {@render children()}
   </div>
 </div>
+
+<FloatingChat />

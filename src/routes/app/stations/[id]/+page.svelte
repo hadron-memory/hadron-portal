@@ -5,13 +5,32 @@
   import JSZip from 'jszip';
   import CopyUrn from '$lib/components/CopyUrn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
-  import Chat from '$lib/components/Chat.svelte';
-  import { AI_PROVIDERS, DEFAULT_MODELS, loadAIConfig, saveAIConfig } from '$lib/ai-config';
-  import type { AIProvider, StationAIConfig } from '$lib/types';
+  import { chatContext } from '$lib/stores/chat-context';
+  import { onDestroy } from 'svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const station = $derived(data.station);
+
+  // Provide station context to the floating chatbot
+  $effect(() => {
+    const agents = (station.agentSubscriptions ?? []).map((s) => s.agent.name);
+    const tools = station.agentTools ?? [];
+    chatContext.set({
+      pageContext: [
+        `The user is viewing station "${station.name}" (type: ${station.stationType}).`,
+        station.description ? `Description: ${station.description}` : '',
+        agents.length ? `Subscribed agents: ${agents.join(', ')}.` : 'No agents subscribed yet.',
+        tools.length ? `Selected AI tools: ${tools.join(', ')}.` : 'No AI tools selected yet.',
+        `Station URN: ${station.urn}`,
+        `Help this user configure Hadron for their station. Guide them through selecting tools, subscribing to agents, and downloading setup files. Answer based on their specific configuration above.`,
+      ].filter(Boolean).join('\n'),
+    });
+  });
+
+  onDestroy(() => {
+    chatContext.set({ pageContext: '' });
+  });
 
   // Collect accessible agents from orgs for the subscribe dropdown
   const subscribedAgentIds = $derived(new Set((station.agentSubscriptions ?? []).map((s) => s.agent.id)));
@@ -65,36 +84,6 @@
   let agentToolsForm = $state<HTMLFormElement>();
   let selectedTools = $state<Set<string>>(new Set(station.agentTools ?? []));
   let withClientApp = $state(false);
-
-  // AI chatbot config (stored in localStorage)
-  const savedConfig = loadAIConfig(station.id);
-  let aiProvider = $state<AIProvider>(savedConfig?.provider ?? 'openai');
-  let aiApiKey = $state(savedConfig?.apiKey ?? '');
-  let aiModel = $state(savedConfig?.model ?? DEFAULT_MODELS[savedConfig?.provider ?? 'openai']);
-  let chatActive = $state(false);
-  let chatKey = $state(0); // used to remount Chat when config changes
-
-  const aiConfig = $derived<StationAIConfig>({
-    provider: aiProvider,
-    apiKey: aiApiKey,
-    model: aiModel,
-  });
-
-  function onProviderChange(p: AIProvider) {
-    aiProvider = p;
-    aiModel = DEFAULT_MODELS[p];
-  }
-
-  function saveAndStartChat() {
-    if (!aiApiKey.trim()) return;
-    saveAIConfig(station.id, aiConfig);
-    chatKey++;
-    chatActive = true;
-  }
-
-  function disconnectChat() {
-    chatActive = false;
-  }
 
   function toggleTool(value: string) {
     if (selectedTools.has(value)) {
@@ -572,60 +561,6 @@ notice outdated information, update the graph with h-create-node.
 
   <!-- Station Configuration (not shown for chatbots) -->
   {#if station.stationType !== 'CHATBOT'}
-  <!-- Chatbot -->
-  <section>
-    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Chatbot</h2>
-
-    <!-- AI provider settings -->
-    <div class="mb-4 space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-      <div>
-        <label for="aiProvider" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Provider</label>
-        <select id="aiProvider" value={aiProvider} onchange={(e) => onProviderChange((e.target as HTMLSelectElement).value as AIProvider)}
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
-          {#each AI_PROVIDERS as p (p.value)}
-            <option value={p.value}>{p.label}</option>
-          {/each}
-        </select>
-      </div>
-      <div>
-        <label for="aiApiKey" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">API Key</label>
-        <input id="aiApiKey" type="password" bind:value={aiApiKey} placeholder="sk-..."
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400
-            dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500
-            focus:border-indigo-500 focus:outline-none" />
-        <p class="mt-1 text-xs text-zinc-400">Stored locally in your browser. Never sent to Hadron servers.</p>
-      </div>
-      <div>
-        <label for="aiModel" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Model</label>
-        <input id="aiModel" type="text" bind:value={aiModel}
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900
-            dark:border-zinc-700 dark:bg-zinc-800 dark:text-white
-            focus:border-indigo-500 focus:outline-none" />
-      </div>
-      <div class="flex gap-2">
-        <button onclick={saveAndStartChat}
-          disabled={!aiApiKey.trim()}
-          class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500
-            disabled:opacity-50 disabled:cursor-not-allowed">
-          {chatActive ? 'Restart chat' : 'Start chat'}
-        </button>
-        {#if chatActive}
-          <button onclick={disconnectChat}
-            class="rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100
-              dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
-            Disconnect
-          </button>
-        {/if}
-      </div>
-    </div>
-
-    {#if chatActive}
-      {#key chatKey}
-        <Chat config={aiConfig} />
-      {/key}
-    {/if}
-  </section>
-
   <!-- Station Configuration -->
   <section>
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Station Configuration</h2>
