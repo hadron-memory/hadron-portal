@@ -82,7 +82,7 @@
   let editingSubId = $state<string | null>(null);
   let downloading = $state(false);
   let agentToolsForm = $state<HTMLFormElement>();
-  let selectedTools = $state<Set<string>>(new Set(station.agentTools ?? []));
+  let selectedTools = $derived(new Set(station.agentTools ?? []));
   let withClientApp = $state(false);
 
   function toggleTool(value: string) {
@@ -463,8 +463,8 @@ notice outdated information, update the graph with h-create-node.
                 <input type="hidden" name="agentId" value={sub.agent.id} />
                 <div class="flex flex-wrap items-end gap-3">
                   <div>
-                    <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
-                    <select name="subscriptionType" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                    <label for="subscriptionType-{sub.id}" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
+                    <select id="subscriptionType-{sub.id}" name="subscriptionType" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                       <option value="READ_ONLY" selected={sub.subscriptionType === 'READ_ONLY'}>Read Only</option>
                       <option value="READ_WRITE" selected={sub.subscriptionType === 'READ_WRITE'}>Read/Write</option>
                     </select>
