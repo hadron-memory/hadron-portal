@@ -1,5 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { streamText, convertToModelMessages } from 'ai';
+import { gqlClient } from '$lib/server/api';
+import { STATION_AI_CONFIG_QUERY } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 import type { AIProvider } from '$lib/types';
 
@@ -64,12 +66,40 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     });
   }
 
-  const { messages, provider, apiKey, model, systemPrompt } = await request.json();
+  const { messages, stationId, systemPrompt } = await request.json();
 
-  if (!apiKey || !provider || !model) {
+  if (!stationId) {
     return new Response(
-      JSON.stringify({ error: 'AI provider configuration is required (provider, apiKey, model)' }),
+      JSON.stringify({ error: 'stationId is required' }),
       { status: 400, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
+  // Fetch the decrypted AI config from the backend
+  let provider: string;
+  let apiKey: string;
+  let model: string;
+
+  try {
+    const result = await gqlClient(locals.token).request<{
+      stationAIConfig: { provider: string; apiKey: string; model: string } | null;
+    }>(STATION_AI_CONFIG_QUERY, { stationId });
+
+    if (!result.stationAIConfig) {
+      return new Response(
+        JSON.stringify({ error: 'No AI configuration found for this station. Please save your API key first.' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+
+    provider = result.stationAIConfig.provider;
+    apiKey = result.stationAIConfig.apiKey;
+    model = result.stationAIConfig.model;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Failed to fetch AI config';
+    return new Response(
+      JSON.stringify({ error: msg }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
     );
   }
 

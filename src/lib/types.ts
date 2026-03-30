@@ -227,12 +227,15 @@ export interface Station {
   expiresAt: string | null;
   createdAt: string;
   lastUsedAt: string | null;
+  aiProvider: string | null;
+  aiModel: string | null;
+  hasAiApiKey: boolean;
   user?: UserSummary | null;
   agentSubscriptions?: StationAgentSub[];
 }
 
 // ---------------------------------------------------------------------------
-// AI provider config (stored in localStorage per station)
+// AI provider config (encrypted at rest on the station)
 // ---------------------------------------------------------------------------
 
 export type AIProvider = 'openai' | 'glm';

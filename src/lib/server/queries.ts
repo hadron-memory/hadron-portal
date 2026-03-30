@@ -60,6 +60,9 @@ export const STATION_FIELDS = /* GraphQL */ `
     expiresAt
     createdAt
     lastUsedAt
+    aiProvider
+    aiModel
+    hasAiApiKey
   }
 `;
 
@@ -490,8 +493,8 @@ export const CREATE_STATION_MUTATION = /* GraphQL */ `
 
 export const UPDATE_STATION_MUTATION = /* GraphQL */ `
   ${STATION_FIELDS}
-  mutation UpdateStation($id: ID!, $name: String, $stationType: StationType, $description: String, $agentTools: [String!]) {
-    updateStation(id: $id, name: $name, stationType: $stationType, description: $description, agentTools: $agentTools) {
+  mutation UpdateStation($id: ID!, $name: String, $stationType: StationType, $description: String, $agentTools: [String!], $aiProvider: String, $aiModel: String, $aiApiKey: String) {
+    updateStation(id: $id, name: $name, stationType: $stationType, description: $description, agentTools: $agentTools, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
       ...StationFields
     }
   }
@@ -526,6 +529,38 @@ export const UNSUBSCRIBE_STATION_FROM_AGENT_MUTATION = /* GraphQL */ `
     unsubscribeStationFromAgent(stationId: $stationId, agentId: $agentId) {
       ...StationFields
       agentSubscriptions { ...StationAgentSubFields }
+    }
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// Station AI Config (uses updateStation mutation)
+// ---------------------------------------------------------------------------
+
+export const UPDATE_STATION_AI_CONFIG_MUTATION = /* GraphQL */ `
+  ${STATION_FIELDS}
+  mutation UpdateStationAIConfig($id: ID!, $aiProvider: String, $aiModel: String, $aiApiKey: String) {
+    updateStation(id: $id, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
+      ...StationFields
+    }
+  }
+`;
+
+export const CLEAR_STATION_AI_CONFIG_MUTATION = /* GraphQL */ `
+  ${STATION_FIELDS}
+  mutation ClearStationAIConfig($id: ID!, $aiProvider: String, $aiModel: String, $aiApiKey: String) {
+    updateStation(id: $id, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
+      ...StationFields
+    }
+  }
+`;
+
+export const STATION_AI_CONFIG_QUERY = /* GraphQL */ `
+  query StationAIConfig($stationId: ID!) {
+    stationAIConfig(stationId: $stationId) {
+      provider
+      apiKey
+      model
     }
   }
 `;

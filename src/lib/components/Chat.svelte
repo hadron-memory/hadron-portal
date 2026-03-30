@@ -4,16 +4,18 @@
   import { marked } from 'marked';
   import type { StationAIConfig } from '$lib/types';
 
-  let { config, systemPrompt = '' }: { config: StationAIConfig; systemPrompt?: string } = $props();
+  let { config, stationId, systemPrompt = '' }: { config: StationAIConfig; stationId: string; systemPrompt?: string } = $props();
+
+  // Intentionally capture initial values — component is re-created via {#key} when these change
+  const initialStationId = stationId;
+  const initialSystemPrompt = systemPrompt;
 
   const chat = new Chat({
     transport: new DefaultChatTransport({
       api: '/api/chat',
       body: {
-        provider: config.provider,
-        apiKey: config.apiKey,
-        model: config.model,
-        systemPrompt,
+        stationId: initialStationId,
+        systemPrompt: initialSystemPrompt,
       },
     }),
   });
