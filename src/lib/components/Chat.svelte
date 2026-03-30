@@ -4,7 +4,7 @@
   import { marked } from 'marked';
   import type { StationAIConfig } from '$lib/types';
 
-  let { config }: { config: StationAIConfig } = $props();
+  let { config, systemPrompt = '' }: { config: StationAIConfig; systemPrompt?: string } = $props();
 
   const chat = new Chat({
     transport: new DefaultChatTransport({
@@ -13,6 +13,7 @@
         provider: config.provider,
         apiKey: config.apiKey,
         model: config.model,
+        systemPrompt,
       },
     }),
   });
@@ -38,12 +39,12 @@
   }
 </script>
 
-<div class="flex h-[500px] flex-col rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+<div class="flex h-[400px] flex-col">
   <!-- Messages -->
   <div class="flex-1 overflow-y-auto p-4 space-y-4">
     {#if chat.messages.length === 0}
-      <div class="flex h-full items-center justify-center text-sm text-zinc-400">
-        Start a conversation with your AI provider.
+      <div class="flex h-full items-center justify-center text-center text-sm text-zinc-400 px-4">
+        Ask me anything about setting up Hadron on your machine.
       </div>
     {/if}
     {#each chat.messages as message (message.id)}

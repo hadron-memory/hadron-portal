@@ -5,13 +5,32 @@
   import JSZip from 'jszip';
   import CopyUrn from '$lib/components/CopyUrn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
-  import Chat from '$lib/components/Chat.svelte';
-  import { AI_PROVIDERS, DEFAULT_MODELS, loadAIConfig, saveAIConfig } from '$lib/ai-config';
-  import type { AIProvider, StationAIConfig } from '$lib/types';
+  import { chatContext } from '$lib/stores/chat-context';
+  import { onDestroy } from 'svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const station = $derived(data.station);
+
+  // Provide station context to the floating chatbot
+  $effect(() => {
+    const agents = (station.agentSubscriptions ?? []).map((s) => s.agent.name);
+    const tools = station.agentTools ?? [];
+    chatContext.set({
+      pageContext: [
+        `The user is viewing station "${station.name}" (type: ${station.stationType}).`,
+        station.description ? `Description: ${station.description}` : '',
+        agents.length ? `Subscribed agents: ${agents.join(', ')}.` : 'No agents subscribed yet.',
+        tools.length ? `Selected AI tools: ${tools.join(', ')}.` : 'No AI tools selected yet.',
+        `Station URN: ${station.urn}`,
+        `Help this user configure Hadron for their station. Guide them through selecting tools, subscribing to agents, and downloading setup files. Answer based on their specific configuration above.`,
+      ].filter(Boolean).join('\n'),
+    });
+  });
+
+  onDestroy(() => {
+    chatContext.set({ pageContext: '' });
+  });
 
   // Collect accessible agents from orgs for the subscribe dropdown
   const subscribedAgentIds = $derived(new Set((station.agentSubscriptions ?? []).map((s) => s.agent.id)));
@@ -65,36 +84,6 @@
   let agentToolsForm = $state<HTMLFormElement>();
   let selectedTools = $state<Set<string>>(new Set(station.agentTools ?? []));
   let withClientApp = $state(false);
-
-  // AI chatbot config (stored in localStorage)
-  const savedConfig = loadAIConfig(station.id);
-  let aiProvider = $state<AIProvider>(savedConfig?.provider ?? 'openai');
-  let aiApiKey = $state(savedConfig?.apiKey ?? '');
-  let aiModel = $state(savedConfig?.model ?? DEFAULT_MODELS[savedConfig?.provider ?? 'openai']);
-  let chatActive = $state(false);
-  let chatKey = $state(0); // used to remount Chat when config changes
-
-  const aiConfig = $derived<StationAIConfig>({
-    provider: aiProvider,
-    apiKey: aiApiKey,
-    model: aiModel,
-  });
-
-  function onProviderChange(p: AIProvider) {
-    aiProvider = p;
-    aiModel = DEFAULT_MODELS[p];
-  }
-
-  function saveAndStartChat() {
-    if (!aiApiKey.trim()) return;
-    saveAIConfig(station.id, aiConfig);
-    chatKey++;
-    chatActive = true;
-  }
-
-  function disconnectChat() {
-    chatActive = false;
-  }
 
   function toggleTool(value: string) {
     if (selectedTools.has(value)) {

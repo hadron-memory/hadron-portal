@@ -235,7 +235,7 @@ export interface Station {
 // AI provider config (stored in localStorage per station)
 // ---------------------------------------------------------------------------
 
-export type AIProvider = 'openai' | 'anthropic' | 'google' | 'xai' | 'glm';
+export type AIProvider = 'openai' | 'glm';
 
 export interface StationAIConfig {
   provider: AIProvider;
