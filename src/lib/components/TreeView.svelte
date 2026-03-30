@@ -9,7 +9,7 @@
     children: TreeNode[];
   }
 
-  let { entries, basePath }: { entries: TreeEntry[]; basePath: string } = $props();
+  let { entries, basePath, hideSearch = false }: { entries: TreeEntry[]; basePath: string; hideSearch?: boolean } = $props();
 
   // Use shared search state so graph can react to the same filter
   let search = $derived(graphState.searchFilter);
@@ -128,18 +128,20 @@
   }
 </script>
 
-<div class="tree-search">
-  <input
-    type="text"
-    class="search-input"
-    placeholder="Filter..."
-    value={search}
-    oninput={(e) => graphState.searchFilter = (e.target as HTMLInputElement).value}
-  />
-  {#if search}
-    <button class="search-clear" onclick={() => graphState.searchFilter = ''} aria-label="Clear search">&times;</button>
-  {/if}
-</div>
+{#if !hideSearch}
+  <div class="tree-search">
+    <input
+      type="text"
+      class="search-input"
+      placeholder="Filter..."
+      value={search}
+      oninput={(e) => graphState.searchFilter = e.currentTarget?.value ?? ''}
+    />
+    {#if search}
+      <button class="search-clear" onclick={() => graphState.searchFilter = ''} aria-label="Clear search">&times;</button>
+    {/if}
+  </div>
+{/if}
 
 {#snippet nodeRow(node: TreeNode, depth: number)}
   {@const hasChildren = node.children.length > 0}

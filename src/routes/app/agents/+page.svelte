@@ -69,7 +69,7 @@
     <div class="space-y-3">
       {#each filtered as agent (agent.id)}
         <a
-          href="/app/orgs/{agent.orgId}/agents/{agent.id}"
+          href="/app/agents/{agent.id}"
           class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
         >
           <div class="flex-1 min-w-0">

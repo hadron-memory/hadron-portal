@@ -1,7 +1,9 @@
 <script lang="ts">
   import TreeView from './TreeView.svelte';
   import TopicGraph from './TopicGraph.svelte';
+  import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
+  import { onDestroy } from 'svelte';
   import type { MemoryNode } from '$lib/types';
 
   let {
@@ -17,7 +19,11 @@
   // ── Sub-view ──────────────────────────────────────────────────────────
   let activeView = $state<'graph' | 'nodes'>('graph');
   let treeOpen = $state(true);
-  let nodeSearch = $state('');
+
+  // Keyword search — shared with TreeView and TopicGraph via graphState
+  let keyword = $state('');
+  $effect(() => { graphState.searchFilter = keyword; });
+  onDestroy(() => { graphState.searchFilter = ''; });
 
   // ── Filters ───────────────────────────────────────────────────────────
   const availableMemoryUrns = $derived([...new Set(nodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean).sort());
@@ -49,8 +55,8 @@
 
   const searchedNodes = $derived(
     filteredNodes.filter((n) => {
-      if (!nodeSearch) return true;
-      const q = nodeSearch.toLowerCase();
+      if (!keyword) return true;
+      const q = keyword.toLowerCase();
       return n.name.toLowerCase().includes(q) || n.loc.toLowerCase().includes(q) || (n.description ?? '').toLowerCase().includes(q) || n.tags.some((t) => t.toLowerCase().includes(q));
     })
   );
@@ -127,11 +133,9 @@
           class="px-2.5 py-1 text-xs {activeView === 'nodes' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
         >Nodes</button>
       </div>
-      {#if activeView === 'nodes'}
-        <input type="text" placeholder="Search..." bind:value={nodeSearch}
-          class="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-      {/if}
-      <span class="text-xs text-zinc-400">{filteredNodes.length}{filteredNodes.length !== nodes.length ? ` / ${nodes.length}` : ''}</span>
+      <input type="text" placeholder="Search..." bind:value={keyword}
+        class="w-40 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+      <span class="text-xs text-zinc-400">{searchedNodes.length}{searchedNodes.length !== nodes.length ? ` / ${nodes.length}` : ''}</span>
     </div>
   </div>
 
@@ -149,7 +153,7 @@
             <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
             <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
           </div>
-          <TreeView entries={treeEntries} {basePath} />
+          <TreeView entries={treeEntries} {basePath} hideSearch={true} />
         </aside>
       {:else}
         <button
@@ -172,7 +176,7 @@
         {:else}
           <div class="overflow-x-auto">
             {#if searchedNodes.length === 0}
-              <div class="p-8 text-center text-sm text-zinc-500">{nodeSearch ? 'No matching nodes.' : 'No nodes.'}</div>
+              <div class="p-8 text-center text-sm text-zinc-500">{keyword ? 'No matching nodes.' : 'No nodes.'}</div>
             {:else}
               <table class="w-full text-sm">
                 <thead>

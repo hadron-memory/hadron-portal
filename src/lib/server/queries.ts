@@ -93,6 +93,7 @@ export const AGENT_FIELDS = /* GraphQL */ `
     urn
     name
     description
+    properties
     memoryItems {
       id
       role
