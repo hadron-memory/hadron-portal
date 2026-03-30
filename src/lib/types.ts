@@ -229,3 +229,15 @@ export interface Station {
   user?: UserSummary | null;
   agentSubscriptions?: StationAgentSub[];
 }
+
+// ---------------------------------------------------------------------------
+// AI provider config (stored in localStorage per station)
+// ---------------------------------------------------------------------------
+
+export type AIProvider = 'openai' | 'anthropic' | 'google' | 'xai' | 'glm';
+
+export interface StationAIConfig {
+  provider: AIProvider;
+  apiKey: string;
+  model: string;
+}
