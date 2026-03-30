@@ -16,7 +16,7 @@
     No nodes in this graph yet. Sync the graph or create nodes to get started.
   </div>
 {:else}
-  <div class="overflow-hidden rounded-r-lg border border-zinc-200 dark:border-zinc-800" style="min-height: 600px; display: flex;">
+  <div class="overflow-hidden rounded-r-lg border border-zinc-200 dark:border-zinc-800" style="min-height: 100%; flex: 1; display: flex;">
     <TopicGraph data={data.graphViewData} {focusId} {basePath} />
   </div>
 {/if}

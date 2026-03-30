@@ -59,7 +59,7 @@
 
   <!-- Content with optional tree sidebar -->
   {#if showTree}
-    <div class="flex gap-4" style="min-height: 600px;">
+    <div class="flex gap-4" style="min-height: calc(100vh - 220px);">
       <!-- Tree sidebar -->
       {#if treeOpen}
         <aside class="w-64 shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">

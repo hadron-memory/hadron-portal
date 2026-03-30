@@ -4,15 +4,20 @@
 
   let { data }: { data: PageData } = $props();
 
-  function formatDate(iso: string): string {
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-      + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  function formatDate(val: string | number | null): string {
+    if (!val) return '—';
+    const d = new Date(typeof val === 'string' && /^\d+$/.test(val) ? parseInt(val) : val);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
-  function duration(start: string, end: string | null): string {
-    if (!end) return '—';
-    const ms = new Date(end).getTime() - new Date(start).getTime();
+  function duration(start: string | number | null, end: string | number | null): string {
+    if (!start || !end) return '—';
+    const s = new Date(typeof start === 'string' && /^\d+$/.test(start) ? parseInt(start) : start);
+    const e = new Date(typeof end === 'string' && /^\d+$/.test(end) ? parseInt(end) : end);
+    if (isNaN(s.getTime()) || isNaN(e.getTime())) return '—';
+    const ms = e.getTime() - s.getTime();
+    if (ms < 0) return '—';
     if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
     if (ms < 3600_000) return `${Math.round(ms / 60_000)}m`;
     return `${(ms / 3600_000).toFixed(1)}h`;

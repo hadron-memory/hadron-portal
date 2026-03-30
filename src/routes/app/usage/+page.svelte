@@ -4,10 +4,11 @@
 
   let { data }: { data: PageData } = $props();
 
-  function formatDate(iso: string): string {
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-      + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  function formatDate(val: string | number | null): string {
+    if (!val) return '—';
+    const d = new Date(typeof val === 'string' && /^\d+$/.test(val) ? parseInt(val) : val);
+    if (isNaN(d.getTime())) return '—';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
   function tokens(inp: number | null, out: number | null): string {
@@ -23,9 +24,13 @@
     'session-summary': 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400',
   };
 
-  function buildUrl(type: string | null): string {
+  let nodeLocInput = $state(data.nodeLocFilter ?? '');
+
+  function buildUrl(type: string | null, nodeLoc?: string | null): string {
     const params = new URLSearchParams();
     if (type) params.set('type', type);
+    const nl = nodeLoc !== undefined ? nodeLoc : data.nodeLocFilter;
+    if (nl) params.set('nodeLoc', nl);
     const qs = params.toString();
     return qs ? `/app/usage?${qs}` : '/app/usage';
   }
@@ -40,12 +45,28 @@
   ]} />
   <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">Memory Usage</h1>
 
-  <!-- Type filter -->
-  <div class="flex gap-2">
-    <a href={buildUrl(null)} class="rounded-full px-3 py-1 text-xs font-medium transition {!data.typeFilter ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'}">All</a>
-    {#each ['read', 'write', 'action-run', 'edge-traversal', 'session-summary'] as t}
-      <a href={buildUrl(t)} class="rounded-full px-3 py-1 text-xs font-medium transition {data.typeFilter === t ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'}">{t}</a>
-    {/each}
+  <!-- Filters -->
+  <div class="flex flex-wrap items-center gap-3">
+    <div class="flex gap-2">
+      <a href={buildUrl(null)} class="rounded-full px-3 py-1 text-xs font-medium transition {!data.typeFilter ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'}">All</a>
+      {#each ['read', 'write', 'action-run', 'edge-traversal', 'session-summary'] as t}
+        <a href={buildUrl(t)} class="rounded-full px-3 py-1 text-xs font-medium transition {data.typeFilter === t ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'}">{t}</a>
+      {/each}
+    </div>
+    <form class="flex items-center gap-2" action="/app/usage" method="GET">
+      {#if data.typeFilter}<input type="hidden" name="type" value={data.typeFilter} />{/if}
+      <input
+        type="text"
+        name="nodeLoc"
+        placeholder="Filter by memory or node..."
+        bind:value={nodeLocInput}
+        class="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+      />
+      <button type="submit" class="rounded-lg bg-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600">Filter</button>
+      {#if data.nodeLocFilter}
+        <a href={buildUrl(data.typeFilter, null)} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">Clear</a>
+      {/if}
+    </form>
   </div>
 
   {#if data.events.length === 0}
@@ -83,10 +104,12 @@
       <div class="text-sm text-zinc-500">Page {data.pageNum}</div>
       <div class="flex gap-2">
         {#if data.pageNum > 1}
-          <a href="/app/usage?page={data.pageNum - 1}{data.typeFilter ? `&type=${data.typeFilter}` : ''}" class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Previous</a>
+          {@const qs = [data.typeFilter ? `type=${data.typeFilter}` : '', data.nodeLocFilter ? `nodeLoc=${encodeURIComponent(data.nodeLocFilter)}` : ''].filter(Boolean).join('&')}
+          <a href="/app/usage?page={data.pageNum - 1}{qs ? `&${qs}` : ''}" class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Previous</a>
         {/if}
         {#if data.hasMore}
-          <a href="/app/usage?page={data.pageNum + 1}{data.typeFilter ? `&type=${data.typeFilter}` : ''}" class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Next</a>
+          {@const qs = [data.typeFilter ? `type=${data.typeFilter}` : '', data.nodeLocFilter ? `nodeLoc=${encodeURIComponent(data.nodeLocFilter)}` : ''].filter(Boolean).join('&')}
+          <a href="/app/usage?page={data.pageNum + 1}{qs ? `&${qs}` : ''}" class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Next</a>
         {/if}
       </div>
     </div>
