@@ -107,7 +107,7 @@ function createLanguageModel(provider: AIProvider, apiKey: string, model: string
         apiKey,
         baseURL: 'https://api.z.ai/api/coding/paas/v4',
       });
-      return glm(model);
+      return glm.chat(model);
     }
     default:
       return null;
