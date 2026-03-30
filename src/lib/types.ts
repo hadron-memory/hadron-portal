@@ -239,7 +239,7 @@ export interface Station {
 // AI provider config (encrypted at rest on the station)
 // ---------------------------------------------------------------------------
 
-export type AIProvider = 'openai' | 'glm';
+export type AIProvider = 'anthropic' | 'openai' | 'glm';
 
 export interface StationAIConfig {
   provider: AIProvider;

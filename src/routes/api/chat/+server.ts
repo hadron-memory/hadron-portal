@@ -1,3 +1,4 @@
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { streamText, convertToModelMessages } from 'ai';
 import { gqlClient } from '$lib/server/api';
@@ -128,6 +129,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 function createLanguageModel(provider: AIProvider, apiKey: string, model: string) {
   switch (provider) {
+    case 'anthropic': {
+      const anthropic = createAnthropic({ apiKey });
+      return anthropic(model);
+    }
     case 'openai': {
       const openai = createOpenAI({ apiKey });
       return openai(model);
