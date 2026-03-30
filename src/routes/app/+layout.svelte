@@ -16,6 +16,7 @@
     { href: '/app/agents', label: 'Agents' },
     { href: '/app/stations', label: 'Stations' },
     { href: '/app/sessions', label: 'Sessions' },
+    { href: '/app/usage', label: 'Usage' },
   ];
 
   const bottomNav = [

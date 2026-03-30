@@ -11,6 +11,19 @@
   let sortBy = $state<string>("name");
   let flyoutNode = $state<string | null>(null);
 
+  // Node type filter — INFO checked by default
+  const allNodeTypes = ['info', 'data', 'task', 'record', 'chat', 'plan', 'parent'];
+  let activeTypes = $state<Set<string>>(new Set(['info']));
+
+  function toggleType(t: string) {
+    if (activeTypes.has(t)) {
+      activeTypes.delete(t);
+    } else {
+      activeTypes.add(t);
+    }
+    activeTypes = new Set(activeTypes);
+  }
+
   // Compute total usage and per-type counts for a node
   function nodeUsageTotal(loc: string): number {
     const u = usageByNode[loc];
@@ -33,6 +46,8 @@
 
   const filtered = $derived(
     nodes.filter((n) => {
+      // Type filter (show all if none checked)
+      if (activeTypes.size > 0 && !activeTypes.has(n.nodeType ?? 'info')) return false;
       if (!search) return true;
       const q = search.toLowerCase();
       return (
@@ -99,6 +114,14 @@
       bind:value={search}
       class="max-w-sm flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none"
     />
+    <div class="flex items-center gap-1.5 flex-wrap">
+      {#each allNodeTypes as t}
+        <button
+          onclick={() => toggleType(t)}
+          class="rounded-full px-2.5 py-0.5 text-xs font-medium transition {activeTypes.has(t) ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-300' : 'bg-zinc-800 text-zinc-500 hover:text-zinc-300'}"
+        >{t}</button>
+      {/each}
+    </div>
     <div class="flex items-center gap-2">
       <label for="sortBy" class="text-xs text-zinc-500">Sort by</label>
       <select id="sortBy" bind:value={sortBy} class="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-white">

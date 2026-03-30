@@ -123,6 +123,7 @@ export interface NodeEdge {
 export interface MemoryNode {
   id: string;
   memoryId: string;
+  nodeType: string;
   loc: string;
   name: string;
   alias: string | null;

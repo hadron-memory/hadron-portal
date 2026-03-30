@@ -542,6 +542,22 @@ export const SESSIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+export const USAGE_EVENTS_QUERY = /* GraphQL */ `
+  query UsageEvents($type: String, $nodeLoc: String, $limit: Int, $offset: Int) {
+    usageEvents(type: $type, nodeLoc: $nodeLoc, limit: $limit, offset: $offset) {
+      id
+      type
+      nodeLoc
+      stationId
+      sessionId
+      model
+      tokensIn
+      tokensOut
+      createdAt
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // GitHub App
 // ---------------------------------------------------------------------------
@@ -575,6 +591,7 @@ export const NODE_FIELDS = /* GraphQL */ `
   fragment NodeFields on Node {
     id
     memoryId
+    nodeType
     loc
     name
     alias
