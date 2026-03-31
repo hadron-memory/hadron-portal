@@ -121,7 +121,7 @@
           size: fontForDepth(t.depth),
           face: "-apple-system, BlinkMacSystemFont, sans-serif",
         },
-        title: t.id + (t.readOnly ? " (read-only)" : "") + "\n" + t.description,
+        title: t.name + (t.readOnly ? " (read-only)" : "") + "\n" + t.description,
         borderWidth: 2,
         shadow: { enabled: true, color: "rgba(0,0,0,0.3)", size: 6, x: 2, y: 2 },
       };
@@ -242,24 +242,22 @@
         return;
       }
 
-      // Filter: show only matching topics + their ancestors
-      const matchingIds = new Set<string>();
+      // Filter: show only matching topics and related folders
+      const matchingTopicIds = new Set<string>();
       for (const t of data.topics) {
-        if (t.name.toLowerCase().includes(q) || t.id.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q)) {
-          matchingIds.add(t.id);
-          // Add ancestors
-          const parts = t.id.split(':');
-          for (let i = 1; i < parts.length; i++) {
-            matchingIds.add(parts.slice(0, i).join(':'));
-          }
+        if (t.name.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q)) {
+          matchingTopicIds.add(t.id);
         }
       }
 
+      // Show all folder nodes if any topic matches (folders don't have searchable content)
+      const showFolders = matchingTopicIds.size > 0;
+
       for (const id of allTopicIds) {
-        try { nodesDataset.update({ id, hidden: !matchingIds.has(id) }); } catch {}
+        try { nodesDataset.update({ id, hidden: !matchingTopicIds.has(id) }); } catch {}
       }
       for (const id of allFolderIds) {
-        try { nodesDataset.update({ id, hidden: !matchingIds.has(id) }); } catch {}
+        try { nodesDataset.update({ id, hidden: !showFolders }); } catch {}
       }
     }, 300);
   });

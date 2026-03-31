@@ -117,17 +117,8 @@
   );
 
   // ── Derived views ─────────────────────────────────────────────────────
-  // Deduplicate by loc (multiple memories can have nodes at the same loc)
-  const uniqueFilteredNodes = $derived.by(() => {
-    const seen = new Map<string, typeof filteredNodes[0]>();
-    for (const n of filteredNodes) {
-      if (!seen.has(n.loc)) seen.set(n.loc, n);
-    }
-    return [...seen.values()];
-  });
-
-  const rawGraphViewData = $derived(buildGraphViewData(uniqueFilteredNodes));
-  const treeEntries = $derived(buildTreeEntries(uniqueFilteredNodes));
+  const rawGraphViewData = $derived(buildGraphViewData(filteredNodes));
+  const treeEntries = $derived(buildTreeEntries(filteredNodes));
 
   // Color rules: multiple memories → color by memory; multiple selected types → color by type; otherwise same color
   const graphViewData = $derived.by(() => {
@@ -146,38 +137,48 @@
       return 'all';
     }
 
-    // Build read-only map from writable memory IDs
-    const readOnlyMap: Record<string, boolean> = {};
-    if (writableSet.size > 0) {
-      for (const n of uniqueFilteredNodes) {
-        readOnlyMap[n.loc] = !writableSet.has(n.memoryId);
+    // Build maps keyed by node.id (for topics) and by loc (for folders)
+    const idToType: Record<string, string> = {};
+    const idToMemory: Record<string, string> = {};
+    const idToReadOnly: Record<string, boolean> = {};
+    const locToType: Record<string, string> = {};
+    const locToMemory: Record<string, string> = {};
+
+    for (const n of filteredNodes) {
+      idToType[n.id] = n.nodeType ?? 'info';
+      idToMemory[n.id] = n.memory?.name ?? n.memory?.urn ?? '';
+      locToType[n.loc] = n.nodeType ?? 'info';
+      locToMemory[n.loc] = n.memory?.name ?? n.memory?.urn ?? '';
+      if (writableSet.size > 0) {
+        idToReadOnly[n.id] = !writableSet.has(n.memoryId);
       }
     }
 
-    // Helper: remap domain on both topics and folderNodes, and mark read-only
-    function remapDomains(domainFn: (id: string) => string) {
+    // Helper: remap domain on topics (keyed by node.id) and folderNodes (keyed by loc)
+    function remapDomains(topicFn: (id: string) => string, folderFn: (loc: string) => string) {
       return {
         ...gv,
-        topics: gv.topics.map((t) => ({ ...t, domain: domainFn(t.id), readOnly: readOnlyMap[t.id] ?? false })),
-        folderNodes: gv.folderNodes.map((f) => ({ ...f, domain: domainFn(f.id) })),
+        topics: gv.topics.map((t) => ({ ...t, domain: topicFn(t.id), readOnly: idToReadOnly[t.id] ?? false })),
+        folderNodes: gv.folderNodes.map((f) => ({ ...f, domain: folderFn(f.id) })),
       };
     }
 
     if (hasMultiTypeFilter) {
-      const nodeTypeMap: Record<string, string> = {};
-      for (const n of uniqueFilteredNodes) { nodeTypeMap[n.loc] = n.nodeType ?? 'info'; }
-      return remapDomains((id) => nodeTypeMap[id] ?? findParentDomain(id, nodeTypeMap));
+      return remapDomains(
+        (id) => idToType[id] ?? 'info',
+        (loc) => locToType[loc] ?? findParentDomain(loc, locToType),
+      );
     }
 
     if (hasMultiMemory) {
-      const memMap: Record<string, string> = {};
-      for (const n of uniqueFilteredNodes) { memMap[n.loc] = n.memory?.name ?? n.memory?.urn ?? ''; }
-      // Also map folder nodes to their parent's memory
-      return remapDomains((id) => memMap[id] ?? findParentDomain(id, memMap));
+      return remapDomains(
+        (id) => idToMemory[id] ?? '',
+        (loc) => locToMemory[loc] ?? findParentDomain(loc, locToMemory),
+      );
     }
 
     // Single color
-    return remapDomains(() => 'all');
+    return remapDomains(() => 'all', () => 'all');
   });
 
   // ── Memory colors ─────────────────────────────────────────────────────
@@ -344,7 +345,7 @@
       <div class="min-w-0 flex-1 overflow-hidden {treeOpen ? 'rounded-r-lg' : 'rounded-lg'} border border-zinc-200 dark:border-zinc-800">
         {#if activeView === 'graph'}
           <div style="display: flex; height: 100%;">
-            {#key uniqueFilteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
+            {#key filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
               <TopicGraph data={graphViewData} {basePath} />
             {/key}
           </div>
