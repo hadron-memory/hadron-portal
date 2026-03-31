@@ -10,11 +10,15 @@
     nodes,
     basePath = '',
     multiMemory = false,
+    writableMemoryIds = [],
   }: {
     nodes: MemoryNode[];
     basePath?: string;
     multiMemory?: boolean;
+    writableMemoryIds?: string[];
   } = $props();
+
+  const writableSet = $derived(new Set(writableMemoryIds));
 
   // ── Sub-view ──────────────────────────────────────────────────────────
   let activeView = $state<'graph' | 'nodes'>('graph');
@@ -65,6 +69,15 @@
     if (openDropdown && !(e.target as Element)?.closest?.('.filter-dropdown')) {
       openDropdown = null;
     }
+  }
+
+  const hasActiveFilters = $derived(activeMemoryUrns.size > 0 || activeNodeTypes.size > 0 || activeTags.size > 0 || keyword.length > 0);
+
+  function clearAllFilters() {
+    activeMemoryUrns = new Set();
+    activeNodeTypes = new Set();
+    activeTags = new Set();
+    keyword = '';
   }
 
   function toggleMemory(urn: string) {
@@ -167,6 +180,9 @@
         </button>
         {#if openDropdown === 'memory'}
           <div class="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            {#if activeMemoryUrns.size > 0}
+              <button onclick={() => { activeMemoryUrns = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
+            {/if}
             {#each availableMemoryUrns as urn}
               <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
                 <input type="checkbox" checked={activeMemoryUrns.has(urn)} onchange={() => toggleMemory(urn)}
@@ -191,6 +207,9 @@
         </button>
         {#if openDropdown === 'type'}
           <div class="absolute left-0 top-full z-20 mt-1 w-44 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            {#if activeNodeTypes.size > 0}
+              <button onclick={() => { activeNodeTypes = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
+            {/if}
             {#each availableNodeTypes as t}
               <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
                 <input type="checkbox" checked={activeNodeTypes.has(t)} onchange={() => toggleNodeType(t)}
@@ -214,6 +233,9 @@
         </button>
         {#if openDropdown === 'tags'}
           <div class="absolute left-0 top-full z-20 mt-1 max-h-64 w-48 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            {#if activeTags.size > 0}
+              <button onclick={() => { activeTags = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
+            {/if}
             {#each availableTags as t}
               <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
                 <input type="checkbox" checked={activeTags.has(t)} onchange={() => toggleTag(t)}
@@ -229,6 +251,10 @@
     <!-- Search -->
     <input type="text" placeholder="Search..." bind:value={keyword}
       class="w-40 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+
+    {#if hasActiveFilters}
+      <button onclick={clearAllFilters} class="text-xs text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Clear all</button>
+    {/if}
 
     <!-- Right: view toggle + count -->
     <div class="ml-auto flex items-center gap-3">
@@ -283,7 +309,7 @@
       <div class="min-w-0 flex-1 overflow-hidden {treeOpen ? 'rounded-r-lg' : 'rounded-lg'} border border-zinc-200 dark:border-zinc-800">
         {#if activeView === 'graph'}
           <div style="display: flex; height: 100%;">
-            {#key filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',')}
+            {#key filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
               <TopicGraph data={graphViewData} {basePath} />
             {/key}
           </div>
@@ -307,7 +333,7 @@
                       <td class="px-4 py-2.5">
                         <div class="flex items-center gap-2">
                           {#if multiMemory}
-                            <span class="inline-block h-2 w-2 rounded-full" style="background: {memoryColorMap[node.memory?.urn ?? ''] ?? '#8b949e'};"></span>
+                            <span class="inline-block h-2 w-2 rounded-full {writableSet.size > 0 && !writableSet.has(node.memoryId) ? 'opacity-30' : ''}" style="background: {memoryColorMap[node.memory?.urn ?? ''] ?? '#8b949e'};"></span>
                           {/if}
                           {#if basePath}
                             <a href="{basePath}/nodes/{encodeURIComponent(node.loc)}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{node.name}</a>

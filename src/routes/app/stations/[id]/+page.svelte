@@ -78,6 +78,7 @@
   const SYSTEM_MEMORY_URNS = ['hadronmemory.com:core'];
   const userMemories = $derived(effectiveMemories.filter((m) => !SYSTEM_MEMORY_URNS.includes(m.urn)));
   const hasWritableMemory = $derived(effectiveMemories.some((m) => m.access === 'read-write'));
+  const writableMemoryIds = $derived(effectiveMemories.filter((m) => m.access === 'read-write').map((m) => m.id));
 
 
   // ── AI chat config ─────────────────────────────────────────────────────
@@ -365,7 +366,7 @@ notice outdated information, update the graph with h-create-node.
   <!-- MEMORY TAB (shared MemoryBrowser component)                       -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'memory'}
-    <MemoryBrowser nodes={data.stationNodes ?? []} multiMemory={true} />
+    <MemoryBrowser nodes={data.stationNodes ?? []} multiMemory={true} {writableMemoryIds} />
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->

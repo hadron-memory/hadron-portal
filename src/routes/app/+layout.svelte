@@ -22,10 +22,13 @@
 
   const bottomNav = [
     { href: '/app/account', label: 'Account' },
-    { href: '/app/orgs', label: 'Organizations' },
   ];
 
   const navItems = $derived(data.isConsumerMode ? consumerNav : fullNav);
+
+  // Visible orgs for the nav (hide if only a personal org with isVisible: false/null)
+  const visibleOrgs = $derived((data.orgs ?? []).filter((o) => o.isVisible));
+  const showOrgSection = $derived(visibleOrgs.length > 0);
 
   let menuOpen = $state(true);
 </script>
@@ -67,6 +70,21 @@
                 : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white'}"
           >
             {item.label}
+          </a>
+        {/each}
+      {/if}
+      {#if showOrgSection}
+        <hr class="my-2 border-zinc-200 dark:border-zinc-800" />
+        <span class="px-3 py-1 text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-600">Organizations</span>
+        {#each visibleOrgs as org}
+          <a
+            href="/app/orgs/{org.id}"
+            class="rounded-md px-3 py-2 text-sm transition truncate
+              {$page.url.pathname.startsWith(`/app/orgs/${org.id}`)
+                ? 'bg-zinc-100 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-white'
+                : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white'}"
+          >
+            {org.name}
           </a>
         {/each}
       {/if}

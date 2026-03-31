@@ -8,6 +8,7 @@
   let { data }: { data: PageData } = $props();
   const agent = $derived(data.agent);
   const org = $derived(data.org);
+  const writableMemoryIds = $derived((agent.memoryItems ?? []).filter((m) => m.role === 'read-write').map((m) => m.memory.id));
 
   type TabId = 'memory' | 'settings';
   let activeTab = $state<TabId>('memory');
@@ -56,7 +57,7 @@
   <!-- MEMORY TAB                                                        -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'memory'}
-    <MemoryBrowser nodes={data.agentNodes ?? []} multiMemory={(agent.memoryItems ?? []).length > 1} />
+    <MemoryBrowser nodes={data.agentNodes ?? []} multiMemory={(agent.memoryItems ?? []).length > 1} {writableMemoryIds} />
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->

@@ -33,7 +33,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   if (memoryIds.length > 0) {
     try {
       const nodesData = await client.request<{ nodes: MemoryNode[] }>(GRAPH_NODES_QUERY, { limit: 500 });
-      agentNodes = nodesData.nodes.filter((n) => memoryIds.includes(n.memoryId));
+      // Enrich nodes with memory info from agent's memoryItems
+      const memoryMap = new Map((agent.memoryItems ?? []).map((m) => [m.memory.id, m.memory]));
+      agentNodes = nodesData.nodes
+        .filter((n) => memoryIds.includes(n.memoryId))
+        .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));
     } catch { /* ignore */ }
   }
 
