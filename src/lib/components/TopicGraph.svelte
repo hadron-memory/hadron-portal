@@ -199,6 +199,10 @@
       network.once("stabilizationIterationsDone", () => {
         focusNode(focusId);
       });
+    } else {
+      network.once("stabilizationIterationsDone", () => {
+        network.fit({ animation: { duration: 300 } });
+      });
     }
 
     // Store all node IDs for search filtering
