@@ -127,22 +127,40 @@
     const hasMultiMemory = multiMemory && memoryUrns.length > 1;
     const hasMultiTypeFilter = activeNodeTypes.size > 1;
 
+    // Walk up loc path to find a parent's domain
+    function findParentDomain(id: string, map: Record<string, string>): string {
+      const parts = id.split(':');
+      for (let i = parts.length - 1; i > 0; i--) {
+        const parent = parts.slice(0, i).join(':');
+        if (map[parent]) return map[parent];
+      }
+      return 'all';
+    }
+
+    // Helper: remap domain on both topics and folderNodes
+    function remapDomains(domainFn: (id: string) => string) {
+      return {
+        ...gv,
+        topics: gv.topics.map((t) => ({ ...t, domain: domainFn(t.id) })),
+        folderNodes: gv.folderNodes.map((f) => ({ ...f, domain: domainFn(f.id) })),
+      };
+    }
+
     if (hasMultiTypeFilter) {
-      // Color by node type
       const nodeTypeMap: Record<string, string> = {};
       for (const n of filteredNodes) { nodeTypeMap[n.loc] = n.nodeType ?? 'info'; }
-      return { ...gv, topics: gv.topics.map((t) => ({ ...t, domain: nodeTypeMap[t.id] ?? 'info' })) };
+      return remapDomains((id) => nodeTypeMap[id] ?? findParentDomain(id, nodeTypeMap));
     }
 
     if (hasMultiMemory) {
-      // Color by memory
       const memMap: Record<string, string> = {};
       for (const n of filteredNodes) { memMap[n.loc] = n.memory?.name ?? n.memory?.urn ?? ''; }
-      return { ...gv, topics: gv.topics.map((t) => ({ ...t, domain: memMap[t.id] ?? '' })) };
+      // Also map folder nodes to their parent's memory
+      return remapDomains((id) => memMap[id] ?? findParentDomain(id, memMap));
     }
 
     // Single color
-    return { ...gv, topics: gv.topics.map((t) => ({ ...t, domain: 'all' })) };
+    return remapDomains(() => 'all');
   });
 
   // ── Memory colors ─────────────────────────────────────────────────────

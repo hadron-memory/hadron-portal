@@ -100,8 +100,9 @@
   onMount(async () => {
     const vis = await import("vis-network/standalone");
 
+    const defaultColor = palette[0];
     const visNodes = data.topics.map((t) => {
-      const c = domainColors[t.domain];
+      const c = domainColors[t.domain] ?? defaultColor;
       return {
         id: t.id,
         label: t.name,
@@ -125,7 +126,7 @@
     });
 
     folderVisNodes = data.folderNodes.map((f) => {
-      const c = domainColors[f.domain];
+      const c = domainColors[f.domain] ?? defaultColor;
       if (f.isDomain) {
         return {
           id: f.id, label: f.name, size: 20, shape: "diamond",
