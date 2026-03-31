@@ -36,7 +36,9 @@
 
     <!-- Centre links -->
     <div class="hidden items-center gap-6 text-sm sm:flex {dark ? 'text-zinc-400' : 'text-zinc-500'}">
-      <a href={user ? '/app/marketplace' : '/browse'} class="transition {dark ? 'hover:text-white' : 'hover:text-zinc-900'}">Browse memories</a>
+      <a href="/" class="transition {dark ? 'hover:text-white' : 'hover:text-zinc-900'}">Home</a>
+      <a href="/contact" class="transition {dark ? 'hover:text-white' : 'hover:text-zinc-900'}">Contact</a>
+      <a href="/about" class="transition {dark ? 'hover:text-white' : 'hover:text-zinc-900'}">About</a>
     </div>
 
     <!-- Auth + theme toggle -->

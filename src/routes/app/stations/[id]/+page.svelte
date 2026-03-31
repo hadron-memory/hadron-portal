@@ -334,69 +334,73 @@ notice outdated information, update the graph with h-create-node.
   <!-- SETTINGS TAB (agents, memories, AI config, properties, edit, delete) -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
-    <div class="space-y-8">
+    <div class="max-w-lg space-y-8">
       <!-- Properties -->
-      <section class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class="text-sm text-zinc-500">Type</span>
-          <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.stationType}</span>
+      <section>
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="font-semibold text-zinc-900 dark:text-white">Station</h2>
+          {#if !isEditing}
+            <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+          {/if}
         </div>
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class="text-sm text-zinc-500">Role</span>
-          <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.role}</span>
-        </div>
-        {#if station.description}
-          <div class="flex items-center justify-between px-5 py-3">
-            <span class="text-sm text-zinc-500">Description</span>
-            <span class="text-sm text-zinc-900 dark:text-white">{station.description}</span>
-          </div>
-        {/if}
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class="text-sm text-zinc-500">Created</span>
-          <span class="text-sm text-zinc-900 dark:text-white">{new Date(station.createdAt).toLocaleDateString()}</span>
-        </div>
-        {#if station.lastUsedAt}
-          <div class="flex items-center justify-between px-5 py-3">
-            <span class="text-sm text-zinc-500">Last used</span>
-            <span class="text-sm text-zinc-900 dark:text-white">{new Date(station.lastUsedAt).toLocaleDateString()}</span>
+
+        {#if isEditing}
+          <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
+            class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+            <div>
+              <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+              <input id="editName" name="name" type="text" value={station.name}
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+            </div>
+            <div>
+              <label for="editType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+              <select id="editType" name="stationType" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="WORKSTATION" selected={station.stationType === 'WORKSTATION'}>Workstation</option>
+                <option value="CHATBOT" selected={station.stationType === 'CHATBOT'}>Chatbot</option>
+                <option value="AGENT" selected={station.stationType === 'AGENT'}>Agent</option>
+                <option value="CLOUD" selected={station.stationType === 'CLOUD'}>Cloud</option>
+                <option value="IOT" selected={station.stationType === 'IOT'}>IoT</option>
+              </select>
+            </div>
+            <div>
+              <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
+              <input id="editDescription" name="description" type="text" value={station.description ?? ''} placeholder="What this station is for"
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+            </div>
+            <div class="flex gap-3">
+              <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
+              <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+            </div>
+          </form>
+        {:else}
+          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Type</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.stationType}</span>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Role</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.role}</span>
+            </div>
+            {#if station.description}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Description</span>
+                <span class="text-sm text-zinc-900 dark:text-white">{station.description}</span>
+              </div>
+            {/if}
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Created</span>
+              <span class="text-sm text-zinc-900 dark:text-white">{new Date(station.createdAt).toLocaleDateString()}</span>
+            </div>
+            {#if station.lastUsedAt}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Last used</span>
+                <span class="text-sm text-zinc-900 dark:text-white">{new Date(station.lastUsedAt).toLocaleDateString()}</span>
+              </div>
+            {/if}
           </div>
         {/if}
       </section>
-
-      <!-- Edit form -->
-      {#if isEditing}
-        <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
-          class="max-w-lg rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
-          <div>
-            <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-            <input id="editName" name="name" type="text" value={station.name}
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
-          </div>
-          <div>
-            <label for="editType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
-            <select id="editType" name="stationType" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-              <option value="WORKSTATION" selected={station.stationType === 'WORKSTATION'}>Workstation</option>
-              <option value="CHATBOT" selected={station.stationType === 'CHATBOT'}>Chatbot</option>
-              <option value="AGENT" selected={station.stationType === 'AGENT'}>Agent</option>
-              <option value="CLOUD" selected={station.stationType === 'CLOUD'}>Cloud</option>
-              <option value="IOT" selected={station.stationType === 'IOT'}>IoT</option>
-            </select>
-          </div>
-          <div>
-            <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-            <input id="editDescription" name="description" type="text" value={station.description ?? ''} placeholder="What this station is for"
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
-          </div>
-          <div class="flex gap-3">
-            <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
-            <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
-          </div>
-        </form>
-      {:else}
-        <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
-          Edit station
-        </button>
-      {/if}
 
       <!-- Agents -->
       <section>

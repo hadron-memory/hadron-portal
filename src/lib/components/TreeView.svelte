@@ -177,6 +177,9 @@
       </a>
     {:else}
       <button class="node-label" onclick={() => toggle(node.entry.id)}>
+        {#if !node.entry.isVirtual}
+          <span class="dot" class:action-dot={node.entry.hasActions}></span>
+        {/if}
         {node.entry.name}
       </button>
     {/if}

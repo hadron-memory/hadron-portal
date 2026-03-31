@@ -109,7 +109,7 @@
         id: t.id,
         label: t.name,
         size: sizeForDepth(t.depth),
-        shape: t.readOnly ? "diamond" : "dot",
+        shape: "dot",
         color: {
           background: c.bg,
           border: c.border,
