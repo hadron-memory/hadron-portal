@@ -17,13 +17,13 @@
   const station = $derived(data.station);
 
   // ── Tab state ──────────────────────────────────────────────────────────
-  type TabId = 'chat' | 'memory' | 'setup' | 'settings';
+  type TabId = 'chat' | 'memory' | 'settings' | 'client';
   let activeTab = $state<TabId>('chat');
   const tabs: { id: TabId; label: string }[] = [
     { id: 'chat', label: 'Chat' },
     { id: 'memory', label: 'Memory' },
-    { id: 'setup', label: 'Setup' },
     { id: 'settings', label: 'Settings' },
+    { id: 'client', label: 'Client' },
   ];
 
   // ── Station context for chatbot ────────────────────────────────────────
@@ -87,8 +87,6 @@
   let aiModel = $state(station.aiModel ?? DEFAULT_MODELS['openai']);
   let chatActive = $state(false);
   let chatKey = $state(0);
-  let aiConfigOpen = $state(false);
-  let aiConfigLoading = $state(true);
 
   let aiConfig = $derived<StationAIConfig>({ provider: aiProvider, apiKey: aiApiKey, model: aiModel });
 
@@ -109,7 +107,6 @@
         }
       } catch { /* ignore */ }
     }
-    aiConfigLoading = false;
   });
 
   function onProviderChange(e: Event) {
@@ -130,7 +127,6 @@
     } catch { return; }
     chatKey++;
     chatActive = true;
-    aiConfigOpen = false;
   }
 
   function disconnectChat() { chatActive = false; }
@@ -263,14 +259,16 @@ notice outdated information, update the graph with h-create-node.
   ]} />
 
   <div class="flex items-center gap-3">
-    <h1 class="flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
-      <span>{typeIcon[station.stationType] ?? '🔑'}</span>
-      {station.name}
-    </h1>
-    <CopyUrn value={station.urn} />
-    {#if !hasWritableMemory && (station.agentSubscriptions?.length ?? 0) > 0}
-      <span class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">read-only</span>
-    {/if}
+    <div>
+      <h1 class="flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
+        <span>{typeIcon[station.stationType] ?? '🔑'}</span>
+        {station.name}
+        {#if !hasWritableMemory && (station.agentSubscriptions?.length ?? 0) > 0}
+          <span class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">read-only</span>
+        {/if}
+      </h1>
+      <CopyUrn value={station.urn} />
+    </div>
   </div>
 
   {#if form?.error}
@@ -314,51 +312,14 @@ notice outdated information, update the graph with h-create-node.
       {:else}
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
           <div class="text-center">
-            <p class="mb-4 text-sm text-zinc-500">Configure your AI provider to start chatting.</p>
-            <button onclick={() => aiConfigOpen = true} class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
-              Set up AI
+            <p class="mb-4 text-sm text-zinc-500">Configure your AI provider in Settings to start chatting.</p>
+            <button onclick={() => activeTab = 'settings'} class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+              Go to Settings
             </button>
           </div>
         </div>
       {/if}
 
-      <!-- Collapsible AI config -->
-      <div class="mt-4">
-        <button onclick={() => aiConfigOpen = !aiConfigOpen} class="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          <svg width="12" height="12" viewBox="0 0 12 12" class="transition-transform {aiConfigOpen ? 'rotate-90' : ''}">
-            <path d="M4 2 L8 6 L4 10" stroke="currentColor" fill="none" stroke-width="1.5" />
-          </svg>
-          AI Configuration
-        </button>
-        {#if aiConfigOpen}
-          <div class="mt-3 max-w-md space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <div>
-              <label for="ai-provider" class="mb-1 block text-xs text-zinc-500">Provider</label>
-              <select id="ai-provider" value={aiProvider} onchange={onProviderChange}
-                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
-                {#each AI_PROVIDERS as p (p.value)}
-                  <option value={p.value}>{p.label}</option>
-                {/each}
-              </select>
-            </div>
-            <div>
-              <label for="ai-key" class="mb-1 block text-xs text-zinc-500">API Key</label>
-              <input id="ai-key" type="password" bind:value={aiApiKey} placeholder="sk-..."
-                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
-              <p class="mt-1 text-[10px] text-zinc-400">Encrypted and stored on the server for this station.</p>
-            </div>
-            <div>
-              <label for="ai-model" class="mb-1 block text-xs text-zinc-500">Model</label>
-              <input id="ai-model" type="text" bind:value={aiModel}
-                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:border-indigo-500 focus:outline-none" />
-            </div>
-            <button onclick={saveAndStartChat} disabled={!aiApiKey.trim()}
-              class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
-              {chatActive ? 'Reconnect' : 'Start chat'}
-            </button>
-          </div>
-        {/if}
-      </div>
     </div>
   {/if}
 
@@ -370,10 +331,73 @@ notice outdated information, update the graph with h-create-node.
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <!-- SETUP TAB                                                         -->
+  <!-- SETTINGS TAB (agents, memories, AI config, properties, edit, delete) -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  {#if activeTab === 'setup'}
+  {#if activeTab === 'settings'}
     <div class="space-y-8">
+      <!-- Properties -->
+      <section class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3">
+          <span class="text-sm text-zinc-500">Type</span>
+          <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.stationType}</span>
+        </div>
+        <div class="flex items-center justify-between px-5 py-3">
+          <span class="text-sm text-zinc-500">Role</span>
+          <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.role}</span>
+        </div>
+        {#if station.description}
+          <div class="flex items-center justify-between px-5 py-3">
+            <span class="text-sm text-zinc-500">Description</span>
+            <span class="text-sm text-zinc-900 dark:text-white">{station.description}</span>
+          </div>
+        {/if}
+        <div class="flex items-center justify-between px-5 py-3">
+          <span class="text-sm text-zinc-500">Created</span>
+          <span class="text-sm text-zinc-900 dark:text-white">{new Date(station.createdAt).toLocaleDateString()}</span>
+        </div>
+        {#if station.lastUsedAt}
+          <div class="flex items-center justify-between px-5 py-3">
+            <span class="text-sm text-zinc-500">Last used</span>
+            <span class="text-sm text-zinc-900 dark:text-white">{new Date(station.lastUsedAt).toLocaleDateString()}</span>
+          </div>
+        {/if}
+      </section>
+
+      <!-- Edit form -->
+      {#if isEditing}
+        <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
+          class="max-w-lg rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+          <div>
+            <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+            <input id="editName" name="name" type="text" value={station.name}
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+          </div>
+          <div>
+            <label for="editType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+            <select id="editType" name="stationType" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <option value="WORKSTATION" selected={station.stationType === 'WORKSTATION'}>Workstation</option>
+              <option value="CHATBOT" selected={station.stationType === 'CHATBOT'}>Chatbot</option>
+              <option value="AGENT" selected={station.stationType === 'AGENT'}>Agent</option>
+              <option value="CLOUD" selected={station.stationType === 'CLOUD'}>Cloud</option>
+              <option value="IOT" selected={station.stationType === 'IOT'}>IoT</option>
+            </select>
+          </div>
+          <div>
+            <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
+            <input id="editDescription" name="description" type="text" value={station.description ?? ''} placeholder="What this station is for"
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+          </div>
+          <div class="flex gap-3">
+            <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
+            <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+          </div>
+        </form>
+      {:else}
+        <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+          Edit station
+        </button>
+      {/if}
+
       <!-- Agents -->
       <section>
         <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Agents
@@ -388,7 +412,6 @@ notice outdated information, update the graph with h-create-node.
                   <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
                   <CopyUrn value={sub.agent.urn} size={10} />
                 </div>
-                <!-- Inline access selector (auto-submits on change) -->
                 <form method="POST" action="?/subscribe" use:enhance class="shrink-0">
                   <input type="hidden" name="agentId" value={sub.agent.id} />
                   <select name="subscriptionType"
@@ -398,7 +421,6 @@ notice outdated information, update the graph with h-create-node.
                     <option value="READ_WRITE" selected={sub.subscriptionType === 'READ_WRITE'}>Read/Write</option>
                   </select>
                 </form>
-                <!-- Remove button -->
                 <form method="POST" action="?/unsubscribe" use:enhance class="shrink-0">
                   <input type="hidden" name="agentId" value={sub.agent.id} />
                   <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
@@ -452,7 +474,57 @@ notice outdated information, update the graph with h-create-node.
         </section>
       {/if}
 
-      <!-- Client config (not for chatbots) -->
+      <!-- AI Chat Configuration -->
+      <section>
+        <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">AI Chat</h2>
+        <div class="max-w-md space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <div>
+            <label for="ai-provider" class="mb-1 block text-xs text-zinc-500">Provider</label>
+            <select id="ai-provider" value={aiProvider} onchange={onProviderChange}
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
+              {#each AI_PROVIDERS as p (p.value)}
+                <option value={p.value}>{p.label}</option>
+              {/each}
+            </select>
+          </div>
+          <div>
+            <label for="ai-key" class="mb-1 block text-xs text-zinc-500">API Key</label>
+            <input id="ai-key" type="password" bind:value={aiApiKey} placeholder="sk-..."
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
+            <p class="mt-1 text-[10px] text-zinc-400">Encrypted and stored on the server for this station.</p>
+          </div>
+          <div>
+            <label for="ai-model" class="mb-1 block text-xs text-zinc-500">Model</label>
+            <input id="ai-model" type="text" bind:value={aiModel}
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:border-indigo-500 focus:outline-none" />
+          </div>
+          <button onclick={saveAndStartChat} disabled={!aiApiKey.trim()}
+            class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+            {chatActive ? 'Reconnect chat' : 'Save & start chat'}
+          </button>
+        </div>
+      </section>
+
+      <!-- Delete -->
+      <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
+        <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
+        <form method="POST" action="?/revoke" use:enhance onsubmit={(e) => {
+          if (!confirm(`Delete station "${station.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
+          else goto('/app/stations');
+        }}>
+          <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+            Delete station
+          </button>
+        </form>
+      </section>
+    </div>
+  {/if}
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- CLIENT TAB (AI tools, zip download, API key)                      -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'client'}
+    <div class="space-y-8">
       {#if station.stationType !== 'CHATBOT'}
         <section>
           <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">AI Tools</h2>
@@ -514,84 +586,9 @@ notice outdated information, update the graph with h-create-node.
             </button>
           </form>
         </section>
-      {/if}
-    </div>
-  {/if}
-
-  <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <!-- SETTINGS TAB                                                      -->
-  <!-- ═══════════════════════════════════════════════════════════════════ -->
-  {#if activeTab === 'settings'}
-    <div class="max-w-lg space-y-6">
-      <!-- Details -->
-      <section class="grid gap-3 text-sm sm:grid-cols-2">
-        <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <p class="text-xs text-zinc-500">Type</p>
-          <p class="mt-1 font-medium text-zinc-900 dark:text-white">{station.stationType}</p>
-        </div>
-        <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <p class="text-xs text-zinc-500">Role</p>
-          <p class="mt-1 font-medium text-zinc-900 dark:text-white">{station.role}</p>
-        </div>
-        <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <p class="text-xs text-zinc-500">Created</p>
-          <p class="mt-1 text-zinc-900 dark:text-white">{new Date(station.createdAt).toLocaleDateString()}</p>
-        </div>
-        {#if station.lastUsedAt}
-          <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <p class="text-xs text-zinc-500">Last used</p>
-            <p class="mt-1 text-zinc-900 dark:text-white">{new Date(station.lastUsedAt).toLocaleDateString()}</p>
-          </div>
-        {/if}
-      </section>
-
-      <!-- Edit form -->
-      {#if isEditing}
-        <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
-          class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
-          <div>
-            <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-            <input id="editName" name="name" type="text" value={station.name}
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
-          </div>
-          <div>
-            <label for="editType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
-            <select id="editType" name="stationType" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-              <option value="WORKSTATION" selected={station.stationType === 'WORKSTATION'}>Workstation</option>
-              <option value="CHATBOT" selected={station.stationType === 'CHATBOT'}>Chatbot</option>
-              <option value="AGENT" selected={station.stationType === 'AGENT'}>Agent</option>
-              <option value="CLOUD" selected={station.stationType === 'CLOUD'}>Cloud</option>
-              <option value="IOT" selected={station.stationType === 'IOT'}>IoT</option>
-            </select>
-          </div>
-          <div>
-            <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-            <input id="editDescription" name="description" type="text" value={station.description ?? ''} placeholder="What this station is for"
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
-          </div>
-          <div class="flex gap-3">
-            <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
-            <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
-          </div>
-        </form>
       {:else}
-        <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
-          Edit station
-        </button>
+        <p class="text-sm text-zinc-500">Client configuration is not available for chatbot stations.</p>
       {/if}
-
-      <!-- Delete -->
-      <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
-        <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
-        <form method="POST" action="?/revoke" use:enhance onsubmit={(e) => {
-          if (!confirm(`Delete station "${station.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
-          else goto('/app/stations');
-        }}>
-          <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
-            Delete station
-          </button>
-        </form>
-      </section>
     </div>
   {/if}
 </div>
