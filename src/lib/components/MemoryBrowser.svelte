@@ -117,8 +117,17 @@
   );
 
   // ── Derived views ─────────────────────────────────────────────────────
-  const rawGraphViewData = $derived(buildGraphViewData(filteredNodes));
-  const treeEntries = $derived(buildTreeEntries(filteredNodes));
+  // Deduplicate by loc (multiple memories can have nodes at the same loc)
+  const uniqueFilteredNodes = $derived.by(() => {
+    const seen = new Map<string, typeof filteredNodes[0]>();
+    for (const n of filteredNodes) {
+      if (!seen.has(n.loc)) seen.set(n.loc, n);
+    }
+    return [...seen.values()];
+  });
+
+  const rawGraphViewData = $derived(buildGraphViewData(uniqueFilteredNodes));
+  const treeEntries = $derived(buildTreeEntries(uniqueFilteredNodes));
 
   // Color rules: multiple memories → color by memory; multiple selected types → color by type; otherwise same color
   const graphViewData = $derived.by(() => {
@@ -140,7 +149,7 @@
     // Build read-only map from writable memory IDs
     const readOnlyMap: Record<string, boolean> = {};
     if (writableSet.size > 0) {
-      for (const n of filteredNodes) {
+      for (const n of uniqueFilteredNodes) {
         readOnlyMap[n.loc] = !writableSet.has(n.memoryId);
       }
     }
@@ -156,13 +165,13 @@
 
     if (hasMultiTypeFilter) {
       const nodeTypeMap: Record<string, string> = {};
-      for (const n of filteredNodes) { nodeTypeMap[n.loc] = n.nodeType ?? 'info'; }
+      for (const n of uniqueFilteredNodes) { nodeTypeMap[n.loc] = n.nodeType ?? 'info'; }
       return remapDomains((id) => nodeTypeMap[id] ?? findParentDomain(id, nodeTypeMap));
     }
 
     if (hasMultiMemory) {
       const memMap: Record<string, string> = {};
-      for (const n of filteredNodes) { memMap[n.loc] = n.memory?.name ?? n.memory?.urn ?? ''; }
+      for (const n of uniqueFilteredNodes) { memMap[n.loc] = n.memory?.name ?? n.memory?.urn ?? ''; }
       // Also map folder nodes to their parent's memory
       return remapDomains((id) => memMap[id] ?? findParentDomain(id, memMap));
     }
@@ -335,7 +344,7 @@
       <div class="min-w-0 flex-1 overflow-hidden {treeOpen ? 'rounded-r-lg' : 'rounded-lg'} border border-zinc-200 dark:border-zinc-800">
         {#if activeView === 'graph'}
           <div style="display: flex; height: 100%;">
-            {#key filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
+            {#key uniqueFilteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
               <TopicGraph data={graphViewData} {basePath} />
             {/key}
           </div>
