@@ -137,11 +137,19 @@
       return 'all';
     }
 
-    // Helper: remap domain on both topics and folderNodes
+    // Build read-only map from writable memory IDs
+    const readOnlyMap: Record<string, boolean> = {};
+    if (writableSet.size > 0) {
+      for (const n of filteredNodes) {
+        readOnlyMap[n.loc] = !writableSet.has(n.memoryId);
+      }
+    }
+
+    // Helper: remap domain on both topics and folderNodes, and mark read-only
     function remapDomains(domainFn: (id: string) => string) {
       return {
         ...gv,
-        topics: gv.topics.map((t) => ({ ...t, domain: domainFn(t.id) })),
+        topics: gv.topics.map((t) => ({ ...t, domain: domainFn(t.id), readOnly: readOnlyMap[t.id] ?? false })),
         folderNodes: gv.folderNodes.map((f) => ({ ...f, domain: domainFn(f.id) })),
       };
     }

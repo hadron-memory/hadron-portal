@@ -101,13 +101,15 @@
     const vis = await import("vis-network/standalone");
 
     const defaultColor = palette[0];
+    const readOnlyColor = { bg: "#8b949e", border: "#6e7681", font: "#0d1117" };
+
     const visNodes = data.topics.map((t) => {
-      const c = domainColors[t.domain] ?? defaultColor;
+      const c = t.readOnly ? readOnlyColor : (domainColors[t.domain] ?? defaultColor);
       return {
         id: t.id,
         label: t.name,
         size: sizeForDepth(t.depth),
-        shape: "dot",
+        shape: t.readOnly ? "diamond" : "dot",
         color: {
           background: c.bg,
           border: c.border,
@@ -115,11 +117,11 @@
           hover: { background: c.bg, border: "#f0f6fc" },
         },
         font: {
-          color: "#c9d1d9",
+          color: t.readOnly ? "#8b949e" : "#c9d1d9",
           size: fontForDepth(t.depth),
           face: "-apple-system, BlinkMacSystemFont, sans-serif",
         },
-        title: t.id + "\n" + t.description,
+        title: t.id + (t.readOnly ? " (read-only)" : "") + "\n" + t.description,
         borderWidth: 2,
         shadow: { enabled: true, color: "rgba(0,0,0,0.3)", size: 6, x: 2, y: 2 },
       };

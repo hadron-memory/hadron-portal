@@ -191,6 +191,7 @@ export interface Topic {
   tags: string[];
   domain: string;     // first segment of loc
   nodes: TopicNode[]; // outgoing edges
+  readOnly?: boolean;
 }
 
 export interface FolderNode {
