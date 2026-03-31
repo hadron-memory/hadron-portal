@@ -114,6 +114,7 @@
 
   function nodeHref(entry: TreeEntry): string | null {
     if (entry.isVirtual) return null;
+    if (!basePath) return null;
     return `${basePath}/nodes/${encodeURIComponent(entry.id)}`;
   }
 

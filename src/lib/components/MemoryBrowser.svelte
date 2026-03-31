@@ -61,7 +61,11 @@
     openDropdown = openDropdown === d ? null : d;
   }
 
-  function closeDropdowns() { openDropdown = null; }
+  function handleWindowClick(e: MouseEvent) {
+    if (openDropdown && !(e.target as Element)?.closest?.('.filter-dropdown')) {
+      openDropdown = null;
+    }
+  }
 
   function toggleMemory(urn: string) {
     if (activeMemoryUrns.has(urn)) activeMemoryUrns.delete(urn);
@@ -147,11 +151,11 @@
   });
 </script>
 
+<svelte:window onclick={handleWindowClick} />
+
 <div class="flex flex-col gap-3">
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- Filter bar -->
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <div class="flex items-center gap-2 flex-wrap" onclick={() => closeDropdowns()}>
+  <div class="flex items-center gap-2 flex-wrap">
     <!-- Memory dropdown -->
     {#if multiMemory && availableMemoryUrns.length > 1}
       <div class="relative filter-dropdown">
