@@ -19,6 +19,26 @@
   // ── Sub-view ──────────────────────────────────────────────────────────
   let activeView = $state<'graph' | 'nodes'>('graph');
   let treeOpen = $state(true);
+  let treeWidth = $state(256);
+  let dragging = $state(false);
+
+  function startDrag(e: MouseEvent) {
+    e.preventDefault();
+    dragging = true;
+    const startX = e.clientX;
+    const startWidth = treeWidth;
+
+    function onMove(ev: MouseEvent) {
+      treeWidth = Math.max(150, Math.min(500, startWidth + ev.clientX - startX));
+    }
+    function onUp() {
+      dragging = false;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
 
   // Keyword search — shared with TreeView and TopicGraph via graphState
   let keyword = $state('');
@@ -28,9 +48,20 @@
   // ── Filters ───────────────────────────────────────────────────────────
   const availableMemoryUrns = $derived([...new Set(nodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean).sort());
   const availableNodeTypes = $derived([...new Set(nodes.map((n) => n.nodeType ?? 'info'))].sort());
+  const availableTags = $derived([...new Set(nodes.flatMap((n) => n.tags ?? []))].sort());
 
   let activeMemoryUrns = $state<Set<string>>(new Set());
   let activeNodeTypes = $state<Set<string>>(new Set());
+  let activeTags = $state<Set<string>>(new Set());
+
+  // Dropdown open state
+  let openDropdown = $state<'memory' | 'type' | 'tags' | null>(null);
+
+  function toggleDropdown(d: 'memory' | 'type' | 'tags') {
+    openDropdown = openDropdown === d ? null : d;
+  }
+
+  function closeDropdowns() { openDropdown = null; }
 
   function toggleMemory(urn: string) {
     if (activeMemoryUrns.has(urn)) activeMemoryUrns.delete(urn);
@@ -44,11 +75,18 @@
     activeNodeTypes = new Set(activeNodeTypes);
   }
 
+  function toggleTag(t: string) {
+    if (activeTags.has(t)) activeTags.delete(t);
+    else activeTags.add(t);
+    activeTags = new Set(activeTags);
+  }
+
   // ── Filtered nodes ────────────────────────────────────────────────────
   const filteredNodes = $derived(
     nodes.filter((n) => {
       if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(n.memory?.urn ?? '')) return false;
       if (activeNodeTypes.size > 0 && !activeNodeTypes.has(n.nodeType ?? 'info')) return false;
+      if (activeTags.size > 0 && !(n.tags ?? []).some((t) => activeTags.has(t))) return false;
       return true;
     })
   );
@@ -62,8 +100,33 @@
   );
 
   // ── Derived views ─────────────────────────────────────────────────────
-  const graphViewData = $derived(buildGraphViewData(filteredNodes));
+  const rawGraphViewData = $derived(buildGraphViewData(filteredNodes));
   const treeEntries = $derived(buildTreeEntries(filteredNodes));
+
+  // Color rules: multiple memories → color by memory; multiple selected types → color by type; otherwise same color
+  const graphViewData = $derived.by(() => {
+    const gv = rawGraphViewData;
+    const memoryUrns = [...new Set(filteredNodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean);
+    const hasMultiMemory = multiMemory && memoryUrns.length > 1;
+    const hasMultiTypeFilter = activeNodeTypes.size > 1;
+
+    if (hasMultiTypeFilter) {
+      // Color by node type
+      const nodeTypeMap: Record<string, string> = {};
+      for (const n of filteredNodes) { nodeTypeMap[n.loc] = n.nodeType ?? 'info'; }
+      return { ...gv, topics: gv.topics.map((t) => ({ ...t, domain: nodeTypeMap[t.id] ?? 'info' })) };
+    }
+
+    if (hasMultiMemory) {
+      // Color by memory
+      const memMap: Record<string, string> = {};
+      for (const n of filteredNodes) { memMap[n.loc] = n.memory?.name ?? n.memory?.urn ?? ''; }
+      return { ...gv, topics: gv.topics.map((t) => ({ ...t, domain: memMap[t.id] ?? '' })) };
+    }
+
+    // Single color
+    return { ...gv, topics: gv.topics.map((t) => ({ ...t, domain: 'all' })) };
+  });
 
   // ── Memory colors ─────────────────────────────────────────────────────
   const memoryColors = ['#58a6ff', '#3fb950', '#d29922', '#bc8cff', '#f97583', '#56d4dd'];
@@ -85,43 +148,85 @@
 </script>
 
 <div class="flex flex-col gap-3">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <!-- Filter bar -->
-  <div class="flex flex-wrap items-center gap-4">
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div class="flex items-center gap-2 flex-wrap" onclick={() => closeDropdowns()}>
+    <!-- Memory dropdown -->
     {#if multiMemory && availableMemoryUrns.length > 1}
-      <div class="flex items-center gap-1.5 flex-wrap">
-        <span class="text-xs text-zinc-500 mr-1">Memory:</span>
-        {#each availableMemoryUrns as urn}
-          <button
-            onclick={() => toggleMemory(urn)}
-            class="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition {activeMemoryUrns.size === 0 || activeMemoryUrns.has(urn) ? '' : 'opacity-40'}"
-            style="background: {memoryColorMap[urn] ?? '#8b949e'}20; color: {memoryColorMap[urn] ?? '#8b949e'};"
-          >
-            <span class="inline-block h-2 w-2 rounded-full" style="background: {memoryColorMap[urn] ?? '#8b949e'};"></span>
-            {memoryNameMap[urn] ?? urn}
-          </button>
-        {/each}
-        {#if activeMemoryUrns.size > 0}
-          <button onclick={() => { activeMemoryUrns = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
+      <div class="relative filter-dropdown">
+        <button onclick={() => toggleDropdown('memory')}
+          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition
+            {activeMemoryUrns.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
+          Memories {#if activeMemoryUrns.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{activeMemoryUrns.size}</span>{/if}
+          <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'memory' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
+        </button>
+        {#if openDropdown === 'memory'}
+          <div class="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            {#each availableMemoryUrns as urn}
+              <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
+                <input type="checkbox" checked={activeMemoryUrns.has(urn)} onchange={() => toggleMemory(urn)}
+                  class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                <span class="inline-block h-2 w-2 rounded-full shrink-0" style="background: {memoryColorMap[urn] ?? '#8b949e'};"></span>
+                <span class="truncate">{memoryNameMap[urn] ?? urn}</span>
+              </label>
+            {/each}
+          </div>
         {/if}
       </div>
     {/if}
 
+    <!-- Node type dropdown -->
     {#if availableNodeTypes.length > 1}
-      <div class="flex items-center gap-1.5 flex-wrap">
-        <span class="text-xs text-zinc-500 mr-1">Type:</span>
-        {#each availableNodeTypes as t}
-          <button
-            onclick={() => toggleNodeType(t)}
-            class="rounded-full px-2.5 py-0.5 text-xs font-medium transition {activeNodeTypes.size === 0 || activeNodeTypes.has(t) ? 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-300' : 'bg-zinc-100 text-zinc-400 dark:bg-zinc-800 dark:text-zinc-600'}"
-          >{t}</button>
-        {/each}
-        {#if activeNodeTypes.size > 0}
-          <button onclick={() => { activeNodeTypes = new Set(); }} class="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">clear</button>
+      <div class="relative filter-dropdown">
+        <button onclick={() => toggleDropdown('type')}
+          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition
+            {activeNodeTypes.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
+          Node Types {#if activeNodeTypes.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{activeNodeTypes.size}</span>{/if}
+          <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'type' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
+        </button>
+        {#if openDropdown === 'type'}
+          <div class="absolute left-0 top-full z-20 mt-1 w-44 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            {#each availableNodeTypes as t}
+              <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
+                <input type="checkbox" checked={activeNodeTypes.has(t)} onchange={() => toggleNodeType(t)}
+                  class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                {t}
+              </label>
+            {/each}
+          </div>
         {/if}
       </div>
     {/if}
 
-    <!-- Sub-view toggle + search -->
+    <!-- Tags dropdown -->
+    {#if availableTags.length > 0}
+      <div class="relative filter-dropdown">
+        <button onclick={() => toggleDropdown('tags')}
+          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition
+            {activeTags.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
+          Tags {#if activeTags.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{activeTags.size}</span>{/if}
+          <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'tags' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
+        </button>
+        {#if openDropdown === 'tags'}
+          <div class="absolute left-0 top-full z-20 mt-1 max-h-64 w-48 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            {#each availableTags as t}
+              <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
+                <input type="checkbox" checked={activeTags.has(t)} onchange={() => toggleTag(t)}
+                  class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                {t}
+              </label>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- Search -->
+    <input type="text" placeholder="Search..." bind:value={keyword}
+      class="w-40 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+
+    <!-- Right: view toggle + count -->
     <div class="ml-auto flex items-center gap-3">
       <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
         <button
@@ -133,8 +238,6 @@
           class="px-2.5 py-1 text-xs {activeView === 'nodes' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
         >Nodes</button>
       </div>
-      <input type="text" placeholder="Search..." bind:value={keyword}
-        class="w-40 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
       <span class="text-xs text-zinc-400">{searchedNodes.length}{searchedNodes.length !== nodes.length ? ` / ${nodes.length}` : ''}</span>
     </div>
   </div>
@@ -148,13 +251,20 @@
     <div class="flex gap-0" style="min-height: calc(100vh - 320px);">
       <!-- Tree sidebar -->
       {#if treeOpen}
-        <aside class="w-64 shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
+        <aside class="shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="width: {treeWidth}px;">
           <div class="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
             <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
             <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
           </div>
           <TreeView entries={treeEntries} {basePath} hideSearch={true} />
         </aside>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="w-1 shrink-0 cursor-col-resize bg-zinc-200 hover:bg-indigo-400 transition-colors dark:bg-zinc-800 dark:hover:bg-indigo-500"
+          class:bg-indigo-400={dragging}
+          class:dark:bg-indigo-500={dragging}
+          onmousedown={startDrag}
+        ></div>
       {:else}
         <button
           onclick={() => treeOpen = true}
