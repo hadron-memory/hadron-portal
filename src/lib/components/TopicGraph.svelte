@@ -261,21 +261,6 @@
 
 <div class="graph-wrapper">
   <div class="toolbar">
-    <div class="legend">
-      {#each allDomains as domain}
-        <div class="legend-item">
-          <div class="legend-dot" style="background: {domainColors[domain].bg};"></div>
-          {domain}
-        </div>
-      {/each}
-      <span class="separator">|</span>
-      <div class="legend-level">
-        <div class="size-dot" style="width:20px;height:20px;"></div>
-        shallow
-        <div class="size-dot" style="width:12px;height:12px;"></div>
-        deep
-      </div>
-    </div>
     <div class="controls">
       <button onclick={() => network?.fit()}>Fit</button>
     </div>
@@ -335,12 +320,6 @@
 <style>
   .graph-wrapper { flex: 1; display: flex; flex-direction: column; background: #0d1117; color: #c9d1d9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-height: 0; }
   .toolbar { padding: 8px 24px; background: #0d1117; border-bottom: 1px solid #21262d; display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
-  .legend { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
-  .legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-  .legend-dot { width: 12px; height: 12px; border-radius: 50%; }
-  .separator { color: #30363d; margin: 0 4px; }
-  .legend-level { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #8b949e; }
-  .legend-level .size-dot { border-radius: 50%; background: #8b949e; }
   .controls { margin-left: auto; display: flex; gap: 8px; }
   .controls button { padding: 4px 12px; background: #21262d; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; cursor: pointer; font-size: 13px; }
   .controls button:hover { background: #30363d; }

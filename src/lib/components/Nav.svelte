@@ -10,13 +10,22 @@
   let { user, dark = true, onToggleTheme }: Props = $props();
 
   let menuOpen = $state(false);
+  let menuEl = $state<HTMLDivElement>();
   const isConsumerMode = $derived(!!$page.data.isConsumerMode);
+
+  function handleClickOutside(e: MouseEvent) {
+    if (menuOpen && menuEl && !menuEl.contains(e.target as Node)) {
+      menuOpen = false;
+    }
+  }
   const menuLinkClass = $derived(
     dark
       ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
       : 'text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900'
   );
 </script>
+
+<svelte:window onclick={handleClickOutside} />
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
   <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
@@ -56,7 +65,7 @@
       </button>
 
       {#if user}
-        <div class="relative">
+        <div class="relative" bind:this={menuEl}>
           <button
             type="button"
             onclick={() => (menuOpen = !menuOpen)}

@@ -11,7 +11,6 @@
   const fullNav = [
     { href: '/app/dashboard', label: 'Dashboard' },
     { href: '/app/my-memories', label: 'Memories' },
-    { href: '/app/orgs', label: 'Organizations' },
     { href: '/app/agents', label: 'Agents' },
     { href: '/app/stations', label: 'Stations' },
   ];
@@ -23,6 +22,7 @@
 
   const bottomNav = [
     { href: '/app/account', label: 'Account' },
+    { href: '/app/orgs', label: 'Organizations' },
   ];
 
   const navItems = $derived(data.isConsumerMode ? consumerNav : fullNav);

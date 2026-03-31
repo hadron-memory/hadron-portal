@@ -16,13 +16,13 @@
 </script>
 
 <svelte:head>
-  <title>Browse memories · Hadron</title>
+  <title>Memories · Hadron</title>
 </svelte:head>
 
 <div class="mx-auto max-w-7xl px-4 py-12">
   <div class="mb-8">
-    <h1 class="text-3xl font-bold text-zinc-900 dark:text-white">Browse memories</h1>
-    <p class="mt-2 text-zinc-500 dark:text-zinc-400">Find AI knowledge memories for any purpose. Grab one to give your AI agent instant expertise.</p>
+    <h1 class="text-3xl font-bold text-zinc-900 dark:text-white">Memories</h1>
+    <p class="mt-2 text-zinc-500 dark:text-zinc-400">Find AI knowledge memories for any purpose.</p>
   </div>
 
   {#if form?.error}

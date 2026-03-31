@@ -1,4 +1,4 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
@@ -82,5 +82,15 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to create invitation' });
     }
+  },
+
+  leave: async ({ params, locals }) => {
+    if (!locals.user?.id) return fail(401, { error: 'Not authenticated' });
+    try {
+      await gqlClient(locals.token).request(REMOVE_MEMBER_MUTATION, { orgId: params.id, userId: locals.user.id });
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to leave organization' });
+    }
+    redirect(303, '/app/orgs');
   },
 };

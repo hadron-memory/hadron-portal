@@ -58,15 +58,24 @@
     your GitHub repos and queryable via GraphQL.
   </p>
   <div class="flex flex-col items-center gap-4">
-    <p class="rounded-lg border border-zinc-300 bg-zinc-50 px-5 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-      Hadron is currently in pilot. An invitation is needed to create an account.
-    </p>
-    <a
-      href="/signin"
-      class="rounded-lg border border-zinc-300 px-6 py-3 text-base font-semibold text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
-    >
-      Login
-    </a>
+    {#if data.isAuthenticated}
+      <a
+        href="/app/dashboard"
+        class="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow transition hover:bg-indigo-500"
+      >
+        Go to Dashboard
+      </a>
+    {:else}
+      <p class="rounded-lg border border-zinc-300 bg-zinc-50 px-5 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+        Hadron is currently in pilot. An invitation is needed to create an account.
+      </p>
+      <a
+        href="/signin"
+        class="rounded-lg border border-zinc-300 px-6 py-3 text-base font-semibold text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
+      >
+        Login
+      </a>
+    {/if}
   </div>
 </section>
 
@@ -84,6 +93,7 @@
   </div>
 </section>
 
+{#if !data.isAuthenticated}
 <!-- Waiting List -->
 <section class="mx-auto max-w-7xl px-4 py-16">
   <div class="mx-auto max-w-lg rounded-2xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
@@ -114,6 +124,7 @@
     {/if}
   </div>
 </section>
+{/if}
 
 <!-- Contact -->
 <section class="mx-auto max-w-7xl px-4 py-16">

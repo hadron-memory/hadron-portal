@@ -6,6 +6,10 @@
   const org = $derived(data.org);
 
   const isOwner = $derived((org.members ?? []).some((m: { role: string; user: { id: string } }) => m.role === 'OWNER' && m.user.id === data.currentUserId));
+  const ownerCount = $derived((org.members ?? []).filter((m: { role: string }) => m.role === 'OWNER').length);
+  const memberCount = $derived((org.members ?? []).length);
+  const isOnlyOwner = $derived(isOwner && ownerCount === 1);
+  const isOnlyMember = $derived(memberCount === 1);
 
   const memberIds = $derived(new Set((org.members ?? []).map((m: { user: { id: string } }) => m.user.id)));
   const nonMembers = $derived((data.allUsers ?? []).filter((u: { id: string }) => !memberIds.has(u.id)));
@@ -49,15 +53,12 @@
           {/if}
         </div>
 
-        {#if isMemberOwner}
-          <!-- Owner: no role change or remove -->
-          <span class="text-xs text-zinc-500">Owner</span>
-        {:else}
-          <!-- Role update -->
+        {#if isOwner && m.user.id !== data.currentUserId}
+          <!-- Role update (owners can change any member's role) -->
           <form method="POST" action="?/update" use:enhance class="flex items-center gap-2">
             <input type="hidden" name="userId" value={m.user.id} />
             <select name="role" onchange={submitOnChange} class="rounded border border-zinc-700 bg-zinc-800 px-2 py-1 text-xs text-zinc-300">
-              {#each ['READER', 'CONTRIBUTOR', 'ADMIN'] as role}
+              {#each ['READER', 'CONTRIBUTOR', 'ADMIN', 'OWNER'] as role}
                 <option value={role} selected={m.role === role}>{role}</option>
               {/each}
             </select>
@@ -67,6 +68,8 @@
             <input type="hidden" name="userId" value={m.user.id} />
             <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
           </form>
+        {:else}
+          <span class="text-xs text-zinc-500">{m.role}</span>
         {/if}
       </div>
     {/each}
@@ -91,6 +94,7 @@
             <option value="READER">Reader</option>
             <option value="CONTRIBUTOR">Contributor</option>
             <option value="ADMIN">Admin</option>
+            <option value="OWNER">Owner</option>
           </select>
         </div>
         <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Add</button>
@@ -125,10 +129,31 @@
             <option value="READER">Reader</option>
             <option value="CONTRIBUTOR">Contributor</option>
             <option value="ADMIN">Admin</option>
+            <option value="OWNER">Owner</option>
           </select>
         </div>
         <button type="submit" class="rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-600">Create invite link</button>
       </form>
     {/if}
   </section>
+
+  <!-- Leave organization -->
+  {#if !isOnlyOwner}
+    <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
+      <h2 class="mb-3 text-sm font-semibold text-red-500">Leave organization</h2>
+      {#if isOnlyMember}
+        <p class="mb-3 text-xs text-red-400">You are the only member. Leaving will delete the organization and all its content.</p>
+      {/if}
+      <form method="POST" action="?/leave" use:enhance onsubmit={(e) => {
+        const msg = isOnlyMember
+          ? `Leave and DELETE "${org.name}"? This will remove all memories, agents, and data. This cannot be undone.`
+          : `Leave "${org.name}"? You will lose access to this organization.`;
+        if (!confirm(msg)) e.preventDefault();
+      }}>
+        <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+          {isOnlyMember ? 'Leave and delete organization' : 'Leave organization'}
+        </button>
+      </form>
+    </section>
+  {/if}
 </div>

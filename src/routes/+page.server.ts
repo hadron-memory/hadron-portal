@@ -4,12 +4,12 @@ import { PUBLIC_MEMORIES_QUERY, JOIN_WAITING_LIST_MUTATION, SEND_CONTACT_MESSAGE
 import type { Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ locals }) => {
   try {
     const data = await gqlClient().request<{ publicMemories: Memory[] }>(PUBLIC_MEMORIES_QUERY);
-    return { publicMemories: data.publicMemories.slice(0, 6) };
+    return { publicMemories: data.publicMemories.slice(0, 6), isAuthenticated: !!locals.user };
   } catch {
-    return { publicMemories: [] as Memory[] };
+    return { publicMemories: [] as Memory[], isAuthenticated: !!locals.user };
   }
 };
 
