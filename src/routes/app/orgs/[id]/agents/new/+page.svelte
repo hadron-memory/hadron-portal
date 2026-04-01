@@ -43,7 +43,8 @@
       <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
     {/if}
 
-    <input type="hidden" name="name" value={slug} />
+    <input type="hidden" name="slug" value={slug} />
+    <input type="hidden" name="displayName" value={name} />
 
     <div>
       <label for="displayName" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>

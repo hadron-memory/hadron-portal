@@ -18,13 +18,14 @@
 
   // ── Tab state ──────────────────────────────────────────────────────────
   type TabId = 'chat' | 'memory' | 'settings' | 'client';
-  let activeTab = $state<TabId>('chat');
-  const tabs: { id: TabId; label: string }[] = [
-    { id: 'chat', label: 'Chat' },
+  const isChatbot = $derived(station.stationType === 'CHATBOT');
+  let activeTab = $state<TabId>(station.stationType === 'CHATBOT' ? 'chat' : 'memory');
+  const tabs = $derived<{ id: TabId; label: string }[]>([
+    ...(isChatbot ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
     { id: 'memory', label: 'Memory' },
     { id: 'settings', label: 'Settings' },
     { id: 'client', label: 'Client' },
-  ];
+  ]);
 
   // ── Station context for chatbot ────────────────────────────────────────
   $effect(() => {
@@ -88,6 +89,7 @@
   let chatActive = $state(false);
   let chatKey = $state(0);
   let aiEditing = $state(false);
+  let memoriesOpen = $state(false);
 
   let aiConfig = $derived<StationAIConfig>({ provider: aiProvider, apiKey: aiApiKey, model: aiModel });
 
@@ -468,11 +470,18 @@ notice outdated information, update the graph with h-create-node.
         {/if}
       </section>
 
-      <!-- Accessible memories -->
+      <!-- Accessible memories (collapsed by default) -->
       {#if userMemories.length > 0}
         <section>
-          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Accessible Memories</h2>
-          <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
+          <button onclick={() => memoriesOpen = !memoriesOpen} class="flex items-center gap-2 font-semibold text-zinc-900 dark:text-white">
+            <svg width="12" height="12" viewBox="0 0 12 12" class="transition-transform {memoriesOpen ? 'rotate-90' : ''}">
+              <path d="M4 2 L8 6 L4 10" stroke="currentColor" fill="none" stroke-width="1.5" />
+            </svg>
+            Accessible Memories
+            <span class="text-sm font-normal text-zinc-500">({userMemories.length})</span>
+          </button>
+          {#if memoriesOpen}
+          <div class="mt-3 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
             {#each userMemories as mem (mem.id)}
               <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
                 <span class="text-base">🧠</span>
@@ -485,10 +494,12 @@ notice outdated information, update the graph with h-create-node.
               </div>
             {/each}
           </div>
+          {/if}
         </section>
       {/if}
 
-      <!-- AI Chat Configuration -->
+      <!-- AI Chat Configuration (chatbot only) -->
+      {#if isChatbot}
       <section>
         <div class="mb-4 flex items-center justify-between">
           <h2 class="font-semibold text-zinc-900 dark:text-white">AI Chat</h2>
@@ -544,6 +555,7 @@ notice outdated information, update the graph with h-create-node.
           </div>
         {/if}
       </section>
+      {/if}
 
       <!-- Delete -->
       <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">

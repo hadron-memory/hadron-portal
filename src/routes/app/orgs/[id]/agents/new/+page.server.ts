@@ -1,7 +1,7 @@
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { ORGANIZATION_QUERY, CREATE_AGENT_MUTATION } from '$lib/server/queries';
+import { ORGANIZATION_QUERY, CREATE_AGENT_MUTATION, UPDATE_AGENT_MUTATION } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -17,13 +17,20 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 export const actions: Actions = {
   default: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const name = String(fd.get('name') ?? '').trim();
+    const slug = String(fd.get('slug') ?? '').trim();
+    const displayName = String(fd.get('displayName') ?? '').trim();
+    const name = slug || displayName;
     const description = String(fd.get('description') ?? '').trim() || null;
     if (!name) return fail(400, { error: 'Name is required' });
     try {
-      await gqlClient(locals.token).request(CREATE_AGENT_MUTATION, {
+      const result = await gqlClient(locals.token).request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
         orgId: params.id, name, description,
       });
+      if (displayName && displayName !== name) {
+        await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
+          id: result.createAgent.id, name: displayName,
+        }).catch(() => {});
+      }
       redirect(303, `/app/orgs/${params.id}/agents`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;

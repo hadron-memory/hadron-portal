@@ -190,11 +190,19 @@
     return map;
   });
 
-  // Memory name lookup
+  // Memory name lookup + read-only status by URN
   const memoryNameMap = $derived.by(() => {
     const map: Record<string, string> = {};
     for (const n of nodes) {
       if (n.memory?.urn && n.memory.name) map[n.memory.urn] = n.memory.name;
+    }
+    return map;
+  });
+  const memoryReadOnlyMap = $derived.by(() => {
+    if (writableSet.size === 0) return {} as Record<string, boolean>;
+    const map: Record<string, boolean> = {};
+    for (const n of nodes) {
+      if (n.memory?.urn) map[n.memory.urn] = !writableSet.has(n.memoryId);
     }
     return map;
   });
@@ -223,8 +231,8 @@
               <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
                 <input type="checkbox" checked={activeMemoryUrns.has(urn)} onchange={() => toggleMemory(urn)}
                   class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
-                <span class="inline-block h-2 w-2 rounded-full shrink-0" style="background: {memoryColorMap[urn] ?? '#8b949e'};"></span>
-                <span class="truncate">{memoryNameMap[urn] ?? urn}</span>
+                <span class="inline-block h-2 w-2 rounded-full shrink-0" style="background: {memoryReadOnlyMap[urn] ? '#8b949e' : (memoryColorMap[urn] ?? '#8b949e')};"></span>
+                <span class="truncate">{memoryNameMap[urn] ?? urn}{memoryReadOnlyMap[urn] ? ' (read-only)' : ''}</span>
               </label>
             {/each}
           </div>

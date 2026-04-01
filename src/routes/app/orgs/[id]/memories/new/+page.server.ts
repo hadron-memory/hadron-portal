@@ -1,7 +1,7 @@
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { CREATE_MEMORY_MUTATION, ORGANIZATION_QUERY } from '$lib/server/queries';
+import { CREATE_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION, ORGANIZATION_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -16,7 +16,9 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 export const actions: Actions = {
   default: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const name = String(fd.get('name') ?? '').trim();
+    const slug = String(fd.get('slug') ?? '').trim();
+    const displayName = String(fd.get('displayName') ?? '').trim();
+    const name = slug || displayName; // slug for URN generation
     const shortDescription = String(fd.get('shortDescription') ?? '').trim() || null;
     const description = String(fd.get('description') ?? '').trim() || null;
     const tagsRaw = String(fd.get('tags') ?? '').trim();
@@ -36,11 +38,17 @@ export const actions: Actions = {
     if (!name) return fail(400, { error: 'Name is required' });
 
     try {
-      await gqlClient(locals.token).request(CREATE_MEMORY_MUTATION, {
+      const result = await gqlClient(locals.token).request<{ createMemory: { id: string } }>(CREATE_MEMORY_MUTATION, {
         orgId: params.id, name, shortDescription, description, tags, license,
         category0, category1, category2, iconUrl, heroUrl, homeUrl,
         source, readBranch, writeBranch, visibility,
       });
+      // If display name differs from slug, update the name
+      if (displayName && displayName !== name) {
+        await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
+          id: result.createMemory.id, name: displayName,
+        }).catch(() => {}); // best-effort
+      }
       redirect(303, `/app/orgs/${params.id}/memories`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
