@@ -2,7 +2,7 @@ import { gqlClient } from '$lib/server/api';
 import { SESSIONS_QUERY } from '$lib/server/queries';
 import type { PageServerLoad } from './$types';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 200;
 
 interface SessionSummary {
   id: string;

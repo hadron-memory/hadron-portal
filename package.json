@@ -36,6 +36,7 @@
     "jszip": "^3.10.1",
     "lucide-svelte": "^0.469.0",
     "marked": "^17.0.4",
+    "svelte-headless-table": "^0.18.3",
     "tailwind-merge": "^2.0.0",
     "vis-data": "^8.0.3",
     "vis-network": "^10.0.2"
