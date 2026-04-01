@@ -87,6 +87,7 @@
   let aiModel = $state(station.aiModel ?? DEFAULT_MODELS['openai']);
   let chatActive = $state(false);
   let chatKey = $state(0);
+  let aiEditing = $state(false);
 
   let aiConfig = $derived<StationAIConfig>({ provider: aiProvider, apiKey: aiApiKey, model: aiModel });
 
@@ -363,6 +364,14 @@ notice outdated information, update the graph with h-create-node.
               </select>
             </div>
             <div>
+              <label for="editRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Role</label>
+              <select id="editRole" name="role" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="READER" selected={station.role === 'READER'}>Reader</option>
+                <option value="CONTRIBUTOR" selected={station.role === 'CONTRIBUTOR'}>Contributor</option>
+                <option value="ADMIN" selected={station.role === 'ADMIN'}>Admin</option>
+              </select>
+            </div>
+            <div>
               <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
               <input id="editDescription" name="description" type="text" value={station.description ?? ''} placeholder="What this station is for"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
@@ -412,8 +421,9 @@ notice outdated information, update the graph with h-create-node.
           <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
             {#each station.agentSubscriptions as sub (sub.id)}
               <div class="flex w-full items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
+                <span class="text-base">🤖</span>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{sub.agent.name}</p>
+                  <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{sub.agent.name}</p>
                   <CopyUrn value={sub.agent.urn} size={10} />
                 </div>
                 <form method="POST" action="?/subscribe" use:enhance class="shrink-0">
@@ -465,7 +475,7 @@ notice outdated information, update the graph with h-create-node.
           <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
             {#each userMemories as mem (mem.id)}
               <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
-                <span class="inline-block h-2.5 w-2.5 rounded-full bg-indigo-400"></span>
+                <span class="text-base">🧠</span>
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{mem.name}</p>
                   <CopyUrn value={mem.urn} size={10} />
@@ -480,33 +490,59 @@ notice outdated information, update the graph with h-create-node.
 
       <!-- AI Chat Configuration -->
       <section>
-        <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">AI Chat</h2>
-        <div class="max-w-md space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <div>
-            <label for="ai-provider" class="mb-1 block text-xs text-zinc-500">Provider</label>
-            <select id="ai-provider" value={aiProvider} onchange={onProviderChange}
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
-              {#each AI_PROVIDERS as p (p.value)}
-                <option value={p.value}>{p.label}</option>
-              {/each}
-            </select>
-          </div>
-          <div>
-            <label for="ai-key" class="mb-1 block text-xs text-zinc-500">API Key</label>
-            <input id="ai-key" type="password" bind:value={aiApiKey} placeholder="sk-..."
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
-            <p class="mt-1 text-[10px] text-zinc-400">Encrypted and stored on the server for this station.</p>
-          </div>
-          <div>
-            <label for="ai-model" class="mb-1 block text-xs text-zinc-500">Model</label>
-            <input id="ai-model" type="text" bind:value={aiModel}
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:border-indigo-500 focus:outline-none" />
-          </div>
-          <button onclick={saveAndStartChat} disabled={!aiApiKey.trim()}
-            class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
-            {chatActive ? 'Reconnect chat' : 'Save & start chat'}
-          </button>
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="font-semibold text-zinc-900 dark:text-white">AI Chat</h2>
+          {#if !aiEditing}
+            <button onclick={() => aiEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+          {/if}
         </div>
+
+        {#if aiEditing}
+          <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-3">
+            <div>
+              <label for="ai-provider" class="mb-1 block text-xs text-zinc-500">Provider</label>
+              <select id="ai-provider" value={aiProvider} onchange={onProviderChange}
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
+                {#each AI_PROVIDERS as p (p.value)}
+                  <option value={p.value}>{p.label}</option>
+                {/each}
+              </select>
+            </div>
+            <div>
+              <label for="ai-key" class="mb-1 block text-xs text-zinc-500">API Key</label>
+              <input id="ai-key" type="password" bind:value={aiApiKey} placeholder="sk-..."
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
+              <p class="mt-1 text-[10px] text-zinc-400">Encrypted and stored on the server for this station.</p>
+            </div>
+            <div>
+              <label for="ai-model" class="mb-1 block text-xs text-zinc-500">Model</label>
+              <input id="ai-model" type="text" bind:value={aiModel}
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:border-indigo-500 focus:outline-none" />
+            </div>
+            <div class="flex gap-3">
+              <button onclick={() => { saveAndStartChat(); aiEditing = false; }} disabled={!aiApiKey.trim()}
+                class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                Save
+              </button>
+              <button type="button" onclick={() => aiEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+            </div>
+          </div>
+        {:else}
+          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Provider</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.aiProvider ?? '—'}</span>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Model</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.aiModel ?? '—'}</span>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">API Key</span>
+              <span class="text-sm text-zinc-900 dark:text-white">{station.hasAiApiKey ? 'Configured' : 'Not set'}</span>
+            </div>
+          </div>
+        {/if}
       </section>
 
       <!-- Delete -->

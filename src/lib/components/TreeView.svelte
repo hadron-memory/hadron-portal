@@ -379,6 +379,9 @@
   :global(.dark) .node-link.match { color: #f0f6fc; }
 
   .node-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     color: #71717a;
     padding: 2px 6px;
     cursor: pointer;
