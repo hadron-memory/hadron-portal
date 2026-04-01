@@ -42,6 +42,16 @@
     <input type="hidden" name="displayName" value={name} />
 
     <div>
+      <label for="organizationId" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Organization <span class="text-zinc-500">(optional)</span></label>
+      <select id="organizationId" name="organizationId" bind:value={selectedOrgId} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+        <option value="">— none —</option>
+        {#each data.orgs as org (org.id)}
+          <option value={org.id}>{org.name}</option>
+        {/each}
+      </select>
+    </div>
+
+    <div>
       <label for="displayName" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
       <input id="displayName" type="text" required placeholder="My Workstation"
         bind:value={name}
@@ -81,16 +91,6 @@
         <option value="READER">Reader</option>
         <option value="CONTRIBUTOR">Contributor</option>
         <option value="ADMIN">Admin</option>
-      </select>
-    </div>
-
-    <div>
-      <label for="organizationId" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Organization <span class="text-zinc-500">(optional)</span></label>
-      <select id="organizationId" name="organizationId" bind:value={selectedOrgId} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-        <option value="">— none —</option>
-        {#each data.orgs as org (org.id)}
-          <option value={org.id}>{org.name}</option>
-        {/each}
       </select>
     </div>
 
