@@ -16,9 +16,9 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 export const actions: Actions = {
   default: async ({ request, locals }) => {
     const fd = await request.formData();
-    const slug = String(fd.get('slug') ?? '').trim();
+    const urn = String(fd.get('urn') ?? '').trim();
     const displayName = String(fd.get('displayName') ?? '').trim();
-    const name = slug || displayName;
+    const name = urn || displayName;
     const stationType = String(fd.get('stationType') ?? 'WORKSTATION');
     const role = String(fd.get('role') ?? 'READER');
     const organizationId = String(fd.get('organizationId') ?? '').trim() || null;

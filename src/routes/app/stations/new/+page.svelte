@@ -6,19 +6,19 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   let name = $state('');
-  let slug = $state('');
-  let slugManuallyEdited = $state(false);
+  let urn = $state('');
+  let urnManuallyEdited = $state(false);
   let colonWarning = $state(false);
   let selectedOrgId = $state('');
 
   $effect(() => {
-    if (!slugManuallyEdited) {
-      slug = toSlug(name);
+    if (!urnManuallyEdited) {
+      urn = toSlug(name);
     }
   });
 
-  function onSlugInput(e: Event) {
-    slugManuallyEdited = true;
+  function onUrnInput(e: Event) {
+    urnManuallyEdited = true;
     colonWarning = (e.target as HTMLInputElement).value.includes(':');
   }
 
@@ -38,7 +38,7 @@
       <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
     {/if}
 
-    <input type="hidden" name="slug" value={slug} />
+    <input type="hidden" name="urn" value={urn} />
     <input type="hidden" name="displayName" value={name} />
 
     <div>
@@ -49,18 +49,18 @@
     </div>
 
     <div>
-      <label for="slug" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+      <label for="urn" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
       <div class="flex items-stretch">
         {#if selectedOrg}
           <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{selectedOrg.urn}:</span>
         {/if}
-        <input id="slug" type="text" required placeholder="my-workstation"
-          bind:value={slug}
-          oninput={onSlugInput}
+        <input id="urn" type="text" required placeholder="my-workstation"
+          bind:value={urn}
+          oninput={onUrnInput}
           class="w-full {selectedOrg ? 'rounded-r-lg' : 'rounded-lg'} border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {colonWarning ? 'border-amber-500 focus:border-amber-500' : ''}" />
       </div>
       {#if colonWarning}
-        <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">Colons are used as URN delimiters and should not appear in the slug.</p>
+        <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">Colons are used as URN delimiters and should not appear in this field.</p>
       {/if}
     </div>
 
