@@ -1,7 +1,7 @@
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { CREATE_STATION_MUTATION, MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
+import { CREATE_STATION_MUTATION, UPDATE_STATION_MUTATION, MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -16,7 +16,9 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 export const actions: Actions = {
   default: async ({ request, locals }) => {
     const fd = await request.formData();
-    const name = String(fd.get('name') ?? '').trim();
+    const slug = String(fd.get('slug') ?? '').trim();
+    const displayName = String(fd.get('displayName') ?? '').trim();
+    const name = slug || displayName;
     const stationType = String(fd.get('stationType') ?? 'WORKSTATION');
     const role = String(fd.get('role') ?? 'READER');
     const organizationId = String(fd.get('organizationId') ?? '').trim() || null;
@@ -31,6 +33,12 @@ export const actions: Actions = {
         CREATE_STATION_MUTATION,
         { name, stationType, role, organizationId, userId: locals.user?.id ?? null, description, expiresAt, agentTools },
       );
+      // If display name differs from slug, update the name to the human-friendly version
+      if (displayName && displayName !== name) {
+        await gqlClient(locals.token).request(UPDATE_STATION_MUTATION, {
+          id: data.createStation.station.id, name: displayName,
+        }).catch(() => {}); // best-effort
+      }
       // Pass the rawKey via search param so the detail page can show it once
       redirect(303, `/app/stations/${data.createStation.station.id}?newKey=${encodeURIComponent(data.createStation.rawKey)}`);
     } catch (e: unknown) {
