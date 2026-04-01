@@ -24,7 +24,7 @@
     ...(isChatbot ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
     { id: 'memory', label: 'Memory' },
     { id: 'settings', label: 'Settings' },
-    { id: 'client', label: 'Client' },
+    ...(!isChatbot ? [{ id: 'client' as TabId, label: 'Client' }] : []),
   ]);
 
   // ── Station context for chatbot ────────────────────────────────────────

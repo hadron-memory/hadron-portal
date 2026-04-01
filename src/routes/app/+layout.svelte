@@ -16,8 +16,8 @@
   ];
 
   const usageNav = [
-    { href: '/app/sessions', label: 'Sessions' },
-    { href: '/app/usage', label: 'Memory Usage' },
+    { href: '/app/usage/sessions', label: 'Sessions' },
+    { href: '/app/usage/memory', label: 'Memory' },
   ];
 
   const bottomNav = [
