@@ -33,7 +33,7 @@
   let menuOpen = $state(true);
 </script>
 
-<div class="mx-auto flex max-w-7xl gap-8 px-4 py-8">
+<div class="flex gap-8 px-6 py-8">
   <!-- Sidebar -->
   {#if menuOpen}
     <aside class="w-48 shrink-0">
