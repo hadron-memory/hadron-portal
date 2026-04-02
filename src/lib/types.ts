@@ -216,6 +216,16 @@ export interface GraphViewData {
 // Station types
 // ---------------------------------------------------------------------------
 
+export interface StationKey {
+  id: string;
+  stationId: string;
+  userId: string;
+  label: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
 export interface Station {
   id: string;
   urn: string;
@@ -223,7 +233,6 @@ export interface Station {
   stationType: string;
   description: string | null;
   role: string;
-  apiKeyShown: boolean;
   agentTools: string[];
   organizationId: string | null;
   userId: string | null;

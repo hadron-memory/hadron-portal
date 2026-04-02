@@ -53,7 +53,6 @@ export const STATION_FIELDS = /* GraphQL */ `
     stationType
     description
     role
-    apiKeyShown
     agentTools
     organizationId
     userId
@@ -505,6 +504,33 @@ export const REGENERATE_API_KEY_MUTATION = /* GraphQL */ `
   ${STATION_FIELDS}
   mutation RegenerateApiKey($id: ID!) {
     regenerateApiKey(id: $id) { rawKey station { ...StationFields } }
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// Station Keys
+// ---------------------------------------------------------------------------
+
+export const STATION_KEYS_QUERY = /* GraphQL */ `
+  query StationKeys($stationId: ID!) {
+    stationKeys(stationId: $stationId) {
+      id label lastUsedAt createdAt revokedAt userId
+    }
+  }
+`;
+
+export const CREATE_STATION_KEY_MUTATION = /* GraphQL */ `
+  mutation CreateStationKey($stationId: ID!, $label: String) {
+    createStationKey(stationId: $stationId, label: $label) {
+      key { id label createdAt }
+      rawKey
+    }
+  }
+`;
+
+export const REVOKE_STATION_KEY_MUTATION = /* GraphQL */ `
+  mutation RevokeStationKey($keyId: ID!) {
+    revokeStationKey(keyId: $keyId)
   }
 `;
 
