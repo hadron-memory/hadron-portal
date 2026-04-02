@@ -178,30 +178,30 @@
   // Claude Code: .claude/mcp.json (project) or ~/.claude/settings.json (global)
   // Uses "type": "url" inside mcpServers
   function claudeCodeMcpConfig(url: string, apiKey: string) {
-    return { mcpServers: { hadron: { type: 'url', url, headers: { Authorization: `Bearer ${apiKey}` } } } };
+    return { mcpServers: { hadron: { type: 'url', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
   }
 
   // GitHub Copilot: .vscode/mcp.json (project)
   // Uses "servers" wrapper with "type": "http"
   function copilotMcpConfig(url: string, apiKey: string) {
-    return { servers: { hadron: { type: 'http', url, headers: { Authorization: `Bearer ${apiKey}` } } }, inputs: [] };
+    return { servers: { hadron: { type: 'http', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } }, inputs: [] };
   }
 
   // Cursor: .cursor/mcp.json (project)
   // Uses mcpServers with "url" field
   function cursorMcpConfig(url: string, apiKey: string) {
-    return { mcpServers: { hadron: { url, headers: { Authorization: `Bearer ${apiKey}` } } } };
+    return { mcpServers: { hadron: { url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
   }
 
   // Windsurf: ~/.codeium/windsurf/mcp_config.json (global only)
   // Uses "serverUrl" field
   function windsurfMcpConfig(url: string, apiKey: string) {
-    return { mcpServers: { hadron: { serverUrl: url, headers: { Authorization: `Bearer ${apiKey}` } } } };
+    return { mcpServers: { hadron: { serverUrl: url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
   }
 
   // Antigravity: global only, same format as Windsurf
   function antigravityMcpConfig(url: string, apiKey: string) {
-    return { mcpServers: { hadron: { serverUrl: url, headers: { Authorization: `Bearer ${apiKey}` } } } };
+    return { mcpServers: { hadron: { serverUrl: url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
   }
 
   function claudeCodeHooksConfig() {
