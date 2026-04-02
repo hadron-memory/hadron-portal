@@ -1,17 +1,18 @@
-import { error, fail, redirect } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   MY_STATIONS_QUERY,
-  REGENERATE_API_KEY_MUTATION,
   REVOKE_STATION_MUTATION,
+  REVOKE_STATION_KEY_MUTATION,
   SUBSCRIBE_STATION_TO_AGENT_MUTATION,
   UNSUBSCRIBE_STATION_FROM_AGENT_MUTATION,
   UPDATE_STATION_MUTATION,
   MY_ORGANIZATIONS_QUERY,
   STATION_NODES_QUERY,
+  STATION_KEYS_QUERY,
 } from '$lib/server/queries';
-import type { Station, Organization, MemoryNode } from '$lib/types';
+import type { Station, StationKey, Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
@@ -27,13 +28,17 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const station = stationsData.myStations.find((c) => c.id === params.id);
   if (!station) throw error(404, 'Station not found');
 
-  // Load all nodes accessible by this station
-  const nodesData = await client.request<{ stationNodes: MemoryNode[] }>(
-    STATION_NODES_QUERY, { stationId: params.id, limit: 500 },
-  ).catch(() => ({ stationNodes: [] as MemoryNode[] }));
+  // Load station nodes and keys in parallel
+  const [nodesData, keysData] = await Promise.all([
+    client.request<{ stationNodes: MemoryNode[] }>(
+      STATION_NODES_QUERY, { stationId: params.id, limit: 500 },
+    ).catch(() => ({ stationNodes: [] as MemoryNode[] })),
+    client.request<{ stationKeys: StationKey[] }>(
+      STATION_KEYS_QUERY, { stationId: params.id },
+    ).catch(() => ({ stationKeys: [] as StationKey[] })),
+  ]);
 
-  const newKey = url.searchParams.get('newKey') ?? null;
-  return { station, newKey, orgs: orgsData.myOrganizations, stationNodes: nodesData.stationNodes };
+  return { station, orgs: orgsData.myOrganizations, stationNodes: nodesData.stationNodes, stationKeys: keysData.stationKeys };
 };
 
 export const actions: Actions = {
@@ -49,15 +54,14 @@ export const actions: Actions = {
     }
   },
 
-  regenerate: async ({ params, locals }) => {
+  revokeKey: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const keyId = String(fd.get('keyId') ?? '');
+    if (!keyId) return fail(400, { error: 'keyId is required' });
     try {
-      const result = await gqlClient(locals.token).request<{ regenerateApiKey: { rawKey: string } }>(
-        REGENERATE_API_KEY_MUTATION, { id: params.id },
-      );
-      redirect(303, `/app/stations/${params.id}?newKey=${encodeURIComponent(result.regenerateApiKey.rawKey)}`);
+      await gqlClient(locals.token).request(REVOKE_STATION_KEY_MUTATION, { keyId });
     } catch (e: unknown) {
-      if ((e as { status?: number }).status === 303) throw e;
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to regenerate key' });
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to revoke key' });
     }
   },
 

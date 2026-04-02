@@ -131,20 +131,32 @@
 
   function disconnectChat() { chatActive = false; }
 
-  // ── Setup tab state ────────────────────────────────────────────────────
+  // ── Client tab state ────────────────────────────────────────────────────
+  // Project-level tools (configs go into project directory)
+  // Global-only tools (configs must be merged into a global file)
   const AGENT_TOOL_OPTIONS = [
-    { value: 'CLAUDE_CODE', label: 'Claude Code' },
-    { value: 'CURSOR', label: 'Cursor' },
-    { value: 'WINDSURF', label: 'Windsurf' },
-    { value: 'CLAUDE_DESKTOP', label: 'Claude Desktop' },
-    { value: 'CODEX', label: 'Codex CLI' },
-    { value: 'CLINE', label: 'Cline' },
+    { value: 'CLAUDE_CODE', label: 'Claude Code', scope: 'project' },
+    { value: 'COPILOT', label: 'GitHub Copilot', scope: 'project' },
+    { value: 'CURSOR', label: 'Cursor', scope: 'project' },
+    { value: 'WINDSURF', label: 'Windsurf', scope: 'global' },
+    { value: 'ANTIGRAVITY', label: 'Antigravity', scope: 'global' },
+    { value: 'CLAUDE_DESKTOP', label: 'Claude Desktop', scope: 'project' },
+    { value: 'CODEX', label: 'Codex CLI', scope: 'project' },
+    { value: 'CLINE', label: 'Cline', scope: 'project' },
   ];
 
   let downloading = $state(false);
   let agentToolsForm = $state<HTMLFormElement>();
   let selectedTools = $derived(new Set(station.agentTools ?? []));
   let withClientApp = $state(false);
+  let newKeyLabel = $state('');
+  let stationKeys = $state<typeof data.stationKeys>([]);
+
+  // Keep keys in sync when data changes (e.g. after form action)
+  $effect(() => { stationKeys = data.stationKeys ?? []; });
+
+
+  const activeKeys = $derived(stationKeys.filter((k) => !k.revokedAt));
 
   function toggleTool(value: string) {
     if (selectedTools.has(value)) { selectedTools.delete(value); } else { selectedTools.add(value); }
@@ -158,12 +170,37 @@
   const mcpBaseUrl = $derived(withClientApp ? clientAppUrl : serverUrl);
   const mcpUrl = $derived(mcpBaseUrl.includes('localhost') ? mcpBaseUrl + '/mcp' : mcpBaseUrl.replace(/\/$/, '') + '/mcp');
 
-  function directMcpConfig(apiKey: string) {
-    return { mcpServers: { hadron: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${apiKey}` } } } };
+  // ── Per-tool MCP config generators ────────────────────────────────────
+
+  // Claude Code: .claude/mcp.json (project) or ~/.claude/settings.json (global)
+  // Uses "type": "url" inside mcpServers
+  function claudeCodeMcpConfig(url: string, apiKey: string) {
+    return { mcpServers: { hadron: { type: 'url', url, headers: { Authorization: `Bearer ${apiKey}` } } } };
   }
-  function clientAppMcpConfig(apiKey: string) {
-    return { mcpServers: { hadron: { url: `${clientAppUrl}/mcp`, headers: { Authorization: `Bearer ${apiKey}` } } } };
+
+  // GitHub Copilot: .vscode/mcp.json (project)
+  // Uses "servers" wrapper with "type": "http"
+  function copilotMcpConfig(url: string, apiKey: string) {
+    return { servers: { hadron: { type: 'http', url, headers: { Authorization: `Bearer ${apiKey}` } } }, inputs: [] };
   }
+
+  // Cursor: .cursor/mcp.json (project)
+  // Uses mcpServers with "url" field
+  function cursorMcpConfig(url: string, apiKey: string) {
+    return { mcpServers: { hadron: { url, headers: { Authorization: `Bearer ${apiKey}` } } } };
+  }
+
+  // Windsurf: ~/.codeium/windsurf/mcp_config.json (global only)
+  // Uses "serverUrl" field
+  function windsurfMcpConfig(url: string, apiKey: string) {
+    return { mcpServers: { hadron: { serverUrl: url, headers: { Authorization: `Bearer ${apiKey}` } } } };
+  }
+
+  // Antigravity: global only, same format as Windsurf
+  function antigravityMcpConfig(url: string, apiKey: string) {
+    return { mcpServers: { hadron: { serverUrl: url, headers: { Authorization: `Bearer ${apiKey}` } } } };
+  }
+
   function claudeCodeHooksConfig() {
     return { hooks: {
       SessionStart: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/session-start`, timeout: 5 }] }],
@@ -196,54 +233,120 @@ to learn context before making changes. When you learn something new or
 notice outdated information, update the graph with h-create-node.
 `;
 
-  async function generateAndDownloadZip(apiKey: string) {
+  async function generateAndDownloadZip(apiKey: string, keyLabel: string) {
     const zip = new JSZip();
     const tools = station.agentTools ?? [];
-    if (withClientApp) { generateClientAppZip(zip, tools, apiKey); } else { generateDirectZip(zip, tools, apiKey); }
-    const blob = await zip.generateAsync({ type: 'blob' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `hadron-setup-${station.name}.zip`; a.click();
-    URL.revokeObjectURL(url);
-  }
+    const url = mcpUrl;
 
-  function generateDirectZip(zip: JSZip, tools: string[], apiKey: string) {
-    const config = directMcpConfig(apiKey);
-    const configJson = JSON.stringify(config, null, 2);
-    if (tools.includes('CLAUDE_CODE'))    zip.file('.mcp.json', configJson);
-    if (tools.includes('CURSOR'))         zip.file('.cursor/mcp.json', configJson);
-    if (tools.includes('WINDSURF'))       zip.file('.windsurf/mcp.json', configJson);
-    if (tools.includes('CLAUDE_DESKTOP')) zip.file('claude_desktop_config.json', configJson);
-    if (tools.includes('CODEX'))          zip.file('.codex/mcp.json', configJson);
-    if (tools.includes('CLINE'))          zip.file('.cline/mcp.json', configJson);
+    // ── Project-level configs (extract into project root) ──────────────
+    if (tools.includes('CLAUDE_CODE'))
+      zip.file('.mcp.json', JSON.stringify(claudeCodeMcpConfig(url, apiKey), null, 2));
+    if (tools.includes('COPILOT'))
+      zip.file('.vscode/mcp.json', JSON.stringify(copilotMcpConfig(url, apiKey), null, 2));
+    if (tools.includes('CURSOR'))
+      zip.file('.cursor/mcp.json', JSON.stringify(cursorMcpConfig(url, apiKey), null, 2));
+
+    // ── Project-level configs (TODO: update formats) ─────────────────
+    if (tools.includes('CLAUDE_DESKTOP'))
+      zip.file('claude_desktop_config.json', JSON.stringify(cursorMcpConfig(url, apiKey), null, 2));
+    if (tools.includes('CODEX'))
+      zip.file('.codex/mcp.json', JSON.stringify(cursorMcpConfig(url, apiKey), null, 2));
+    if (tools.includes('CLINE'))
+      zip.file('.cline/mcp.json', JSON.stringify(cursorMcpConfig(url, apiKey), null, 2));
+
+    // ── Global-only configs (user must merge manually) ─────────────────
+    if (tools.includes('WINDSURF'))
+      zip.file('global-configs/windsurf-mcp_config.json', JSON.stringify(windsurfMcpConfig(url, apiKey), null, 2));
+    if (tools.includes('ANTIGRAVITY'))
+      zip.file('global-configs/antigravity-mcp_config.json', JSON.stringify(antigravityMcpConfig(url, apiKey), null, 2));
+
+    // ── Client App extras ──────────────────────────────────────────────
+    if (withClientApp) {
+      if (tools.includes('CLAUDE_CODE'))
+        zip.file('.claude/settings.json', JSON.stringify(claudeCodeHooksConfig(), null, 2));
+      zip.file('.hadron/config.json', JSON.stringify({ stationKey: apiKey, defaultLevel: 'guided' }, null, 2));
+    }
+
+    // ── Common files ───────────────────────────────────────────────────
     zip.file('.hadron/INSTRUCTIONS.md', INSTRUCTIONS_MD);
-    zip.file('README.txt', ['Hadron Setup', '===========', '', 'Extract in your project root.', '', 'Your API key is embedded. Keep these files private.'].join('\n'));
-  }
 
-  function generateClientAppZip(zip: JSZip, tools: string[], apiKey: string) {
-    const config = clientAppMcpConfig(apiKey);
-    const configJson = JSON.stringify(config, null, 2);
-    if (tools.includes('CLAUDE_CODE'))    zip.file('.claude/mcp.json', configJson);
-    if (tools.includes('CURSOR'))         zip.file('.cursor/mcp.json', configJson);
-    if (tools.includes('WINDSURF'))       zip.file('.windsurf/mcp.json', configJson);
-    if (tools.includes('CLAUDE_DESKTOP')) zip.file('claude_desktop_config.json', configJson);
-    if (tools.includes('CODEX'))          zip.file('.codex/mcp.json', configJson);
-    if (tools.includes('CLINE'))          zip.file('.cline/mcp.json', configJson);
-    if (tools.includes('CLAUDE_CODE')) zip.file('.claude/settings.json', JSON.stringify(claudeCodeHooksConfig(), null, 2));
-    zip.file('.hadron/config.json', JSON.stringify({ stationKey: apiKey, defaultLevel: 'guided' }, null, 2));
-    zip.file('README.txt', ['Hadron Setup (Client App)', '========================', '', 'Extract in your project root. See hadron-client docs for setup.'].join('\n'));
+    const hasGlobalTools = tools.includes('WINDSURF') || tools.includes('ANTIGRAVITY');
+    const readmeLines = [
+      withClientApp ? 'Hadron Setup (Client App)' : 'Hadron Setup',
+      withClientApp ? '========================' : '===========',
+      '',
+      'Extract project-level configs into your project root.',
+      '',
+      'Your API key is embedded. Keep these files private.',
+      '',
+      '─── Connection details ───────────────────────────────',
+      `  URL: ${url}`,
+      `  Key: ${apiKey}`,
+    ];
+
+    if (tools.includes('CLAUDE_CODE'))
+      readmeLines.push(
+        '',
+        'Claude Code:',
+        '  Config: .mcp.json (project root)',
+        '  Or run:',
+        `    claude mcp add hadron --transport http --scope project --header "Authorization: Bearer ${apiKey}" ${url}`,
+        '  Docs: https://code.claude.com/docs/en/mcp',
+      );
+    if (tools.includes('COPILOT'))
+      readmeLines.push(
+        '',
+        'GitHub Copilot:',
+        '  Config: .vscode/mcp.json',
+        '  Docs: https://code.visualstudio.com/docs/copilot/chat/mcp-servers',
+      );
+    if (tools.includes('CURSOR'))
+      readmeLines.push(
+        '',
+        'Cursor:',
+        '  Config: .cursor/mcp.json',
+        '  Docs: https://cursor.com/docs/mcp',
+      );
+    if (hasGlobalTools) {
+      readmeLines.push(
+        '',
+        'Global-only configs (in the global-configs/ folder):',
+        'These tools only support global MCP configuration.',
+        'Merge the hadron entry into your existing config file.',
+      );
+      if (tools.includes('WINDSURF'))
+        readmeLines.push('', '  Windsurf:', '    Merge into: ~/.codeium/windsurf/mcp_config.json', '    Docs: https://docs.windsurf.com/windsurf/cascade/mcp');
+      if (tools.includes('ANTIGRAVITY'))
+        readmeLines.push('', '  Antigravity:', '    Merge into: ~/.antigravity/mcp_config.json', '    Docs: https://antigravity.google/docs/mcp');
+    }
+    if (withClientApp) readmeLines.push('', 'Hadron Client App:', '  See hadron-client docs for client app setup.');
+    zip.file('README.txt', readmeLines.join('\n'));
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const dlUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = keyLabel.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').toLowerCase();
+    a.href = dlUrl; a.download = `${safeName}.zip`; a.click();
+    URL.revokeObjectURL(dlUrl);
   }
 
   async function downloadSetupZip() {
     if (!selectedTools.size) return;
-    if (!confirm('This will generate a new API key and invalidate the previous one.\n\nContinue?')) return;
+    const label = newKeyLabel.trim() || `Key created on ${new Date().toLocaleDateString()}`;
     downloading = true;
     try {
-      const res = await fetch('/api/regenerate-key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stationId: station.id }) });
-      if (!res.ok) { alert('Failed to generate API key.'); return; }
-      const { rawKey } = await res.json();
-      if (!rawKey) { alert('Failed to generate API key.'); return; }
-      await generateAndDownloadZip(rawKey);
+      const res = await fetch('/api/create-station-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stationId: station.id, label }),
+      });
+      if (!res.ok) { alert('Failed to create client key.'); return; }
+      const { key, rawKey } = await res.json();
+      if (!rawKey) { alert('Failed to create client key.'); return; }
+      // Add the new key to the local list immediately
+      stationKeys = [{ ...key, stationId: station.id, userId: station.userId ?? '', lastUsedAt: null, revokedAt: null }, ...stationKeys];
+      newKeyLabel = '';
+      await generateAndDownloadZip(rawKey, label);
     } finally { downloading = false; }
   }
 </script>
@@ -525,71 +628,104 @@ notice outdated information, update the graph with h-create-node.
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <!-- CLIENT TAB (AI tools, zip download, API key)                      -->
+  <!-- CLIENT TAB (keys list, new key + plugin download)                 -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'client'}
-    <div class="space-y-8">
+    <div class="max-w-lg space-y-8">
       {#if station.stationType !== 'CHATBOT'}
+
+        <!-- Client Keys list -->
         <section>
-          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">AI Tools</h2>
-          <form method="POST" action="?/updateAgentTools" use:enhance={() => { return async ({ update }) => { await update({ reset: false }); }; }}
-            bind:this={agentToolsForm}>
-            {#each [...selectedTools] as tool}
-              <input type="hidden" name="agentTools" value={tool} />
-            {/each}
-            <div class="space-y-2 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-              {#each AGENT_TOOL_OPTIONS as tool (tool.value)}
-                <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                  <input type="checkbox" checked={selectedTools.has(tool.value)} onclick={() => toggleTool(tool.value)}
-                    class="rounded border-zinc-300 bg-white text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
-                  {tool.label}
-                </label>
+          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">
+            Client Keys
+            <span class="ml-1 text-sm font-normal text-zinc-500">({activeKeys.length})</span>
+          </h2>
+          {#if activeKeys.length}
+            <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
+              {#each activeKeys as key (key.id)}
+                <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
+                  <span class="text-base">🔑</span>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{key.label ?? 'Unnamed key'}</p>
+                    <p class="text-xs text-zinc-400">
+                      Created {new Date(key.createdAt).toLocaleDateString()}
+                      {#if key.lastUsedAt}
+                        · Last used {new Date(key.lastUsedAt).toLocaleDateString()}
+                      {:else}
+                        · Never used
+                      {/if}
+                    </p>
+                  </div>
+                  <form method="POST" action="?/revokeKey" use:enhance onsubmit={(e) => {
+                    if (!confirm(`Revoke key "${key.label ?? 'Unnamed key'}"? It will stop working immediately.`)) e.preventDefault();
+                  }}>
+                    <input type="hidden" name="keyId" value={key.id} />
+                    <button type="submit" class="text-xs text-red-400 hover:text-red-300">Revoke</button>
+                  </form>
+                </div>
               {/each}
             </div>
-          </form>
+          {:else}
+            <p class="text-sm text-zinc-500">No active keys. Create one below to get started.</p>
+          {/if}
+        </section>
 
-          <div class="mt-4 flex items-center gap-4 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Client mode:</span>
-            <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-              <input type="radio" name="clientMode" checked={withClientApp} onchange={() => { withClientApp = true; }} class="text-indigo-500 focus:ring-indigo-500" />
-              With Client App
-            </label>
-            <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-              <input type="radio" name="clientMode" checked={!withClientApp} onchange={() => { withClientApp = false; }} class="text-indigo-500 focus:ring-indigo-500" />
-              Direct
-            </label>
-          </div>
+        <!-- New Client Key + Download -->
+        <section>
+          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">New Client Key</h2>
+          <div class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+            <!-- Key name -->
+            <div>
+              <label for="keyLabel" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+              <input id="keyLabel" type="text" bind:value={newKeyLabel} placeholder="e.g. Project A, Alice's laptop"
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
+            </div>
 
-          <div class="mt-4">
+            <!-- Plugin selection -->
+            <div>
+              <span class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Include plugins</span>
+              <form method="POST" action="?/updateAgentTools" use:enhance={() => { return async ({ update }) => { await update({ reset: false }); }; }}
+                bind:this={agentToolsForm}>
+                {#each [...selectedTools] as tool}
+                  <input type="hidden" name="agentTools" value={tool} />
+                {/each}
+                <div class="grid grid-cols-2 gap-2">
+                  {#each AGENT_TOOL_OPTIONS as tool (tool.value)}
+                    <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                      <input type="checkbox" checked={selectedTools.has(tool.value)} onclick={() => toggleTool(tool.value)}
+                        class="rounded border-zinc-300 bg-white text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                      {tool.label}
+                      {#if tool.scope === 'global'}
+                        <span class="text-[10px] text-zinc-400">(global)</span>
+                      {/if}
+                    </label>
+                  {/each}
+                </div>
+              </form>
+            </div>
+
+            <!-- Client mode -->
+            <div class="flex items-center gap-4">
+              <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Client mode:</span>
+              <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                <input type="radio" name="clientMode" checked={withClientApp} onchange={() => { withClientApp = true; }} class="text-indigo-500 focus:ring-indigo-500" />
+                With Client App
+              </label>
+              <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                <input type="radio" name="clientMode" checked={!withClientApp} onchange={() => { withClientApp = false; }} class="text-indigo-500 focus:ring-indigo-500" />
+                Direct
+              </label>
+            </div>
+
+            <!-- Download button -->
             <button onclick={downloadSetupZip} disabled={downloading || !selectedTools.size}
-              class="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+              class="w-full rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
               {downloading ? 'Generating...' : 'Download setup files (.zip)'}
             </button>
+            <p class="text-[10px] text-zinc-400">Creates a new client key and downloads a zip with the selected plugin configs. Extract in your project root.</p>
           </div>
         </section>
 
-        <!-- API Key -->
-        <section class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <h3 class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">API Key</h3>
-          {#if data.newKey}
-            <div class="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
-              <p class="mb-1 text-xs font-medium text-amber-800 dark:text-amber-300">Copy this key now — it won't be shown again.</p>
-              <div class="flex items-center gap-2">
-                <code class="flex-1 rounded bg-white px-3 py-2 font-mono text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100 select-all break-all">{data.newKey}</code>
-                <button onclick={() => navigator.clipboard.writeText(data.newKey ?? '')} class="shrink-0 rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Copy</button>
-              </div>
-            </div>
-          {:else}
-            <p class="mb-3 text-xs text-zinc-500">The API key was shown once when the station was created.</p>
-          {/if}
-          <form method="POST" action="?/regenerate" use:enhance onsubmit={(e) => {
-            if (!confirm('Generate a new API key? The old one will stop working.')) e.preventDefault();
-          }}>
-            <button type="submit" class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
-              {data.newKey ? 'Regenerate again' : 'Generate new API key'}
-            </button>
-          </form>
-        </section>
       {:else}
         <p class="text-sm text-zinc-500">Client configuration is not available for chatbot stations.</p>
       {/if}
