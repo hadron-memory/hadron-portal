@@ -251,13 +251,16 @@ notice outdated information, update the graph with h-create-node.
         homepage: 'https://hadronmemory.com',
         license: 'MIT',
         keywords: ['hadron', 'memory', 'knowledge-graph', 'mcp'],
-        mcpServers: { hadron: { type: 'url', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } },
+        mcpServers: './.mcp.json',
       };
 
       // Add hooks if using client app
       if (withClientApp) {
         pluginManifest.hooks = claudeCodeHooksConfig().hooks;
       }
+
+      // MCP config as a separate file (referenced from plugin.json)
+      const mcpConfig = { mcpServers: { hadron: { type: 'url', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
 
       // Marketplace manifest (required for /plugins marketplace add)
       const marketplaceManifest = {
@@ -275,6 +278,7 @@ notice outdated information, update the graph with h-create-node.
 
       zip.file('hadron-plugin/.claude-plugin/marketplace.json', JSON.stringify(marketplaceManifest, null, 2));
       zip.file('hadron-plugin/plugins/hadron/.claude-plugin/plugin.json', JSON.stringify(pluginManifest, null, 2));
+      zip.file('hadron-plugin/plugins/hadron/.mcp.json', JSON.stringify(mcpConfig, null, 2));
 
       // Add a getting-started skill
       zip.file('hadron-plugin/plugins/hadron/skills/get-started/SKILL.md',
