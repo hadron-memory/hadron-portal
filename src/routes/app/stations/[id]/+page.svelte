@@ -184,7 +184,7 @@
   // GitHub Copilot: .vscode/mcp.json (project)
   // Uses "servers" wrapper with "type": "http"
   function copilotMcpConfig(url: string, apiKey: string) {
-    return { servers: { hadron: { type: 'http', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } }, inputs: [] };
+    return { servers: { hadron: { type: 'url', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } }, inputs: [] };
   }
 
   // Cursor: .cursor/mcp.json (project)
@@ -206,10 +206,10 @@
 
   function claudeCodeHooksConfig() {
     return { hooks: {
-      SessionStart: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/session-start`, timeout: 5 }] }],
-      UserPromptSubmit: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/before-prompt`, timeout: 5 }] }],
-      PostToolUse: [{ matcher: 'mcp__hadron', hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/after-tool`, timeout: 5 }] }],
-      PostCompact: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/post-compact`, timeout: 5 }] }],
+      SessionStart: [{ hooks: [{ type: 'url', url: `${clientAppUrl}/hooks/session-start`, timeout: 5 }] }],
+      UserPromptSubmit: [{ hooks: [{ type: 'url', url: `${clientAppUrl}/hooks/before-prompt`, timeout: 5 }] }],
+      PostToolUse: [{ matcher: 'mcp__hadron', hooks: [{ type: 'url', url: `${clientAppUrl}/hooks/after-tool`, timeout: 5 }] }],
+      PostCompact: [{ hooks: [{ type: 'url', url: `${clientAppUrl}/hooks/post-compact`, timeout: 5 }] }],
     }};
   }
 
@@ -251,7 +251,6 @@ notice outdated information, update the graph with h-create-node.
         homepage: 'https://hadronmemory.com',
         license: 'MIT',
         keywords: ['hadron', 'memory', 'knowledge-graph', 'mcp'],
-        mcpServers: './.mcp.json',
       };
 
       // Add hooks if using client app
@@ -259,17 +258,17 @@ notice outdated information, update the graph with h-create-node.
         pluginManifest.hooks = claudeCodeHooksConfig().hooks;
       }
 
-      // MCP config as a separate file (referenced from plugin.json)
-      const mcpConfig = { mcpServers: { hadron: { type: 'url', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
+      // MCP config — goes at project root as .mcp.json (plugin MCP server loading is unreliable)
+      const mcpConfig = claudeCodeMcpConfig(url, apiKey);
 
       // Marketplace manifest (required for /plugins marketplace add)
       const marketplaceManifest = {
         name: 'hadron',
         owner: { name: 'Baragaun', email: 'info@baragaun.com' },
-        metadata: { description: 'Hadron knowledge memory plugins', pluginRoot: './plugins' },
+        metadata: { description: 'Hadron knowledge memory plugins' },
         plugins: [{
           name: 'hadron',
-          source: './hadron',
+          source: './plugins/hadron',
           description: `Hadron knowledge memory for station "${station.name}"`,
           version: '1.0.0',
           author: { name: 'Baragaun' },
@@ -278,7 +277,8 @@ notice outdated information, update the graph with h-create-node.
 
       zip.file('hadron-plugin/.claude-plugin/marketplace.json', JSON.stringify(marketplaceManifest, null, 2));
       zip.file('hadron-plugin/plugins/hadron/.claude-plugin/plugin.json', JSON.stringify(pluginManifest, null, 2));
-      zip.file('hadron-plugin/plugins/hadron/.mcp.json', JSON.stringify(mcpConfig, null, 2));
+      // MCP config at project root — user copies this to their project
+      zip.file('.mcp.json', JSON.stringify(mcpConfig, null, 2));
 
       // Add a getting-started skill
       zip.file('hadron-plugin/plugins/hadron/skills/get-started/SKILL.md',
@@ -370,16 +370,12 @@ Present the results concisely.
     if (tools.includes('CLAUDE_CODE'))
       readmeLines.push(
         '',
-        'Claude Code (recommended — plugin):',
-        '  1. Copy the hadron-plugin/ directory into your project',
-        '  2. Run: claude --plugin-dir ./hadron-plugin',
-        '  Or install it: /plugin marketplace add ./hadron-plugin',
-        '',
-        'Claude Code (alternative — standalone config):',
-        '  Config: .mcp.json (project root)',
-        '  Or run:',
-        `    claude mcp add hadron --transport http --scope project --header "Authorization: Bearer ${apiKey}" ${url}`,
-        '  Docs: https://code.claude.com/docs/en/mcp',
+        'Claude Code:',
+        '  1. Copy .mcp.json to your project root (MCP server connection)',
+        '  2. Copy hadron-plugin/ into your project and install the plugin:',
+        '     /plugins marketplace add ./hadron-plugin',
+        '     Then install "hadron" from the Plugins tab',
+        '     (This adds skills and hooks — optional but recommended)',
       );
     if (tools.includes('COPILOT'))
       readmeLines.push(
