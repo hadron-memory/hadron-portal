@@ -175,10 +175,10 @@
 
   // ── Per-tool MCP config generators ────────────────────────────────────
 
-  // Claude Code: .claude/mcp.json (project) or ~/.claude/settings.json (global)
-  // Uses "type": "url" inside mcpServers
-  function claudeCodeMcpConfig(url: string, apiKey: string) {
-    return { mcpServers: { hadron: { type: 'url', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
+  // Claude Code: .mcp.json (project root)
+  // Uses stdio transport — hadron-client launched as subprocess
+  function claudeCodeMcpConfig(_url: string, apiKey: string) {
+    return { mcpServers: { hadron: { command: 'hadron-client', args: ['stdio'], env: { HADRON_CLIENT_KEY: apiKey } } } };
   }
 
   // GitHub Copilot: .vscode/mcp.json (project)
