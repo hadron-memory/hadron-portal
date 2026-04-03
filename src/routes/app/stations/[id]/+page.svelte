@@ -259,10 +259,25 @@ notice outdated information, update the graph with h-create-node.
         pluginManifest.hooks = claudeCodeHooksConfig().hooks;
       }
 
-      zip.file('hadron-plugin/.claude-plugin/plugin.json', JSON.stringify(pluginManifest, null, 2));
+      // Marketplace manifest (required for /plugins marketplace add)
+      const marketplaceManifest = {
+        name: 'hadron',
+        owner: { name: 'Baragaun', email: 'info@baragaun.com' },
+        metadata: { description: 'Hadron knowledge memory plugins', pluginRoot: './plugins' },
+        plugins: [{
+          name: 'hadron',
+          source: './hadron',
+          description: `Hadron knowledge memory for station "${station.name}"`,
+          version: '1.0.0',
+          author: { name: 'Baragaun' },
+        }],
+      };
+
+      zip.file('hadron-plugin/.claude-plugin/marketplace.json', JSON.stringify(marketplaceManifest, null, 2));
+      zip.file('hadron-plugin/plugins/hadron/.claude-plugin/plugin.json', JSON.stringify(pluginManifest, null, 2));
 
       // Add a getting-started skill
-      zip.file('hadron-plugin/skills/get-started/SKILL.md',
+      zip.file('hadron-plugin/plugins/hadron/skills/get-started/SKILL.md',
 `---
 name: get-started
 description: Learn how to use Hadron knowledge memory in this project
@@ -288,7 +303,7 @@ When you learn something new, save it with h-create-node or h-update-node.
 `);
 
       // Add a search skill
-      zip.file('hadron-plugin/skills/search/SKILL.md',
+      zip.file('hadron-plugin/plugins/hadron/skills/search/SKILL.md',
 `---
 name: search
 description: Search the Hadron knowledge graph
