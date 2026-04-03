@@ -241,7 +241,66 @@ notice outdated information, update the graph with h-create-node.
     const tools = station.agentTools ?? [];
     const url = mcpUrl;
 
-    // ── Project-level configs (extract into project root) ──────────────
+    // ── Claude Code: generate plugin directory ──────────────────────────
+    if (tools.includes('CLAUDE_CODE')) {
+      const pluginManifest: Record<string, unknown> = {
+        name: 'hadron',
+        version: '1.0.0',
+        description: `Hadron knowledge memory for station "${station.name}"`,
+        author: { name: 'Baragaun', url: 'https://hadronmemory.com' },
+        homepage: 'https://hadronmemory.com',
+        license: 'MIT',
+        keywords: ['hadron', 'memory', 'knowledge-graph', 'mcp'],
+        mcpServers: { hadron: { type: 'url', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } },
+      };
+
+      // Add hooks if using client app
+      if (withClientApp) {
+        pluginManifest.hooks = claudeCodeHooksConfig().hooks;
+      }
+
+      zip.file('hadron-plugin/.claude-plugin/plugin.json', JSON.stringify(pluginManifest, null, 2));
+
+      // Add a getting-started skill
+      zip.file('hadron-plugin/skills/get-started/SKILL.md',
+`---
+name: get-started
+description: Learn how to use Hadron knowledge memory in this project
+---
+
+You are helping the user get started with Hadron, a knowledge memory platform for AI agents.
+
+This project is connected to Hadron station "${station.name}".
+
+Available MCP tools:
+- **h-start-session** / **h-end-session** — Track work sessions
+- **h-find-node** — Search nodes by name, tags, or description
+- **h-read-node** — Read a node's full content and edges
+- **h-read-next-node** — Navigate to the next sibling node
+- **h-create-node** — Create or update a node
+- **h-update-node** — Partially update a node
+- **h-move-node** — Rename or move a node
+- **h-validate** — Validate graph structure
+- **h-sync-graph** — Trigger a sync from the git source
+
+Start by calling h-start-session, then use h-find-node to explore what knowledge is available.
+When you learn something new, save it with h-create-node or h-update-node.
+`);
+
+      // Add a search skill
+      zip.file('hadron-plugin/skills/search/SKILL.md',
+`---
+name: search
+description: Search the Hadron knowledge graph
+---
+
+Search the Hadron knowledge graph for relevant information.
+Use h-find-node with the user's query to find matching nodes, then read the most relevant ones with h-read-node.
+Present the results concisely.
+`);
+    }
+
+    // ── Claude Code: also add standalone .mcp.json as fallback ─────────
     if (tools.includes('CLAUDE_CODE'))
       zip.file('.mcp.json', JSON.stringify(claudeCodeMcpConfig(url, apiKey), null, 2));
     if (tools.includes('COPILOT'))
@@ -265,6 +324,8 @@ notice outdated information, update the graph with h-create-node.
 
     // ── Client App extras ──────────────────────────────────────────────
     if (withClientApp) {
+      // Hooks for Claude Code are now in the plugin manifest (hadron-plugin/.claude-plugin/plugin.json)
+      // For non-plugin users, also provide standalone settings.json
       if (tools.includes('CLAUDE_CODE'))
         zip.file('.claude/settings.json', JSON.stringify(claudeCodeHooksConfig(), null, 2));
       zip.file('.hadron/config.json', JSON.stringify({ stationKey: apiKey, defaultLevel: 'guided' }, null, 2));
@@ -290,7 +351,12 @@ notice outdated information, update the graph with h-create-node.
     if (tools.includes('CLAUDE_CODE'))
       readmeLines.push(
         '',
-        'Claude Code:',
+        'Claude Code (recommended — plugin):',
+        '  1. Copy the hadron-plugin/ directory into your project',
+        '  2. Run: claude --plugin-dir ./hadron-plugin',
+        '  Or install it: /plugin marketplace add ./hadron-plugin',
+        '',
+        'Claude Code (alternative — standalone config):',
         '  Config: .mcp.json (project root)',
         '  Or run:',
         `    claude mcp add hadron --transport http --scope project --header "Authorization: Bearer ${apiKey}" ${url}`,
