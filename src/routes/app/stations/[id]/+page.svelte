@@ -240,27 +240,27 @@
     }};
   }
 
-  const INSTRUCTIONS_MD = `# Hadron Graph — AI Instructions
+  const INSTRUCTIONS_MD = `# Hadron — AI Agent Instructions
 
-This project is connected to Hadron, a knowledge graph that stores context
-across sessions — what's been learned, decided, and built.
+This project is connected to Hadron, a knowledge memory platform for AI agents.
+Hadron stores context across sessions in a knowledge graph — what's been learned,
+decided, and built.
 
-You have access to the following MCP tools:
+## MCP Tools
 
-- **h-start-session** / **h-end-session** — Track work sessions
-- **h-find-node** — Search nodes by name, tags, or description
-- **h-read-node** — Read a node's full content and edges
-- **h-read-next-node** — Navigate to the next sibling node, ordered by seq
-- **h-create-node** — Create or update a node (full upsert by loc)
-- **h-update-node** — Partially update a node (only provided fields change)
-- **h-move-node** — Rename or move a node to a new loc
-- **h-run-action** — Load an action node and resolve dependencies
-- **h-validate** — Validate graph structure (orphan nodes, broken edges)
-- **h-sync-graph** — Trigger a sync from the git source
+Session: h-start-session, h-resume-session, h-save-session-task, h-end-session
+Reading: h-read-node, h-find-nodes, h-list-nodes, h-set-active-memory
+Writing: h-add-node, h-add-parent-node, h-update-node, h-move-node
+Planning: h-save-plan, h-create-pr
 
-Start each session with h-start-session. Use h-find-node and h-read-node
-to learn context before making changes. When you learn something new or
-notice outdated information, update the graph with h-create-node.
+## Workflow
+
+1. Start a session with h-start-session
+2. Set active memory with h-set-active-memory if working with a specific memory
+3. Read before writing — use h-find-nodes and h-read-node to check existing context
+4. Check specs nodes before making changes to related code (they are authoritative)
+5. Update the graph when you learn something new or notice outdated information
+6. End the session with h-end-session when done
 `;
 
   async function generateAndDownloadZip(apiKey: string, keyLabel: string) {
