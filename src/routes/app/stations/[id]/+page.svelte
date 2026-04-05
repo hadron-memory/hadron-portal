@@ -10,6 +10,7 @@
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import type { AIProvider, StationAIConfig } from '$lib/types';
   import Chat from '$lib/components/Chat.svelte';
+  import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import { onMount, onDestroy } from 'svelte';
   import type { PageData, ActionData } from './$types';
 
@@ -240,28 +241,7 @@
     }};
   }
 
-  const INSTRUCTIONS_MD = `# Hadron — AI Agent Instructions
-
-This project is connected to Hadron, a knowledge memory platform for AI agents.
-Hadron stores context across sessions in a knowledge graph — what's been learned,
-decided, and built.
-
-## MCP Tools
-
-Session: h-start-session, h-resume-session, h-save-session-task, h-end-session
-Reading: h-read-node, h-find-nodes, h-list-nodes, h-set-active-memory
-Writing: h-add-node, h-add-parent-node, h-update-node, h-move-node
-Planning: h-save-plan, h-create-pr
-
-## Workflow
-
-1. Start a session with h-start-session
-2. Set active memory with h-set-active-memory if working with a specific memory
-3. Read before writing — use h-find-nodes and h-read-node to check existing context
-4. Check specs nodes before making changes to related code (they are authoritative)
-5. Update the graph when you learn something new or notice outdated information
-6. End the session with h-end-session when done
-`;
+  const INSTRUCTIONS_MD = hadronInstructions;
 
   async function generateAndDownloadZip(apiKey: string, keyLabel: string) {
     const zip = new JSZip();
