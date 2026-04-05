@@ -380,59 +380,138 @@ Present the results concisely.
     // ── Common files ───────────────────────────────────────────────────
     zip.file('.hadron/INSTRUCTIONS.md', INSTRUCTIONS_MD);
 
+    // hadron-client wrapper script — must be on PATH for .mcp.json to work
+    zip.file('bin/hadron-client',
+`#!/usr/bin/env bash
+# Hadron Client launcher — place this on your PATH (e.g. ~/bin or /usr/local/bin)
+# Requires: Node.js >= 20, hadron-client repo cloned and built
+
+HADRON_CLIENT_DIR="\${HADRON_CLIENT_DIR:-\$HOME/src/hadron-memory/hadron-client}"
+node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
+`);
+
     const hasGlobalTools = tools.includes('WINDSURF') || tools.includes('ANTIGRAVITY');
     const readmeLines = [
-      'Hadron Client Setup',
-      '========================',
-      '',
-      'Extract project-level configs into your project root.',
+      '# Hadron Client Setup',
       '',
       '## Client Key',
+      '',
       '```',
       apiKey,
       '```',
       '',
-      '!!Note: Keep your client key safe and do not share it with others!',
+      '> **Keep your client key safe and do not share it with others!**',
+      '',
+      '## Prerequisites',
+      '',
+      '1. **Node.js >= 20** installed',
+      '2. **Clone and build hadron-client:**',
+      '   ```bash',
+      '   git clone https://github.com/hadron-memory/hadron-client.git ~/src/hadron-memory/hadron-client',
+      '   cd ~/src/hadron-memory/hadron-client',
+      '   npm install && npm run build',
+      '   ```',
+      '3. **Install the `hadron-client` command** — copy the wrapper script to a directory on your PATH:',
+      '   ```bash',
+      '   cp bin/hadron-client ~/bin/hadron-client   # or /usr/local/bin/',
+      '   chmod +x ~/bin/hadron-client',
+      '   ```',
+      '   If your hadron-client repo is not at `~/src/hadron-memory/hadron-client`,',
+      '   set `HADRON_CLIENT_DIR` in the script or your shell profile.',
+      '',
+      '4. **Verify:** `hadron-client stdio` should start without errors (Ctrl-C to stop).',
+      '',
+      '## To upgrade',
+      '',
+      '```bash',
+      '~/src/hadron-memory/hadron-client/bin/upgrade.sh',
+      '```',
+      '',
+      'Then restart your AI coding tool (or reconnect MCP) to pick up changes.',
+      '',
+      '## Project Setup',
+      '',
+      'Copy these files into your project root:',
     ];
 
     if (tools.includes('CLAUDE_CODE'))
       readmeLines.push(
         '',
-        '## Claude Code',
+        '### Claude Code',
         '',
-        '1. Copy `.mcp.json` to your project root (MCP server connection)',
+        '1. Copy `.mcp.json` to your project root',
         '2. Copy `hadron-plugin/` into your project',
         '3. Install the plugin:',
-        '  - In Claude Code, type `/plugins` marketplace add ./hadron-plugin',
-        '  - Install "hadron" from the Plugins tab',
-        '  - Verify that this added skills and hooks — optional but recommended',
+        '   ```',
+        '   /plugins marketplace add ./hadron-plugin',
+        '   ```',
+        '   Then install "hadron" from the Plugins tab.',
+      );
+    if (tools.includes('COPILOT'))
+      readmeLines.push(
+        '',
+        '### GitHub Copilot',
+        '',
+        '- Copy `.vscode/mcp.json` to your project',
+        '- Docs: https://code.visualstudio.com/docs/copilot/chat/mcp-servers',
       );
     if (tools.includes('CURSOR'))
       readmeLines.push(
         '',
-        '## Cursor',
+        '### Cursor',
         '',
-        '-  Config: .cursor/mcp.json',
-        '-  Docs: https://cursor.com/docs/mcp',
+        '- Copy `.cursor/mcp.json` to your project',
+        '- Docs: https://cursor.com/docs/mcp',
+      );
+    if (tools.includes('CLAUDE_DESKTOP'))
+      readmeLines.push(
+        '',
+        '### Claude Desktop',
+        '',
+        '- Merge `claude_desktop_config.json` into your Claude Desktop config',
+      );
+    if (tools.includes('CODEX'))
+      readmeLines.push(
+        '',
+        '### Codex CLI',
+        '',
+        '- Copy `.codex/mcp.json` to your project',
+      );
+    if (tools.includes('CLINE'))
+      readmeLines.push(
+        '',
+        '### Cline',
+        '',
+        '- Copy `.cline/mcp.json` to your project',
       );
     if (hasGlobalTools) {
       readmeLines.push(
         '',
-        '**Global-only configs (in the global-configs/ folder):**',
+        '### Global-only configs',
         '',
-        'These tools only support global MCP configuration. Merge the hadron entry into your ',
-        'existing config file.',
+        'These tools only support global MCP configuration.',
+        'Merge the hadron entry from the `global-configs/` folder into your existing config file.',
       );
+      if (tools.includes('WINDSURF'))
+        readmeLines.push(
+          '',
+          '**Windsurf:** Merge into `~/.codeium/windsurf/mcp_config.json`',
+        );
       if (tools.includes('ANTIGRAVITY'))
         readmeLines.push(
           '',
-          '## Antigravity',
-          '',
-          '- Merge into: ~/.antigravity/mcp_config.json',
-          '- Docs: https://antigravity.google/docs/mcp',
+          '**Antigravity:** Merge into `~/.antigravity/mcp_config.json`',
         );
     }
-    if (withClientApp) readmeLines.push('', '## Hadron Client App', '', 'See hadron-client docs for client app setup.');
+    if (withClientApp) readmeLines.push(
+      '',
+      '### Hadron Client App',
+      '',
+      'The client app provides hooks for session tracking and context recovery.',
+      '1. Copy `.hadron/config.json` to your project',
+      '2. Start the client app: `hadron-client start`',
+      '3. Copy `.claude/settings.json` to your project (hooks config)',
+    );
     zip.file('README.md', readmeLines.join('\n'));
 
     const blob = await zip.generateAsync({ type: 'blob' });
