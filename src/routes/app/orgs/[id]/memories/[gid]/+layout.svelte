@@ -32,7 +32,8 @@
   </div>
   {/if}
 
-  <!-- Tabs -->
+  <!-- Tabs (hidden on node detail pages which have their own breadcrumb + layout) -->
+  {#if !isNodeDetail}
   <div class="mb-4 flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
     <a
       href="{basePath}/browse"
@@ -53,6 +54,7 @@
       Settings
     </a>
   </div>
+  {/if}
 
   <!-- Content -->
   {#if isNodeDetail || isSettings}

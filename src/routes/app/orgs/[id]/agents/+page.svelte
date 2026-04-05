@@ -15,7 +15,7 @@
         { label: org.name, href: `/app/orgs/${org.id}` },
         { label: 'Agents' },
       ]} />
-      <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Agents</h1>
+      <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{org.name}'s Agents</h1>
       <p class="text-sm text-zinc-500">Group memories into agents for station subscriptions.</p>
     </div>
     <a href="/app/orgs/{org.id}/agents/new" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
