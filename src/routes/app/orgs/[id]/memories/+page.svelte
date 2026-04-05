@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import CopyUrn from '$lib/components/CopyUrn.svelte';
   import type { PageData, ActionData } from './$types';
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
@@ -52,7 +53,7 @@
           <div class="flex-1 min-w-0">
             <a href="/app/orgs/{org.id}/memories/{g.id}/browse" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{g.name}</a>
             <span class="ml-2 rounded px-1.5 py-0.5 text-xs {g.visibility === 'PUBLIC' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{g.visibility}</span>
-            <p class="font-mono text-xs text-zinc-400">{g.urn}</p>
+            <CopyUrn value={g.urn} size={10} />
             <div class="mt-1 flex flex-wrap gap-3 text-xs text-zinc-500">
               {#if g.source}<span>git-backed</span>{:else}<span>DB-only</span>{/if}
               {#if g.readBranch}<span>branch: {g.readBranch}</span>{/if}
@@ -81,7 +82,7 @@
             <div class="flex-1 min-w-0">
               <span class="text-sm font-semibold text-indigo-600 dark:text-indigo-300">{s.memory.name}</span>
               <span class="ml-2 rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">{s.role}</span>
-              <p class="font-mono text-xs text-zinc-400">{s.memory.urn}</p>
+              <CopyUrn value={s.memory.urn} size={10} />
               <p class="mt-1 text-xs text-zinc-500">from {s.memory.organization?.name ?? 'unknown'} ({s.memory.organization?.urn ?? ''})</p>
             </div>
             <form method="POST" action="?/unsubscribe" use:enhance onsubmit={(e) => { if (!confirm(`Unsubscribe from "${s.memory.name}"?`)) e.preventDefault(); }}>
