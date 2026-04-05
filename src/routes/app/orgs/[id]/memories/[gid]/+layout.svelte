@@ -27,7 +27,7 @@
       { label: 'Memories', href: `/app/orgs/${data.org.id}/memories` },
       { label: data.graph.name },
     ]} />
-    <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{data.graph.name}</h1>
+    <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Memory: {data.graph.name}</h1>
     <CopyUrn value={data.graph.urn} />
   </div>
   {/if}

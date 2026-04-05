@@ -40,7 +40,7 @@
   <section>
     <div class="mb-4 flex items-center justify-between">
       <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Memories</h2>
-      <a href="/app/my-memories" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
+      <a href="/app/memories" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">
         View all →
       </a>
     </div>
@@ -70,7 +70,7 @@
       </div>
       {#if data.memories.length > 6}
         <p class="mt-3 text-sm text-zinc-500">
-          <a href="/app/my-memories" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">View all {data.memories.length} memories →</a>
+          <a href="/app/memories" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">View all {data.memories.length} memories →</a>
         </p>
       {/if}
     {/if}

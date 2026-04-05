@@ -8,7 +8,7 @@
 
   // Flatten agents from all orgs
   const allAgents = $derived.by(() => {
-    const agents: Array<{ id: string; urn: string; name: string; description: string | null; orgId: string; orgName: string; orgUrn: string; memoryCount: number }> = [];
+    const agents: Array<{ id: string; urn: string; name: string; description: string | null; visibility: string; orgId: string; orgName: string; orgUrn: string; memoryCount: number }> = [];
     for (const org of data.orgs) {
       for (const agent of org.agents ?? []) {
         agents.push({
@@ -16,6 +16,7 @@
           urn: agent.urn,
           name: agent.name,
           description: agent.description,
+          visibility: agent.visibility ?? 'PRIVATE',
           orgId: org.id,
           orgName: org.name,
           orgUrn: org.urn,
@@ -78,7 +79,16 @@
             {#if agent.description}
               <p class="mt-1 text-xs text-zinc-500">{agent.description}</p>
             {/if}
-            <p class="mt-1 text-xs text-zinc-400">{agent.orgName} · {agent.memoryCount} memor{agent.memoryCount !== 1 ? 'ies' : 'y'}</p>
+            <div class="mt-1 flex items-center gap-2 text-xs text-zinc-400">
+              <span>{agent.orgName} · {agent.memoryCount} memor{agent.memoryCount !== 1 ? 'ies' : 'y'}</span>
+              {#if agent.visibility === 'PUBLIC'}
+                <span class="rounded bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">public</span>
+              {:else if agent.visibility === 'ORGANIZATION'}
+                <span class="rounded bg-amber-100 px-2 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">organization</span>
+              {:else}
+                <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">private</span>
+              {/if}
+            </div>
           </div>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-zinc-400"><polyline points="9 18 15 12 9 6"></polyline></svg>
         </a>

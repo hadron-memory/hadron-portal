@@ -26,6 +26,7 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     syncError
     pendingEdgeCount
     lastSyncedAt
+    organization { id name }
     createdAt
     updatedAt
   }

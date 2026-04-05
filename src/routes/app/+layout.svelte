@@ -5,12 +5,12 @@
 
   const consumerNav = [
     { href: '/app/dashboard', label: 'Dashboard' },
-    { href: '/app/my-memories', label: 'Memories' },
+    { href: '/app/memories', label: 'Memories' },
   ];
 
   const fullNav = [
     { href: '/app/dashboard', label: 'Dashboard' },
-    { href: '/app/my-memories', label: 'Memories' },
+    { href: '/app/memories', label: 'Memories' },
     { href: '/app/agents', label: 'Agents' },
     { href: '/app/stations', label: 'Stations' },
   ];
