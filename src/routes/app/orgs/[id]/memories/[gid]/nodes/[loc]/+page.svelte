@@ -184,22 +184,17 @@
 <svelte:head><title>{node.name} &middot; Hadron</title></svelte:head>
 
 <div class="max-w-3xl space-y-4">
-  <!-- Breadcrumb: full path -->
+  <!-- Breadcrumb -->
   <Breadcrumb items={[
     { label: 'Organizations', href: '/app/orgs' },
-    { label: data.org.name, href: `/app/orgs/${data.org.id}` },
     { label: data.graph.name, href: basePath },
-    { label: 'Nodes', href: `${basePath}/nodes` },
-    ...data.breadcrumb.map((segment, i) =>
-      i < data.breadcrumb.length - 1
-        ? { label: segment.label, href: `${basePath}/nodes/${encodeURIComponent(segment.path)}` }
-        : { label: segment.label }
-    ),
+    { label: 'Nodes', href: `${basePath}/browse` },
+    { label: node.name },
   ]} />
 
   <!-- Header -->
   <div class="flex items-center gap-3">
-    <h1 class="text-xl font-bold text-zinc-900 dark:text-white">{node.name}</h1>
+    <h1 class="text-xl font-bold text-zinc-900 dark:text-white">Node: {node.name}</h1>
     {#if node.seq !== null && node.seq !== undefined}
       <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">seq {node.seq}</span>
     {/if}

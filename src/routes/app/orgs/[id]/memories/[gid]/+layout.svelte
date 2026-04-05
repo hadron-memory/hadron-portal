@@ -18,7 +18,8 @@
 </script>
 
 <div class="space-y-4">
-  <!-- Breadcrumb + Header -->
+  <!-- Breadcrumb + Header (hidden on node detail pages which have their own) -->
+  {#if !isNodeDetail}
   <div class="mb-4">
     <Breadcrumb items={[
       { label: 'Organizations', href: '/app/orgs' },
@@ -29,6 +30,7 @@
     <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{data.graph.name}</h1>
     <CopyUrn value={data.graph.urn} />
   </div>
+  {/if}
 
   <!-- Tabs -->
   <div class="mb-4 flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
