@@ -103,6 +103,14 @@
         <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
         <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" class={inputClass}>{agent.description ?? ''}</textarea>
       </div>
+      <div>
+        <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
+        <select id="editVisibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+          <option value="PRIVATE" selected={agent.visibility === 'PRIVATE'}>Private</option>
+          <option value="ORGANIZATION" selected={agent.visibility === 'ORGANIZATION'}>Organization</option>
+          <option value="PUBLIC" selected={agent.visibility === 'PUBLIC'}>Public</option>
+        </select>
+      </div>
       <div class="flex gap-3">
         <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
         <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>

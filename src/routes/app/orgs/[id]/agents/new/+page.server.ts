@@ -21,10 +21,11 @@ export const actions: Actions = {
     const displayName = String(fd.get('displayName') ?? '').trim();
     const name = slug || displayName;
     const description = String(fd.get('description') ?? '').trim() || null;
+    const visibility = String(fd.get('visibility') ?? '').trim() || undefined;
     if (!name) return fail(400, { error: 'Name is required' });
     try {
       const result = await gqlClient(locals.token).request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
-        orgId: params.id, name, description,
+        orgId: params.id, name, description, visibility,
       });
       if (displayName && displayName !== name) {
         await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {

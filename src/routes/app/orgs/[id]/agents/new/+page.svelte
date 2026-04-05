@@ -73,6 +73,15 @@
         class={inputClass}></textarea>
     </div>
 
+    <div>
+      <label for="visibility" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
+      <select id="visibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+        <option value="PRIVATE" selected>Private</option>
+        <option value="ORGANIZATION">Organization</option>
+        <option value="PUBLIC">Public</option>
+      </select>
+    </div>
+
     <div class="flex gap-3">
       <button type="submit" class="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500">Create Agent</button>
       <a href="/app/orgs/{data.org.id}/agents" class="rounded-lg border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</a>

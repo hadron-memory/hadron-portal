@@ -42,6 +42,7 @@ export interface Agent {
   urn: string;
   name: string;
   description: string | null;
+  visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION';
   properties: Record<string, unknown> | null;
   memoryItems: AgentMemoryItem[];
   createdAt: string;

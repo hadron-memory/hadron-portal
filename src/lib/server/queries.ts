@@ -92,6 +92,7 @@ export const AGENT_FIELDS = /* GraphQL */ `
     urn
     name
     description
+    visibility
     properties
     memoryItems {
       id
@@ -430,15 +431,15 @@ export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
 
 export const CREATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation CreateAgent($orgId: ID!, $name: String!, $description: String) {
-    createAgent(orgId: $orgId, name: $name, description: $description) { ...AgentFields }
+  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $visibility: MemoryVisibility) {
+    createAgent(orgId: $orgId, name: $name, description: $description, visibility: $visibility) { ...AgentFields }
   }
 `;
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String) {
-    updateAgent(id: $id, name: $name, urn: $urn, description: $description) { ...AgentFields }
+  mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String, $visibility: MemoryVisibility) {
+    updateAgent(id: $id, name: $name, urn: $urn, description: $description, visibility: $visibility) { ...AgentFields }
   }
 `;
 
