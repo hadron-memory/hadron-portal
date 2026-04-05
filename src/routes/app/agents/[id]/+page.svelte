@@ -26,10 +26,33 @@
     return urn.includes(':') ? urn.split(':').slice(1).join(':') : urn;
   }
 
+  const visibilityRank: Record<string, number> = { PRIVATE: 0, ORGANIZATION: 1, PUBLIC: 2 };
+  const visibilityLabel: Record<string, string> = { PRIVATE: 'Private', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
+
+  // Check if any attached memory is more restrictive than the agent
+  const restrictiveMemories = $derived(
+    (agent.memoryItems ?? []).filter((item) =>
+      visibilityRank[item.memory.visibility] < visibilityRank[agent.visibility]
+    )
+  );
+
+  // Track selected add-memory id for warning
+  let selectedAddMemoryId = $state('');
+
+  const selectedAddMemory = $derived(
+    allMemories.find((m) => m.id === selectedAddMemoryId)
+  );
+  const addMemoryWarning = $derived(
+    selectedAddMemory && 'visibility' in selectedAddMemory &&
+    visibilityRank[(selectedAddMemory as any).visibility] < visibilityRank[agent.visibility]
+      ? `This memory is ${visibilityLabel[(selectedAddMemory as any).visibility]} but the agent is ${visibilityLabel[agent.visibility]}. The effective access will be ${visibilityLabel[(selectedAddMemory as any).visibility]}.`
+      : ''
+  );
+
   const memoryIdsInAgent = $derived(new Set((agent.memoryItems ?? []).map((item) => item.memory.id)));
   const allMemories = $derived.by(() => {
     const seen = new Set<string>();
-    const result: Array<{ id: string; urn: string; name: string; orgName?: string }> = [];
+    const result: Array<{ id: string; urn: string; name: string; visibility?: string; orgName?: string }> = [];
     for (const o of (data as any).allOrgs ?? [org]) {
       for (const m of o.memories ?? []) {
         if (!seen.has(m.id)) {
@@ -86,6 +109,16 @@
       {/if}
     </div>
   </div>
+
+  {#if restrictiveMemories.length > 0}
+    <div class="rounded-lg border border-amber-700 bg-amber-950 px-4 py-3 text-sm text-amber-300">
+      Visibility mismatch: this agent is <strong>{visibilityLabel[agent.visibility]}</strong> but
+      {restrictiveMemories.length === 1 ? 'memory' : 'memories'}
+      {restrictiveMemories.map((m) => m.memory.name).join(', ')}
+      {restrictiveMemories.length === 1 ? 'is' : 'are'} more restrictive.
+      Effective access will be limited to the most restrictive level.
+    </div>
+  {/if}
 
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
@@ -178,7 +211,12 @@
                   {/if}
                 </span>
                 <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{item.memory.name}</p>
+                  <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">
+                    {item.memory.name}
+                    {#if visibilityRank[item.memory.visibility] < visibilityRank[agent.visibility]}
+                      <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="More restrictive than agent">{visibilityLabel[item.memory.visibility]}</span>
+                    {/if}
+                  </p>
                   <CopyUrn value={item.memory.urn} size={10} />
                 </div>
                 <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
@@ -200,10 +238,11 @@
         {/if}
 
         {#if availableMemories.length > 0}
-          <form method="POST" action="?/addMemory" use:enhance class="flex items-end gap-3">
+          <form method="POST" action="?/addMemory" use:enhance class="space-y-2">
+            <div class="flex items-end gap-3">
             <div class="flex-1 max-w-md">
               <label for="addMemory" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
-              <select id="addMemory" name="memoryId" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <select id="addMemory" name="memoryId" bind:value={selectedAddMemoryId} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                 {#each availableMemories as m (m.id)}
                   <option value={m.id}>{m.name} ({m.urn}){#if m.orgName && m.orgName !== org.name} — {m.orgName}{/if}</option>
                 {/each}
@@ -217,6 +256,10 @@
               </select>
             </div>
             <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">Add</button>
+            </div>
+            {#if addMemoryWarning}
+              <p class="text-xs text-amber-600 dark:text-amber-400">{addMemoryWarning}</p>
+            {/if}
           </form>
         {:else if allMemories.length === 0}
           <p class="text-xs text-zinc-500">No memories available. Create a memory first.</p>
