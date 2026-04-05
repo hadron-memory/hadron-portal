@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { page } from '$app/stores';
-
   interface Props {
     user?: { githubUsername: string | null; email: string | null; name: string | null; avatarUrl: string | null } | null;
     dark?: boolean;
@@ -9,23 +7,8 @@
 
   let { user, dark = true, onToggleTheme }: Props = $props();
 
-  let menuOpen = $state(false);
-  let menuEl = $state<HTMLDivElement>();
-  const isConsumerMode = $derived(!!$page.data.isConsumerMode);
 
-  function handleClickOutside(e: MouseEvent) {
-    if (menuOpen && menuEl && !menuEl.contains(e.target as Node)) {
-      menuOpen = false;
-    }
-  }
-  const menuLinkClass = $derived(
-    dark
-      ? 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
-      : 'text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900'
-  );
 </script>
-
-<svelte:window onclick={handleClickOutside} />
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
   <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
@@ -66,35 +49,7 @@
         {/if}
       </button>
 
-      {#if user}
-        <div class="relative" bind:this={menuEl}>
-          <button
-            type="button"
-            onclick={() => (menuOpen = !menuOpen)}
-            class="flex items-center gap-2 rounded-full text-sm transition {dark ? 'text-zinc-300 hover:text-white' : 'text-zinc-600 hover:text-zinc-900'}"
-          >
-            {#if user.avatarUrl}
-              <img src={user.avatarUrl} alt={user.name ?? user.githubUsername ?? user.email ?? ''} class="h-7 w-7 rounded-full" />
-            {/if}
-            <span class="hidden sm:inline">{user.name ?? user.githubUsername ?? user.email}</span>
-            <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-              <path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" />
-            </svg>
-          </button>
-
-          {#if menuOpen}
-            <div
-              class="absolute right-0 mt-2 w-44 rounded-lg border py-1 shadow-xl {dark ? 'border-zinc-800 bg-zinc-900' : 'border-zinc-200 bg-white'}"
-              role="menu"
-            >
-              <a href="/app/dashboard" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Dashboard</a>
-              <a href="/app/account" class="block px-4 py-2 text-sm {menuLinkClass}" role="menuitem" onclick={() => (menuOpen = false)}>Account</a>
-              <hr class="my-1 {dark ? 'border-zinc-800' : 'border-zinc-200'}" />
-              <a href="/auth/signout" data-sveltekit-reload class="block px-4 py-2 text-sm {dark ? 'text-zinc-400 hover:bg-zinc-800 hover:text-white' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}" role="menuitem">Sign out</a>
-            </div>
-          {/if}
-        </div>
-      {:else}
+      {#if !user}
         <a
           href="/signin"
           class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-500"
