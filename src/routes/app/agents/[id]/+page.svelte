@@ -146,7 +146,7 @@
   <!-- SETTINGS TAB                                                      -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
-    <div class="max-w-lg space-y-8">
+    <div class="max-w-2xl space-y-8">
       <!-- Properties -->
       {#if agent.properties}
         <section>
