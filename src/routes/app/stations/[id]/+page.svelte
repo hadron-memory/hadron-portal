@@ -183,9 +183,9 @@
   );
   const canDownload = $derived(trimmedLabel.length > 0 && !duplicateKeyName && selectedTools.size > 0);
 
-  // #73: Key preview while typing
+  // #73: Key preview while typing — show sanitized-label/datestamp-placeholder/masked
   const keyPreviewText = $derived(
-    trimmedLabel.length > 0 ? `${sanitizedNewLabel}/••••••••••••/••••••••••••` : ''
+    trimmedLabel.length > 0 ? `${sanitizedNewLabel}/${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)}/••••••••••••` : ''
   );
 
   function toggleTool(value: string) {
@@ -439,7 +439,7 @@ Present the results concisely.
     const dlUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const safeName = sanitizeLabel(keyLabel);
-    a.href = dlUrl; a.download = `hadron-client-key-${safeName}.zip`; a.click();
+    a.href = dlUrl; a.download = `hadron-client-config-${safeName}.zip`; a.click();
     URL.revokeObjectURL(dlUrl);
   }
 
