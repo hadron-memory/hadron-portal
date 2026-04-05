@@ -493,8 +493,8 @@ export const CREATE_STATION_MUTATION = /* GraphQL */ `
 
 export const UPDATE_STATION_MUTATION = /* GraphQL */ `
   ${STATION_FIELDS}
-  mutation UpdateStation($id: ID!, $name: String, $stationType: StationType, $description: String, $agentTools: [String!], $aiProvider: String, $aiModel: String, $aiApiKey: String) {
-    updateStation(id: $id, name: $name, stationType: $stationType, description: $description, agentTools: $agentTools, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
+  mutation UpdateStation($id: ID!, $name: String, $urn: String, $stationType: StationType, $description: String, $agentTools: [String!], $aiProvider: String, $aiModel: String, $aiApiKey: String) {
+    updateStation(id: $id, name: $name, urn: $urn, stationType: $stationType, description: $description, agentTools: $agentTools, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
       ...StationFields
     }
   }
@@ -514,7 +514,7 @@ export const REGENERATE_API_KEY_MUTATION = /* GraphQL */ `
 export const STATION_KEYS_QUERY = /* GraphQL */ `
   query StationKeys($stationId: ID!) {
     stationKeys(stationId: $stationId) {
-      id label lastUsedAt createdAt revokedAt userId
+      id label keyPreview lastUsedAt createdAt revokedAt userId
     }
   }
 `;
@@ -522,7 +522,7 @@ export const STATION_KEYS_QUERY = /* GraphQL */ `
 export const CREATE_STATION_KEY_MUTATION = /* GraphQL */ `
   mutation CreateStationKey($stationId: ID!, $label: String) {
     createStationKey(stationId: $stationId, label: $label) {
-      key { id label createdAt }
+      key { id label keyPreview createdAt }
       rawKey
     }
   }

@@ -160,6 +160,33 @@
 
 
   const activeKeys = $derived(stationKeys.filter((k) => !k.revokedAt));
+  let newKeySectionOpen = $state(false);
+
+  // Sanitize label the same way the server does
+  function sanitizeLabel(label: string): string {
+    return (label || 'key').replace(/[^a-zA-Z0-9._:-]/g, '-').replace(/-+/g, '-').toLowerCase();
+  }
+
+  // Build a masked key display: sanitized-label/datestamp/••••••••last4
+  function maskedKey(label: string | null, createdAt: string, keyPreview: string | null): string {
+    const sanitized = sanitizeLabel(label ?? 'key');
+    const dateStamp = new Date(createdAt).toISOString().replace(/[-:T]/g, '').slice(0, 12);
+    const masked = keyPreview ? `${'••••••••'}${keyPreview}` : '••••••••••••';
+    return `${sanitized}/${dateStamp}/${masked}`;
+  }
+
+  // #73: Validation for new key name
+  const trimmedLabel = $derived(newKeyLabel.trim());
+  const sanitizedNewLabel = $derived(sanitizeLabel(trimmedLabel));
+  const duplicateKeyName = $derived(
+    trimmedLabel.length > 0 && activeKeys.some((k) => sanitizeLabel(k.label ?? 'key') === sanitizedNewLabel)
+  );
+  const canDownload = $derived(trimmedLabel.length > 0 && !duplicateKeyName && selectedTools.size > 0);
+
+  // #73: Key preview while typing
+  const keyPreviewText = $derived(
+    trimmedLabel.length > 0 ? `${sanitizedNewLabel}/••••••••••••/••••••••••••` : ''
+  );
 
   function toggleTool(value: string) {
     if (selectedTools.has(value)) { selectedTools.delete(value); } else { selectedTools.add(value); }
@@ -355,68 +382,70 @@ Present the results concisely.
 
     const hasGlobalTools = tools.includes('WINDSURF') || tools.includes('ANTIGRAVITY');
     const readmeLines = [
-      withClientApp ? 'Hadron Setup (Client App)' : 'Hadron Setup',
-      withClientApp ? '========================' : '===========',
+      'Hadron Client Setup',
+      '========================',
       '',
       'Extract project-level configs into your project root.',
       '',
-      'Your API key is embedded. Keep these files private.',
+      '## Client Key',
+      '```',
+      apiKey,
+      '```',
       '',
-      '─── Connection details ───────────────────────────────',
-      `  URL: ${url}`,
-      `  Key: ${apiKey}`,
+      '!!Note: Keep your client key safe and do not share it with others!',
     ];
 
     if (tools.includes('CLAUDE_CODE'))
       readmeLines.push(
         '',
-        'Claude Code:',
-        '  1. Copy .mcp.json to your project root (MCP server connection)',
-        '  2. Copy hadron-plugin/ into your project and install the plugin:',
-        '     /plugins marketplace add ./hadron-plugin',
-        '     Then install "hadron" from the Plugins tab',
-        '     (This adds skills and hooks — optional but recommended)',
-      );
-    if (tools.includes('COPILOT'))
-      readmeLines.push(
+        '## Claude Code',
         '',
-        'GitHub Copilot:',
-        '  Config: .vscode/mcp.json',
-        '  Docs: https://code.visualstudio.com/docs/copilot/chat/mcp-servers',
+        '1. Copy `.mcp.json` to your project root (MCP server connection)',
+        '2. Copy `hadron-plugin/` into your project',
+        '3. Install the plugin:',
+        '  - In Claude Code, type `/plugins` marketplace add ./hadron-plugin',
+        '  - Install "hadron" from the Plugins tab',
+        '  - Verify that this added skills and hooks — optional but recommended',
       );
     if (tools.includes('CURSOR'))
       readmeLines.push(
         '',
-        'Cursor:',
-        '  Config: .cursor/mcp.json',
-        '  Docs: https://cursor.com/docs/mcp',
+        '## Cursor',
+        '',
+        '-  Config: .cursor/mcp.json',
+        '-  Docs: https://cursor.com/docs/mcp',
       );
     if (hasGlobalTools) {
       readmeLines.push(
         '',
-        'Global-only configs (in the global-configs/ folder):',
-        'These tools only support global MCP configuration.',
-        'Merge the hadron entry into your existing config file.',
+        '**Global-only configs (in the global-configs/ folder):**',
+        '',
+        'These tools only support global MCP configuration. Merge the hadron entry into your ',
+        'existing config file.',
       );
-      if (tools.includes('WINDSURF'))
-        readmeLines.push('', '  Windsurf:', '    Merge into: ~/.codeium/windsurf/mcp_config.json', '    Docs: https://docs.windsurf.com/windsurf/cascade/mcp');
       if (tools.includes('ANTIGRAVITY'))
-        readmeLines.push('', '  Antigravity:', '    Merge into: ~/.antigravity/mcp_config.json', '    Docs: https://antigravity.google/docs/mcp');
+        readmeLines.push(
+          '',
+          '## Antigravity',
+          '',
+          '- Merge into: ~/.antigravity/mcp_config.json',
+          '- Docs: https://antigravity.google/docs/mcp',
+        );
     }
-    if (withClientApp) readmeLines.push('', 'Hadron Client App:', '  See hadron-client docs for client app setup.');
-    zip.file('README.txt', readmeLines.join('\n'));
+    if (withClientApp) readmeLines.push('', '## Hadron Client App', '', 'See hadron-client docs for client app setup.');
+    zip.file('README.md', readmeLines.join('\n'));
 
     const blob = await zip.generateAsync({ type: 'blob' });
     const dlUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const safeName = keyLabel.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').toLowerCase();
-    a.href = dlUrl; a.download = `${safeName}.zip`; a.click();
+    const safeName = sanitizeLabel(keyLabel);
+    a.href = dlUrl; a.download = `hadron-client-key-${safeName}.zip`; a.click();
     URL.revokeObjectURL(dlUrl);
   }
 
   async function downloadSetupZip() {
-    if (!selectedTools.size) return;
-    const label = newKeyLabel.trim() || `Key created on ${new Date().toLocaleDateString()}`;
+    if (!canDownload) return;
+    const label = trimmedLabel;
     downloading = true;
     try {
       const res = await fetch('/api/create-station-key', {
@@ -558,6 +587,11 @@ Present the results concisely.
               </select>
             </div>
             <div>
+              <label for="editUrn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+              <input id="editUrn" name="urn" type="text" value={station.urn} placeholder="e.g. myorg:my-station"
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-mono text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+            </div>
+            <div>
               <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
               <input id="editDescription" name="description" type="text" value={station.description ?? ''} placeholder="What this station is for"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
@@ -576,6 +610,10 @@ Present the results concisely.
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Role</span>
               <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.role}</span>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">URN</span>
+              <span class="text-sm font-mono text-zinc-900 dark:text-white">{station.urn}</span>
             </div>
             {#if station.description}
               <div class="flex items-center justify-between px-5 py-3">
@@ -776,6 +814,7 @@ Present the results concisely.
                   <span class="text-base">🔑</span>
                   <div class="flex-1 min-w-0">
                     <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{key.label ?? 'Unnamed key'}</p>
+                    <p class="font-mono text-xs text-zinc-500 dark:text-zinc-400 truncate">{maskedKey(key.label, key.createdAt, key.keyPreview)}</p>
                     <p class="text-xs text-zinc-400">
                       Created {new Date(key.createdAt).toLocaleDateString()}
                       {#if key.lastUsedAt}
@@ -799,15 +838,32 @@ Present the results concisely.
           {/if}
         </section>
 
-        <!-- New Client Key + Download -->
+        <!-- New Client Key + Download (collapsible when keys exist) -->
         <section>
-          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">New Client Key</h2>
+          {#if activeKeys.length > 0}
+            <button onclick={() => newKeySectionOpen = !newKeySectionOpen} class="mb-3 flex items-center gap-2 font-semibold text-zinc-900 dark:text-white">
+              <svg width="12" height="12" viewBox="0 0 12 12" class="transition-transform {newKeySectionOpen ? 'rotate-90' : ''}">
+                <path d="M4 2 L8 6 L4 10" stroke="currentColor" fill="none" stroke-width="1.5" />
+              </svg>
+              New Client Key
+            </button>
+          {:else}
+            <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">New Client Key</h2>
+          {/if}
+          {#if !activeKeys.length || newKeySectionOpen}
           <div class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
             <!-- Key name -->
             <div>
               <label for="keyLabel" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
               <input id="keyLabel" type="text" bind:value={newKeyLabel} placeholder="e.g. Project A, Alice's laptop"
-                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
+                class="w-full rounded-lg border px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500
+                  {duplicateKeyName ? 'border-red-400 focus:border-red-500 dark:border-red-600' : 'border-zinc-300 focus:border-indigo-500 dark:border-zinc-700'}" />
+              {#if duplicateKeyName}
+                <p class="mt-1 text-xs text-red-400">A key with this name already exists.</p>
+              {/if}
+              {#if keyPreviewText}
+                <p class="mt-1 font-mono text-xs text-zinc-500 dark:text-zinc-400 truncate">{keyPreviewText}</p>
+              {/if}
             </div>
 
             <!-- Plugin selection -->
@@ -847,12 +903,13 @@ Present the results concisely.
             </div>
 
             <!-- Download button -->
-            <button onclick={downloadSetupZip} disabled={downloading || !selectedTools.size}
+            <button onclick={downloadSetupZip} disabled={downloading || !canDownload}
               class="w-full rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
               {downloading ? 'Generating...' : 'Download setup files (.zip)'}
             </button>
             <p class="text-[10px] text-zinc-400">Creates a new client key and downloads a zip with the selected plugin configs. Extract in your project root.</p>
           </div>
+          {/if}
         </section>
 
       {:else}

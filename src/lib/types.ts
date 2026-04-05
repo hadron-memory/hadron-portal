@@ -221,6 +221,7 @@ export interface StationKey {
   stationId: string;
   userId: string;
   label: string | null;
+  keyPreview: string | null;
   lastUsedAt: string | null;
   createdAt: string;
   revokedAt: string | null;
