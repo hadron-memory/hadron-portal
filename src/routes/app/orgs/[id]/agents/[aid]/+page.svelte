@@ -168,7 +168,7 @@
                   <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="More restrictive than agent">{visibilityLabel[item.memory.visibility]}</span>
                 {/if}
               </p>
-              <p class="font-mono text-xs text-zinc-400">{item.memory.urn}</p>
+              <CopyUrn value={item.memory.urn} size={10} />
             </div>
             <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
               <input type="hidden" name="memoryId" value={item.memory.id} />
