@@ -604,7 +604,7 @@ export const STATION_NODES_QUERY = /* GraphQL */ `
       tags
       seq
       isRunnable
-      memory { id urn name }
+      memory { id urn name organizationId }
       outgoingEdges {
         id
         label

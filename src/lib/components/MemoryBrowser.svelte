@@ -1,10 +1,26 @@
 <script lang="ts">
   import TreeView from './TreeView.svelte';
   import TopicGraph from './TopicGraph.svelte';
+  import CopyUrn from './CopyUrn.svelte';
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { onDestroy } from 'svelte';
   import type { MemoryNode } from '$lib/types';
+
+  /** Build the full URN for a node: memory.urn + ":" + loc */
+  function nodeUrn(node: MemoryNode): string {
+    const memUrn = node.memory?.urn ?? '';
+    return memUrn ? `${memUrn}:${node.loc}` : node.loc;
+  }
+
+  /** Build the URL to a node's detail page, or empty if org context is missing */
+  function nodeHref(node: MemoryNode, base: string): string {
+    if (base) return `${base}/nodes/${encodeURIComponent(node.loc)}`;
+    const orgId = node.memory?.organizationId;
+    const memId = node.memory?.id;
+    if (orgId && memId) return `/app/orgs/${orgId}/memories/${memId}/nodes/${encodeURIComponent(node.loc)}`;
+    return '';
+  }
 
   let {
     nodes,
@@ -379,13 +395,15 @@
                           {#if multiMemory}
                             <span class="inline-block h-2 w-2 rounded-full {writableSet.size > 0 && !writableSet.has(node.memoryId) ? 'opacity-30' : ''}" style="background: {memoryColorMap[node.memory?.urn ?? ''] ?? '#8b949e'};"></span>
                           {/if}
-                          {#if basePath}
-                            <a href="{basePath}/nodes/{encodeURIComponent(node.loc)}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{node.name}</a>
+                          {#if nodeHref(node, basePath)}
+                            <a href={nodeHref(node, basePath)} class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{node.name}</a>
                           {:else}
                             <span class="font-medium text-zinc-900 dark:text-white">{node.name}</span>
                           {/if}
                         </div>
-                        <p class="mt-0.5 pl-4 font-mono text-xs text-zinc-500">{node.loc}</p>
+                        <div class="mt-0.5 pl-4 flex items-center gap-1">
+                          <CopyUrn value={nodeUrn(node)} size={10} />
+                        </div>
                       </td>
                       {#if multiMemory}
                         <td class="whitespace-nowrap px-4 py-2.5 text-xs text-zinc-500">{node.memory?.name ?? '—'}</td>

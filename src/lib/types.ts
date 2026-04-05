@@ -137,7 +137,7 @@ export interface MemoryNode {
   isRunnable: boolean | null;
   createdAt: string;
   updatedAt: string;
-  memory?: { id: string; urn: string; name: string } | null;
+  memory?: { id: string; urn: string; name: string; organizationId?: string } | null;
   outgoingEdges: NodeEdge[];
   incomingEdges: NodeEdge[];
 }
@@ -184,7 +184,9 @@ export interface TopicNode {
 }
 
 export interface Topic {
-  id: string;         // loc
+  id: string;         // DB primary key (used as vis-network node ID)
+  loc: string;        // memory-relative path
+  urn: string;        // full URN: memory.urn + ":" + loc
   name: string;
   depth: number;
   description: string;

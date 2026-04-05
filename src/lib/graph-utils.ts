@@ -83,8 +83,11 @@ export function buildGraphViewData(nodes: MemoryNode[]): GraphViewData {
         name: e.target.name,
       }));
 
+    const memoryUrn = n.memory?.urn ?? '';
     topics.push({
       id: n.id, // use DB primary key as graph node ID
+      loc: n.loc,
+      urn: memoryUrn ? `${memoryUrn}:${n.loc}` : n.loc,
       name: n.name,
       depth,
       description: n.description ?? '',

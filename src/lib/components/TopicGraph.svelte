@@ -279,9 +279,11 @@
         <button class="close-btn" onclick={() => (selectedTopic = null)}>&times;</button>
         <div class="detail-title-row">
           <h2>{selectedTopic.name}</h2>
-          <a href="{basePath}/nodes/{encodeURIComponent(selectedTopic.id)}" class="open-link">Open</a>
+          {#if basePath}
+            <a href="{basePath}/nodes/{encodeURIComponent(selectedTopic.loc)}" class="open-link">Open</a>
+          {/if}
         </div>
-        <div class="loc">{selectedTopic.id}</div>
+        <div class="loc">{selectedTopic.urn}</div>
         <span class="domain-badge" style="background: {domainColors[selectedTopic.domain].bg}; color: {domainColors[selectedTopic.domain].font};">
           {selectedTopic.domain}
         </span>
