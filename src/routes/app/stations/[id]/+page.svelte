@@ -401,8 +401,6 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       '   If your hadron-client repo is not at `~/src/hadron-memory/hadron-client`,',
       '   set `HADRON_CLIENT_DIR` in the script or your shell profile.',
       '',
-      '4. **Verify:** `hadron-client stdio` should start without errors (Ctrl-C to stop).',
-      '',
       '## To upgrade',
       '',
       '```bash',
