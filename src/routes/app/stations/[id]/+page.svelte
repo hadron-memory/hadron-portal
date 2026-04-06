@@ -11,6 +11,7 @@
   import type { AIProvider, StationAIConfig } from '$lib/types';
   import Chat from '$lib/components/Chat.svelte';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
+  import hadronConfigSample from '$lib/assets/config.sample.yml?raw';
   import { onMount, onDestroy } from 'svelte';
   import type { PageData, ActionData } from './$types';
 
@@ -359,6 +360,7 @@ Present the results concisely.
 
     // ── Common files ───────────────────────────────────────────────────
     zip.file('.hadron/INSTRUCTIONS.md', INSTRUCTIONS_MD);
+    zip.file('.hadron/config.yml', hadronConfigSample);
 
     // hadron-client wrapper script — must be on PATH for .mcp.json to work
     zip.file('bin/hadron-client',

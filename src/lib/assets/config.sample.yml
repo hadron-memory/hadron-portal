@@ -1,0 +1,39 @@
+# .hadron/config.yml
+#
+# Project-level configuration for Hadron. This file lives in the .hadron/
+# directory at the project root and persists across sessions.
+#
+# Copy this file to config.yml and fill in your values.
+
+# The default Hadron memory URN for this project.
+# Set as the active memory at session start via h-set-active-memory.
+default_memory: baragaun.com:bg-code-gen
+
+# Engineer identity. Used for attribution, script selection, and lookups.
+user:
+  # Hadron user ID. Referenced as createdBy/updatedBy in Hadron objects.
+  user_id: your-hadron-user-id
+
+  # Your username. Used to select engineer-specific scripts
+  # (e.g., tools/bg-code-gen/bg-code-gen-<username>.sh).
+  username: your-username
+
+  # Email address. Used for commit attribution and notifications.
+  email: "you@example.org"
+
+  # GitHub username. Used for GitHub operations (PRs, issues, etc.).
+  github_username: "your-github-handle"
+
+# Code generator configuration (optional, only needed if this project
+# uses the Baragaun Code Generator).
+bg_code_gen:
+  # Projects involved in code generation. Each entry specifies a project
+  # name and its absolute path on disk.
+  related_projects:
+    # The code generator itself.
+    - name: bg-code-gen
+      path: /path/to/bg-code-gen
+
+    # Additional target projects that receive generated output.
+    # - name: my-client-lib
+    #   path: /path/to/my-client-lib
