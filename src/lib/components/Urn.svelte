@@ -22,13 +22,13 @@
   const fullUrn = $derived(displayType ? `urn:${displayType}:${bareValue}` : bareValue);
   const lastSegment = $derived(bareValue.split(':').pop() ?? bareValue);
 
-  // Type badge: colored background with white/light text
+  // Type badge: slightly darker tinted background, subtle contrast with value
   const typeBadge: Record<string, string> = {
-    org: 'bg-zinc-500 text-white dark:bg-zinc-500 dark:text-white',
-    memory: 'bg-blue-600 text-white dark:bg-blue-500 dark:text-white',
-    agent: 'bg-purple-600 text-white dark:bg-purple-500 dark:text-white',
-    station: 'bg-green-600 text-white dark:bg-green-500 dark:text-white',
-    node: 'bg-indigo-600 text-white dark:bg-indigo-500 dark:text-white',
+    org: 'bg-zinc-300 text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200',
+    memory: 'bg-sky-200 text-sky-800 dark:bg-sky-800 dark:text-sky-200',
+    agent: 'bg-teal-200 text-teal-800 dark:bg-teal-800 dark:text-teal-200',
+    station: 'bg-amber-200 text-amber-800 dark:bg-amber-800 dark:text-amber-200',
+    node: 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200',
   };
 
   function copy() {
