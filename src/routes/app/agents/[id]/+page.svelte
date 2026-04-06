@@ -85,10 +85,8 @@
   <!-- Header -->
   <div class="flex items-start justify-between">
     <div>
-      <div class="flex items-center gap-3">
-        <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Agent:</span> {agent.name}</h1>
-        <Urn value={agent.urn} type="agent" />
-      </div>
+      <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Agent:</span> {agent.name}</h1>
+      <Urn value={agent.urn} type="agent" />
       {#if agent.description}
         <p class="mt-1 text-sm text-zinc-500">{agent.description}</p>
       {/if}

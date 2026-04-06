@@ -562,7 +562,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
     <div>
       <h1 class="flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
         <span>{typeIcon[station.stationType] ?? '🔑'}</span>
-        {station.name}
+        <span><span class="text-zinc-400 font-normal">Station:</span> {station.name}</span>
         {#if !hasWritableMemory && (station.agentSubscriptions?.length ?? 0) > 0}
           <span class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">read-only</span>
         {/if}
