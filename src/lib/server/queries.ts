@@ -746,8 +746,8 @@ export const UPSERT_NODE_MUTATION = /* GraphQL */ `
 `;
 
 export const DELETE_NODE_MUTATION = /* GraphQL */ `
-  mutation DeleteNode($loc: String!) {
-    deleteNode(loc: $loc)
+  mutation DeleteNode($loc: String!, $memoryId: String!) {
+    deleteNode(loc: $loc, memoryId: $memoryId)
   }
 `;
 
