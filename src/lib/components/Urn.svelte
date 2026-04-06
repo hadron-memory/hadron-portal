@@ -46,7 +46,7 @@
       {#if displayType}
         <span class="px-1.5 py-0.5 font-medium {typeBadge[displayType] ?? typeBadge.org}">{displayType}:</span>
       {/if}
-      <span class="bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{bareValue}</span>
+      <span class="bg-zinc-200 px-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">{bareValue}</span>
     {/if}
   </code>
   <button onclick={copy} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
