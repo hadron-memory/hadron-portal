@@ -20,18 +20,15 @@
   const displayType = $derived(parsed.type);
   const bareValue = $derived(parsed.bare);
   const fullUrn = $derived(displayType ? `urn:${displayType}:${bareValue}` : bareValue);
+  const lastSegment = $derived(bareValue.split(':').pop() ?? bareValue);
 
-  // Split segments for visual rendering
-  const segments = $derived(bareValue.split(':'));
-  const lastSegment = $derived(segments[segments.length - 1]);
-
-  // Type badge colors
-  const badgeClass: Record<string, string> = {
-    org: 'bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300',
-    memory: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
-    agent: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
-    station: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-    node: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300',
+  // Type-specific accent for the prefix portion
+  const typeColor: Record<string, string> = {
+    org: 'text-zinc-500 dark:text-zinc-400',
+    memory: 'text-blue-600 dark:text-blue-400',
+    agent: 'text-purple-600 dark:text-purple-400',
+    station: 'text-green-600 dark:text-green-400',
+    node: 'text-indigo-600 dark:text-indigo-400',
   };
 
   function copy() {
@@ -42,26 +39,17 @@
 </script>
 
 <span class="inline-flex items-center gap-1">
-  {#if displayType}
-    <span class="rounded px-1 py-0.5 font-mono text-[10px] font-medium leading-none {badgeClass[displayType] ?? badgeClass.org}">{displayType}</span>
-  {/if}
-  {#if compact}
-    <code class="font-mono text-xs text-zinc-500 dark:text-zinc-400" title={fullUrn}>{lastSegment}</code>
-  {:else}
-    <code class="font-mono text-xs">
-      {#each segments as seg, i}
-        {#if i > 0}<span class="text-zinc-300 dark:text-zinc-600">:</span>{/if}
-        {#if displayType === 'node' && i < 2}
-          <span class="text-zinc-400 dark:text-zinc-500">{seg}</span>
-        {:else if i < segments.length - 1}
-          <span class="text-zinc-400 dark:text-zinc-500">{seg}</span>
-        {:else}
-          <span class="text-zinc-600 dark:text-zinc-300">{seg}</span>
-        {/if}
-      {/each}
-    </code>
-  {/if}
-  <button onclick={copy} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy {displayType ? `urn:${displayType}:` : ''}{bareValue}">
+  <code class="inline-flex items-center rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs leading-tight dark:bg-zinc-800">
+    {#if compact}
+      <span class="text-zinc-600 dark:text-zinc-300" title={fullUrn}>{lastSegment}</span>
+    {:else}
+      {#if displayType}
+        <span class="{typeColor[displayType] ?? typeColor.org} font-medium">{displayType}:</span>
+      {/if}
+      <span class="text-zinc-600 dark:text-zinc-300">{bareValue}</span>
+    {/if}
+  </code>
+  <button onclick={copy} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
     {#if copied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
