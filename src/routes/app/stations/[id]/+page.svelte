@@ -413,7 +413,15 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       '',
       '## Project Setup',
       '',
-      'Copy these files into your project root:',
+      '### Hadron config',
+      '',
+      '1. Copy `.hadron/` into your project root',
+      '2. Edit `.hadron/config.yml` — fill in your `default_memory`, user details, etc.',
+      '3. `.hadron/INSTRUCTIONS.md` is read by AI agents — no edits needed',
+      '',
+      '### AI tool configs',
+      '',
+      'Copy the relevant config files into your project root:',
     ];
 
     if (tools.includes('CLAUDE_CODE'))
