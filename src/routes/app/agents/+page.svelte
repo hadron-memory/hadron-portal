@@ -1,5 +1,5 @@
 <script lang="ts">
-  import CopyUrn from '$lib/components/CopyUrn.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();

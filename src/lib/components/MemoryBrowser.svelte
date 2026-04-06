@@ -1,7 +1,7 @@
 <script lang="ts">
   import TreeView from './TreeView.svelte';
   import TopicGraph from './TopicGraph.svelte';
-  import CopyUrn from './CopyUrn.svelte';
+  import Urn from './Urn.svelte';
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { onDestroy } from 'svelte';
@@ -402,7 +402,7 @@
                           {/if}
                         </div>
                         <div class="mt-0.5 pl-4 flex items-center gap-1">
-                          <CopyUrn value={nodeUrn(node)} size={10} />
+                          <Urn value={nodeUrn(node)} type="node" size={10} />
                         </div>
                       </td>
                       {#if multiMemory}

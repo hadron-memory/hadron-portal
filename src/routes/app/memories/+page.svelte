@@ -1,5 +1,5 @@
 <script lang="ts">
-  import CopyUrn from '$lib/components/CopyUrn.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -54,7 +54,7 @@
         >
           <div class="flex-1 min-w-0">
             <p class="text-sm font-semibold text-indigo-600 dark:text-indigo-300">{memory.name}</p>
-            <CopyUrn value={memory.urn} size={10} />
+            <Urn value={memory.urn} type="memory" size={10} />
             {#if memory.shortDescription}
               <p class="mt-1 text-xs text-zinc-500">{memory.shortDescription}</p>
             {/if}

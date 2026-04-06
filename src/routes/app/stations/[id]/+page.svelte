@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { env } from '$env/dynamic/public';
   import JSZip from 'jszip';
-  import CopyUrn from '$lib/components/CopyUrn.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import { chatContext } from '$lib/stores/chat-context';
@@ -552,7 +552,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           <span class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">read-only</span>
         {/if}
       </h1>
-      <CopyUrn value={station.urn} />
+      <Urn value={station.urn} type="station" />
     </div>
   </div>
 
@@ -717,7 +717,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                 <span class="text-base">🤖</span>
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{sub.agent.name}</p>
-                  <CopyUrn value={sub.agent.urn} size={10} />
+                  <Urn value={sub.agent.urn} type="agent" size={10} />
                 </div>
                 <form method="POST" action="?/subscribe" use:enhance class="shrink-0">
                   <input type="hidden" name="agentId" value={sub.agent.id} />
@@ -778,7 +778,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                 <span class="text-base">🧠</span>
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{mem.name}</p>
-                  <CopyUrn value={mem.urn} size={10} />
+                  <Urn value={mem.urn} type="memory" size={10} />
                 </div>
                 <span class="shrink-0 rounded-full px-2 py-0.5 text-xs {mem.access === 'read-write' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'}">{mem.access}</span>
                 <span class="text-xs text-zinc-400">via {mem.agentName}</span>

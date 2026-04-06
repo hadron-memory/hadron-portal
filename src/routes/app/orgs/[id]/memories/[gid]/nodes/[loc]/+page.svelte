@@ -2,7 +2,7 @@
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { onMount } from 'svelte';
-  import CopyUrn from '$lib/components/CopyUrn.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
 
@@ -219,7 +219,7 @@
   {/if}
 
   <!-- URN -->
-  <CopyUrn value={fullUrn} />
+  <Urn value={fullUrn} type="node" />
 
   {#if node.description}
     <p class="text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>

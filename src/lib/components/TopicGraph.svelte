@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
   import type { GraphViewData, Topic } from "$lib/types";
-  import CopyUrn from "./CopyUrn.svelte";
+  import Urn from "./Urn.svelte";
   import { graphState } from "./GraphState.svelte.js";
 
   let { data, focusId, basePath }: { data: GraphViewData; focusId?: string; basePath: string } = $props();
@@ -284,7 +284,7 @@
             <a href="{basePath}/nodes/{encodeURIComponent(selectedTopic.loc)}" class="open-link">Open</a>
           {/if}
         </div>
-        <div class="loc"><CopyUrn value={selectedTopic.urn} size={10} /></div>
+        <div class="loc"><Urn value={selectedTopic.urn} type="node" size={10} /></div>
         <span class="domain-badge" style="background: {domainColors[selectedTopic.domain].bg}; color: {domainColors[selectedTopic.domain].font};">
           {selectedTopic.domain}
         </span>

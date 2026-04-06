@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import CopyUrn from '$lib/components/CopyUrn.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import type { PageData, ActionData } from './$types';
@@ -87,7 +87,7 @@
     <div>
       <div class="flex items-center gap-3">
         <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Agent:</span> {agent.name}</h1>
-        <CopyUrn value={agent.urn} />
+        <Urn value={agent.urn} type="agent" />
       </div>
       {#if agent.description}
         <p class="mt-1 text-sm text-zinc-500">{agent.description}</p>
@@ -217,7 +217,7 @@
                       <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="More restrictive than agent">{visibilityLabel[item.memory.visibility]}</span>
                     {/if}
                   </p>
-                  <CopyUrn value={item.memory.urn} size={10} />
+                  <Urn value={item.memory.urn} type="memory" size={10} />
                 </div>
                 <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
                   <input type="hidden" name="memoryId" value={item.memory.id} />

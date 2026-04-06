@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
-  import CopyUrn from '$lib/components/CopyUrn.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { LayoutData } from './$types';
 
@@ -28,7 +28,7 @@
       { label: data.graph.name },
     ]} />
     <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Memory: {data.graph.name}</h1>
-    <CopyUrn value={data.graph.urn} />
+    <Urn value={data.graph.urn} type="memory" />
   </div>
   {/if}
 
