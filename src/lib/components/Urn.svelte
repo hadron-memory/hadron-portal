@@ -22,14 +22,8 @@
   const fullUrn = $derived(displayType ? `urn:${displayType}:${bareValue}` : bareValue);
   const lastSegment = $derived(bareValue.split(':').pop() ?? bareValue);
 
-  // Type badge: slightly darker tinted background, subtle contrast with value
-  const typeBadge: Record<string, string> = {
-    org: 'bg-zinc-300 text-zinc-700 dark:bg-zinc-600 dark:text-zinc-200',
-    memory: 'bg-sky-200 text-sky-800 dark:bg-sky-800 dark:text-sky-200',
-    agent: 'bg-teal-200 text-teal-800 dark:bg-teal-800 dark:text-teal-200',
-    station: 'bg-amber-200 text-amber-800 dark:bg-amber-800 dark:text-amber-200',
-    node: 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200',
-  };
+  // Type badge: uniform style across all types
+  const typeBadgeClass = 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200';
 
   function copy() {
     navigator.clipboard.writeText(fullUrn);
@@ -44,9 +38,9 @@
       <span class="bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={fullUrn}>{lastSegment}</span>
     {:else}
       {#if displayType}
-        <span class="px-1.5 py-0.5 font-medium {typeBadge[displayType] ?? typeBadge.org}">{displayType}:</span>
+        <span class="pl-1.5 pr-0.5 py-0.5 font-medium {typeBadgeClass}">{displayType}:</span>
       {/if}
-      <span class="bg-zinc-200 px-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">{bareValue}</span>
+      <span class="bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">{bareValue}</span>
     {/if}
   </code>
   <button onclick={copy} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">

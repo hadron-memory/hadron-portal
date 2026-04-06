@@ -11,7 +11,6 @@
   import type { AIProvider, StationAIConfig } from '$lib/types';
   import Chat from '$lib/components/Chat.svelte';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
-  import hadronConfigSample from '$lib/assets/config.sample.yml?raw';
   import { onMount, onDestroy } from 'svelte';
   import type { PageData, ActionData } from './$types';
 
@@ -205,9 +204,13 @@
   // ── Per-tool MCP config generators ────────────────────────────────────
 
   // Claude Code: .mcp.json (project root)
-  // Uses stdio transport — hadron-client launched as subprocess
-  function claudeCodeMcpConfig(_url: string, apiKey: string) {
-    return { mcpServers: { hadron: { command: 'hadron-client', args: ['stdio'], env: { HADRON_CLIENT_KEY: apiKey } } } };
+  function claudeCodeMcpConfig(url: string, apiKey: string, useClientApp: boolean) {
+    if (useClientApp) {
+      // stdio transport — hadron-client launched as subprocess
+      return { mcpServers: { hadron: { command: 'hadron-client', args: ['stdio'], env: { HADRON_CLIENT_KEY: apiKey } } } };
+    }
+    // Direct HTTP transport — connect to remote MCP server
+    return { mcpServers: { hadron: { type: 'http', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
   }
 
   // GitHub Copilot: .vscode/mcp.json (project)
@@ -267,7 +270,7 @@
       }
 
       // MCP config — goes at project root as .mcp.json (plugin MCP server loading is unreliable)
-      const mcpConfig = claudeCodeMcpConfig(url, apiKey);
+      const mcpConfig = claudeCodeMcpConfig(url, apiKey, withClientApp);
 
       // Marketplace manifest (required for /plugins marketplace add)
       const marketplaceManifest = {
@@ -329,7 +332,7 @@ Present the results concisely.
 
     // ── Claude Code: also add standalone .mcp.json as fallback ─────────
     if (tools.includes('CLAUDE_CODE'))
-      zip.file('.mcp.json', JSON.stringify(claudeCodeMcpConfig(url, apiKey), null, 2));
+      zip.file('.mcp.json', JSON.stringify(claudeCodeMcpConfig(url, apiKey, withClientApp), null, 2));
     if (tools.includes('COPILOT'))
       zip.file('.vscode/mcp.json', JSON.stringify(copilotMcpConfig(url, apiKey), null, 2));
     if (tools.includes('CURSOR'))
@@ -360,7 +363,27 @@ Present the results concisely.
 
     // ── Common files ───────────────────────────────────────────────────
     zip.file('.hadron/INSTRUCTIONS.md', INSTRUCTIONS_MD);
-    zip.file('.hadron/config.yml', hadronConfigSample);
+
+    // Generate config.yml with user fields populated from the signed-in user
+    const user = data.user;
+    const configYml = [
+      '# .hadron/config.yml',
+      '#',
+      '# Project-level configuration for Hadron. This file lives in the .hadron/',
+      '# directory at the project root and persists across sessions.',
+      '',
+      '# The default Hadron memory URN for this project.',
+      '# Set as the active memory at session start via h-set-active-memory.',
+      'default_memory:',
+      '',
+      '# Engineer identity. Used for attribution, script selection, and lookups.',
+      'user:',
+      `  user_id: ${user?.id ?? ''}`,
+      `  username: ${user?.name ?? ''}`,
+      `  email: "${user?.email ?? ''}"`,
+      `  github_username: "${user?.githubUsername ?? ''}"`,
+    ].join('\n');
+    zip.file('.hadron/config.yml', configYml);
 
     // hadron-client wrapper script — must be on PATH for .mcp.json to work
     zip.file('bin/hadron-client',
@@ -427,12 +450,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         '',
         '### Claude Code',
         '',
-        '1. Copy `.mcp.json` to your project root',
-        '2. Install the plugin:',
-        '   ```',
-        '   /plugins marketplace add ./.hadron/plugin',
-        '   ```',
-        '   Then install "hadron" from the Plugins tab.',
+        '- Copy `.mcp.json` to your project root',
       );
     if (tools.includes('COPILOT'))
       readmeLines.push(
