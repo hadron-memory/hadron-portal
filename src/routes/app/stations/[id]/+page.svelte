@@ -283,13 +283,13 @@
         }],
       };
 
-      zip.file('hadron-plugin/.claude-plugin/marketplace.json', JSON.stringify(marketplaceManifest, null, 2));
-      zip.file('hadron-plugin/plugins/hadron/.claude-plugin/plugin.json', JSON.stringify(pluginManifest, null, 2));
+      zip.file('.hadron/plugin/.claude-plugin/marketplace.json', JSON.stringify(marketplaceManifest, null, 2));
+      zip.file('.hadron/plugin/plugins/hadron/.claude-plugin/plugin.json', JSON.stringify(pluginManifest, null, 2));
       // MCP config at project root — user copies this to their project
       zip.file('.mcp.json', JSON.stringify(mcpConfig, null, 2));
 
       // Add a getting-started skill
-      zip.file('hadron-plugin/plugins/hadron/skills/get-started/SKILL.md',
+      zip.file('.hadron/plugin/plugins/hadron/skills/get-started/SKILL.md',
 `---
 name: get-started
 description: Learn how to use Hadron knowledge memory in this project
@@ -315,7 +315,7 @@ When you learn something new, save it with h-create-node or h-update-node.
 `);
 
       // Add a search skill
-      zip.file('hadron-plugin/plugins/hadron/skills/search/SKILL.md',
+      zip.file('.hadron/plugin/plugins/hadron/skills/search/SKILL.md',
 `---
 name: search
 description: Search the Hadron knowledge graph
@@ -351,7 +351,7 @@ Present the results concisely.
 
     // ── Client App extras ──────────────────────────────────────────────
     if (withClientApp) {
-      // Hooks for Claude Code are now in the plugin manifest (hadron-plugin/.claude-plugin/plugin.json)
+      // Hooks for Claude Code are now in the plugin manifest (.hadron/plugin/.claude-plugin/plugin.json)
       // For non-plugin users, also provide standalone settings.json
       if (tools.includes('CLAUDE_CODE'))
         zip.file('.claude/settings.json', JSON.stringify(claudeCodeHooksConfig(), null, 2));
@@ -428,10 +428,9 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         '### Claude Code',
         '',
         '1. Copy `.mcp.json` to your project root',
-        '2. Copy `hadron-plugin/` into your project',
-        '3. Install the plugin:',
+        '2. Install the plugin:',
         '   ```',
-        '   /plugins marketplace add ./hadron-plugin',
+        '   /plugins marketplace add ./.hadron/plugin',
         '   ```',
         '   Then install "hadron" from the Plugins tab.',
       );
