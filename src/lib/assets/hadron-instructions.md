@@ -34,12 +34,16 @@ You have access to these tools via the Hadron MCP server:
 
 ### Reading & Searching
 
-| Tool | Description |
-|------|-------------|
-| `h-read-node` | Read a node by its rel path |
-| `h-find-nodes` | Search nodes by name, tags, or description |
-| `h-list-nodes` | Browse the tree structure of a memory |
-| `h-set-active-memory` | Set which memory you're working in |
+| Tool                  | Description                                                                  |
+|-----------------------|------------------------------------------------------------------------------|
+| `h-read-node`         | Read a node by its rel path                                                  |
+| `h-read-next-node`    | If a node is an item in an ordered list of nodes (`Node.seq`), read the next |
+| `h-find-nodes`        | Search nodes by name, tags, or description                                   |
+| `h-list-nodes`        | Browse the tree structure of a memory                                        |
+| `h-set-active-memory` | Set which memory you're working in                                           |
+
+When setting the active memory with `h-set-active-memory`, set the URN of that memory
+also in the local config file at `.hadron/config.yml`.
 
 ### Writing & Editing
 
@@ -84,12 +88,21 @@ and prevent drift between sessions. Common spec topics include:
 
 ## Node Paths
 
-Node paths use colon-delimited segments: `specs:station-key-composition`.
+`Node.rel` is the path of a node and uses colon-delimited segments:
+`specs:station-key-composition`.
+
 When using tools, you can pass either:
 
-- **Relative paths** (e.g. `specs:auth-flow`) — used for reads
+- **rel** (e.g. `specs:auth-flow`) — used for reads
 - **Full URNs** (e.g. `hadronmemory.com:dev:specs:auth-flow`) — used for writes
   and when the active memory isn't set
 
 If you've set an active memory with `h-set-active-memory`, the tools handle
 the conversion automatically.
+
+## Review
+
+If the active memory has a `Review` parent node, the children nodes are an ordered
+list of nodes that contain instructions on how to review work that has been performed
+with the use of this memory. When the user asks to review the work, look up
+the review nodes and go through the instructions in the order of the nodes. 
