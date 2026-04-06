@@ -22,13 +22,13 @@
   const fullUrn = $derived(displayType ? `urn:${displayType}:${bareValue}` : bareValue);
   const lastSegment = $derived(bareValue.split(':').pop() ?? bareValue);
 
-  // Type-specific accent for the prefix portion
-  const typeColor: Record<string, string> = {
-    org: 'text-zinc-500 dark:text-zinc-400',
-    memory: 'text-blue-600 dark:text-blue-400',
-    agent: 'text-purple-600 dark:text-purple-400',
-    station: 'text-green-600 dark:text-green-400',
-    node: 'text-indigo-600 dark:text-indigo-400',
+  // Type badge: colored background with white/light text
+  const typeBadge: Record<string, string> = {
+    org: 'bg-zinc-500 text-white dark:bg-zinc-500 dark:text-white',
+    memory: 'bg-blue-600 text-white dark:bg-blue-500 dark:text-white',
+    agent: 'bg-purple-600 text-white dark:bg-purple-500 dark:text-white',
+    station: 'bg-green-600 text-white dark:bg-green-500 dark:text-white',
+    node: 'bg-indigo-600 text-white dark:bg-indigo-500 dark:text-white',
   };
 
   function copy() {
@@ -39,14 +39,14 @@
 </script>
 
 <span class="inline-flex items-center gap-1">
-  <code class="inline-flex items-center rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs leading-tight dark:bg-zinc-800">
+  <code class="inline-flex items-center overflow-hidden rounded font-mono text-xs leading-tight">
     {#if compact}
-      <span class="text-zinc-600 dark:text-zinc-300" title={fullUrn}>{lastSegment}</span>
+      <span class="bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={fullUrn}>{lastSegment}</span>
     {:else}
       {#if displayType}
-        <span class="{typeColor[displayType] ?? typeColor.org} font-medium">{displayType}:</span>
+        <span class="px-1.5 py-0.5 font-medium {typeBadge[displayType] ?? typeBadge.org}">{displayType}:</span>
       {/if}
-      <span class="text-zinc-600 dark:text-zinc-300">{bareValue}</span>
+      <span class="bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{bareValue}</span>
     {/if}
   </code>
   <button onclick={copy} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
