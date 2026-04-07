@@ -5,15 +5,24 @@ import type { MemoryNode, TreeEntry, Topic, FolderNode, HierEdge, GraphViewData 
  * Synthesizes virtual folder nodes for intermediate paths that have no real node.
  * Uses node.id as the entry ID to avoid collisions across memories.
  */
-export function buildTreeEntries(nodes: MemoryNode[]): TreeEntry[] {
-  // For tree view, we still organize by loc hierarchy but use node.id as the entry ID.
-  // When multiple nodes share a loc, each gets its own entry with a unique ID.
-  const locSet = new Set(nodes.map((n) => n.loc));
+export function buildTreeEntries(nodes: MemoryNode[], memoryUrn?: string): TreeEntry[] {
+  // Strip memory URN prefix from locs if present (some nodes may have the
+  // memory URN baked into their loc, e.g. "micromentor.org:mmdata:tasks"
+  // instead of just "tasks")
+  function normalizeLoc(loc: string): string {
+    if (memoryUrn && loc.startsWith(memoryUrn + ':')) {
+      return loc.slice(memoryUrn.length + 1);
+    }
+    return loc;
+  }
+
+  const normalized = nodes.map((n) => ({ ...n, loc: normalizeLoc(n.loc) }));
+  const locSet = new Set(normalized.map((n) => n.loc));
   const entries: TreeEntry[] = [];
   const seenVirtual = new Set<string>();
 
   // Sort by loc for consistent ordering
-  const sorted = [...nodes].sort((a, b) => a.loc.localeCompare(b.loc));
+  const sorted = [...normalized].sort((a, b) => a.loc.localeCompare(b.loc));
 
   for (const n of sorted) {
     // Synthesize virtual parents that don't have a real node
@@ -58,7 +67,14 @@ export function buildTreeEntries(nodes: MemoryNode[]): TreeEntry[] {
  * Build GraphViewData from a flat list of MemoryNode[] for the TopicGraph component.
  * Uses node.id (DB primary key) as the graph node ID to avoid collisions across memories.
  */
-export function buildGraphViewData(nodes: MemoryNode[]): GraphViewData {
+export function buildGraphViewData(nodes: MemoryNode[], memoryUrn?: string): GraphViewData {
+  // Strip memory URN prefix from locs if present
+  if (memoryUrn) {
+    const prefix = memoryUrn + ':';
+    nodes = nodes.map((n) =>
+      n.loc.startsWith(prefix) ? { ...n, loc: n.loc.slice(prefix.length) } : n,
+    );
+  }
   const idSet = new Set(nodes.map((n) => n.id));
   const locToId = new Map<string, string>(); // loc → first node.id at that loc
   const topics: Topic[] = [];

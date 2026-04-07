@@ -23,8 +23,8 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   // Filter nodes to this memory
   const memoryNodes = nodesData.nodes.filter((n) => n.memoryId === params.gid);
 
-  const treeEntries = buildTreeEntries(memoryNodes);
-  const graphViewData = buildGraphViewData(memoryNodes);
+  const treeEntries = buildTreeEntries(memoryNodes, memory.urn);
+  const graphViewData = buildGraphViewData(memoryNodes, memory.urn);
 
   // Build usage map: nodeLoc → { type → count }
   const usageByNode: Record<string, Record<string, number>> = {};

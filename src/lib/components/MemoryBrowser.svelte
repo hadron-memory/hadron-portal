@@ -169,8 +169,13 @@
   );
 
   // ── Derived views ─────────────────────────────────────────────────────
-  const rawGraphViewData = $derived(buildGraphViewData(filteredNodes));
-  const treeEntries = $derived(buildTreeEntries(filteredNodes));
+  // Derive single memory URN for loc normalization (only when all nodes share one memory)
+  const singleMemoryUrn = $derived.by(() => {
+    const urns = new Set(filteredNodes.map((n) => n.memory?.urn).filter(Boolean));
+    return urns.size === 1 ? [...urns][0] : undefined;
+  });
+  const rawGraphViewData = $derived(buildGraphViewData(filteredNodes, singleMemoryUrn));
+  const treeEntries = $derived(buildTreeEntries(filteredNodes, singleMemoryUrn));
 
   // Color rules: multiple memories → color by memory; multiple selected types → color by type; otherwise same color
   const graphViewData = $derived.by(() => {
