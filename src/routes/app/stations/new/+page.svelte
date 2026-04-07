@@ -100,30 +100,13 @@
         class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
     </div>
 
-<fieldset>
-      <legend class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AI agent tools <span class="text-zinc-500">(select the tools this station will use)</span></legend>
-      <div class="space-y-2">
-        {#each [
-          { value: 'CLAUDE_CODE', label: 'Claude Code' },
-          { value: 'CURSOR', label: 'Cursor' },
-          { value: 'WINDSURF', label: 'Windsurf' },
-          { value: 'CLAUDE_DESKTOP', label: 'Claude Desktop' },
-          { value: 'CODEX', label: 'Codex CLI' },
-          { value: 'CLINE', label: 'Cline' },
-        ] as tool (tool.value)}
-          <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-            <input type="checkbox" name="agentTools" value={tool.value}
-              class="rounded border-zinc-300 bg-white text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
-            {tool.label}
-          </label>
-        {/each}
-      </div>
-    </fieldset>
-
     <div>
-      <label for="expiresAt" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Expires <span class="text-zinc-500">(optional)</span></label>
-      <input id="expiresAt" name="expiresAt" type="date"
-        class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+      <label for="visibility" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
+      <select id="visibility" name="visibility" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+        <option value="PRIVATE" selected>Private</option>
+        <option value="ORGANIZATION">Organization</option>
+        <option value="PUBLIC">Public</option>
+      </select>
     </div>
 
     <button type="submit" class="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500">
