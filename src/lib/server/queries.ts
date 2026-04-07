@@ -738,6 +738,15 @@ export const NODE_QUERY = /* GraphQL */ `
   }
 `;
 
+export const NODE_BY_ID_QUERY = /* GraphQL */ `
+  ${NODE_FIELDS}
+  query NodeById($id: ID!) {
+    nodeById(id: $id) {
+      ...NodeFields
+    }
+  }
+`;
+
 export const UPSERT_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
   mutation UpsertNode($input: NodeInput!) {
@@ -788,7 +797,7 @@ export const MY_MEMORIES_QUERY = /* GraphQL */ `
 
 export const MOVE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
-  mutation MoveNode($from: String!, $to: String!) {
-    moveNode(from: $from, to: $to) { ...NodeFields }
+  mutation MoveNode($from: String!, $to: String!, $memoryId: String!) {
+    moveNode(from: $from, to: $to, memoryId: $memoryId) { ...NodeFields }
   }
 `;

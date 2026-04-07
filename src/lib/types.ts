@@ -171,6 +171,7 @@ export interface UsageEvent {
 
 export interface TreeEntry {
   id: string;       // loc
+  nodeId: string | null;  // DB primary key (null for virtual nodes)
   name: string;
   seq: number | null;
   hasActions: boolean;

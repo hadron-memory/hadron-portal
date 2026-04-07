@@ -23,6 +23,7 @@
     const parts = node.loc.split(':');
     return parts.length > 1 ? parts.slice(0, -1).join(':') : null;
   });
+  const parentNode = $derived(parentLoc ? data.graphNodes.find((n) => n.loc === parentLoc) : null);
   const parentName = $derived(parentLoc ? parentLoc.split(':').pop() : null);
 
   let showSource = $state(false);
@@ -213,7 +214,7 @@
       <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">runnable</span>
     {/if}
     <a href="{basePath}/browse?focus={encodeURIComponent(node.loc)}" class="ml-auto rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Graph</a>
-    <a href="{basePath}/nodes/{encodeURIComponent(node.loc)}/edit" class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</a>
+    <a href="{basePath}/nodes/{node.id}/edit" class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</a>
     {#if !confirmDelete}
       <button class="rounded-md border border-red-300 px-3 py-1 text-xs text-red-500 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950" onclick={() => confirmDelete = true}>Delete</button>
     {:else}
@@ -233,7 +234,7 @@
   <Urn value={fullUrn} type="node" />
 
   {#if parentLoc}
-    <p class="text-sm text-zinc-500">Parent: <a href="{basePath}/nodes/{encodeURIComponent(parentLoc)}" class="text-indigo-500 hover:underline dark:text-indigo-400">{parentName}</a></p>
+    <p class="text-sm text-zinc-500">Parent: {#if parentNode}<a href="{basePath}/nodes/{parentNode.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{parentName}</a>{:else}<span>{parentName}</span>{/if}</p>
   {/if}
 
   {#if node.description}
@@ -293,7 +294,7 @@
             ondragend={() => childrenReorderable && resetChildDrag()}
           >
             <a
-              href="{basePath}/nodes/{encodeURIComponent(child.loc)}"
+              href="{basePath}/nodes/{child.id}"
               class="flex items-center gap-3 bg-white px-3 py-2 text-sm hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800 rounded-lg"
             >
               <span class="inline-block h-2 w-2 {child.seq !== null ? 'rounded-sm' : 'rounded-full'} {child.isRunnable ? 'bg-green-500' : 'bg-indigo-400'}"></span>
@@ -312,7 +313,7 @@
         <div class="mb-4 space-y-1">
           {#each node.outgoingEdges as edge}
             <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-              <a href="{basePath}/nodes/{encodeURIComponent(edge.target.loc)}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.target.name || edge.target.loc}</a>
+              <a href="{basePath}/nodes/{edge.target.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.target.name || edge.target.loc}</a>
               {#if edge.label}<span class="text-zinc-500">{edge.label}</span>{/if}
             </div>
           {/each}
@@ -323,7 +324,7 @@
         <div class="space-y-1">
           {#each node.incomingEdges as edge}
             <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-              <a href="{basePath}/nodes/{encodeURIComponent(edge.source.loc)}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.source.name || edge.source.loc}</a>
+              <a href="{basePath}/nodes/{edge.source.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.source.name || edge.source.loc}</a>
               {#if edge.label}<span class="text-zinc-500">{edge.label}</span>{/if}
             </div>
           {/each}

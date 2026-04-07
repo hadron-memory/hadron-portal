@@ -15,10 +15,10 @@
 
   /** Build the URL to a node's detail page, or empty if org context is missing */
   function nodeHref(node: MemoryNode, base: string): string {
-    if (base) return `${base}/nodes/${encodeURIComponent(node.loc)}`;
+    if (base) return `${base}/nodes/${node.id}`;
     const orgId = node.memory?.organizationId;
     const memId = node.memory?.id;
-    if (orgId && memId) return `/app/orgs/${orgId}/memories/${memId}/nodes/${encodeURIComponent(node.loc)}`;
+    if (orgId && memId) return `/app/orgs/${orgId}/memories/${memId}/nodes/${node.id}`;
     return '';
   }
 

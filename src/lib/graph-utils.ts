@@ -24,6 +24,7 @@ export function buildTreeEntries(nodes: MemoryNode[]): TreeEntry[] {
         seenVirtual.add(ancestorLoc);
         entries.push({
           id: ancestorLoc,
+          nodeId: null,
           name: parts[i - 1],
           seq: null,
           hasActions: false,
@@ -34,6 +35,7 @@ export function buildTreeEntries(nodes: MemoryNode[]): TreeEntry[] {
 
     entries.push({
       id: n.loc, // Tree uses loc for hierarchy — dedup handled below
+      nodeId: n.id,
       name: n.name,
       seq: n.seq,
       hasActions: n.isRunnable ?? false,

@@ -113,9 +113,9 @@
   });
 
   function nodeHref(entry: TreeEntry): string | null {
-    if (entry.isVirtual) return null;
+    if (entry.isVirtual || !entry.nodeId) return null;
     if (!basePath) return null;
-    return `${basePath}/nodes/${encodeURIComponent(entry.id)}`;
+    return `${basePath}/nodes/${entry.nodeId}`;
   }
 
   function isActive(entry: TreeEntry): boolean {
