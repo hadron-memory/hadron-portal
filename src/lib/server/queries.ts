@@ -98,7 +98,7 @@ export const AGENT_FIELDS = /* GraphQL */ `
     memoryItems {
       id
       role
-      memory { id urn name visibility }
+      memory { id urn name organizationId visibility }
     }
     createdAt
   }
