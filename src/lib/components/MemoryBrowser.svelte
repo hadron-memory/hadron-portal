@@ -2,6 +2,7 @@
   import TreeView from './TreeView.svelte';
   import TopicGraph from './TopicGraph.svelte';
   import Urn from './Urn.svelte';
+  import { invalidateAll } from '$app/navigation';
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { onDestroy } from 'svelte';
@@ -58,6 +59,41 @@
     }
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
+  }
+
+  // ── Drag & drop handlers for tree ────────────────────────────────────
+  async function handleTreeMove(fromLoc: string, newParentLoc: string) {
+    // Determine memoryId from the dragged node
+    const node = nodes.find((n) => n.loc === fromLoc);
+    if (!node) return;
+    const name = fromLoc.split(':').pop()!;
+    const newLoc = newParentLoc ? `${newParentLoc}:${name}` : name;
+    if (fromLoc === newLoc) return;
+
+    try {
+      const res = await fetch('/api/nodes/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: fromLoc, to: newLoc, memoryId: node.memoryId }),
+      });
+      if (res.ok) await invalidateAll();
+    } catch { /* ignore */ }
+  }
+
+  async function handleTreeReorder(parentLoc: string, orderedLocs: string[]) {
+    // Determine memoryId from the first sibling
+    const firstNode = nodes.find((n) => n.loc === orderedLocs[0]);
+    if (!firstNode) return;
+    const updates = orderedLocs.map((loc, i) => ({ loc, seq: i + 1 }));
+
+    try {
+      const res = await fetch('/api/nodes/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates, memoryId: firstNode.memoryId }),
+      });
+      if (res.ok) await invalidateAll();
+    } catch { /* ignore */ }
   }
 
   // Keyword search — shared with TreeView and TopicGraph via graphState
@@ -346,7 +382,7 @@
             <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
             <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
           </div>
-          <TreeView entries={treeEntries} {basePath} hideSearch={true} />
+          <TreeView entries={treeEntries} {basePath} hideSearch={true} onmove={handleTreeMove} onreorder={handleTreeReorder} />
         </aside>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
