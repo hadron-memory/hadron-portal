@@ -281,7 +281,7 @@
         <div class="detail-title-row">
           <h2>{selectedTopic.name}</h2>
           {#if basePath}
-            <a href="{basePath}/nodes/{encodeURIComponent(selectedTopic.loc)}" class="open-link">Open</a>
+            <a href="{basePath}/nodes/{selectedTopic.id}" class="open-link">Open</a>
           {/if}
         </div>
         <div class="loc"><Urn value={selectedTopic.urn} type="node" size={10} /></div>
@@ -304,7 +304,7 @@
                 <div class="edge-loc">{node.loc}</div>
                 <div class="edge-rel">{node.rel}</div>
               </button>
-              <a href="{basePath}/nodes/{encodeURIComponent(node.loc)}" class="edge-open" title="Open node page">&#8599;</a>
+              <a href="{basePath}/nodes/{node.id}" class="edge-open" title="Open node page">&#8599;</a>
             </div>
           {/each}
         {/if}
@@ -316,7 +316,7 @@
                 <div class="edge-loc">{edge.from}</div>
                 <div class="edge-rel">{edge.rel}</div>
               </button>
-              <a href="{basePath}/nodes/{encodeURIComponent(edge.from)}" class="edge-open" title="Open node page">&#8599;</a>
+              <a href="{basePath}/nodes/{edge.from}" class="edge-open" title="Open node page">&#8599;</a>
             </div>
           {/each}
         {/if}

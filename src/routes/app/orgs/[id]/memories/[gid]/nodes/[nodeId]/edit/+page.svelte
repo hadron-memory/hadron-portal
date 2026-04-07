@@ -8,6 +8,7 @@
   const basePath = $derived(`/app/orgs/${data.org.id}/memories/${data.graph.id}`);
 
   let name = $state(node.name);
+  let loc = $state(node.loc);
   let description = $state(node.description ?? '');
   let alias = $state(node.alias ?? '');
   let seqStr = $state(node.seq !== null && node.seq !== undefined ? String(node.seq) : '');
@@ -23,7 +24,6 @@
 
   function addEdge() {
     if (newTargetLoc.trim()) {
-      // We use targetId here; for loc-based we'd need to resolve, but the API takes targetId
       edges = [...edges, { targetId: newTargetLoc.trim(), label: newLabel.trim() }];
       newTargetLoc = '';
       newLabel = '';
@@ -39,7 +39,7 @@
 
 <div class="max-w-3xl space-y-6">
   <div class="flex items-center gap-3">
-    <a href="{basePath}/nodes/{encodeURIComponent(node.loc)}" class="text-sm text-indigo-500 hover:underline dark:text-indigo-400">&larr; Back to node</a>
+    <a href="{basePath}/nodes/{node.id}" class="text-sm text-indigo-500 hover:underline dark:text-indigo-400">&larr; Back to node</a>
     <h1 class="font-mono text-lg font-bold text-zinc-900 dark:text-white">{node.loc}</h1>
   </div>
 
@@ -56,6 +56,12 @@
         <label for="name" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Name</label>
         <input id="name" name="name" type="text" bind:value={name}
           class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none" />
+      </div>
+
+      <div>
+        <label for="loc" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Loc <span class="text-zinc-500">(colon-delimited path — changing this moves the node)</span></label>
+        <input id="loc" name="loc" type="text" bind:value={loc}
+          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white focus:border-indigo-500 focus:outline-none" />
       </div>
 
       <div>
@@ -119,7 +125,7 @@
     <!-- Actions -->
     <div class="flex items-center gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
       <button type="submit" class="rounded-lg bg-indigo-600 px-6 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
-      <a href="{basePath}/nodes/{encodeURIComponent(node.loc)}" class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</a>
+      <a href="{basePath}/nodes/{node.id}" class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</a>
     </div>
   </form>
 </div>
