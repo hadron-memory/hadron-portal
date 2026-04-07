@@ -6,7 +6,7 @@
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { onDestroy } from 'svelte';
-  import type { MemoryNode } from '$lib/types';
+  import type { MemoryNode, TreeEntry } from '$lib/types';
 
   /** Build the full URN for a node: memory.urn + ":" + loc */
   function nodeUrn(node: MemoryNode): string {
@@ -167,6 +167,23 @@
       return n.name.toLowerCase().includes(q) || n.loc.toLowerCase().includes(q) || (n.description ?? '').toLowerCase().includes(q) || n.tags.some((t) => t.toLowerCase().includes(q));
     })
   );
+
+  // ── Tree node href callback (for when basePath is empty) ──────────────
+  // Build a map from nodeId → href so TreeView can link nodes without basePath
+  const nodeIdToHref = $derived.by(() => {
+    if (basePath) return null; // not needed when basePath is set
+    const map = new Map<string, string>();
+    for (const n of filteredNodes) {
+      const href = nodeHref(n, basePath);
+      if (href) map.set(n.id, href);
+    }
+    return map;
+  });
+
+  function treeNodeHrefFn(entry: TreeEntry): string | null {
+    if (!entry.nodeId || !nodeIdToHref) return null;
+    return nodeIdToHref.get(entry.nodeId) ?? null;
+  }
 
   // ── Derived views ─────────────────────────────────────────────────────
   // Derive single memory URN for loc normalization (only when all nodes share one memory)
@@ -387,7 +404,7 @@
             <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
             <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
           </div>
-          <TreeView entries={treeEntries} {basePath} hideSearch={true} onmove={handleTreeMove} onreorder={handleTreeReorder} />
+          <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={handleTreeReorder} />
         </aside>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div

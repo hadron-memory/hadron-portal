@@ -13,12 +13,14 @@
     entries,
     basePath,
     hideSearch = false,
+    nodeHrefFn,
     onmove,
     onreorder,
   }: {
     entries: TreeEntry[];
     basePath: string;
     hideSearch?: boolean;
+    nodeHrefFn?: (entry: TreeEntry) => string | null;
     onmove?: (fromLoc: string, newParentLoc: string) => void;
     onreorder?: (parentLoc: string, orderedLocs: string[]) => void;
   } = $props();
@@ -126,6 +128,7 @@
 
   function nodeHref(entry: TreeEntry): string | null {
     if (entry.isVirtual || !entry.nodeId) return null;
+    if (nodeHrefFn) return nodeHrefFn(entry);
     if (!basePath) return null;
     return `${basePath}/nodes/${entry.nodeId}`;
   }
