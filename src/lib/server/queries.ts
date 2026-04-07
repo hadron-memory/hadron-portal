@@ -187,10 +187,27 @@ export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+export const EXCHANGE_CONNECTION_FIELDS = /* GraphQL */ `
+  fragment ExchangeConnectionFields on ExchangeConnection {
+    id
+    organizationId
+    userId
+    mailboxEmail
+    displayName
+    syncEnabled
+    syncStatus
+    lastSyncAt
+    lastError
+    createdAt
+    updatedAt
+  }
+`;
+
 export const ORGANIZATION_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}
   ${AGENT_FIELDS}
+  ${EXCHANGE_CONNECTION_FIELDS}
   query Organization($id: ID!) {
     organization(id: $id) {
       ...OrgFields
@@ -218,6 +235,9 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
         activated
         memory { ...MemoryFields organization { id name urn } }
         organization { id name urn }
+      }
+      exchangeConnections {
+        ...ExchangeConnectionFields
       }
     }
   }
@@ -790,5 +810,21 @@ export const MOVE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
   mutation MoveNode($from: String!, $to: String!) {
     moveNode(from: $from, to: $to) { ...NodeFields }
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// Exchange integration
+// ---------------------------------------------------------------------------
+
+export const DELETE_EXCHANGE_CONNECTION_MUTATION = /* GraphQL */ `
+  mutation DeleteExchangeConnection($id: ID!) {
+    deleteExchangeConnection(id: $id)
+  }
+`;
+
+export const TEST_EXCHANGE_CONNECTION_MUTATION = /* GraphQL */ `
+  mutation TestExchangeConnection($id: ID!) {
+    testExchangeConnection(id: $id)
   }
 `;

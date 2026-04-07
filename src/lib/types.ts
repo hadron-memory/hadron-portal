@@ -82,6 +82,7 @@ export interface Organization {
   memories?: Memory[];
   agents?: Agent[];
   subscriptions?: MemorySubscription[];
+  exchangeConnections?: ExchangeConnection[];
 }
 
 export interface OrgMember {
@@ -248,6 +249,24 @@ export interface Station {
   hasAiApiKey: boolean;
   user?: UserSummary | null;
   agentSubscriptions?: StationAgentSub[];
+}
+
+// ---------------------------------------------------------------------------
+// Exchange integration
+// ---------------------------------------------------------------------------
+
+export interface ExchangeConnection {
+  id: string;
+  organizationId: string;
+  userId: string;
+  mailboxEmail: string;
+  displayName: string | null;
+  syncEnabled: boolean;
+  syncStatus: 'PENDING' | 'SYNCING' | 'OK' | 'ERROR';
+  lastSyncAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 // ---------------------------------------------------------------------------
