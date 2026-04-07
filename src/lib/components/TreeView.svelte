@@ -9,7 +9,19 @@
     children: TreeNode[];
   }
 
-  let { entries, basePath, hideSearch = false }: { entries: TreeEntry[]; basePath: string; hideSearch?: boolean } = $props();
+  let {
+    entries,
+    basePath,
+    hideSearch = false,
+    onmove,
+    onreorder,
+  }: {
+    entries: TreeEntry[];
+    basePath: string;
+    hideSearch?: boolean;
+    onmove?: (fromLoc: string, newParentLoc: string) => void;
+    onreorder?: (parentLoc: string, orderedLocs: string[]) => void;
+  } = $props();
 
   // Use shared search state so graph can react to the same filter
   let search = $derived(graphState.searchFilter);
@@ -127,6 +139,103 @@
     const q = search.toLowerCase();
     return entry.name.toLowerCase().includes(q) || entry.id.toLowerCase().includes(q);
   }
+
+  // ── Drag & drop ──────────────────────────────────────────────────────
+  const canDrag = $derived(!!(onmove || onreorder));
+  let dragId = $state<string | null>(null);
+  let dropTarget = $state<{ id: string; position: 'before' | 'inside' | 'after' } | null>(null);
+
+  function handleDragStart(e: DragEvent, entry: TreeEntry) {
+    if (!canDrag || entry.isVirtual) { e.preventDefault(); return; }
+    dragId = entry.id;
+    e.dataTransfer!.effectAllowed = 'move';
+    e.dataTransfer!.setData('text/plain', entry.id);
+  }
+
+  function handleDragOver(e: DragEvent, entry: TreeEntry) {
+    if (!dragId || dragId === entry.id) return;
+    // Don't allow dropping onto own descendant
+    if (entry.id.startsWith(dragId + ':')) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = 'move';
+
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    const h = rect.height;
+
+    if (y < h * 0.25) {
+      dropTarget = { id: entry.id, position: 'before' };
+    } else if (y > h * 0.75) {
+      dropTarget = { id: entry.id, position: 'after' };
+    } else {
+      dropTarget = { id: entry.id, position: 'inside' };
+    }
+  }
+
+  function handleDragLeave() {
+    dropTarget = null;
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    if (!dragId || !dropTarget) { dragId = null; dropTarget = null; return; }
+
+    const draggedLoc = dragId;
+    const targetLoc = dropTarget.id;
+    const position = dropTarget.position;
+
+    dragId = null;
+    dropTarget = null;
+
+    if (position === 'inside') {
+      // Move dragged node to become a child of target
+      if (onmove) onmove(draggedLoc, targetLoc);
+    } else {
+      // Reorder: dragged node moves to same parent as target, before or after it
+      const targetParts = targetLoc.split(':');
+      const targetParent = targetParts.length > 1 ? targetParts.slice(0, -1).join(':') : '';
+      const draggedParts = draggedLoc.split(':');
+      const draggedParent = draggedParts.length > 1 ? draggedParts.slice(0, -1).join(':') : '';
+
+      if (draggedParent !== targetParent) {
+        // Different parent — move first, then reorder
+        if (onmove) onmove(draggedLoc, targetParent);
+        // After move, the new loc will be targetParent:draggedName
+        const draggedName = draggedParts[draggedParts.length - 1];
+        const newDraggedLoc = targetParent ? `${targetParent}:${draggedName}` : draggedName;
+        // Compute sibling order
+        if (onreorder) {
+          const siblings = getSiblingLocs(targetParent).filter((l) => l !== draggedLoc);
+          const idx = siblings.indexOf(targetLoc);
+          const insertIdx = position === 'before' ? idx : idx + 1;
+          siblings.splice(insertIdx, 0, newDraggedLoc);
+          onreorder(targetParent, siblings);
+        }
+      } else {
+        // Same parent — just reorder
+        if (onreorder) {
+          const siblings = getSiblingLocs(targetParent);
+          const filtered = siblings.filter((l) => l !== draggedLoc);
+          const idx = filtered.indexOf(targetLoc);
+          const insertIdx = position === 'before' ? idx : idx + 1;
+          filtered.splice(insertIdx, 0, draggedLoc);
+          onreorder(targetParent, filtered);
+        }
+      }
+    }
+  }
+
+  function handleDragEnd() {
+    dragId = null;
+    dropTarget = null;
+  }
+
+  /** Get ordered loc IDs of direct children under a parent. */
+  function getSiblingLocs(parentLoc: string): string[] {
+    const parentNode = parentLoc ? tree.flatMap(function collect(n: TreeNode): TreeNode[] { return [n, ...n.children.flatMap(collect)]; }).find((n) => n.entry.id === parentLoc) : null;
+    const siblings = parentNode ? parentNode.children : tree;
+    return siblings.map((n) => n.entry.id);
+  }
 </script>
 
 {#if !hideSearch}
@@ -150,11 +259,22 @@
   {@const href = nodeHref(node.entry)}
   {@const active = isActive(node.entry)}
 
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="tree-row"
     class:active
+    class:drop-before={dropTarget?.id === node.entry.id && dropTarget?.position === 'before'}
+    class:drop-inside={dropTarget?.id === node.entry.id && dropTarget?.position === 'inside'}
+    class:drop-after={dropTarget?.id === node.entry.id && dropTarget?.position === 'after'}
+    class:dragging={dragId === node.entry.id}
     data-node-id={node.entry.id}
     style="padding-left: {depth * 16 + 4}px"
+    draggable={canDrag && !node.entry.isVirtual ? 'true' : undefined}
+    ondragstart={(e) => handleDragStart(e, node.entry)}
+    ondragover={(e) => handleDragOver(e, node.entry)}
+    ondragleave={handleDragLeave}
+    ondrop={handleDrop}
+    ondragend={handleDragEnd}
   >
     <button
       class="chevron"
@@ -284,6 +404,23 @@
 
   .tree-row.active {
     background: rgba(88, 166, 255, 0.08);
+  }
+
+  .tree-row.dragging {
+    opacity: 0.4;
+  }
+
+  .tree-row.drop-before {
+    box-shadow: inset 0 2px 0 0 #6366f1;
+  }
+
+  .tree-row.drop-inside {
+    background: rgba(99, 102, 241, 0.15);
+    border-radius: 4px;
+  }
+
+  .tree-row.drop-after {
+    box-shadow: inset 0 -2px 0 0 #6366f1;
   }
 
   .chevron {
