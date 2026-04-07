@@ -634,7 +634,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
   <!-- SETTINGS TAB (agents, memories, AI config, properties, edit, delete) -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
-    <div class="max-w-lg space-y-8">
+    <div class="space-y-8">
       <!-- Properties -->
       <section>
         <div class="mb-4 flex items-center justify-between">

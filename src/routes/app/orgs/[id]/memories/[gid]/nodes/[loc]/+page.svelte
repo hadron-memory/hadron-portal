@@ -11,8 +11,19 @@
   const node = $derived(data.node);
   const basePath = $derived(`/app/orgs/${data.org.id}/memories/${data.graph.id}`);
 
-  // Full URN: memory URN + ":" + loc
-  const fullUrn = $derived(data.graph.urn ? `${data.graph.urn}:${node.loc}` : node.loc);
+  // Full URN: memory URN + ":" + loc (avoid doubling if loc already contains memory URN)
+  const fullUrn = $derived.by(() => {
+    if (!data.graph.urn) return node.loc;
+    if (node.loc.startsWith(data.graph.urn + ':')) return node.loc;
+    return `${data.graph.urn}:${node.loc}`;
+  });
+
+  // Parent node (derived from loc)
+  const parentLoc = $derived.by(() => {
+    const parts = node.loc.split(':');
+    return parts.length > 1 ? parts.slice(0, -1).join(':') : null;
+  });
+  const parentName = $derived(parentLoc ? parentLoc.split(':').pop() : null);
 
   let showSource = $state(false);
   let confirmDelete = $state(false);
@@ -194,7 +205,7 @@
 
   <!-- Header -->
   <div class="flex items-center gap-3">
-    <h1 class="text-xl font-bold text-zinc-900 dark:text-white">Node: {node.name}</h1>
+    <h1 class="text-xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Node:</span> {node.name}</h1>
     {#if node.seq !== null && node.seq !== undefined}
       <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">seq {node.seq}</span>
     {/if}
@@ -220,6 +231,10 @@
 
   <!-- URN -->
   <Urn value={fullUrn} type="node" />
+
+  {#if parentLoc}
+    <p class="text-sm text-zinc-500">Parent: <a href="{basePath}/nodes/{encodeURIComponent(parentLoc)}" class="text-indigo-500 hover:underline dark:text-indigo-400">{parentName}</a></p>
+  {/if}
 
   {#if node.description}
     <p class="text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
