@@ -1,7 +1,15 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { ORGANIZATION_QUERY, LINK_GITHUB_APP_MUTATION, UPDATE_ORG_GITHUB_APP_MUTATION, UNLINK_GITHUB_APP_MUTATION } from '$lib/server/queries';
+import {
+  ORGANIZATION_QUERY,
+  LINK_GITHUB_APP_MUTATION,
+  UPDATE_ORG_GITHUB_APP_MUTATION,
+  UNLINK_GITHUB_APP_MUTATION,
+  DELETE_EXCHANGE_CONNECTION_MUTATION,
+  TEST_EXCHANGE_CONNECTION_MUTATION,
+} from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -69,6 +77,38 @@ export const actions: Actions = {
       return { githubUnlinked: true };
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to unlink GitHub App') });
+    }
+  },
+
+  connectExchange: async ({ params, locals }) => {
+    // Redirect to hadron-server's Microsoft OAuth endpoint
+    const serverUrl = env.LOCAL_SERVER_URL ?? 'http://localhost:4000';
+    const orgPagePath = `/app/orgs/${params.id}`;
+    const authUrl = `${serverUrl}/auth/microsoft?orgId=${params.id}&redirect=${encodeURIComponent(orgPagePath)}&token=${locals.token}`;
+    redirect(303, authUrl);
+  },
+
+  deleteExchangeConnection: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const connectionId = String(fd.get('connectionId') ?? '').trim();
+    if (!connectionId) return fail(400, { exchangeError: 'Connection ID is required' });
+    try {
+      await gqlClient(locals.token).request(DELETE_EXCHANGE_CONNECTION_MUTATION, { id: connectionId });
+      return { exchangeDeleted: true };
+    } catch (e: unknown) {
+      return fail(500, { exchangeError: extractGqlError(e, 'Failed to delete Exchange connection') });
+    }
+  },
+
+  testExchangeConnection: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const connectionId = String(fd.get('connectionId') ?? '').trim();
+    if (!connectionId) return fail(400, { exchangeError: 'Connection ID is required' });
+    try {
+      await gqlClient(locals.token).request(TEST_EXCHANGE_CONNECTION_MUTATION, { id: connectionId });
+      return { exchangeTested: true };
+    } catch (e: unknown) {
+      return fail(500, { exchangeError: extractGqlError(e, 'Exchange connection test failed') });
     }
   },
 };

@@ -1,0 +1,191 @@
+<script lang="ts">
+  import { enhance } from '$app/forms';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import type { PageData, ActionData } from './$types';
+  let { data, form }: { data: PageData; form: ActionData } = $props();
+  const org = $derived(data.org);
+  const connection = $derived(data.connection);
+  const messages = $derived(data.messages);
+
+  let expandedId = $state<string | null>(null);
+  let replyingTo = $state<string | null>(null);
+  let replyBody = $state('');
+
+  function toggleExpand(id: string) {
+    expandedId = expandedId === id ? null : id;
+    if (expandedId !== id) replyingTo = null;
+  }
+
+  function startReply(id: string) {
+    replyingTo = id;
+    replyBody = '';
+  }
+
+  function cancelReply() {
+    replyingTo = null;
+    replyBody = '';
+  }
+
+  function formatDate(dateStr: string) {
+    const d = new Date(dateStr);
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) {
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+
+  function replyEnhance(formEl: HTMLFormElement) {
+    return enhance(formEl, () => {
+      return async ({ update }) => {
+        await update();
+        replyingTo = null;
+        replyBody = '';
+      };
+    });
+  }
+</script>
+
+<svelte:head><title>Inbox · {connection.mailboxEmail} · Hadron</title></svelte:head>
+
+<div class="space-y-6">
+  <div>
+    <Breadcrumb items={[
+      { label: 'Organizations', href: '/app/orgs' },
+      { label: org.name, href: `/app/orgs/${org.id}` },
+      { label: 'Exchange Inbox' },
+    ]} />
+    <div class="mt-1 flex items-center gap-3">
+      <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">Inbox</h1>
+      <span class="rounded-full bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{connection.mailboxEmail}</span>
+      {#if connection.displayName}
+        <span class="text-sm text-zinc-500">({connection.displayName})</span>
+      {/if}
+    </div>
+  </div>
+
+  {#if form?.error}
+    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {/if}
+  {#if form?.replySent}
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Reply sent successfully.</div>
+  {/if}
+  {#if form?.moved}
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Email moved.</div>
+  {/if}
+  {#if data.loadError}
+    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{data.loadError}</div>
+  {/if}
+
+  <!-- Email list -->
+  {#if messages.length === 0 && !data.loadError}
+    <p class="text-sm text-zinc-500">No emails in the inbox.</p>
+  {:else}
+    <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+      {#each messages as msg (msg.id)}
+        {@const isExpanded = expandedId === msg.id}
+        {@const isReplying = replyingTo === msg.id}
+        <div class="transition-colors {!msg.isRead ? 'bg-indigo-50/50 dark:bg-indigo-950/20' : ''}">
+          <!-- Email row (clickable) -->
+          <button
+            onclick={() => toggleExpand(msg.id)}
+            class="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+          >
+            <!-- Unread indicator -->
+            <div class="mt-1.5 flex-shrink-0">
+              {#if !msg.isRead}
+                <span class="inline-block h-2 w-2 rounded-full bg-indigo-500"></span>
+              {:else}
+                <span class="inline-block h-2 w-2"></span>
+              {/if}
+            </div>
+
+            <!-- Sender + Subject -->
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="truncate text-sm {!msg.isRead ? 'font-semibold text-zinc-900 dark:text-white' : 'text-zinc-700 dark:text-zinc-300'}">
+                  {msg.from ?? 'Unknown sender'}
+                </span>
+                {#if msg.hasAttachments}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="flex-shrink-0 text-zinc-400"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"></path></svg>
+                {/if}
+              </div>
+              <p class="truncate text-sm {!msg.isRead ? 'font-medium text-zinc-800 dark:text-zinc-200' : 'text-zinc-600 dark:text-zinc-400'}">
+                {msg.subject ?? '(no subject)'}
+              </p>
+              {#if !isExpanded}
+                <p class="mt-0.5 truncate text-xs text-zinc-500">{msg.bodyPreview}</p>
+              {/if}
+            </div>
+
+            <!-- Date -->
+            <span class="flex-shrink-0 text-xs text-zinc-500">{formatDate(msg.receivedDateTime)}</span>
+          </button>
+
+          <!-- Expanded content -->
+          {#if isExpanded}
+            <div class="border-t border-zinc-100 px-10 py-4 dark:border-zinc-800">
+              <!-- Full body -->
+              <div class="prose prose-sm dark:prose-invert max-w-none text-sm text-zinc-700 dark:text-zinc-300">
+                {#if msg.body}
+                  {@html msg.body}
+                {:else}
+                  <p class="text-zinc-500">{msg.bodyPreview}</p>
+                {/if}
+              </div>
+
+              <!-- Actions -->
+              <div class="mt-4 flex items-center gap-2">
+                {#if !isReplying}
+                  <button
+                    onclick={() => startReply(msg.id)}
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 00-4-4H4"></path></svg>
+                    Reply
+                  </button>
+                {/if}
+
+                <form method="POST" action="?/move" use:enhance class="inline">
+                  <input type="hidden" name="messageId" value={msg.id} />
+                  <input type="hidden" name="folderId" value="Archive" />
+                  <button type="submit" class="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+                    Archive
+                  </button>
+                </form>
+              </div>
+
+              <!-- Reply form -->
+              {#if isReplying}
+                <form method="POST" action="?/reply" use:replyEnhance class="mt-4 space-y-3">
+                  <input type="hidden" name="messageId" value={msg.id} />
+                  <div>
+                    <label for="replyBody-{msg.id}" class="mb-1 block text-xs text-zinc-500">Reply to {msg.from}</label>
+                    <textarea
+                      id="replyBody-{msg.id}"
+                      name="body"
+                      bind:value={replyBody}
+                      rows="5"
+                      required
+                      placeholder="Type your reply..."
+                      class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
+                    ></textarea>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+                      Send Reply
+                    </button>
+                    <button type="button" onclick={cancelReply}
+                      class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
+</div>
