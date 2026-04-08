@@ -5,6 +5,8 @@
   const typeIcon: Record<string, string> = {
     WORKSTATION: '💻', CHATBOT: '💬', CLOUD: '☁️', IOT: '📡', AGENT: '🤖',
   };
+
+  const sorted = $derived([...data.stations].sort((a, b) => a.name.localeCompare(b.name)));
 </script>
 
 <svelte:head><title>Stations · Hadron</title></svelte:head>
@@ -21,7 +23,7 @@
     </div>
   {:else}
     <div class="space-y-3">
-      {#each data.stations as station (station.id)}
+      {#each sorted as station (station.id)}
         <a href="/app/stations/{station.id}" class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
           <span class="text-2xl">{typeIcon[station.stationType] ?? '🔑'}</span>
           <div class="flex-1 min-w-0">

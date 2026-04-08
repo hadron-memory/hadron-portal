@@ -201,6 +201,11 @@
     { label: 'Organizations', href: '/app/orgs' },
     { label: data.graph.name, href: basePath },
     { label: 'Nodes', href: `${basePath}/browse` },
+    ...data.breadcrumb.slice(0, -1).map((seg) =>
+      seg.nodeId
+        ? { label: seg.label, href: `${basePath}/nodes/${seg.nodeId}` }
+        : { label: seg.label }
+    ),
     { label: node.name },
   ]} />
 

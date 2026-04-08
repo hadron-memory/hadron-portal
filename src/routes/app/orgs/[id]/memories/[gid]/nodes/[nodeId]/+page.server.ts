@@ -13,12 +13,23 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   if (!data.nodeById) throw new Error(`Node not found: ${params.nodeId}`);
   const node = data.nodeById;
 
-  // Build breadcrumb from loc segments (colon-delimited)
+  // Build breadcrumb from loc segments — look up ancestor nodes by loc
+  const client = gqlClient(locals.token);
   const parts = node.loc.split(':');
-  const breadcrumb = parts.map((part, i) => ({
-    label: part,
-    path: parts.slice(0, i + 1).join(':'),
-  }));
+  const breadcrumb: Array<{ label: string; path: string; nodeId: string | null }> = [];
+
+  for (let i = 0; i < parts.length; i++) {
+    const ancestorLoc = parts.slice(0, i + 1).join(':');
+    let nodeId: string | null = null;
+    if (i < parts.length - 1) {
+      // Look up ancestor node
+      try {
+        const res = await client.request<{ node: { id: string } | null }>(NODE_QUERY, { loc: ancestorLoc });
+        nodeId = res.node?.id ?? null;
+      } catch { /* not found */ }
+    }
+    breadcrumb.push({ label: parts[i], path: ancestorLoc, nodeId });
+  }
 
   return { node, breadcrumb };
 };
