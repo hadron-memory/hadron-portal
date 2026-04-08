@@ -74,6 +74,7 @@ export const STATION_AGENT_SUB_FIELDS = /* GraphQL */ `
       urn
       name
       description
+      systemPrompt
       memoryItems {
         id
         role
@@ -93,6 +94,7 @@ export const AGENT_FIELDS = /* GraphQL */ `
     urn
     name
     description
+    systemPrompt
     visibility
     properties
     memoryItems {
@@ -452,15 +454,15 @@ export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
 
 export const CREATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $visibility: MemoryVisibility) {
-    createAgent(orgId: $orgId, name: $name, description: $description, visibility: $visibility) { ...AgentFields }
+  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $systemPrompt: String, $visibility: MemoryVisibility) {
+    createAgent(orgId: $orgId, name: $name, description: $description, systemPrompt: $systemPrompt, visibility: $visibility) { ...AgentFields }
   }
 `;
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String, $visibility: MemoryVisibility) {
-    updateAgent(id: $id, name: $name, urn: $urn, description: $description, visibility: $visibility) { ...AgentFields }
+  mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $visibility: MemoryVisibility) {
+    updateAgent(id: $id, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, visibility: $visibility) { ...AgentFields }
   }
 `;
 

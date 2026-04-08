@@ -42,6 +42,7 @@ export interface Agent {
   urn: string;
   name: string;
   description: string | null;
+  systemPrompt: string | null;
   visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION';
   properties: Record<string, unknown> | null;
   memoryItems: AgentMemoryItem[];
@@ -56,7 +57,7 @@ export interface AgentMemoryItem {
 
 export interface StationAgentSub {
   id: string;
-  agent: { id: string; urn: string; name: string; description: string | null; memoryItems?: AgentMemoryItem[] };
+  agent: { id: string; urn: string; name: string; description: string | null; systemPrompt?: string | null; memoryItems?: AgentMemoryItem[] };
   subscriptionType: 'READ_ONLY' | 'READ_WRITE';
   trainingMode: boolean;
   createdAt: string;

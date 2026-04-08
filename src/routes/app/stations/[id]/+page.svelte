@@ -602,6 +602,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               `Station: "${station.name}" (${station.stationType})`,
               `URN: ${station.urn}`,
               (station.agentSubscriptions ?? []).length ? `Agents: ${(station.agentSubscriptions ?? []).map(s => s.agent.name).join(', ')}` : '',
+              ...(station.agentSubscriptions ?? []).filter(s => s.agent.systemPrompt).map(s => s.agent.systemPrompt),
             ].filter(Boolean).join('\n') : ''} />
           {/key}
         </div>

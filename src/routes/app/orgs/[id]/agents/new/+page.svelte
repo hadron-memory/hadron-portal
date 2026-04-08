@@ -74,6 +74,13 @@
     </div>
 
     <div>
+      <label for="systemPrompt" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt <span class="text-zinc-500">(optional)</span></label>
+      <textarea id="systemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent"
+        class={inputClass}></textarea>
+      <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session. Used to define the agent's behavior and personality.</p>
+    </div>
+
+    <div>
       <label for="visibility" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
       <select id="visibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
         <option value="PRIVATE" selected>Private</option>
