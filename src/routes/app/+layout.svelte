@@ -84,14 +84,19 @@
       <!-- User avatar + name pinned to bottom -->
       <div class="mt-auto pt-4">
         <hr class="mb-3 border-zinc-200 dark:border-zinc-800" />
-        <a href="/app/account" class="flex items-center gap-2 rounded-md px-3 py-2 text-sm transition
+        <a href="/app/account" class="flex items-center gap-3 rounded-md px-3 py-2 text-sm transition
           {$page.url.pathname.startsWith('/app/account')
-            ? 'bg-zinc-100 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-white'
-            : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white'}">
+            ? 'font-medium text-zinc-900 dark:text-white'
+            : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}">
           {#if data.user.avatarUrl}
-            <img src={data.user.avatarUrl} alt={data.user.name ?? data.user.githubUsername ?? data.user.email ?? ''} class="h-6 w-6 rounded-full" />
+            <img src={data.user.avatarUrl} alt="" class="h-8 w-8 rounded-full shrink-0" />
+          {:else}
+            <div class="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-700 shrink-0"></div>
           {/if}
-          <span class="truncate">{data.user.name ?? data.user.githubUsername ?? data.user.email}</span>
+          <div class="min-w-0">
+            <p class="text-[10px] text-zinc-400">Signed in as</p>
+            <p class="truncate">{data.user.name ?? data.user.githubUsername ?? data.user.email}</p>
+          </div>
         </a>
       </div>
   </aside>

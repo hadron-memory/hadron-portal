@@ -35,7 +35,7 @@
         a.urn.toLowerCase().includes(q) ||
         (a.description ?? '').toLowerCase().includes(q) ||
         a.orgName.toLowerCase().includes(q);
-    })
+    }).sort((a, b) => a.name.localeCompare(b.name))
   );
 </script>
 

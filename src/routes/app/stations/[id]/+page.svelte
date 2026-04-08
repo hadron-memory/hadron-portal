@@ -638,7 +638,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
   {#if activeTab === 'settings'}
     <div class="space-y-8">
       <!-- Properties -->
-      <section>
+      <section class="max-w-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="font-semibold text-zinc-900 dark:text-white">Station</h2>
           {#if !isEditing}
@@ -786,7 +786,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 
       <!-- Accessible memories (collapsed by default) -->
       {#if userMemories.length > 0}
-        <section>
+        <section class="max-w-lg">
           <button onclick={() => memoriesOpen = !memoriesOpen} class="flex items-center gap-2 font-semibold text-zinc-900 dark:text-white">
             <svg width="12" height="12" viewBox="0 0 12 12" class="transition-transform {memoriesOpen ? 'rotate-90' : ''}">
               <path d="M4 2 L8 6 L4 10" stroke="currentColor" fill="none" stroke-width="1.5" />
@@ -814,7 +814,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 
       <!-- AI Chat Configuration (chatbot only) -->
       {#if isChatbot}
-      <section>
+      <section class="max-w-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="font-semibold text-zinc-900 dark:text-white">AI Chat</h2>
           {#if !aiEditing}
@@ -872,7 +872,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       {/if}
 
       <!-- Delete -->
-      <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
+      <section class="max-w-lg border-t border-zinc-200 pt-6 dark:border-zinc-800">
         <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
         <form method="POST" action="?/revoke" use:enhance onsubmit={(e) => {
           if (!confirm(`Delete station "${station.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
