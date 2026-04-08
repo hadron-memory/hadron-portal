@@ -90,7 +90,7 @@
     </div>
 
     <div class="flex gap-3">
-      <button type="submit" class="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500">Create Agent</button>
+      <button type="submit" class="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">Create Agent</button>
       <a href="/app/orgs/{data.org.id}/agents" class="rounded-lg border border-zinc-300 px-5 py-2.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Cancel</a>
     </div>
   </form>

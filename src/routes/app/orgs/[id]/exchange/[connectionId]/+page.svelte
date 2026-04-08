@@ -139,7 +139,7 @@
                 {#if !isReplying}
                   <button
                     onclick={() => startReply(msg.id)}
-                    class="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+                    class="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
                   >
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 17 4 12 9 7"></polyline><path d="M20 18v-2a4 4 0 00-4-4H4"></path></svg>
                     Reply
@@ -172,7 +172,7 @@
                     ></textarea>
                   </div>
                   <div class="flex items-center gap-2">
-                    <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+                    <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
                       Send Reply
                     </button>
                     <button type="button" onclick={cancelReply}

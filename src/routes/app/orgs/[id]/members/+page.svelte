@@ -97,7 +97,7 @@
             <option value="OWNER">Owner</option>
           </select>
         </div>
-        <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Add</button>
+        <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Add</button>
       </form>
     </section>
   {/if}

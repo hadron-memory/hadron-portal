@@ -76,7 +76,7 @@
         </div>
 
         <div class="flex gap-3">
-          <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
+          <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
           <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
         </div>
       </form>
@@ -165,7 +165,7 @@
             class={inputClass} />
           <p class="mt-1 text-xs text-zinc-500">If provided, only this GitHub user can accept the invite.</p>
         </div>
-        <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Create invitation</button>
+        <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Create invitation</button>
       </form>
     {/if}
   </section>

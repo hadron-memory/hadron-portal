@@ -26,7 +26,7 @@
           Sync all
         </button>
       </form>
-      <a href="/app/orgs/{org.id}/memories/new" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+      <a href="/app/orgs/{org.id}/memories/new" class="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
         + Add memory
       </a>
     </div>
@@ -118,7 +118,7 @@
             <option value="CONTRIBUTOR">Contributor</option>
           </select>
         </div>
-        <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Subscribe</button>
+        <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Subscribe</button>
       </form>
     {/if}
   </div>

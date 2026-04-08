@@ -52,7 +52,7 @@
       {#if !user}
         <a
           href="/signin"
-          class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-indigo-500"
+          class="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-amber-600"
         >
           Sign in
         </a>

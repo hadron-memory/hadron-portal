@@ -53,7 +53,7 @@
       <div class="flex {message.role === 'user' ? 'justify-end' : 'justify-start'}">
         <div class="max-w-[80%] rounded-lg px-4 py-2.5 text-sm
           {message.role === 'user'
-            ? 'bg-indigo-600 text-white'
+            ? 'bg-amber-500 text-white'
             : 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'}">
           {#if message.role === 'user'}
             <p class="whitespace-pre-wrap">{getMessageText(message)}</p>
@@ -95,7 +95,7 @@
       <button
         type="submit"
         disabled={chat.status === 'streaming' || !inputText.trim()}
-        class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white
+        class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white
           hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         Send

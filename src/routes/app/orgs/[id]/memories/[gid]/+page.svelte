@@ -174,7 +174,7 @@
         </div>
 
         <div class="flex gap-3">
-          <button type="submit" disabled={saving} class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+          <button type="submit" disabled={saving} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
             {saving ? 'Saving...' : 'Save'}
           </button>
           <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>

@@ -61,7 +61,7 @@
     {#if data.user}
       <a
         href="/app/dashboard"
-        class="rounded-lg bg-indigo-600 px-6 py-3 text-base font-semibold text-white shadow transition hover:bg-indigo-500"
+        class="rounded-lg bg-amber-500 px-6 py-3 text-base font-semibold text-white shadow transition hover:bg-amber-600"
       >
         Go to Dashboard
       </a>
@@ -117,7 +117,7 @@
           name="requestedFeatures" rows="2" placeholder="What would you use Hadron for? (optional)"
           class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         ></textarea>
-        <button type="submit" class="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500">
+        <button type="submit" class="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">
           Join waiting list
         </button>
       </form>

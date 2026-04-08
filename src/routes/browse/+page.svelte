@@ -69,7 +69,7 @@
           {#if data.isAuthenticated}
             <form method="POST" action="?/addToMyMemories" use:enhance>
               <input type="hidden" name="memoryId" value={memory.id} />
-              <button type="submit" class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+              <button type="submit" class="w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
                 Use this memory
               </button>
             </form>

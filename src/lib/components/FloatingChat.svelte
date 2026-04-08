@@ -103,7 +103,7 @@
 <button
   onclick={() => (open = !open)}
   class="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full
-    bg-indigo-600 text-white shadow-lg hover:bg-indigo-500 transition-transform"
+    bg-amber-500 text-white shadow-lg hover:bg-amber-600 transition-transform"
   aria-label="Toggle chat"
 >
   {#if open}
@@ -184,7 +184,7 @@
         {/if}
         <button onclick={startChat}
           disabled={saving || (!stationHasKey && !aiApiKey.trim())}
-          class="w-full rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500
+          class="w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600
             disabled:opacity-50 disabled:cursor-not-allowed">
           {#if saving}Saving...{:else}Start chat{/if}
         </button>

@@ -124,7 +124,7 @@
 
     <!-- Actions -->
     <div class="flex items-center gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-      <button type="submit" class="rounded-lg bg-indigo-600 px-6 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
+      <button type="submit" class="rounded-lg bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
       <a href="{basePath}/nodes/{node.id}" class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</a>
     </div>
   </form>

@@ -27,19 +27,19 @@
       <div class="text-center">
         <h1 class="text-xl font-bold text-zinc-900 dark:text-white">Invitation not found</h1>
         <p class="mt-2 text-sm text-zinc-500">This invitation link may be invalid or expired.</p>
-        <a href="/" class="mt-6 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Go home</a>
+        <a href="/" class="mt-6 inline-block rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Go home</a>
       </div>
     {:else if expired}
       <div class="text-center">
         <h1 class="text-xl font-bold text-zinc-900 dark:text-white">Invitation expired</h1>
         <p class="mt-2 text-sm text-zinc-500">This invitation expired on {new Date(inv.expiresAt ?? '').toLocaleDateString()}. Please contact the sender for a new one.</p>
-        <a href="/" class="mt-6 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Go home</a>
+        <a href="/" class="mt-6 inline-block rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Go home</a>
       </div>
     {:else if maxedOut}
       <div class="text-center">
         <h1 class="text-xl font-bold text-zinc-900 dark:text-white">Invitation already used</h1>
         <p class="mt-2 text-sm text-zinc-500">This invitation has reached its maximum number of uses. Please contact the sender for a new one.</p>
-        <a href="/" class="mt-6 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Go home</a>
+        <a href="/" class="mt-6 inline-block rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Go home</a>
       </div>
     {:else}
       <div class="text-center">
@@ -79,7 +79,7 @@
                   value={inv.name ? '' : ''}
                   class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
               </div>
-              <button type="submit" class="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500">
+              <button type="submit" class="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">
                 Continue with email
               </button>
               {#if form?.emailSent}

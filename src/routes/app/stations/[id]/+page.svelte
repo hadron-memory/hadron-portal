@@ -615,7 +615,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
           <div class="text-center">
             <p class="mb-4 text-sm text-zinc-500">Configure your AI provider in Settings to start chatting.</p>
-            <button onclick={() => activeTab = 'settings'} class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">
+            <button onclick={() => activeTab = 'settings'} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
               Go to Settings
             </button>
           </div>
@@ -689,7 +689,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
             </div>
             <div class="flex gap-3">
-              <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
+              <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
               <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
             </div>
           </form>
@@ -779,7 +779,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                 <option value="READ_WRITE">Read/Write</option>
               </select>
             </div>
-            <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Add agent</button>
+            <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Add agent</button>
           </form>
         {/if}
       </section>
@@ -846,7 +846,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             </div>
             <div class="flex gap-3">
               <button onclick={() => { saveAndStartChat(); aiEditing = false; }} disabled={!aiApiKey.trim()}
-                class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
                 Save
               </button>
               <button type="button" onclick={() => aiEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
@@ -996,7 +996,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 
             <!-- Download button -->
             <button onclick={downloadSetupZip} disabled={downloading || !canDownload}
-              class="w-full rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed">
+              class="w-full rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
               {downloading ? 'Generating...' : 'Download setup files (.zip)'}
             </button>
             <p class="text-[10px] text-zinc-400">Creates a new client key and downloads a zip with the selected plugin configs. Extract in your project root.</p>

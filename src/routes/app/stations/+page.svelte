@@ -14,7 +14,7 @@
 <div class="space-y-6">
   <div class="flex items-center justify-between">
     <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">Stations</h1>
-    <a href="/app/stations/new" class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">+ New station</a>
+    <a href="/app/stations/new" class="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">+ New station</a>
   </div>
 
   {#if data.stations.length === 0}

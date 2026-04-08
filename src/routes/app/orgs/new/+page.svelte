@@ -54,7 +54,7 @@
       <p class="mt-1 text-xs text-zinc-500">Lowercase letters, numbers, and hyphens only.</p>
     </div>
 
-    <button type="submit" class="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500">
+    <button type="submit" class="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">
       Create organization
     </button>
   </form>

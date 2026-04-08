@@ -379,7 +379,7 @@
             <button
               onclick={saveContent}
               disabled={saving || editContent === node.content}
-              class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+              class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{saving ? 'Saving...' : 'Save'}</button>
           </div>
         </div>

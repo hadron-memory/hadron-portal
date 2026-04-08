@@ -271,7 +271,7 @@
         disabled={!selectedIntegration}
         class="rounded-lg px-4 py-1.5 text-sm font-medium transition
           {selectedIntegration
-            ? 'bg-indigo-600 text-white hover:bg-indigo-500'
+            ? 'bg-amber-500 text-white hover:bg-amber-600'
             : 'bg-zinc-200 text-zinc-400 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-600'}"
       >
         Configure
