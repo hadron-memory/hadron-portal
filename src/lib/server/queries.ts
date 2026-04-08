@@ -53,6 +53,7 @@ export const STATION_FIELDS = /* GraphQL */ `
     name
     stationType
     description
+    systemPrompt
     role
     agentTools
     organizationId
@@ -517,8 +518,8 @@ export const CREATE_STATION_MUTATION = /* GraphQL */ `
 
 export const UPDATE_STATION_MUTATION = /* GraphQL */ `
   ${STATION_FIELDS}
-  mutation UpdateStation($id: ID!, $name: String, $urn: String, $stationType: StationType, $description: String, $agentTools: [String!], $aiProvider: String, $aiModel: String, $aiApiKey: String) {
-    updateStation(id: $id, name: $name, urn: $urn, stationType: $stationType, description: $description, agentTools: $agentTools, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
+  mutation UpdateStation($id: ID!, $name: String, $urn: String, $stationType: StationType, $description: String, $systemPrompt: String, $agentTools: [String!], $aiProvider: String, $aiModel: String, $aiApiKey: String) {
+    updateStation(id: $id, name: $name, urn: $urn, stationType: $stationType, description: $description, systemPrompt: $systemPrompt, agentTools: $agentTools, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
       ...StationFields
     }
   }

@@ -239,6 +239,7 @@ export interface Station {
   name: string;
   stationType: string;
   description: string | null;
+  systemPrompt: string | null;
   role: string;
   agentTools: string[];
   organizationId: string | null;

@@ -48,8 +48,9 @@ export const actions: Actions = {
     const urn = String(fd.get('urn') ?? '').trim() || undefined;
     const stationType = String(fd.get('stationType') ?? '').trim() || undefined;
     const description = String(fd.get('description') ?? '').trim() || null;
+    const systemPrompt = String(fd.get('systemPrompt') ?? '').trim() || null;
     try {
-      await gqlClient(locals.token).request(UPDATE_STATION_MUTATION, { id: params.id, name, urn, stationType, description });
+      await gqlClient(locals.token).request(UPDATE_STATION_MUTATION, { id: params.id, name, urn, stationType, description, systemPrompt });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to update station' });
     }

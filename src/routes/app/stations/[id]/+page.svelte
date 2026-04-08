@@ -599,6 +599,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
           {#key chatKey}
             <Chat config={aiConfig} stationId={station.id} systemPrompt={data.station ? [
+              station.systemPrompt ?? '',
               `Station: "${station.name}" (${station.stationType})`,
               `URN: ${station.urn}`,
               (station.agentSubscriptions ?? []).length ? `Agents: ${(station.agentSubscriptions ?? []).map(s => s.agent.name).join(', ')}` : '',
@@ -680,6 +681,12 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
               <input id="editDescription" name="description" type="text" value={station.description ?? ''} placeholder="What this station is for"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+            </div>
+            <div>
+              <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
+              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this station"
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500">{station.systemPrompt ?? ''}</textarea>
+              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
             </div>
             <div class="flex gap-3">
               <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
