@@ -128,7 +128,7 @@
   <!-- SETTINGS TAB                                                      -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
-    <div class="max-w-lg space-y-8">
+    <div class="space-y-8">
 
       {#if form?.error}
         <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
@@ -138,7 +138,7 @@
       {/if}
 
       <!-- Agent settings -->
-      <section>
+      <section class="max-w-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="font-semibold text-zinc-900 dark:text-white">Agent</h2>
           {#if !isEditing}
@@ -215,7 +215,7 @@
 
       <!-- Properties -->
       {#if agent.properties}
-        <section>
+        <section class="max-w-lg">
           <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Properties</h2>
           <pre class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{JSON.stringify(agent.properties, null, 2)}</pre>
         </section>
@@ -294,7 +294,7 @@
       </section>
 
       <!-- Danger zone -->
-      <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
+      <section class="max-w-lg border-t border-zinc-200 pt-6 dark:border-zinc-800">
         <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
         {#if !confirmDelete}
           <button onclick={() => confirmDelete = true} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
