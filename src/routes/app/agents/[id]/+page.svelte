@@ -189,12 +189,22 @@
               <span class="text-sm text-zinc-500">Visibility</span>
               <span class="text-sm font-medium text-zinc-900 dark:text-white">{visibilityLabel[agent.visibility]}</span>
             </div>
+            {#if agent.description}
+              <div class="px-5 py-3">
+                <span class="text-sm text-zinc-500">Description</span>
+                <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
+              </div>
+            {/if}
             {#if agent.systemPrompt}
               <div class="px-5 py-3">
                 <span class="text-sm text-zinc-500">System Prompt</span>
                 <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
               </div>
             {/if}
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Organization</span>
+              <span class="text-sm text-zinc-900 dark:text-white">{org.name}</span>
+            </div>
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Created</span>
               <span class="text-sm text-zinc-900 dark:text-white">{new Date(agent.createdAt).toLocaleDateString()}</span>
