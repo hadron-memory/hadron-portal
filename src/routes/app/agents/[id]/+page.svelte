@@ -83,29 +83,13 @@
   ]} />
 
   <!-- Header -->
-  <div class="flex items-start justify-between">
-    <div>
-      <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Agent:</span> {agent.name}</h1>
-      <Urn value={agent.urn} type="agent" />
-      {#if agent.description}
-        <p class="mt-1 text-sm text-zinc-500">{agent.description}</p>
-      {/if}
-      <p class="mt-1 text-xs text-zinc-400">Organization: {org.name}</p>
-    </div>
-    <div class="flex items-center gap-2">
-      {#if !isEditing}
-        <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
-      {/if}
-      {#if !confirmDelete}
-        <button onclick={() => confirmDelete = true} class="rounded-md border border-red-300 px-3 py-1 text-xs text-red-500 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950">Delete</button>
-      {:else}
-        <form method="POST" action="?/delete" use:enhance class="flex items-center gap-2">
-          <span class="text-xs text-red-500">Delete?</span>
-          <button type="submit" class="rounded-md bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-500">Yes</button>
-          <button type="button" class="text-xs text-zinc-500" onclick={() => confirmDelete = false}>No</button>
-        </form>
-      {/if}
-    </div>
+  <div>
+    <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Agent:</span> {agent.name}</h1>
+    <Urn value={agent.urn} type="agent" />
+    {#if agent.description}
+      <p class="mt-1 text-sm text-zinc-500">{agent.description}</p>
+    {/if}
+    <p class="mt-1 text-xs text-zinc-400">Organization: {org.name}</p>
   </div>
 
   {#if restrictiveMemories.length > 0}
@@ -116,52 +100,6 @@
       {restrictiveMemories.length === 1 ? 'is' : 'are'} more restrictive.
       Effective access will be limited to the most restrictive level.
     </div>
-  {/if}
-
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
-  {/if}
-  {#if form?.success}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
-  {/if}
-
-  <!-- Edit form -->
-  {#if isEditing}
-    <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }} class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
-      <div>
-        <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-        <input id="editName" name="name" type="text" required value={agent.name} class={inputClass} />
-      </div>
-      <div>
-        <label for="editUrn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
-        <div class="flex items-stretch">
-          <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
-          <input id="editUrn" name="urnSlug" type="text" required value={urnSlug(agent.urn)}
-            class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-        </div>
-      </div>
-      <div>
-        <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-        <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" class={inputClass}>{agent.description ?? ''}</textarea>
-      </div>
-      <div>
-        <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-        <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent" class={inputClass}>{agent.systemPrompt ?? ''}</textarea>
-        <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
-      </div>
-      <div>
-        <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
-        <select id="editVisibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-          <option value="PRIVATE" selected={agent.visibility === 'PRIVATE'}>Private</option>
-          <option value="ORGANIZATION" selected={agent.visibility === 'ORGANIZATION'}>Organization</option>
-          <option value="PUBLIC" selected={agent.visibility === 'PUBLIC'}>Public</option>
-        </select>
-      </div>
-      <div class="flex gap-3">
-        <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
-        <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
-      </div>
-    </form>
   {/if}
 
   <!-- Tabs -->
@@ -190,7 +128,81 @@
   <!-- SETTINGS TAB                                                      -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
-    <div class="max-w-2xl space-y-8">
+    <div class="max-w-lg space-y-8">
+
+      {#if form?.error}
+        <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+      {/if}
+      {#if form?.success}
+        <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
+      {/if}
+
+      <!-- Agent settings -->
+      <section>
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="font-semibold text-zinc-900 dark:text-white">Agent</h2>
+          {#if !isEditing}
+            <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+          {/if}
+        </div>
+
+        {#if isEditing}
+          <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
+            class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+            <div>
+              <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+              <input id="editName" name="name" type="text" required value={agent.name} class={inputClass} />
+            </div>
+            <div>
+              <label for="editUrn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+              <div class="flex items-stretch">
+                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+                <input id="editUrn" name="urnSlug" type="text" required value={urnSlug(agent.urn)}
+                  class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+              </div>
+            </div>
+            <div>
+              <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
+              <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" class={inputClass}>{agent.description ?? ''}</textarea>
+            </div>
+            <div>
+              <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
+              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent" class={inputClass}>{agent.systemPrompt ?? ''}</textarea>
+              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
+            </div>
+            <div>
+              <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
+              <select id="editVisibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="PRIVATE" selected={agent.visibility === 'PRIVATE'}>Private</option>
+                <option value="ORGANIZATION" selected={agent.visibility === 'ORGANIZATION'}>Organization</option>
+                <option value="PUBLIC" selected={agent.visibility === 'PUBLIC'}>Public</option>
+              </select>
+            </div>
+            <div class="flex gap-3">
+              <button type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">Save</button>
+              <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+            </div>
+          </form>
+        {:else}
+          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Visibility</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{visibilityLabel[agent.visibility]}</span>
+            </div>
+            {#if agent.systemPrompt}
+              <div class="px-5 py-3">
+                <span class="text-sm text-zinc-500">System Prompt</span>
+                <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
+              </div>
+            {/if}
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Created</span>
+              <span class="text-sm text-zinc-900 dark:text-white">{new Date(agent.createdAt).toLocaleDateString()}</span>
+            </div>
+          </div>
+        {/if}
+      </section>
+
       <!-- Properties -->
       {#if agent.properties}
         <section>
@@ -271,16 +283,20 @@
         {/if}
       </section>
 
-      <!-- Details -->
-      <section class="grid gap-3 text-sm sm:grid-cols-2">
-        <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <p class="text-xs text-zinc-500">Organization</p>
-          <p class="mt-1 font-medium text-zinc-900 dark:text-white">{org.name}</p>
-        </div>
-        <div class="rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <p class="text-xs text-zinc-500">Created</p>
-          <p class="mt-1 text-zinc-900 dark:text-white">{new Date(agent.createdAt).toLocaleDateString()}</p>
-        </div>
+      <!-- Danger zone -->
+      <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
+        <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
+        {#if !confirmDelete}
+          <button onclick={() => confirmDelete = true} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+            Delete agent
+          </button>
+        {:else}
+          <form method="POST" action="?/delete" use:enhance class="flex items-center gap-2">
+            <span class="text-sm text-red-500">Delete "{agent.name}"? This cannot be undone.</span>
+            <button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500">Yes, delete</button>
+            <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+          </form>
+        {/if}
       </section>
     </div>
   {/if}
