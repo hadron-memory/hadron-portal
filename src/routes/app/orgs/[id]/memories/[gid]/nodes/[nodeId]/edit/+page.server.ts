@@ -5,6 +5,23 @@ import { NODE_BY_ID_QUERY, UPSERT_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
+/** Strip URN prefixes and memory URN from a loc value. */
+function cleanLoc(raw: string): string {
+  let loc = raw.trim();
+  // Strip urn:node: or loc: prefix
+  if (loc.startsWith('urn:node:')) loc = loc.slice('urn:node:'.length);
+  if (loc.startsWith('loc:')) loc = loc.slice('loc:'.length);
+  // Strip memory URN prefix (domain.tld:memory-name:...) — memory URNs
+  // are two colon-separated segments where the first contains a dot
+  const parts = loc.split(':');
+  if (parts.length >= 3 && parts[0].includes('.')) {
+    loc = parts.slice(2).join(':');
+  }
+  // Also strip slash artifacts from old bugs
+  loc = loc.replace(/\//g, '');
+  return loc;
+}
+
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
@@ -36,7 +53,8 @@ export const actions: Actions = {
     const seq = seqParsed !== null && Number.isNaN(seqParsed) ? null : seqParsed;
     const tagsStr = String(fd.get('tags') ?? '').trim();
     const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [];
-    const newLoc = String(fd.get('loc') ?? '').trim();
+    const rawLoc = String(fd.get('loc') ?? '').trim();
+    const newLoc = cleanLoc(rawLoc);
 
     // Parse edges from JSON
     let edges: { targetId: string; label: string }[] | undefined;
