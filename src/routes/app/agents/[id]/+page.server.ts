@@ -66,10 +66,11 @@ export const actions: Actions = {
     const name = String(fd.get('name') ?? '').trim() || undefined;
     const urnSlug = String(fd.get('urnSlug') ?? '').trim() || undefined;
     const description = String(fd.get('description') ?? '').trim() || null;
+    const systemPrompt = String(fd.get('systemPrompt') ?? '').trim() || null;
     const visibility = String(fd.get('visibility') ?? '').trim() || undefined;
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
-        id: params.id, name, urn: urnSlug, description, visibility,
+        id: params.id, name, urn: urnSlug, description, systemPrompt, visibility,
       });
       return { success: true };
     } catch (e: unknown) {

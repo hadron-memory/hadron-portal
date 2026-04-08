@@ -145,6 +145,11 @@
         <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" class={inputClass}>{agent.description ?? ''}</textarea>
       </div>
       <div>
+        <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
+        <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent" class={inputClass}>{agent.systemPrompt ?? ''}</textarea>
+        <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
+      </div>
+      <div>
         <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
         <select id="editVisibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
           <option value="PRIVATE" selected={agent.visibility === 'PRIVATE'}>Private</option>
