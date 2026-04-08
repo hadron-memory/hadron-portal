@@ -208,6 +208,18 @@
     ),
     { label: node.name },
   ]} />
+  <!-- Create missing parent nodes -->
+  {#each data.breadcrumb.slice(0, -1) as seg}
+    {#if !seg.nodeId}
+      <form method="POST" action="?/createParent" use:enhance class="inline">
+        <input type="hidden" name="loc" value={seg.path} />
+        <input type="hidden" name="name" value={seg.label} />
+        <button type="submit" class="text-xs text-indigo-500 hover:text-indigo-400">
+          + Create parent node "{seg.label}"
+        </button>
+      </form>
+    {/if}
+  {/each}
 
   <!-- Header -->
   <div class="flex items-center gap-3">

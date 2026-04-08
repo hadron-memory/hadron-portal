@@ -35,6 +35,21 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 };
 
 export const actions: Actions = {
+  createParent: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const loc = String(fd.get('loc') ?? '').trim();
+    const name = String(fd.get('name') ?? '').trim();
+    if (!loc || !name) return fail(400, { error: 'Missing loc or name' });
+    try {
+      const res = await gqlClient(locals.token).request<{ upsertNode: { id: string } }>(UPSERT_NODE_MUTATION, {
+        input: { memoryId: params.gid, loc, name, nodeType: 'info' },
+      });
+      return { createdParentId: res.upsertNode.id };
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create parent node' });
+    }
+  },
+
   delete: async ({ params, locals }) => {
     // Load the node to get its loc
     const data = await gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
