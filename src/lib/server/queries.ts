@@ -203,6 +203,15 @@ export const EXCHANGE_CONNECTION_FIELDS = /* GraphQL */ `
   }
 `;
 
+export const MY_EXCHANGE_CONNECTIONS_QUERY = /* GraphQL */ `
+  ${EXCHANGE_CONNECTION_FIELDS}
+  query MyExchangeConnections {
+    myExchangeConnections {
+      ...ExchangeConnectionFields
+    }
+  }
+`;
+
 export const ORGANIZATION_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}
@@ -835,5 +844,112 @@ export const DELETE_EXCHANGE_CONNECTION_MUTATION = /* GraphQL */ `
 export const TEST_EXCHANGE_CONNECTION_MUTATION = /* GraphQL */ `
   mutation TestExchangeConnection($id: ID!) {
     testExchangeConnection(id: $id)
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// Pong AI assistant
+// ---------------------------------------------------------------------------
+
+export const PONG_SETTINGS_QUERY = /* GraphQL */ `
+  query PongSettings($connectionId: ID!) {
+    pongSettings(connectionId: $connectionId) {
+      id
+      exchangeConnectionId
+      userId
+      autoSendEnabled
+      confidenceThreshold
+      replyTone
+      signatureText
+      createdAt
+      updatedAt
+    }
+  }
+`;
+
+export const UPSERT_PONG_SETTINGS_MUTATION = /* GraphQL */ `
+  mutation UpsertPongSettings(
+    $connectionId: ID!, $autoSendEnabled: Boolean,
+    $confidenceThreshold: Float, $replyTone: String, $signatureText: String
+  ) {
+    upsertPongSettings(
+      connectionId: $connectionId, autoSendEnabled: $autoSendEnabled,
+      confidenceThreshold: $confidenceThreshold, replyTone: $replyTone,
+      signatureText: $signatureText
+    ) {
+      id autoSendEnabled confidenceThreshold replyTone signatureText
+    }
+  }
+`;
+
+export const KNOWLEDGE_DOCUMENTS_QUERY = /* GraphQL */ `
+  query KnowledgeDocuments($connectionId: ID!) {
+    knowledgeDocuments(connectionId: $connectionId) {
+      id title content docType createdAt updatedAt
+    }
+  }
+`;
+
+export const ADD_KNOWLEDGE_DOCUMENT_MUTATION = /* GraphQL */ `
+  mutation AddKnowledgeDocument($connectionId: ID!, $title: String!, $content: String!, $docType: String) {
+    addKnowledgeDocument(connectionId: $connectionId, title: $title, content: $content, docType: $docType) {
+      id title content docType createdAt
+    }
+  }
+`;
+
+export const UPDATE_KNOWLEDGE_DOCUMENT_MUTATION = /* GraphQL */ `
+  mutation UpdateKnowledgeDocument($id: ID!, $title: String, $content: String, $docType: String) {
+    updateKnowledgeDocument(id: $id, title: $title, content: $content, docType: $docType) {
+      id title content docType updatedAt
+    }
+  }
+`;
+
+export const DELETE_KNOWLEDGE_DOCUMENT_MUTATION = /* GraphQL */ `
+  mutation DeleteKnowledgeDocument($id: ID!) {
+    deleteKnowledgeDocument(id: $id)
+  }
+`;
+
+export const PONG_DRAFTS_QUERY = /* GraphQL */ `
+  query PongDrafts($connectionId: ID!, $status: PongDraftStatus, $limit: Int, $offset: Int) {
+    pongDrafts(connectionId: $connectionId, status: $status, limit: $limit, offset: $offset) {
+      id messageId messageSubject messageFrom messageReceivedAt
+      draftBody editedBody confidence status sourceDocs reasoning
+      sentAt createdAt updatedAt
+    }
+  }
+`;
+
+export const STORE_PONG_DRAFT_MUTATION = /* GraphQL */ `
+  mutation StorePongDraft(
+    $connectionId: ID!, $messageId: ID!, $draftBody: String!,
+    $confidence: Float!, $reasoning: String, $sourceDocs: [String!],
+    $messageSubject: String, $messageFrom: String
+  ) {
+    storePongDraft(
+      connectionId: $connectionId, messageId: $messageId, draftBody: $draftBody,
+      confidence: $confidence, reasoning: $reasoning, sourceDocs: $sourceDocs,
+      messageSubject: $messageSubject, messageFrom: $messageFrom
+    ) {
+      id messageId draftBody confidence status reasoning sourceDocs createdAt
+    }
+  }
+`;
+
+export const APPROVE_PONG_DRAFT_MUTATION = /* GraphQL */ `
+  mutation ApprovePongDraft($id: ID!, $editedBody: String) {
+    approvePongDraft(id: $id, editedBody: $editedBody) {
+      id status sentAt editedBody
+    }
+  }
+`;
+
+export const REJECT_PONG_DRAFT_MUTATION = /* GraphQL */ `
+  mutation RejectPongDraft($id: ID!) {
+    rejectPongDraft(id: $id) {
+      id status
+    }
   }
 `;

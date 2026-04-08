@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { page } from '$app/stores';
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const user = $derived(data.user);
+  const exchangeConnections = $derived(data.exchangeConnections);
   let isEditing = $state(false);
   let inviteOpen = $state(false);
 
@@ -13,7 +15,7 @@
 
 <svelte:head><title>Account · Hadron</title></svelte:head>
 
-<div class="max-w-lg space-y-8">
+<div class="max-w-3xl space-y-8">
   <div>
     <Breadcrumb items={[
       { label: 'Dashboard', href: '/app/dashboard' },
@@ -122,6 +124,77 @@
         </div>
       </div>
     {/if}
+  </section>
+
+  <!-- Microsoft Exchange -->
+  <section>
+    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Microsoft Exchange</h2>
+
+    {#if $page.url.searchParams.get('exchangeConnected') === '1'}
+      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Microsoft Exchange connected successfully.</div>
+    {/if}
+    {#if $page.url.searchParams.get('exchangeError')}
+      <div class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{$page.url.searchParams.get('exchangeError')}</div>
+    {/if}
+    {#if form?.exchangeError}
+      <div class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.exchangeError}</div>
+    {/if}
+    {#if form?.exchangeDisconnected}
+      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Microsoft account disconnected.</div>
+    {/if}
+    {#if form?.exchangeTested}
+      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Connection test passed.</div>
+    {/if}
+
+    {#each exchangeConnections as conn (conn.id)}
+      <div class="mb-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-700 dark:text-zinc-300"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 7L2 7"/></svg>
+            <div>
+              <div class="flex items-center gap-2">
+                {#if conn.displayName}
+                  <span class="text-sm font-medium text-zinc-900 dark:text-white">{conn.displayName}</span>
+                {/if}
+                <span class="text-sm text-zinc-500 font-mono">{conn.mailboxEmail}</span>
+              </div>
+              <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+                <span class="inline-block h-2 w-2 rounded-full {conn.syncStatus === 'OK' ? 'bg-green-500' : conn.syncStatus === 'ERROR' ? 'bg-red-500' : 'bg-amber-500'}"></span>
+                {conn.syncStatus === 'OK' ? 'Connected' : conn.syncStatus === 'ERROR' ? conn.lastError ?? 'Error' : 'Pending'}
+                {#if conn.lastSyncAt}
+                  <span>· verified {new Date(conn.lastSyncAt).toLocaleDateString()}</span>
+                {/if}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <a href="/app/account/exchange/{conn.id}"
+              class="rounded-md border border-indigo-300 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-400 dark:hover:bg-indigo-950">
+              Inbox
+            </a>
+            <form method="POST" action="?/testExchange" use:enhance>
+              <input type="hidden" name="connectionId" value={conn.id} />
+              <button type="submit" class="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Test</button>
+            </form>
+            <form method="POST" action="?/disconnectExchange" use:enhance
+              onsubmit={(e) => { if (!confirm('Disconnect this Microsoft account?')) e.preventDefault(); }}
+            >
+              <input type="hidden" name="connectionId" value={conn.id} />
+              <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">Disconnect</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    {/each}
+
+    <form method="POST" action="?/connectExchange">
+      <button type="submit"
+        class="inline-flex items-center gap-2 rounded-lg bg-[#2f2f2f] px-5 py-2.5 text-sm font-medium text-white hover:bg-[#404040] dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
+      >
+        <svg width="16" height="16" viewBox="0 0 23 23" fill="none"><path fill="#f35325" d="M1 1h10v10H1z"/><path fill="#81bc06" d="M12 1h10v10H12z"/><path fill="#05a6f0" d="M1 12h10v10H1z"/><path fill="#ffba08" d="M12 12h10v10H12z"/></svg>
+        {exchangeConnections.length ? 'Connect another account' : 'Sign in with Microsoft'}
+      </button>
+    </form>
   </section>
 
   <!-- Invite a user (collapsed by default) -->

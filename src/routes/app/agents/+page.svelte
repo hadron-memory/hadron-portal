@@ -8,7 +8,26 @@
 
   // Flatten agents from all orgs
   const allAgents = $derived.by(() => {
-    const agents: Array<{ id: string; urn: string; name: string; description: string | null; visibility: string; orgId: string; orgName: string; orgUrn: string; memoryCount: number }> = [];
+    const agents: Array<{ id: string; urn: string; name: string; description: string | null; visibility: string; orgId: string; orgName: string; orgUrn: string; memoryCount: number; isPong?: boolean; href?: string; mailboxEmail?: string }> = [];
+
+    // Add Pong agent cards for each Exchange connection
+    for (const conn of data.exchangeConnections ?? []) {
+      agents.push({
+        id: `pong-${conn.id}`,
+        urn: `pong:${conn.mailboxEmail}`,
+        name: 'Pong',
+        description: `Email assistant for ${conn.mailboxEmail} — drafts replies using your knowledge base`,
+        visibility: 'PRIVATE',
+        orgId: '',
+        orgName: conn.displayName ?? conn.mailboxEmail,
+        orgUrn: '',
+        memoryCount: 0,
+        isPong: true,
+        href: `/app/account/exchange/${conn.id}`,
+        mailboxEmail: conn.mailboxEmail,
+      });
+    }
+
     for (const org of data.orgs) {
       for (const agent of org.agents ?? []) {
         agents.push({
@@ -70,23 +89,41 @@
     <div class="space-y-3">
       {#each filtered as agent (agent.id)}
         <a
-          href="/app/agents/{agent.id}"
-          class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
+          href={agent.isPong ? agent.href : `/app/agents/${agent.id}`}
+          class="flex items-center gap-4 rounded-xl border p-5 transition {agent.isPong
+            ? 'border-emerald-200 bg-emerald-50 hover:border-emerald-400 dark:border-emerald-800 dark:bg-emerald-950 dark:hover:border-emerald-600'
+            : 'border-zinc-200 bg-white hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600'}"
         >
+          {#if agent.isPong}
+            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/50">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-600 dark:text-emerald-400"><rect width="20" height="16" x="2" y="4" rx="2"></rect><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path></svg>
+            </div>
+          {/if}
           <div class="flex-1 min-w-0">
-            <p class="text-sm font-semibold text-indigo-600 dark:text-indigo-300">{agent.name}</p>
+            <div class="flex items-center gap-2">
+              <p class="text-sm font-semibold {agent.isPong ? 'text-emerald-700 dark:text-emerald-300' : 'text-indigo-600 dark:text-indigo-300'}">{agent.name}</p>
+              {#if agent.isPong}
+                <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">email agent</span>
+              {/if}
+            </div>
             <p class="font-mono text-xs text-zinc-400">{agent.urn}</p>
             {#if agent.description}
               <p class="mt-1 text-xs text-zinc-500">{agent.description}</p>
             {/if}
             <div class="mt-1 flex items-center gap-2 text-xs text-zinc-400">
-              <span>{agent.orgName} · {agent.memoryCount} memor{agent.memoryCount !== 1 ? 'ies' : 'y'}</span>
-              {#if agent.visibility === 'PUBLIC'}
-                <span class="rounded bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">public</span>
-              {:else if agent.visibility === 'ORGANIZATION'}
-                <span class="rounded bg-amber-100 px-2 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">organization</span>
+              {#if agent.isPong}
+                <span>{agent.mailboxEmail}</span>
               {:else}
-                <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">private</span>
+                <span>{agent.orgName} · {agent.memoryCount} memor{agent.memoryCount !== 1 ? 'ies' : 'y'}</span>
+              {/if}
+              {#if !agent.isPong}
+                {#if agent.visibility === 'PUBLIC'}
+                  <span class="rounded bg-blue-100 px-2 py-0.5 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">public</span>
+                {:else if agent.visibility === 'ORGANIZATION'}
+                  <span class="rounded bg-amber-100 px-2 py-0.5 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">organization</span>
+                {:else}
+                  <span class="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">private</span>
+                {/if}
               {/if}
             </div>
           </div>

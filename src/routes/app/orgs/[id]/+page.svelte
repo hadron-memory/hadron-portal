@@ -13,13 +13,9 @@
   const isUsingCustomApp = $derived(!!org.githubAppId);
   let showCustomSetup = $state(false);
   let showSetupGuide = $state(false);
-  let selectedIntegration = $state('');
   const hasGithubConfigured = $derived(!!org.githubInstallationId || isUsingCustomApp);
   let showGithubConfig = $state(false);
 
-  // Exchange integration state
-  const hasExchangeConfigured = $derived((org.exchangeConnections?.length ?? 0) > 0);
-  let showExchangeSetup = $state(false);
 
   const installUrl = $derived(
     appSlug
@@ -148,21 +144,6 @@
     {#if justInstalled}
       <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Hadron GitHub App installed and linked to this organization.</div>
     {/if}
-    {#if form?.exchangeError}
-      <div class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.exchangeError}</div>
-    {/if}
-    {#if $page.url.searchParams.get('exchangeConnected') === '1'}
-      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Microsoft Exchange connected successfully.</div>
-    {/if}
-    {#if $page.url.searchParams.get('exchangeError')}
-      <div class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">Exchange error: {$page.url.searchParams.get('exchangeError')}</div>
-    {/if}
-    {#if form?.exchangeDeleted}
-      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Exchange connection removed.</div>
-    {/if}
-    {#if form?.exchangeTested}
-      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Exchange connection test passed.</div>
-    {/if}
 
     <!-- Configured integrations -->
     {#if hasGithubConfigured}
@@ -184,7 +165,7 @@
           </div>
           <div class="flex items-center gap-2">
             <button
-              onclick={() => { showGithubConfig = !showGithubConfig; selectedIntegration = ''; }}
+              onclick={() => { showGithubConfig = !showGithubConfig; }}
               class="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
             >
               {showGithubConfig ? 'Hide' : 'Edit'}
@@ -205,108 +186,10 @@
       </div>
     {/if}
 
-    <!-- Configured Exchange connections -->
-    {#each org.exchangeConnections ?? [] as conn (conn.id)}
-      <div class="mb-4 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-700 dark:text-zinc-300"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 7l-10 7L2 7"/></svg>
-            <div>
-              <p class="text-sm font-medium text-zinc-900 dark:text-white">Microsoft Exchange</p>
-              <div class="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-                <span class="inline-block h-2 w-2 rounded-full {conn.syncStatus === 'OK' ? 'bg-green-500' : conn.syncStatus === 'ERROR' ? 'bg-red-500' : 'bg-amber-500'}"></span>
-                {#if conn.displayName}
-                  <span>{conn.displayName}</span>
-                  <span class="text-zinc-400">·</span>
-                {/if}
-                <span class="font-mono">{conn.mailboxEmail}</span>
-                {#if conn.syncStatus === 'ERROR' && conn.lastError}
-                  <span class="text-red-400">— {conn.lastError}</span>
-                {/if}
-              </div>
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <a href="/app/orgs/{org.id}/exchange/{conn.id}"
-              class="rounded-md border border-indigo-300 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-400 dark:hover:bg-indigo-950">
-              Inbox
-            </a>
-            <form method="POST" action="?/testExchangeConnection" use:scrollEnhance>
-              <input type="hidden" name="connectionId" value={conn.id} />
-              <button type="submit" class="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Test</button>
-            </form>
-            <form method="POST" action="?/deleteExchangeConnection" use:scrollEnhance
-              onsubmit={(e) => { if (!confirm('Disconnect this Microsoft account?')) e.preventDefault(); }}
-            >
-              <input type="hidden" name="connectionId" value={conn.id} />
-              <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">Disconnect</button>
-            </form>
-          </div>
-        </div>
-        {#if conn.lastSyncAt}
-          <p class="mt-2 text-xs text-zinc-500">Last verified: {new Date(conn.lastSyncAt).toLocaleString()}</p>
-        {/if}
-      </div>
-    {/each}
-
-    <!-- Add integration -->
-    <div class="flex items-center gap-3">
-      <label for="addIntegration" class="text-sm text-zinc-600 dark:text-zinc-400">Add:</label>
-      <select
-        id="addIntegration"
-        bind:value={selectedIntegration}
-        class="rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-      >
-        <option value="">Select integration...</option>
-        {#if !hasGithubConfigured}
-          <option value="github">GitHub</option>
-        {/if}
-        <option value="exchange">Microsoft Exchange</option>
-      </select>
-      <button
-        onclick={() => {
-          if (selectedIntegration === 'github') { showGithubConfig = true; showExchangeSetup = false; }
-          else if (selectedIntegration === 'exchange') { showExchangeSetup = true; showGithubConfig = false; }
-        }}
-        disabled={!selectedIntegration}
-        class="rounded-lg px-4 py-1.5 text-sm font-medium transition
-          {selectedIntegration
-            ? 'bg-indigo-600 text-white hover:bg-indigo-500'
-            : 'bg-zinc-200 text-zinc-400 cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-600'}"
-      >
-        Configure
-      </button>
-    </div>
-
-    <!-- GitHub config panel (when adding new) -->
-    {#if showGithubConfig && !hasGithubConfigured}
-      <div class="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-800 dark:bg-zinc-900/50">
+    <!-- GitHub config panel (when not yet configured) -->
+    {#if !hasGithubConfigured}
+      <div class="rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-800 dark:bg-zinc-900/50">
         {@render githubConfigPanel()}
-      </div>
-    {/if}
-
-    <!-- Exchange setup panel -->
-    {#if showExchangeSetup}
-      <div class="mt-4 rounded-xl border border-zinc-200 bg-zinc-50 p-5 dark:border-zinc-800 dark:bg-zinc-900/50">
-        <h3 class="mb-1 text-sm font-medium text-zinc-900 dark:text-white">Connect Microsoft Exchange</h3>
-        <p class="mb-4 text-sm text-zinc-500">
-          Sign in with your Microsoft account to grant Hadron access to your email.
-          You'll be redirected to Microsoft to authorize the connection.
-        </p>
-        <div class="flex items-center gap-3">
-          <form method="POST" action="?/connectExchange">
-            <button type="submit"
-              class="inline-flex items-center gap-2 rounded-lg bg-[#2f2f2f] px-5 py-2.5 text-sm font-medium text-white hover:bg-[#404040] dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
-            >
-              <svg width="16" height="16" viewBox="0 0 23 23" fill="none"><path fill="#f35325" d="M1 1h10v10H1z"/><path fill="#81bc06" d="M12 1h10v10H12z"/><path fill="#05a6f0" d="M1 12h10v10H1z"/><path fill="#ffba08" d="M12 12h10v10H12z"/></svg>
-              Sign in with Microsoft
-            </button>
-          </form>
-          <button type="button" onclick={() => { showExchangeSetup = false; selectedIntegration = ''; }}
-            class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
-            Cancel
-          </button>
-        </div>
       </div>
     {/if}
   </section>

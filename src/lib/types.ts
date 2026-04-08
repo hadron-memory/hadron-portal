@@ -271,6 +271,54 @@ export interface ExchangeConnection {
 }
 
 // ---------------------------------------------------------------------------
+// Pong AI assistant
+// ---------------------------------------------------------------------------
+
+export type PongDraftStatus = 'PENDING' | 'APPROVED' | 'AUTO_SENT' | 'EDITED' | 'REJECTED';
+
+export interface PongSettings {
+  id: string;
+  exchangeConnectionId: string;
+  userId: string;
+  autoSendEnabled: boolean;
+  confidenceThreshold: number;
+  replyTone: string | null;
+  signatureText: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  exchangeConnectionId: string;
+  userId: string;
+  title: string;
+  content: string;
+  docType: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PongDraft {
+  id: string;
+  exchangeConnectionId: string;
+  userId: string;
+  messageId: string;
+  messageSubject: string | null;
+  messageFrom: string | null;
+  messageReceivedAt: string | null;
+  draftBody: string;
+  editedBody: string | null;
+  confidence: number;
+  status: PongDraftStatus;
+  sourceDocs: string[];
+  reasoning: string | null;
+  sentAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
 // AI provider config (encrypted at rest on the station)
 // ---------------------------------------------------------------------------
 
