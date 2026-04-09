@@ -861,6 +861,7 @@ export const PONG_SETTINGS_QUERY = /* GraphQL */ `
       confidenceThreshold
       replyTone
       signatureText
+      stationId
       createdAt
       updatedAt
     }
@@ -870,14 +871,15 @@ export const PONG_SETTINGS_QUERY = /* GraphQL */ `
 export const UPSERT_PONG_SETTINGS_MUTATION = /* GraphQL */ `
   mutation UpsertPongSettings(
     $connectionId: ID!, $autoSendEnabled: Boolean,
-    $confidenceThreshold: Float, $replyTone: String, $signatureText: String
+    $confidenceThreshold: Float, $replyTone: String, $signatureText: String,
+    $stationId: String
   ) {
     upsertPongSettings(
       connectionId: $connectionId, autoSendEnabled: $autoSendEnabled,
       confidenceThreshold: $confidenceThreshold, replyTone: $replyTone,
-      signatureText: $signatureText
+      signatureText: $signatureText, stationId: $stationId
     ) {
-      id autoSendEnabled confidenceThreshold replyTone signatureText
+      id autoSendEnabled confidenceThreshold replyTone signatureText stationId
     }
   }
 `;

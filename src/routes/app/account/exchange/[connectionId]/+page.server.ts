@@ -2,6 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
   MY_EXCHANGE_CONNECTIONS_QUERY,
+  MY_STATIONS_QUERY,
   KNOWLEDGE_DOCUMENTS_QUERY,
   ADD_KNOWLEDGE_DOCUMENT_MUTATION,
   UPDATE_KNOWLEDGE_DOCUMENT_MUTATION,
@@ -13,7 +14,7 @@ import {
   PONG_SETTINGS_QUERY,
   UPSERT_PONG_SETTINGS_MUTATION,
 } from '$lib/server/queries';
-import type { ExchangeConnection, KnowledgeDocument, PongDraft, PongSettings } from '$lib/types';
+import type { ExchangeConnection, KnowledgeDocument, PongDraft, PongSettings, Station } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 interface ExchangeMessage {
@@ -75,8 +76,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   );
   if (!connection) throw error(404, 'Exchange connection not found');
 
-  // Load messages, knowledge docs, pong drafts, and settings in parallel
-  const [messagesResult, docsResult, draftsResult, settingsResult] = await Promise.all([
+  // Load messages, knowledge docs, pong drafts, settings, and stations in parallel
+  const [messagesResult, docsResult, draftsResult, settingsResult, stationsResult] = await Promise.all([
     client.request<{ exchangeMessages: ExchangeMessage[] }>(
       EXCHANGE_MESSAGES_QUERY,
       { connectionId: params.connectionId, top: 50 },
@@ -96,7 +97,16 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       PONG_SETTINGS_QUERY,
       { connectionId: params.connectionId },
     ).catch(() => ({ pongSettings: null })),
+
+    client.request<{ myStations: Station[] }>(
+      MY_STATIONS_QUERY,
+    ).catch(() => ({ myStations: [] as Station[] })),
   ]);
+
+  // Filter to chatbot stations that have AI configured
+  const chatbotStations = stationsResult.myStations.filter(
+    (s) => s.stationType === 'CHATBOT' && s.hasAiApiKey,
+  );
 
   return {
     connection,
@@ -104,6 +114,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     knowledgeDocs: docsResult.knowledgeDocuments,
     pongDrafts: draftsResult.pongDrafts,
     pongSettings: settingsResult.pongSettings,
+    chatbotStations,
   };
 };
 
@@ -291,6 +302,7 @@ export const actions: Actions = {
     const confidenceThreshold = parseFloat(String(fd.get('confidenceThreshold') ?? '0.95'));
     const replyTone = String(fd.get('replyTone') ?? '').trim() || null;
     const signatureText = String(fd.get('signatureText') ?? '').trim() || null;
+    const stationId = String(fd.get('stationId') ?? '').trim() || null;
     try {
       await gqlClient(locals.token).request(UPSERT_PONG_SETTINGS_MUTATION, {
         connectionId: params.connectionId,
@@ -298,6 +310,7 @@ export const actions: Actions = {
         confidenceThreshold,
         replyTone,
         signatureText,
+        stationId,
       });
       return { settingsSaved: true };
     } catch (e: unknown) {

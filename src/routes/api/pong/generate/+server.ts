@@ -1,14 +1,15 @@
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText } from 'ai';
-import { json, error } from '@sveltejs/kit';
+import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
   KNOWLEDGE_DOCUMENTS_QUERY,
   PONG_SETTINGS_QUERY,
+  STATION_AI_CONFIG_QUERY,
 } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
-import type { KnowledgeDocument, PongSettings } from '$lib/types';
+import type { AIProvider, KnowledgeDocument, PongSettings } from '$lib/types';
 
 const PONG_SYSTEM_PROMPT = `You are Pong, an AI email assistant for a university professor. Your job is to draft replies to student emails using ONLY the professor's knowledge base documents provided below.
 
@@ -26,29 +27,27 @@ You must respond in JSON format with these fields:
 - "sourceDocs": array of document titles used to craft the response
 - "reasoning": brief explanation of your confidence level and sources used`;
 
-// Store a draft via the server GraphQL API
-const UPSERT_PONG_DRAFT_MUTATION = /* GraphQL */ `
-  mutation GeneratePongDraft($connectionId: ID!, $messageId: ID!) {
-    generatePongDraft(connectionId: $connectionId, messageId: $messageId) {
-      id messageId draftBody confidence status reasoning sourceDocs createdAt
+function createLanguageModel(provider: AIProvider, apiKey: string, model: string) {
+  switch (provider) {
+    case 'anthropic': {
+      const anthropic = createAnthropic({ apiKey });
+      return anthropic(model);
     }
-  }
-`;
-
-// Lightweight mutation — just stores a pre-generated draft
-const STORE_PONG_DRAFT_MUTATION = /* GraphQL */ `
-  mutation StorePongDraft(
-    $connectionId: ID!, $messageId: ID!, $draftBody: String!,
-    $confidence: Float!, $reasoning: String, $sourceDocs: [String!]
-  ) {
-    storePongDraft(
-      connectionId: $connectionId, messageId: $messageId, draftBody: $draftBody,
-      confidence: $confidence, reasoning: $reasoning, sourceDocs: $sourceDocs
-    ) {
-      id messageId draftBody confidence status reasoning sourceDocs createdAt
+    case 'openai': {
+      const openai = createOpenAI({ apiKey });
+      return openai(model);
     }
+    case 'glm': {
+      const glm = createOpenAI({
+        apiKey,
+        baseURL: 'https://api.z.ai/api/coding/paas/v4',
+      });
+      return glm.chat(model);
+    }
+    default:
+      return null;
   }
-`;
+}
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
@@ -82,6 +81,37 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ error: 'No knowledge base documents found. Add documents first.' }, { status: 400 });
   }
 
+  // Get AI config from the linked station
+  if (!settings?.stationId) {
+    return json({ error: 'No station linked to Pong. Configure a station with AI settings in Pong Settings.' }, { status: 400 });
+  }
+
+  let provider: string;
+  let apiKey: string;
+  let model: string;
+
+  try {
+    const result = await client.request<{
+      stationAIConfig: { provider: string; apiKey: string; model: string } | null;
+    }>(STATION_AI_CONFIG_QUERY, { stationId: settings.stationId });
+
+    if (!result.stationAIConfig) {
+      return json({ error: 'The linked station has no AI configuration. Set up AI provider and API key on the station first.' }, { status: 400 });
+    }
+
+    provider = result.stationAIConfig.provider;
+    apiKey = result.stationAIConfig.apiKey;
+    model = result.stationAIConfig.model;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Failed to fetch station AI config';
+    return json({ error: msg }, { status: 500 });
+  }
+
+  const languageModel = createLanguageModel(provider as AIProvider, apiKey, model);
+  if (!languageModel) {
+    return json({ error: `Unsupported AI provider: ${provider}` }, { status: 400 });
+  }
+
   // Build the knowledge base context
   const kbContext = knowledgeDocs
     .map((doc, i) => `--- Document ${i + 1}: ${doc.title} (${doc.docType ?? 'general'}) ---\n${doc.content}`)
@@ -106,17 +136,9 @@ ${messageBody ?? '(empty)'}
 
 Generate a reply draft in JSON format.`;
 
-  // Use Vercel AI SDK to generate the draft
-  const apiKey = process.env.PONG_ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return json({ error: 'Pong AI service not configured (missing API key)' }, { status: 500 });
-  }
-
-  const anthropic = createAnthropic({ apiKey });
-
   try {
     const result = await generateText({
-      model: anthropic('claude-sonnet-4-20250514'),
+      model: languageModel,
       system: PONG_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],
       maxOutputTokens: 1024,

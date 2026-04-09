@@ -9,6 +9,7 @@
   const knowledgeDocs = $derived(data.knowledgeDocs);
   const pongDrafts = $derived(data.pongDrafts);
   const pongSettings = $derived(data.pongSettings);
+  const chatbotStations = $derived(data.chatbotStations);
 
   type Tab = 'inbox' | 'knowledge' | 'drafts' | 'settings';
   let activeTab = $state<Tab>('inbox');
@@ -20,6 +21,7 @@
   let reviewingDraft = $state<PongDraft | null>(null);
   let editedDraftBody = $state('');
   let showAddDoc = $state(false);
+  let confidenceValue = $state(data.pongSettings?.confidenceThreshold ?? 0.95);
 
   function toggleExpand(id: string) {
     if (expandedId === id) { expandedId = null; replyingTo = null; }
@@ -585,11 +587,11 @@
             min="0.5"
             max="1.0"
             step="0.05"
-            value={pongSettings?.confidenceThreshold ?? 0.95}
+            bind:value={confidenceValue}
             class="flex-1 accent-indigo-600"
           />
           <span class="w-12 text-right text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-            {((pongSettings?.confidenceThreshold ?? 0.95) * 100).toFixed(0)}%
+            {(confidenceValue * 100).toFixed(0)}%
           </span>
         </div>
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Drafts with confidence at or above this level will be auto-sent (if enabled).</p>
@@ -619,6 +621,28 @@
           placeholder="Best regards,&#10;Prof. Smith"
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
         ></textarea>
+      </div>
+
+      <div>
+        <label for="stationId" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AI Station</label>
+        <select
+          name="stationId"
+          id="stationId"
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-600 dark:bg-zinc-900 dark:text-white"
+        >
+          <option value="" selected={!pongSettings?.stationId}>Select a station...</option>
+          {#each chatbotStations as station}
+            <option value={station.id} selected={pongSettings?.stationId === station.id}>
+              {station.name} ({station.aiProvider ?? 'no provider'} &mdash; {station.aiModel ?? 'no model'})
+            </option>
+          {/each}
+        </select>
+        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          Pong uses this station's AI provider and API key to generate replies.
+          {#if chatbotStations.length === 0}
+            <span class="text-amber-600 dark:text-amber-400">No chatbot stations found. Create a Chatbot station and configure its AI settings first.</span>
+          {/if}
+        </p>
       </div>
 
       <button type="submit" class="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-500">

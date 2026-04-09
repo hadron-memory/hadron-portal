@@ -284,6 +284,7 @@ export interface PongSettings {
   confidenceThreshold: number;
   replyTone: string | null;
   signatureText: string | null;
+  stationId: string | null;
   createdAt: string;
   updatedAt: string;
 }
