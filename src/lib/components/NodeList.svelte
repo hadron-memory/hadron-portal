@@ -170,7 +170,7 @@
                             <span class="ml-1 text-xs tabular-nums text-zinc-400">#{n.seq}</span>
                           {/if}
                         </div>
-                        <p class="mt-0.5 font-mono text-xs text-zinc-400 truncate">{nodeUrn(n)}</p>
+                        <div class="mt-0.5"><Urn value={nodeUrn(n)} type="node" size={8} /></div>
                       </td>
                     {:else if cell.id === 'nodeType'}
                       <td {...attrs} class="px-4 py-2.5">

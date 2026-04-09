@@ -292,7 +292,7 @@
     </button>
 
     {#if href}
-      <a {href} class="node-link" class:active class:match={isMatch(node.entry)} onclick={() => { if (hasChildren) toggle(node.entry.id); }}>
+      <a {href} class="node-link" class:active class:match={isMatch(node.entry)}>
         {#if !node.entry.isVirtual}
           <span class="dot" class:action-dot={node.entry.hasActions}></span>
         {/if}

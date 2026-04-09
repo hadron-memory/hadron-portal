@@ -33,7 +33,7 @@
 </script>
 
 <span class="inline-flex items-center gap-1">
-  <code class="inline-flex items-center overflow-hidden rounded font-mono text-xs leading-tight">
+  <code class="inline-flex items-center overflow-hidden rounded font-mono leading-tight" style="font-size: 0.6rem;">
     {#if compact}
       <span class="bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={fullUrn}>{lastSegment}</span>
     {:else}

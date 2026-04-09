@@ -125,7 +125,7 @@
 
 <svelte:head><title>{node.name} &middot; Hadron</title></svelte:head>
 
-<div class="max-w-3xl space-y-4">
+<div class="space-y-4">
   <!-- Breadcrumb -->
   <Breadcrumb items={[
     { label: 'Organizations', href: '/app/orgs' },
