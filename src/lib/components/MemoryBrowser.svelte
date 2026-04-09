@@ -1,18 +1,12 @@
 <script lang="ts">
   import TreeView from './TreeView.svelte';
   import TopicGraph from './TopicGraph.svelte';
-  import Urn from './Urn.svelte';
+  import NodeList from './NodeList.svelte';
   import { invalidateAll } from '$app/navigation';
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { onDestroy } from 'svelte';
   import type { MemoryNode, TreeEntry } from '$lib/types';
-
-  /** Build the full URN for a node: memory.urn + ":" + loc */
-  function nodeUrn(node: MemoryNode): string {
-    const memUrn = node.memory?.urn ?? '';
-    return memUrn ? `${memUrn}:${node.loc}` : node.loc;
-  }
 
   /** Build the URL to a node's detail page, or empty if org context is missing */
   function nodeHref(node: MemoryNode, base: string): string {
@@ -432,49 +426,8 @@
             {/key}
           </div>
         {:else}
-          <div class="overflow-x-auto">
-            {#if searchedNodes.length === 0}
-              <div class="p-8 text-center text-sm text-zinc-500">{keyword ? 'No matching nodes.' : 'No nodes.'}</div>
-            {:else}
-              <table class="w-full text-sm">
-                <thead>
-                  <tr class="border-b border-zinc-200 bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-                    <th class="px-4 py-2.5">Node</th>
-                    {#if multiMemory}<th class="px-4 py-2.5">Memory</th>{/if}
-                    <th class="px-4 py-2.5">Type</th>
-                    <th class="px-4 py-2.5">Description</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
-                  {#each searchedNodes as node (node.id)}
-                    <tr class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900">
-                      <td class="px-4 py-2.5">
-                        <div class="flex items-center gap-2">
-                          {#if multiMemory}
-                            <span class="inline-block h-2 w-2 rounded-full {writableSet.size > 0 && !writableSet.has(node.memoryId) ? 'opacity-30' : ''}" style="background: {memoryColorMap[node.memory?.urn ?? ''] ?? '#8b949e'};"></span>
-                          {/if}
-                          {#if nodeHref(node, basePath)}
-                            <a href={nodeHref(node, basePath)} class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{node.name}</a>
-                          {:else}
-                            <span class="font-medium text-zinc-900 dark:text-white">{node.name}</span>
-                          {/if}
-                        </div>
-                        <div class="mt-0.5 pl-4 flex items-center gap-1">
-                          <Urn value={nodeUrn(node)} type="node" size={10} />
-                        </div>
-                      </td>
-                      {#if multiMemory}
-                        <td class="whitespace-nowrap px-4 py-2.5 text-xs text-zinc-500">{node.memory?.name ?? '—'}</td>
-                      {/if}
-                      <td class="px-4 py-2.5">
-                        <span class="rounded px-1.5 py-0.5 text-xs font-medium bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{node.nodeType}</span>
-                      </td>
-                      <td class="max-w-xs truncate px-4 py-2.5 text-xs text-zinc-500">{node.description ?? '—'}</td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            {/if}
+          <div class="p-4">
+            <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} />
           </div>
         {/if}
       </div>

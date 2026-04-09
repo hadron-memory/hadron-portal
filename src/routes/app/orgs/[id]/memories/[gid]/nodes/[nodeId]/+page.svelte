@@ -4,6 +4,7 @@
   import { onMount } from 'svelte';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import NodeList from '$lib/components/NodeList.svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -105,50 +106,7 @@
   );
   const hasChildren = $derived(children.length > 0);
   const childrenReorderable = $derived(children.some((c) => c.seq !== null));
-  let dragChildLoc = $state<string | null>(null);
-  let dropChildTarget = $state<{ loc: string; position: 'before' | 'after' } | null>(null);
   let childDragError = $state<string | null>(null);
-
-  function handleChildDragOver(e: DragEvent, childLoc: string) {
-    if (!dragChildLoc || dragChildLoc === childLoc) return;
-    e.preventDefault();
-    e.dataTransfer!.dropEffect = 'move';
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const y = e.clientY - rect.top;
-    dropChildTarget = { loc: childLoc, position: y < rect.height / 2 ? 'before' : 'after' };
-  }
-
-  async function handleChildDrop(e: DragEvent) {
-    e.preventDefault();
-    if (!dragChildLoc || !dropChildTarget) { resetChildDrag(); return; }
-    const fromLoc = dragChildLoc;
-    const { loc: targetLoc, position } = dropChildTarget;
-    resetChildDrag();
-    const ordered = [...children];
-    const fromIdx = ordered.findIndex((c) => c.loc === fromLoc);
-    const toIdx = ordered.findIndex((c) => c.loc === targetLoc);
-    if (fromIdx === -1 || toIdx === -1) return;
-    const [moved] = ordered.splice(fromIdx, 1);
-    const insertIdx = position === 'before' ? (toIdx > fromIdx ? toIdx - 1 : toIdx) : (toIdx >= fromIdx ? toIdx : toIdx + 1);
-    ordered.splice(insertIdx, 0, moved);
-    const seqUpdates = ordered.map((c, i) => ({ loc: c.loc, seq: i + 1 }));
-    try {
-      const fd = new FormData();
-      fd.set('updates', JSON.stringify(seqUpdates));
-      const res = await fetch('?/reorder', { method: 'POST', body: fd });
-      if (!res.ok) throw new Error('Reorder failed');
-      invalidateAll();
-    } catch (err) {
-      childDragError = err instanceof Error ? err.message : 'Reorder failed';
-      setTimeout(() => { childDragError = null; }, 3000);
-    }
-  }
-
-  function resetChildDrag() { dragChildLoc = null; dropChildTarget = null; }
-  function childDropClass(loc: string): string {
-    if (!dropChildTarget || dropChildTarget.loc !== loc) return '';
-    return dropChildTarget.position === 'before' ? 'drop-before' : 'drop-after';
-  }
 
   // URN slug for edit form
   const urnSlug = $derived(node.loc);
@@ -275,30 +233,28 @@
 
     <!-- ═══ CHILDREN TAB ═══ -->
     {#if activeTab === 'children' && hasChildren}
-      {#if childrenReorderable && childDragError}
+      {#if childDragError}
         <p class="mb-2 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-300">{childDragError}</p>
       {/if}
-      <div class="space-y-1">
-        {#each children as child (child.loc)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900 {childDropClass(child.loc)}"
-            draggable={childrenReorderable ? 'true' : undefined}
-            ondragstart={(e) => { dragChildLoc = child.loc; e.dataTransfer!.effectAllowed = 'move'; }}
-            ondragover={(e) => handleChildDragOver(e, child.loc)}
-            ondragleave={() => { dropChildTarget = null; }}
-            ondrop={handleChildDrop}
-            ondragend={() => { dragChildLoc = null; dropChildTarget = null; }}
-          >
-            {#if childrenReorderable}
-              <span class="cursor-grab text-zinc-400 select-none" title="Drag to reorder">⠿</span>
-            {/if}
-            <a href="{basePath}/nodes/{child.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400 flex-1">{child.name || child.loc}</a>
-            {#if child.seq !== null}<span class="text-zinc-400 text-xs tabular-nums">#{child.seq}</span>{/if}
-            {#if child.description}<span class="text-zinc-500 text-xs truncate max-w-xs">{child.description}</span>{/if}
-          </div>
-        {/each}
-      </div>
+      <NodeList
+        nodes={children}
+        {basePath}
+        memoryUrn={data.graph.urn ?? ''}
+        orderable={childrenReorderable}
+        onreorder={async (orderedLocs) => {
+          const updates = orderedLocs.map((loc, i) => ({ loc, seq: i + 1 }));
+          try {
+            const fd = new FormData();
+            fd.set('updates', JSON.stringify(updates));
+            const res = await fetch('?/reorder', { method: 'POST', body: fd });
+            if (!res.ok) throw new Error('Reorder failed');
+            invalidateAll();
+          } catch (err) {
+            childDragError = err instanceof Error ? err.message : 'Reorder failed';
+            setTimeout(() => { childDragError = null; }, 3000);
+          }
+        }}
+      />
     {/if}
 
     <!-- ═══ REFERENCES TAB ═══ -->
@@ -454,18 +410,3 @@
     {/if}
   </div>
 </div>
-
-<style>
-  :global(.drop-before) {
-    border-top: 2px solid #6366f1 !important;
-  }
-  :global(.drop-after) {
-    border-bottom: 2px solid #6366f1 !important;
-  }
-  :global(.cursor-grab) {
-    cursor: grab;
-  }
-  :global(.cursor-grab:active) {
-    cursor: grabbing;
-  }
-</style>
