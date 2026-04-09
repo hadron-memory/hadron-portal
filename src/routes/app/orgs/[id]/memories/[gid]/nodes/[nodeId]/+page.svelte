@@ -87,10 +87,77 @@
   const hasReferences = $derived(node.outgoingEdges.length > 0 || node.incomingEdges.length > 0);
   const hasContent = $derived(!!node.content);
 
-  // Default tab: content first, then references, then settings
-  let activeTab = $state<'content' | 'references' | 'settings'>('content');
+  // Children: direct children of this node's loc
+  const children = $derived(
+    (data.graphNodes ?? [])
+      .filter((n) => {
+        if (n.loc === node.loc) return false;
+        if (!n.loc.startsWith(node.loc + ':')) return false;
+        const rest = n.loc.slice(node.loc.length + 1);
+        return !rest.includes(':');
+      })
+      .sort((a, b) => {
+        if (a.seq !== null && b.seq !== null) return a.seq - b.seq;
+        if (a.seq !== null) return -1;
+        if (b.seq !== null) return 1;
+        return a.loc.localeCompare(b.loc);
+      })
+  );
+  const hasChildren = $derived(children.length > 0);
+  const childrenReorderable = $derived(children.some((c) => c.seq !== null));
+  let dragChildLoc = $state<string | null>(null);
+  let dropChildTarget = $state<{ loc: string; position: 'before' | 'after' } | null>(null);
+  let childDragError = $state<string | null>(null);
+
+  function handleChildDragOver(e: DragEvent, childLoc: string) {
+    if (!dragChildLoc || dragChildLoc === childLoc) return;
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = 'move';
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    dropChildTarget = { loc: childLoc, position: y < rect.height / 2 ? 'before' : 'after' };
+  }
+
+  async function handleChildDrop(e: DragEvent) {
+    e.preventDefault();
+    if (!dragChildLoc || !dropChildTarget) { resetChildDrag(); return; }
+    const fromLoc = dragChildLoc;
+    const { loc: targetLoc, position } = dropChildTarget;
+    resetChildDrag();
+    const ordered = [...children];
+    const fromIdx = ordered.findIndex((c) => c.loc === fromLoc);
+    const toIdx = ordered.findIndex((c) => c.loc === targetLoc);
+    if (fromIdx === -1 || toIdx === -1) return;
+    const [moved] = ordered.splice(fromIdx, 1);
+    const insertIdx = position === 'before' ? (toIdx > fromIdx ? toIdx - 1 : toIdx) : (toIdx >= fromIdx ? toIdx : toIdx + 1);
+    ordered.splice(insertIdx, 0, moved);
+    const seqUpdates = ordered.map((c, i) => ({ loc: c.loc, seq: i + 1 }));
+    try {
+      const fd = new FormData();
+      fd.set('updates', JSON.stringify(seqUpdates));
+      const res = await fetch('?/reorder', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('Reorder failed');
+      invalidateAll();
+    } catch (err) {
+      childDragError = err instanceof Error ? err.message : 'Reorder failed';
+      setTimeout(() => { childDragError = null; }, 3000);
+    }
+  }
+
+  function resetChildDrag() { dragChildLoc = null; dropChildTarget = null; }
+  function childDropClass(loc: string): string {
+    if (!dropChildTarget || dropChildTarget.loc !== loc) return '';
+    return dropChildTarget.position === 'before' ? 'drop-before' : 'drop-after';
+  }
+
+  // URN slug for edit form
+  const urnSlug = $derived(node.loc);
+
+  // Default tab: content first, then children, then references, then settings
+  let activeTab = $state<'content' | 'children' | 'references' | 'settings'>('content');
   $effect(() => {
     if (hasContent) activeTab = 'content';
+    else if (hasChildren) activeTab = 'children';
     else if (hasReferences) activeTab = 'references';
     else activeTab = 'settings';
   });
@@ -148,6 +215,12 @@
           onclick={() => activeTab = 'content'}
         >Content</button>
       {/if}
+      {#if hasChildren}
+        <button
+          class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'children' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+          onclick={() => activeTab = 'children'}
+        >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}</span></button>
+      {/if}
       {#if hasReferences}
         <button
           class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'references' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
@@ -200,6 +273,34 @@
       {/if}
     {/if}
 
+    <!-- ═══ CHILDREN TAB ═══ -->
+    {#if activeTab === 'children' && hasChildren}
+      {#if childrenReorderable && childDragError}
+        <p class="mb-2 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-300">{childDragError}</p>
+      {/if}
+      <div class="space-y-1">
+        {#each children as child (child.loc)}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900 {childDropClass(child.loc)}"
+            draggable={childrenReorderable ? 'true' : undefined}
+            ondragstart={(e) => { dragChildLoc = child.loc; e.dataTransfer!.effectAllowed = 'move'; }}
+            ondragover={(e) => handleChildDragOver(e, child.loc)}
+            ondragleave={() => { dropChildTarget = null; }}
+            ondrop={handleChildDrop}
+            ondragend={() => { dragChildLoc = null; dropChildTarget = null; }}
+          >
+            {#if childrenReorderable}
+              <span class="cursor-grab text-zinc-400 select-none" title="Drag to reorder">⠿</span>
+            {/if}
+            <a href="{basePath}/nodes/{child.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400 flex-1">{child.name || child.loc}</a>
+            {#if child.seq !== null}<span class="text-zinc-400 text-xs tabular-nums">#{child.seq}</span>{/if}
+            {#if child.description}<span class="text-zinc-500 text-xs truncate max-w-xs">{child.description}</span>{/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
+
     <!-- ═══ REFERENCES TAB ═══ -->
     {#if activeTab === 'references' && hasReferences}
       {#if node.outgoingEdges.length > 0}
@@ -248,8 +349,12 @@
                 <input id="editName" name="name" type="text" required value={node.name} class={inputClass} />
               </div>
               <div>
-                <label for="editLoc" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Loc <span class="text-zinc-500">(changing this moves the node)</span></label>
-                <input id="editLoc" name="loc" type="text" value={node.loc} class="{inputClass} font-mono" />
+                <label for="editLoc" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN <span class="text-zinc-500">(changing this moves the node)</span></label>
+                <div class="flex items-stretch">
+                  <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.graph.urn}:</span>
+                  <input id="editLoc" name="loc" type="text" value={urnSlug}
+                    class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+                </div>
               </div>
               <div>
                 <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
@@ -274,6 +379,10 @@
             </form>
           {:else}
             <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Name</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{node.name}</span>
+              </div>
               <div class="flex items-center justify-between px-5 py-3">
                 <span class="text-sm text-zinc-500">Type</span>
                 <span class="text-sm font-medium text-zinc-900 dark:text-white">{node.nodeType}</span>
@@ -345,3 +454,18 @@
     {/if}
   </div>
 </div>
+
+<style>
+  :global(.drop-before) {
+    border-top: 2px solid #6366f1 !important;
+  }
+  :global(.drop-after) {
+    border-bottom: 2px solid #6366f1 !important;
+  }
+  :global(.cursor-grab) {
+    cursor: grab;
+  }
+  :global(.cursor-grab:active) {
+    cursor: grabbing;
+  }
+</style>
