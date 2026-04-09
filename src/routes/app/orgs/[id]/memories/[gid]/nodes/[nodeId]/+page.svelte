@@ -18,17 +18,10 @@
     return `${data.graph.urn}:${node.loc}`;
   });
 
-  // Parent node (derived from loc)
-  const parentLoc = $derived.by(() => {
-    const parts = node.loc.split(':');
-    return parts.length > 1 ? parts.slice(0, -1).join(':') : null;
-  });
-  const parentNode = $derived(parentLoc ? data.graphNodes.find((n) => n.loc === parentLoc) : null);
-  const parentName = $derived(parentLoc ? parentLoc.split(':').pop() : null);
-
   let showSource = $state(false);
   let confirmDelete = $state(false);
   let copied = $state(false);
+  let isEditing = $state(false);
 
   // Inline editing
   let editContent = $state('');
@@ -65,7 +58,6 @@
   });
 
   $effect(() => {
-    // markedReady is $state so the effect re-runs after onMount
     if (markedReady && MarkedClass && node.content) {
       const m = new MarkedClass({
         renderer: {
@@ -92,105 +84,18 @@
     } catch { /* no-op */ }
   }
 
-  // Children: nodes whose loc is a direct child of this node's loc
-  const children = $derived(
-    data.graphNodes
-      .filter((n) => {
-        if (n.loc === node.loc) return false;
-        if (!n.loc.startsWith(node.loc + ':')) return false;
-        const rest = n.loc.slice(node.loc.length + 1);
-        return !rest.includes(':');
-      })
-      .sort((a, b) => {
-        if (a.seq !== null && b.seq !== null) return a.seq - b.seq;
-        if (a.seq !== null) return -1;
-        if (b.seq !== null) return 1;
-        return a.loc.localeCompare(b.loc);
-      })
-  );
-
-  const hasChildren = $derived(children.length > 0);
   const hasReferences = $derived(node.outgoingEdges.length > 0 || node.incomingEdges.length > 0);
   const hasContent = $derived(!!node.content);
 
-  // Default tab: children if any, else references if any, else content
-  let activeTab = $state<'children' | 'references' | 'content'>('children');
+  // Default tab: content first, then references, then settings
+  let activeTab = $state<'content' | 'references' | 'settings'>('content');
   $effect(() => {
-    if (hasChildren) activeTab = 'children';
+    if (hasContent) activeTab = 'content';
     else if (hasReferences) activeTab = 'references';
-    else if (hasContent) activeTab = 'content';
+    else activeTab = 'settings';
   });
 
-  // ── Child drag-and-drop reordering ──────────────────────────────────────
-  const childrenReorderable = $derived(children.some((c) => c.seq !== null));
-  let dragChildLoc = $state<string | null>(null);
-  let dropChildTarget = $state<{ loc: string; position: 'before' | 'after' } | null>(null);
-  let childDragError = $state<string | null>(null);
-
-  function handleChildDragStart(e: DragEvent, loc: string) {
-    dragChildLoc = loc;
-    childDragError = null;
-    if (e.dataTransfer) {
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', loc);
-    }
-  }
-
-  function handleChildDragOver(e: DragEvent, loc: string) {
-    if (!dragChildLoc || dragChildLoc === loc) return;
-    e.preventDefault();
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const y = (e.clientY - rect.top) / rect.height;
-    dropChildTarget = { loc, position: y < 0.5 ? 'before' : 'after' };
-  }
-
-  function handleChildDragLeave(e: DragEvent) {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
-      dropChildTarget = null;
-    }
-  }
-
-  async function handleChildDrop(e: DragEvent) {
-    e.preventDefault();
-    if (!dragChildLoc || !dropChildTarget) { resetChildDrag(); return; }
-
-    const fromLoc = dragChildLoc;
-    const { loc: targetLoc, position } = dropChildTarget;
-    resetChildDrag();
-
-    const ordered = [...children];
-    const fromIdx = ordered.findIndex((c) => c.loc === fromLoc);
-    const toIdx = ordered.findIndex((c) => c.loc === targetLoc);
-    if (fromIdx === -1 || toIdx === -1) return;
-
-    const [moved] = ordered.splice(fromIdx, 1);
-    const insertIdx = position === 'before' ? (toIdx > fromIdx ? toIdx - 1 : toIdx) : (toIdx >= fromIdx ? toIdx : toIdx + 1);
-    ordered.splice(insertIdx, 0, moved);
-
-    const seqUpdates = ordered.map((c, i) => ({ loc: c.loc, seq: i + 1 }));
-    try {
-      const fd = new FormData();
-      fd.set('updates', JSON.stringify(seqUpdates));
-      const res = await fetch('?/reorder', { method: 'POST', body: fd });
-      if (!res.ok) throw new Error('Reorder failed');
-      invalidateAll();
-    } catch (err) {
-      childDragError = err instanceof Error ? err.message : 'Reorder failed';
-      setTimeout(() => { childDragError = null; }, 3000);
-    }
-  }
-
-  function resetChildDrag() {
-    dragChildLoc = null;
-    dropChildTarget = null;
-  }
-
-  function childDropClass(loc: string): string {
-    if (!dropChildTarget || dropChildTarget.loc !== loc) return '';
-    return dropChildTarget.position === 'before' ? 'drop-before' : 'drop-after';
-  }
+  const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 </script>
 
 <svelte:head><title>{node.name} &middot; Hadron</title></svelte:head>
@@ -222,24 +127,11 @@
   {/each}
 
   <!-- Header -->
-  <div class="flex items-center gap-3">
+  <div>
     <h1 class="text-xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Node:</span> {node.name}</h1>
-    {#if node.seq !== null && node.seq !== undefined}
-      <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium tabular-nums text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">seq {node.seq}</span>
-    {/if}
-    {#if node.isRunnable}
-      <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">runnable</span>
-    {/if}
-    <a href="{basePath}/browse?focus={encodeURIComponent(node.loc)}" class="ml-auto rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Graph</a>
-    <a href="{basePath}/nodes/{node.id}/edit" class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</a>
-    {#if !confirmDelete}
-      <button class="rounded-md border border-red-300 px-3 py-1 text-xs text-red-500 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950" onclick={() => confirmDelete = true}>Delete</button>
-    {:else}
-      <form method="POST" action="?/delete" use:enhance class="flex items-center gap-2">
-        <span class="text-xs text-red-500">Delete?</span>
-        <button type="submit" class="rounded-md bg-red-600 px-2 py-1 text-xs text-white hover:bg-red-500">Yes</button>
-        <button type="button" class="text-xs text-zinc-500" onclick={() => confirmDelete = false}>No</button>
-      </form>
+    <Urn value={fullUrn} type="node" />
+    {#if node.description}
+      <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
     {/if}
   </div>
 
@@ -247,37 +139,14 @@
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
 
-  <!-- URN -->
-  <Urn value={fullUrn} type="node" />
-
-  {#if parentLoc}
-    <p class="text-sm text-zinc-500">Parent: {#if parentNode}<a href="{basePath}/nodes/{parentNode.id}" class="text-indigo-500 hover:underline dark:text-indigo-400">{parentName}</a>{:else}<span>{parentName}</span>{/if}</p>
-  {/if}
-
-  {#if node.description}
-    <p class="text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
-  {/if}
-
-  {#if node.alias}
-    <div class="text-sm"><span class="text-zinc-500">Alias:</span> <code class="text-zinc-700 dark:text-zinc-300">{node.alias}</code></div>
-  {/if}
-
-  {#if node.tags.length > 0}
-    <div class="flex flex-wrap gap-1">
-      {#each node.tags as tag}
-        <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{tag}</span>
-      {/each}
-    </div>
-  {/if}
-
-  <!-- Tabs: Graph (children/refs) and Content -->
+  <!-- Tabs: Content | References | Settings -->
   <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
     <div class="mb-3 flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
-      {#if hasChildren}
+      {#if hasContent}
         <button
-          class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'children' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'children'}
-        >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}</span></button>
+          class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'content' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+          onclick={() => activeTab = 'content'}
+        >Content</button>
       {/if}
       {#if hasReferences}
         <button
@@ -285,70 +154,13 @@
           onclick={() => activeTab = 'references'}
         >References <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span></button>
       {/if}
-      {#if hasContent}
-        <button
-          class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'content' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'content'}
-        >Content</button>
-      {/if}
+      <button
+        class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'settings' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+        onclick={() => activeTab = 'settings'}
+      >Settings</button>
     </div>
 
-    {#if activeTab === 'children' && hasChildren}
-      {#if childrenReorderable && childDragError}
-        <div class="mb-2 rounded-lg border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-300">{childDragError}</div>
-      {/if}
-      <div class="space-y-1">
-        {#each children as child}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="rounded-lg border border-zinc-200 dark:border-zinc-800 {childrenReorderable ? childDropClass(child.loc) : ''} {childrenReorderable ? 'cursor-grab' : ''}"
-            class:opacity-40={childrenReorderable && dragChildLoc === child.loc}
-            draggable={childrenReorderable ? 'true' : undefined}
-            ondragstart={(e) => childrenReorderable && handleChildDragStart(e, child.loc)}
-            ondragover={(e) => childrenReorderable && handleChildDragOver(e, child.loc)}
-            ondragleave={(e) => childrenReorderable && handleChildDragLeave(e)}
-            ondrop={(e) => childrenReorderable && handleChildDrop(e)}
-            ondragend={() => childrenReorderable && resetChildDrag()}
-          >
-            <a
-              href="{basePath}/nodes/{child.id}"
-              class="flex items-center gap-3 bg-white px-3 py-2 text-sm hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800 rounded-lg"
-            >
-              <span class="inline-block h-2 w-2 {child.seq !== null ? 'rounded-sm' : 'rounded-full'} {child.isRunnable ? 'bg-green-500' : 'bg-indigo-400'}"></span>
-              {#if child.seq !== null}<span class="text-xs tabular-nums text-zinc-500">{child.seq}.</span>{/if}
-              <span class="font-medium text-zinc-900 dark:text-white">{child.name}</span>
-              <span class="font-mono text-xs text-zinc-500">{child.loc}</span>
-            </a>
-          </div>
-        {/each}
-      </div>
-    {/if}
-
-    {#if activeTab === 'references' && hasReferences}
-      {#if node.outgoingEdges.length > 0}
-        <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Outgoing</h3>
-        <div class="mb-4 space-y-1">
-          {#each node.outgoingEdges as edge}
-            <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-              <a href="{basePath}/nodes/{edge.target.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.target.name || edge.target.loc}</a>
-              {#if edge.label}<span class="text-zinc-500">{edge.label}</span>{/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
-      {#if node.incomingEdges.length > 0}
-        <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Incoming</h3>
-        <div class="space-y-1">
-          {#each node.incomingEdges as edge}
-            <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-              <a href="{basePath}/nodes/{edge.source.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.source.name || edge.source.loc}</a>
-              {#if edge.label}<span class="text-zinc-500">{edge.label}</span>{/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
-    {/if}
-
+    <!-- ═══ CONTENT TAB ═══ -->
     {#if activeTab === 'content' && hasContent}
       <div class="flex items-center justify-between">
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
@@ -387,20 +199,149 @@
         <div class="prose prose-sm prose-zinc mt-3 max-w-none dark:prose-invert">{@html renderedHtml}</div>
       {/if}
     {/if}
+
+    <!-- ═══ REFERENCES TAB ═══ -->
+    {#if activeTab === 'references' && hasReferences}
+      {#if node.outgoingEdges.length > 0}
+        <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Outgoing</h3>
+        <div class="space-y-1">
+          {#each node.outgoingEdges as edge}
+            <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <a href="{basePath}/nodes/{edge.target.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.target.name || edge.target.loc}</a>
+              {#if edge.label}<span class="text-zinc-500">{edge.label}</span>{/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+      {#if node.incomingEdges.length > 0}
+        <h3 class="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">Incoming</h3>
+        <div class="space-y-1">
+          {#each node.incomingEdges as edge}
+            <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <a href="{basePath}/nodes/{edge.source.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.source.name || edge.source.loc}</a>
+              {#if edge.label}<span class="text-zinc-500">{edge.label}</span>{/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
+    {/if}
+
+    <!-- ═══ SETTINGS TAB ═══ -->
+    {#if activeTab === 'settings'}
+      <div class="max-w-lg space-y-8">
+        <section>
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="font-semibold text-zinc-900 dark:text-white">Node</h2>
+            {#if !isEditing}
+              <div class="flex items-center gap-2">
+                <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+                <a href="{basePath}/browse?focus={encodeURIComponent(node.loc)}" class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Graph</a>
+              </div>
+            {/if}
+          </div>
+
+          {#if isEditing}
+            <form method="POST" action="?/updateMeta" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
+              class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+              <div>
+                <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+                <input id="editName" name="name" type="text" required value={node.name} class={inputClass} />
+              </div>
+              <div>
+                <label for="editLoc" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Loc <span class="text-zinc-500">(changing this moves the node)</span></label>
+                <input id="editLoc" name="loc" type="text" value={node.loc} class="{inputClass} font-mono" />
+              </div>
+              <div>
+                <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
+                <input id="editDescription" name="description" type="text" value={node.description ?? ''} placeholder="Short caption" class={inputClass} />
+              </div>
+              <div>
+                <label for="editAlias" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Alias</label>
+                <input id="editAlias" name="alias" type="text" value={node.alias ?? ''} placeholder="Optional" class={inputClass} />
+              </div>
+              <div>
+                <label for="editSeq" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Seq <span class="text-zinc-500">(sort order)</span></label>
+                <input id="editSeq" name="seq" type="number" value={node.seq ?? ''} placeholder="Optional" class={inputClass} />
+              </div>
+              <div>
+                <label for="editTags" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Tags <span class="text-zinc-500">(comma-separated)</span></label>
+                <input id="editTags" name="tags" type="text" value={node.tags.join(', ')} class={inputClass} />
+              </div>
+              <div class="flex gap-3">
+                <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
+                <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+              </div>
+            </form>
+          {:else}
+            <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Type</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{node.nodeType}</span>
+              </div>
+              {#if node.description}
+                <div class="px-5 py-3">
+                  <span class="text-sm text-zinc-500">Description</span>
+                  <p class="mt-1 text-sm text-zinc-900 dark:text-white">{node.description}</p>
+                </div>
+              {/if}
+              {#if node.alias}
+                <div class="flex items-center justify-between px-5 py-3">
+                  <span class="text-sm text-zinc-500">Alias</span>
+                  <span class="text-sm font-mono text-zinc-900 dark:text-white">{node.alias}</span>
+                </div>
+              {/if}
+              {#if node.seq !== null && node.seq !== undefined}
+                <div class="flex items-center justify-between px-5 py-3">
+                  <span class="text-sm text-zinc-500">Seq</span>
+                  <span class="text-sm tabular-nums text-zinc-900 dark:text-white">{node.seq}</span>
+                </div>
+              {/if}
+              {#if node.tags.length > 0}
+                <div class="flex items-center justify-between px-5 py-3">
+                  <span class="text-sm text-zinc-500">Tags</span>
+                  <div class="flex flex-wrap gap-1">
+                    {#each node.tags as tag}
+                      <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{tag}</span>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+              {#if node.isRunnable}
+                <div class="flex items-center justify-between px-5 py-3">
+                  <span class="text-sm text-zinc-500">Runnable</span>
+                  <span class="text-sm text-green-600 dark:text-green-400">Yes</span>
+                </div>
+              {/if}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Created</span>
+                <span class="text-sm text-zinc-900 dark:text-white">{new Date(node.createdAt).toLocaleDateString()}</span>
+              </div>
+              {#if node.updatedAt}
+                <div class="flex items-center justify-between px-5 py-3">
+                  <span class="text-sm text-zinc-500">Updated</span>
+                  <span class="text-sm text-zinc-900 dark:text-white">{new Date(node.updatedAt).toLocaleDateString()}</span>
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </section>
+
+        <!-- Danger zone -->
+        <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
+          <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
+          {#if !confirmDelete}
+            <button onclick={() => confirmDelete = true} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+              Delete node
+            </button>
+          {:else}
+            <form method="POST" action="?/delete" use:enhance class="flex items-center gap-2">
+              <span class="text-sm text-red-500">Delete "{node.name}"? This cannot be undone.</span>
+              <button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500">Yes, delete</button>
+              <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+            </form>
+          {/if}
+        </section>
+      </div>
+    {/if}
   </div>
 </div>
-
-<style>
-  :global(.drop-before) {
-    border-top: 2px solid #6366f1 !important;
-  }
-  :global(.drop-after) {
-    border-bottom: 2px solid #6366f1 !important;
-  }
-  :global(.cursor-grab) {
-    cursor: grab;
-  }
-  :global(.cursor-grab:active) {
-    cursor: grabbing;
-  }
-</style>

@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, UPSERT_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, UPSERT_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib/server/queries';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -47,6 +47,51 @@ export const actions: Actions = {
       return { createdParentId: res.upsertNode.id };
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to create parent node' });
+    }
+  },
+
+  updateMeta: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const client = gqlClient(locals.token);
+
+    const { nodeById: currentNode } = await client.request<{ nodeById: MemoryNode | null }>(
+      NODE_BY_ID_QUERY, { id: params.nodeId },
+    );
+    if (!currentNode) return fail(404, { error: 'Node not found' });
+
+    const name = String(fd.get('name') ?? '').trim();
+    const description = String(fd.get('description') ?? '').trim() || null;
+    const alias = String(fd.get('alias') ?? '').trim() || null;
+    const seqRaw = String(fd.get('seq') ?? '').trim();
+    const seq = seqRaw !== '' ? parseInt(seqRaw, 10) : null;
+    const tagsStr = String(fd.get('tags') ?? '').trim();
+    const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [];
+    let newLoc = String(fd.get('loc') ?? '').trim();
+
+    // Strip URN prefixes
+    if (newLoc.startsWith('urn:node:')) newLoc = newLoc.slice('urn:node:'.length);
+    if (newLoc.startsWith('loc:')) newLoc = newLoc.slice('loc:'.length);
+    const parts = newLoc.split(':');
+    if (parts.length >= 3 && parts[0].includes('.')) newLoc = parts.slice(2).join(':');
+
+    if (!name) return fail(400, { error: 'Name is required' });
+
+    // Move if loc changed
+    const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
+    if (loc !== currentNode.loc) {
+      try {
+        await client.request(MOVE_NODE_MUTATION, { from: currentNode.loc, to: loc, memoryId: params.gid });
+      } catch (e: unknown) {
+        return fail(500, { error: e instanceof Error ? e.message : 'Failed to move node' });
+      }
+    }
+
+    try {
+      await client.request(UPSERT_NODE_MUTATION, {
+        input: { memoryId: params.gid, loc, name, description, alias, seq: Number.isNaN(seq) ? null : seq, tags },
+      });
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to save' });
     }
   },
 
