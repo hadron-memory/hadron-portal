@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import Chat from '$lib/components/Chat.svelte';
   import type { PageData, ActionData } from './$types';
   import type { PongDraft } from '$lib/types';
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -11,8 +12,17 @@
   const pongSettings = $derived(data.pongSettings);
   const chatbotStations = $derived(data.chatbotStations);
 
-  type Tab = 'inbox' | 'knowledge' | 'drafts' | 'settings';
-  let activeTab = $state<Tab>('inbox');
+  // Derive the linked station for chat tab
+  const linkedStation = $derived(
+    pongSettings?.stationId
+      ? chatbotStations.find((s: { id: string }) => s.id === pongSettings.stationId) ?? null
+      : null,
+  );
+  const canChat = $derived(!!linkedStation?.hasAiApiKey);
+  let chatKey = $state(0);
+
+  type Tab = 'chat' | 'inbox' | 'knowledge' | 'drafts' | 'settings';
+  let activeTab = $state<Tab>('chat');
 
   let expandedId = $state<string | null>(null);
   let replyingTo = $state<string | null>(null);
@@ -143,6 +153,7 @@
   <!-- Tabs -->
   <div class="flex gap-1 border-b border-zinc-200 dark:border-zinc-700/50">
     {#each [
+      { key: 'chat', label: 'Chat', count: 0 },
       { key: 'inbox', label: 'Inbox', count: messages.length },
       { key: 'drafts', label: 'Drafts', count: pendingDrafts.length },
       { key: 'knowledge', label: 'Knowledge Base', count: knowledgeDocs.length },
@@ -166,8 +177,39 @@
     {/each}
   </div>
 
+  <!-- ═══════════════ CHAT TAB ═══════════════ -->
+  {#if activeTab === 'chat'}
+    {#if !canChat}
+      <div class="rounded-xl border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">
+          {#if !pongSettings?.stationId}
+            Link a chatbot station in the <button onclick={() => activeTab = 'settings'} class="text-indigo-600 underline hover:text-indigo-500 dark:text-indigo-400">Settings</button> tab to start chatting with Pong.
+          {:else}
+            The linked station has no AI API key configured. Go to the station page to set up the AI provider and API key.
+          {/if}
+        </p>
+      </div>
+    {:else}
+      <div class="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-700/50" style="height: 600px;">
+        {#key chatKey}
+          <Chat
+            config={{ provider: (linkedStation?.aiProvider ?? 'openai') as import('$lib/types').AIProvider, apiKey: '', model: linkedStation?.aiModel ?? '' }}
+            stationId={pongSettings?.stationId ?? ''}
+            systemPrompt={connection.id}
+            apiEndpoint="/api/pong/chat"
+            placeholder="Hi! I'm Pong, your email assistant. Ask me to read your inbox, draft replies, update settings, or add knowledge documents."
+          />
+        {/key}
+      </div>
+      <div class="mt-2 flex justify-end">
+        <button onclick={() => chatKey++} class="text-xs text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300">
+          Restart conversation
+        </button>
+      </div>
+    {/if}
+
   <!-- ═══════════════ INBOX TAB ═══════════════ -->
-  {#if activeTab === 'inbox'}
+  {:else if activeTab === 'inbox'}
     {#if messages.length === 0}
       <div class="rounded-xl border border-dashed border-zinc-300 p-12 text-center dark:border-zinc-700">
         <p class="text-sm text-zinc-500 dark:text-zinc-400">No emails in the inbox.</p>

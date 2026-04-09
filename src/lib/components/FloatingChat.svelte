@@ -11,6 +11,9 @@
   let stationId = $state<string | undefined>(undefined);
   let saving = $state(false);
   let saveError = $state('');
+  let apiEndpoint = $state('/api/chat');
+  let chatTitle = $state('Hadron Chat');
+  let chatPlaceholder = $state('Ask me anything about setting up Hadron on your machine.');
 
   // Track whether the station already has an encrypted key saved
   let stationHasKey = $state(false);
@@ -19,6 +22,9 @@
     currentContext = ctx.pageContext;
     stationId = ctx.stationId;
     stationHasKey = ctx.hasAiApiKey ?? false;
+    apiEndpoint = ctx.apiEndpoint ?? '/api/chat';
+    chatTitle = ctx.chatTitle ?? 'Hadron Chat';
+    chatPlaceholder = ctx.chatPlaceholder ?? 'Ask me anything about setting up Hadron on your machine.';
 
     // Pre-fill provider/model from station's saved config
     if (ctx.stationId) {
@@ -124,7 +130,7 @@
 
     <!-- Header -->
     <div class="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-      <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Hadron Chat</h3>
+      <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{chatTitle}</h3>
     </div>
 
     {#if !stationId}
@@ -202,7 +208,7 @@
       <!-- Active chat -->
       <div class="flex min-h-0 flex-1 flex-col">
         {#key chatKey}
-          <Chat config={{ provider: aiProvider, apiKey: '', model: aiModel }} {stationId} systemPrompt={currentContext} />
+          <Chat config={{ provider: aiProvider, apiKey: '', model: aiModel }} {stationId} systemPrompt={currentContext} {apiEndpoint} placeholder={chatPlaceholder} />
         {/key}
       </div>
       <div class="flex gap-2 border-t border-zinc-200 px-4 py-2 dark:border-zinc-800">

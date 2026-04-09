@@ -11,6 +11,12 @@ export interface ChatContext {
   aiModel?: string | null;
   /** Whether the station has an encrypted AI API key */
   hasAiApiKey?: boolean;
+  /** Custom API endpoint for chat (e.g. '/api/pong/chat'). Defaults to '/api/chat' */
+  apiEndpoint?: string;
+  /** Custom chat title (e.g. 'Pong Email Agent') */
+  chatTitle?: string;
+  /** Custom placeholder text for the empty chat state */
+  chatPlaceholder?: string;
 }
 
 /**
