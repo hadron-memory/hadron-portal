@@ -27,12 +27,16 @@
 
   // Use shared search state so graph can react to the same filter
   let search = $derived(graphState.searchFilter);
+  let showRecords = $state(false);
 
-  // Filter entries when searching
+  // Filter entries: exclude record nodes by default, apply search
   let filteredEntries = $derived.by(() => {
-    if (!search.trim()) return entries;
+    // First filter out record nodes unless toggled on
+    let pool = showRecords ? entries : entries.filter((e) => e.nodeType !== 'record' || e.isVirtual);
+
+    if (!search.trim()) return pool;
     const q = search.toLowerCase();
-    const matching = entries.filter(
+    const matching = pool.filter(
       (e) => e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q)
     );
     // Include ancestors of matching entries
@@ -43,8 +47,10 @@
         ids.add(parts.slice(0, i).join(":"));
       }
     }
-    return entries.filter((e) => ids.has(e.id));
+    return pool.filter((e) => ids.has(e.id));
   });
+
+  const hasRecords = $derived(entries.some((e) => e.nodeType === 'record'));
 
   // Build nested tree from flat sorted entries
   let tree = $derived.by(() => {
@@ -254,6 +260,12 @@
       <button class="search-clear" onclick={() => graphState.searchFilter = ''} aria-label="Clear search">&times;</button>
     {/if}
   </div>
+  {#if hasRecords}
+    <label class="record-toggle">
+      <input type="checkbox" bind:checked={showRecords} />
+      <span>Records</span>
+    </label>
+  {/if}
 {/if}
 
 {#snippet nodeRow(node: TreeNode, depth: number)}
@@ -541,4 +553,21 @@
   }
 
   :global(.dark) .node-label:hover { color: #c9d1d9; }
+
+  .record-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 14px 8px;
+    font-size: 11px;
+    color: #71717a;
+    cursor: pointer;
+  }
+
+  :global(.dark) .record-toggle { color: #8b949e; }
+
+  .record-toggle input {
+    width: 12px;
+    height: 12px;
+  }
 </style>

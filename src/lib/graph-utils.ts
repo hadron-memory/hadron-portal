@@ -36,6 +36,7 @@ export function buildTreeEntries(nodes: MemoryNode[], memoryUrn?: string): TreeE
           nodeId: null,
           name: parts[i - 1],
           seq: null,
+          nodeType: 'info',
           hasActions: false,
           isVirtual: true,
         });
@@ -43,10 +44,11 @@ export function buildTreeEntries(nodes: MemoryNode[], memoryUrn?: string): TreeE
     }
 
     entries.push({
-      id: n.loc, // Tree uses loc for hierarchy — dedup handled below
+      id: n.loc,
       nodeId: n.id,
       name: n.name,
       seq: n.seq,
+      nodeType: n.nodeType ?? 'info',
       hasActions: n.isRunnable ?? false,
       isVirtual: false,
     });

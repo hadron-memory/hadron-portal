@@ -176,6 +176,7 @@ export interface TreeEntry {
   nodeId: string | null;  // DB primary key (null for virtual nodes)
   name: string;
   seq: number | null;
+  nodeType: string;
   hasActions: boolean;
   isVirtual: boolean;
 }
