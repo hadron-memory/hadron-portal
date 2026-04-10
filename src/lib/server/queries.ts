@@ -862,6 +862,8 @@ export const PONG_SETTINGS_QUERY = /* GraphQL */ `
       replyTone
       signatureText
       stationId
+      pausedUntil
+      exclusionRules { senderPattern subjectPattern reason }
       createdAt
       updatedAt
     }
@@ -880,6 +882,54 @@ export const UPSERT_PONG_SETTINGS_MUTATION = /* GraphQL */ `
       signatureText: $signatureText, stationId: $stationId
     ) {
       id autoSendEnabled confidenceThreshold replyTone signatureText stationId
+    }
+  }
+`;
+
+export const PAUSE_PONG_MUTATION = /* GraphQL */ `
+  mutation PausePong($connectionId: ID!, $until: String) {
+    pausePong(connectionId: $connectionId, until: $until) {
+      id pausedUntil
+    }
+  }
+`;
+
+export const RESUME_PONG_MUTATION = /* GraphQL */ `
+  mutation ResumePong($connectionId: ID!) {
+    resumePong(connectionId: $connectionId) {
+      id pausedUntil
+    }
+  }
+`;
+
+export const ADD_PONG_EXCLUSION_RULE_MUTATION = /* GraphQL */ `
+  mutation AddPongExclusionRule($connectionId: ID!, $rule: PongExclusionRuleInput!) {
+    addPongExclusionRule(connectionId: $connectionId, rule: $rule) {
+      id exclusionRules { senderPattern subjectPattern reason }
+    }
+  }
+`;
+
+export const REMOVE_PONG_EXCLUSION_RULE_MUTATION = /* GraphQL */ `
+  mutation RemovePongExclusionRule($connectionId: ID!, $index: Int!) {
+    removePongExclusionRule(connectionId: $connectionId, index: $index) {
+      id exclusionRules { senderPattern subjectPattern reason }
+    }
+  }
+`;
+
+export const PONG_STATUS_QUERY = /* GraphQL */ `
+  query PongStatus($connectionId: ID!, $sinceDays: Int) {
+    pongStatus(connectionId: $connectionId, sinceDays: $sinceDays) {
+      drafted autoSent approved edited rejected pending pausedUntil sinceDays
+    }
+  }
+`;
+
+export const EDIT_PONG_DRAFT_MUTATION = /* GraphQL */ `
+  mutation EditPongDraft($id: ID!, $body: String!) {
+    editPongDraft(id: $id, body: $body) {
+      id editedBody status updatedAt
     }
   }
 `;

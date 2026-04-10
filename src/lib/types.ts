@@ -276,6 +276,12 @@ export interface ExchangeConnection {
 
 export type PongDraftStatus = 'PENDING' | 'APPROVED' | 'AUTO_SENT' | 'EDITED' | 'REJECTED';
 
+export interface PongExclusionRule {
+  senderPattern?: string | null;
+  subjectPattern?: string | null;
+  reason?: string | null;
+}
+
 export interface PongSettings {
   id: string;
   exchangeConnectionId: string;
@@ -285,8 +291,21 @@ export interface PongSettings {
   replyTone: string | null;
   signatureText: string | null;
   stationId: string | null;
+  pausedUntil: string | null;
+  exclusionRules: PongExclusionRule[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PongStatus {
+  drafted: number;
+  autoSent: number;
+  approved: number;
+  edited: number;
+  rejected: number;
+  pending: number;
+  pausedUntil: string | null;
+  sinceDays: number;
 }
 
 export interface KnowledgeDocument {
