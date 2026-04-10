@@ -934,33 +934,33 @@ export const EDIT_PONG_DRAFT_MUTATION = /* GraphQL */ `
   }
 `;
 
-export const KNOWLEDGE_DOCUMENTS_QUERY = /* GraphQL */ `
-  query KnowledgeDocuments($connectionId: ID!) {
-    knowledgeDocuments(connectionId: $connectionId) {
+export const PONG_KNOWLEDGE_QUERY = /* GraphQL */ `
+  query PongKnowledge($connectionId: ID!) {
+    pongKnowledge(connectionId: $connectionId) {
       id title content docType createdAt updatedAt
     }
   }
 `;
 
-export const ADD_KNOWLEDGE_DOCUMENT_MUTATION = /* GraphQL */ `
-  mutation AddKnowledgeDocument($connectionId: ID!, $title: String!, $content: String!, $docType: String) {
-    addKnowledgeDocument(connectionId: $connectionId, title: $title, content: $content, docType: $docType) {
+export const ADD_PONG_KNOWLEDGE_MUTATION = /* GraphQL */ `
+  mutation AddPongKnowledge($connectionId: ID!, $title: String!, $content: String!, $docType: String) {
+    addPongKnowledge(connectionId: $connectionId, title: $title, content: $content, docType: $docType) {
       id title content docType createdAt
     }
   }
 `;
 
-export const UPDATE_KNOWLEDGE_DOCUMENT_MUTATION = /* GraphQL */ `
-  mutation UpdateKnowledgeDocument($id: ID!, $title: String, $content: String, $docType: String) {
-    updateKnowledgeDocument(id: $id, title: $title, content: $content, docType: $docType) {
+export const UPDATE_PONG_KNOWLEDGE_MUTATION = /* GraphQL */ `
+  mutation UpdatePongKnowledge($connectionId: ID!, $id: String!, $title: String, $content: String, $docType: String) {
+    updatePongKnowledge(connectionId: $connectionId, id: $id, title: $title, content: $content, docType: $docType) {
       id title content docType updatedAt
     }
   }
 `;
 
-export const DELETE_KNOWLEDGE_DOCUMENT_MUTATION = /* GraphQL */ `
-  mutation DeleteKnowledgeDocument($id: ID!) {
-    deleteKnowledgeDocument(id: $id)
+export const DELETE_PONG_KNOWLEDGE_MUTATION = /* GraphQL */ `
+  mutation DeletePongKnowledge($connectionId: ID!, $id: String!) {
+    deletePongKnowledge(connectionId: $connectionId, id: $id)
   }
 `;
 

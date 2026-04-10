@@ -308,10 +308,8 @@ export interface PongStatus {
   sinceDays: number;
 }
 
-export interface KnowledgeDocument {
+export interface PongKnowledge {
   id: string;
-  exchangeConnectionId: string;
-  userId: string;
   title: string;
   content: string;
   docType: string | null;

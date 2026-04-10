@@ -4,9 +4,9 @@ import {
   MY_EXCHANGE_CONNECTIONS_QUERY,
   MY_STATIONS_QUERY,
   PONG_SETTINGS_QUERY,
-  KNOWLEDGE_DOCUMENTS_QUERY,
+  PONG_KNOWLEDGE_QUERY,
 } from '$lib/server/queries';
-import type { ExchangeConnection, KnowledgeDocument, PongSettings, Station } from '$lib/types';
+import type { ExchangeConnection, PongKnowledge, PongSettings, Station } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -64,10 +64,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       })
       .catch(() => ({ pongSettings: null })),
     client
-      .request<{ knowledgeDocuments: KnowledgeDocument[] }>(KNOWLEDGE_DOCUMENTS_QUERY, {
+      .request<{ pongKnowledge: PongKnowledge[] }>(PONG_KNOWLEDGE_QUERY, {
         connectionId: activeConnection.id,
       })
-      .catch(() => ({ knowledgeDocuments: [] as KnowledgeDocument[] })),
+      .catch(() => ({ pongKnowledge: [] as PongKnowledge[] })),
     client
       .request<{ myStations: Station[] }>(MY_STATIONS_QUERY)
       .catch(() => ({ myStations: [] as Station[] })),
@@ -82,7 +82,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     connections: myExchangeConnections,
     activeConnection,
     pongSettings: settingsResult.pongSettings,
-    knowledgeDocs: docsResult.knowledgeDocuments,
+    knowledgeDocs: docsResult.pongKnowledge,
     chatbotStations,
   };
 };

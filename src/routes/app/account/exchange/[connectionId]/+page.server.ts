@@ -3,10 +3,10 @@ import { gqlClient } from '$lib/server/api';
 import {
   MY_EXCHANGE_CONNECTIONS_QUERY,
   MY_STATIONS_QUERY,
-  KNOWLEDGE_DOCUMENTS_QUERY,
-  ADD_KNOWLEDGE_DOCUMENT_MUTATION,
-  UPDATE_KNOWLEDGE_DOCUMENT_MUTATION,
-  DELETE_KNOWLEDGE_DOCUMENT_MUTATION,
+  PONG_KNOWLEDGE_QUERY,
+  ADD_PONG_KNOWLEDGE_MUTATION,
+  UPDATE_PONG_KNOWLEDGE_MUTATION,
+  DELETE_PONG_KNOWLEDGE_MUTATION,
   PONG_DRAFTS_QUERY,
   STORE_PONG_DRAFT_MUTATION,
   APPROVE_PONG_DRAFT_MUTATION,
@@ -14,7 +14,7 @@ import {
   PONG_SETTINGS_QUERY,
   UPSERT_PONG_SETTINGS_MUTATION,
 } from '$lib/server/queries';
-import type { ExchangeConnection, KnowledgeDocument, PongDraft, PongSettings, Station } from '$lib/types';
+import type { ExchangeConnection, PongKnowledge, PongDraft, PongSettings, Station } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 interface ExchangeMessage {
@@ -83,10 +83,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       { connectionId: params.connectionId, top: 50 },
     ).catch(() => ({ exchangeMessages: [] as ExchangeMessage[] })),
 
-    client.request<{ knowledgeDocuments: KnowledgeDocument[] }>(
-      KNOWLEDGE_DOCUMENTS_QUERY,
+    client.request<{ pongKnowledge: PongKnowledge[] }>(
+      PONG_KNOWLEDGE_QUERY,
       { connectionId: params.connectionId },
-    ).catch(() => ({ knowledgeDocuments: [] as KnowledgeDocument[] })),
+    ).catch(() => ({ pongKnowledge: [] as PongKnowledge[] })),
 
     client.request<{ pongDrafts: PongDraft[] }>(
       PONG_DRAFTS_QUERY,
@@ -111,7 +111,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   return {
     connection,
     messages: messagesResult.exchangeMessages,
-    knowledgeDocs: docsResult.knowledgeDocuments,
+    knowledgeDocs: docsResult.pongKnowledge,
     pongDrafts: draftsResult.pongDrafts,
     pongSettings: settingsResult.pongSettings,
     chatbotStations,
@@ -168,7 +168,7 @@ export const actions: Actions = {
       return fail(400, { error: 'Title and content are required' });
     }
     try {
-      await gqlClient(locals.token).request(ADD_KNOWLEDGE_DOCUMENT_MUTATION, {
+      await gqlClient(locals.token).request(ADD_PONG_KNOWLEDGE_MUTATION, {
         connectionId: params.connectionId,
         title,
         content,
@@ -180,7 +180,7 @@ export const actions: Actions = {
     }
   },
 
-  updateDocument: async ({ request, locals }) => {
+  updateDocument: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const id = String(fd.get('id') ?? '').trim();
     const title = String(fd.get('title') ?? '').trim() || undefined;
@@ -188,7 +188,8 @@ export const actions: Actions = {
     const docType = String(fd.get('docType') ?? '').trim() || undefined;
     if (!id) return fail(400, { error: 'Document ID is required' });
     try {
-      await gqlClient(locals.token).request(UPDATE_KNOWLEDGE_DOCUMENT_MUTATION, {
+      await gqlClient(locals.token).request(UPDATE_PONG_KNOWLEDGE_MUTATION, {
+        connectionId: params.connectionId,
         id,
         title,
         content,
@@ -200,12 +201,15 @@ export const actions: Actions = {
     }
   },
 
-  deleteDocument: async ({ request, locals }) => {
+  deleteDocument: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const id = String(fd.get('id') ?? '').trim();
     if (!id) return fail(400, { error: 'Document ID is required' });
     try {
-      await gqlClient(locals.token).request(DELETE_KNOWLEDGE_DOCUMENT_MUTATION, { id });
+      await gqlClient(locals.token).request(DELETE_PONG_KNOWLEDGE_MUTATION, {
+        connectionId: params.connectionId,
+        id,
+      });
       return { docDeleted: true };
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to delete document') });

@@ -4,12 +4,12 @@ import { generateText } from 'ai';
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
-  KNOWLEDGE_DOCUMENTS_QUERY,
+  PONG_KNOWLEDGE_QUERY,
   PONG_SETTINGS_QUERY,
   STATION_AI_CONFIG_QUERY,
 } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
-import type { AIProvider, KnowledgeDocument, PongSettings } from '$lib/types';
+import type { AIProvider, PongKnowledge, PongSettings } from '$lib/types';
 
 const PONG_SYSTEM_PROMPT = `You are Pong, an AI email assistant for a university professor. Your job is to draft replies to student emails using ONLY the professor's knowledge base documents provided below.
 
@@ -64,17 +64,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   // Fetch knowledge docs and settings in parallel
   const [docsResult, settingsResult] = await Promise.all([
-    client.request<{ knowledgeDocuments: KnowledgeDocument[] }>(
-      KNOWLEDGE_DOCUMENTS_QUERY,
+    client.request<{ pongKnowledge: PongKnowledge[] }>(
+      PONG_KNOWLEDGE_QUERY,
       { connectionId },
-    ).catch(() => ({ knowledgeDocuments: [] as KnowledgeDocument[] })),
+    ).catch(() => ({ pongKnowledge: [] as PongKnowledge[] })),
     client.request<{ pongSettings: PongSettings | null }>(
       PONG_SETTINGS_QUERY,
       { connectionId },
     ).catch(() => ({ pongSettings: null })),
   ]);
 
-  const knowledgeDocs = docsResult.knowledgeDocuments;
+  const knowledgeDocs = docsResult.pongKnowledge;
   const settings = settingsResult.pongSettings;
 
   if (knowledgeDocs.length === 0) {

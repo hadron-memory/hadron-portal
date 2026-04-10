@@ -3,11 +3,11 @@
  * the user's connection state, knowledge base, and settings.
  */
 
-import type { KnowledgeDocument, PongSettings } from '$lib/types';
+import type { PongKnowledge, PongSettings } from '$lib/types';
 
 export interface PongChatContext {
   settings: PongSettings | null;
-  knowledgeDocs: KnowledgeDocument[];
+  knowledgeDocs: PongKnowledge[];
   connectionId: string;
   mailboxEmail: string;
   isConnected: boolean;

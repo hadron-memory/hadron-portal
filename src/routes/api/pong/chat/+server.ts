@@ -12,10 +12,10 @@ import { gqlClient } from '$lib/server/api';
 import {
   STATION_AI_CONFIG_QUERY,
   PONG_SETTINGS_QUERY,
-  KNOWLEDGE_DOCUMENTS_QUERY,
+  PONG_KNOWLEDGE_QUERY,
   UPSERT_PONG_SETTINGS_MUTATION,
-  ADD_KNOWLEDGE_DOCUMENT_MUTATION,
-  DELETE_KNOWLEDGE_DOCUMENT_MUTATION,
+  ADD_PONG_KNOWLEDGE_MUTATION,
+  DELETE_PONG_KNOWLEDGE_MUTATION,
   PONG_DRAFTS_QUERY,
   APPROVE_PONG_DRAFT_MUTATION,
   REJECT_PONG_DRAFT_MUTATION,
@@ -28,7 +28,7 @@ import {
 } from '$lib/server/queries';
 import { buildPongChatSystemPrompt } from '$lib/pong/system-prompt';
 import type { RequestHandler } from './$types';
-import type { AIProvider, KnowledgeDocument, PongSettings } from '$lib/types';
+import type { AIProvider, PongKnowledge, PongSettings } from '$lib/types';
 
 function createLanguageModel(provider: AIProvider, apiKey: string, model: string) {
   switch (provider) {
@@ -82,8 +82,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         PONG_SETTINGS_QUERY,
         { connectionId },
       ),
-      client.request<{ knowledgeDocuments: KnowledgeDocument[] }>(
-        KNOWLEDGE_DOCUMENTS_QUERY,
+      client.request<{ pongKnowledge: PongKnowledge[] }>(
+        PONG_KNOWLEDGE_QUERY,
         { connectionId },
       ),
     ]);
@@ -100,7 +100,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // Build dynamic system prompt
     const pongSystemPrompt = buildPongChatSystemPrompt({
       settings: settingsResult.pongSettings,
-      knowledgeDocs: docsResult.knowledgeDocuments,
+      knowledgeDocs: docsResult.pongKnowledge,
       connectionId,
       mailboxEmail: '',
       isConnected: true,
@@ -171,11 +171,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           }),
           execute: async (params: { title: string; content: string; docType?: string }) => {
             try {
-              const result = await client.request<{ addKnowledgeDocument: { id: string; title: string } }>(
-                ADD_KNOWLEDGE_DOCUMENT_MUTATION,
+              const result = await client.request<{ addPongKnowledge: { id: string; title: string } }>(
+                ADD_PONG_KNOWLEDGE_MUTATION,
                 { connectionId, ...params },
               );
-              return { success: true, documentId: result.addKnowledgeDocument.id, title: result.addKnowledgeDocument.title };
+              return { success: true, documentId: result.addPongKnowledge.id, title: result.addPongKnowledge.title };
             } catch (e) {
               return { success: false, error: e instanceof Error ? e.message : 'Failed to save document' };
             }
@@ -496,9 +496,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           execute: async () => {
             try {
               const result = await client.request<{
-                knowledgeDocuments: Array<{ id: string; title: string; docType: string | null; createdAt: string }>;
-              }>(KNOWLEDGE_DOCUMENTS_QUERY, { connectionId });
-              return { success: true, documents: result.knowledgeDocuments };
+                pongKnowledge: Array<{ id: string; title: string; docType: string | null; createdAt: string }>;
+              }>(PONG_KNOWLEDGE_QUERY, { connectionId });
+              return { success: true, documents: result.pongKnowledge };
             } catch (e) {
               return { success: false, error: e instanceof Error ? e.message : 'Failed to list knowledge' };
             }
@@ -510,13 +510,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           inputSchema: jsonSchema<{ documentId: string }>({
             type: 'object',
             properties: {
-              documentId: { type: 'string', description: 'The KnowledgeDocument id to delete' },
+              documentId: { type: 'string', description: 'The knowledge document id to delete (from list_knowledge)' },
             },
             required: ['documentId'],
           }),
           execute: async (params: { documentId: string }) => {
             try {
-              await client.request(DELETE_KNOWLEDGE_DOCUMENT_MUTATION, { id: params.documentId });
+              await client.request(DELETE_PONG_KNOWLEDGE_MUTATION, { connectionId, id: params.documentId });
               return { success: true, message: 'Document deleted.' };
             } catch (e) {
               return { success: false, error: e instanceof Error ? e.message : 'Failed to delete document' };
