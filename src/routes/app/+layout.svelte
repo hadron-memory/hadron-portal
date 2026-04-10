@@ -6,6 +6,7 @@
   const consumerNav = [
     { href: '/app/dashboard', label: 'Dashboard' },
     { href: '/app/memories', label: 'Memories' },
+    { href: '/app/pong', label: 'Pong' },
   ];
 
   const fullNav = [
@@ -13,6 +14,7 @@
     { href: '/app/memories', label: 'Memories' },
     { href: '/app/agents', label: 'Agents' },
     { href: '/app/stations', label: 'Stations' },
+    { href: '/app/pong', label: 'Pong' },
   ];
 
   const usageNav = [
