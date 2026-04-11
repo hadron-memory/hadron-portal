@@ -6,56 +6,81 @@
 
   const f = $derived(form as Record<string, unknown> | null);
 
-  const features = [
+  const capabilities = [
     {
-      icon: '🔗',
-      title: 'Graph-native',
-      body: 'Nodes and edges form a queryable knowledge memory synced directly from your GitHub repos.',
+      icon: '🧠',
+      title: 'Knowledge graphs',
+      body: 'Organize knowledge as interconnected nodes — not flat files. Every fact, decision, and insight is linked, searchable, and reusable.',
     },
     {
-      icon: '🤖',
-      title: 'Built for AI agents',
-      body: 'Give Claude, GPT, or any LLM agent structured context via a GraphQL API instead of unstructured file search.',
+      icon: '💬',
+      title: 'Conversation memory',
+      body: 'AI conversations that remember. Chat history, extracted facts, and user profiles persist across sessions — days, weeks, or months apart.',
     },
     {
-      icon: '🏢',
-      title: 'Multi-tenant',
-      body: 'Organisations own and share memories. Clients subscribe to exactly the memories they need — no more, no less.',
+      icon: '📝',
+      title: 'Smart templates',
+      body: 'Prompt templates with live data. Mustache syntax resolves variables from your knowledge graph, so prompts stay current as facts change.',
+    },
+    {
+      icon: '🔄',
+      title: 'Fact evolution',
+      body: 'Facts change over time. Hadron tracks revisions, so your AI knows what was true then and what is true now.',
     },
     {
       icon: '🔒',
       title: 'Access control',
-      body: 'Public memories anyone can browse. Private memories shared with specific organisations via subscriptions.',
+      body: 'Private, organization, or public. Control who sees what. Share knowledge across teams without sharing everything.',
     },
     {
-      icon: '⚡',
-      title: 'Always in sync',
-      body: 'Memories are cloned from GitHub on startup and can be re-synced on demand via the API or a webhook.',
+      icon: '🔌',
+      title: 'MCP & API native',
+      body: 'Connect any AI tool via MCP or GraphQL. Works with Claude, GPT, Cursor, and custom agents out of the box.',
+    },
+  ];
+
+  const useCases = [
+    {
+      title: 'AI coding agents',
+      description: 'Give your coding agent persistent memory of your codebase architecture, conventions, and past decisions. Sessions save plans and learnings that future agents can build on.',
+      color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
     },
     {
-      icon: '📦',
-      title: 'Marketplace ready',
-      body: 'Browse and subscribe to public memories from the community. Publish your own for others to discover.',
+      title: 'AI mentoring & coaching',
+      description: 'Build AI mentors that remember each person they work with. Structured conversation flows guide users through onboarding, discovery, and action planning.',
+      color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+    },
+    {
+      title: 'Research assistants',
+      description: 'Manage sources, discuss papers, and build a citation network. Your AI remembers your research interests and builds on previous conversations.',
+      color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    },
+    {
+      title: 'Customer support',
+      description: 'AI that knows your product deeply and remembers each customer relationship. Knowledge stays consistent and up-to-date across every interaction.',
+      color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
     },
   ];
 </script>
 
 <svelte:head>
-  <title>Hadron — Knowledge memory platform for AI agents</title>
+  <title>Hadron — Memory for AI</title>
 </svelte:head>
 
 <!-- Hero -->
 <section class="mx-auto max-w-7xl px-4 pb-16 pt-24 text-center">
-  <div class="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3 py-1 text-sm text-indigo-600 dark:text-indigo-400">
+  <div class="mb-4 inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-sm text-amber-600 dark:text-amber-400">
     Pilot program
   </div>
   <h1 class="mb-6 text-5xl font-bold tracking-tight text-zinc-900 dark:text-white sm:text-6xl">
-    Knowledge memories for<br />
-    <span class="text-indigo-600 dark:text-indigo-400">AI agents &amp; teams</span>
+    Memory for AI
   </h1>
-  <p class="mx-auto mb-10 max-w-2xl text-lg text-zinc-600 dark:text-zinc-400">
-    Hadron gives AI agents and developer tools a shared, versioned knowledge memory — synced from
-    your GitHub repos and queryable via GraphQL.
+  <p class="mx-auto mb-4 max-w-2xl text-lg text-zinc-600 dark:text-zinc-400">
+    AI forgets everything between conversations. Hadron gives it memory.
+  </p>
+  <p class="mx-auto mb-10 max-w-2xl text-zinc-500 dark:text-zinc-500">
+    A knowledge memory platform that lets AI remember what it learned, who it's talking to,
+    and what was decided — across sessions, days, and teams.
   </p>
   <div class="flex flex-col items-center gap-4">
     {#if data.user}
@@ -66,30 +91,83 @@
         Go to Dashboard
       </a>
     {:else}
-      <p class="rounded-lg border border-zinc-300 bg-zinc-50 px-5 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-        Hadron is currently in pilot. An invitation is needed to create an account.
-      </p>
       <a
         href="/signin"
-        class="rounded-lg border border-zinc-300 px-6 py-3 text-base font-semibold text-zinc-600 transition hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white"
+        class="rounded-lg bg-amber-500 px-6 py-3 text-base font-semibold text-white shadow transition hover:bg-amber-600"
       >
-        Login
+        Sign in
       </a>
+      <p class="text-sm text-zinc-500 dark:text-zinc-500">
+        In pilot — invitation needed for new accounts
+      </p>
     {/if}
   </div>
 </section>
 
-<!-- Features -->
+<!-- The problem -->
+<section class="mx-auto max-w-3xl px-4 py-12">
+  <div class="rounded-2xl border border-zinc-200 bg-zinc-50 p-8 dark:border-zinc-800 dark:bg-zinc-900/50">
+    <h2 class="mb-4 text-center text-xl font-semibold text-zinc-900 dark:text-white">The problem with AI today</h2>
+    <div class="space-y-4 text-sm text-zinc-600 dark:text-zinc-400">
+      <p>Every AI conversation starts from zero. Your coding agent doesn't remember last week's architecture decisions. Your chatbot doesn't know the customer it spoke to yesterday. Your research assistant forgets which papers you've already discussed.</p>
+      <p>RAG helps with static documents, but it doesn't handle <strong class="text-zinc-900 dark:text-white">evolving knowledge</strong> — facts that change, decisions that build on each other, conversations that span weeks.</p>
+      <p>Hadron solves this with a <strong class="text-zinc-900 dark:text-white">structured knowledge memory</strong> that AI can read, write, and reason about — not just search.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Capabilities -->
 <section class="mx-auto max-w-7xl px-4 py-16">
-  <h2 class="mb-10 text-center text-2xl font-semibold text-zinc-900 dark:text-white">How it works</h2>
+  <h2 class="mb-10 text-center text-2xl font-semibold text-zinc-900 dark:text-white">What Hadron does</h2>
   <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-    {#each features as f}
+    {#each capabilities as cap}
       <div class="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-        <div class="mb-3 text-2xl">{f.icon}</div>
-        <h3 class="mb-2 font-semibold text-zinc-900 dark:text-white">{f.title}</h3>
-        <p class="text-sm text-zinc-600 dark:text-zinc-400">{f.body}</p>
+        <div class="mb-3 text-2xl">{cap.icon}</div>
+        <h3 class="mb-2 font-semibold text-zinc-900 dark:text-white">{cap.title}</h3>
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">{cap.body}</p>
       </div>
     {/each}
+  </div>
+</section>
+
+<!-- Use cases -->
+<section class="mx-auto max-w-7xl px-4 py-16">
+  <h2 class="mb-10 text-center text-2xl font-semibold text-zinc-900 dark:text-white">Built for</h2>
+  <div class="grid gap-6 sm:grid-cols-2">
+    {#each useCases as uc}
+      <div class="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+        <span class="mb-3 inline-block rounded-full px-3 py-1 text-xs font-medium {uc.color}">{uc.title}</span>
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">{uc.description}</p>
+      </div>
+    {/each}
+  </div>
+</section>
+
+<!-- How it works -->
+<section class="mx-auto max-w-3xl px-4 py-16">
+  <h2 class="mb-8 text-center text-2xl font-semibold text-zinc-900 dark:text-white">How it works</h2>
+  <div class="space-y-6">
+    <div class="flex gap-4">
+      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500 text-sm font-bold text-white">1</div>
+      <div>
+        <h3 class="font-semibold text-zinc-900 dark:text-white">Create a memory</h3>
+        <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Organize knowledge as nodes in a graph. Add facts, specs, guides — anything your AI needs to know. Sync from GitHub or build directly in the portal.</p>
+      </div>
+    </div>
+    <div class="flex gap-4">
+      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500 text-sm font-bold text-white">2</div>
+      <div>
+        <h3 class="font-semibold text-zinc-900 dark:text-white">Connect your AI</h3>
+        <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Plug Hadron into any MCP-compatible tool — Claude Code, Cursor, GPT, or your own application. One connection, instant memory.</p>
+      </div>
+    </div>
+    <div class="flex gap-4">
+      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500 text-sm font-bold text-white">3</div>
+      <div>
+        <h3 class="font-semibold text-zinc-900 dark:text-white">AI remembers and learns</h3>
+        <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Your AI reads knowledge before acting, saves what it learns, and builds on past sessions. Every conversation makes the memory better.</p>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -98,7 +176,7 @@
 <section class="mx-auto max-w-7xl px-4 py-16">
   <div class="mx-auto max-w-lg rounded-2xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-900">
     <h2 class="mb-2 text-xl font-semibold text-zinc-900 dark:text-white">Join the waiting list</h2>
-    <p class="mb-6 text-sm text-zinc-500">Get notified when we open up access. Tell us what you'd use Hadron for.</p>
+    <p class="mb-6 text-sm text-zinc-500">Get notified when we open up access.</p>
 
     {#if f?.waitingListSuccess}
       <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
@@ -125,7 +203,6 @@
   </div>
 </section>
 {/if}
-
 
 <!-- Footer -->
 <footer class="border-t border-zinc-200 py-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
