@@ -43,6 +43,7 @@ export interface Agent {
   name: string;
   description: string | null;
   systemPrompt: string | null;
+  systemMemoryId: string | null;
   visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION';
   properties: Record<string, unknown> | null;
   memoryItems: AgentMemoryItem[];

@@ -96,6 +96,7 @@ export const AGENT_FIELDS = /* GraphQL */ `
     name
     description
     systemPrompt
+    systemMemoryId
     visibility
     properties
     memoryItems {

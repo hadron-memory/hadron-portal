@@ -90,6 +90,11 @@
       <p class="mt-1 text-sm text-zinc-500">{agent.description}</p>
     {/if}
     <p class="mt-1 text-xs text-zinc-400">Organization: {org.name}</p>
+    {#if (agent as any).systemMemoryId}
+      <a href="/app/agents/{agent.id}/conversations" class="mt-2 inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium text-white" style="background: #219ebc;">
+        Conversation Editor
+      </a>
+    {/if}
   </div>
 
   {#if restrictiveMemories.length > 0}
