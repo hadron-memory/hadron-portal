@@ -136,6 +136,7 @@ export interface MemoryNode {
   tokens: number | null;
   tags: string[];
   seq: number | null;
+  data: Record<string, unknown> | null;
   ownerRepo: string | null;
   isRunnable: boolean | null;
   createdAt: string;

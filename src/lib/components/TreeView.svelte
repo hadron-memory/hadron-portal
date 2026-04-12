@@ -32,7 +32,8 @@
   // Filter entries: exclude record nodes by default, apply search
   let filteredEntries = $derived.by(() => {
     // First filter out record nodes unless toggled on
-    let pool = showRecords ? entries : entries.filter((e) => e.nodeType !== 'record' || e.isVirtual);
+    const hiddenTypes = new Set(['record', 'system']);
+    let pool = showRecords ? entries : entries.filter((e) => !hiddenTypes.has(e.nodeType) || e.isVirtual);
 
     if (!search.trim()) return pool;
     const q = search.toLowerCase();
@@ -50,7 +51,7 @@
     return pool.filter((e) => ids.has(e.id));
   });
 
-  const hasRecords = $derived(entries.some((e) => e.nodeType === 'record'));
+  const hasHiddenNodes = $derived(entries.some((e) => e.nodeType === 'record' || e.nodeType === 'system'));
 
   // Build nested tree from flat sorted entries
   let tree = $derived.by(() => {
@@ -260,7 +261,7 @@
       <button class="search-clear" onclick={() => graphState.searchFilter = ''} aria-label="Clear search">&times;</button>
     {/if}
   </div>
-  {#if hasRecords}
+  {#if hasHiddenNodes}
     <label class="record-toggle">
       <input type="checkbox" bind:checked={showRecords} />
       <span>Records</span>

@@ -726,6 +726,7 @@ export const NODE_FIELDS = /* GraphQL */ `
     tokens
     tags
     seq
+    data
     ownerRepo
     isRunnable
     createdAt

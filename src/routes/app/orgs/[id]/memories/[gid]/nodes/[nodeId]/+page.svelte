@@ -391,6 +391,18 @@
           {/if}
         </section>
 
+        <!-- Data -->
+        {#if node.data || isEditing}
+          <section>
+            <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Data</h2>
+            {#if node.data}
+              <pre class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{JSON.stringify(node.data, null, 2)}</pre>
+            {:else}
+              <p class="text-sm text-zinc-500">No structured data.</p>
+            {/if}
+          </section>
+        {/if}
+
         <!-- Danger zone -->
         <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
           <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
