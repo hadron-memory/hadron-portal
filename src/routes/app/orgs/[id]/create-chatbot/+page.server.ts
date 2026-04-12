@@ -60,7 +60,7 @@ export const actions: Actions = {
         orgId: params.id,
         name: userMemorySlug,
         shortDescription: userMemoryName,
-        visibility: 'PRIVATE',
+        visibility,
       });
       const userMemoryId = userResult.createMemory.id;
 
