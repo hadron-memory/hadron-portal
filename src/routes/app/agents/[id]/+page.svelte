@@ -183,6 +183,16 @@
                 <option value="PUBLIC" selected={agent.visibility === 'PUBLIC'}>Public</option>
               </select>
             </div>
+            <div>
+              <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Memory <span class="text-zinc-500">(for chatbot conversations)</span></label>
+              <select id="editSystemMemoryId" name="systemMemoryId" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="">— None —</option>
+                {#each agent.memoryItems ?? [] as item}
+                  <option value={item.memory.id} selected={agent.systemMemoryId === item.memory.id}>{item.memory.name} ({item.memory.urn})</option>
+                {/each}
+              </select>
+              <p class="mt-1 text-xs text-zinc-400">Memory containing conversation designs, stages, and prompt templates.</p>
+            </div>
             <div class="flex gap-3">
               <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
               <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
@@ -204,6 +214,12 @@
               <div class="px-5 py-3">
                 <span class="text-sm text-zinc-500">System Prompt</span>
                 <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
+              </div>
+            {/if}
+            {#if agent.systemMemoryId}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">System Memory</span>
+                <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
               </div>
             {/if}
             <div class="flex items-center justify-between px-5 py-3">
