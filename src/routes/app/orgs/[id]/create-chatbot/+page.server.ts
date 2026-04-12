@@ -32,18 +32,22 @@ export const actions: Actions = {
     const visibility = String(fd.get('visibility') ?? 'PRIVATE').trim();
 
     const knowledgeMemoryName = String(fd.get('knowledgeMemoryName') ?? '').trim();
+    const knowledgeMemorySlug = String(fd.get('knowledgeMemorySlug') ?? '').trim();
     const userMemoryName = String(fd.get('userMemoryName') ?? '').trim();
+    const userMemorySlug = String(fd.get('userMemorySlug') ?? '').trim();
+    const systemMemorySlug = String(fd.get('systemMemorySlug') ?? '').trim();
 
     if (!agentName) return fail(400, { error: 'Agent name is required' });
-    if (!knowledgeMemoryName) return fail(400, { error: 'Knowledge memory name is required' });
-    if (!userMemoryName) return fail(400, { error: 'User memory name is required' });
+    if (!knowledgeMemoryName || !knowledgeMemorySlug) return fail(400, { error: 'Knowledge memory name and URN are required' });
+    if (!userMemoryName || !userMemorySlug) return fail(400, { error: 'User memory name and URN are required' });
+    if (!systemMemorySlug) return fail(400, { error: 'System memory URN is required' });
 
     try {
       // 1. Create the knowledge memory (read-only domain content)
       const knowledgeResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
         orgId: params.id,
-        name: knowledgeMemoryName,
-        shortDescription: `Knowledge base for ${agentName}`,
+        name: knowledgeMemorySlug,
+        shortDescription: knowledgeMemoryName,
         visibility,
       });
       const knowledgeMemoryId = knowledgeResult.createMemory.id;
@@ -51,8 +55,8 @@ export const actions: Actions = {
       // 2. Create the user memory (read-write for user data and chats)
       const userResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
         orgId: params.id,
-        name: userMemoryName,
-        shortDescription: `User data and chat history for ${agentName}`,
+        name: userMemorySlug,
+        shortDescription: userMemoryName,
         visibility: 'PRIVATE',
       });
       const userMemoryId = userResult.createMemory.id;
@@ -60,7 +64,7 @@ export const actions: Actions = {
       // 3. Create the system memory (conversation designs)
       const systemResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
         orgId: params.id,
-        name: `${agentName} - Conversations`,
+        name: systemMemorySlug,
         shortDescription: `Conversation designs and prompts for ${agentName}`,
         visibility,
       });

@@ -23,13 +23,22 @@
 
   // Step 3: Memories
   let knowledgeMemoryName = $state('');
+  let knowledgeMemorySlug = $state('');
+  let knowledgeSlugEdited = $state(false);
   let userMemoryName = $state('');
+  let userMemorySlug = $state('');
+  let userSlugEdited = $state(false);
+  let systemMemorySlug = $state('');
+  let systemSlugEdited = $state(false);
 
-  // Auto-derive names
+  // Auto-derive names and slugs
   $effect(() => {
     if (!slugEdited) agentSlug = toSlug(agentName);
     if (agentName && !knowledgeMemoryName) knowledgeMemoryName = `${agentName} Knowledge`;
     if (agentName && !userMemoryName) userMemoryName = `${agentName} User Data`;
+    if (!knowledgeSlugEdited) knowledgeMemorySlug = toSlug(knowledgeMemoryName);
+    if (!userSlugEdited) userMemorySlug = toSlug(userMemoryName);
+    if (!systemSlugEdited && agentName) systemMemorySlug = toSlug(`${agentName}-conversations`);
   });
 
   let creating = $state(false);
@@ -39,7 +48,7 @@
   function canProceed(): boolean {
     if (step === 1) return agentName.trim().length > 0;
     if (step === 2) return true; // system prompt is optional
-    if (step === 3) return knowledgeMemoryName.trim().length > 0 && userMemoryName.trim().length > 0;
+    if (step === 3) return knowledgeMemoryName.trim().length > 0 && knowledgeMemorySlug.trim().length > 0 && userMemoryName.trim().length > 0 && userMemorySlug.trim().length > 0 && systemMemorySlug.trim().length > 0;
     return true;
   }
 
@@ -90,7 +99,10 @@
     <input type="hidden" name="systemPrompt" value={systemPrompt} />
     <input type="hidden" name="visibility" value={visibility} />
     <input type="hidden" name="knowledgeMemoryName" value={knowledgeMemoryName} />
+    <input type="hidden" name="knowledgeMemorySlug" value={knowledgeMemorySlug} />
     <input type="hidden" name="userMemoryName" value={userMemoryName} />
+    <input type="hidden" name="userMemorySlug" value={userMemorySlug} />
+    <input type="hidden" name="systemMemorySlug" value={systemMemorySlug} />
 
     <div class="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
 
@@ -144,37 +156,79 @@
       <!-- Step 3: Memories -->
       {#if step === 3}
         <h2 class="mb-4 text-lg font-semibold text-zinc-900 dark:text-white">Set up memories</h2>
-        <p class="mb-4 text-sm text-zinc-500">Three memories will be created for your chatbot. You can customize their names.</p>
+        <p class="mb-4 text-sm text-zinc-500">Three memories will be created for your chatbot. You can customize their names and URNs.</p>
         <div class="space-y-5">
           <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <div class="mb-1 flex items-center gap-2">
+            <div class="mb-2 flex items-center gap-2">
               <span class="rounded px-1.5 py-0.5 text-xs font-medium" style="background: #8ecae6; color: #023047;">Knowledge</span>
               <span class="text-xs text-zinc-500">Read-only</span>
             </div>
-            <label for="knowledgeMemoryName" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Knowledge Memory</label>
-            <input id="knowledgeMemoryName" type="text" required
-              bind:value={knowledgeMemoryName} class={inputClass} />
-            <p class="mt-1 text-xs text-zinc-400">Domain knowledge your chatbot references (industry guides, FAQs, resources).</p>
+            <div class="space-y-3">
+              <div>
+                <label for="knowledgeMemoryName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+                <input id="knowledgeMemoryName" type="text" required
+                  bind:value={knowledgeMemoryName} class={inputClass} />
+              </div>
+              <div>
+                <label for="knowledgeMemorySlug" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+                <div class="flex items-stretch">
+                  <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+                  <input id="knowledgeMemorySlug" type="text" required
+                    bind:value={knowledgeMemorySlug}
+                    oninput={() => { knowledgeSlugEdited = true; }}
+                    class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+                </div>
+              </div>
+              <p class="text-xs text-zinc-400">Domain knowledge your chatbot references (industry guides, FAQs, resources).</p>
+            </div>
           </div>
 
           <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <div class="mb-1 flex items-center gap-2">
+            <div class="mb-2 flex items-center gap-2">
               <span class="rounded px-1.5 py-0.5 text-xs font-medium" style="background: #ffb703; color: #023047;">User Data</span>
               <span class="text-xs text-zinc-500">Read-write</span>
             </div>
-            <label for="userMemoryName" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">User Memory</label>
-            <input id="userMemoryName" type="text" required
-              bind:value={userMemoryName} class={inputClass} />
-            <p class="mt-1 text-xs text-zinc-400">User profiles, chat history, and extracted facts. One per user or shared.</p>
+            <div class="space-y-3">
+              <div>
+                <label for="userMemoryName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+                <input id="userMemoryName" type="text" required
+                  bind:value={userMemoryName} class={inputClass} />
+              </div>
+              <div>
+                <label for="userMemorySlug" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+                <div class="flex items-stretch">
+                  <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+                  <input id="userMemorySlug" type="text" required
+                    bind:value={userMemorySlug}
+                    oninput={() => { userSlugEdited = true; }}
+                    class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+                </div>
+              </div>
+              <p class="text-xs text-zinc-400">User profiles, chat history, and extracted facts. One per user or shared.</p>
+            </div>
           </div>
 
           <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <div class="mb-1 flex items-center gap-2">
+            <div class="mb-2 flex items-center gap-2">
               <span class="rounded px-1.5 py-0.5 text-xs font-medium" style="background: #219ebc; color: white;">System</span>
               <span class="text-xs text-zinc-500">Auto-created</span>
             </div>
-            <p class="text-sm text-zinc-700 dark:text-zinc-300">{agentName || 'Agent'} - Conversations</p>
-            <p class="mt-1 text-xs text-zinc-400">Conversation designs, stages, and prompt templates. Created automatically with a setup conversation scaffold.</p>
+            <div class="space-y-3">
+              <div>
+                <p class="text-sm text-zinc-700 dark:text-zinc-300">{agentName || 'Agent'} - Conversations</p>
+              </div>
+              <div>
+                <label for="systemMemorySlug" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+                <div class="flex items-stretch">
+                  <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+                  <input id="systemMemorySlug" type="text" required
+                    bind:value={systemMemorySlug}
+                    oninput={() => { systemSlugEdited = true; }}
+                    class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+                </div>
+              </div>
+              <p class="text-xs text-zinc-400">Conversation designs, stages, and prompt templates. Created automatically with a setup conversation scaffold.</p>
+            </div>
           </div>
         </div>
       {/if}
@@ -199,10 +253,10 @@
 
           <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
             <h3 class="font-medium text-zinc-900 dark:text-white">Memories</h3>
-            <ul class="mt-2 space-y-1 text-zinc-600 dark:text-zinc-400">
-              <li><span style="color: #219ebc;">●</span> {knowledgeMemoryName} <span class="text-xs text-zinc-400">(knowledge, read-only)</span></li>
-              <li><span style="color: #ffb703;">●</span> {userMemoryName} <span class="text-xs text-zinc-400">(user data, read-write)</span></li>
-              <li><span style="color: #8ecae6;">●</span> {agentName} - Conversations <span class="text-xs text-zinc-400">(system, auto-created)</span></li>
+            <ul class="mt-2 space-y-1.5 text-zinc-600 dark:text-zinc-400">
+              <li><span style="color: #219ebc;">●</span> {knowledgeMemoryName} <span class="font-mono text-xs text-zinc-400">({org.urn}:{knowledgeMemorySlug})</span> <span class="text-xs text-zinc-400">read-only</span></li>
+              <li><span style="color: #ffb703;">●</span> {userMemoryName} <span class="font-mono text-xs text-zinc-400">({org.urn}:{userMemorySlug})</span> <span class="text-xs text-zinc-400">read-write</span></li>
+              <li><span style="color: #8ecae6;">●</span> {agentName} - Conversations <span class="font-mono text-xs text-zinc-400">({org.urn}:{systemMemorySlug})</span> <span class="text-xs text-zinc-400">system</span></li>
             </ul>
           </div>
 
