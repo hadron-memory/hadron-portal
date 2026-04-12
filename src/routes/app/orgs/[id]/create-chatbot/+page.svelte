@@ -22,6 +22,7 @@
   let systemPrompt = $state('');
 
   // Step 3: Memories
+  let includeKnowledge = $state(true);
   let knowledgeMemoryName = $state('');
   let knowledgeMemorySlug = $state('');
   let knowledgeSlugEdited = $state(false);
@@ -38,7 +39,7 @@
     if (agentName && !userMemoryName) userMemoryName = `${agentName} User Data`;
     if (!knowledgeSlugEdited) knowledgeMemorySlug = toSlug(knowledgeMemoryName);
     if (!userSlugEdited) userMemorySlug = toSlug(userMemoryName);
-    if (!systemSlugEdited && agentName) systemMemorySlug = toSlug(`${agentName}-conversations`);
+    if (!systemSlugEdited && agentName) systemMemorySlug = toSlug(`${agentName}-system`);
   });
 
   let creating = $state(false);
@@ -48,7 +49,7 @@
   function canProceed(): boolean {
     if (step === 1) return agentName.trim().length > 0;
     if (step === 2) return true; // system prompt is optional
-    if (step === 3) return knowledgeMemoryName.trim().length > 0 && knowledgeMemorySlug.trim().length > 0 && userMemoryName.trim().length > 0 && userMemorySlug.trim().length > 0 && systemMemorySlug.trim().length > 0;
+    if (step === 3) return userMemoryName.trim().length > 0 && userMemorySlug.trim().length > 0 && systemMemorySlug.trim().length > 0 && (!includeKnowledge || (knowledgeMemoryName.trim().length > 0 && knowledgeMemorySlug.trim().length > 0));
     return true;
   }
 
@@ -98,6 +99,7 @@
     <input type="hidden" name="agentDescription" value={agentDescription} />
     <input type="hidden" name="systemPrompt" value={systemPrompt} />
     <input type="hidden" name="visibility" value={visibility} />
+    <input type="hidden" name="includeKnowledge" value={includeKnowledge ? 'true' : 'false'} />
     <input type="hidden" name="knowledgeMemoryName" value={knowledgeMemoryName} />
     <input type="hidden" name="knowledgeMemorySlug" value={knowledgeMemorySlug} />
     <input type="hidden" name="userMemoryName" value={userMemoryName} />
@@ -156,33 +158,33 @@
       <!-- Step 3: Memories -->
       {#if step === 3}
         <h2 class="mb-4 text-lg font-semibold text-zinc-900 dark:text-white">Set up memories</h2>
-        <p class="mb-4 text-sm text-zinc-500">Three memories will be created for your chatbot. You can customize their names and URNs.</p>
+        <p class="mb-4 text-sm text-zinc-500">Memories store your agent's configuration and data. You can customize their names and URNs.</p>
         <div class="space-y-5">
+          <!-- System memory (always created) -->
           <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
             <div class="mb-2 flex items-center gap-2">
-              <span class="rounded px-1.5 py-0.5 text-xs font-medium" style="background: #8ecae6; color: #023047;">Knowledge</span>
-              <span class="text-xs text-zinc-500">Read-only</span>
+              <span class="rounded px-1.5 py-0.5 text-xs font-medium" style="background: #219ebc; color: white;">System</span>
+              <span class="text-xs text-zinc-500">Auto-created</span>
             </div>
             <div class="space-y-3">
               <div>
-                <label for="knowledgeMemoryName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-                <input id="knowledgeMemoryName" type="text" required
-                  bind:value={knowledgeMemoryName} class={inputClass} />
+                <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">{agentName || 'Agent'} System</p>
               </div>
               <div>
-                <label for="knowledgeMemorySlug" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+                <label for="systemMemorySlug" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
                 <div class="flex items-stretch">
                   <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
-                  <input id="knowledgeMemorySlug" type="text" required
-                    bind:value={knowledgeMemorySlug}
-                    oninput={() => { knowledgeSlugEdited = true; }}
+                  <input id="systemMemorySlug" type="text" required
+                    bind:value={systemMemorySlug}
+                    oninput={() => { systemSlugEdited = true; }}
                     class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
                 </div>
               </div>
-              <p class="text-xs text-zinc-400">Domain knowledge your chatbot references (industry guides, FAQs, resources).</p>
+              <p class="text-xs text-zinc-400">Conversation designs, stages, and prompt templates. A setup conversation scaffold is created automatically.</p>
             </div>
           </div>
 
+          <!-- User data memory (always created) -->
           <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
             <div class="mb-2 flex items-center gap-2">
               <span class="rounded px-1.5 py-0.5 text-xs font-medium" style="background: #ffb703; color: #023047;">User Data</span>
@@ -208,27 +210,40 @@
             </div>
           </div>
 
-          <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <div class="mb-2 flex items-center gap-2">
-              <span class="rounded px-1.5 py-0.5 text-xs font-medium" style="background: #219ebc; color: white;">System</span>
-              <span class="text-xs text-zinc-500">Auto-created</span>
-            </div>
-            <div class="space-y-3">
-              <div>
-                <p class="text-sm text-zinc-700 dark:text-zinc-300">{agentName || 'Agent'} - Conversations</p>
+          <!-- Knowledge memory (optional) -->
+          <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950 {includeKnowledge ? '' : 'opacity-60'}">
+            <div class="mb-2 flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <span class="rounded px-1.5 py-0.5 text-xs font-medium" style="background: #8ecae6; color: #023047;">Knowledge</span>
+                <span class="text-xs text-zinc-500">Read-only</span>
               </div>
-              <div>
-                <label for="systemMemorySlug" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
-                <div class="flex items-stretch">
-                  <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
-                  <input id="systemMemorySlug" type="text" required
-                    bind:value={systemMemorySlug}
-                    oninput={() => { systemSlugEdited = true; }}
-                    class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+              <label class="flex items-center gap-1.5 text-xs text-zinc-500 cursor-pointer">
+                <input type="checkbox" bind:checked={includeKnowledge} class="rounded border-zinc-300" />
+                Include
+              </label>
+            </div>
+            {#if includeKnowledge}
+              <div class="space-y-3">
+                <div>
+                  <label for="knowledgeMemoryName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+                  <input id="knowledgeMemoryName" type="text"
+                    bind:value={knowledgeMemoryName} class={inputClass} />
                 </div>
+                <div>
+                  <label for="knowledgeMemorySlug" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+                  <div class="flex items-stretch">
+                    <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+                    <input id="knowledgeMemorySlug" type="text"
+                      bind:value={knowledgeMemorySlug}
+                      oninput={() => { knowledgeSlugEdited = true; }}
+                      class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+                  </div>
+                </div>
+                <p class="text-xs text-zinc-400">Separate domain knowledge your chatbot references (industry guides, FAQs, resources). Skip this if all knowledge lives in the system memory.</p>
               </div>
-              <p class="text-xs text-zinc-400">Conversation designs, stages, and prompt templates. Created automatically with a setup conversation scaffold.</p>
-            </div>
+            {:else}
+              <p class="text-xs text-zinc-400 mt-1">No separate knowledge memory. All knowledge will live in the system memory.</p>
+            {/if}
           </div>
         </div>
       {/if}
@@ -254,9 +269,11 @@
           <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
             <h3 class="font-medium text-zinc-900 dark:text-white">Memories</h3>
             <ul class="mt-2 space-y-1.5 text-zinc-600 dark:text-zinc-400">
-              <li><span style="color: #219ebc;">●</span> {knowledgeMemoryName} <span class="font-mono text-xs text-zinc-400">({org.urn}:{knowledgeMemorySlug})</span> <span class="text-xs text-zinc-400">read-only</span></li>
+              <li><span style="color: #219ebc;">●</span> {agentName} System <span class="font-mono text-xs text-zinc-400">({org.urn}:{systemMemorySlug})</span> <span class="text-xs text-zinc-400">system</span></li>
               <li><span style="color: #ffb703;">●</span> {userMemoryName} <span class="font-mono text-xs text-zinc-400">({org.urn}:{userMemorySlug})</span> <span class="text-xs text-zinc-400">read-write</span></li>
-              <li><span style="color: #8ecae6;">●</span> {agentName} - Conversations <span class="font-mono text-xs text-zinc-400">({org.urn}:{systemMemorySlug})</span> <span class="text-xs text-zinc-400">system</span></li>
+              {#if includeKnowledge}
+                <li><span style="color: #8ecae6;">●</span> {knowledgeMemoryName} <span class="font-mono text-xs text-zinc-400">({org.urn}:{knowledgeMemorySlug})</span> <span class="text-xs text-zinc-400">read-only</span></li>
+              {/if}
             </ul>
           </div>
 

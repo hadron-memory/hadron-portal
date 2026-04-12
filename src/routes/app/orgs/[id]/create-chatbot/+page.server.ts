@@ -31,6 +31,7 @@ export const actions: Actions = {
     const systemPrompt = String(fd.get('systemPrompt') ?? '').trim() || null;
     const visibility = String(fd.get('visibility') ?? 'PRIVATE').trim();
 
+    const includeKnowledge = String(fd.get('includeKnowledge') ?? '') === 'true';
     const knowledgeMemoryName = String(fd.get('knowledgeMemoryName') ?? '').trim();
     const knowledgeMemorySlug = String(fd.get('knowledgeMemorySlug') ?? '').trim();
     const userMemoryName = String(fd.get('userMemoryName') ?? '').trim();
@@ -38,19 +39,21 @@ export const actions: Actions = {
     const systemMemorySlug = String(fd.get('systemMemorySlug') ?? '').trim();
 
     if (!agentName) return fail(400, { error: 'Agent name is required' });
-    if (!knowledgeMemoryName || !knowledgeMemorySlug) return fail(400, { error: 'Knowledge memory name and URN are required' });
     if (!userMemoryName || !userMemorySlug) return fail(400, { error: 'User memory name and URN are required' });
     if (!systemMemorySlug) return fail(400, { error: 'System memory URN is required' });
+    if (includeKnowledge && (!knowledgeMemoryName || !knowledgeMemorySlug)) {
+      return fail(400, { error: 'Knowledge memory name and URN are required' });
+    }
 
     try {
-      // 1. Create the knowledge memory (read-only domain content)
-      const knowledgeResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
+      // 1. Create the system memory (conversation designs, prompts)
+      const systemResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
         orgId: params.id,
-        name: knowledgeMemorySlug,
-        shortDescription: knowledgeMemoryName,
+        name: systemMemorySlug,
+        shortDescription: `${agentName} System`,
         visibility,
       });
-      const knowledgeMemoryId = knowledgeResult.createMemory.id;
+      const systemMemoryId = systemResult.createMemory.id;
 
       // 2. Create the user memory (read-write for user data and chats)
       const userResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
@@ -61,14 +64,17 @@ export const actions: Actions = {
       });
       const userMemoryId = userResult.createMemory.id;
 
-      // 3. Create the system memory (conversation designs)
-      const systemResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
-        orgId: params.id,
-        name: systemMemorySlug,
-        shortDescription: `Conversation designs and prompts for ${agentName}`,
-        visibility,
-      });
-      const systemMemoryId = systemResult.createMemory.id;
+      // 3. Optionally create the knowledge memory (read-only domain content)
+      let knowledgeMemoryId: string | null = null;
+      if (includeKnowledge) {
+        const knowledgeResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
+          orgId: params.id,
+          name: knowledgeMemorySlug,
+          shortDescription: knowledgeMemoryName,
+          visibility,
+        });
+        knowledgeMemoryId = knowledgeResult.createMemory.id;
+      }
 
       // 4. Create the agent
       const agentResult = await client.request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
@@ -90,17 +96,18 @@ export const actions: Actions = {
 
       // 6. Add memories to the agent
       await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
-        agentId, memoryId: knowledgeMemoryId, role: 'read',
+        agentId, memoryId: systemMemoryId, role: 'read',
       });
       await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
         agentId, memoryId: userMemoryId, role: 'read-write',
       });
-      await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
-        agentId, memoryId: systemMemoryId, role: 'read',
-      });
+      if (knowledgeMemoryId) {
+        await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
+          agentId, memoryId: knowledgeMemoryId, role: 'read',
+        });
+      }
 
       // 7. Create initial conversation scaffold in system memory
-      // (scaffold nodes are created via the upsertNode mutation)
       const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
 
       // conversations parent
