@@ -4,6 +4,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATION_QUERY,
   CREATE_MEMORY_MUTATION,
+  UPDATE_MEMORY_MUTATION,
   CREATE_AGENT_MUTATION,
   UPDATE_AGENT_MUTATION,
   ADD_MEMORY_TO_AGENT_MUTATION,
@@ -46,14 +47,19 @@ export const actions: Actions = {
     }
 
     try {
+      const systemDisplayName = `${agentName} System`;
+
       // 1. Create the system memory (conversation designs, prompts)
       const systemResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
         orgId: params.id,
         name: systemMemorySlug,
-        shortDescription: `${agentName} System`,
+        shortDescription: systemDisplayName,
         visibility,
       });
       const systemMemoryId = systemResult.createMemory.id;
+      await client.request(UPDATE_MEMORY_MUTATION, {
+        id: systemMemoryId, name: systemDisplayName,
+      });
 
       // 2. Create the user memory (read-write for user data and chats)
       const userResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
@@ -63,6 +69,9 @@ export const actions: Actions = {
         visibility,
       });
       const userMemoryId = userResult.createMemory.id;
+      await client.request(UPDATE_MEMORY_MUTATION, {
+        id: userMemoryId, name: userMemoryName,
+      });
 
       // 3. Optionally create the knowledge memory (read-only domain content)
       let knowledgeMemoryId: string | null = null;
@@ -74,6 +83,9 @@ export const actions: Actions = {
           visibility,
         });
         knowledgeMemoryId = knowledgeResult.createMemory.id;
+        await client.request(UPDATE_MEMORY_MUTATION, {
+          id: knowledgeMemoryId, name: knowledgeMemoryName,
+        });
       }
 
       // 4. Create the agent
