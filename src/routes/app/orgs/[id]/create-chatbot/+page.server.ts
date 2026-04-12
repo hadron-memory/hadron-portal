@@ -94,16 +94,17 @@ export const actions: Actions = {
         }).catch(() => {});
       }
 
-      // 6. Add memories to the agent
+      // 6. Add memories to the agent (all writable — chatbot is freshly created
+      // and likely to be iterated on; tighten roles later in settings)
       await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
-        agentId, memoryId: systemMemoryId, role: 'read',
+        agentId, memoryId: systemMemoryId, role: 'read-write',
       });
       await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
         agentId, memoryId: userMemoryId, role: 'read-write',
       });
       if (knowledgeMemoryId) {
         await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
-          agentId, memoryId: knowledgeMemoryId, role: 'read',
+          agentId, memoryId: knowledgeMemoryId, role: 'read-write',
         });
       }
 
