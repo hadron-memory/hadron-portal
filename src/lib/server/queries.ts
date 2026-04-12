@@ -463,8 +463,8 @@ export const CREATE_AGENT_MUTATION = /* GraphQL */ `
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $visibility: MemoryVisibility) {
-    updateAgent(id: $id, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, visibility: $visibility) { ...AgentFields }
+  mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: MemoryVisibility) {
+    updateAgent(id: $id, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
   }
 `;
 
