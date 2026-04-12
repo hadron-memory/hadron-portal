@@ -73,6 +73,69 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
         id: params.id, name, urn: urnSlug, description, systemPrompt, systemMemoryId, visibility,
       });
+
+      // If a system memory was selected, ensure it has the chatbot scaffold
+      if (systemMemoryId) {
+        const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
+        const NODE_Q = `query N($loc: String!) { node(loc: $loc) { id } }`;
+        const client = gqlClient(locals.token);
+        const agentDisplayName = name ?? 'Agent';
+
+        // Check if conversations parent exists; create scaffold if missing
+        const hasConversations = await client.request<{ node: { id: string } | null }>(NODE_Q, { loc: 'conversations' }).catch(() => ({ node: null }));
+
+        if (!hasConversations.node) {
+          // conversations parent
+          await client.request(UPSERT, { input: {
+            memoryId: systemMemoryId, loc: 'conversations', name: 'conversations', nodeType: 'system',
+            description: 'Conversation designs',
+          }}).catch(() => {});
+
+          // setup conversation
+          await client.request(UPSERT, { input: {
+            memoryId: systemMemoryId, loc: 'conversations:setup', name: 'setup', nodeType: 'system',
+            description: 'First-time user setup',
+            data: { isSetup: true, stageOrder: ['onboard'] },
+          }}).catch(() => {});
+
+          // onboard stage
+          await client.request(UPSERT, { input: {
+            memoryId: systemMemoryId, loc: 'conversations:setup:onboard', name: 'onboard', nodeType: 'system',
+            description: 'Onboarding stage',
+            data: {
+              promptRef: 'prompts:setup:onboard',
+              extractionSpec: [{ field: 'memory.name', description: "The user's name", shape: 'string' }],
+            },
+          }}).catch(() => {});
+
+          // prompts parent
+          await client.request(UPSERT, { input: {
+            memoryId: systemMemoryId, loc: 'prompts', name: 'prompts', nodeType: 'system',
+            description: 'Prompt templates',
+          }}).catch(() => {});
+
+          await client.request(UPSERT, { input: {
+            memoryId: systemMemoryId, loc: 'prompts:setup', name: 'setup', nodeType: 'system',
+          }}).catch(() => {});
+
+          await client.request(UPSERT, { input: {
+            memoryId: systemMemoryId, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
+            content: `You are ${agentDisplayName}.${systemPrompt ? ' ' + systemPrompt : ''}\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
+          }}).catch(() => {});
+
+          // partials
+          await client.request(UPSERT, { input: {
+            memoryId: systemMemoryId, loc: 'prompts:partials', name: 'partials', nodeType: 'system',
+            description: 'Shared prompt fragments',
+          }}).catch(() => {});
+
+          await client.request(UPSERT, { input: {
+            memoryId: systemMemoryId, loc: 'prompts:partials:metadata-spec', name: 'metadata-spec', nodeType: 'system',
+            content: "Always respond using the 'respond' tool. Include:\n- message: your response to the user\n- data: any new information you learned\n- next_stage: null to stay, or the next stage name to transition",
+          }}).catch(() => {});
+        }
+      }
+
       return { success: true };
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to update agent') });
