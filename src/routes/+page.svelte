@@ -35,6 +35,11 @@
       color: brandColors[2],
     },
     {
+      title: 'Citations & references',
+      body: 'Link external sources — papers, legislation, URLs — as citable references. Build citation networks your AI can traverse and reason about.',
+      color: brandColors[0],
+    },
+    {
       title: 'MCP & API native',
       body: 'Connect any AI tool via MCP or GraphQL. Works with Claude, GPT, Cursor, and custom agents out of the box.',
       color: brandColors[1],
