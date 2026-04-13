@@ -168,10 +168,6 @@
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <a href="/app/account/exchange/{conn.id}"
-              class="rounded-md border border-indigo-300 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-400 dark:hover:bg-indigo-950">
-              Inbox
-            </a>
             <form method="POST" action="?/testExchange" use:enhance>
               <input type="hidden" name="connectionId" value={conn.id} />
               <button type="submit" class="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Test</button>

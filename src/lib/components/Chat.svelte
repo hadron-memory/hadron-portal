@@ -4,7 +4,25 @@
   import { marked } from 'marked';
   import type { StationAIConfig } from '$lib/types';
 
-  let { config, stationId, systemPrompt = '', apiEndpoint = '/api/chat', placeholder = 'Ask me anything about setting up Hadron on your machine.' }: { config: StationAIConfig; stationId: string; systemPrompt?: string; apiEndpoint?: string; placeholder?: string } = $props();
+  let {
+    config,
+    stationId,
+    systemPrompt = '',
+    apiEndpoint = '/api/chat',
+    placeholder = 'Ask me anything about setting up Hadron on your machine.',
+    uploadEndpoint = '',
+    connectionId = '',
+  }: {
+    config: StationAIConfig;
+    stationId: string;
+    systemPrompt?: string;
+    apiEndpoint?: string;
+    placeholder?: string;
+    uploadEndpoint?: string;
+    connectionId?: string;
+  } = $props();
+
+  const canUpload = $derived(!!uploadEndpoint && !!connectionId);
 
   // Intentionally capture initial values — component is re-created via {#key} when these change
   const initialStationId = stationId;
@@ -21,12 +39,61 @@
   });
 
   let inputText = $state('');
+  let showUploadBox = $state(false);
+  let uploading = $state(false);
+  let uploadError = $state('');
+  let fileInputEl: HTMLInputElement | undefined = $state();
+  let dragOver = $state(false);
 
   function handleSubmit(e: Event) {
     e.preventDefault();
     if (!inputText.trim()) return;
+    // Detect upload intent and show the upload box
+    if (canUpload && /\b(upload|attach|document|file)\b/i.test(inputText)) {
+      showUploadBox = true;
+    }
     chat.sendMessage({ text: inputText });
     inputText = '';
+  }
+
+  async function handleFileUpload(file: File) {
+    if (!canUpload) return;
+    uploading = true;
+    uploadError = '';
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('connectionId', connectionId);
+      const res = await fetch(uploadEndpoint, { method: 'POST', body: formData });
+      const result = await res.json();
+      if (!res.ok) {
+        uploadError = result.error ?? 'Upload failed';
+        return;
+      }
+      showUploadBox = false;
+      // Tell the chat about the uploaded document so the AI knows
+      chat.sendMessage({
+        text: `I uploaded a document: "${result.document?.title ?? file.name}" (${Math.round(file.size / 1024)} KB)`,
+      });
+    } catch (e) {
+      uploadError = e instanceof Error ? e.message : 'Upload failed';
+    } finally {
+      uploading = false;
+    }
+  }
+
+  function onFileSelected(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (file) handleFileUpload(file);
+    input.value = '';
+  }
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    dragOver = false;
+    const file = e.dataTransfer?.files[0];
+    if (file) handleFileUpload(file);
   }
 
   function getMessageText(msg: UIMessage): string {
@@ -113,11 +180,72 @@
         {chat.error.message}
       </div>
     {/if}
+
+    <!-- Upload box (shown when user asks to upload) -->
+    {#if showUploadBox && canUpload}
+      <div class="flex justify-start">
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="w-full max-w-sm rounded-lg border-2 border-dashed p-6 text-center transition-colors
+            {dragOver
+              ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30'
+              : 'border-zinc-300 bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-800/50'}"
+          ondragover={(e) => { e.preventDefault(); dragOver = true; }}
+          ondragleave={() => { dragOver = false; }}
+          ondrop={onDrop}
+        >
+          {#if uploading}
+            <div class="flex flex-col items-center gap-2">
+              <svg class="h-6 w-6 animate-spin text-indigo-500" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" class="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" stroke-width="4" stroke-linecap="round" class="opacity-75"/></svg>
+              <span class="text-sm text-zinc-500 dark:text-zinc-400">Uploading...</span>
+            </div>
+          {:else}
+            <svg class="mx-auto h-8 w-8 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0L8 8m4-4l4 4M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
+            </svg>
+            <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+              Drag & drop a file here, or
+              <button
+                type="button"
+                onclick={() => fileInputEl?.click()}
+                class="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400"
+              >browse</button>
+            </p>
+            <p class="mt-1 text-xs text-zinc-400">.txt, .md, .csv, .html, .json</p>
+          {/if}
+          {#if uploadError}
+            <p class="mt-2 text-xs text-red-500">{uploadError}</p>
+          {/if}
+          <input
+            bind:this={fileInputEl}
+            type="file"
+            accept=".txt,.md,.csv,.html,.htm,.json"
+            class="hidden"
+            onchange={onFileSelected}
+          />
+        </div>
+      </div>
+    {/if}
   </div>
 
   <!-- Input -->
   <form onsubmit={handleSubmit} class="border-t border-zinc-200 p-3 dark:border-zinc-800">
     <div class="flex gap-2">
+      {#if canUpload}
+        <button
+          type="button"
+          title="Upload a document"
+          onclick={() => { showUploadBox = !showUploadBox; }}
+          class="flex items-center justify-center rounded-lg border border-zinc-300 px-2.5 text-zinc-500
+            hover:bg-zinc-50 hover:text-zinc-700 dark:border-zinc-700 dark:text-zinc-400
+            dark:hover:bg-zinc-800 dark:hover:text-zinc-200
+            {showUploadBox ? 'bg-indigo-50 text-indigo-600 border-indigo-300 dark:bg-indigo-950/30 dark:text-indigo-400 dark:border-indigo-800' : ''}"
+        >
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+          </svg>
+        </button>
+      {/if}
       <input
         type="text"
         bind:value={inputText}

@@ -82,10 +82,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         PONG_SETTINGS_QUERY,
         { connectionId },
       ),
-      client.request<{ pongKnowledge: PongKnowledge[] }>(
-        PONG_KNOWLEDGE_QUERY,
-        { connectionId },
-      ),
+      client
+        .request<{ pongKnowledge: PongKnowledge[] }>(
+          PONG_KNOWLEDGE_QUERY,
+          { connectionId },
+        )
+        .catch(() => ({ pongKnowledge: [] as PongKnowledge[] })),
     ]);
 
     if (!aiConfigResult.stationAIConfig) {
