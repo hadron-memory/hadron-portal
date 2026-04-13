@@ -22,6 +22,8 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     readBranch
     writeBranch
     visibility
+    userMemoryOfAgentId
+    anonymousExpiresAt
     syncStatus
     syncError
     pendingEdgeCount
@@ -98,6 +100,8 @@ export const AGENT_FIELDS = /* GraphQL */ `
     systemPrompt
     systemMemoryId
     visibility
+    type
+    surfaces
     properties
     memoryItems {
       id
@@ -105,6 +109,29 @@ export const AGENT_FIELDS = /* GraphQL */ `
       memory { id urn name organizationId visibility }
     }
     createdAt
+  }
+`;
+
+export const APP_FIELDS = /* GraphQL */ `
+  fragment AppFields on App {
+    id
+    name
+    organizationId
+    createUserPermission
+    identifyUserMethod
+    sessionTimeoutSeconds
+    anonymousTtlDays
+    agents { id urn name }
+    keys {
+      id
+      keyPreview
+      label
+      createdAt
+      lastUsedAt
+      revokedAt
+    }
+    createdAt
+    updatedAt
   }
 `;
 
@@ -840,5 +867,100 @@ export const DELETE_EXCHANGE_CONNECTION_MUTATION = /* GraphQL */ `
 export const TEST_EXCHANGE_CONNECTION_MUTATION = /* GraphQL */ `
   mutation TestExchangeConnection($id: ID!) {
     testExchangeConnection(id: $id)
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// Apps (multi-user agent callers)
+// ---------------------------------------------------------------------------
+
+export const APPS_QUERY = /* GraphQL */ `
+  ${APP_FIELDS}
+  query Apps($orgId: ID!) {
+    apps(orgId: $orgId) { ...AppFields }
+  }
+`;
+
+export const APP_QUERY = /* GraphQL */ `
+  ${APP_FIELDS}
+  query App($id: ID!) {
+    app(id: $id) { ...AppFields }
+  }
+`;
+
+export const CREATE_APP_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  mutation CreateApp(
+    $orgId: ID!,
+    $name: String!,
+    $createUserPermission: CreateUserPermission,
+    $identifyUserMethod: IdentifyUserMethod,
+    $sessionTimeoutSeconds: Int,
+    $anonymousTtlDays: Int
+  ) {
+    createApp(
+      orgId: $orgId,
+      name: $name,
+      createUserPermission: $createUserPermission,
+      identifyUserMethod: $identifyUserMethod,
+      sessionTimeoutSeconds: $sessionTimeoutSeconds,
+      anonymousTtlDays: $anonymousTtlDays
+    ) { ...AppFields }
+  }
+`;
+
+export const UPDATE_APP_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  mutation UpdateApp(
+    $id: ID!,
+    $name: String,
+    $createUserPermission: CreateUserPermission,
+    $identifyUserMethod: IdentifyUserMethod,
+    $sessionTimeoutSeconds: Int,
+    $anonymousTtlDays: Int
+  ) {
+    updateApp(
+      id: $id,
+      name: $name,
+      createUserPermission: $createUserPermission,
+      identifyUserMethod: $identifyUserMethod,
+      sessionTimeoutSeconds: $sessionTimeoutSeconds,
+      anonymousTtlDays: $anonymousTtlDays
+    ) { ...AppFields }
+  }
+`;
+
+export const DELETE_APP_MUTATION = /* GraphQL */ `
+  mutation DeleteApp($id: ID!) {
+    deleteApp(id: $id)
+  }
+`;
+
+export const ADD_AGENT_TO_APP_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  mutation AddAgentToApp($appId: ID!, $agentId: ID!) {
+    addAgentToApp(appId: $appId, agentId: $agentId) { ...AppFields }
+  }
+`;
+
+export const REMOVE_AGENT_FROM_APP_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  mutation RemoveAgentFromApp($appId: ID!, $agentId: ID!) {
+    removeAgentFromApp(appId: $appId, agentId: $agentId) { ...AppFields }
+  }
+`;
+
+export const CREATE_APP_KEY_MUTATION = /* GraphQL */ `
+  mutation CreateAppKey($appId: ID!, $label: String) {
+    createAppKey(appId: $appId, label: $label) {
+      key { id keyPreview label createdAt lastUsedAt revokedAt }
+      rawKey
+    }
+  }
+`;
+
+export const REVOKE_APP_KEY_MUTATION = /* GraphQL */ `
+  mutation RevokeAppKey($id: ID!) {
+    revokeAppKey(id: $id)
   }
 `;

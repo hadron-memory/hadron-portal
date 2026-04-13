@@ -18,6 +18,8 @@ export interface Memory {
   readBranch: string | null;
   writeBranch: string | null;
   visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION';
+  userMemoryOfAgentId?: string | null;
+  anonymousExpiresAt?: string | null;
   syncStatus: 'PENDING' | 'SYNCING' | 'OK' | 'ERROR';
   syncError: string | null;
   pendingEdgeCount: number;
@@ -45,9 +47,34 @@ export interface Agent {
   systemPrompt: string | null;
   systemMemoryId: string | null;
   visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION';
+  type?: 'ASSISTANT' | 'CHATBOT';
+  surfaces?: string[];
   properties: Record<string, unknown> | null;
   memoryItems: AgentMemoryItem[];
   createdAt: string;
+}
+
+export interface App {
+  id: string;
+  name: string;
+  organizationId: string;
+  createUserPermission: 'DENY' | 'EXPLICIT' | 'IMPLICIT';
+  identifyUserMethod: 'USER_ID' | 'SECRET';
+  sessionTimeoutSeconds: number;
+  anonymousTtlDays: number;
+  agents: Array<{ id: string; urn: string; name: string }>;
+  keys: AppKey[];
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface AppKey {
+  id: string;
+  keyPreview: string;
+  label: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
 }
 
 export interface AgentMemoryItem {
@@ -83,6 +110,7 @@ export interface Organization {
   members?: OrgMember[];
   memories?: Memory[];
   agents?: Agent[];
+  apps?: App[];
   subscriptions?: MemorySubscription[];
   exchangeConnections?: ExchangeConnection[];
 }
