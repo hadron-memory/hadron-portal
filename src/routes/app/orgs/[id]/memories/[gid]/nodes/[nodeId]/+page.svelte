@@ -88,6 +88,80 @@
   const hasReferences = $derived(node.outgoingEdges.length > 0 || node.incomingEdges.length > 0);
   const hasContent = $derived(!!node.content);
 
+  // ── Edge editing ────────────────────────────────────────────────────
+  // Edge editing replaces the full outgoing set via upsertNode(edges: [...]).
+  // We keep a local editable copy and commit via the updateEdges action.
+
+  interface EditableEdge {
+    targetId: string;
+    targetName: string;
+    targetLoc: string;
+    label: string;
+  }
+
+  let editingEdges = $state(false);
+  let editableEdges = $state<EditableEdge[]>([]);
+  let newEdgeTargetQuery = $state('');
+  let newEdgeLabel = $state('');
+
+  function startEditEdges() {
+    editableEdges = node.outgoingEdges.map((e) => ({
+      targetId: e.target.id,
+      targetName: e.target.name ?? e.target.loc,
+      targetLoc: e.target.loc,
+      label: e.label ?? '',
+    }));
+    newEdgeTargetQuery = '';
+    newEdgeLabel = '';
+    editingEdges = true;
+  }
+
+  function cancelEditEdges() {
+    editingEdges = false;
+    editableEdges = [];
+  }
+
+  function removeEditableEdge(idx: number) {
+    editableEdges = editableEdges.filter((_, i) => i !== idx);
+  }
+
+  function addEditableEdge() {
+    // Match the target by loc against graphNodes (loaded on the page already).
+    const candidates = data.graphNodes ?? [];
+    const q = newEdgeTargetQuery.trim().toLowerCase();
+    if (!q) return;
+    const target = candidates.find(
+      (n) => n.loc.toLowerCase() === q || n.name?.toLowerCase() === q,
+    ) ?? candidates.find(
+      (n) => n.loc.toLowerCase().includes(q) || (n.name ?? '').toLowerCase().includes(q),
+    );
+    if (!target) {
+      addEdgeError = `No node found matching "${newEdgeTargetQuery}"`;
+      return;
+    }
+    if (editableEdges.some((e) => e.targetId === target.id && e.label === newEdgeLabel.trim())) {
+      addEdgeError = 'That edge already exists';
+      return;
+    }
+    editableEdges = [
+      ...editableEdges,
+      {
+        targetId: target.id,
+        targetName: target.name ?? target.loc,
+        targetLoc: target.loc,
+        label: newEdgeLabel.trim(),
+      },
+    ];
+    newEdgeTargetQuery = '';
+    newEdgeLabel = '';
+    addEdgeError = null;
+  }
+
+  let addEdgeError = $state<string | null>(null);
+  const editableEdgesJson = $derived(JSON.stringify(
+    editableEdges.map((e) => ({ targetId: e.targetId, label: e.label || null })),
+  ));
+
   // Children: direct children of this node's loc
   const children = $derived(
     (data.graphNodes ?? [])
@@ -180,12 +254,14 @@
           onclick={() => activeTab = 'children'}
         >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}</span></button>
       {/if}
-      {#if hasReferences}
-        <button
-          class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'references' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'references'}
-        >References <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span></button>
-      {/if}
+      <button
+        class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'references' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+        onclick={() => activeTab = 'references'}
+      >References
+        {#if hasReferences}
+          <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span>
+        {/if}
+      </button>
       <button
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'settings' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'settings'}
@@ -259,25 +335,103 @@
     {/if}
 
     <!-- ═══ REFERENCES TAB ═══ -->
-    {#if activeTab === 'references' && hasReferences}
-      {#if node.outgoingEdges.length > 0}
-        <h3 class="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Outgoing</h3>
-        <div class="space-y-1">
-          {#each node.outgoingEdges as edge}
-            <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-              <a href="{basePath}/nodes/{edge.target.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.target.name || edge.target.loc}</a>
-              {#if edge.label}<span class="text-zinc-500">{edge.label}</span>{/if}
+    {#if activeTab === 'references'}
+      <!-- Outgoing edges — editable -->
+      <div class="mb-4 flex items-center justify-between">
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Outgoing</h3>
+        {#if !editingEdges}
+          <button type="button" onclick={startEditEdges}
+            class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+            Edit edges
+          </button>
+        {/if}
+      </div>
+
+      {#if !editingEdges}
+        {#if node.outgoingEdges.length > 0}
+          <div class="space-y-1">
+            {#each node.outgoingEdges as edge}
+              <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+                <a href="{basePath}/nodes/{edge.target.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.target.name || edge.target.loc}</a>
+                {#if edge.label}<span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{edge.label}</span>{/if}
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <p class="text-sm text-zinc-400">No outgoing edges.</p>
+        {/if}
+      {:else}
+        <!-- Edit mode: list with remove buttons, add form, save/cancel -->
+        <form method="POST" action="?/updateEdges" use:enhance={() => {
+          return async ({ update }) => { editingEdges = false; await update(); };
+        }}>
+          <input type="hidden" name="edges" value={editableEdgesJson} />
+
+          {#if editableEdges.length > 0}
+            <div class="space-y-1">
+              {#each editableEdges as edge, idx}
+                <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
+                  <span class="font-mono text-indigo-600 dark:text-indigo-300">{edge.targetName}</span>
+                  <span class="text-xs text-zinc-400">{edge.targetLoc}</span>
+                  {#if edge.label}<span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{edge.label}</span>{/if}
+                  <div class="flex-1"></div>
+                  <button type="button" onclick={() => removeEditableEdge(idx)}
+                    class="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
+                    Remove
+                  </button>
+                </div>
+              {/each}
             </div>
-          {/each}
-        </div>
+          {:else}
+            <p class="text-sm text-zinc-400">No outgoing edges.</p>
+          {/if}
+
+          <!-- Add a new edge -->
+          <div class="mt-4 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/50">
+            <p class="mb-2 text-xs font-medium text-zinc-500">Add edge</p>
+            <div class="flex flex-wrap items-end gap-2">
+              <div class="flex-1 min-w-[200px]">
+                <label for="newEdgeTarget" class="mb-1 block text-xs text-zinc-500">Target (loc or name)</label>
+                <input id="newEdgeTarget" type="text" bind:value={newEdgeTargetQuery}
+                  placeholder="e.g. specs:auth:jwt"
+                  class="{inputClass} font-mono text-xs" />
+              </div>
+              <div class="w-40">
+                <label for="newEdgeLabel" class="mb-1 block text-xs text-zinc-500">Label (optional)</label>
+                <input id="newEdgeLabel" type="text" bind:value={newEdgeLabel}
+                  placeholder="e.g. cites"
+                  class="{inputClass} text-xs" />
+              </div>
+              <button type="button" onclick={addEditableEdge}
+                class="rounded-lg border border-indigo-300 bg-white px-3 py-2 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-800 dark:bg-zinc-900 dark:text-indigo-300 dark:hover:bg-indigo-950">
+                + Add
+              </button>
+            </div>
+            {#if addEdgeError}
+              <p class="mt-2 text-xs text-red-500">{addEdgeError}</p>
+            {/if}
+          </div>
+
+          <div class="mt-4 flex items-center gap-2">
+            <button type="submit" class="rounded-lg px-4 py-2 text-xs font-semibold text-white" style="background: #fb8500;">
+              Save edges
+            </button>
+            <button type="button" onclick={cancelEditEdges}
+              class="rounded-lg border border-zinc-300 px-4 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+              Cancel
+            </button>
+          </div>
+        </form>
       {/if}
+
+      <!-- Incoming edges — read-only (owned by other nodes) -->
       {#if node.incomingEdges.length > 0}
-        <h3 class="mb-2 mt-4 text-xs font-semibold uppercase tracking-wide text-zinc-500">Incoming</h3>
+        <h3 class="mb-2 mt-6 text-xs font-semibold uppercase tracking-wide text-zinc-500">Incoming <span class="ml-1 font-normal normal-case text-zinc-400">(edit on the source node)</span></h3>
         <div class="space-y-1">
           {#each node.incomingEdges as edge}
             <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
               <a href="{basePath}/nodes/{edge.source.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.source.name || edge.source.loc}</a>
-              {#if edge.label}<span class="text-zinc-500">{edge.label}</span>{/if}
+              {#if edge.label}<span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{edge.label}</span>{/if}
             </div>
           {/each}
         </div>

@@ -131,6 +131,43 @@ export const actions: Actions = {
     }
   },
 
+  updateEdges: async ({ request, params, locals }) => {
+    // Replaces the full set of outgoing edges on this node. The client sends
+    // a JSON-encoded array of { targetId, label } — we pass it through the
+    // upsertNode mutation, which replaces all outgoing edges atomically.
+    const fd = await request.formData();
+    const edgesJson = String(fd.get('edges') ?? '[]');
+    let edges: Array<{ targetId: string; label?: string }>;
+    try {
+      edges = JSON.parse(edgesJson);
+    } catch {
+      return fail(400, { error: 'Invalid edges JSON' });
+    }
+    if (!Array.isArray(edges)) return fail(400, { error: 'Edges must be an array' });
+
+    const client = gqlClient(locals.token);
+    try {
+      const { nodeById: node } = await client.request<{ nodeById: MemoryNode | null }>(
+        NODE_BY_ID_QUERY, { id: params.nodeId },
+      );
+      if (!node) return fail(404, { error: 'Node not found' });
+      await client.request(UPSERT_NODE_MUTATION, {
+        input: {
+          memoryId: params.gid,
+          loc: node.loc,
+          name: node.name,
+          edges: edges.map((e) => ({
+            targetId: e.targetId,
+            label: e.label ?? null,
+          })),
+        },
+      });
+      return { edgesUpdated: true };
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to update edges' });
+    }
+  },
+
   reorder: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const updatesJson = String(fd.get('updates') ?? '');

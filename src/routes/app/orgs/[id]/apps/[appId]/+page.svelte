@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import AgentList, { type AgentRow } from '$lib/components/AgentList.svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -27,6 +28,20 @@
 
   let keyLabel = $state('');
   let selectedAgentId = $state('');
+
+  // Rows for the <AgentList /> table, mapped from app.agents.
+  const agentRows = $derived<AgentRow[]>(app.agents.map((a) => ({
+    id: a.id,
+    urn: a.urn,
+    name: a.name,
+    description: null,
+    orgId: org.id,
+  })));
+
+  // Remove-agent handler uses a single hidden form that we programmatically
+  // submit from the AgentList's onremove callback.
+  let pendingRemoveAgentId = $state('');
+  let removeAgentForm: HTMLFormElement | undefined = $state();
 
   // When a key is just created, show the raw key once.
   const newRawKey = $derived(form?.rawKey as string | undefined);
@@ -179,27 +194,18 @@
     <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">Agents</h2>
     <p class="mb-3 text-sm text-zinc-500">Agents this App is allowed to operate. An App Key holder can only call startAgentSession for these.</p>
 
-    {#if app.agents.length === 0}
-      <p class="mb-3 text-sm text-zinc-400">No agents attached yet.</p>
-    {:else}
-      <ul class="mb-4 space-y-2">
-        {#each app.agents as agent (agent.id)}
-          <li class="flex items-center justify-between rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
-            <div>
-              <span class="font-medium text-zinc-900 dark:text-zinc-100">{agent.name}</span>
-              <span class="ml-2 font-mono text-xs text-zinc-400">{agent.urn}</span>
-            </div>
-            <form method="POST" action="?/removeAgent" use:enhance>
-              <input type="hidden" name="agentId" value={agent.id} />
-              <button type="submit"
-                class="rounded-lg border border-red-300 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
-                Remove
-              </button>
-            </form>
-          </li>
-        {/each}
-      </ul>
-    {/if}
+    <AgentList
+      agents={agentRows}
+      onremove={(agent) => { pendingRemoveAgentId = agent.id; removeAgentForm?.requestSubmit(); }}
+    />
+
+    <!-- Hidden form that the AgentList's onremove handler submits.
+         Using a hidden form (vs inline per-row forms) keeps the table clean
+         while still routing through SvelteKit's action layer. -->
+    <form method="POST" action="?/removeAgent" use:enhance bind:this={removeAgentForm} class="hidden">
+      <input type="hidden" name="agentId" value={pendingRemoveAgentId} />
+    </form>
+
 
     {#if availableAgents.length > 0}
       <form method="POST" action="?/addAgent" use:enhance class="flex items-end gap-2">
