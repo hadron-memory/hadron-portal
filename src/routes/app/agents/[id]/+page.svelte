@@ -3,6 +3,8 @@
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
+  import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
+  import type { MemoryNode } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -10,12 +12,109 @@
   const org = $derived(data.org);
   const writableMemoryIds = $derived((agent.memoryItems ?? []).filter((m) => m.role === 'read-write').map((m) => m.memory.id));
 
-  type TabId = 'memory' | 'settings';
+  // Agents with a system memory get the Chatbot Control tab. The chatbot
+  // sub-tab system opens per-conversation or per-partial sub-tabs when the
+  // user clicks a row, so they can drill down without leaving the page.
+  const hasSystemMemory = $derived(!!agent.systemMemoryId);
+
+  type TabId = 'memory' | 'chatbot' | 'settings';
   let activeTab = $state<TabId>('memory');
-  const tabs: { id: TabId; label: string }[] = [
+  const tabs = $derived<{ id: TabId; label: string }[]>([
     { id: 'memory', label: 'Memory' },
+    ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
     { id: 'settings', label: 'Settings' },
-  ];
+  ]);
+
+  // ── Chatbot Control sub-tab state ────────────────────────────────────
+  // The Chatbot Control tab has an "index" view (lists conversations +
+  // partials) and zero or more per-item sub-tabs that the user has opened
+  // by clicking a row.
+
+  interface ChatbotSubTab {
+    id: string;           // 'index' | `conv:${loc}` | `partial:${loc}`
+    label: string;
+    kind?: 'conversation' | 'partial';
+    loc?: string;         // set for conversation and partial sub-tabs
+  }
+
+  let openSubTabs = $state<ChatbotSubTab[]>([{ id: 'index', label: 'Overview' }]);
+  let activeSubTab = $state<string>('index');
+
+  function openConversationTab(loc: string, label: string) {
+    const tabId = `conv:${loc}`;
+    if (!openSubTabs.find((t) => t.id === tabId)) {
+      openSubTabs = [...openSubTabs, { id: tabId, label, kind: 'conversation', loc }];
+    }
+    activeSubTab = tabId;
+  }
+
+  function openPartialTab(loc: string, label: string) {
+    const tabId = `partial:${loc}`;
+    if (!openSubTabs.find((t) => t.id === tabId)) {
+      openSubTabs = [...openSubTabs, { id: tabId, label, kind: 'partial', loc }];
+    }
+    activeSubTab = tabId;
+  }
+
+  function closeSubTab(id: string) {
+    if (id === 'index') return; // overview is always present
+    openSubTabs = openSubTabs.filter((t) => t.id !== id);
+    if (activeSubTab === id) activeSubTab = 'index';
+  }
+
+  // ── Chatbot data derivations ─────────────────────────────────────────
+  // All nodes in the agent's system memory, sliced into conversations,
+  // their stages, and the partials under prompts:partials.
+
+  const systemNodes = $derived<MemoryNode[]>(
+    (data.agentNodes ?? []).filter((n) => n.memoryId === agent.systemMemoryId),
+  );
+
+  // Memory URN for the system memory (used to render full node URNs)
+  const systemMemoryUrn = $derived(
+    (agent.memoryItems ?? []).find((m) => m.memory.id === agent.systemMemoryId)?.memory.urn ?? '',
+  );
+
+  function nodeToRow(n: MemoryNode): NodeRow {
+    return {
+      id: n.id,
+      loc: n.loc,
+      name: n.name,
+      description: n.description,
+      nodeType: n.nodeType,
+      urn: systemMemoryUrn ? `${systemMemoryUrn}:${n.loc}` : n.loc,
+    };
+  }
+
+  // Conversations: nodes directly under "conversations:" (depth 2)
+  const conversationRows = $derived<NodeRow[]>(
+    systemNodes
+      .filter((n) => n.loc.startsWith('conversations:') && n.loc.split(':').length === 2)
+      .sort((a, b) => a.loc.localeCompare(b.loc))
+      .map(nodeToRow),
+  );
+
+  // Partials: nodes under "prompts:partials:" (depth 3), exclude the parent
+  // "prompts:partials" itself.
+  const partialRows = $derived<NodeRow[]>(
+    systemNodes
+      .filter((n) => n.loc.startsWith('prompts:partials:') && n.loc.split(':').length === 3)
+      .sort((a, b) => a.loc.localeCompare(b.loc))
+      .map(nodeToRow),
+  );
+
+  // Stages belonging to a given conversation loc (e.g. "conversations:setup")
+  function stageRowsFor(conversationLoc: string): NodeRow[] {
+    return systemNodes
+      .filter((n) => n.loc.startsWith(conversationLoc + ':') && n.loc.split(':').length === 3)
+      .sort((a, b) => a.loc.localeCompare(b.loc))
+      .map(nodeToRow);
+  }
+
+  // Used by the partial sub-tab to show the partial's content
+  function nodeAtLoc(loc: string): MemoryNode | undefined {
+    return systemNodes.find((n) => n.loc === loc);
+  }
 
   let isEditing = $state(false);
   let confirmDelete = $state(false);
@@ -90,11 +189,6 @@
       <p class="mt-1 text-sm text-zinc-500">{agent.description}</p>
     {/if}
     <p class="mt-1 text-xs text-zinc-400">Organization: {org.name}</p>
-    {#if (agent as any).systemMemoryId}
-      <a href="/app/agents/{agent.id}/conversations" class="mt-2 inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs font-medium text-white" style="background: #219ebc;">
-        Conversation Editor
-      </a>
-    {/if}
   </div>
 
   {#if restrictiveMemories.length > 0}
@@ -127,6 +221,146 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'memory'}
     <MemoryBrowser nodes={data.agentNodes ?? []} multiMemory={(agent.memoryItems ?? []).length > 1} {writableMemoryIds} />
+  {/if}
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- CHATBOT CONTROL TAB                                               -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'chatbot' && hasSystemMemory}
+    <div class="space-y-4">
+      <!-- Sub-tab bar -->
+      <div class="flex flex-wrap items-center gap-1 border-b border-zinc-200 dark:border-zinc-800">
+        {#each openSubTabs as subTab (subTab.id)}
+          <div class="flex items-center">
+            <button
+              onclick={() => activeSubTab = subTab.id}
+              class="border-b-2 px-3 py-1.5 text-sm font-medium transition
+                {activeSubTab === subTab.id
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'}"
+            >
+              {subTab.label}
+            </button>
+            {#if subTab.id !== 'index'}
+              <button onclick={() => closeSubTab(subTab.id)}
+                class="ml-0.5 rounded px-1 text-xs text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                title="Close tab"
+              >×</button>
+            {/if}
+          </div>
+        {/each}
+      </div>
+
+      <!-- Sub-tab: Overview (conversations + partials) -->
+      {#if activeSubTab === 'index'}
+        <div class="space-y-6">
+          <section>
+            <div class="mb-3 flex items-center justify-between">
+              <h2 class="font-semibold text-zinc-900 dark:text-white">Conversations</h2>
+              <a href="/app/agents/{agent.id}/conversations"
+                class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">
+                Open conversation editor →
+              </a>
+            </div>
+            <NodeTable
+              nodes={conversationRows}
+              searchPlaceholder="Search conversations..."
+              emptyLabel="No conversations yet. Use the conversation editor to add one."
+              onselect={(row) => openConversationTab(row.loc, row.name)}
+            />
+          </section>
+
+          <section>
+            <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Partials</h2>
+            <NodeTable
+              nodes={partialRows}
+              searchPlaceholder="Search partials..."
+              emptyLabel="No partials yet."
+              onselect={(row) => openPartialTab(row.loc, row.name)}
+            />
+          </section>
+        </div>
+      {/if}
+
+      <!-- Sub-tab: Conversation (stages list) -->
+      {#each openSubTabs as subTab (subTab.id)}
+        {#if subTab.id === activeSubTab && subTab.id.startsWith('conv:') && subTab.loc}
+          {@const convLoc = subTab.loc}
+          {@const conv = nodeAtLoc(convLoc)}
+          <div class="space-y-4">
+            <div>
+              <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">
+                <span class="text-zinc-400 font-normal">Conversation:</span> {conv?.name ?? convLoc}
+              </h2>
+              {#if conv}
+                <div class="mt-1"><Urn value={systemMemoryUrn ? `${systemMemoryUrn}:${conv.loc}` : conv.loc} type="node" /></div>
+                {#if conv.description}
+                  <p class="mt-1 text-sm text-zinc-500">{conv.description}</p>
+                {/if}
+              {/if}
+            </div>
+
+            <section>
+              <h3 class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">Stages</h3>
+              <NodeTable
+                nodes={stageRowsFor(convLoc)}
+                searchPlaceholder="Search stages..."
+                emptyLabel="No stages yet."
+                onselect={(row) => {
+                  // Stages open in the node detail page since they have their
+                  // own rich editing (content, data, edges, etc.)
+                  const memId = agent.systemMemoryId;
+                  if (memId) {
+                    window.location.href = `/app/orgs/${org.id}/memories/${memId}/nodes/${row.id}`;
+                  }
+                }}
+              />
+            </section>
+
+            <p class="text-xs text-zinc-400">
+              For inline prompt and extraction-spec editing, use the
+              <a href="/app/agents/{agent.id}/conversations" class="text-indigo-500 hover:underline">full conversation editor</a>.
+            </p>
+          </div>
+        {/if}
+      {/each}
+
+      <!-- Sub-tab: Partial -->
+      {#each openSubTabs as subTab (subTab.id)}
+        {#if subTab.id === activeSubTab && subTab.id.startsWith('partial:') && subTab.loc}
+          {@const partialLoc = subTab.loc}
+          {@const partial = nodeAtLoc(partialLoc)}
+          <div class="space-y-4">
+            <div>
+              <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">
+                <span class="text-zinc-400 font-normal">Partial:</span> {partial?.name ?? partialLoc}
+              </h2>
+              {#if partial}
+                <div class="mt-1"><Urn value={systemMemoryUrn ? `${systemMemoryUrn}:${partial.loc}` : partial.loc} type="node" /></div>
+                {#if partial.description}
+                  <p class="mt-1 text-sm text-zinc-500">{partial.description}</p>
+                {/if}
+              {/if}
+            </div>
+
+            {#if partial?.content}
+              <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
+                <pre class="whitespace-pre-wrap text-xs text-zinc-700 dark:text-zinc-300">{partial.content}</pre>
+              </div>
+            {:else}
+              <p class="text-sm text-zinc-400">No content.</p>
+            {/if}
+
+            {#if partial}
+              <p class="text-xs text-zinc-400">
+                <a href="/app/orgs/{org.id}/memories/{agent.systemMemoryId}/nodes/{partial.id}"
+                  class="text-indigo-500 hover:underline">Edit this partial →</a>
+              </p>
+            {/if}
+          </div>
+        {/if}
+      {/each}
+    </div>
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
