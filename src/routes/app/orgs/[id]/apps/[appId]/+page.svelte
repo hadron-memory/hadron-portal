@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -8,8 +9,17 @@
   const org = $derived(data.org);
   const availableAgents = $derived(data.availableAgents);
 
+  // URN slug is everything after the org URN prefix (e.g. "mmdata" for
+  // "micromentor.org:mmdata"). Fall back to the whole URN if for some reason
+  // it doesn't contain a colon (shouldn't happen in practice).
+  function slugOfUrn(urn: string): string {
+    const idx = urn.indexOf(':');
+    return idx >= 0 ? urn.slice(idx + 1) : urn;
+  }
+
   let editMode = $state(false);
   let name = $state(app.name);
+  let appSlug = $state(slugOfUrn(app.urn));
   let createUserPermission = $state(app.createUserPermission);
   let identifyUserMethod = $state(app.identifyUserMethod);
   let sessionTimeoutSeconds = $state(app.sessionTimeoutSeconds);
@@ -39,8 +49,8 @@
       { label: 'Apps', href: `/app/orgs/${org.id}/apps` },
       { label: app.name },
     ]} />
-    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">{app.name}</h1>
-    <p class="mt-1 font-mono text-xs text-zinc-400">App ID: {app.id}</p>
+    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">App:</span> {app.name}</h1>
+    <div class="mt-1"><Urn value={app.urn} type="app" /></div>
   </div>
 
   {#if form?.error}
@@ -89,6 +99,15 @@
           <label for="name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
           <input id="name" type="text" name="name" bind:value={name} class={inputClass} />
         </div>
+        <div>
+          <label for="urn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+          <div class="flex items-stretch">
+            <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+            <input id="urn" type="text" name="urn" bind:value={appSlug}
+              class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+          </div>
+          <p class="mt-1 text-xs text-zinc-400">The slug must be unique within the organization. Changing this rewrites the URN.</p>
+        </div>
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label for="cup" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">User creation</label>
@@ -123,6 +142,7 @@
           <button type="button" onclick={() => {
             editMode = false;
             name = app.name;
+            appSlug = slugOfUrn(app.urn);
             createUserPermission = app.createUserPermission;
             identifyUserMethod = app.identifyUserMethod;
             sessionTimeoutSeconds = app.sessionTimeoutSeconds;

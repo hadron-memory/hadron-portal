@@ -1,5 +1,5 @@
 <script lang="ts">
-  type UrnType = 'org' | 'memory' | 'agent' | 'station' | 'node';
+  type UrnType = 'org' | 'memory' | 'agent' | 'app' | 'station' | 'node';
 
   let { value, type, size = 12, compact = false }: {
     value: string;
@@ -12,7 +12,7 @@
 
   // Auto-detect type from urn: prefix if present
   const parsed = $derived.by(() => {
-    const match = value.match(/^urn:(org|memory|agent|station|node):(.+)$/);
+    const match = value.match(/^urn:(org|memory|agent|app|station|node):(.+)$/);
     if (match) return { type: match[1] as UrnType, bare: match[2] };
     return { type: type ?? null, bare: value };
   });

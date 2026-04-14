@@ -1,6 +1,8 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import Urn from '$lib/components/Urn.svelte';
+  import { toSlug } from '$lib/slug';
   import type { App } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
@@ -14,10 +16,16 @@
 
   let showCreate = $state(false);
   let name = $state('');
+  let appSlug = $state('');
+  let slugEdited = $state(false);
   let createUserPermission = $state<'DENY' | 'EXPLICIT' | 'IMPLICIT'>('EXPLICIT');
   let identifyUserMethod = $state<'USER_ID' | 'SECRET'>('USER_ID');
   let sessionTimeoutSeconds = $state(900);
   let anonymousTtlDays = $state(7);
+
+  $effect(() => {
+    if (!slugEdited) appSlug = toSlug(name);
+  });
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 </script>
@@ -58,6 +66,17 @@
           <input id="name" type="text" name="name" required placeholder="e.g. Micromentor Backend"
             bind:value={name} class={inputClass} />
           <p class="mt-1 text-xs text-zinc-400">Identifies the calling application in audit logs and the portal.</p>
+        </div>
+        <div>
+          <label for="appSlug" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+          <div class="flex items-stretch">
+            <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+            <input id="appSlug" type="text" name="urn" required placeholder="mmdata"
+              bind:value={appSlug}
+              oninput={() => { slugEdited = true; }}
+              class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+          </div>
+          <p class="mt-1 text-xs text-zinc-400">Auto-derived from the name. Can be customized. Must be unique within the org.</p>
         </div>
 
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -128,6 +147,9 @@
             <span class="rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
               {app.createUserPermission}
             </span>
+          </div>
+          <div class="mt-1">
+            <Urn value={app.urn} type="app" />
           </div>
           <div class="mt-2 flex flex-wrap gap-4 text-xs text-zinc-500">
             <span>{activeKeyCount(app)} active key{activeKeyCount(app) !== 1 ? 's' : ''}</span>

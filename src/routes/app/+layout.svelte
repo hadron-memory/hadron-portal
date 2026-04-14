@@ -12,6 +12,7 @@
     { href: '/app/dashboard', label: 'Dashboard' },
     { href: '/app/memories', label: 'Memories' },
     { href: '/app/agents', label: 'Agents' },
+    { href: '/app/apps', label: 'Apps' },
     { href: '/app/stations', label: 'Stations' },
   ];
 

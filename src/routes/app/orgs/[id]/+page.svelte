@@ -148,6 +148,7 @@
           <a href="/app/orgs/{org.id}/apps/{app.id}"
             class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
             <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{app.name}</p>
+            <Urn value={app.urn} type="app" size={10} />
             <p class="mt-1 text-xs text-zinc-500">{app.agents.length} agent{app.agents.length !== 1 ? 's' : ''} · {activeKeyCount(app)} key{activeKeyCount(app) !== 1 ? 's' : ''}</p>
             <p class="mt-1 text-xs text-zinc-400">{app.identifyUserMethod} · {app.createUserPermission}</p>
           </a>

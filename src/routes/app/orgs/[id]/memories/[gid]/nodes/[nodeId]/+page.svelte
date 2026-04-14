@@ -129,6 +129,7 @@
   <!-- Breadcrumb -->
   <Breadcrumb items={[
     { label: 'Organizations', href: '/app/orgs' },
+    { label: data.org.name, href: `/app/orgs/${data.org.id}` },
     { label: data.graph.name, href: basePath },
     { label: 'Nodes', href: `${basePath}/browse` },
     ...data.breadcrumb.slice(0, -1).map((seg) =>

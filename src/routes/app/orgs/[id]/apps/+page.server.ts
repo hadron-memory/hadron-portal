@@ -35,6 +35,7 @@ export const actions: Actions = {
   create: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const name = String(fd.get('name') ?? '').trim();
+    const urn = String(fd.get('urn') ?? '').trim() || undefined;
     const createUserPermission = String(fd.get('createUserPermission') ?? 'EXPLICIT');
     const identifyUserMethod = String(fd.get('identifyUserMethod') ?? 'USER_ID');
     const sessionTimeoutSeconds = Number(fd.get('sessionTimeoutSeconds') ?? 900);
@@ -47,6 +48,7 @@ export const actions: Actions = {
         {
           orgId: params.id,
           name,
+          urn,
           createUserPermission,
           identifyUserMethod,
           sessionTimeoutSeconds,

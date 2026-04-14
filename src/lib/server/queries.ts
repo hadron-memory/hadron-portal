@@ -116,6 +116,7 @@ export const APP_FIELDS = /* GraphQL */ `
   fragment AppFields on App {
     id
     name
+    urn
     organizationId
     createUserPermission
     identifyUserMethod
@@ -200,6 +201,7 @@ export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}
   ${AGENT_FIELDS}
+  ${APP_FIELDS}
   query MyOrganizations {
     myOrganizations {
       ...OrgFields
@@ -213,6 +215,9 @@ export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
       }
       agents {
         ...AgentFields
+      }
+      apps {
+        ...AppFields
       }
     }
   }
@@ -893,6 +898,7 @@ export const CREATE_APP_MUTATION = /* GraphQL */ `
   mutation CreateApp(
     $orgId: ID!,
     $name: String!,
+    $urn: String,
     $createUserPermission: CreateUserPermission,
     $identifyUserMethod: IdentifyUserMethod,
     $sessionTimeoutSeconds: Int,
@@ -901,6 +907,7 @@ export const CREATE_APP_MUTATION = /* GraphQL */ `
     createApp(
       orgId: $orgId,
       name: $name,
+      urn: $urn,
       createUserPermission: $createUserPermission,
       identifyUserMethod: $identifyUserMethod,
       sessionTimeoutSeconds: $sessionTimeoutSeconds,
@@ -914,6 +921,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
   mutation UpdateApp(
     $id: ID!,
     $name: String,
+    $urn: String,
     $createUserPermission: CreateUserPermission,
     $identifyUserMethod: IdentifyUserMethod,
     $sessionTimeoutSeconds: Int,
@@ -922,6 +930,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
     updateApp(
       id: $id,
       name: $name,
+      urn: $urn,
       createUserPermission: $createUserPermission,
       identifyUserMethod: $identifyUserMethod,
       sessionTimeoutSeconds: $sessionTimeoutSeconds,

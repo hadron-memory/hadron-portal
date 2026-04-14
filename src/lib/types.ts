@@ -57,6 +57,7 @@ export interface Agent {
 export interface App {
   id: string;
   name: string;
+  urn: string;
   organizationId: string;
   createUserPermission: 'DENY' | 'EXPLICIT' | 'IMPLICIT';
   identifyUserMethod: 'USER_ID' | 'SECRET';

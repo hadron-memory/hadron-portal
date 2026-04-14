@@ -42,6 +42,7 @@ export const actions: Actions = {
   update: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const name = String(fd.get('name') ?? '').trim() || undefined;
+    const urn = String(fd.get('urn') ?? '').trim() || undefined;
     const createUserPermission = String(fd.get('createUserPermission') ?? '').trim() || undefined;
     const identifyUserMethod = String(fd.get('identifyUserMethod') ?? '').trim() || undefined;
     const sessionTimeoutSeconds = fd.get('sessionTimeoutSeconds')
@@ -54,6 +55,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(UPDATE_APP_MUTATION, {
         id: params.appId,
         name,
+        urn,
         createUserPermission,
         identifyUserMethod,
         sessionTimeoutSeconds,
