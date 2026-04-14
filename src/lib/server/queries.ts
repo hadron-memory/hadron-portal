@@ -22,8 +22,10 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     readBranch
     writeBranch
     visibility
+    type
     userMemoryOfAgentId
     anonymousExpiresAt
+    agent { id urn name }
     syncStatus
     syncError
     pendingEdgeCount
@@ -409,7 +411,8 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
     $tags: [String!], $license: String,
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
-    $source: String, $readBranch: String, $writeBranch: String, $visibility: MemoryVisibility
+    $source: String, $readBranch: String, $writeBranch: String,
+    $visibility: MemoryVisibility, $type: MemoryType
   ) {
     createMemory(
       orgId: $orgId, name: $name, shortDescription: $shortDescription, description: $description,
@@ -417,7 +420,7 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
       category0: $category0, category1: $category1, category2: $category2,
       iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
       source: $source, readBranch: $readBranch, writeBranch: $writeBranch,
-      visibility: $visibility
+      visibility: $visibility, type: $type
     ) { ...MemoryFields }
   }
 `;
@@ -845,8 +848,8 @@ export const NODE_USAGE_QUERY = /* GraphQL */ `
 
 export const MY_MEMORIES_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
-  query MyMemories {
-    myMemories {
+  query MyMemories($includeAgentSystem: Boolean) {
+    myMemories(includeAgentSystem: $includeAgentSystem) {
       ...MemoryFields
     }
   }

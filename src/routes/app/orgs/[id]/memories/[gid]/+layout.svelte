@@ -20,15 +20,24 @@
 <div class="space-y-4">
   <!-- Breadcrumb + Header (hidden on node detail pages which have their own) -->
   {#if !isNodeDetail}
+  {@const isAgentSystem = data.graph.type === 'AGENT_SYSTEM'}
   <div class="mb-4">
     <Breadcrumb items={[
       { label: 'Organizations', href: '/app/orgs' },
       { label: data.org.name, href: `/app/orgs/${data.org.id}` },
-      { label: 'Memories', href: `/app/orgs/${data.org.id}/memories` },
+      { label: isAgentSystem ? 'Agents' : 'Memories', href: isAgentSystem ? `/app/orgs/${data.org.id}/agents` : `/app/orgs/${data.org.id}/memories` },
       { label: data.graph.name },
     ]} />
-    <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Memory:</span> {data.graph.name}</h1>
+    <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">
+      <span class="text-zinc-400 font-normal">{isAgentSystem ? 'Agent system:' : 'Memory:'}</span> {data.graph.name}
+    </h1>
     <Urn value={data.graph.urn} type="memory" />
+    {#if isAgentSystem && data.graph.agent}
+      <p class="mt-1 text-xs text-zinc-500">
+        Owned by agent
+        <a href={`/app/agents/${data.graph.agent.id}`} class="text-indigo-500 hover:underline">{data.graph.agent.name}</a>
+      </p>
+    {/if}
   </div>
   {/if}
 

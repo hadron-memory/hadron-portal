@@ -1,10 +1,28 @@
 <script lang="ts">
+  import { goto } from '$app/navigation';
   import Urn from '$lib/components/Urn.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
 
   let search = $state('');
+
+  // Toggle: include agent system memories. Changing this navigates to the
+  // same page with an updated URL param, which triggers load() to re-fetch
+  // with includeAgentSystem.
+  function toggleSystem(checked: boolean) {
+    const url = new URL(window.location.href);
+    if (checked) {
+      url.searchParams.set('system', '1');
+    } else {
+      url.searchParams.delete('system');
+    }
+    goto(url.toString(), { invalidateAll: true });
+  }
+
+  function onSystemToggleChange(e: Event) {
+    toggleSystem((e.currentTarget as HTMLInputElement).checked);
+  }
 
   const filtered = $derived(
     data.memories.filter((m) => {
@@ -26,16 +44,25 @@
     <p class="mt-1 text-sm text-zinc-500">All memories across your organizations.</p>
   </div>
 
-  {#if data.memories.length > 0}
-    <div>
+  <div class="flex flex-wrap items-center gap-4">
+    {#if data.memories.length > 0 || data.includeAgentSystem}
       <input
         type="text"
         placeholder="Search memories..."
         bind:value={search}
         class="w-full max-w-md rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
       />
-    </div>
-  {/if}
+    {/if}
+    <label class="flex items-center gap-2 text-sm text-zinc-500 cursor-pointer">
+      <input
+        type="checkbox"
+        checked={data.includeAgentSystem}
+        onchange={onSystemToggleChange}
+        class="rounded border-zinc-300"
+      />
+      Show agent system memories
+    </label>
+  </div>
 
   {#if data.memories.length === 0}
     <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">

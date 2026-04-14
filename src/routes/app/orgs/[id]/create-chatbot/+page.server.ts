@@ -49,12 +49,18 @@ export const actions: Actions = {
     try {
       const systemDisplayName = `${agentName} System`;
 
-      // 1. Create the system memory (conversation designs, prompts)
+      // 1. Create the system memory (conversation designs, prompts).
+      // Mark it as AGENT_SYSTEM from creation so it's treated as the
+      // chatbot's program rather than a regular knowledge memory —
+      // it gets filtered out of the main memory list, won't be
+      // deletable directly, and its name/visibility stay in sync
+      // with the agent.
       const systemResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
         orgId: params.id,
         name: systemMemorySlug,
         shortDescription: systemDisplayName,
         visibility,
+        type: 'AGENT_SYSTEM',
       });
       const systemMemoryId = systemResult.createMemory.id;
       await client.request(UPDATE_MEMORY_MUTATION, {
@@ -107,10 +113,10 @@ export const actions: Actions = {
       }
 
       // 6. Add memories to the agent (all writable — chatbot is freshly created
-      // and likely to be iterated on; tighten roles later in settings)
-      await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
-        agentId, memoryId: systemMemoryId, role: 'read-write',
-      });
+      // and likely to be iterated on; tighten roles later in settings).
+      // Note: the system memory is NOT added as a memory item here — it is
+      // linked exclusively via Agent.systemMemoryId (set on createAgent).
+      // AGENT_SYSTEM memories cannot be attached as memory items.
       await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
         agentId, memoryId: userMemoryId, role: 'read-write',
       });

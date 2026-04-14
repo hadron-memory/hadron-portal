@@ -18,8 +18,10 @@ export interface Memory {
   readBranch: string | null;
   writeBranch: string | null;
   visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION';
+  type?: 'KNOWLEDGE' | 'AGENT_SYSTEM';
   userMemoryOfAgentId?: string | null;
   anonymousExpiresAt?: string | null;
+  agent?: { id: string; urn: string; name: string } | null;
   syncStatus: 'PENDING' | 'SYNCING' | 'OK' | 'ERROR';
   syncError: string | null;
   pendingEdgeCount: number;

@@ -6,6 +6,12 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const g = $derived(data.graph);
 
+  // Agent system memories are owned by their agent and have a stripped-down
+  // settings view: no org transfer, no categories, no license, no visibility,
+  // no subscriptions. Most fields don't apply (they're the agent's program,
+  // not a shared knowledge artifact).
+  const isAgentSystem = $derived(g.type === 'AGENT_SYSTEM');
+
   let isEditing = $state(false);
   let githubOpen = $state(false);
   let saving = $state(false);
@@ -64,30 +70,37 @@
 
     {#if isEditing}
       <form id="graph-settings" method="POST" action="?/update" use:savingEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
-        <div>
-          <label for="displayName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-          <input id="displayName" name="displayName" type="text" value={g.name} class={inputClass} />
-        </div>
-
-        {#if (data as any).allOrgs && (data as any).allOrgs.length > 1}
+        {#if isAgentSystem}
+          <p class="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
+            This is an agent system memory. Its name, URN, and visibility are
+            managed by the owning agent. Most other metadata fields don't apply.
+          </p>
+        {:else}
           <div>
-            <label for="organizationId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Organization</label>
-            <select id="organizationId" name="organizationId" class={inputClass}>
-              {#each (data as any).allOrgs as org (org.id)}
-                <option value={org.id} selected={org.id === g.organizationId}>{org.name} ({org.urn})</option>
-              {/each}
-            </select>
+            <label for="displayName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+            <input id="displayName" name="displayName" type="text" value={g.name} class={inputClass} />
+          </div>
+
+          {#if (data as any).allOrgs && (data as any).allOrgs.length > 1}
+            <div>
+              <label for="organizationId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Organization</label>
+              <select id="organizationId" name="organizationId" class={inputClass}>
+                {#each (data as any).allOrgs as org (org.id)}
+                  <option value={org.id} selected={org.id === g.organizationId}>{org.name} ({org.urn})</option>
+                {/each}
+              </select>
+            </div>
+          {/if}
+
+          <div>
+            <label for="urnSlugInput" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+            <div class="flex items-stretch">
+              <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.org.urn}:</span>
+              <input id="urnSlugInput" name="urnSlug" type="text" value={urnSlug}
+                class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+            </div>
           </div>
         {/if}
-
-        <div>
-          <label for="urnSlugInput" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
-          <div class="flex items-stretch">
-            <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.org.urn}:</span>
-            <input id="urnSlugInput" name="urnSlug" type="text" value={urnSlug}
-              class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-          </div>
-        </div>
 
         <div>
           <label for="shortDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Short description</label>
@@ -101,48 +114,51 @@
           <label for="tags" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Tags <span class="text-zinc-500">(comma-separated)</span></label>
           <input id="tags" name="tags" type="text" value={(g.tags ?? []).join(', ')} class={inputClass} />
         </div>
-        <div class="grid grid-cols-3 gap-4">
-          <div>
-            <label for="category0" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Category</label>
-            <input id="category0" name="category0" type="text" value={g.category0 ?? ''} class={inputClass} />
+
+        {#if !isAgentSystem}
+          <div class="grid grid-cols-3 gap-4">
+            <div>
+              <label for="category0" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Category</label>
+              <input id="category0" name="category0" type="text" value={g.category0 ?? ''} class={inputClass} />
+            </div>
+            <div>
+              <label for="category1" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Subcategory</label>
+              <input id="category1" name="category1" type="text" value={g.category1 ?? ''} class={inputClass} />
+            </div>
+            <div>
+              <label for="category2" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Sub-subcategory</label>
+              <input id="category2" name="category2" type="text" value={g.category2 ?? ''} class={inputClass} />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label for="license" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">License</label>
+              <input id="license" name="license" type="text" value={g.license ?? ''} class={inputClass} />
+            </div>
+            <div>
+              <label for="homeUrl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Home URL</label>
+              <input id="homeUrl" name="homeUrl" type="url" value={g.homeUrl ?? ''} class={inputClass} />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label for="iconUrl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Icon URL</label>
+              <input id="iconUrl" name="iconUrl" type="url" value={g.iconUrl ?? ''} class={inputClass} />
+            </div>
+            <div>
+              <label for="heroUrl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Hero image URL</label>
+              <input id="heroUrl" name="heroUrl" type="url" value={g.heroUrl ?? ''} class={inputClass} />
+            </div>
           </div>
           <div>
-            <label for="category1" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Subcategory</label>
-            <input id="category1" name="category1" type="text" value={g.category1 ?? ''} class={inputClass} />
+            <label for="visibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
+            <select id="visibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <option value="PRIVATE" selected={g.visibility === 'PRIVATE'}>Private</option>
+              <option value="ORGANIZATION" selected={g.visibility === 'ORGANIZATION'}>Organization</option>
+              <option value="PUBLIC" selected={g.visibility === 'PUBLIC'}>Public</option>
+            </select>
           </div>
-          <div>
-            <label for="category2" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Sub-subcategory</label>
-            <input id="category2" name="category2" type="text" value={g.category2 ?? ''} class={inputClass} />
-          </div>
-        </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label for="license" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">License</label>
-            <input id="license" name="license" type="text" value={g.license ?? ''} class={inputClass} />
-          </div>
-          <div>
-            <label for="homeUrl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Home URL</label>
-            <input id="homeUrl" name="homeUrl" type="url" value={g.homeUrl ?? ''} class={inputClass} />
-          </div>
-        </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label for="iconUrl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Icon URL</label>
-            <input id="iconUrl" name="iconUrl" type="url" value={g.iconUrl ?? ''} class={inputClass} />
-          </div>
-          <div>
-            <label for="heroUrl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Hero image URL</label>
-            <input id="heroUrl" name="heroUrl" type="url" value={g.heroUrl ?? ''} class={inputClass} />
-          </div>
-        </div>
-        <div>
-          <label for="visibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
-          <select id="visibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-            <option value="PRIVATE" selected={g.visibility === 'PRIVATE'}>Private</option>
-            <option value="ORGANIZATION" selected={g.visibility === 'ORGANIZATION'}>Organization</option>
-            <option value="PUBLIC" selected={g.visibility === 'PUBLIC'}>Public</option>
-          </select>
-        </div>
+        {/if}
 
         <!-- GitHub integration -->
         <div class="rounded-lg border border-zinc-200 dark:border-zinc-800">
@@ -182,10 +198,18 @@
       </form>
     {:else}
       <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class="text-sm text-zinc-500">Visibility</span>
-          <span class="text-sm font-medium text-zinc-900 dark:text-white">{visibilityLabel[g.visibility] ?? g.visibility}</span>
-        </div>
+        {#if isAgentSystem && g.agent}
+          <div class="flex items-center justify-between px-5 py-3">
+            <span class="text-sm text-zinc-500">Owned by agent</span>
+            <a href={`/app/agents/${g.agent.id}`} class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">{g.agent.name}</a>
+          </div>
+        {/if}
+        {#if !isAgentSystem}
+          <div class="flex items-center justify-between px-5 py-3">
+            <span class="text-sm text-zinc-500">Visibility</span>
+            <span class="text-sm font-medium text-zinc-900 dark:text-white">{visibilityLabel[g.visibility] ?? g.visibility}</span>
+          </div>
+        {/if}
         {#if g.shortDescription}
           <div class="px-5 py-3">
             <span class="text-sm text-zinc-500">Short description</span>
@@ -236,7 +260,8 @@
     {/if}
   </section>
 
-  <!-- Subscriptions -->
+  <!-- Subscriptions (not applicable to AGENT_SYSTEM memories) -->
+  {#if !isAgentSystem}
   <section>
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Org subscriptions
       <span class="ml-1 text-sm font-normal text-zinc-500">({g.subscriptions?.length ?? 0})</span>
@@ -276,4 +301,5 @@
       <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">Add</button>
     </form>
   </section>
+  {/if}
 </div>
