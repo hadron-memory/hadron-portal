@@ -16,6 +16,7 @@
     nodeHrefFn,
     onmove,
     onreorder,
+    showHidden = $bindable(false),
   }: {
     entries: TreeEntry[];
     basePath: string;
@@ -23,11 +24,15 @@
     nodeHrefFn?: (entry: TreeEntry) => string | null;
     onmove?: (fromLoc: string, newParentLoc: string) => void;
     onreorder?: (parentLoc: string, orderedLocs: string[]) => void;
+    /** When true, include record and system nodes in the tree. Bindable
+     *  so MemoryBrowser can keep TreeView and NodeList in sync. */
+    showHidden?: boolean;
   } = $props();
 
   // Use shared search state so graph can react to the same filter
   let search = $derived(graphState.searchFilter);
-  let showRecords = $state(false);
+  // Alias retained so existing template bindings keep working.
+  let showRecords = $derived(showHidden);
 
   // Filter entries: exclude record nodes by default, apply search
   let filteredEntries = $derived.by(() => {
@@ -263,7 +268,7 @@
   </div>
   {#if hasHiddenNodes}
     <label class="record-toggle">
-      <input type="checkbox" bind:checked={showRecords} />
+      <input type="checkbox" bind:checked={showHidden} />
       <span>Records</span>
     </label>
   {/if}

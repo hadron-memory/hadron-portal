@@ -204,6 +204,7 @@
   <Breadcrumb items={[
     { label: 'Organizations', href: '/app/orgs' },
     { label: data.org.name, href: `/app/orgs/${data.org.id}` },
+    { label: 'Memories', href: `/app/orgs/${data.org.id}/memories` },
     { label: data.graph.name, href: basePath },
     { label: 'Nodes', href: `${basePath}/browse` },
     ...data.breadcrumb.slice(0, -1).map((seg) =>
@@ -440,14 +441,14 @@
 
     <!-- ═══ SETTINGS TAB ═══ -->
     {#if activeTab === 'settings'}
-      <div class="max-w-lg space-y-8">
+      <div class="max-w-3xl space-y-8">
         <section>
           <div class="mb-4 flex items-center justify-between">
             <h2 class="font-semibold text-zinc-900 dark:text-white">Node</h2>
             {#if !isEditing}
               <div class="flex items-center gap-2">
                 <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
-                <a href="{basePath}/browse?focus={encodeURIComponent(node.loc)}" class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Graph</a>
+                <a href="{basePath}/browse?focus={node.id}" class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Graph</a>
               </div>
             {/if}
           </div>

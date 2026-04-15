@@ -3,6 +3,7 @@
   import TopicGraph from './TopicGraph.svelte';
   import NodeList from './NodeList.svelte';
   import { invalidateAll } from '$app/navigation';
+  import { page } from '$app/stores';
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { onDestroy } from 'svelte';
@@ -32,10 +33,44 @@
   const writableSet = $derived(new Set(writableMemoryIds));
 
   // ── Sub-view ──────────────────────────────────────────────────────────
-  let activeView = $state<'graph' | 'nodes'>('graph');
+  // Persist the graph/nodes view choice in localStorage so that when the
+  // user navigates to a node detail page and hits Back, they land on the
+  // same view they came from.
+  const VIEW_MODE_KEY = 'hadron:memoryBrowser:viewMode';
+  function readStoredView(): 'graph' | 'nodes' {
+    if (typeof window === 'undefined') return 'graph';
+    try {
+      const v = window.localStorage.getItem(VIEW_MODE_KEY);
+      return v === 'nodes' ? 'nodes' : 'graph';
+    } catch {
+      return 'graph';
+    }
+  }
+  let activeView = $state<'graph' | 'nodes'>(readStoredView());
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(VIEW_MODE_KEY, activeView);
+    } catch {
+      /* ignore quota / disabled storage */
+    }
+  });
+
   let treeOpen = $state(true);
   let treeWidth = $state(256);
   let dragging = $state(false);
+
+  // Lifted from TreeView so both the tree and the flat node list honor the
+  // same "show hidden (record + system) nodes" toggle. The checkbox UI still
+  // lives in TreeView but binds against this state via the bindable prop.
+  let showHidden = $state(false);
+
+  // When the URL carries ?focus=<nodeId>, we forward it to TopicGraph so
+  // the node is selected and centered, and we switch to the graph view.
+  const focusId = $derived($page.url.searchParams.get('focus') ?? undefined);
+  $effect(() => {
+    if (focusId) activeView = 'graph';
+  });
 
   function startDrag(e: MouseEvent) {
     e.preventDefault();
@@ -145,6 +180,12 @@
   }
 
   // ── Filtered nodes ────────────────────────────────────────────────────
+  // Hidden types (record + system) are excluded by both the tree and the
+  // node list unless the showHidden toggle is on. filteredNodes keeps the
+  // full pool (so TreeView can still detect hasHiddenNodes and render the
+  // toggle); the filter is applied in searchedNodes below, which feeds
+  // NodeList.
+  const HIDDEN_TYPES = new Set(['record', 'system']);
   const filteredNodes = $derived(
     nodes.filter((n) => {
       if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(n.memory?.urn ?? '')) return false;
@@ -156,6 +197,8 @@
 
   const searchedNodes = $derived(
     filteredNodes.filter((n) => {
+      // Hide record + system nodes unless the user toggled them on.
+      if (!showHidden && HIDDEN_TYPES.has(n.nodeType ?? 'info')) return false;
       if (!keyword) return true;
       const q = keyword.toLowerCase();
       return n.name.toLowerCase().includes(q) || n.loc.toLowerCase().includes(q) || (n.description ?? '').toLowerCase().includes(q) || n.tags.some((t) => t.toLowerCase().includes(q));
@@ -398,7 +441,7 @@
             <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
             <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
           </div>
-          <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={handleTreeReorder} />
+          <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
         </aside>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
@@ -422,7 +465,7 @@
         {#if activeView === 'graph'}
           <div style="display: flex; height: 100%;">
             {#key filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
-              <TopicGraph data={graphViewData} {basePath} />
+              <TopicGraph data={graphViewData} {focusId} {basePath} />
             {/key}
           </div>
         {:else}

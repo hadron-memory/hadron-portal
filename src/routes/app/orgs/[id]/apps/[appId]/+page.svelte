@@ -94,13 +94,15 @@
     </div>
   {/if}
 
-  <!-- Settings -->
-  <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-    <div class="mb-3 flex items-center justify-between">
-      <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Settings</h2>
+  <!-- Settings (matches the layout of the Memory detail page:
+       section wrapper, h2 + Edit button OUTSIDE the panel, read-only
+       view as a divide-y list of full-width rows) -->
+  <section class="max-w-lg">
+    <div class="mb-4 flex items-center justify-between">
+      <h2 class="font-semibold text-zinc-900 dark:text-white">App</h2>
       {#if !editMode}
         <button type="button" onclick={() => { editMode = true; }}
-          class="rounded-lg border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+          class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
           Edit
         </button>
       {/if}
@@ -109,7 +111,7 @@
     {#if editMode}
       <form method="POST" action="?/update" use:enhance={() => {
         return async ({ update }) => { editMode = false; await update(); };
-      }} class="space-y-4">
+      }} class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
         <div>
           <label for="name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
           <input id="name" type="text" name="name" bind:value={name} class={inputClass} />
@@ -162,32 +164,32 @@
             identifyUserMethod = app.identifyUserMethod;
             sessionTimeoutSeconds = app.sessionTimeoutSeconds;
             anonymousTtlDays = app.anonymousTtlDays;
-          }} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+          }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">
             Cancel
           </button>
         </div>
       </form>
     {:else}
-      <dl class="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
-        <div>
-          <dt class="text-xs font-medium text-zinc-500">User creation</dt>
-          <dd class="text-zinc-900 dark:text-zinc-200">{app.createUserPermission}</dd>
+      <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3">
+          <span class="text-sm text-zinc-500">User creation</span>
+          <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.createUserPermission}</span>
         </div>
-        <div>
-          <dt class="text-xs font-medium text-zinc-500">Identify user by</dt>
-          <dd class="text-zinc-900 dark:text-zinc-200">{app.identifyUserMethod}</dd>
+        <div class="flex items-center justify-between px-5 py-3">
+          <span class="text-sm text-zinc-500">Identify user by</span>
+          <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.identifyUserMethod}</span>
         </div>
-        <div>
-          <dt class="text-xs font-medium text-zinc-500">Session timeout</dt>
-          <dd class="text-zinc-900 dark:text-zinc-200">{app.sessionTimeoutSeconds} seconds</dd>
+        <div class="flex items-center justify-between px-5 py-3">
+          <span class="text-sm text-zinc-500">Session timeout</span>
+          <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.sessionTimeoutSeconds} seconds</span>
         </div>
-        <div>
-          <dt class="text-xs font-medium text-zinc-500">Anonymous TTL</dt>
-          <dd class="text-zinc-900 dark:text-zinc-200">{app.anonymousTtlDays} days</dd>
+        <div class="flex items-center justify-between px-5 py-3">
+          <span class="text-sm text-zinc-500">Anonymous TTL</span>
+          <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.anonymousTtlDays} days</span>
         </div>
-      </dl>
+      </div>
     {/if}
-  </div>
+  </section>
 
   <!-- Agents -->
   <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
