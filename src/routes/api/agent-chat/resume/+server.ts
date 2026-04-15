@@ -1,0 +1,71 @@
+import { gqlClient } from '$lib/server/api';
+import { CHAT_HISTORY_QUERY, MY_CHATS_QUERY } from '$lib/server/queries';
+import type { Chat, ChatMessage } from '$lib/types';
+import type { RequestHandler } from './$types';
+
+/**
+ * POST /api/agent-chat/resume
+ * Body: { agentId: string, chatId: string }
+ *
+ * Loads the chat's metadata (title, conversation, current stage) and
+ * message history so the frontend can re-render an existing chat from
+ * scratch. Doesn't create anything; the next `/turn` call will compile
+ * the current stage prompt and drive the LLM normally.
+ */
+export const POST: RequestHandler = async ({ request, locals }) => {
+  if (!locals.token) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  let body: { agentId?: string; chatId?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  if (!body.agentId || !body.chatId) {
+    return new Response(JSON.stringify({ error: 'agentId and chatId are required' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const client = gqlClient(locals.token);
+    // Use myChats to find the chat metadata — we already have ownership
+    // filtering baked in there. Small N per user, simple.
+    const [listResult, historyResult] = await Promise.all([
+      client.request<{ myChats: Chat[] }>(MY_CHATS_QUERY, { agentId: body.agentId }),
+      client.request<{ chatHistory: ChatMessage[] }>(CHAT_HISTORY_QUERY, {
+        chatId: body.chatId,
+        limit: 500,
+      }),
+    ]);
+    const chat = listResult.myChats.find((c) => c.loc === body.chatId);
+    if (!chat) {
+      return new Response(JSON.stringify({ error: 'Chat not found' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        chat,
+        messages: historyResult.chatHistory,
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Failed to resume chat';
+    return new Response(JSON.stringify({ error: msg }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+};

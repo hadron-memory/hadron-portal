@@ -653,6 +653,124 @@ export const STATION_AI_CONFIG_QUERY = /* GraphQL */ `
   }
 `;
 
+// ---------------------------------------------------------------------------
+// Agent chat (portal agent chat Phase 2)
+// ---------------------------------------------------------------------------
+
+export const AGENT_AI_CONFIG_QUERY = /* GraphQL */ `
+  query AgentAIConfig($agentId: ID!) {
+    agentAIConfig(agentId: $agentId) {
+      provider
+      apiKey
+      model
+    }
+  }
+`;
+
+export const UPDATE_AGENT_AI_CONFIG_MUTATION = /* GraphQL */ `
+  mutation UpdateAgentAIConfig($agentId: ID!, $provider: String!, $apiKey: String!, $model: String!) {
+    updateAgentAIConfig(agentId: $agentId, provider: $provider, apiKey: $apiKey, model: $model) {
+      id
+      aiProvider
+      aiModel
+      hasAiApiKey
+    }
+  }
+`;
+
+export const CLEAR_AGENT_AI_CONFIG_MUTATION = /* GraphQL */ `
+  mutation ClearAgentAIConfig($agentId: ID!) {
+    clearAgentAIConfig(agentId: $agentId) {
+      id
+      aiProvider
+      aiModel
+      hasAiApiKey
+    }
+  }
+`;
+
+export const MY_CHATS_QUERY = /* GraphQL */ `
+  query MyChats($agentId: ID!, $limit: Int, $offset: Int) {
+    myChats(agentId: $agentId, limit: $limit, offset: $offset) {
+      id
+      loc
+      title
+      conversationName
+      stageName
+      messageCount
+      createdAt
+      lastMessageAt
+    }
+  }
+`;
+
+export const CHAT_HISTORY_QUERY = /* GraphQL */ `
+  query ChatHistory($chatId: String!, $limit: Int) {
+    chatHistory(chatId: $chatId, limit: $limit) {
+      role
+      content
+      seq
+      createdAt
+    }
+  }
+`;
+
+export const START_CHAT_MUTATION = /* GraphQL */ `
+  mutation StartChat($agentId: ID!, $conversationName: String) {
+    startChat(agentId: $agentId, conversationName: $conversationName) {
+      chatId
+      systemMessage
+      tools
+      conversationName
+      stageName
+    }
+  }
+`;
+
+export const SEND_CHAT_MESSAGE_MUTATION = /* GraphQL */ `
+  mutation SendChatMessage($chatId: String!, $userMessage: String!) {
+    sendChatMessage(chatId: $chatId, userMessage: $userMessage) {
+      systemMessage
+      tools
+      messageHistory
+      summarizationNeeded {
+        messageCount
+        prompt
+      }
+    }
+  }
+`;
+
+export const PROCESS_CHAT_RESPONSE_MUTATION = /* GraphQL */ `
+  mutation ProcessChatResponse($chatId: String!, $toolResponse: JSON!) {
+    processChatResponse(chatId: $chatId, toolResponse: $toolResponse) {
+      displayMessage
+      stageTransitioned
+      newStageName
+      conversationHandoff
+      chatEnded
+    }
+  }
+`;
+
+export const SAVE_CHAT_SUMMARY_MUTATION = /* GraphQL */ `
+  mutation SaveChatSummary($chatId: String!, $summary: String!) {
+    saveChatSummary(chatId: $chatId, summary: $summary)
+  }
+`;
+
+export const UPDATE_CHAT_TITLE_MUTATION = /* GraphQL */ `
+  mutation UpdateChatTitle($chatId: String!, $title: String!) {
+    updateChatTitle(chatId: $chatId, title: $title)
+  }
+`;
+
+export const DELETE_CHAT_MUTATION = /* GraphQL */ `
+  mutation DeleteChat($chatId: String!) {
+    deleteChat(chatId: $chatId)
+  }
+`;
+
 export const STATION_NODES_QUERY = /* GraphQL */ `
   query StationNodes($stationId: ID!, $limit: Int) {
     stationNodes(stationId: $stationId, limit: $limit) {

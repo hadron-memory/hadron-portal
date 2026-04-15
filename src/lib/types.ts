@@ -51,8 +51,31 @@ export interface Agent {
   visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION';
   type?: 'ASSISTANT' | 'CHATBOT';
   surfaces?: string[];
+  aiProvider?: string | null;
+  aiModel?: string | null;
+  hasAiApiKey?: boolean;
   properties: Record<string, unknown> | null;
   memoryItems: AgentMemoryItem[];
+  createdAt: string;
+}
+
+/** A saved chat in a user's personal memory for an agent. */
+export interface Chat {
+  id: string;
+  loc: string;
+  title: string;
+  conversationName: string | null;
+  stageName: string | null;
+  messageCount: number;
+  createdAt: string;
+  lastMessageAt: string | null;
+}
+
+/** One message in a chat history. */
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  seq: number | null;
   createdAt: string;
 }
 
