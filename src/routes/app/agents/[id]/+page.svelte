@@ -1,9 +1,11 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { invalidateAll } from '$app/navigation';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
+  import AgentChat from '$lib/components/AgentChat.svelte';
   import type { MemoryNode } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
@@ -16,14 +18,10 @@
   // sub-tab system opens per-conversation or per-partial sub-tabs when the
   // user clicks a row, so they can drill down without leaving the page.
   const hasSystemMemory = $derived(!!agent.systemMemoryId);
+  const hasAiApiKey = $derived(!!agent.hasAiApiKey);
 
-  type TabId = 'memory' | 'chatbot' | 'settings';
+  type TabId = 'memory' | 'chatbot' | 'chat' | 'settings';
   let activeTab = $state<TabId>('memory');
-  const tabs = $derived<{ id: TabId; label: string }[]>([
-    { id: 'memory', label: 'Memory' },
-    ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
-    { id: 'settings', label: 'Settings' },
-  ]);
 
   // ── Chatbot Control sub-tab state ────────────────────────────────────
   // The Chatbot Control tab has an "index" view (lists conversations +
@@ -94,6 +92,31 @@
       .map(nodeToRow),
   );
 
+  // Does this agent have at least one "real" (non-setup) conversation?
+  // The Chat tab is only visible when the agent can actually hold a
+  // conversation with the user.
+  const hasNonSetupConversations = $derived(
+    systemNodes.some((n) => {
+      if (!n.loc.startsWith('conversations:')) return false;
+      if (n.loc.split(':').length !== 2) return false;
+      const d = (n.data as Record<string, unknown>) ?? {};
+      return d.isSetup !== true;
+    }),
+  );
+
+  // Tabs: Memory is always present. Chatbot Control is shown when the
+  // agent has a system memory. Chat is shown when the agent is fully
+  // configured (system memory + LLM key + at least one conversation).
+  // Settings is always last.
+  const tabs = $derived<{ id: TabId; label: string }[]>([
+    { id: 'memory', label: 'Memory' },
+    ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
+    ...(hasSystemMemory && hasAiApiKey && hasNonSetupConversations
+      ? [{ id: 'chat' as TabId, label: 'Chat' }]
+      : []),
+    { id: 'settings', label: 'Settings' },
+  ]);
+
   // Partials: nodes under "prompts:partials:" (depth 3), exclude the parent
   // "prompts:partials" itself.
   const partialRows = $derived<NodeRow[]>(
@@ -118,6 +141,103 @@
 
   let isEditing = $state(false);
   let confirmDelete = $state(false);
+
+  // ── AI config editor state ──
+  let editAiConfig = $state(false);
+  let aiProviderInput = $state<'anthropic' | 'openai' | 'glm'>('anthropic');
+  let aiModelInput = $state('');
+  let aiApiKeyInput = $state('');
+  let aiConfigBusy = $state(false);
+  let aiConfigError = $state<string | null>(null);
+  let aiConfigTestResult = $state<{
+    ok: boolean;
+    provider?: string;
+    model?: string;
+    reply?: string;
+    error?: string;
+  } | null>(null);
+
+  function startEditAiConfig() {
+    aiProviderInput = (agent.aiProvider as 'anthropic' | 'openai' | 'glm') ?? 'anthropic';
+    aiModelInput = agent.aiModel ?? '';
+    aiApiKeyInput = '';
+    aiConfigError = null;
+    aiConfigTestResult = null;
+    editAiConfig = true;
+  }
+
+  async function saveAiConfig() {
+    if (!aiProviderInput || !aiModelInput.trim() || !aiApiKeyInput.trim()) {
+      aiConfigError = 'Provider, model, and API key are required.';
+      return;
+    }
+    aiConfigBusy = true;
+    aiConfigError = null;
+    aiConfigTestResult = null;
+    try {
+      const res = await fetch('/api/agent-chat/ai-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'save',
+          agentId: agent.id,
+          provider: aiProviderInput,
+          model: aiModelInput.trim(),
+          apiKey: aiApiKeyInput.trim(),
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error ?? 'Failed to save AI config');
+      editAiConfig = false;
+      await invalidateAll();
+    } catch (e) {
+      aiConfigError = e instanceof Error ? e.message : 'Failed to save AI config';
+    } finally {
+      aiConfigBusy = false;
+    }
+  }
+
+  async function testAiConfig() {
+    aiConfigBusy = true;
+    aiConfigError = null;
+    aiConfigTestResult = null;
+    try {
+      const res = await fetch('/api/agent-chat/ai-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'test', agentId: agent.id }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error ?? 'Test failed');
+      aiConfigTestResult = body;
+    } catch (e) {
+      aiConfigError = e instanceof Error ? e.message : 'Test failed';
+    } finally {
+      aiConfigBusy = false;
+    }
+  }
+
+  async function clearAiConfig() {
+    if (!confirm('Clear AI config for this agent? The API key will be removed.')) return;
+    aiConfigBusy = true;
+    aiConfigError = null;
+    aiConfigTestResult = null;
+    try {
+      const res = await fetch('/api/agent-chat/ai-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear', agentId: agent.id }),
+      });
+      const body = await res.json();
+      if (!res.ok || body.error) throw new Error(body.error ?? 'Failed to clear');
+      editAiConfig = false;
+      await invalidateAll();
+    } catch (e) {
+      aiConfigError = e instanceof Error ? e.message : 'Failed to clear AI config';
+    } finally {
+      aiConfigBusy = false;
+    }
+  }
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
@@ -173,7 +293,12 @@
 
 <svelte:head><title>{agent.name} · Hadron</title></svelte:head>
 
-<div class="space-y-4">
+<!-- When the Chat tab is active, lay out the page as a flex column that
+     fills the viewport height so the chat surface can claim the remaining
+     vertical space. Other tabs keep the default block flow + vertical
+     spacing. -->
+<div class="space-y-4 {activeTab === 'chat' ? 'flex flex-col' : ''}"
+     style={activeTab === 'chat' ? 'min-height: calc(100vh - 4rem);' : ''}>
   <!-- Breadcrumb -->
   <Breadcrumb items={[
     { label: 'Dashboard', href: '/app/dashboard' },
@@ -364,6 +489,17 @@
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- CHAT TAB                                                          -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'chat' && hasSystemMemory && hasAiApiKey && hasNonSetupConversations}
+    <!-- Full-height chat surface. The parent flex layout gives the chat
+         whatever vertical space remains below the agent header and tabs. -->
+    <div class="chat-surface flex min-h-0 flex-1">
+      <AgentChat agentId={agent.id} />
+    </div>
+  {/if}
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- SETTINGS TAB                                                      -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
@@ -545,6 +681,105 @@
           <p class="text-xs text-zinc-500">No memories available. Create a memory first.</p>
         {:else}
           <p class="text-xs text-zinc-500">All available memories are already in this agent.</p>
+        {/if}
+      </section>
+
+      <!-- LLM provider (powers the portal Chat tab) -->
+      <section class="max-w-lg">
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="font-semibold text-zinc-900 dark:text-white">LLM provider</h2>
+          {#if !editAiConfig}
+            <button type="button" onclick={() => startEditAiConfig()}
+              class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+              {agent.hasAiApiKey ? 'Edit' : 'Configure'}
+            </button>
+          {/if}
+        </div>
+
+        {#if editAiConfig}
+          <div class="rounded-xl border border-zinc-200 bg-white p-5 space-y-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <div>
+              <label for="aiProvider" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Provider</label>
+              <select id="aiProvider" bind:value={aiProviderInput}
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="anthropic">Anthropic</option>
+                <option value="openai">OpenAI</option>
+                <option value="glm">GLM (z.ai)</option>
+              </select>
+            </div>
+            <div>
+              <label for="aiModel" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Model</label>
+              <input id="aiModel" type="text" bind:value={aiModelInput}
+                placeholder={aiProviderInput === 'anthropic' ? 'claude-opus-4-6' : aiProviderInput === 'openai' ? 'gpt-4o-mini' : 'glm-4-flash'}
+                class={inputClass} />
+              <p class="mt-1 text-xs text-zinc-400">Exact model string (e.g. claude-opus-4-6, gpt-4o-mini).</p>
+            </div>
+            <div>
+              <label for="aiApiKey" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">API key</label>
+              <input id="aiApiKey" type="password" bind:value={aiApiKeyInput}
+                placeholder={agent.hasAiApiKey ? '(leave blank to keep current key)' : 'sk-…'}
+                class={inputClass} />
+              <p class="mt-1 text-xs text-zinc-400">Encrypted at rest with the Hadron server's master key.</p>
+            </div>
+            {#if aiConfigError}
+              <div class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{aiConfigError}</div>
+            {/if}
+            {#if aiConfigTestResult}
+              <div class="rounded-md border px-3 py-2 text-xs {aiConfigTestResult.ok
+                ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'
+                : 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'}">
+                {#if aiConfigTestResult.ok}
+                  ✓ Works — {aiConfigTestResult.provider} / {aiConfigTestResult.model}. Reply: "{aiConfigTestResult.reply}"
+                {:else}
+                  × {aiConfigTestResult.error}
+                {/if}
+              </div>
+            {/if}
+            <div class="flex gap-2">
+              <button type="button" onclick={saveAiConfig} disabled={aiConfigBusy}
+                class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+                {aiConfigBusy ? 'Saving…' : 'Save'}
+              </button>
+              <button type="button" onclick={testAiConfig} disabled={aiConfigBusy || !agent.hasAiApiKey}
+                class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 disabled:opacity-50"
+                title={agent.hasAiApiKey ? 'Round-trip a tiny hello through the configured provider' : 'Save a key first, then test'}>
+                Test
+              </button>
+              {#if agent.hasAiApiKey}
+                <button type="button" onclick={clearAiConfig} disabled={aiConfigBusy}
+                  class="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950 disabled:opacity-50">
+                  Clear
+                </button>
+              {/if}
+              <button type="button" onclick={() => { editAiConfig = false; aiConfigError = null; aiConfigTestResult = null; }}
+                class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">
+                Cancel
+              </button>
+            </div>
+          </div>
+        {:else}
+          <div class="rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-200 overflow-hidden dark:border-zinc-800 dark:bg-zinc-900 dark:divide-zinc-800">
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Status</span>
+              <span class="text-sm font-medium {agent.hasAiApiKey ? 'text-green-600 dark:text-green-400' : 'text-zinc-500'}">
+                {agent.hasAiApiKey ? '✓ Configured' : 'Not configured'}
+              </span>
+            </div>
+            {#if agent.hasAiApiKey}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Provider</span>
+                <span class="text-sm text-zinc-900 dark:text-white">{agent.aiProvider}</span>
+              </div>
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Model</span>
+                <span class="text-sm text-zinc-900 dark:text-white">{agent.aiModel}</span>
+              </div>
+            {:else}
+              <div class="px-5 py-3 text-xs text-zinc-500">
+                Configure an LLM provider to enable the <strong>Chat</strong> tab.
+              </div>
+            {/if}
+          </div>
         {/if}
       </section>
 
