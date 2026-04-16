@@ -298,7 +298,7 @@
     }
     return result;
   });
-  const availableMemories = $derived(allMemories.filter((m) => !memoryIdsInAgent.has(m.id)));
+  const availableMemories = $derived(allMemories.filter((m) => !memoryIdsInAgent.has(m.id) && m.type !== 'AGENT_SYSTEM'));
 </script>
 
 <svelte:head><title>{agent.name} · Hadron</title></svelte:head>
@@ -567,13 +567,8 @@
               <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Memory <span class="text-zinc-500">(for chatbot conversations)</span></label>
               <select id="editSystemMemoryId" name="systemMemoryId" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                 <option value="">— None —</option>
-                {#each agent.memoryItems ?? [] as item}
-                  <option value={item.memory.id} selected={agent.systemMemoryId === item.memory.id}>{item.memory.name} ({item.memory.urn})</option>
-                {/each}
                 {#each orgSystemMemories as sm}
-                  {#if !memoryIdsInAgent.has(sm.id)}
-                    <option value={sm.id}>{sm.name} ({sm.urn})</option>
-                  {/if}
+                  <option value={sm.id} selected={agent.systemMemoryId === sm.id}>{sm.name} ({sm.urn})</option>
                 {/each}
               </select>
               <p class="mt-1 text-xs text-zinc-400">Memory containing conversation designs, stages, and prompt templates.</p>
