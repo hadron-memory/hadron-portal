@@ -238,10 +238,10 @@
 
   function claudeCodeHooksConfig() {
     return { hooks: {
-      SessionStart: [{ hooks: [{ type: 'url', url: `${clientAppUrl}/hooks/session-start`, timeout: 5 }] }],
-      UserPromptSubmit: [{ hooks: [{ type: 'url', url: `${clientAppUrl}/hooks/before-prompt`, timeout: 5 }] }],
-      PostToolUse: [{ matcher: 'mcp__hadron', hooks: [{ type: 'url', url: `${clientAppUrl}/hooks/after-tool`, timeout: 5 }] }],
-      PostCompact: [{ hooks: [{ type: 'url', url: `${clientAppUrl}/hooks/post-compact`, timeout: 5 }] }],
+      SessionStart: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/session-start`, timeout: 5 }] }],
+      UserPromptSubmit: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/before-prompt`, timeout: 5 }] }],
+      PostToolUse: [{ matcher: 'mcp__hadron', hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/after-tool`, timeout: 5 }] }],
+      PostCompact: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/post-compact`, timeout: 5 }] }],
     }};
   }
 
