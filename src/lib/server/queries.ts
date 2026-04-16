@@ -518,7 +518,7 @@ export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
 
 export const CREATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $systemPrompt: String, $systemMemoryId: ID, $visibility: MemoryVisibility) {
+  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: MemoryVisibility) {
     createAgent(orgId: $orgId, name: $name, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
   }
 `;
