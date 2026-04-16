@@ -105,6 +105,9 @@ export const AGENT_FIELDS = /* GraphQL */ `
     type
     surfaces
     properties
+    aiProvider
+    aiModel
+    hasAiApiKey
     memoryItems {
       id
       role
