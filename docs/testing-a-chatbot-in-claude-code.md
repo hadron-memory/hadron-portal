@@ -68,11 +68,31 @@ how real users will ever interact with it.
 > "engine." Hadron owns the *script*; the production app owns the
 > *engine*.
 
+## Two ways to test
+
+**Claude Code + MCP tools** (this doc) — free. Claude Code plays the
+role of the production app: it calls `h-start-chat`, reads the compiled
+prompt, generates a response as the chatbot, and sends it back via
+`h-process-chat-response`. No LLM API key needed because Claude Code's
+own model does the generation. Best for iterating on conversation
+design, prompts, and extraction specs.
+
+**Portal Chat tab** — requires an LLM API key configured on the agent
+(Settings → LLM provider). The portal makes real API calls to the
+configured provider, so every turn costs money. Use it when you want to
+see how the chatbot behaves with the exact model and provider that
+production will use. See
+[portal-chat-testing.md](./portal-chat-testing.md) for the test
+checklist.
+
 ## Prerequisites
 
 - Access to the Hadron portal ([hadronmemory.com](https://hadronmemory.com))
 - Access to the chatbot agent you want to test (e.g. Juno) — ask the
   team which org it lives in
+- The agent must have **`mcp`** in its surfaces list (check agent
+  Settings → surfaces; chatbot agents default to `["api"]`, so you may
+  need to add `"mcp"`)
 - Claude Code installed and working on your laptop
 - `hadron-client` installed (the MCP proxy) — if unsure, ask
 
@@ -236,6 +256,11 @@ the LLM to include the data it should extract, and (3) the tool-call
 response actually included the expected fields. Use `h-read-node` on
 the chat session node to see exactly what was sent/received.
 
+**"The MCP tools don't see my agent's memories."** — Check that the
+agent has `"mcp"` in its surfaces list. Chatbot agents created via the
+portal wizard default to `["api"]` only. Add `"mcp"` in the agent's
+Settings tab so the station can discover it.
+
 **"I broke the chatbot."** — Everything is versioned in the memory
 graph. `h-read-node` with `raw: true` shows the source. If you're
 really lost, ask a senior engineer to help you recover from git or
@@ -243,6 +268,8 @@ revert via the portal.
 
 ## Related docs
 
+- [portal-chat-testing.md](./portal-chat-testing.md) — manual test
+  checklist for the portal Chat tab (requires an LLM API key)
 - [building-a-chatbot-agent.md](./building-a-chatbot-agent.md) — creating a
   chatbot from scratch
 - [building-an-agent.md](./building-an-agent.md) — general Hadron agent
