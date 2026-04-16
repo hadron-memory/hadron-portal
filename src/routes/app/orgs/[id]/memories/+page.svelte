@@ -72,6 +72,26 @@
     </div>
   {/if}
 
+  <!-- System memories (agent chatbot system memories) -->
+  {#if data.systemMemories?.length}
+    <div>
+      <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">System memories <span class="ml-1 text-sm font-normal text-zinc-500">({data.systemMemories.length})</span></h2>
+      <p class="mb-3 text-sm text-zinc-500">Agent system memories contain chatbot conversations, stages, and prompts.</p>
+      <div class="space-y-3">
+        {#each data.systemMemories as g (g.id)}
+          <div class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+            <div class="flex-1 min-w-0">
+              <a href="/app/orgs/{org.id}/memories/{g.id}/browse" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{g.name}</a>
+              <span class="ml-2 rounded px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300">system</span>
+              <Urn value={g.urn} type="memory" size={10} />
+            </div>
+            <a href="/app/orgs/{org.id}/memories/{g.id}" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Edit</a>
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
   <!-- Subscribed memories from other orgs -->
   {#if org.subscriptions?.length}
     <div>

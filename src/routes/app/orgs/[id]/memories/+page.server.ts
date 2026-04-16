@@ -3,6 +3,7 @@ import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATION_QUERY,
+  ORG_SYSTEM_MEMORIES_QUERY,
   DELETE_MEMORY_MUTATION,
   SYNC_MEMORY_MUTATION,
   PUBLIC_MEMORIES_QUERY,
@@ -14,10 +15,14 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
-  const [orgData, publicData] = await Promise.all([
-    gqlClient(locals.token).request<{ organization: Organization }>(
+  const client = gqlClient(locals.token);
+  const [orgData, systemData, publicData] = await Promise.all([
+    client.request<{ organization: Organization }>(
       ORGANIZATION_QUERY, { id: params.id },
     ),
+    client.request<{ orgSystemMemories: Memory[] }>(
+      ORG_SYSTEM_MEMORIES_QUERY, { orgId: params.id },
+    ).catch(() => ({ orgSystemMemories: [] as Memory[] })),
     gqlClient().request<{ publicMemories: Memory[] }>(PUBLIC_MEMORIES_QUERY).catch(() => ({
       publicMemories: [] as Memory[],
     })),
@@ -28,7 +33,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const availableMemories = publicData.publicMemories.filter(
     (m) => !ownedIds.has(m.id) && !subscribedIds.has(m.id) && m.organizationId !== params.id,
   );
-  return { org: orgData.organization, availableMemories };
+  return {
+    org: orgData.organization,
+    systemMemories: systemData.orgSystemMemories,
+    availableMemories,
+  };
 };
 
 export const actions: Actions = {

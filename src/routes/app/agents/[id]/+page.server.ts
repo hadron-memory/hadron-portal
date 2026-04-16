@@ -2,6 +2,7 @@ import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
   MY_ORGANIZATIONS_QUERY,
+  ORG_SYSTEM_MEMORIES_QUERY,
   GRAPH_NODES_QUERY,
   UPDATE_AGENT_MUTATION,
   DELETE_AGENT_MUTATION,
@@ -10,7 +11,7 @@ import {
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
 } from '$lib/server/queries';
 import { requireNonConsumer } from '$lib/server/guards';
-import type { Organization, MemoryNode } from '$lib/types';
+import type { Organization, Memory, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 function extractGqlError(e: unknown, fallback: string): string {
@@ -42,22 +43,29 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   if (!agent || !org) throw error(404, 'Agent not found');
 
-  // Load nodes from all memories in this agent
+  // Load nodes from all memories + system memories for the org (in parallel)
   const memoryIds = (agent.memoryItems ?? []).map((m) => m.memory.id);
   let agentNodes: MemoryNode[] = [];
+  let orgSystemMemories: Memory[] = [];
 
-  if (memoryIds.length > 0) {
-    try {
-      const nodesData = await client.request<{ nodes: MemoryNode[] }>(GRAPH_NODES_QUERY, { limit: 500 });
-      // Enrich nodes with memory info from agent's memoryItems
-      const memoryMap = new Map((agent.memoryItems ?? []).map((m) => [m.memory.id, m.memory]));
-      agentNodes = nodesData.nodes
-        .filter((n) => memoryIds.includes(n.memoryId))
-        .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));
-    } catch { /* ignore */ }
+  const [nodesResult, sysMemResult] = await Promise.all([
+    memoryIds.length > 0
+      ? client.request<{ nodes: MemoryNode[] }>(GRAPH_NODES_QUERY, { limit: 500 }).catch(() => null)
+      : Promise.resolve(null),
+    client.request<{ orgSystemMemories: Memory[] }>(
+      ORG_SYSTEM_MEMORIES_QUERY, { orgId: org.id },
+    ).catch(() => ({ orgSystemMemories: [] as Memory[] })),
+  ]);
+
+  if (nodesResult) {
+    const memoryMap = new Map((agent.memoryItems ?? []).map((m) => [m.memory.id, m.memory]));
+    agentNodes = nodesResult.nodes
+      .filter((n) => memoryIds.includes(n.memoryId))
+      .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));
   }
+  orgSystemMemories = sysMemResult.orgSystemMemories;
 
-  return { agent, org, agentNodes, allOrgs: orgsData.myOrganizations };
+  return { agent, org, agentNodes, allOrgs: orgsData.myOrganizations, orgSystemMemories };
 };
 
 export const actions: Actions = {

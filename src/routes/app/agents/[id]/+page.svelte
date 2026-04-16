@@ -12,6 +12,7 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const agent = $derived(data.agent);
   const org = $derived(data.org);
+  const orgSystemMemories = $derived((data as any).orgSystemMemories ?? []);
   const writableMemoryIds = $derived((agent.memoryItems ?? []).filter((m) => m.role === 'read-write').map((m) => m.memory.id));
 
   // Agents with a system memory get the Chatbot Control tab. The chatbot
@@ -271,7 +272,7 @@
   const memoryIdsInAgent = $derived(new Set((agent.memoryItems ?? []).map((item) => item.memory.id)));
   const allMemories = $derived.by(() => {
     const seen = new Set<string>();
-    const result: Array<{ id: string; urn: string; name: string; visibility?: string; orgName?: string }> = [];
+    const result: Array<{ id: string; urn: string; name: string; visibility?: string; type?: string; orgName?: string }> = [];
     for (const o of (data as any).allOrgs ?? [org]) {
       for (const m of o.memories ?? []) {
         if (!seen.has(m.id)) {
@@ -284,6 +285,15 @@
           seen.add(s.memory.id);
           result.push({ ...s.memory, orgName: s.memory.organization?.name ?? o.name });
         }
+      }
+    }
+    // Include system memories fetched separately (they're excluded from
+    // org.memories but needed for the "Add memory" and system-memory
+    // selector dropdowns).
+    for (const m of orgSystemMemories) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        result.push({ ...m, orgName: org.name });
       }
     }
     return result;
@@ -559,6 +569,11 @@
                 <option value="">— None —</option>
                 {#each agent.memoryItems ?? [] as item}
                   <option value={item.memory.id} selected={agent.systemMemoryId === item.memory.id}>{item.memory.name} ({item.memory.urn})</option>
+                {/each}
+                {#each orgSystemMemories as sm}
+                  {#if !memoryIdsInAgent.has(sm.id)}
+                    <option value={sm.id}>{sm.name} ({sm.urn})</option>
+                  {/if}
                 {/each}
               </select>
               <p class="mt-1 text-xs text-zinc-400">Memory containing conversation designs, stages, and prompt templates.</p>

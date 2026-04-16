@@ -184,6 +184,29 @@ export const SEND_CONTACT_MESSAGE_MUTATION = /* GraphQL */ `
   }
 `;
 
+export const MEMORY_BY_ID_QUERY = /* GraphQL */ `
+  ${MEMORY_FIELDS}
+  query MemoryById($id: ID!) {
+    memory(id: $id) {
+      ...MemoryFields
+      subscriptions {
+        id
+        role
+        organization { id name urn }
+      }
+    }
+  }
+`;
+
+export const ORG_SYSTEM_MEMORIES_QUERY = /* GraphQL */ `
+  ${MEMORY_FIELDS}
+  query OrgSystemMemories($orgId: ID!) {
+    orgSystemMemories(orgId: $orgId) {
+      ...MemoryFields
+    }
+  }
+`;
+
 export const PUBLIC_MEMORIES_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
   query PublicMemories {
