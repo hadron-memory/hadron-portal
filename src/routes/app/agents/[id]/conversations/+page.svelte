@@ -10,21 +10,21 @@
   let newStageNames = $state<Record<string, string>>({});
   let editingPrompt = $state<string | null>(null);
   let editingSpec = $state<string | null>(null);
-  let promptContent = $state('');
-  let specContent = $state('');
+  let promptContents = $state<Record<string, string>>({});
+  let specContents = $state<Record<string, string>>({});
 
   function startEditPrompt(stageLoc: string) {
     const promptRef = getPromptRef(stageLoc);
     if (!promptRef) return;
     const prompt = data.prompts.find((p) => p.loc === promptRef);
-    promptContent = prompt?.content ?? '';
+    promptContents[promptRef] = prompt?.content ?? '';
     editingPrompt = promptRef;
   }
 
   function startEditSpec(stageLoc: string) {
     const stage = data.systemNodes.find((n) => n.loc === stageLoc);
     const stageData = (stage?.data as Record<string, unknown>) ?? {};
-    specContent = JSON.stringify(stageData.extractionSpec ?? [], null, 2);
+    specContents[stageLoc] = JSON.stringify(stageData.extractionSpec ?? [], null, 2);
     editingSpec = stageLoc;
   }
 
@@ -129,10 +129,11 @@
 
             <!-- Prompt editor (inline) -->
             {#if editingPrompt === getPromptRef(stageLoc)}
+              {@const pRef = getPromptRef(stageLoc)!}
               <form method="POST" action="?/updatePrompt" use:enhance={() => { return async ({ update }) => { editingPrompt = null; await update(); }; }} class="mt-3 pl-7">
                 <input type="hidden" name="systemMemoryId" value={data.systemMemoryId} />
-                <input type="hidden" name="loc" value={editingPrompt} />
-                <textarea name="content" bind:value={promptContent} rows="10" class="{inputClass} font-mono text-xs"></textarea>
+                <input type="hidden" name="loc" value={pRef} />
+                <textarea name="content" bind:value={promptContents[pRef]} rows="10" class="{inputClass} font-mono text-xs"></textarea>
                 <p class="mt-1 text-[10px] text-zinc-400">Supports Mustache: {'{{var}}'}, {'{{node.field}}'}, {'{{> partial}}'}, {'{{#flag}}...{{/flag}}'}</p>
                 <div class="mt-2 flex gap-2">
                   <button type="submit" class="rounded px-3 py-1.5 text-xs font-medium text-white" style="background: #fb8500;">Save Prompt</button>
@@ -146,7 +147,7 @@
               <form method="POST" action="?/updateExtractionSpec" use:enhance={() => { return async ({ update }) => { editingSpec = null; await update(); }; }} class="mt-3 pl-7">
                 <input type="hidden" name="systemMemoryId" value={data.systemMemoryId} />
                 <input type="hidden" name="stageLoc" value={stageLoc} />
-                <textarea name="extractionSpec" bind:value={specContent} rows="8" class="{inputClass} font-mono text-xs"></textarea>
+                <textarea name="extractionSpec" bind:value={specContents[stageLoc]} rows="8" class="{inputClass} font-mono text-xs"></textarea>
                 <p class="mt-1 text-[10px] text-zinc-400">JSON array: [{'{ "field": "memory.name", "description": "User name", "shape": "string" }'}]</p>
                 <div class="mt-2 flex gap-2">
                   <button type="submit" class="rounded px-3 py-1.5 text-xs font-medium text-white" style="background: #fb8500;">Save Extraction</button>
@@ -202,14 +203,14 @@
           <div class="rounded border border-zinc-200 px-3 py-2 dark:border-zinc-800">
             <div class="flex items-center justify-between">
               <span class="font-mono text-xs text-zinc-600 dark:text-zinc-400">{partial.loc}</span>
-              <button onclick={() => { editingPrompt = partial.loc; promptContent = partial.content ?? ''; }}
+              <button onclick={() => { promptContents[partial.loc] = partial.content ?? ''; editingPrompt = partial.loc; }}
                 class="text-xs text-indigo-500 hover:underline">Edit</button>
             </div>
             {#if editingPrompt === partial.loc}
               <form method="POST" action="?/updatePrompt" use:enhance={() => { return async ({ update }) => { editingPrompt = null; await update(); }; }} class="mt-2">
                 <input type="hidden" name="systemMemoryId" value={data.systemMemoryId} />
                 <input type="hidden" name="loc" value={partial.loc} />
-                <textarea name="content" bind:value={promptContent} rows="5" class="{inputClass} font-mono text-xs"></textarea>
+                <textarea name="content" bind:value={promptContents[partial.loc]} rows="5" class="{inputClass} font-mono text-xs"></textarea>
                 <div class="mt-2 flex gap-2">
                   <button type="submit" class="rounded px-3 py-1.5 text-xs font-medium text-white" style="background: #fb8500;">Save</button>
                   <button type="button" onclick={() => editingPrompt = null} class="text-xs text-zinc-500">Cancel</button>
