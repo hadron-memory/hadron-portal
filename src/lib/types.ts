@@ -54,6 +54,7 @@ export interface Agent {
   aiProvider?: string | null;
   aiModel?: string | null;
   hasAiApiKey?: boolean;
+  aiApiKeyPreview?: string | null;
   properties: Record<string, unknown> | null;
   memoryItems: AgentMemoryItem[];
   createdAt: string;

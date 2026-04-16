@@ -11,13 +11,13 @@ import type { RequestHandler } from './$types';
 /**
  * POST /api/agent-chat/ai-config
  *
- * Body (action: 'save'):   { agentId, provider, model, apiKey }
+ * Body (action: 'save'):   { agentId, provider, model, apiKey? }
+ *   apiKey is optional when a key already exists (update provider/model only).
  * Body (action: 'clear'):  { agentId }
- * Body (action: 'test'):   { agentId }
- *
- * The 'test' action fetches the decrypted config via GraphQL and makes a
- * tiny "hello" completion to verify the key works, then returns a
- * success/failure message to the frontend.
+ * Body (action: 'test'):   { agentId, provider?, model?, apiKey? }
+ *   When provider/model/apiKey are given inline, test uses those values
+ *   directly instead of fetching the saved config. This lets the user test
+ *   before saving.
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
@@ -46,9 +46,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   try {
     if (body.action === 'save') {
-      if (!body.provider || !body.model || !body.apiKey) {
+      if (!body.provider || !body.model) {
         return new Response(
-          JSON.stringify({ error: 'provider, model, and apiKey are required' }),
+          JSON.stringify({ error: 'provider and model are required' }),
           { status: 400, headers: { 'Content-Type': 'application/json' } },
         );
       }
@@ -56,7 +56,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         agentId: body.agentId,
         provider: body.provider,
         model: body.model,
-        apiKey: body.apiKey,
+        apiKey: body.apiKey || null,  // null = keep existing key
       });
       return new Response(JSON.stringify({ ok: true }), {
         status: 200,
@@ -73,18 +73,34 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
 
     if (body.action === 'test') {
-      // Round-trip a tiny "hello" via the configured provider. The user
-      // sees "✓ Works" or the provider's error message.
-      const result = await client.request<{
-        agentAIConfig: { provider: string; apiKey: string; model: string } | null;
-      }>(AGENT_AI_CONFIG_QUERY, { agentId: body.agentId });
-      if (!result.agentAIConfig) {
-        return new Response(
-          JSON.stringify({ ok: false, error: 'No AI config saved yet' }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        );
+      // If the caller provides provider/model/apiKey inline, test with
+      // those values directly (enables "test before save"). Otherwise
+      // fall back to the saved config.
+      let provider: string;
+      let apiKey: string;
+      let model: string;
+
+      if (body.provider && body.model && body.apiKey) {
+        provider = body.provider;
+        model = body.model;
+        apiKey = body.apiKey;
+      } else {
+        const result = await client.request<{
+          agentAIConfig: { provider: string; apiKey: string; model: string } | null;
+        }>(AGENT_AI_CONFIG_QUERY, { agentId: body.agentId });
+        if (!result.agentAIConfig) {
+          return new Response(
+            JSON.stringify({ ok: false, error: 'No AI config saved yet' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        // If the caller overrode provider/model in the form but didn't
+        // enter a new key, merge form values with the saved key.
+        provider = body.provider || result.agentAIConfig.provider;
+        model = body.model || result.agentAIConfig.model;
+        apiKey = body.apiKey || result.agentAIConfig.apiKey;
       }
-      const { provider, apiKey, model } = result.agentAIConfig;
+
       try {
         const llmResult = await callAgentChatLlm({
           provider: provider as AIProvider,

@@ -168,8 +168,13 @@
   }
 
   async function saveAiConfig() {
-    if (!aiProviderInput || !aiModelInput.trim() || !aiApiKeyInput.trim()) {
-      aiConfigError = 'Provider, model, and API key are required.';
+    if (!aiProviderInput || !aiModelInput.trim()) {
+      aiConfigError = 'Provider and model are required.';
+      return;
+    }
+    // API key is required only on first save (no existing key)
+    if (!agent.hasAiApiKey && !aiApiKeyInput.trim()) {
+      aiConfigError = 'API key is required.';
       return;
     }
     aiConfigBusy = true;
@@ -184,7 +189,7 @@
           agentId: agent.id,
           provider: aiProviderInput,
           model: aiModelInput.trim(),
-          apiKey: aiApiKeyInput.trim(),
+          apiKey: aiApiKeyInput.trim() || undefined,
         }),
       });
       const body = await res.json();
@@ -199,14 +204,26 @@
   }
 
   async function testAiConfig() {
+    if (!aiProviderInput || !aiModelInput.trim()) {
+      aiConfigError = 'Provider and model are required to test.';
+      return;
+    }
     aiConfigBusy = true;
     aiConfigError = null;
     aiConfigTestResult = null;
     try {
+      // Pass the current form values so the user can test before saving.
+      // If no new key is entered, the backend merges with the saved key.
       const res = await fetch('/api/agent-chat/ai-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'test', agentId: agent.id }),
+        body: JSON.stringify({
+          action: 'test',
+          agentId: agent.id,
+          provider: aiProviderInput,
+          model: aiModelInput.trim(),
+          apiKey: aiApiKeyInput.trim() || undefined,
+        }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? 'Test failed');
@@ -750,9 +767,9 @@
                 class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
                 {aiConfigBusy ? 'Saving…' : 'Save'}
               </button>
-              <button type="button" onclick={testAiConfig} disabled={aiConfigBusy || !agent.hasAiApiKey}
+              <button type="button" onclick={testAiConfig} disabled={aiConfigBusy || (!agent.hasAiApiKey && !aiApiKeyInput.trim())}
                 class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 disabled:opacity-50"
-                title={agent.hasAiApiKey ? 'Round-trip a tiny hello through the configured provider' : 'Save a key first, then test'}>
+                title={(agent.hasAiApiKey || aiApiKeyInput.trim()) ? 'Round-trip a tiny hello through the configured provider' : 'Enter a key first, then test'}>
                 Test
               </button>
               {#if agent.hasAiApiKey}
@@ -783,6 +800,10 @@
               <div class="flex items-center justify-between px-5 py-3">
                 <span class="text-sm text-zinc-500">Model</span>
                 <span class="text-sm text-zinc-900 dark:text-white">{agent.aiModel}</span>
+              </div>
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">API key</span>
+                <span class="text-sm text-zinc-900 dark:text-white font-mono">{'*'.repeat(16)}{agent.aiApiKeyPreview ?? ''}</span>
               </div>
             {:else}
               <div class="px-5 py-3 text-xs text-zinc-500">

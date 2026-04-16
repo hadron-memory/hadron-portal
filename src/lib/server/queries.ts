@@ -108,6 +108,7 @@ export const AGENT_FIELDS = /* GraphQL */ `
     aiProvider
     aiModel
     hasAiApiKey
+    aiApiKeyPreview
     memoryItems {
       id
       role
@@ -694,8 +695,8 @@ export const AGENT_AI_CONFIG_QUERY = /* GraphQL */ `
 `;
 
 export const UPDATE_AGENT_AI_CONFIG_MUTATION = /* GraphQL */ `
-  mutation UpdateAgentAIConfig($agentId: ID!, $provider: String!, $apiKey: String!, $model: String!) {
-    updateAgentAIConfig(agentId: $agentId, provider: $provider, apiKey: $apiKey, model: $model) {
+  mutation UpdateAgentAIConfig($agentId: ID!, $provider: String!, $model: String!, $apiKey: String) {
+    updateAgentAIConfig(agentId: $agentId, provider: $provider, model: $model, apiKey: $apiKey) {
       id
       aiProvider
       aiModel
