@@ -1,276 +1,644 @@
 # Testing a Chatbot Agent in Claude Code
 
-This guide walks you through building and testing a Hadron chatbot agent
-(like Juno) from inside Claude Code using the Hadron MCP tools. If you're
-new to Hadron and Claude Code, read this top to bottom.
+A step-by-step guide that builds an agent, designs conversations, runs
+chats as test personas, and verifies results — all from Claude Code
+using the Hadron MCP tools. No LLM API key needed; Claude Code's own
+model plays the chatbot. Follow every step.
 
-## What this is for
+## What you will build
 
-You want to iterate quickly on a chatbot's conversation flow — editing
-prompts, adding stages, tweaking extraction specs — and see the effect
-immediately. The fastest way to do that is inside Claude Code, because
-Claude can both *edit* the chatbot's memory and *play* the chatbot when
-you want to test a flow.
+By the end of this test you will have:
 
-## Two kinds of "Claude" — don't confuse them
+- **1 agent** ("Sage") with a system memory and a knowledge memory.
+- **2 conversations**: `onboarding` (learn about the user) and
+  `strategy` (help with a business problem).
+- **3 stages per conversation**, each with an `extractionSpec` that
+  pulls structured data from the chat.
+- **2 personas** (Alex Chen and Maria Santos), each with their own
+  per-user memory.
+- **Chat transcripts** in memory with extracted data, stage transitions,
+  and message history — all verified via MCP tools.
 
-When we talk about Claude in this doc, we mean two very different things,
-and they do not do the same job. Mixing them up will make everything
-confusing.
+## How Claude Code testing works
 
-### 1. Claude Code — an AI *agent*
+Hadron's Chat API is designed for production apps that call an LLM.
+It returns a **compiled system prompt** and a **tool schema** for the
+`respond` tool (structured JSON: `message`, `data`, `next_stage`). The
+app calls the LLM, gets a response, and sends it back to Hadron.
 
-Claude Code is an application. It runs Claude-the-model inside a loop
-that has access to tools: reading files, running commands, calling MCP
-servers, and so on. It takes multiple turns, makes decisions, and
-orchestrates tool calls on your behalf.
+In Claude Code testing, **Claude Code plays all the roles**:
 
-When you type a request into Claude Code, the agent decides which tools
-to call and in what order. That includes Hadron MCP tools like
-`h-read-node` or `h-start-chat`. Claude Code is a general-purpose
-assistant with hands.
+1. It calls `h-start-chat` → gets the compiled prompt + tool schema.
+2. It reads the prompt and generates a response **as the chatbot**.
+3. It calls `h-process-chat-response` with the structured response.
+4. You type the next user message; Claude Code calls
+   `h-send-chat-message`, then repeats from step 2.
 
-### 2. Claude-the-model — just the LLM
+This is free (no external LLM calls) and fast (edit a prompt, test
+immediately).
 
-Underneath Claude Code (and every other AI app) is the model itself —
-accessible via the Anthropic API, AWS Bedrock, or Google Vertex. It
-takes a prompt, returns a response, and that's it. One request, one
-response. No tools unless you wire them up, no memory between calls, no
-loops.
-
-When a chatbot like Juno runs in production, **it is running on the raw
-model, not on an agent like Claude Code**. The production app (a mobile
-app, web chat, SMS bot) calls the Anthropic API directly. It sends a
-system prompt plus the conversation history, gets a structured response
-back, and processes it.
-
-### Why the distinction matters
-
-Hadron's Chat API is designed for production apps using the **raw
-model**. It returns:
-
-- a **compiled system prompt** (with all Mustache variables resolved)
-- a **tool schema** for the `respond` tool (so the model replies with
-  structured JSON: `message`, `data`, `next_stage`)
-
-The production app takes both of these, calls the LLM, and sends the
-response back to Hadron. Hadron then extracts data into the user memory
-and figures out the next stage.
-
-When you test from Claude Code, you're doing the same dance, but Claude
-Code *plays the role* of the production app. You ask it to call
-`h-start-chat`, read the returned prompt, pretend to be the chatbot,
-call `h-process-chat-response`, and so on. This is a test harness, not
-how real users will ever interact with it.
-
-> **Mental model:** the chatbot is the prompt + the data, not the model
-> running it. Any LLM (Claude, GPT-4, a Bedrock model) can be the
-> "engine." Hadron owns the *script*; the production app owns the
-> *engine*.
+> **Important**: All user data and chat history belong in Hadron memory
+> (stored automatically by the Chat API). Do NOT ask Claude Code to save
+> data to files, JSON, or anywhere else. The Chat API handles storage.
 
 ## Two ways to test
 
-**Claude Code + MCP tools** (this doc) — free. Claude Code plays the
-role of the production app: it calls `h-start-chat`, reads the compiled
-prompt, generates a response as the chatbot, and sends it back via
-`h-process-chat-response`. No LLM API key needed because Claude Code's
-own model does the generation. Best for iterating on conversation
-design, prompts, and extraction specs.
+| | Claude Code + MCP (this doc) | Portal Chat tab |
+|---|---|---|
+| **Cost** | Free (Claude Code's own model) | LLM API key costs per turn |
+| **Speed** | Edit + test in same session | Must reload Chat tab |
+| **Fidelity** | Claude Code model, not production model | Exact production model |
+| **Best for** | Iterating on prompts, stages, extraction | Final validation |
 
-**Portal Chat tab** — requires an LLM API key configured on the agent
-(Settings → LLM provider). The portal makes real API calls to the
-configured provider, so every turn costs money. Use it when you want to
-see how the chatbot behaves with the exact model and provider that
-production will use. See
-[portal-chat-testing.md](./portal-chat-testing.md) for the test
-checklist.
+## What you need
 
-## Prerequisites
+- A Hadron portal account at [hadronmemory.com](https://hadronmemory.com)
+  with **admin** access to an organization.
+- Claude Code installed and working.
+- A Hadron station with the MCP proxy connected (see Part 1 below).
 
-- Access to the Hadron portal ([hadronmemory.com](https://hadronmemory.com))
-- Access to the chatbot agent you want to test (e.g. Juno) — ask the
-  team which org it lives in
-- The agent must have **`mcp`** in its surfaces list (check agent
-  Settings → surfaces; chatbot agents default to `["api"]`, so you may
-  need to add `"mcp"`)
-- Claude Code installed and working on your laptop
-- `hadron-client` installed (the MCP proxy) — if unsure, ask
+You do NOT need an LLM API key for this test path.
 
-## Step 1 — Create a station for yourself
+---
 
-A **station** is how Claude Code authenticates to Hadron. Think of it as
-an API key attached to a named client.
+## Part 1 — Set up your station (Portal + local)
 
-1. Go to **Stations** → **+ New station**
-2. Name it something like `your-name laptop`
-3. Type: **Workstation**
-4. Role: **Contributor** (you need write access to edit the chatbot)
-5. Organization: the org that owns the chatbot
+A **station** is how Claude Code authenticates to Hadron.
 
-## Step 2 — Subscribe the station to the agent
+### 1.1 — Create a station
 
-On the station page → **Settings** tab → **Agents** → add the chatbot
+1. Go to **Stations** → **+ New station**.
+2. **Name**: `your-name laptop` (e.g. `raghvind laptop`).
+3. **Type**: Workstation.
+4. **Role**: Contributor (you need write access).
+5. **Organization**: the org where you'll create the agent.
+
+### 1.2 — Subscribe to the agent
+
+Skip this step for now — we haven't created the agent yet. Come back
+here after Part 2.
+
+On the station page → **Settings** tab → **Agents** → add the Sage
 agent with **Read/Write** subscription.
 
-Read/Write matters — you're going to edit the chatbot's system memory,
-so read-only won't cut it.
-
-## Step 3 — Download setup files and install them
+### 1.3 — Download and install setup files
 
 On the station page → **Client** tab:
 
-1. Enter a label like `juno-test`
-2. Select **Claude Code**
-3. Click **Download setup files (.zip)**
-4. Extract the zip into a new working directory (e.g.
-   `~/src/juno-testbed`)
+1. Enter a label like `sage-test`.
+2. Select **Claude Code**.
+3. Click **Download setup files (.zip)**.
+4. Extract the zip into a new working directory:
+   ```
+   mkdir ~/src/sage-testbed
+   cd ~/src/sage-testbed
+   unzip ~/Downloads/sage-test.zip
+   ```
 
-The zip contains `.mcp.json` and a `.hadron/` folder. Those tell
-Claude Code where to find the Hadron MCP server and which key to use.
-
-## Step 4 — Open the directory in Claude Code
+### 1.4 — Open Claude Code
 
 ```
-cd ~/src/juno-testbed
+cd ~/src/sage-testbed
 claude
 ```
 
-In Claude Code, type `/mcp`. You should see `hadron` listed as a
-connected MCP server, with a long list of tools starting with `h-`. If
-you don't, the station key isn't wired up — ask for help.
+Type `/mcp`. You should see `hadron` listed as a connected MCP server
+with tools starting with `h-`. If not, the station key isn't wired
+up — ask for help.
 
-## Step 5 — Explore the chatbot's memory
+**Checkpoint**: Run this in Claude Code:
 
-Before you touch anything, look around. Ask Claude Code:
+> List my memories using h-list-memories.
 
-> List the nodes under `conversations/` in the juno-system memory.
+You should see the memories accessible via your station. If the list is
+empty, your station subscription isn't set up yet (come back after
+Part 2, step 1.2).
 
-Claude Code will call `h-list-nodes` and show you what's there — the
-`setup` conversation, its `onboard` stage, any other stages you've
-built.
+---
 
-Then:
+## Part 2 — Create the agent (Portal)
 
-> Read the onboard stage's data and the prompt it references.
+1. Go to your org page → **Create Chatbot Agent**.
+2. Fill in:
+   - **Agent name**: `Sage`
+   - **Description**: `AI mentor for small business owners`
+   - **Visibility**: Private
+3. On the System Prompt step, enter:
+   ```
+   You are Sage, a warm and practical AI mentor for small business
+   owners. You ask clarifying questions before giving advice. You are
+   direct but encouraging. When you don't know something, say so.
+   ```
+4. On the Memories step:
+   - System memory: auto-named `Sage System` — leave as-is.
+   - Knowledge memory: keep checked. Auto-named `Sage Knowledge`.
+5. Review and create.
+6. On the agent detail page → **Settings** tab, check that **surfaces**
+   includes `mcp`. If it only shows `api`, add `mcp`.
 
-Claude Code will use `h-read-node` to pull up the stage node (which
-carries the `promptRef` and `extractionSpec` in its `data` field) and
-then read the prompt node. Use `raw: true` on the prompt read if you
-want to see the Mustache source instead of the compiled version.
+**Now go back to Step 1.2** and subscribe your station to the Sage
+agent with Read/Write access. Then return to Claude Code.
 
-## Step 6 — Edit the chatbot
+**Checkpoint**: In Claude Code, run:
 
-Now you can iterate. Examples:
+> List my memories.
 
-> Update the `prompts:setup:onboard` node so it also asks the user what
-> city they live in.
+You should now see `Sage System` and `Sage Knowledge`.
 
-Claude Code will call `h-update-node` with the new content. Verify by
-reading the node back.
+---
 
-> Add a new stage called `goals` under the setup conversation. It
-> should ask the user what their top business goal is and extract it as
-> `memory.topGoal`. Wire it up so onboard transitions to goals.
+## Part 3 — Design conversations (Claude Code)
 
-Claude Code will:
-1. Create the stage node with `h-add-node`, setting `data.promptRef`
-   and `data.extractionSpec`
-2. Create the corresponding prompt node under `prompts:setup:goals`
-3. Update the setup conversation's `data.stageOrder` to include the new
-   stage
+### 3.1 — Set the active memory
 
-After any edit, you can test the flow immediately (next step).
+> Set the active memory to Sage System.
 
-## Step 7 — Test the flow
+Claude Code will call `h-set-active-memory`. All subsequent node
+operations target this memory.
 
-Ask Claude Code to play the chatbot:
+### 3.2 — Verify the wizard scaffold
 
-> Start a chat with the Juno agent for a fake user named `test-user-1`.
-> Read the returned prompt, then respond the way Juno would — use the
-> `respond` tool shape with `message`, `data`, and `next_stage`.
-> Call `h-process-chat-response` with your response. Pause after that
-> so I can reply as the user.
+The wizard created a `setup` conversation with one `onboard` stage.
+Let's verify:
 
-What's happening under the hood:
+> List all nodes with prefix `conversations`.
 
-1. **`h-start-chat`** — you (the test harness) start a session for a
-   user. Hadron compiles the onboard prompt with any Mustache variables
-   already resolved and returns it along with the `respond` tool
-   schema.
-2. **Claude Code reads the prompt** and generates a response in the
-   shape the tool schema requires. In production, this is where a
-   separate LLM API call would happen — here, Claude Code's own model
-   does it directly.
-3. **`h-process-chat-response`** — you send the response back. Hadron
-   extracts any `data` into the user memory, decides whether to
-   transition stages, and hands you the next turn's prompt.
-4. You then play the user by calling **`h-send-chat-message`** with
-   their reply, which triggers steps 2–3 again.
+**Expected output** — 3 nodes:
+```
+conversations             (system)
+conversations:setup       (system) — data: { isSetup: true, stageOrder: ["onboard"] }
+conversations:setup:onboard  (system) — data: { promptRef: "prompts:setup:onboard", extractionSpec: [...] }
+```
 
-Keep going until you've walked through the conversation. Each turn,
-verify that the extraction worked by reading the user memory:
+> Read the node at prompts:setup:onboard with raw: true.
 
-> Read the `memory.name` node in the juno-user-data memory.
+You should see the onboard prompt text. This is the wizard's default —
+we'll add real conversations next.
 
-If the name you provided isn't there, something's wrong with the
-extraction spec or the prompt.
+### 3.3 — Create the `onboarding` conversation
 
-## Step 8 — Compare against production
+Copy-paste this entire block into Claude Code:
 
-After testing in Claude Code, remember: in production, a mobile app or
-web chat will do exactly the same dance, but the LLM will be a raw
-Anthropic/Bedrock API call. The app is responsible for:
+> Create the following nodes in the Sage System memory. Use h-add-node
+> for each. Every node has nodeType "system".
+>
+> **Node 1: conversations:onboarding**
+> - name: onboarding
+> - description: Learn about the user and their business
+> - data: { "isSetup": false, "stageOrder": ["welcome", "background", "goals"] }
+>
+> **Node 2: conversations:onboarding:welcome**
+> - name: welcome
+> - data:
+>   ```json
+>   {
+>     "promptRef": "prompts:onboarding:welcome",
+>     "extractionSpec": [
+>       { "field": "memory.name", "description": "The user's full name", "shape": "string" },
+>       { "field": "memory.location", "description": "City and state/country", "shape": "string" }
+>     ]
+>   }
+>   ```
+>
+> **Node 3: conversations:onboarding:background**
+> - name: background
+> - data:
+>   ```json
+>   {
+>     "promptRef": "prompts:onboarding:background",
+>     "extractionSpec": [
+>       { "field": "memory.business_type", "description": "What kind of business they run", "shape": "string" },
+>       { "field": "memory.business_age", "description": "How long they've been in business", "shape": "string" },
+>       { "field": "memory.team_size", "description": "Number of employees or solo", "shape": "string" }
+>     ]
+>   }
+>   ```
+>
+> **Node 4: conversations:onboarding:goals**
+> - name: goals
+> - data:
+>   ```json
+>   {
+>     "promptRef": "prompts:onboarding:goals",
+>     "extractionSpec": [
+>       { "field": "memory.top_goal", "description": "Their #1 business goal right now", "shape": "string" },
+>       { "field": "memory.biggest_challenge", "description": "The main obstacle to that goal", "shape": "string" }
+>     ]
+>   }
+>   ```
+>
+> **Node 5: prompts:onboarding** (parent)
+> - name: onboarding
+>
+> **Node 6: prompts:onboarding:welcome**
+> - name: welcome
+> - content: "Greet the user warmly. Ask for their name and where they're based. Respond using the 'respond' tool. Include any info they share in the data field."
+>
+> **Node 7: prompts:onboarding:background**
+> - name: background
+> - content: "You already know the user's name. Now ask about their business: what do they do, how long have they been at it, team size? Summarize what you've learned before moving on. When done, set next_stage to 'goals'. Respond using the 'respond' tool."
+>
+> **Node 8: prompts:onboarding:goals**
+> - name: goals
+> - content: "Ask the user what their #1 business goal is right now, and the biggest challenge standing in the way. Reflect back what you heard. When done, tell them you'll switch to strategy mode. Set next_stage to null (end of conversation). Respond using the 'respond' tool."
 
-- Calling `h-start-chat` once per session
-- Calling the LLM with the compiled prompt + tool schema
-- Parsing the tool-call response
-- Calling `h-process-chat-response` with it
-- Repeating with `h-send-chat-message` for each user reply
+**Checkpoint**: Verify the conversation was created correctly:
 
-If your chatbot works in Claude Code but breaks in production, suspect:
+> List all nodes with prefix conversations:onboarding.
 
-- **Model differences** — Claude Code uses Claude; production might use
-  a different model (e.g. Claude Haiku or a Bedrock model) that handles
-  the prompt differently
-- **Tool-call parsing** — the production app must correctly parse the
-  LLM's tool call into the shape `processChatResponse` expects
-- **Mustache variables** — if the prompt references data that doesn't
-  exist in the user memory, the variable renders empty. Test with both
-  a brand-new user and a returning user with populated data
+Expected — 4 nodes:
+```
+conversations:onboarding
+conversations:onboarding:welcome
+conversations:onboarding:background
+conversations:onboarding:goals
+```
 
-## Common pitfalls
+> Read the data of conversations:onboarding.
 
-**"The LLM doesn't follow my prompt."** — You are writing the prompt
-for the *raw model*, not for an agent. Don't assume it will figure out
-what you mean the way Claude Code does. Be explicit. If you want JSON
-structured like X, say so and show an example. Production models are
-less forgiving than an agent loop.
+Expected:
+```json
+{ "isSetup": false, "stageOrder": ["welcome", "background", "goals"] }
+```
 
-**"My edits don't show up in the test chat."** — The compiled prompt
-is built at `h-start-chat` time. Start a fresh chat after each edit to
-pick up the new content.
+> Read the data of conversations:onboarding:welcome.
 
-**"The extraction didn't save."** — Check three things: (1) the stage's
-`extractionSpec` in its `data` field, (2) the prompt actually instructs
-the LLM to include the data it should extract, and (3) the tool-call
-response actually included the expected fields. Use `h-read-node` on
-the chat session node to see exactly what was sent/received.
+Expected — should contain `promptRef` and `extractionSpec` with
+`memory.name` and `memory.location`.
 
-**"The MCP tools don't see my agent's memories."** — Check that the
-agent has `"mcp"` in its surfaces list. Chatbot agents created via the
-portal wizard default to `["api"]` only. Add `"mcp"` in the agent's
-Settings tab so the station can discover it.
+### 3.4 — Create the `strategy` conversation
 
-**"I broke the chatbot."** — Everything is versioned in the memory
-graph. `h-read-node` with `raw: true` shows the source. If you're
-really lost, ask a senior engineer to help you recover from git or
-revert via the portal.
+> Create these nodes in Sage System (all nodeType "system"):
+>
+> **conversations:strategy**
+> - name: strategy
+> - description: Help solve a specific business problem
+> - data: { "isSetup": false, "stageOrder": ["diagnose", "options", "action-plan"] }
+>
+> **conversations:strategy:diagnose**
+> - name: diagnose
+> - data:
+>   ```json
+>   {
+>     "promptRef": "prompts:strategy:diagnose",
+>     "extractionSpec": [
+>       { "field": "memory.current_problem", "description": "The specific problem being discussed", "shape": "string" },
+>       { "field": "memory.problem_severity", "description": "How urgent: low, medium, high", "shape": "string" }
+>     ]
+>   }
+>   ```
+>
+> **conversations:strategy:options**
+> - name: options
+> - data:
+>   ```json
+>   {
+>     "promptRef": "prompts:strategy:options",
+>     "extractionSpec": [
+>       { "field": "memory.options_discussed", "description": "Comma-separated list of options", "shape": "string" },
+>       { "field": "memory.preferred_option", "description": "Which option the user leaned toward", "shape": "string" }
+>     ]
+>   }
+>   ```
+>
+> **conversations:strategy:action-plan**
+> - name: action-plan
+> - data:
+>   ```json
+>   {
+>     "promptRef": "prompts:strategy:action-plan",
+>     "extractionSpec": [
+>       { "field": "memory.next_steps", "description": "Agreed next steps, semicolon-separated", "shape": "string" },
+>       { "field": "memory.timeline", "description": "When they'll start and any deadlines", "shape": "string" }
+>     ]
+>   }
+>   ```
+>
+> **prompts:strategy** (parent)
+> - name: strategy
+>
+> **prompts:strategy:diagnose**
+> - name: diagnose
+> - content: "Ask the user to describe a specific business problem. Probe: when did it start, what have they tried, how urgent? Respond using the 'respond' tool."
+>
+> **prompts:strategy:options**
+> - name: options
+> - content: "Based on the diagnosis, suggest 2-3 concrete options. For each, give a one-sentence pro and con. Ask which resonates most. When the user picks one, set next_stage to 'action-plan'. Respond using the 'respond' tool."
+>
+> **prompts:strategy:action-plan**
+> - name: action-plan
+> - content: "Turn the user's preferred option into 2-4 concrete next steps with a rough timeline. Confirm with the user. When agreed, set next_stage to null. Respond using the 'respond' tool."
+
+**Checkpoint**:
+
+> List all nodes with prefix conversations:strategy.
+
+Expected — 4 nodes. Verify `stageOrder` = `["diagnose", "options", "action-plan"]`.
+
+### 3.5 — Verify all prompts
+
+> List all nodes with prefix prompts.
+
+Expected (at minimum):
+```
+prompts
+prompts:setup
+prompts:setup:onboard
+prompts:onboarding
+prompts:onboarding:welcome
+prompts:onboarding:background
+prompts:onboarding:goals
+prompts:strategy
+prompts:strategy:diagnose
+prompts:strategy:options
+prompts:strategy:action-plan
+prompts:partials
+prompts:partials:metadata-spec
+```
+
+---
+
+## Part 4 — Run chats as test personas (Claude Code)
+
+Now we test the conversations by playing two different personas. Claude
+Code will play the chatbot (generate responses from the compiled
+prompt), and you will type the user's messages.
+
+### Key concepts before you start
+
+- **`h-start-chat`** starts a chat and returns the compiled prompt +
+  tool schema. Claude Code reads the prompt and generates the chatbot's
+  **welcome message**.
+- **`h-process-chat-response`** sends the chatbot's response back to
+  Hadron. Pass `message` (the chatbot's reply text), `data` (extracted
+  fields like `{ "memory.name": "Alex Chen" }`), and `next_stage`
+  (null to stay, or the next stage name).
+- **`h-send-chat-message`** sends the user's reply and returns an
+  updated prompt + message history for the next chatbot response.
+- The **chatbot's response** must always use the `respond` tool shape.
+  Claude Code should generate `message`, `data`, and `next_stage` —
+  not free-form text.
+- **All data goes to memory automatically**. Do NOT use `h-add-node`
+  or `h-update-node` to save user data. The Chat API handles it.
+
+### 4.1 — Persona 1: Alex Chen (onboarding → strategy)
+
+#### Start the onboarding chat
+
+> Start a chat with the Sage agent for a user called "alex-chen",
+> using the "onboarding" conversation. Use h-start-chat.
+>
+> Read the returned systemMessage and tools. Then generate a welcome
+> message as Sage would — use h-process-chat-response with:
+> - message: your welcome text
+> - data: {} (no data to extract yet)
+> - next_stage: null (stay in welcome stage)
+>
+> Show me the welcome message and pause.
+
+**Expected**: Claude Code calls `h-start-chat`, reads the welcome
+prompt, generates a warm greeting, and sends it via
+`h-process-chat-response`. You see the chatbot's welcome.
+
+**Write down the chat ID** returned by `h-start-chat` (e.g.
+`chats:20260417-abc12345-onboarding`). You'll need it later.
+
+#### Turn 1 — user introduces themselves
+
+> The user (Alex) says: "Hi! I'm Alex Chen, based in Portland, Oregon."
+>
+> Call h-send-chat-message with this message. Read the returned prompt
+> and message history. Generate Sage's response. Call
+> h-process-chat-response with:
+> - message: Sage's reply
+> - data: { "memory.name": "Alex Chen", "memory.location": "Portland, Oregon" }
+> - next_stage: "background" (transition to the next stage)
+>
+> Show me Sage's response and confirm the stage transition.
+
+**Expected**: `h-process-chat-response` returns
+`stageTransitioned: true`, `newStageName: "background"`.
+
+#### Turn 2 — business background
+
+> Alex says: "I run a specialty coffee shop. Been at it about 2 years.
+> Just me and two part-time baristas."
+>
+> Same flow: h-send-chat-message → generate response →
+> h-process-chat-response with:
+> - data: { "memory.business_type": "specialty coffee shop", "memory.business_age": "2 years", "memory.team_size": "3 (1 owner + 2 part-time)" }
+> - next_stage: "goals"
+
+**Expected**: Stage transitions to `goals`.
+
+#### Turn 3 — goals
+
+> Alex says: "My goal is to break even consistently. Biggest challenge
+> is foot traffic dropping 40% in winter."
+>
+> Process with:
+> - data: { "memory.top_goal": "break even consistently", "memory.biggest_challenge": "winter foot traffic drop" }
+> - next_stage: null (end of onboarding conversation)
+
+**Expected**: The onboarding conversation ends. Chat stays in `goals`
+stage with `next_stage: null`.
+
+#### Start the strategy chat
+
+> Start a NEW chat with Sage for user "alex-chen", conversation
+> "strategy". Generate the welcome, process it. Then:
+>
+> Alex says: "My winter foot traffic drops 40%. I've tried seasonal
+> drinks but it didn't help much."
+
+Continue through `diagnose` → `options` → `action-plan`:
+
+| Turn | Alex says | Extract | Transition to |
+|------|-----------|---------|---------------|
+| 1 | Winter foot traffic problem | `memory.current_problem`, `memory.problem_severity: "high"` | `options` |
+| 2 | Responds to Sage's options | `memory.options_discussed`, `memory.preferred_option` | `action-plan` |
+| 3 | Confirms the action plan | `memory.next_steps`, `memory.timeline` | null (end) |
+
+### 4.2 — Persona 2: Maria Santos (onboarding only)
+
+> Start a chat with Sage for user "maria-santos", conversation
+> "onboarding". Same flow as Alex.
+
+| Turn | Maria says | Extract |
+|------|-----------|---------|
+| Welcome | (Sage greets) | — |
+| 1 | "Hey, I'm Maria Santos, Austin, Texas." | `memory.name`, `memory.location` |
+| 2 | "Freelance graphic designer. 4 years, solo." | `memory.business_type`, `memory.business_age`, `memory.team_size` |
+| 3 | "Double revenue. Can't scale without help but hiring feels risky." | `memory.top_goal`, `memory.biggest_challenge` |
+
+### 4.3 — Partial data test
+
+> Start a chat with Sage for user "partial-test", conversation
+> "onboarding".
+
+- Give your name: "I'm Pat." → extract `memory.name: "Pat"`.
+- Refuse location: "I'd rather not say where I'm based." → extract
+  `memory.location: null` or omit it from data.
+- Give business type: "I sell handmade candles." → extract
+  `memory.business_type`.
+- Dodge team size: "It's complicated." → omit `memory.team_size`.
+
+This tests that extraction works with incomplete data.
+
+---
+
+## Part 5 — Verify results (Claude Code)
+
+### 5.1 — Verify chat transcripts
+
+> List all nodes with prefix "chats" in the user memory for alex-chen.
+
+You should see:
+- 2 chat nodes (one onboarding, one strategy).
+- Under each: a `messages` node with the full transcript.
+
+> Read the messages node for Alex's onboarding chat.
+
+Verify the message history contains all turns (user + assistant).
+
+### 5.2 — Verify extracted data
+
+> Read the data of Alex's onboarding chat node.
+
+Look for the extracted fields:
+```json
+{
+  "memory.name": "Alex Chen",
+  "memory.location": "Portland, Oregon",
+  "memory.business_type": "specialty coffee shop",
+  "memory.business_age": "2 years",
+  "memory.team_size": "3 (1 owner + 2 part-time)",
+  "memory.top_goal": "break even consistently",
+  "memory.biggest_challenge": "winter foot traffic drop"
+}
+```
+
+Do the same for Alex's strategy chat:
+```json
+{
+  "memory.current_problem": "winter foot traffic drop 40%",
+  "memory.problem_severity": "high",
+  "memory.options_discussed": "...",
+  "memory.preferred_option": "...",
+  "memory.next_steps": "...",
+  "memory.timeline": "..."
+}
+```
+
+And for Maria's onboarding chat — all 5 fields populated.
+
+For the partial-data chat — `memory.name` = "Pat",
+`memory.business_type` = "handmade candles", `memory.location` and
+`memory.team_size` absent or null.
+
+### 5.3 — Verify stage transitions
+
+For each chat, count the stage transitions:
+
+| Chat | Expected transitions |
+|------|---------------------|
+| Alex onboarding | welcome → background → goals (2 transitions) |
+| Alex strategy | diagnose → options → action-plan (2 transitions) |
+| Maria onboarding | welcome → background → goals (2 transitions) |
+| Partial test | welcome → background (1, may stop early) |
+
+---
+
+## Expected end state
+
+| Item | Count | How to verify |
+|------|-------|---------------|
+| Agent | 1 (Sage) | Portal agent detail page |
+| System memory | 1 (Sage System) | `h-list-memories` |
+| Knowledge memory | 1 (Sage Knowledge) | `h-list-memories` |
+| Conversations | 3 (setup + onboarding + strategy) | `h-list-nodes` prefix `conversations` — depth 1 |
+| Stages | 3 per real conversation (6 total) | `h-list-nodes` prefix `conversations:onboarding` etc. |
+| Prompts | 6+ (one per stage) | `h-list-nodes` prefix `prompts` |
+| Chats | 4+ (2 Alex, 1 Maria, 1 partial) | `h-list-nodes` prefix `chats` in user memories |
+| Per-user memories | 3 (alex-chen, maria-santos, partial-test) | Created by h-start-chat |
+| Extracted data | Varies per chat | `data` field on chat nodes |
+| Stage transitions | 2 per full conversation | `h-process-chat-response` return values |
+
+## Test report checklist
+
+- [ ] Station created and connected to Claude Code
+- [ ] Sage agent created with system + knowledge memory
+- [ ] `mcp` in agent surfaces
+- [ ] Station subscribed to Sage with Read/Write
+- [ ] `onboarding` conversation: 3 stages, correct stageOrder
+- [ ] `strategy` conversation: 3 stages, correct stageOrder
+- [ ] All 6 stage prompts created with correct content
+- [ ] All 6 stages have extractionSpec in data
+- [ ] Alex onboarding: 5 fields extracted, 2 stage transitions
+- [ ] Alex strategy: 6 fields extracted, 2 stage transitions
+- [ ] Maria onboarding: 5 fields extracted, 2 stage transitions
+- [ ] Partial test: present fields correct, absent fields null/missing
+- [ ] Chat transcripts intact (messages node under each chat)
+- [ ] Each persona has a separate per-user memory
+- [ ] Any bugs, unexpected behavior, or unclear steps noted
+
+## Troubleshooting
+
+**"h-list-memories shows nothing"** — Your station isn't subscribed to
+the agent, or the agent doesn't have `mcp` in surfaces.
+
+**"h-start-chat says agent has no system memory"** — The agent's
+`systemMemoryId` isn't set. Check agent Settings in the portal.
+
+**"h-start-chat says no non-setup conversation found"** — You haven't
+created the `onboarding` or `strategy` conversation yet, or they have
+`isSetup: true` in their data. Only the wizard's `setup` conversation
+should have `isSetup: true`.
+
+**Stage didn't transition** — `h-process-chat-response` only
+transitions if you pass a non-null `next_stage`. If you forgot it or
+passed null, the stage stays. Re-do the turn with the correct
+`next_stage` value.
+
+**Extraction data is missing** — Check two things: (1) the stage's
+`extractionSpec` in its data field must list the fields, (2) you must
+pass those fields in the `data` parameter of
+`h-process-chat-response`. The Chat API stores what you send — it
+doesn't infer data from the message text.
+
+**"The prompt didn't change after a stage transition"** — Call
+`h-send-chat-message` after the transition. That's what re-compiles the
+prompt for the new stage.
+
+**Claude Code generates weird responses** — Remember, Claude Code is
+playing the chatbot, not being a chatbot. If its responses don't match
+the persona, just tell it what to say. The point is testing the Chat
+API flow (extraction, transitions), not the quality of Claude's
+roleplay.
+
+## Data model reference
+
+Understanding where things live:
+
+| Concept | Where it's stored | How to inspect |
+|---------|-------------------|----------------|
+| Conversations, stages | System memory, nodes under `conversations:*` | `h-list-nodes` / `h-read-node` |
+| Prompts | System memory, nodes under `prompts:*` | `h-read-node` with `raw: true` |
+| Extraction specs | `data.extractionSpec` on stage nodes | `h-read-node` on the stage |
+| Chat sessions | Per-user memory, nodes under `chats:*` | `h-list-nodes` in user memory |
+| Message history | Per-user memory, under `chats:<id>:messages` | `h-read-node` |
+| Extracted user data | `data` field on chat/memory nodes | `h-read-node` |
+| Knowledge content | Knowledge memory, any structure | `h-list-nodes` / `h-read-node` |
+
+The `content` field is markdown text (prompts, descriptions). The
+`data` field is structured JSON (stage config, extracted facts). These
+are different things — don't mix them up.
 
 ## Related docs
 
-- [portal-chat-testing.md](./portal-chat-testing.md) — manual test
-  checklist for the portal Chat tab (requires an LLM API key)
-- [building-a-chatbot-agent.md](./building-a-chatbot-agent.md) — creating a
-  chatbot from scratch
-- [building-an-agent.md](./building-an-agent.md) — general Hadron agent
-  concepts
+- [chatbot-end-to-end-test.md](./chatbot-end-to-end-test.md) — same
+  test using the portal Chat tab (costs money, production fidelity)
+- [portal-chat-testing.md](./portal-chat-testing.md) — portal Chat tab
+  smoke test checklist
+- [building-a-chatbot-agent.md](./building-a-chatbot-agent.md) — creating
+  a chatbot from scratch
