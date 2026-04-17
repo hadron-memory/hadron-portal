@@ -26,19 +26,15 @@
   let knowledgeMemoryName = $state('');
   let knowledgeMemorySlug = $state('');
   let knowledgeSlugEdited = $state(false);
-  let userMemoryName = $state('');
-  let userMemorySlug = $state('');
-  let userSlugEdited = $state(false);
+  let knowledgeNameEdited = $state(false);
   let systemMemorySlug = $state('');
   let systemSlugEdited = $state(false);
 
-  // Auto-derive names and slugs
+  // Auto-derive names and slugs from the agent name as the user types.
   $effect(() => {
     if (!slugEdited) agentSlug = toSlug(agentName);
-    if (agentName && !knowledgeMemoryName) knowledgeMemoryName = `${agentName} Knowledge`;
-    if (agentName && !userMemoryName) userMemoryName = `${agentName} User Data`;
+    if (!knowledgeNameEdited && agentName) knowledgeMemoryName = `${agentName} Knowledge`;
     if (!knowledgeSlugEdited) knowledgeMemorySlug = toSlug(knowledgeMemoryName);
-    if (!userSlugEdited) userMemorySlug = toSlug(userMemoryName);
     if (!systemSlugEdited && agentName) systemMemorySlug = toSlug(`${agentName}-system`);
   });
 
@@ -49,7 +45,7 @@
   function canProceed(): boolean {
     if (step === 1) return agentName.trim().length > 0;
     if (step === 2) return true; // system prompt is optional
-    if (step === 3) return userMemoryName.trim().length > 0 && userMemorySlug.trim().length > 0 && systemMemorySlug.trim().length > 0 && (!includeKnowledge || (knowledgeMemoryName.trim().length > 0 && knowledgeMemorySlug.trim().length > 0));
+    if (step === 3) return systemMemorySlug.trim().length > 0 && (!includeKnowledge || (knowledgeMemoryName.trim().length > 0 && knowledgeMemorySlug.trim().length > 0));
     return true;
   }
 
@@ -102,8 +98,6 @@
     <input type="hidden" name="includeKnowledge" value={includeKnowledge ? 'true' : 'false'} />
     <input type="hidden" name="knowledgeMemoryName" value={knowledgeMemoryName} />
     <input type="hidden" name="knowledgeMemorySlug" value={knowledgeMemorySlug} />
-    <input type="hidden" name="userMemoryName" value={userMemoryName} />
-    <input type="hidden" name="userMemorySlug" value={userMemorySlug} />
     <input type="hidden" name="systemMemorySlug" value={systemMemorySlug} />
 
     <div class="rounded-2xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
@@ -184,32 +178,6 @@
             </div>
           </div>
 
-          <!-- User data memory (always created) -->
-          <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-            <div class="mb-2 flex items-center gap-2">
-              <span class="rounded px-1.5 py-0.5 text-xs font-medium" style="background: #ffb703; color: #023047;">User Data</span>
-              <span class="text-xs text-zinc-500">Read-write</span>
-            </div>
-            <div class="space-y-3">
-              <div>
-                <label for="userMemoryName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-                <input id="userMemoryName" type="text" required
-                  bind:value={userMemoryName} class={inputClass} />
-              </div>
-              <div>
-                <label for="userMemorySlug" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
-                <div class="flex items-stretch">
-                  <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
-                  <input id="userMemorySlug" type="text" required
-                    bind:value={userMemorySlug}
-                    oninput={() => { userSlugEdited = true; }}
-                    class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-                </div>
-              </div>
-              <p class="text-xs text-zinc-400">User profiles, chat history, and extracted facts. One per user or shared.</p>
-            </div>
-          </div>
-
           <!-- Knowledge memory (optional) -->
           <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950 {includeKnowledge ? '' : 'opacity-60'}">
             <div class="mb-2 flex items-center justify-between">
@@ -227,7 +195,9 @@
                 <div>
                   <label for="knowledgeMemoryName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
                   <input id="knowledgeMemoryName" type="text"
-                    bind:value={knowledgeMemoryName} class={inputClass} />
+                    bind:value={knowledgeMemoryName}
+                    oninput={() => { knowledgeNameEdited = true; }}
+                    class={inputClass} />
                 </div>
                 <div>
                   <label for="knowledgeMemorySlug" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
@@ -270,7 +240,6 @@
             <h3 class="font-medium text-zinc-900 dark:text-white">Memories</h3>
             <ul class="mt-2 space-y-1.5 text-zinc-600 dark:text-zinc-400">
               <li><span style="color: #219ebc;">●</span> {agentName} System <span class="font-mono text-xs text-zinc-400">({org.urn}:{systemMemorySlug})</span> <span class="text-xs text-zinc-400">system</span></li>
-              <li><span style="color: #ffb703;">●</span> {userMemoryName} <span class="font-mono text-xs text-zinc-400">({org.urn}:{userMemorySlug})</span> <span class="text-xs text-zinc-400">read-write</span></li>
               {#if includeKnowledge}
                 <li><span style="color: #8ecae6;">●</span> {knowledgeMemoryName} <span class="font-mono text-xs text-zinc-400">({org.urn}:{knowledgeMemorySlug})</span> <span class="text-xs text-zinc-400">read-only</span></li>
               {/if}

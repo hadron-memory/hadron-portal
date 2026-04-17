@@ -35,12 +35,9 @@ export const actions: Actions = {
     const includeKnowledge = String(fd.get('includeKnowledge') ?? '') === 'true';
     const knowledgeMemoryName = String(fd.get('knowledgeMemoryName') ?? '').trim();
     const knowledgeMemorySlug = String(fd.get('knowledgeMemorySlug') ?? '').trim();
-    const userMemoryName = String(fd.get('userMemoryName') ?? '').trim();
-    const userMemorySlug = String(fd.get('userMemorySlug') ?? '').trim();
     const systemMemorySlug = String(fd.get('systemMemorySlug') ?? '').trim();
 
     if (!agentName) return fail(400, { error: 'Agent name is required' });
-    if (!userMemoryName || !userMemorySlug) return fail(400, { error: 'User memory name and URN are required' });
     if (!systemMemorySlug) return fail(400, { error: 'System memory URN is required' });
     if (includeKnowledge && (!knowledgeMemoryName || !knowledgeMemorySlug)) {
       return fail(400, { error: 'Knowledge memory name and URN are required' });
@@ -67,19 +64,7 @@ export const actions: Actions = {
         id: systemMemoryId, name: systemDisplayName,
       });
 
-      // 2. Create the user memory (read-write for user data and chats)
-      const userResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
-        orgId: params.id,
-        name: userMemorySlug,
-        shortDescription: userMemoryName,
-        visibility,
-      });
-      const userMemoryId = userResult.createMemory.id;
-      await client.request(UPDATE_MEMORY_MUTATION, {
-        id: userMemoryId, name: userMemoryName,
-      });
-
-      // 3. Optionally create the knowledge memory (read-only domain content)
+      // 2. Optionally create the knowledge memory (read-only domain content)
       let knowledgeMemoryId: string | null = null;
       if (includeKnowledge) {
         const knowledgeResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
@@ -94,7 +79,7 @@ export const actions: Actions = {
         });
       }
 
-      // 4. Create the agent
+      // 3. Create the agent
       const agentResult = await client.request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
         orgId: params.id,
         name: agentSlug || agentName,
@@ -105,28 +90,24 @@ export const actions: Actions = {
       });
       const agentId = agentResult.createAgent.id;
 
-      // 5. Rename agent if displayName differs from slug
+      // 4. Rename agent if displayName differs from slug
       if (agentSlug && agentName !== agentSlug) {
         await client.request(UPDATE_AGENT_MUTATION, {
           id: agentId, name: agentName,
         }).catch(() => {});
       }
 
-      // 6. Add memories to the agent (all writable — chatbot is freshly created
-      // and likely to be iterated on; tighten roles later in settings).
-      // Note: the system memory is NOT added as a memory item here — it is
+      // 5. Add the knowledge memory to the agent if included.
+      // Note: the system memory is NOT added as a memory item — it is
       // linked exclusively via Agent.systemMemoryId (set on createAgent).
-      // AGENT_SYSTEM memories cannot be attached as memory items.
-      await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
-        agentId, memoryId: userMemoryId, role: 'read-write',
-      });
+      // Per-user memories are created on-demand by startChat.
       if (knowledgeMemoryId) {
         await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
           agentId, memoryId: knowledgeMemoryId, role: 'read-write',
         });
       }
 
-      // 7. Create initial conversation scaffold in system memory
+      // 6. Create initial conversation scaffold in system memory
       const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
 
       // conversations parent
