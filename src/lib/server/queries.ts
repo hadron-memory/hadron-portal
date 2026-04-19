@@ -800,6 +800,48 @@ export const DELETE_CHAT_MUTATION = /* GraphQL */ `
   }
 `;
 
+// ---------------------------------------------------------------------------
+// Revisions + editor lock
+// ---------------------------------------------------------------------------
+
+export const CREATE_REVISION_MUTATION = /* GraphQL */ `
+  mutation CreateRevision($agentId: ID!, $description: String) {
+    createRevision(agentId: $agentId, description: $description) {
+      revisionLoc label published createdAt
+    }
+  }
+`;
+
+export const PUBLISH_REVISION_MUTATION = /* GraphQL */ `
+  mutation PublishRevision($agentId: ID!, $revisionLoc: String!, $versionLabel: String) {
+    publishRevision(agentId: $agentId, revisionLoc: $revisionLoc, versionLabel: $versionLabel) {
+      revisionLoc label published createdAt
+    }
+  }
+`;
+
+export const RESTORE_REVISION_MUTATION = /* GraphQL */ `
+  mutation RestoreRevision($agentId: ID!, $revisionLoc: String!) {
+    restoreRevision(agentId: $agentId, revisionLoc: $revisionLoc) {
+      revisionLoc label published createdAt
+    }
+  }
+`;
+
+export const ACQUIRE_EDITOR_LOCK_MUTATION = /* GraphQL */ `
+  mutation AcquireEditorLock($agentId: ID!) {
+    acquireEditorLock(agentId: $agentId) {
+      locked lockedBy expiresAt
+    }
+  }
+`;
+
+export const RELEASE_EDITOR_LOCK_MUTATION = /* GraphQL */ `
+  mutation ReleaseEditorLock($agentId: ID!) {
+    releaseEditorLock(agentId: $agentId)
+  }
+`;
+
 export const STATION_NODES_QUERY = /* GraphQL */ `
   query StationNodes($stationId: ID!, $limit: Int) {
     stationNodes(stationId: $stationId, limit: $limit) {

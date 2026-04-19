@@ -31,6 +31,86 @@
   let promptContents = $state<Record<string, string>>({});
   let specContents = $state<Record<string, string>>({});
 
+  // ── Revisions + Lock ──
+  type Revision = { loc: string; label: string; description: string | null; published: boolean; revision: number; createdAt: string | null };
+  let revisions = $state<Revision[]>([]);
+  let revisionsLoading = $state(false);
+  let revisionsBusy = $state(false);
+  let revisionError = $state<string | null>(null);
+  let showRevisions = $state(false);
+  let publishLabel = $state('');
+
+  async function loadRevisions() {
+    revisionsLoading = true;
+    try {
+      const res = await fetch('/api/agent-chat/revisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list', agentId: agent.id }),
+      });
+      const body = await res.json();
+      revisions = body.revisions ?? [];
+    } catch { /* ignore */ }
+    revisionsLoading = false;
+  }
+
+  async function saveRevision() {
+    revisionsBusy = true;
+    revisionError = null;
+    try {
+      const res = await fetch('/api/agent-chat/revisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save', agentId: agent.id, description: `Manual save` }),
+      });
+      const body = await res.json();
+      if (body.error) throw new Error(body.error);
+      await loadRevisions();
+    } catch (e) {
+      revisionError = e instanceof Error ? e.message : 'Failed to save';
+    }
+    revisionsBusy = false;
+  }
+
+  async function publishRevision(revLoc: string) {
+    const label = publishLabel.trim() || undefined;
+    revisionsBusy = true;
+    revisionError = null;
+    try {
+      const res = await fetch('/api/agent-chat/revisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'publish', agentId: agent.id, revisionLoc: revLoc, versionLabel: label }),
+      });
+      const body = await res.json();
+      if (body.error) throw new Error(body.error);
+      publishLabel = '';
+      await loadRevisions();
+    } catch (e) {
+      revisionError = e instanceof Error ? e.message : 'Failed to publish';
+    }
+    revisionsBusy = false;
+  }
+
+  async function restoreRevision(revLoc: string) {
+    if (!confirm(`Restore to ${revLoc}? Current state will be auto-saved first.`)) return;
+    revisionsBusy = true;
+    revisionError = null;
+    try {
+      const res = await fetch('/api/agent-chat/revisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'restore', agentId: agent.id, revisionLoc: revLoc }),
+      });
+      const body = await res.json();
+      if (body.error) throw new Error(body.error);
+      window.location.reload();
+    } catch (e) {
+      revisionError = e instanceof Error ? e.message : 'Failed to restore';
+    }
+    revisionsBusy = false;
+  }
+
   function startEditPrompt(stageLoc: string) {
     const promptRef = getPromptRef(stageLoc);
     if (!promptRef) return;
@@ -78,6 +158,68 @@
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">Conversation Editor</h1>
     <p class="mt-1 text-sm text-zinc-500">Design conversation flows for {agent.name}</p>
   </div>
+
+  <!-- Revisions toolbar -->
+  <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900">
+    <button type="button" onclick={saveRevision} disabled={revisionsBusy}
+      class="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
+      Save revision
+    </button>
+    <button type="button" onclick={() => { showRevisions = !showRevisions; if (showRevisions && revisions.length === 0) loadRevisions(); }}
+      class="rounded-md border border-zinc-300 px-3 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+      {showRevisions ? 'Hide revisions' : 'Revisions'}
+    </button>
+    {#if revisionError}
+      <span class="text-xs text-red-500">{revisionError}</span>
+    {/if}
+  </div>
+
+  {#if showRevisions}
+    <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
+      <div class="border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">Revisions</h2>
+      </div>
+      {#if revisionsLoading}
+        <div class="px-5 py-4 text-sm text-zinc-400">Loading...</div>
+      {:else if revisions.length === 0}
+        <div class="px-5 py-4 text-sm text-zinc-400">No revisions yet. Click "Save revision" to create one.</div>
+      {:else}
+        <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
+          {#each revisions as rev}
+            <div class="flex items-center justify-between px-5 py-3">
+              <div class="min-w-0 flex-1">
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{rev.label}</span>
+                {#if rev.published}
+                  <span class="ml-2 rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">published</span>
+                {/if}
+                {#if rev.description}
+                  <span class="ml-2 text-xs text-zinc-400">{rev.description}</span>
+                {/if}
+                {#if rev.createdAt}
+                  <span class="ml-2 text-xs text-zinc-400">{new Date(rev.createdAt).toLocaleDateString()}</span>
+                {/if}
+              </div>
+              <div class="flex items-center gap-2">
+                {#if !rev.published}
+                  <div class="flex items-center gap-1">
+                    <input type="text" bind:value={publishLabel} placeholder="version label" class="w-24 rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-white" />
+                    <button type="button" onclick={() => publishRevision(rev.loc)} disabled={revisionsBusy}
+                      class="rounded bg-amber-500 px-2 py-1 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+                      Publish
+                    </button>
+                  </div>
+                {/if}
+                <button type="button" onclick={() => restoreRevision(rev.loc)} disabled={revisionsBusy}
+                  class="rounded border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 disabled:opacity-50">
+                  Restore
+                </button>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
