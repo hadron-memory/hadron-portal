@@ -1,10 +1,28 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import ConversationGraph from '$lib/components/ConversationGraph.svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const agent = $derived(data.agent);
+
+  let selectedGraphNodeId = $state<string | null>(null);
+  let showGraph = $state(true);
+
+  // Extract edges from outgoingEdges on system nodes for the graph
+  const graphEdges = $derived.by(() => {
+    const edges: Array<{ id: string; sourceId: string; targetId: string; label: string; data: Record<string, unknown> }> = [];
+    for (const n of data.systemNodes) {
+      const outgoing = (n as any).outgoingEdges as Array<{ id: string; label: string; target: { id: string; loc: string } }> | undefined;
+      if (outgoing) {
+        for (const e of outgoing) {
+          edges.push({ id: e.id, sourceId: n.id, targetId: e.target.id, label: e.label, data: {} });
+        }
+      }
+    }
+    return edges;
+  });
 
   let newConversationName = $state('');
   let newStageNames = $state<Record<string, string>>({});
@@ -65,6 +83,27 @@
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
 
+  <!-- Graph view toggle -->
+  <div class="flex items-center justify-between">
+    <button
+      type="button"
+      onclick={() => { showGraph = !showGraph; }}
+      class="text-sm text-indigo-600 hover:underline dark:text-indigo-400"
+    >
+      {showGraph ? 'Hide graph' : 'Show graph'}
+    </button>
+  </div>
+
+  {#if showGraph}
+    <section class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <ConversationGraph
+        nodes={data.systemNodes}
+        edges={graphEdges}
+        bind:selectedNodeId={selectedGraphNodeId}
+      />
+    </section>
+  {/if}
+
   <!-- Conversations -->
   {#each data.conversations as conv}
     <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden">
@@ -79,6 +118,31 @@
         </div>
         <div class="text-xs text-zinc-500">{conv.stages.length} stage{conv.stages.length !== 1 ? 's' : ''}</div>
       </div>
+
+      <!-- Goals -->
+      {#if !conv.data.isSetup && !conv.data.isFallback}
+        {@const goals = Array.isArray(conv.data.goalDescriptions) ? conv.data.goalDescriptions : []}
+        {@const signals = Array.isArray(conv.data.goalSignals) ? conv.data.goalSignals : []}
+        <div class="border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-zinc-500">Goals & Signals</span>
+          </div>
+          {#if goals.length || signals.length}
+            {#if goals.length}
+              <ul class="mt-1 space-y-0.5">
+                {#each goals as goal}
+                  <li class="text-xs text-zinc-600 dark:text-zinc-400">- {goal}</li>
+                {/each}
+              </ul>
+            {/if}
+            {#if signals.length}
+              <p class="mt-1 text-xs text-zinc-400">Signals: {signals.join(', ')}</p>
+            {/if}
+          {:else}
+            <p class="mt-1 text-xs text-zinc-400">No goals defined. Add goals to enable routing.</p>
+          {/if}
+        </div>
+      {/if}
 
       <!-- Stages -->
       <div class="divide-y divide-zinc-100 dark:divide-zinc-800">

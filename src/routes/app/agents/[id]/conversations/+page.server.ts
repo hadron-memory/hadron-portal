@@ -166,4 +166,37 @@ export const actions: Actions = {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
     }
   },
+
+  updateGoals: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const client = gqlClient(locals.token);
+    const systemMemoryId = String(fd.get('systemMemoryId') ?? '');
+    const convLoc = String(fd.get('convLoc') ?? '');
+    const goalsJson = String(fd.get('goalDescriptions') ?? '[]');
+    const signalsJson = String(fd.get('goalSignals') ?? '[]');
+
+    let goalDescriptions: string[];
+    let goalSignals: string[];
+    try {
+      goalDescriptions = JSON.parse(goalsJson);
+      goalSignals = JSON.parse(signalsJson);
+    } catch {
+      return fail(400, { error: 'Invalid JSON' });
+    }
+
+    const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
+    try {
+      const convNode = await client.request<{ node: { data: unknown } | null }>(
+        `query N($loc: String!) { node(loc: $loc) { data } }`,
+        { loc: convLoc },
+      );
+      const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
+      await client.request(UPSERT, { input: {
+        memoryId: systemMemoryId, loc: convLoc, name: convLoc.split(':').pop()!,
+        nodeType: 'system', data: { ...convData, goalDescriptions, goalSignals },
+      }});
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
+    }
+  },
 };
