@@ -449,6 +449,25 @@
                 {#if conv.description}
                   <p class="mt-1 text-sm text-zinc-500">{conv.description}</p>
                 {/if}
+                {@const convData = (conv.data as Record<string, unknown>) ?? {}}
+                {@const goals = Array.isArray(convData.goalDescriptions) ? convData.goalDescriptions : []}
+                {@const signals = Array.isArray(convData.goalSignals) ? convData.goalSignals : []}
+                {#if goals.length}
+                  <div class="mt-2">
+                    <span class="text-xs font-medium text-zinc-500">Goals:</span>
+                    <ul class="mt-1 space-y-0.5">
+                      {#each goals as goal}
+                        <li class="text-xs text-zinc-600 dark:text-zinc-400">- {goal}</li>
+                      {/each}
+                    </ul>
+                  </div>
+                {/if}
+                {#if signals.length}
+                  <div class="mt-1">
+                    <span class="text-xs font-medium text-zinc-500">Signals:</span>
+                    <span class="text-xs text-zinc-400">{signals.join(', ')}</span>
+                  </div>
+                {/if}
               {/if}
             </div>
 
