@@ -634,8 +634,34 @@ The `content` field is markdown text (prompts, descriptions). The
 `data` field is structured JSON (stage config, extracted facts). These
 are different things — don't mix them up.
 
+## Automated testing with personas
+
+Once you've built and tested your chatbot manually, automate it with
+**test personas**. Define a persona once, run it repeatedly — free in
+Claude Code, or with the real LLM via the portal API.
+
+See [test-personas.md](./test-personas.md) for the full guide.
+
+Quick start:
+
+```
+> Define a test persona for [agent-id]:
+>   Name: Alex Chen
+>   Description: Coffee shop owner in Portland, 2 years in
+>   Opening: "Hi, I'm Alex Chen from Portland"
+>   Follow-ups: ["I run a coffee shop, 2 years, 3 people",
+>                "Goal: break even. Challenge: winter foot traffic"]
+>   Expected conversations: ["onboarding"]
+
+> Run the Alex Chen persona test.
+```
+
 ## Related docs
 
+- [test-personas.md](./test-personas.md) — automated testing with
+  predefined personas (free dry-run + paid live test)
+- [conversation-routing.md](./conversation-routing.md) — how topics,
+  goals, edges, and the routing engine work
 - [chatbot-end-to-end-test.md](./chatbot-end-to-end-test.md) — same
   test using the portal Chat tab (costs money, production fidelity)
 - [portal-chat-testing.md](./portal-chat-testing.md) — portal Chat tab

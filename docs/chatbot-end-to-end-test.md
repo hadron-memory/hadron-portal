@@ -389,8 +389,23 @@ and key, then click Test without saving first.
 surfaces list. Chatbot agents default to `["api"]` only. Add `"mcp"`
 in Settings.
 
+## Automated testing with personas
+
+After running through this manual test, consider automating it with
+**test personas**. Define the Alex Chen and Maria Santos personas
+once, then re-run them automatically whenever you change the chatbot.
+
+See [test-personas.md](./test-personas.md) for the full guide. The
+"live test" mode (`POST /api/agent-chat/test-persona`) runs all turns
+using the agent's real LLM and produces a pass/fail report — same
+fidelity as this manual test, but automatic.
+
 ## Related docs
 
+- [test-personas.md](./test-personas.md) — automated testing with
+  predefined personas (free dry-run + paid live test)
+- [conversation-routing.md](./conversation-routing.md) — how topics,
+  goals, edges, and the routing engine work
 - [testing-a-chatbot-in-claude-code.md](./testing-a-chatbot-in-claude-code.md) —
   the Claude Code + MCP testing workflow (editing + testing in one loop)
 - [portal-chat-testing.md](./portal-chat-testing.md) — portal Chat tab
