@@ -166,10 +166,16 @@
 
       if (body.stageTransitioned && body.newStageName && activeChatMeta) {
         const from = activeChatMeta.stageName ?? '';
+        const toLabel = body.conversationHandoff
+          ? `${body.conversationHandoff}/${body.newStageName}`
+          : body.newStageName;
         activeChatMeta = { ...activeChatMeta, stageName: body.newStageName };
-        stageToast = { from, to: body.newStageName };
+        if (body.conversationHandoff) {
+          activeChatMeta = { ...activeChatMeta, conversationName: body.conversationHandoff };
+        }
+        stageToast = { from, to: toLabel };
         setTimeout(() => {
-          if (stageToast?.from === from && stageToast?.to === body.newStageName) {
+          if (stageToast?.from === from && stageToast?.to === toLabel) {
             stageToast = null;
           }
         }, 4000);

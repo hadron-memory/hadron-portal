@@ -13,7 +13,10 @@ export interface ChatTurnResult {
   assistantMessage: string;
   stageTransitioned: boolean;
   newStageName: string | null;
+  conversationHandoff: string | null;
   chatEnded: boolean;
+  onTrack: boolean;
+  offTrackReason: string | null;
   usage?: { inputTokens?: number; outputTokens?: number };
 }
 
@@ -112,6 +115,8 @@ export async function runChatTurn(args: {
       newStageName: string | null;
       conversationHandoff: string | null;
       chatEnded: boolean;
+      onTrack: boolean;
+      offTrackReason: string | null;
     };
   }>(PROCESS_CHAT_RESPONSE_MUTATION, {
     chatId,
@@ -148,7 +153,10 @@ export async function runChatTurn(args: {
     assistantMessage: processed.processChatResponse.displayMessage,
     stageTransitioned: processed.processChatResponse.stageTransitioned,
     newStageName: processed.processChatResponse.newStageName,
+    conversationHandoff: processed.processChatResponse.conversationHandoff,
     chatEnded: processed.processChatResponse.chatEnded,
+    onTrack: processed.processChatResponse.onTrack,
+    offTrackReason: processed.processChatResponse.offTrackReason,
     usage: llmResult.usage,
   };
 }
