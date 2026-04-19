@@ -196,7 +196,10 @@ describe('POST /api/agent-chat/turn', () => {
       assistantMessage: 'The capital of France is Paris.',
       stageTransitioned: true,
       newStageName: 'facts',
+      conversationHandoff: null,
       chatEnded: false,
+      onTrack: true,
+      offTrackReason: null,
       usage: { inputTokens: 42, outputTokens: 13 },
     };
     mockRunChatTurn.mockResolvedValueOnce(turn);
@@ -220,6 +223,29 @@ describe('POST /api/agent-chat/turn', () => {
     const res = await POST(ev({ body: { agentId: 'a', chatId: 'c', userMessage: 'x' } }));
     expect(res.status).toBe(500);
     expect((await jsonOf(res)).error).toBe('provider timeout');
+  });
+
+  it('includes conversationHandoff and onTrack in the response', async () => {
+    const turn = {
+      assistantMessage: 'Switching to strategy mode.',
+      stageTransitioned: true,
+      newStageName: 'diagnose',
+      conversationHandoff: 'strategy',
+      chatEnded: false,
+      onTrack: false,
+      offTrackReason: 'User wants strategy, not onboarding',
+      usage: { inputTokens: 50, outputTokens: 20 },
+    };
+    mockRunChatTurn.mockResolvedValueOnce(turn);
+    const { POST } = await import('./turn/+server');
+    const res = await POST(
+      ev({ body: { agentId: 'a1', chatId: 'c1', userMessage: 'help with strategy' } }),
+    );
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.conversationHandoff).toBe('strategy');
+    expect(body.onTrack).toBe(false);
+    expect(body.offTrackReason).toBe('User wants strategy, not onboarding');
   });
 });
 
