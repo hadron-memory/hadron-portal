@@ -776,6 +776,8 @@ export const PROCESS_CHAT_RESPONSE_MUTATION = /* GraphQL */ `
       newStageName
       conversationHandoff
       chatEnded
+      onTrack
+      offTrackReason
     }
   }
 `;

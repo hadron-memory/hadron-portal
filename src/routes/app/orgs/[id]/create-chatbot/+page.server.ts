@@ -159,7 +159,29 @@ export const actions: Actions = {
 
       await client.request(UPSERT, { input: {
         memoryId: systemMemoryId, loc: 'prompts:partials:metadata-spec', name: 'metadata-spec', nodeType: 'system',
-        content: "Always respond using the 'respond' tool. Include:\n- message: your response to the user\n- data: any new information you learned\n- next_stage: null to stay, or the next stage name to transition",
+        content: "Always respond using the 'respond' tool. Include:\n- message: your response to the user\n- data: any new information you learned\n- next_stage: null to stay, or the next stage name to transition\n- onTrack: true if the conversation is still on track, false if the user's question doesn't fit this stage",
+      }});
+
+      // fallback conversation — used when routing can't match any conversation
+      await client.request(UPSERT, { input: {
+        memoryId: systemMemoryId, loc: 'conversations:fallback', name: 'fallback', nodeType: 'system',
+        description: 'Fallback when no conversation matches the user\'s request',
+        data: {
+          isFallback: true,
+          stageOrder: ['no-match'],
+          goalDescriptions: ['The user is asking about something this agent cannot help with'],
+        },
+      }});
+      await client.request(UPSERT, { input: {
+        memoryId: systemMemoryId, loc: 'conversations:fallback:no-match', name: 'no-match', nodeType: 'system',
+        data: { promptRef: 'prompts:fallback:no-match' },
+      }});
+      await client.request(UPSERT, { input: {
+        memoryId: systemMemoryId, loc: 'prompts:fallback', name: 'fallback', nodeType: 'system',
+      }});
+      await client.request(UPSERT, { input: {
+        memoryId: systemMemoryId, loc: 'prompts:fallback:no-match', name: 'no-match', nodeType: 'system',
+        content: `You are ${agentName}. The user asked about something outside your current capabilities.\n\nApologize honestly and briefly explain what you can help with. If appropriate, suggest they try rephrasing their question or offer to connect them with a person who can help.\n\nRespond using the 'respond' tool. Set onTrack to true.`,
       }});
 
       // Redirect to the agent detail page
