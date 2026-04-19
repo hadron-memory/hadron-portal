@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ConversationGraph from '$lib/components/ConversationGraph.svelte';
+  import ElementSelector from '$lib/components/ElementSelector.svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -158,6 +159,44 @@
       releaseLock();
     };
   });
+
+  // ── Edge editor state ──
+  let addingEdgeFrom = $state<string | null>(null);  // node ID we're adding an edge FROM
+  let edgeSelectorOpen = $state(false);
+  let newEdgeLabel = $state('');
+  let newEdgeTiming = $state('on_complete');
+  let newEdgeBehavior = $state('transition');
+  let newEdgeConditionField = $state('');
+  let newEdgeConditionOp = $state('missing');
+
+  // Build the list of selectable target nodes for the ElementSelector
+  const selectableNodes = $derived(
+    data.systemNodes
+      .filter((n) => n.loc.startsWith('conversations:') && n.loc.split(':').length <= 3)
+      .map((n) => ({
+        id: n.id,
+        name: n.name,
+        loc: n.loc,
+        type: n.loc.split(':').length === 2 ? 'conversation' : 'stage',
+        description: n.description,
+      })),
+  );
+
+  // Get outgoing edges for a given node
+  function edgesFrom(nodeId: string): Array<{ id: string; label: string; targetLoc: string; data: Record<string, unknown> }> {
+    const node = data.systemNodes.find((n) => n.id === nodeId);
+    if (!node) return [];
+    const outgoing = (node as any).outgoingEdges as Array<{ id: string; label: string; target: { id: string; loc: string; name: string }; data?: Record<string, unknown> }> | undefined;
+    if (!outgoing) return [];
+    return outgoing.map((e) => ({ id: e.id, label: e.label, targetLoc: e.target.loc, data: (e as any).data ?? {} }));
+  }
+
+  function applyEdgePreset(preset: string) {
+    if (preset === 'next') { newEdgeTiming = 'on_complete'; newEdgeBehavior = 'transition'; newEdgeConditionField = ''; }
+    if (preset === 'prerequisite') { newEdgeTiming = 'on_enter'; newEdgeBehavior = 'detour'; newEdgeConditionOp = 'missing'; }
+    if (preset === 'escape') { newEdgeTiming = 'always'; newEdgeBehavior = 'transition'; newEdgeConditionField = ''; }
+    if (preset === 'fallback') { newEdgeTiming = 'always'; newEdgeBehavior = 'transition'; newEdgeConditionField = ''; }
+  }
 
   function startEditPrompt(stageLoc: string) {
     const promptRef = getPromptRef(stageLoc);
@@ -353,6 +392,7 @@
       <div class="divide-y divide-zinc-100 dark:divide-zinc-800">
         {#each conv.stages as stage, idx}
           {@const stageLoc = stage.loc}
+          {@const stageEdges = edgesFrom(stage.id)}
           {@const spec = getExtractionSpec(stageLoc)}
           {@const prompt = getPromptContent(stageLoc)}
           <div class="px-5 py-4">
@@ -411,7 +451,103 @@
               </form>
             {/if}
 
-            <!-- Extraction spec editor (inline) -->
+            <!-- Outgoing edges -->
+            {#if stageEdges.length > 0 || addingEdgeFrom === stage.id}
+              <div class="mt-2 pl-7">
+                <span class="text-[10px] font-medium uppercase tracking-wider text-zinc-400">Edges</span>
+                {#each stageEdges as edge}
+                  <div class="mt-1 flex items-center gap-2 text-xs">
+                    <span class="text-zinc-500">&rarr;</span>
+                    <span class="text-zinc-700 dark:text-zinc-300">{edge.targetLoc}</span>
+                    <span class="text-zinc-400">({edge.label})</span>
+                    {#if edge.data.timing}<span class="rounded bg-zinc-100 px-1 text-[10px] text-zinc-500 dark:bg-zinc-800">{edge.data.timing}</span>{/if}
+                    {#if edge.data.behavior === 'detour'}<span class="rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">detour</span>{/if}
+                    <form method="POST" action="?/deleteEdge" use:enhance class="inline">
+                      <input type="hidden" name="edgeId" value={edge.id} />
+                      <button type="submit" class="text-red-400 hover:text-red-300">&times;</button>
+                    </form>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
+            {#if addingEdgeFrom === stage.id}
+              <!-- Edge creation form -->
+              <div class="mt-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 pl-7 dark:border-zinc-800 dark:bg-zinc-950">
+                <div class="mb-2 flex gap-1">
+                  <button type="button" onclick={() => applyEdgePreset('next')} class="rounded bg-zinc-200 px-2 py-0.5 text-[10px] dark:bg-zinc-700">Next</button>
+                  <button type="button" onclick={() => applyEdgePreset('prerequisite')} class="rounded bg-zinc-200 px-2 py-0.5 text-[10px] dark:bg-zinc-700">Prerequisite</button>
+                  <button type="button" onclick={() => applyEdgePreset('escape')} class="rounded bg-zinc-200 px-2 py-0.5 text-[10px] dark:bg-zinc-700">Escape</button>
+                  <button type="button" onclick={() => applyEdgePreset('fallback')} class="rounded bg-zinc-200 px-2 py-0.5 text-[10px] dark:bg-zinc-700">Fallback</button>
+                </div>
+                <form method="POST" action="?/addEdge" use:enhance={() => { return async ({ update }) => { addingEdgeFrom = null; await update(); }; }}>
+                  <input type="hidden" name="sourceNodeId" value={stage.id} />
+                  <div class="space-y-2">
+                    <div>
+                      <label class="text-[10px] text-zinc-500">Target</label>
+                      <button type="button" onclick={() => { edgeSelectorOpen = true; }}
+                        class="block w-full rounded border border-zinc-300 bg-white px-2 py-1 text-left text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+                        {newEdgeLabel ? `→ ${newEdgeLabel}` : 'Select target...'}
+                      </button>
+                      <input type="hidden" name="targetNodeId" id="edgeTargetNodeId-{stage.id}" value="" />
+                    </div>
+                    <div class="flex gap-2">
+                      <div class="flex-1">
+                        <label class="text-[10px] text-zinc-500">Label</label>
+                        <input type="text" name="label" bind:value={newEdgeLabel} placeholder="Edge label" class="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+                      </div>
+                      <div>
+                        <label class="text-[10px] text-zinc-500">Timing</label>
+                        <select bind:value={newEdgeTiming} class="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                          <option value="on_complete">on_complete</option>
+                          <option value="on_enter">on_enter</option>
+                          <option value="always">always</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label class="text-[10px] text-zinc-500">Behavior</label>
+                        <select bind:value={newEdgeBehavior} class="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                          <option value="transition">transition</option>
+                          <option value="detour">detour</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="flex gap-2">
+                      <div class="flex-1">
+                        <label class="text-[10px] text-zinc-500">Condition field (optional)</label>
+                        <input type="text" bind:value={newEdgeConditionField} placeholder="e.g. memory.business_type" class="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+                      </div>
+                      {#if newEdgeConditionField}
+                        <div>
+                          <label class="text-[10px] text-zinc-500">Operator</label>
+                          <select bind:value={newEdgeConditionOp} class="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                            <option value="missing">missing</option>
+                            <option value="exists">exists</option>
+                            <option value="equals">equals</option>
+                            <option value="notEquals">notEquals</option>
+                          </select>
+                        </div>
+                      {/if}
+                    </div>
+                    <input type="hidden" name="data" value={JSON.stringify({
+                      timing: newEdgeTiming,
+                      behavior: newEdgeBehavior,
+                      ...(newEdgeConditionField ? { condition: { field: newEdgeConditionField, operator: newEdgeConditionOp } } : {}),
+                    })} />
+                    <div class="flex gap-2">
+                      <button type="submit" class="rounded bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:bg-amber-600">Add Edge</button>
+                      <button type="button" onclick={() => { addingEdgeFrom = null; }} class="text-xs text-zinc-500">Cancel</button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+            {:else}
+              <button type="button" onclick={() => { addingEdgeFrom = stage.id; newEdgeLabel = ''; newEdgeConditionField = ''; applyEdgePreset('next'); }}
+                class="mt-1 pl-7 text-[10px] text-indigo-500 hover:underline">
+                + Add edge
+              </button>
+            {/if}
+
             {#if editingSpec === stageLoc}
               <form method="POST" action="?/updateExtractionSpec" use:enhance={() => { return async ({ update }) => { editingSpec = null; await update(); }; }} class="mt-3 pl-7">
                 <input type="hidden" name="systemMemoryId" value={data.systemMemoryId} />
@@ -494,3 +630,18 @@
     </div>
   {/if}
 </div>
+
+<!-- Element selector modal for edge targets -->
+<ElementSelector
+  elements={selectableNodes}
+  placeholder="Search conversations and stages..."
+  bind:open={edgeSelectorOpen}
+  onselect={(el) => {
+    // Set the target node ID on the hidden input in the active edge form
+    if (addingEdgeFrom) {
+      const input = document.getElementById(`edgeTargetNodeId-${addingEdgeFrom}`);
+      if (input) (input as HTMLInputElement).value = el.id;
+      newEdgeLabel = newEdgeLabel || `→ ${el.name}`;
+    }
+  }}
+/>

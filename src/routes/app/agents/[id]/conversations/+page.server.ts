@@ -1,7 +1,7 @@
 import { fail, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
+import { MY_ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import type { Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -197,6 +197,57 @@ export const actions: Actions = {
       }});
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
+    }
+  },
+
+  addEdge: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const client = gqlClient(locals.token);
+    const sourceNodeId = String(fd.get('sourceNodeId') ?? '');
+    const targetNodeId = String(fd.get('targetNodeId') ?? '');
+    const label = String(fd.get('label') ?? '');
+    const dataJson = String(fd.get('data') ?? '{}');
+
+    if (!sourceNodeId || !targetNodeId) return fail(400, { error: 'Source and target are required' });
+
+    let data: Record<string, unknown>;
+    try { data = JSON.parse(dataJson); } catch { return fail(400, { error: 'Invalid JSON in edge data' }); }
+
+    try {
+      await client.request(CREATE_EDGE_MUTATION, { sourceNodeId, targetNodeId, label: label || 'edge', data });
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create edge' });
+    }
+  },
+
+  updateEdge: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const client = gqlClient(locals.token);
+    const edgeId = String(fd.get('edgeId') ?? '');
+    const label = String(fd.get('label') ?? '');
+    const dataJson = String(fd.get('data') ?? '{}');
+
+    if (!edgeId) return fail(400, { error: 'edgeId is required' });
+
+    let data: Record<string, unknown>;
+    try { data = JSON.parse(dataJson); } catch { return fail(400, { error: 'Invalid JSON' }); }
+
+    try {
+      await client.request(UPDATE_EDGE_MUTATION, { edgeId, label: label || undefined, data });
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to update edge' });
+    }
+  },
+
+  deleteEdge: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const client = gqlClient(locals.token);
+    const edgeId = String(fd.get('edgeId') ?? '');
+    if (!edgeId) return fail(400, { error: 'edgeId is required' });
+    try {
+      await client.request(DELETE_EDGE_MUTATION, { edgeId });
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete edge' });
     }
   },
 };

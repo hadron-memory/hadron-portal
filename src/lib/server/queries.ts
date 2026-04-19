@@ -801,6 +801,32 @@ export const DELETE_CHAT_MUTATION = /* GraphQL */ `
 `;
 
 // ---------------------------------------------------------------------------
+// Edge CRUD
+// ---------------------------------------------------------------------------
+
+export const CREATE_EDGE_MUTATION = /* GraphQL */ `
+  mutation CreateEdge($sourceNodeId: ID!, $targetNodeId: ID!, $label: String!, $data: JSON) {
+    createEdge(sourceNodeId: $sourceNodeId, targetNodeId: $targetNodeId, label: $label, data: $data) {
+      id label data source { id loc name } target { id loc name }
+    }
+  }
+`;
+
+export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
+  mutation UpdateEdge($edgeId: ID!, $label: String, $data: JSON) {
+    updateEdge(edgeId: $edgeId, label: $label, data: $data) {
+      id label data source { id loc name } target { id loc name }
+    }
+  }
+`;
+
+export const DELETE_EDGE_MUTATION = /* GraphQL */ `
+  mutation DeleteEdge($edgeId: ID!) {
+    deleteEdge(edgeId: $edgeId)
+  }
+`;
+
+// ---------------------------------------------------------------------------
 // Revisions + editor lock
 // ---------------------------------------------------------------------------
 
