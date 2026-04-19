@@ -160,6 +160,17 @@
     };
   });
 
+  // ── Goal editor state ──
+  let editingGoalsFor = $state<string | null>(null);  // conv loc
+  let goalDescInput = $state('');
+  let goalSignalsInput = $state('');
+
+  function startEditGoals(convLoc: string, currentGoals: string[], currentSignals: string[]) {
+    editingGoalsFor = convLoc;
+    goalDescInput = currentGoals.join('\n');
+    goalSignalsInput = currentSignals.join('\n');
+  }
+
   // ── Edge editor state ──
   let addingEdgeFrom = $state<string | null>(null);  // node ID we're adding an edge FROM
   let edgeSelectorOpen = $state(false);
@@ -368,22 +379,60 @@
         {@const goals = Array.isArray(conv.data.goalDescriptions) ? conv.data.goalDescriptions : []}
         {@const signals = Array.isArray(conv.data.goalSignals) ? conv.data.goalSignals : []}
         <div class="border-b border-zinc-200 px-5 py-3 dark:border-zinc-800">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-zinc-500">Goals & Signals</span>
-          </div>
-          {#if goals.length || signals.length}
-            {#if goals.length}
-              <ul class="mt-1 space-y-0.5">
-                {#each goals as goal}
-                  <li class="text-xs text-zinc-600 dark:text-zinc-400">- {goal}</li>
-                {/each}
-              </ul>
-            {/if}
-            {#if signals.length}
-              <p class="mt-1 text-xs text-zinc-400">Signals: {signals.join(', ')}</p>
-            {/if}
+          {#if editingGoalsFor === conv.node.loc}
+            <!-- Goal editor -->
+            <form method="POST" action="?/updateGoals" use:enhance={() => { return async ({ update }) => { editingGoalsFor = null; await update(); }; }}>
+              <input type="hidden" name="systemMemoryId" value={data.systemMemoryId} />
+              <input type="hidden" name="convLoc" value={conv.node.loc} />
+              <div class="space-y-2">
+                <div>
+                  <label class="text-[10px] font-medium text-zinc-500">Goal descriptions (one per line)</label>
+                  <textarea
+                    bind:value={goalDescInput}
+                    rows="3"
+                    placeholder="Help the user find a mentor&#10;Answer questions about mentorship"
+                    class="mt-1 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 placeholder-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-600"
+                  ></textarea>
+                  <p class="text-[10px] text-zinc-400">Describe when this conversation is the right fit. Multiple phrasings improve routing.</p>
+                </div>
+                <div>
+                  <label class="text-[10px] font-medium text-zinc-500">Goal signals (one per line)</label>
+                  <textarea
+                    bind:value={goalSignalsInput}
+                    rows="3"
+                    placeholder="I need a mentor&#10;Find someone to help me&#10;Is Nina back in town?"
+                    class="mt-1 w-full rounded border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 placeholder-zinc-400 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-600"
+                  ></textarea>
+                  <p class="text-[10px] text-zinc-400">Example user statements that should route here. This list grows from real usage.</p>
+                </div>
+                <input type="hidden" name="goalDescriptions" value={JSON.stringify(goalDescInput.split('\n').map(s => s.trim()).filter(Boolean))} />
+                <input type="hidden" name="goalSignals" value={JSON.stringify(goalSignalsInput.split('\n').map(s => s.trim()).filter(Boolean))} />
+                <div class="flex gap-2">
+                  <button type="submit" class="rounded bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:bg-amber-600">Save Goals</button>
+                  <button type="button" onclick={() => { editingGoalsFor = null; }} class="text-xs text-zinc-500">Cancel</button>
+                </div>
+              </div>
+            </form>
           {:else}
-            <p class="mt-1 text-xs text-zinc-400">No goals defined. Add goals to enable routing.</p>
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-zinc-500">Goals & Signals</span>
+              <button type="button" onclick={() => startEditGoals(conv.node.loc, goals, signals)}
+                class="text-[10px] text-indigo-500 hover:underline">Edit</button>
+            </div>
+            {#if goals.length || signals.length}
+              {#if goals.length}
+                <ul class="mt-1 space-y-0.5">
+                  {#each goals as goal}
+                    <li class="text-xs text-zinc-600 dark:text-zinc-400">- {goal}</li>
+                  {/each}
+                </ul>
+              {/if}
+              {#if signals.length}
+                <p class="mt-1 text-xs text-zinc-400">Signals: {signals.join(', ')}</p>
+              {/if}
+            {:else}
+              <p class="mt-1 text-xs text-zinc-400">No goals defined. <button type="button" onclick={() => startEditGoals(conv.node.loc, [], [])} class="text-indigo-500 hover:underline">Add goals</button> to enable routing.</p>
+            {/if}
           {/if}
         </div>
       {/if}
