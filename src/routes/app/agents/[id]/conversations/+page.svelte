@@ -111,6 +111,54 @@
     revisionsBusy = false;
   }
 
+  // ── Editor Lock ──
+  let lockOwned = $state(false);
+  let lockBlockedBy = $state<string | null>(null);
+  let lockExpiresAt = $state<string | null>(null);
+  let lockRenewTimer: ReturnType<typeof setInterval> | undefined;
+
+  async function acquireLock() {
+    try {
+      const res = await fetch('/api/agent-chat/revisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'lock', agentId: agent.id }),
+      });
+      const body = await res.json();
+      if (body.locked) {
+        lockOwned = true;
+        lockBlockedBy = null;
+        lockExpiresAt = body.expiresAt;
+      } else {
+        lockOwned = false;
+        lockBlockedBy = body.lockedBy ?? 'another user';
+        lockExpiresAt = body.expiresAt;
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function releaseLock() {
+    if (!lockOwned) return;
+    try {
+      await fetch('/api/agent-chat/revisions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'unlock', agentId: agent.id }),
+      });
+    } catch { /* ignore */ }
+    lockOwned = false;
+  }
+
+  // Acquire lock on mount, renew every 4 minutes, release on leave
+  $effect(() => {
+    acquireLock();
+    lockRenewTimer = setInterval(acquireLock, 4 * 60 * 1000);
+    return () => {
+      if (lockRenewTimer) clearInterval(lockRenewTimer);
+      releaseLock();
+    };
+  });
+
   function startEditPrompt(stageLoc: string) {
     const promptRef = getPromptRef(stageLoc);
     if (!promptRef) return;
@@ -161,7 +209,22 @@
 
   <!-- Revisions toolbar -->
   <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2 dark:border-zinc-800 dark:bg-zinc-900">
-    <button type="button" onclick={saveRevision} disabled={revisionsBusy}
+    <!-- Lock indicator -->
+    {#if lockBlockedBy}
+      <div class="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Locked by {lockBlockedBy}
+      </div>
+    {:else if lockOwned}
+      <div class="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Editing
+      </div>
+    {/if}
+
+    <div class="flex-1"></div>
+
+    <button type="button" onclick={saveRevision} disabled={revisionsBusy || !!lockBlockedBy}
       class="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
       Save revision
     </button>
