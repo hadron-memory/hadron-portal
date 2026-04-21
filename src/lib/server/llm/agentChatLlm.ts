@@ -1,3 +1,4 @@
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText, tool, jsonSchema } from 'ai';
@@ -53,6 +54,16 @@ export function createLanguageModel(provider: AIProvider, apiKey: string, model:
         baseURL: 'https://api.z.ai/api/coding/paas/v4',
       });
       return glm.chat(model);
+    }
+    case 'bedrock': {
+      // apiKey is JSON-encoded: {"accessKeyId":"...","secretAccessKey":"...","region":"us-east-1"}
+      const creds = JSON.parse(apiKey) as { accessKeyId: string; secretAccessKey: string; region: string };
+      const bedrock = createAmazonBedrock({
+        region: creds.region,
+        accessKeyId: creds.accessKeyId,
+        secretAccessKey: creds.secretAccessKey,
+      });
+      return bedrock(model);
     }
     default:
       return null;

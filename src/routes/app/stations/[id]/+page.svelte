@@ -87,6 +87,9 @@
   let aiProvider = $state<AIProvider>((station.aiProvider as AIProvider) ?? 'openai');
   let aiApiKey = $state('');
   let aiModel = $state(station.aiModel ?? DEFAULT_MODELS['openai']);
+  let stBedrockAccessKeyId = $state('');
+  let stBedrockSecretAccessKey = $state('');
+  let stBedrockRegion = $state('us-east-1');
   let chatActive = $state(false);
   let chatKey = $state(0);
   let aiEditing = $state(false);
@@ -120,14 +123,22 @@
   }
 
   async function saveAndStartChat() {
-    if (!aiApiKey.trim()) return;
+    let resolvedKey: string;
+    if (aiProvider === 'bedrock') {
+      if (!stBedrockAccessKeyId.trim() || !stBedrockSecretAccessKey.trim()) return;
+      resolvedKey = JSON.stringify({ accessKeyId: stBedrockAccessKeyId.trim(), secretAccessKey: stBedrockSecretAccessKey.trim(), region: stBedrockRegion });
+    } else {
+      if (!aiApiKey.trim()) return;
+      resolvedKey = aiApiKey;
+    }
     try {
       const res = await fetch('/api/stations/ai-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stationId: station.id, provider: aiProvider, apiKey: aiApiKey, model: aiModel }),
+        body: JSON.stringify({ stationId: station.id, provider: aiProvider, apiKey: resolvedKey, model: aiModel }),
       });
       if (!res.ok) return;
+      aiApiKey = resolvedKey;
     } catch { return; }
     chatKey++;
     chatActive = true;
@@ -833,19 +844,43 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                 {/each}
               </select>
             </div>
-            <div>
-              <label for="ai-key" class="mb-1 block text-xs text-zinc-500">API Key</label>
-              <input id="ai-key" type="password" bind:value={aiApiKey} placeholder="sk-..."
-                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
-              <p class="mt-1 text-[10px] text-zinc-400">Encrypted and stored on the server for this station.</p>
-            </div>
+            {#if aiProvider === 'bedrock'}
+              <div>
+                <label for="ai-bedrock-access-key" class="mb-1 block text-xs text-zinc-500">AWS Access Key ID</label>
+                <input id="ai-bedrock-access-key" type="password" bind:value={stBedrockAccessKeyId} placeholder="AKIA…"
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
+              </div>
+              <div>
+                <label for="ai-bedrock-secret-key" class="mb-1 block text-xs text-zinc-500">AWS Secret Access Key</label>
+                <input id="ai-bedrock-secret-key" type="password" bind:value={stBedrockSecretAccessKey} placeholder=""
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
+              </div>
+              <div>
+                <label for="ai-bedrock-region" class="mb-1 block text-xs text-zinc-500">AWS Region</label>
+                <select id="ai-bedrock-region" bind:value={stBedrockRegion}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
+                  <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                  <option value="us-west-2">us-west-2 (Oregon)</option>
+                  <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                  <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+                </select>
+              </div>
+              <p class="mt-1 text-[10px] text-zinc-400">Credentials are encrypted and stored on the server for this station.</p>
+            {:else}
+              <div>
+                <label for="ai-key" class="mb-1 block text-xs text-zinc-500">API Key</label>
+                <input id="ai-key" type="password" bind:value={aiApiKey} placeholder="sk-..."
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
+                <p class="mt-1 text-[10px] text-zinc-400">Encrypted and stored on the server for this station.</p>
+              </div>
+            {/if}
             <div>
               <label for="ai-model" class="mb-1 block text-xs text-zinc-500">Model</label>
               <input id="ai-model" type="text" bind:value={aiModel}
                 class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:border-indigo-500 focus:outline-none" />
             </div>
             <div class="flex gap-3">
-              <button onclick={() => { saveAndStartChat(); aiEditing = false; }} disabled={!aiApiKey.trim()}
+              <button onclick={() => { saveAndStartChat(); aiEditing = false; }} disabled={aiProvider === 'bedrock' ? (!stBedrockAccessKeyId.trim() || !stBedrockSecretAccessKey.trim()) : !aiApiKey.trim()}
                 class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
                 Save
               </button>

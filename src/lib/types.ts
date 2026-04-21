@@ -334,7 +334,7 @@ export interface ExchangeConnection {
 // AI provider config (encrypted at rest on the station)
 // ---------------------------------------------------------------------------
 
-export type AIProvider = 'anthropic' | 'openai' | 'glm';
+export type AIProvider = 'anthropic' | 'openai' | 'glm' | 'bedrock';
 
 export interface StationAIConfig {
   provider: AIProvider;

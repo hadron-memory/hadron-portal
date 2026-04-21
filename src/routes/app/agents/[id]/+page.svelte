@@ -145,9 +145,12 @@
 
   // ── AI config editor state ──
   let editAiConfig = $state(false);
-  let aiProviderInput = $state<'anthropic' | 'openai' | 'glm'>('anthropic');
+  let aiProviderInput = $state<'anthropic' | 'openai' | 'glm' | 'bedrock'>('anthropic');
   let aiModelInput = $state('');
   let aiApiKeyInput = $state('');
+  let bedrockAccessKeyId = $state('');
+  let bedrockSecretAccessKey = $state('');
+  let bedrockRegion = $state('us-east-1');
   let aiConfigBusy = $state(false);
   let aiConfigError = $state<string | null>(null);
   let aiConfigTestResult = $state<{
@@ -159,9 +162,12 @@
   } | null>(null);
 
   function startEditAiConfig() {
-    aiProviderInput = (agent.aiProvider as 'anthropic' | 'openai' | 'glm') ?? 'anthropic';
+    aiProviderInput = (agent.aiProvider as 'anthropic' | 'openai' | 'glm' | 'bedrock') ?? 'anthropic';
     aiModelInput = agent.aiModel ?? '';
     aiApiKeyInput = '';
+    bedrockAccessKeyId = '';
+    bedrockSecretAccessKey = '';
+    bedrockRegion = 'us-east-1';
     aiConfigError = null;
     aiConfigTestResult = null;
     editAiConfig = true;
@@ -173,9 +179,23 @@
       return;
     }
     // API key is required only on first save (no existing key)
-    if (!agent.hasAiApiKey && !aiApiKeyInput.trim()) {
+    if (aiProviderInput === 'bedrock') {
+      if (!agent.hasAiApiKey && (!bedrockAccessKeyId.trim() || !bedrockSecretAccessKey.trim())) {
+        aiConfigError = 'AWS Access Key ID and Secret Access Key are required.';
+        return;
+      }
+    } else if (!agent.hasAiApiKey && !aiApiKeyInput.trim()) {
       aiConfigError = 'API key is required.';
       return;
+    }
+    // For Bedrock, JSON-encode the three credential fields into apiKey
+    let resolvedApiKey: string | undefined;
+    if (aiProviderInput === 'bedrock') {
+      if (bedrockAccessKeyId.trim() || bedrockSecretAccessKey.trim()) {
+        resolvedApiKey = JSON.stringify({ accessKeyId: bedrockAccessKeyId.trim(), secretAccessKey: bedrockSecretAccessKey.trim(), region: bedrockRegion });
+      }
+    } else {
+      resolvedApiKey = aiApiKeyInput.trim() || undefined;
     }
     aiConfigBusy = true;
     aiConfigError = null;
@@ -189,7 +209,7 @@
           agentId: agent.id,
           provider: aiProviderInput,
           model: aiModelInput.trim(),
-          apiKey: aiApiKeyInput.trim() || undefined,
+          apiKey: resolvedApiKey,
         }),
       });
       const body = await res.json();
@@ -214,6 +234,12 @@
     try {
       // Pass the current form values so the user can test before saving.
       // If no new key is entered, the backend merges with the saved key.
+      let testApiKey: string | undefined;
+      if (aiProviderInput === 'bedrock' && (bedrockAccessKeyId.trim() || bedrockSecretAccessKey.trim())) {
+        testApiKey = JSON.stringify({ accessKeyId: bedrockAccessKeyId.trim(), secretAccessKey: bedrockSecretAccessKey.trim(), region: bedrockRegion });
+      } else {
+        testApiKey = aiApiKeyInput.trim() || undefined;
+      }
       const res = await fetch('/api/agent-chat/ai-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -222,7 +248,7 @@
           agentId: agent.id,
           provider: aiProviderInput,
           model: aiModelInput.trim(),
-          apiKey: aiApiKeyInput.trim() || undefined,
+          apiKey: testApiKey,
         }),
       });
       const body = await res.json();
@@ -751,22 +777,49 @@
                 <option value="anthropic">Anthropic</option>
                 <option value="openai">OpenAI</option>
                 <option value="glm">GLM (z.ai)</option>
+                <option value="bedrock">AWS Bedrock</option>
               </select>
             </div>
             <div>
               <label for="aiModel" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Model</label>
               <input id="aiModel" type="text" bind:value={aiModelInput}
-                placeholder={aiProviderInput === 'anthropic' ? 'claude-opus-4-6' : aiProviderInput === 'openai' ? 'gpt-4o-mini' : 'glm-4-flash'}
+                placeholder={aiProviderInput === 'anthropic' ? 'claude-opus-4-6' : aiProviderInput === 'openai' ? 'gpt-4o-mini' : aiProviderInput === 'bedrock' ? 'anthropic.claude-sonnet-4-20250514-v1:0' : 'glm-4-flash'}
                 class={inputClass} />
-              <p class="mt-1 text-xs text-zinc-400">Exact model string (e.g. claude-opus-4-6, gpt-4o-mini).</p>
+              <p class="mt-1 text-xs text-zinc-400">{aiProviderInput === 'bedrock' ? 'Bedrock model ID (e.g. anthropic.claude-sonnet-4-20250514-v1:0).' : 'Exact model string (e.g. claude-opus-4-6, gpt-4o-mini).'}</p>
             </div>
-            <div>
-              <label for="aiApiKey" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">API key</label>
-              <input id="aiApiKey" type="password" bind:value={aiApiKeyInput}
-                placeholder={agent.hasAiApiKey ? '(leave blank to keep current key)' : 'sk-…'}
-                class={inputClass} />
-              <p class="mt-1 text-xs text-zinc-400">Encrypted at rest with the Hadron server's master key.</p>
-            </div>
+            {#if aiProviderInput === 'bedrock'}
+              <div>
+                <label for="bedrockAccessKeyId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AWS Access Key ID</label>
+                <input id="bedrockAccessKeyId" type="password" bind:value={bedrockAccessKeyId}
+                  placeholder={agent.hasAiApiKey ? '(leave blank to keep current)' : 'AKIA…'}
+                  class={inputClass} />
+              </div>
+              <div>
+                <label for="bedrockSecretAccessKey" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AWS Secret Access Key</label>
+                <input id="bedrockSecretAccessKey" type="password" bind:value={bedrockSecretAccessKey}
+                  placeholder={agent.hasAiApiKey ? '(leave blank to keep current)' : ''}
+                  class={inputClass} />
+              </div>
+              <div>
+                <label for="bedrockRegion" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AWS Region</label>
+                <select id="bedrockRegion" bind:value={bedrockRegion}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                  <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                  <option value="us-west-2">us-west-2 (Oregon)</option>
+                  <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                  <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+                </select>
+              </div>
+              <p class="text-xs text-zinc-400">Credentials are encrypted at rest with the Hadron server's master key.</p>
+            {:else}
+              <div>
+                <label for="aiApiKey" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">API key</label>
+                <input id="aiApiKey" type="password" bind:value={aiApiKeyInput}
+                  placeholder={agent.hasAiApiKey ? '(leave blank to keep current key)' : 'sk-…'}
+                  class={inputClass} />
+                <p class="mt-1 text-xs text-zinc-400">Encrypted at rest with the Hadron server's master key.</p>
+              </div>
+            {/if}
             {#if aiConfigError}
               <div class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{aiConfigError}</div>
             {/if}
@@ -786,9 +839,9 @@
                 class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
                 {aiConfigBusy ? 'Saving…' : 'Save'}
               </button>
-              <button type="button" onclick={testAiConfig} disabled={aiConfigBusy || (!agent.hasAiApiKey && !aiApiKeyInput.trim())}
+              <button type="button" onclick={testAiConfig} disabled={aiConfigBusy || (!agent.hasAiApiKey && (aiProviderInput === 'bedrock' ? !bedrockAccessKeyId.trim() || !bedrockSecretAccessKey.trim() : !aiApiKeyInput.trim()))}
                 class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 disabled:opacity-50"
-                title={(agent.hasAiApiKey || aiApiKeyInput.trim()) ? 'Round-trip a tiny hello through the configured provider' : 'Enter a key first, then test'}>
+                title={(agent.hasAiApiKey || aiApiKeyInput.trim() || bedrockAccessKeyId.trim()) ? 'Round-trip a tiny hello through the configured provider' : 'Enter a key first, then test'}>
                 Test
               </button>
               {#if agent.hasAiApiKey}
