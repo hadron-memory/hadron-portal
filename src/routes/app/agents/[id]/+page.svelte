@@ -883,6 +883,27 @@
               </div>
             {/if}
           </div>
+
+          <!-- Chat tab readiness checklist -->
+          {#if !(hasSystemMemory && hasAiApiKey && hasNonSetupConversations)}
+            <div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/30">
+              <div class="mb-2 font-medium text-amber-800 dark:text-amber-300">Chat tab is hidden. All three must be true:</div>
+              <ul class="space-y-1 text-zinc-700 dark:text-zinc-300">
+                <li>{hasSystemMemory ? '✓' : '✗'} System memory assigned</li>
+                <li>{hasAiApiKey ? '✓' : '✗'} LLM provider configured</li>
+                <li>
+                  {hasNonSetupConversations ? '✓' : '✗'} At least one non-setup conversation
+                  {#if !hasNonSetupConversations}
+                    <span class="text-zinc-500">
+                      (found {systemNodes.filter((n) => n.loc.startsWith('conversations:') && n.loc.split(':').length === 2).length}
+                      conversation node{systemNodes.filter((n) => n.loc.startsWith('conversations:') && n.loc.split(':').length === 2).length === 1 ? '' : 's'}
+                      in system memory; all marked <code>isSetup: true</code>)
+                    </span>
+                  {/if}
+                </li>
+              </ul>
+            </div>
+          {/if}
         {/if}
       </section>
 
