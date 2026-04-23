@@ -91,6 +91,13 @@ export async function callAgentChatLlm(args: {
     throw new Error(`Unsupported provider: ${provider}`);
   }
 
+  // Welcome turn has an empty history, but the AI SDK requires at least one
+  // message. Seed a minimal synthetic user turn so the LLM produces a greeting
+  // driven by the stage's system prompt.
+  const effectiveMessages = messages.length === 0
+    ? [{ role: 'user' as const, content: 'Please begin the conversation.' }]
+    : messages;
+
   // Find the respond tool. Hadron always ships a single tool per stage but
   // the array shape leaves room for more later.
   const respondTool = (args.tools ?? []).find((t) => t.name === 'respond');
@@ -101,7 +108,7 @@ export async function callAgentChatLlm(args: {
     const result = await generateText({
       model: languageModel,
       system: systemMessage,
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+      messages: effectiveMessages.map((m) => ({ role: m.role, content: m.content })),
     });
     return {
       respond: { message: result.text, data: {}, next_stage: null },
@@ -126,7 +133,7 @@ export async function callAgentChatLlm(args: {
   const result = await generateText({
     model: languageModel,
     system: systemMessage,
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    messages: effectiveMessages.map((m) => ({ role: m.role, content: m.content })),
     tools: { respond: respondVercelTool },
     // Force the LLM to call the respond tool on every turn. This is the
     // contract of the Chat API: one tool call per turn, no free-form text.

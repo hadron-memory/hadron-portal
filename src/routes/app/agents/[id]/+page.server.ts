@@ -43,13 +43,18 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   if (!agent || !org) throw error(404, 'Agent not found');
 
-  // Load nodes from all memories + system memories for the org (in parallel)
+  // Load nodes from all memories (including system memory) + org system memories
   const memoryIds = (agent.memoryItems ?? []).map((m) => m.memory.id);
+  const systemMemoryId = (agent as any).systemMemoryId as string | null;
+  // Ensure system memory nodes are loaded even if not in memoryItems
+  const allMemoryIds = systemMemoryId && !memoryIds.includes(systemMemoryId)
+    ? [...memoryIds, systemMemoryId]
+    : memoryIds;
   let agentNodes: MemoryNode[] = [];
   let orgSystemMemories: Memory[] = [];
 
   const [nodesResult, sysMemResult] = await Promise.all([
-    memoryIds.length > 0
+    allMemoryIds.length > 0
       ? client.request<{ nodes: MemoryNode[] }>(GRAPH_NODES_QUERY, { limit: 500 }).catch(() => null)
       : Promise.resolve(null),
     client.request<{ orgSystemMemories: Memory[] }>(
@@ -60,7 +65,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   if (nodesResult) {
     const memoryMap = new Map((agent.memoryItems ?? []).map((m) => [m.memory.id, m.memory]));
     agentNodes = nodesResult.nodes
-      .filter((n) => memoryIds.includes(n.memoryId))
+      .filter((n) => allMemoryIds.includes(n.memoryId))
       .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));
   }
   orgSystemMemories = sysMemResult.orgSystemMemories;
