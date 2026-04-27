@@ -2,6 +2,7 @@ import { fail, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import { MY_ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
+import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
 import type { Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -207,16 +208,28 @@ export const actions: Actions = {
     const targetNodeId = String(fd.get('targetNodeId') ?? '');
     const label = String(fd.get('label') ?? '');
     const dataJson = String(fd.get('data') ?? '{}');
+    const conditionJson = String(fd.get('condition') ?? 'null');
+    const priorityRaw = fd.get('priority');
 
     if (!sourceNodeId || !targetNodeId) return fail(400, { error: 'Source and target are required' });
 
     let data: Record<string, unknown>;
     try { data = JSON.parse(dataJson); } catch { return fail(400, { error: 'Invalid JSON in edge data' }); }
+    let condition: unknown;
+    try { condition = JSON.parse(conditionJson); } catch { return fail(400, { error: 'Invalid JSON in edge condition' }); }
+    const priority = priorityRaw !== null && priorityRaw !== '' ? Number(priorityRaw) : undefined;
 
     try {
-      await client.request(CREATE_EDGE_MUTATION, { sourceNodeId, targetNodeId, label: label || 'edge', data });
+      await client.request(CREATE_EDGE_MUTATION, {
+        sourceNodeId,
+        targetNodeId,
+        label: label || 'edge',
+        condition,
+        priority,
+        data,
+      });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create edge' });
+      return fail(400, { error: userFacingErrorMessage(e, 'Failed to create edge') });
     }
   },
 
@@ -235,7 +248,7 @@ export const actions: Actions = {
     try {
       await client.request(UPDATE_EDGE_MUTATION, { edgeId, label: label || undefined, data });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to update edge' });
+      return fail(400, { error: userFacingErrorMessage(e, 'Failed to update edge') });
     }
   },
 
