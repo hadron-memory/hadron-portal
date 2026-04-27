@@ -50,7 +50,8 @@
         Ask me anything about setting up Hadron on your machine.
       </div>
     {/if}
-    {#each chat.messages as message (message.id)}
+    {#each chat.messages as message, i (message.id)}
+      {@const isStreaming = chat.status === 'streaming' && i === chat.messages.length - 1 && message.role !== 'user'}
       <div class="flex {message.role === 'user' ? 'justify-end' : 'justify-start'}">
         <div class="max-w-[80%] rounded-lg px-4 py-2.5 text-sm
           {message.role === 'user'
@@ -58,12 +59,14 @@
             : 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'}">
           {#if message.role === 'user'}
             <p class="whitespace-pre-wrap">{getMessageText(message)}</p>
+          {:else if isStreaming}
+            <p class="whitespace-pre-wrap" aria-live="polite">
+              {getMessageText(message)}
+              <span class="inline-block w-2 h-4 ml-0.5 bg-zinc-500 dark:bg-zinc-300 animate-pulse" aria-hidden="true"></span>
+            </p>
           {:else}
-            <div class="prose prose-sm dark:prose-invert max-w-none" aria-live="polite">
+            <div class="prose prose-sm dark:prose-invert max-w-none">
               {@html renderMarkdown(getMessageText(message))}
-              {#if chat.status === 'streaming' && message === chat.messages[chat.messages.length - 1]}
-                <span class="inline-block w-2 h-4 ml-0.5 bg-zinc-500 dark:bg-zinc-300 animate-pulse" aria-hidden="true"></span>
-              {/if}
             </div>
           {/if}
         </div>
