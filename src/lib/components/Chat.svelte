@@ -2,6 +2,7 @@
   import { Chat, type UIMessage } from '@ai-sdk/svelte';
   import { DefaultChatTransport } from 'ai';
   import { marked } from 'marked';
+  import { t } from '$lib/i18n/t';
   import type { StationAIConfig } from '$lib/types';
 
   let { config, stationId, systemPrompt = '' }: { config: StationAIConfig; stationId: string; systemPrompt?: string } = $props();
@@ -88,14 +89,25 @@
           dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500
           disabled:opacity-50"
       />
-      <button
-        type="submit"
-        disabled={chat.status === 'streaming' || !inputText.trim()}
-        class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white
-          hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        Send
-      </button>
+      {#if chat.status === 'streaming'}
+        <button
+          type="button"
+          onclick={() => chat.stop()}
+          class="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-600"
+          aria-label={t('chat.stop', 'Stop')}
+        >
+          {t('chat.stop', 'Stop')}
+        </button>
+      {:else}
+        <button
+          type="submit"
+          disabled={!inputText.trim()}
+          class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white
+            hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {t('chat.send', 'Send')}
+        </button>
+      {/if}
     </div>
   </form>
 </div>
