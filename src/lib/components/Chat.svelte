@@ -3,6 +3,7 @@
   import { DefaultChatTransport } from 'ai';
   import { marked } from 'marked';
   import { t } from '$lib/i18n/t';
+  import { isMessageStreaming } from './chat-streaming';
   import type { StationAIConfig } from '$lib/types';
 
   let { config, stationId, systemPrompt = '' }: { config: StationAIConfig; stationId: string; systemPrompt?: string } = $props();
@@ -51,7 +52,12 @@
       </div>
     {/if}
     {#each chat.messages as message, i (message.id)}
-      {@const isStreaming = chat.status === 'streaming' && i === chat.messages.length - 1 && message.role !== 'user'}
+      {@const isStreaming = isMessageStreaming({
+        status: chat.status,
+        index: i,
+        total: chat.messages.length,
+        role: message.role,
+      })}
       <div class="flex {message.role === 'user' ? 'justify-end' : 'justify-start'}">
         <div class="max-w-[80%] rounded-lg px-4 py-2.5 text-sm
           {message.role === 'user'
