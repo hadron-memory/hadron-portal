@@ -3,6 +3,9 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ConversationGraph from '$lib/components/ConversationGraph.svelte';
   import ElementSelector from '$lib/components/ElementSelector.svelte';
+  import ConditionBuilder from '$lib/edge-conditions/ConditionBuilder.svelte';
+  import { serialize } from '$lib/edge-conditions/serializer';
+  import type { UiCondition } from '$lib/edge-conditions/types';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -177,8 +180,12 @@
   let newEdgeLabel = $state('');
   let newEdgeTiming = $state('on_complete');
   let newEdgeBehavior = $state('transition');
-  let newEdgeConditionField = $state('');
-  let newEdgeConditionOp = $state('missing');
+  let newEdgeCondition = $state<UiCondition>(null);
+  let newEdgePriority = $state(0);
+
+  // Serialize the structured condition to JSONLogic for the hidden form
+  // field. The server side validates again before persisting.
+  const newEdgeConditionJson = $derived(JSON.stringify(serialize(newEdgeCondition)));
 
   // Build the list of selectable target nodes for the ElementSelector
   const selectableNodes = $derived(
@@ -203,10 +210,24 @@
   }
 
   function applyEdgePreset(preset: string) {
-    if (preset === 'next') { newEdgeTiming = 'on_complete'; newEdgeBehavior = 'transition'; newEdgeConditionField = ''; }
-    if (preset === 'prerequisite') { newEdgeTiming = 'on_enter'; newEdgeBehavior = 'detour'; newEdgeConditionOp = 'missing'; }
-    if (preset === 'escape') { newEdgeTiming = 'always'; newEdgeBehavior = 'transition'; newEdgeConditionField = ''; }
-    if (preset === 'fallback') { newEdgeTiming = 'always'; newEdgeBehavior = 'transition'; newEdgeConditionField = ''; }
+    if (preset === 'next') {
+      newEdgeTiming = 'on_complete'; newEdgeBehavior = 'transition'; newEdgeCondition = null;
+    }
+    if (preset === 'prerequisite') {
+      newEdgeTiming = 'on_enter'; newEdgeBehavior = 'detour';
+      // Seed a missing-field clause so the user can fill in the field.
+      newEdgeCondition = {
+        kind: 'group',
+        combinator: 'and',
+        children: [{ kind: 'clause', field: 'memory.', operator: 'missing' }],
+      };
+    }
+    if (preset === 'escape') {
+      newEdgeTiming = 'always'; newEdgeBehavior = 'transition'; newEdgeCondition = null;
+    }
+    if (preset === 'fallback') {
+      newEdgeTiming = 'always'; newEdgeBehavior = 'transition'; newEdgeCondition = null;
+    }
   }
 
   function startEditPrompt(stageLoc: string) {
@@ -561,27 +582,22 @@
                         </select>
                       </div>
                     </div>
-                    <div class="flex gap-2">
-                      <div class="flex-1">
-                        <label class="text-[10px] text-zinc-500">Condition field (optional)</label>
-                        <input type="text" bind:value={newEdgeConditionField} placeholder="e.g. memory.business_type" class="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
-                      </div>
-                      {#if newEdgeConditionField}
-                        <div>
-                          <label class="text-[10px] text-zinc-500">Operator</label>
-                          <select bind:value={newEdgeConditionOp} class="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                            <option value="missing">missing</option>
-                            <option value="exists">exists</option>
-                            <option value="equals">equals</option>
-                            <option value="notEquals">notEquals</option>
-                          </select>
-                        </div>
-                      {/if}
+                    <div>
+                      <ConditionBuilder bind:value={newEdgeCondition} />
                     </div>
+                    <div class="flex gap-2">
+                      <div>
+                        <label class="text-[10px] text-zinc-500">Priority</label>
+                        <input type="number" bind:value={newEdgePriority} step="1"
+                          class="w-20 rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+                        <span class="ml-1 text-[10px] text-zinc-500">lower fires first</span>
+                      </div>
+                    </div>
+                    <input type="hidden" name="condition" value={newEdgeConditionJson} />
+                    <input type="hidden" name="priority" value={newEdgePriority} />
                     <input type="hidden" name="data" value={JSON.stringify({
                       timing: newEdgeTiming,
                       behavior: newEdgeBehavior,
-                      ...(newEdgeConditionField ? { condition: { field: newEdgeConditionField, operator: newEdgeConditionOp } } : {}),
                     })} />
                     <div class="flex gap-2">
                       <button type="submit" class="rounded bg-amber-500 px-3 py-1 text-xs font-medium text-white hover:bg-amber-600">Add Edge</button>
@@ -591,7 +607,7 @@
                 </form>
               </div>
             {:else}
-              <button type="button" onclick={() => { addingEdgeFrom = stage.id; newEdgeLabel = ''; newEdgeConditionField = ''; applyEdgePreset('next'); }}
+              <button type="button" onclick={() => { addingEdgeFrom = stage.id; newEdgeLabel = ''; newEdgePriority = 0; applyEdgePreset('next'); }}
                 class="mt-1 pl-7 text-[10px] text-indigo-500 hover:underline">
                 + Add edge
               </button>

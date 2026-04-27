@@ -2,6 +2,8 @@
   import { Chat, type UIMessage } from '@ai-sdk/svelte';
   import { DefaultChatTransport } from 'ai';
   import { marked } from 'marked';
+  import { t } from '$lib/i18n/t';
+  import { isMessageStreaming } from './chat-streaming';
   import type { StationAIConfig } from '$lib/types';
 
   let { config, stationId, systemPrompt = '' }: { config: StationAIConfig; stationId: string; systemPrompt?: string } = $props();
@@ -21,6 +23,19 @@
   });
 
   let inputText = $state('');
+  let messagesContainer: HTMLDivElement | undefined = $state();
+
+  // Pin the conversation to the bottom whenever a new message is appended,
+  // the chat status changes, or the in-flight assistant message grows.
+  $effect(() => {
+    chat.status;
+    chat.messages.length;
+    const last = chat.messages.at(-1);
+    if (last) getMessageText(last);
+    if (messagesContainer) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+  });
 
   function handleSubmit(e: Event) {
     e.preventDefault();
@@ -43,13 +58,19 @@
 
 <div class="flex h-full flex-col">
   <!-- Messages -->
-  <div class="flex-1 overflow-y-auto p-4 space-y-4">
+  <div bind:this={messagesContainer} class="flex-1 overflow-y-auto p-4 space-y-4">
     {#if chat.messages.length === 0}
       <div class="flex h-full items-center justify-center text-center text-sm text-zinc-400 px-4">
         Ask me anything about setting up Hadron on your machine.
       </div>
     {/if}
-    {#each chat.messages as message (message.id)}
+    {#each chat.messages as message, i (message.id)}
+      {@const isStreaming = isMessageStreaming({
+        status: chat.status,
+        index: i,
+        total: chat.messages.length,
+        role: message.role,
+      })}
       <div class="flex {message.role === 'user' ? 'justify-end' : 'justify-start'}">
         <div class="max-w-[80%] rounded-lg px-4 py-2.5 text-sm
           {message.role === 'user'
@@ -57,6 +78,11 @@
             : 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'}">
           {#if message.role === 'user'}
             <p class="whitespace-pre-wrap">{getMessageText(message)}</p>
+          {:else if isStreaming}
+            <p class="whitespace-pre-wrap" aria-live="polite">
+              {getMessageText(message)}
+              <span class="inline-block w-2 h-4 ml-0.5 bg-zinc-500 dark:bg-zinc-300 animate-pulse" aria-hidden="true"></span>
+            </p>
           {:else}
             <div class="prose prose-sm dark:prose-invert max-w-none">
               {@html renderMarkdown(getMessageText(message))}
@@ -65,10 +91,10 @@
         </div>
       </div>
     {/each}
-    {#if chat.status === 'streaming'}
+    {#if chat.status === 'submitted' && chat.messages.at(-1)?.role === 'user'}
       <div class="flex justify-start">
-        <div class="rounded-lg bg-zinc-100 px-4 py-2.5 text-sm text-zinc-500 dark:bg-zinc-800">
-          <span class="animate-pulse">Thinking...</span>
+        <div class="max-w-[80%] rounded-lg bg-zinc-100 px-4 py-2.5 text-sm text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400" aria-live="polite">
+          <span class="animate-pulse">{t('chat.thinking', 'Thinking…')}</span>
         </div>
       </div>
     {/if}
@@ -92,14 +118,25 @@
           dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500
           disabled:opacity-50"
       />
-      <button
-        type="submit"
-        disabled={chat.status === 'streaming' || !inputText.trim()}
-        class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white
-          hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        Send
-      </button>
+      {#if chat.status === 'streaming'}
+        <button
+          type="button"
+          onclick={() => chat.stop()}
+          class="rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-600"
+          aria-label={t('chat.stop', 'Stop')}
+        >
+          {t('chat.stop', 'Stop')}
+        </button>
+      {:else}
+        <button
+          type="submit"
+          disabled={!inputText.trim()}
+          class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white
+            hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {t('chat.send', 'Send')}
+        </button>
+      {/if}
     </div>
   </form>
 </div>
