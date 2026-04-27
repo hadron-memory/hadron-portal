@@ -58,20 +58,16 @@
           {#if message.role === 'user'}
             <p class="whitespace-pre-wrap">{getMessageText(message)}</p>
           {:else}
-            <div class="prose prose-sm dark:prose-invert max-w-none">
+            <div class="prose prose-sm dark:prose-invert max-w-none" aria-live="polite">
               {@html renderMarkdown(getMessageText(message))}
+              {#if chat.status === 'streaming' && message === chat.messages[chat.messages.length - 1]}
+                <span class="inline-block w-2 h-4 ml-0.5 bg-zinc-500 dark:bg-zinc-300 animate-pulse" aria-hidden="true"></span>
+              {/if}
             </div>
           {/if}
         </div>
       </div>
     {/each}
-    {#if chat.status === 'streaming'}
-      <div class="flex justify-start">
-        <div class="rounded-lg bg-zinc-100 px-4 py-2.5 text-sm text-zinc-500 dark:bg-zinc-800">
-          <span class="animate-pulse">Thinking...</span>
-        </div>
-      </div>
-    {/if}
     {#if chat.error}
       <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
         {chat.error.message}
