@@ -65,27 +65,31 @@
 </script>
 
 <div class="inline-flex flex-col gap-1">
-  <button
-    type="button"
-    class="inline-flex items-center gap-1.5 rounded-md p-1.5 text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-700"
-    onclick={pick}
-    disabled={uploading || disabled}
-    title="Attach a file"
-  >
-    {#if uploading}
-      <span class="text-xs">{Math.round(progress * 100)}%</span>
+  {#if uploading}
+    <div class="inline-flex items-center gap-1.5 rounded-md p-1.5 text-zinc-600 dark:text-zinc-400">
+      <span class="text-xs tabular-nums">{Math.round(progress * 100)}%</span>
       <button
         type="button"
         class="text-zinc-400 hover:text-red-500"
-        onclick={(e) => { e.stopPropagation(); cancel(); }}
+        onclick={cancel}
         title="Cancel upload"
+        aria-label="Cancel upload"
       >
         <X class="size-4" />
       </button>
-    {:else}
+    </div>
+  {:else}
+    <button
+      type="button"
+      class="inline-flex items-center gap-1.5 rounded-md p-1.5 text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-700"
+      onclick={pick}
+      disabled={disabled}
+      title="Attach a file"
+      aria-label="Attach a file"
+    >
       <Paperclip class="size-5" />
-    {/if}
-  </button>
+    </button>
+  {/if}
 
   <input
     bind:this={inputEl}
