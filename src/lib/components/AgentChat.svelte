@@ -1,9 +1,14 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { marked } from 'marked';
   import type { Chat, ChatMessage } from '$lib/types';
   import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
   import AssetChip from '$lib/components/assets/AssetChip.svelte';
   import type { AssetSummary } from '$lib/api/assetUpload';
+
+  function renderMarkdown(text: string): string {
+    return marked.parse(text, { async: false }) as string;
+  }
 
   let { agentId, agentUrn }: { agentId: string; agentUrn?: string } = $props();
 
@@ -405,12 +410,15 @@
         {/if}
         {#each messages as msg, idx (idx)}
           <div class="flex {msg.role === 'user' ? 'justify-end' : 'justify-start'}">
-            <div
-              class="max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm
-                {msg.role === 'user'
-                  ? 'bg-indigo-500 text-white'
-                  : 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'}"
-            >{msg.content}</div>
+            {#if msg.role === 'user'}
+              <div class="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-indigo-500 px-3 py-2 text-sm text-white">{msg.content}</div>
+            {:else}
+              <div class="max-w-[85%] rounded-2xl bg-zinc-100 px-3 py-2 text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">
+                <div class="prose prose-sm dark:prose-invert max-w-none">
+                  {@html renderMarkdown(msg.content)}
+                </div>
+              </div>
+            {/if}
           </div>
         {/each}
         {#if sending}
