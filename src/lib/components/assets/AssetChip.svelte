@@ -19,6 +19,8 @@
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
+
+  const Icon = $derived(iconFor(asset.mimeType));
 </script>
 
 <button
@@ -26,7 +28,6 @@
   class="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700"
   onclick={() => onclick?.()}
 >
-  {@const Icon = iconFor(asset.mimeType)}
   <Icon class="size-4 shrink-0 text-zinc-500" />
   <span class="truncate max-w-[200px]" title={asset.filename}>{asset.filename}</span>
   <span class="text-xs text-zinc-500">{formatSize(asset.sizeBytes)}</span>
