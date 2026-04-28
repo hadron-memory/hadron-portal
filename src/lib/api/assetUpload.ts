@@ -101,7 +101,12 @@ function putToStorage(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', ticket.putUrl, true);
-    for (const h of ticket.putHeaders) xhr.setRequestHeader(h.name, h.value);
+    for (const h of ticket.putHeaders) {
+      // Browsers forbid setting Content-Length manually; they compute it
+      // from the body and reject (or silently drop) the header. Skip it.
+      if (h.name.toLowerCase() === 'content-length') continue;
+      xhr.setRequestHeader(h.name, h.value);
+    }
 
     xhr.upload.onprogress = (ev) => {
       if (onProgress && ev.lengthComputable) onProgress(ev.loaded, ev.total);
