@@ -1,8 +1,20 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import type { Chat, ChatMessage } from '$lib/types';
+  import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
+  import AssetChip from '$lib/components/assets/AssetChip.svelte';
+  import type { AssetSummary } from '$lib/api/assetUpload';
 
-  let { agentId }: { agentId: string } = $props();
+  let { agentId, agentUrn }: { agentId: string; agentUrn?: string } = $props();
+
+  let pendingAttachments = $state<AssetSummary[]>([]);
+
+  function onAssetUploaded(asset: AssetSummary) {
+    pendingAttachments = [...pendingAttachments, asset];
+  }
+  function removeAttachment(assetId: string) {
+    pendingAttachments = pendingAttachments.filter((a) => a.assetId !== assetId);
+  }
 
   // ── State ─────────────────────────────────────────────────────────────
   let chats = $state<Chat[]>([]);
@@ -422,7 +434,29 @@
 
       <!-- Input -->
       <div class="border-t border-zinc-200 p-3 dark:border-zinc-800">
+        {#if pendingAttachments.length > 0}
+          <div class="mb-2 flex flex-wrap gap-1.5">
+            {#each pendingAttachments as att (att.assetId)}
+              <span class="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
+                <AssetChip asset={att} />
+                <button
+                  type="button"
+                  class="text-zinc-400 hover:text-red-500"
+                  onclick={() => removeAttachment(att.assetId)}
+                  aria-label="Remove attachment"
+                >×</button>
+              </span>
+            {/each}
+          </div>
+        {/if}
         <div class="flex items-end gap-2">
+          {#if agentUrn}
+            <AssetUploadButton
+              {agentUrn}
+              onuploaded={onAssetUploaded}
+              disabled={!activeChatId || sending}
+            />
+          {/if}
           <textarea
             bind:value={input}
             onkeydown={onInputKeydown}

@@ -567,7 +567,7 @@
     <!-- Full-height chat surface. The parent flex layout gives the chat
          whatever vertical space remains below the agent header and tabs. -->
     <div class="chat-surface flex min-h-0 flex-1">
-      <AgentChat agentId={agent.id} />
+      <AgentChat agentId={agent.id} agentUrn={agent.urn} />
     </div>
   {/if}
 
