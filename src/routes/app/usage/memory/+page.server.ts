@@ -8,7 +8,7 @@ interface UsageEventRow {
   id: string;
   type: string;
   nodeLoc: string | null;
-  stationId: string | null;
+  appId: string | null;
   sessionId: string | null;
   model: string | null;
   tokensIn: number | null;

@@ -3,31 +3,31 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { streamText, convertToModelMessages } from 'ai';
 import { gqlClient } from '$lib/server/api';
-import { STATION_AI_CONFIG_QUERY } from '$lib/server/queries';
+import { APP_AI_CONFIG_QUERY } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 import type { AIProvider } from '$lib/types';
 
 const BASE_SYSTEM_PROMPT = `You are Hadron Assistant — a helpful setup guide for Hadron, a knowledge graph platform that gives AI coding tools persistent memory across sessions.
 
 You help users:
-- Configure Hadron stations on their machines
+- Configure Hadron apps on their machines
 - Set up MCP (Model Context Protocol) connections with AI tools
-- Understand Hadron concepts: stations, agents, memories, and the knowledge graph
+- Understand Hadron concepts: apps, agents, memories, and the knowledge graph
 - Troubleshoot connection and configuration issues
 
 ## Key concepts
-- **Station**: A connection point for an AI tool (Claude Code, Cursor, Windsurf, etc.) to access Hadron's knowledge graph. Each station has an API key.
-- **Agent**: Defines what memories a station can access and how. Stations subscribe to agents.
+- **App**: A connection point for an AI tool (Claude Code, Cursor, Windsurf, etc.) to access Hadron's knowledge graph. Each app has an API key.
+- **Agent**: Defines what memories an app can access and how. Apps subscribe to agents.
 - **Memory**: A knowledge graph that stores context across sessions — decisions, architecture, learnings.
-- **MCP**: The protocol AI tools use to communicate with Hadron. Stations expose an MCP endpoint.
+- **MCP**: The protocol AI tools use to communicate with Hadron. Apps expose an MCP endpoint.
 
 ## Setup modes
 1. **Direct connection** — AI tool connects straight to the Hadron server via MCP config with a Bearer token.
 2. **With Hadron Client App** — A local proxy (localhost:3200) that adds hooks for session tracking. Best for Claude Code.
 
 ## Setup steps (general)
-1. Create a station on the Hadron portal
-2. Subscribe the station to agents (which grant memory access)
+1. Create an app on the Hadron portal
+2. Subscribe the app to agents (which grant memory access)
 3. Select your AI tool(s) and download the setup zip
 4. Extract the zip in your project root
 5. The zip contains MCP config files and instructions specific to your selected tools
@@ -58,7 +58,7 @@ You help users:
 3. Init in project: node /path/to/hadron-client/dist/cli.js init
 4. Start: node /path/to/hadron-client/dist/cli.js start (runs on port 3200)
 
-Be concise and direct. Give step-by-step instructions when asked. If the user's station context is provided below, tailor your answers to their specific configuration.`;
+Be concise and direct. Give step-by-step instructions when asked. If the user's app context is provided below, tailor your answers to their specific configuration.`;
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
@@ -68,11 +68,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     });
   }
 
-  const { messages, stationId, systemPrompt } = await request.json();
+  const { messages, appId, systemPrompt } = await request.json();
 
-  if (!stationId) {
+  if (!appId) {
     return new Response(
-      JSON.stringify({ error: 'stationId is required' }),
+      JSON.stringify({ error: 'appId is required' }),
       { status: 400, headers: { 'Content-Type': 'application/json' } },
     );
   }
@@ -84,19 +84,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   try {
     const result = await gqlClient(locals.token).request<{
-      stationAIConfig: { provider: string; apiKey: string; model: string } | null;
-    }>(STATION_AI_CONFIG_QUERY, { stationId });
+      appAIConfig: { provider: string; apiKey: string; model: string } | null;
+    }>(APP_AI_CONFIG_QUERY, { appId });
 
-    if (!result.stationAIConfig) {
+    if (!result.appAIConfig) {
       return new Response(
-        JSON.stringify({ error: 'No AI configuration found for this station. Please save your API key first.' }),
+        JSON.stringify({ error: 'No AI configuration found for this app. Please save your API key first.' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } },
       );
     }
 
-    provider = result.stationAIConfig.provider;
-    apiKey = result.stationAIConfig.apiKey;
-    model = result.stationAIConfig.model;
+    provider = result.appAIConfig.provider;
+    apiKey = result.appAIConfig.apiKey;
+    model = result.appAIConfig.model;
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to fetch AI config';
     return new Response(
@@ -114,7 +114,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   const fullSystemPrompt = systemPrompt
-    ? `${BASE_SYSTEM_PROMPT}\n\n## Current station context\n${systemPrompt}`
+    ? `${BASE_SYSTEM_PROMPT}\n\n## Current app context\n${systemPrompt}`
     : BASE_SYSTEM_PROMPT;
 
   const modelMessages = await convertToModelMessages(messages);

@@ -7,7 +7,7 @@ const PAGE_SIZE = 200;
 interface SessionSummary {
   id: string;
   type: string;
-  stationId: string | null;
+  appId: string | null;
   repo: string | null;
   branch: string | null;
   llmModel: string | null;

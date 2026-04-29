@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { REGENERATE_API_KEY_MUTATION } from '$lib/server/queries';
+import { REGENERATE_APP_KEY_MUTATION } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -8,17 +8,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { stationId } = await request.json();
-  if (!stationId) {
-    return json({ error: 'stationId is required' }, { status: 400 });
+  const { appId } = await request.json();
+  if (!appId) {
+    return json({ error: 'appId is required' }, { status: 400 });
   }
 
   try {
     const result = await gqlClient(locals.token).request<{
-      regenerateApiKey: { rawKey: string };
-    }>(REGENERATE_API_KEY_MUTATION, { id: stationId });
+      regenerateAppKey: { rawKey: string };
+    }>(REGENERATE_APP_KEY_MUTATION, { id: appId });
 
-    return json({ rawKey: result.regenerateApiKey.rawKey });
+    return json({ rawKey: result.regenerateAppKey.rawKey });
   } catch (e: unknown) {
     return json(
       { error: e instanceof Error ? e.message : 'Failed to regenerate key' },

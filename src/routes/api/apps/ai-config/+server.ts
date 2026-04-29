@@ -1,9 +1,9 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
-  STATION_AI_CONFIG_QUERY,
-  UPDATE_STATION_AI_CONFIG_MUTATION,
-  CLEAR_STATION_AI_CONFIG_MUTATION,
+  APP_AI_CONFIG_QUERY,
+  UPDATE_APP_AI_CONFIG_MUTATION,
+  CLEAR_APP_AI_CONFIG_MUTATION,
 } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 
@@ -12,21 +12,21 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const stationId = url.searchParams.get('stationId');
-  if (!stationId) {
-    return json({ error: 'stationId is required' }, { status: 400 });
+  const appId = url.searchParams.get('appId');
+  if (!appId) {
+    return json({ error: 'appId is required' }, { status: 400 });
   }
 
   try {
     const data = await gqlClient(locals.token).request<{
-      stationAIConfig: { provider: string; apiKey: string; model: string } | null;
-    }>(STATION_AI_CONFIG_QUERY, { stationId });
+      appAIConfig: { provider: string; apiKey: string; model: string } | null;
+    }>(APP_AI_CONFIG_QUERY, { appId });
 
-    if (!data.stationAIConfig) {
+    if (!data.appAIConfig) {
       return json({ provider: null, apiKey: null, model: null });
     }
 
-    return json(data.stationAIConfig);
+    return json(data.appAIConfig);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed to load AI config';
     return json({ error: msg }, { status: 500 });
@@ -38,26 +38,26 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { stationId, provider, apiKey, model } = await request.json();
+  const { appId, provider, apiKey, model } = await request.json();
 
-  if (!stationId || !provider || !apiKey || !model) {
+  if (!appId || !provider || !apiKey || !model) {
     return json(
-      { error: 'stationId, provider, apiKey, and model are required' },
+      { error: 'appId, provider, apiKey, and model are required' },
       { status: 400 },
     );
   }
 
   try {
     const result = await gqlClient(locals.token).request<{
-      updateStation: { aiProvider: string; aiModel: string; hasAiApiKey: boolean };
-    }>(UPDATE_STATION_AI_CONFIG_MUTATION, {
-      id: stationId,
+      updateApp: { aiProvider: string; aiModel: string; hasAiApiKey: boolean };
+    }>(UPDATE_APP_AI_CONFIG_MUTATION, {
+      id: appId,
       aiProvider: provider,
       aiModel: model,
       aiApiKey: apiKey,
     });
 
-    return json({ ok: true, station: result.updateStation });
+    return json({ ok: true, app: result.updateApp });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Failed to save AI config';
     return json({ error: msg }, { status: 500 });
@@ -69,15 +69,15 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { stationId } = await request.json();
+  const { appId } = await request.json();
 
-  if (!stationId) {
-    return json({ error: 'stationId is required' }, { status: 400 });
+  if (!appId) {
+    return json({ error: 'appId is required' }, { status: 400 });
   }
 
   try {
-    await gqlClient(locals.token).request(CLEAR_STATION_AI_CONFIG_MUTATION, {
-      id: stationId,
+    await gqlClient(locals.token).request(CLEAR_APP_AI_CONFIG_MUTATION, {
+      id: appId,
       aiProvider: null,
       aiModel: null,
       aiApiKey: null,

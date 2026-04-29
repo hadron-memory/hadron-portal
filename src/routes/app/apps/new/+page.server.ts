@@ -1,7 +1,7 @@
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { CREATE_STATION_MUTATION, UPDATE_STATION_MUTATION, MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
+import { CREATE_APP_MUTATION, UPDATE_APP_MUTATION, MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -19,7 +19,7 @@ export const actions: Actions = {
     const urn = String(fd.get('urn') ?? '').trim();
     const displayName = String(fd.get('displayName') ?? '').trim();
     const name = urn || displayName;
-    const stationType = String(fd.get('stationType') ?? 'WORKSTATION');
+    const appType = String(fd.get('appType') ?? 'WORKSTATION');
     const role = String(fd.get('role') ?? 'READER');
     const organizationId = String(fd.get('organizationId') ?? '').trim() || null;
     const description = String(fd.get('description') ?? '').trim() || null;
@@ -28,22 +28,22 @@ export const actions: Actions = {
 
     if (!name) return fail(400, { error: 'Name is required' });
 
+    if (!organizationId) return fail(400, { error: 'Organization is required' });
+
     try {
-      const data = await gqlClient(locals.token).request<{ createStation: { station: { id: string }; rawKey: string } }>(
-        CREATE_STATION_MUTATION,
-        { name, stationType, role, organizationId, userId: locals.user?.id ?? null, description, expiresAt, agentTools },
+      const data = await gqlClient(locals.token).request<{ createApp: { id: string } }>(
+        CREATE_APP_MUTATION,
+        { orgId: organizationId, name, appType, role, description, expiresAt, agentTools },
       );
-      // If display name differs from slug, update the name to the human-friendly version
       if (displayName && displayName !== name) {
-        await gqlClient(locals.token).request(UPDATE_STATION_MUTATION, {
-          id: data.createStation.station.id, name: displayName,
-        }).catch(() => {}); // best-effort
+        await gqlClient(locals.token).request(UPDATE_APP_MUTATION, {
+          id: data.createApp.id, name: displayName,
+        }).catch(() => {});
       }
-      // Pass the rawKey via search param so the detail page can show it once
-      redirect(303, `/app/stations/${data.createStation.station.id}?newKey=${encodeURIComponent(data.createStation.rawKey)}`);
+      redirect(303, `/app/apps/${data.createApp.id}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create station' });
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create app' });
     }
   },
 };

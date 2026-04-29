@@ -16,7 +16,7 @@
         { label: 'Agents' },
       ]} />
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{org.name}'s Agents</h1>
-      <p class="text-sm text-zinc-500">Group memories into agents for station subscriptions.</p>
+      <p class="text-sm text-zinc-500">Group memories into agents for app subscriptions.</p>
     </div>
     <div class="flex items-center gap-2">
       <a href="/app/orgs/{org.id}/create-chatbot" class="rounded-lg px-4 py-2 text-sm font-medium text-white" style="background: #fb8500;">
