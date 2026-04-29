@@ -82,7 +82,6 @@ export const APP_FIELDS = /* GraphQL */ `
     name
     urn
     organizationId
-    # Absorbed from Station in 003-station-to-app Phase 1 (2026-04-28).
     appType
     role
     description
@@ -548,8 +547,7 @@ export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
 
 // ---------------------------------------------------------------------------
 // App mutations (App is the unified caller-identity entity per
-// Constitution Invariant #6; the legacy Station-shaped mutations were
-// removed in 003-station-to-app Phase 3a-2)
+// Constitution Invariant #6).
 // ---------------------------------------------------------------------------
 
 export const CREATE_APP_MUTATION = /* GraphQL */ `
@@ -1143,7 +1141,4 @@ export const APPS_QUERY = /* GraphQL */ `
 // Memory section) — APP_QUERY, CREATE_APP_MUTATION, UPDATE_APP_MUTATION,
 // DELETE_APP_MUTATION, ADD_AGENT_TO_APP_MUTATION,
 // REMOVE_AGENT_FROM_APP_MUTATION, CREATE_APP_KEY_MUTATION,
-// REVOKE_APP_KEY_MUTATION. Their pre-existing duplicates here were
-// removed in 003-station-to-app Phase 3b (2026-04-29) when the
-// Station-shaped surface was migrated and the App-shaped surface was
-// extended with the absorbed Station fields.
+// REVOKE_APP_KEY_MUTATION.

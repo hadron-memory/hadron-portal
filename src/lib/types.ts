@@ -85,7 +85,6 @@ export interface App {
   name: string;
   urn: string;
   organizationId: string;
-  // Absorbed from Station in 003-station-to-app Phase 1
   appType: AppType;
   role: AppMembershipRole;
   description: string | null;
