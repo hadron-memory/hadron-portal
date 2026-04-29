@@ -4,19 +4,19 @@
   import { marked } from 'marked';
   import { t } from '$lib/i18n/t';
   import { isMessageStreaming } from './chat-streaming';
-  import type { StationAIConfig } from '$lib/types';
+  import type { AppAIConfig } from '$lib/types';
 
-  let { config, stationId, systemPrompt = '' }: { config: StationAIConfig; stationId: string; systemPrompt?: string } = $props();
+  let { config, appId, systemPrompt = '' }: { config: AppAIConfig; appId: string; systemPrompt?: string } = $props();
 
   // Intentionally capture initial values — component is re-created via {#key} when these change
-  const initialStationId = stationId;
+  const initialAppId = appId;
   const initialSystemPrompt = systemPrompt;
 
   const chat = new Chat({
     transport: new DefaultChatTransport({
       api: '/api/chat',
       body: {
-        stationId: initialStationId,
+        appId: initialAppId,
         systemPrompt: initialSystemPrompt,
       },
     }),

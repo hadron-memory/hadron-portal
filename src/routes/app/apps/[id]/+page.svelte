@@ -8,19 +8,19 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import { chatContext } from '$lib/stores/chat-context';
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
-  import type { AIProvider, StationAIConfig } from '$lib/types';
+  import type { AIProvider, AppAIConfig } from '$lib/types';
   import Chat from '$lib/components/Chat.svelte';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import { onMount, onDestroy } from 'svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
-  const station = $derived(data.station);
+  const app = $derived(data.app);
 
   // ── Tab state ──────────────────────────────────────────────────────────
   type TabId = 'chat' | 'memory' | 'settings' | 'client';
-  const isChatbot = $derived(station.stationType === 'CHATBOT');
-  let activeTab = $state<TabId>(station.stationType === 'CHATBOT' ? 'chat' : 'memory');
+  const isChatbot = $derived(app.appType === 'CHATBOT');
+  let activeTab = $state<TabId>(app.appType === 'CHATBOT' ? 'chat' : 'memory');
   const tabs = $derived<{ id: TabId; label: string }[]>([
     ...(isChatbot ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
     { id: 'memory', label: 'Memory' },
@@ -28,23 +28,23 @@
     ...(!isChatbot ? [{ id: 'client' as TabId, label: 'Client' }] : []),
   ]);
 
-  // ── Station context for chatbot ────────────────────────────────────────
+  // ── App context for chatbot ────────────────────────────────────────
   $effect(() => {
-    const agents = (station.agentSubscriptions ?? []).map((s) => s.agent.name);
-    const tools = station.agentTools ?? [];
+    const agents = (app.agentSubscriptions ?? []).map((s) => s.agent.name);
+    const tools = app.agentTools ?? [];
     chatContext.set({
       pageContext: [
-        `The user is viewing station "${station.name}" (type: ${station.stationType}).`,
-        station.description ? `Description: ${station.description}` : '',
+        `The user is viewing app "${app.name}" (type: ${app.appType}).`,
+        app.description ? `Description: ${app.description}` : '',
         agents.length ? `Subscribed agents: ${agents.join(', ')}.` : 'No agents subscribed yet.',
         tools.length ? `Selected AI tools: ${tools.join(', ')}.` : 'No AI tools selected yet.',
-        `Station URN: ${station.urn}`,
-        `Help this user configure Hadron for their station.`,
+        `App URN: ${app.urn}`,
+        `Help this user configure Hadron for their app.`,
       ].filter(Boolean).join('\n'),
-      stationId: station.id,
-      aiProvider: station.aiProvider,
-      aiModel: station.aiModel,
-      hasAiApiKey: station.hasAiApiKey,
+      appId: app.id,
+      aiProvider: app.aiProvider,
+      aiModel: app.aiModel,
+      hasAiApiKey: app.hasAiApiKey,
     });
   });
 
@@ -53,7 +53,7 @@
   });
 
   // ── Agent/memory computed state ────────────────────────────────────────
-  const subscribedAgentIds = $derived(new Set((station.agentSubscriptions ?? []).map((s) => s.agent.id)));
+  const subscribedAgentIds = $derived(new Set((app.agentSubscriptions ?? []).map((s) => s.agent.id)));
   const availableAgents = $derived(
     (data.orgs ?? []).flatMap((o) => o.agents ?? []).filter((a) => !subscribedAgentIds.has(a.id))
   );
@@ -64,7 +64,7 @@
   interface EffectiveMemory { id: string; urn: string; name: string; access: 'read' | 'read-write'; agentName: string }
   const effectiveMemories = $derived.by(() => {
     const map = new Map<string, EffectiveMemory>();
-    for (const sub of station.agentSubscriptions ?? []) {
+    for (const sub of app.agentSubscriptions ?? []) {
       for (const item of sub.agent.memoryItems ?? []) {
         const effective = sub.subscriptionType === 'READ_WRITE' && item.role === 'read-write'
           ? 'read-write' as const : 'read' as const;
@@ -84,9 +84,9 @@
 
 
   // ── AI chat config ─────────────────────────────────────────────────────
-  let aiProvider = $state<AIProvider>((station.aiProvider as AIProvider) ?? 'openai');
+  let aiProvider = $state<AIProvider>((app.aiProvider as AIProvider) ?? 'openai');
   let aiApiKey = $state('');
-  let aiModel = $state(station.aiModel ?? DEFAULT_MODELS['openai']);
+  let aiModel = $state(app.aiModel ?? DEFAULT_MODELS['openai']);
   let stBedrockAccessKeyId = $state('');
   let stBedrockSecretAccessKey = $state('');
   let stBedrockRegion = $state('us-east-1');
@@ -95,13 +95,13 @@
   let aiEditing = $state(false);
   let memoriesOpen = $state(false);
 
-  let aiConfig = $derived<StationAIConfig>({ provider: aiProvider, apiKey: aiApiKey, model: aiModel });
+  let aiConfig = $derived<AppAIConfig>({ provider: aiProvider, apiKey: aiApiKey, model: aiModel });
 
   // Load saved AI config on mount — auto-start chat if config exists
   onMount(async () => {
-    if (station.hasAiApiKey) {
+    if (app.hasAiApiKey) {
       try {
-        const res = await fetch(`/api/stations/ai-config?stationId=${station.id}`);
+        const res = await fetch(`/api/apps/ai-config?appId=${app.id}`);
         if (res.ok) {
           const { provider, apiKey, model } = await res.json();
           if (provider && apiKey && model) {
@@ -132,10 +132,10 @@
       resolvedKey = aiApiKey;
     }
     try {
-      const res = await fetch('/api/stations/ai-config', {
+      const res = await fetch('/api/apps/ai-config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stationId: station.id, provider: aiProvider, apiKey: resolvedKey, model: aiModel }),
+        body: JSON.stringify({ appId: app.id, provider: aiProvider, apiKey: resolvedKey, model: aiModel }),
       });
       if (!res.ok) return;
       aiApiKey = resolvedKey;
@@ -162,16 +162,16 @@
 
   let downloading = $state(false);
   let agentToolsForm = $state<HTMLFormElement>();
-  let selectedTools = $derived(new Set(station.agentTools ?? []));
+  let selectedTools = $derived(new Set(app.agentTools ?? []));
   let withClientApp = $state(false);
   let newKeyLabel = $state('');
-  let stationKeys = $state<typeof data.stationKeys>([]);
+  let appKeys = $state<typeof data.appKeys>([]);
 
   // Keep keys in sync when data changes (e.g. after form action)
-  $effect(() => { stationKeys = data.stationKeys ?? []; });
+  $effect(() => { appKeys = data.appKeys ?? []; });
 
 
-  const activeKeys = $derived(stationKeys.filter((k) => !k.revokedAt));
+  const activeKeys = $derived(appKeys.filter((k) => !k.revokedAt));
   let newKeySectionOpen = $state(false);
 
   // Sanitize label the same way the server does
@@ -260,7 +260,7 @@
 
   async function generateAndDownloadZip(apiKey: string, keyLabel: string) {
     const zip = new JSZip();
-    const tools = station.agentTools ?? [];
+    const tools = app.agentTools ?? [];
     const url = mcpUrl;
 
     // ── Claude Code: generate plugin directory ──────────────────────────
@@ -268,7 +268,7 @@
       const pluginManifest: Record<string, unknown> = {
         name: 'hadron',
         version: '1.0.0',
-        description: `Hadron knowledge memory for station "${station.name}"`,
+        description: `Hadron knowledge memory for app "${app.name}"`,
         author: { name: 'Baragaun', url: 'https://hadronmemory.com' },
         homepage: 'https://hadronmemory.com',
         license: 'MIT',
@@ -291,7 +291,7 @@
         plugins: [{
           name: 'hadron',
           source: './plugins/hadron',
-          description: `Hadron knowledge memory for station "${station.name}"`,
+          description: `Hadron knowledge memory for app "${app.name}"`,
           version: '1.0.0',
           author: { name: 'Baragaun' },
         }],
@@ -311,7 +311,7 @@ description: Learn how to use Hadron knowledge memory in this project
 
 You are helping the user get started with Hadron, a knowledge memory platform for AI agents.
 
-This project is connected to Hadron station "${station.name}".
+This project is connected to Hadron app "${app.name}".
 
 Available MCP tools:
 - **h-start-session** / **h-end-session** — Track work sessions
@@ -369,7 +369,7 @@ Present the results concisely.
       // For non-plugin users, also provide standalone settings.json
       if (tools.includes('CLAUDE_CODE'))
         zip.file('.claude/settings.json', JSON.stringify(claudeCodeHooksConfig(), null, 2));
-      zip.file('.hadron/config.json', JSON.stringify({ stationKey: apiKey, defaultLevel: 'guided' }, null, 2));
+      zip.file('.hadron/config.json', JSON.stringify({ appKey: apiKey, defaultLevel: 'guided' }, null, 2));
     }
 
     // ── Common files ───────────────────────────────────────────────────
@@ -543,42 +543,42 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
     const label = trimmedLabel;
     downloading = true;
     try {
-      const res = await fetch('/api/create-station-key', {
+      const res = await fetch('/api/create-app-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stationId: station.id, label }),
+        body: JSON.stringify({ appId: app.id, label }),
       });
       if (!res.ok) { alert('Failed to create client key.'); return; }
       const { key, rawKey } = await res.json();
       if (!rawKey) { alert('Failed to create client key.'); return; }
       // Add the new key to the local list immediately
-      stationKeys = [{ ...key, stationId: station.id, userId: station.userId ?? '', lastUsedAt: null, revokedAt: null }, ...stationKeys];
+      appKeys = [{ ...key, appId: app.id, lastUsedAt: null, revokedAt: null }, ...appKeys];
       newKeyLabel = '';
       await generateAndDownloadZip(rawKey, label);
     } finally { downloading = false; }
   }
 </script>
 
-<svelte:head><title>{station.name} · Hadron</title></svelte:head>
+<svelte:head><title>{app.name} · Hadron</title></svelte:head>
 
 <div class="space-y-4">
   <!-- Breadcrumb + Header -->
   <Breadcrumb items={[
     { label: 'Dashboard', href: '/app/dashboard' },
-    { label: 'Stations', href: '/app/stations' },
-    { label: station.name },
+    { label: 'Apps', href: '/app/apps' },
+    { label: app.name },
   ]} />
 
   <div class="flex items-center gap-3">
     <div>
       <h1 class="flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
-        <span>{typeIcon[station.stationType] ?? '🔑'}</span>
-        <span><span class="text-zinc-400 font-normal">Station:</span> {station.name}</span>
-        {#if !hasWritableMemory && (station.agentSubscriptions?.length ?? 0) > 0}
+        <span>{typeIcon[app.appType] ?? '🔑'}</span>
+        <span><span class="text-zinc-400 font-normal">App:</span> {app.name}</span>
+        {#if !hasWritableMemory && (app.agentSubscriptions?.length ?? 0) > 0}
           <span class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">read-only</span>
         {/if}
       </h1>
-      <Urn value={station.urn} type="station" />
+      <Urn value={app.urn} type="app" />
     </div>
   </div>
 
@@ -609,12 +609,12 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       {#if chatActive}
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
           {#key chatKey}
-            <Chat config={aiConfig} stationId={station.id} systemPrompt={data.station ? [
-              station.systemPrompt ?? '',
-              `Station: "${station.name}" (${station.stationType})`,
-              `URN: ${station.urn}`,
-              (station.agentSubscriptions ?? []).length ? `Agents: ${(station.agentSubscriptions ?? []).map(s => s.agent.name).join(', ')}` : '',
-              ...(station.agentSubscriptions ?? []).filter(s => s.agent.systemPrompt).map(s => s.agent.systemPrompt),
+            <Chat config={aiConfig} appId={app.id} systemPrompt={data.app ? [
+              app.systemPrompt ?? '',
+              `App: "${app.name}" (${app.appType})`,
+              `URN: ${app.urn}`,
+              (app.agentSubscriptions ?? []).length ? `Agents: ${(app.agentSubscriptions ?? []).map(s => s.agent.name).join(', ')}` : '',
+              ...(app.agentSubscriptions ?? []).filter(s => s.agent.systemPrompt).map(s => s.agent.systemPrompt),
             ].filter(Boolean).join('\n') : ''} />
           {/key}
         </div>
@@ -640,7 +640,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
   <!-- MEMORY TAB (shared MemoryBrowser component)                       -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'memory'}
-    <MemoryBrowser nodes={data.stationNodes ?? []} multiMemory={true} {writableMemoryIds} />
+    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} {writableMemoryIds} />
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
@@ -651,7 +651,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       <!-- Properties -->
       <section class="max-w-lg">
         <div class="mb-4 flex items-center justify-between">
-          <h2 class="font-semibold text-zinc-900 dark:text-white">Station</h2>
+          <h2 class="font-semibold text-zinc-900 dark:text-white">App</h2>
           {#if !isEditing}
             <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
           {/if}
@@ -662,41 +662,41 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
             <div>
               <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-              <input id="editName" name="name" type="text" value={station.name}
+              <input id="editName" name="name" type="text" value={app.name}
                 class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
             </div>
             <div>
               <label for="editType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
-              <select id="editType" name="stationType" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="WORKSTATION" selected={station.stationType === 'WORKSTATION'}>Workstation</option>
-                <option value="CHATBOT" selected={station.stationType === 'CHATBOT'}>Chatbot</option>
-                <option value="AGENT" selected={station.stationType === 'AGENT'}>Agent</option>
-                <option value="CLOUD" selected={station.stationType === 'CLOUD'}>Cloud</option>
-                <option value="IOT" selected={station.stationType === 'IOT'}>IoT</option>
+              <select id="editType" name="appType" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="WORKSTATION" selected={app.appType === 'WORKSTATION'}>Workstation</option>
+                <option value="CHATBOT" selected={app.appType === 'CHATBOT'}>Chatbot</option>
+                <option value="AGENT" selected={app.appType === 'AGENT'}>Agent</option>
+                <option value="CLOUD" selected={app.appType === 'CLOUD'}>Cloud</option>
+                <option value="IOT" selected={app.appType === 'IOT'}>IoT</option>
               </select>
             </div>
             <div>
               <label for="editRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Role</label>
               <select id="editRole" name="role" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="READER" selected={station.role === 'READER'}>Reader</option>
-                <option value="CONTRIBUTOR" selected={station.role === 'CONTRIBUTOR'}>Contributor</option>
-                <option value="ADMIN" selected={station.role === 'ADMIN'}>Admin</option>
+                <option value="READER" selected={app.role === 'READER'}>Reader</option>
+                <option value="CONTRIBUTOR" selected={app.role === 'CONTRIBUTOR'}>Contributor</option>
+                <option value="ADMIN" selected={app.role === 'ADMIN'}>Admin</option>
               </select>
             </div>
             <div>
               <label for="editUrn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
-              <input id="editUrn" name="urn" type="text" value={station.urn} placeholder="e.g. myorg:my-station"
+              <input id="editUrn" name="urn" type="text" value={app.urn} placeholder="e.g. myorg:my-app"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm font-mono text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
             </div>
             <div>
               <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-              <input id="editDescription" name="description" type="text" value={station.description ?? ''} placeholder="What this station is for"
+              <input id="editDescription" name="description" type="text" value={app.description ?? ''} placeholder="What this app is for"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
             </div>
             <div>
               <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this station"
-                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500">{station.systemPrompt ?? ''}</textarea>
+              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this app"
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500">{app.systemPrompt ?? ''}</textarea>
               <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
             </div>
             <div class="flex gap-3">
@@ -708,32 +708,26 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Type</span>
-              <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.stationType}</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.appType}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Role</span>
-              <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.role}</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.role}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">URN</span>
-              <span class="text-sm font-mono text-zinc-900 dark:text-white">{station.urn}</span>
+              <span class="text-sm font-mono text-zinc-900 dark:text-white">{app.urn}</span>
             </div>
-            {#if station.description}
+            {#if app.description}
               <div class="flex items-center justify-between px-5 py-3">
                 <span class="text-sm text-zinc-500">Description</span>
-                <span class="text-sm text-zinc-900 dark:text-white">{station.description}</span>
+                <span class="text-sm text-zinc-900 dark:text-white">{app.description}</span>
               </div>
             {/if}
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Created</span>
-              <span class="text-sm text-zinc-900 dark:text-white">{new Date(station.createdAt).toLocaleDateString()}</span>
+              <span class="text-sm text-zinc-900 dark:text-white">{new Date(app.createdAt).toLocaleDateString()}</span>
             </div>
-            {#if station.lastUsedAt}
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">Last used</span>
-                <span class="text-sm text-zinc-900 dark:text-white">{new Date(station.lastUsedAt).toLocaleDateString()}</span>
-              </div>
-            {/if}
           </div>
         {/if}
       </section>
@@ -741,12 +735,12 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       <!-- Agents -->
       <section>
         <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Agents
-          <span class="ml-1 text-sm font-normal text-zinc-500">({station.agentSubscriptions?.length ?? 0})</span>
+          <span class="ml-1 text-sm font-normal text-zinc-500">({app.agentSubscriptions?.length ?? 0})</span>
         </h2>
 
-        {#if station.agentSubscriptions?.length}
+        {#if app.agentSubscriptions?.length}
           <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-            {#each station.agentSubscriptions as sub (sub.id)}
+            {#each app.agentSubscriptions as sub (sub.agentId)}
               <div class="flex w-full items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
                 <span class="text-base">🤖</span>
                 <div class="flex-1 min-w-0">
@@ -865,13 +859,13 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                   <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
                 </select>
               </div>
-              <p class="mt-1 text-[10px] text-zinc-400">Credentials are encrypted and stored on the server for this station.</p>
+              <p class="mt-1 text-[10px] text-zinc-400">Credentials are encrypted and stored on the server for this app.</p>
             {:else}
               <div>
                 <label for="ai-key" class="mb-1 block text-xs text-zinc-500">API Key</label>
                 <input id="ai-key" type="password" bind:value={aiApiKey} placeholder="sk-..."
                   class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
-                <p class="mt-1 text-[10px] text-zinc-400">Encrypted and stored on the server for this station.</p>
+                <p class="mt-1 text-[10px] text-zinc-400">Encrypted and stored on the server for this app.</p>
               </div>
             {/if}
             <div>
@@ -891,15 +885,15 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Provider</span>
-              <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.aiProvider ?? '—'}</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.aiProvider ?? '—'}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Model</span>
-              <span class="text-sm font-medium text-zinc-900 dark:text-white">{station.aiModel ?? '—'}</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.aiModel ?? '—'}</span>
             </div>
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">API Key</span>
-              <span class="text-sm text-zinc-900 dark:text-white">{station.hasAiApiKey ? 'Configured' : 'Not set'}</span>
+              <span class="text-sm text-zinc-900 dark:text-white">{app.hasAiApiKey ? 'Configured' : 'Not set'}</span>
             </div>
           </div>
         {/if}
@@ -910,11 +904,11 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       <section class="max-w-lg border-t border-zinc-200 pt-6 dark:border-zinc-800">
         <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
         <form method="POST" action="?/revoke" use:enhance onsubmit={(e) => {
-          if (!confirm(`Delete station "${station.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
-          else goto('/app/stations');
+          if (!confirm(`Delete app "${app.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
+          else goto('/app/apps');
         }}>
           <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
-            Delete station
+            Delete app
           </button>
         </form>
       </section>
@@ -926,7 +920,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'client'}
     <div class="max-w-lg space-y-8">
-      {#if station.stationType !== 'CHATBOT'}
+      {#if app.appType !== 'CHATBOT'}
 
         <!-- Client Keys list -->
         <section>
@@ -1040,7 +1034,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         </section>
 
       {:else}
-        <p class="text-sm text-zinc-500">Client configuration is not available for chatbot stations.</p>
+        <p class="text-sm text-zinc-500">Client configuration is not available for chatbot apps.</p>
       {/if}
     </div>
   {/if}

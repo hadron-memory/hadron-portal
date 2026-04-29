@@ -85,18 +85,35 @@ export interface App {
   name: string;
   urn: string;
   organizationId: string;
+  // Absorbed from Station in 003-station-to-app Phase 1
+  appType: AppType;
+  role: AppMembershipRole;
+  description: string | null;
+  systemPrompt: string | null;
+  agentTools: string[];
+  aiProvider: string | null;
+  aiModel: string | null;
+  hasAiApiKey: boolean;
+  expiresAt: string | null;
+  // App-original fields
   createUserPermission: 'DENY' | 'EXPLICIT' | 'IMPLICIT';
   identifyUserMethod: 'USER_ID' | 'SECRET';
   sessionTimeoutSeconds: number;
   anonymousTtlDays: number;
   agents: Array<{ id: string; urn: string; name: string }>;
+  agentSubscriptions?: AppAgentSub[];
   keys: AppKey[];
   createdAt: string;
   updatedAt: string | null;
 }
 
+export type AppType = 'WORKSTATION' | 'CHATBOT' | 'AGENT' | 'AUTOMATION' | 'CLOUD' | 'IOT';
+export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
+export type AppAgentRole = 'OPERATE' | 'DEVELOP';
+
 export interface AppKey {
   id: string;
+  appId?: string;
   keyPreview: string;
   label: string | null;
   createdAt: string;
@@ -110,9 +127,11 @@ export interface AgentMemoryItem {
   memory: { id: string; urn: string; name: string; visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION' };
 }
 
-export interface StationAgentSub {
-  id: string;
+export interface AppAgentSub {
+  appId: string;
+  agentId: string;
   agent: { id: string; urn: string; name: string; description: string | null; systemPrompt?: string | null; memoryItems?: AgentMemoryItem[] };
+  role: AppAgentRole;
   subscriptionType: 'READ_ONLY' | 'READ_WRITE';
   trainingMode: boolean;
   createdAt: string;
@@ -216,7 +235,7 @@ export interface UsageEvent {
   id: string;
   type: string;
   nodeLoc: string | null;
-  stationId: string | null;
+  appId: string | null;
   sessionId: string | null;
   model: string | null;
   tokensIn: number | null;
@@ -277,42 +296,6 @@ export interface GraphViewData {
 }
 
 // ---------------------------------------------------------------------------
-// Station types
-// ---------------------------------------------------------------------------
-
-export interface StationKey {
-  id: string;
-  stationId: string;
-  userId: string;
-  label: string | null;
-  keyPreview: string | null;
-  lastUsedAt: string | null;
-  createdAt: string;
-  revokedAt: string | null;
-}
-
-export interface Station {
-  id: string;
-  urn: string;
-  name: string;
-  stationType: string;
-  description: string | null;
-  systemPrompt: string | null;
-  role: string;
-  agentTools: string[];
-  organizationId: string | null;
-  userId: string | null;
-  expiresAt: string | null;
-  createdAt: string;
-  lastUsedAt: string | null;
-  aiProvider: string | null;
-  aiModel: string | null;
-  hasAiApiKey: boolean;
-  user?: UserSummary | null;
-  agentSubscriptions?: StationAgentSub[];
-}
-
-// ---------------------------------------------------------------------------
 // Exchange integration
 // ---------------------------------------------------------------------------
 
@@ -331,12 +314,12 @@ export interface ExchangeConnection {
 }
 
 // ---------------------------------------------------------------------------
-// AI provider config (encrypted at rest on the station)
+// AI provider config (encrypted at rest on the App)
 // ---------------------------------------------------------------------------
 
 export type AIProvider = 'anthropic' | 'openai' | 'glm' | 'bedrock';
 
-export interface StationAIConfig {
+export interface AppAIConfig {
   provider: AIProvider;
   apiKey: string;
   model: string;

@@ -25,12 +25,12 @@
   const selectedOrg = $derived(data.orgs.find((o) => o.id === selectedOrgId));
 </script>
 
-<svelte:head><title>New station · Hadron</title></svelte:head>
+<svelte:head><title>New app · Hadron</title></svelte:head>
 
 <div class="max-w-lg">
   <div class="mb-6">
-    <a href="/app/stations" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Stations</a>
-    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">New station</h1>
+    <a href="/app/apps" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← Apps</a>
+    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">New app</h1>
   </div>
 
   <form method="POST" use:enhance class="space-y-5">
@@ -65,8 +65,8 @@
     </div>
 
     <div>
-      <label for="stationType" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
-      <select id="stationType" name="stationType" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+      <label for="appType" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+      <select id="appType" name="appType" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
         <option value="WORKSTATION">💻 Workstation</option>
         <option value="CHATBOT">💬 Chatbot</option>
         <option value="AGENT">🤖 Agent</option>
@@ -110,7 +110,7 @@
     </div>
 
     <button type="submit" class="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">
-      Create station
+      Create app
     </button>
   </form>
 </div>

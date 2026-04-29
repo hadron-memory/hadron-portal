@@ -27,7 +27,7 @@
   }
 
   interface Session {
-    id: string; type: string; stationId: string | null; repo: string | null; branch: string | null;
+    id: string; type: string; appId: string | null; repo: string | null; branch: string | null;
     llmModel: string | null; summary: string | null; inputTokens: number | null; outputTokens: number | null;
     turnCount: number | null; errorCount: number | null; startedAt: string; endedAt: string | null;
   }

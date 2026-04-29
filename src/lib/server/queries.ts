@@ -50,48 +50,6 @@ export const ORG_FIELDS = /* GraphQL */ `
   }
 `;
 
-export const STATION_FIELDS = /* GraphQL */ `
-  fragment StationFields on Station {
-    id
-    urn
-    name
-    stationType
-    description
-    systemPrompt
-    role
-    agentTools
-    organizationId
-    userId
-    expiresAt
-    createdAt
-    lastUsedAt
-    aiProvider
-    aiModel
-    hasAiApiKey
-  }
-`;
-
-export const STATION_AGENT_SUB_FIELDS = /* GraphQL */ `
-  fragment StationAgentSubFields on StationAgentSub {
-    id
-    agent {
-      id
-      urn
-      name
-      description
-      systemPrompt
-      memoryItems {
-        id
-        role
-        memory { id urn name }
-      }
-    }
-    subscriptionType
-    trainingMode
-    createdAt
-  }
-`;
-
 export const AGENT_FIELDS = /* GraphQL */ `
   fragment AgentFields on Agent {
     id
@@ -124,6 +82,17 @@ export const APP_FIELDS = /* GraphQL */ `
     name
     urn
     organizationId
+    # Absorbed from Station in 003-station-to-app Phase 1 (2026-04-28).
+    appType
+    role
+    description
+    systemPrompt
+    agentTools
+    aiProvider
+    aiModel
+    hasAiApiKey
+    expiresAt
+    # App-original fields
     createUserPermission
     identifyUserMethod
     sessionTimeoutSeconds
@@ -139,6 +108,29 @@ export const APP_FIELDS = /* GraphQL */ `
     }
     createdAt
     updatedAt
+  }
+`;
+
+export const APP_AGENT_SUB_FIELDS = /* GraphQL */ `
+  fragment AppAgentSubFields on AppAgentSub {
+    appId
+    agentId
+    agent {
+      id
+      urn
+      name
+      description
+      systemPrompt
+      memoryItems {
+        id
+        role
+        memory { id urn name }
+      }
+    }
+    role
+    subscriptionType
+    trainingMode
+    createdAt
   }
 `;
 
@@ -308,25 +300,24 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
   }
 `;
 
-export const MY_STATIONS_QUERY = /* GraphQL */ `
-  ${STATION_FIELDS}
-  ${STATION_AGENT_SUB_FIELDS}
-  query MyStations {
-    myStations {
-      ...StationFields
-      agentSubscriptions { ...StationAgentSubFields }
+export const MY_APPS_QUERY = /* GraphQL */ `
+  ${APP_FIELDS}
+  ${APP_AGENT_SUB_FIELDS}
+  query MyApps {
+    myApps {
+      ...AppFields
+      agentSubscriptions { ...AppAgentSubFields }
     }
   }
 `;
 
-export const STATION_QUERY = /* GraphQL */ `
-  ${STATION_FIELDS}
-  ${STATION_AGENT_SUB_FIELDS}
-  query Station($id: ID!) {
-    station(id: $id) {
-      ...StationFields
-      user { id handle githubUsername name avatarUrl email }
-      agentSubscriptions { ...StationAgentSubFields }
+export const APP_QUERY = /* GraphQL */ `
+  ${APP_FIELDS}
+  ${APP_AGENT_SUB_FIELDS}
+  query App($id: ID!) {
+    app(id: $id) {
+      ...AppFields
+      agentSubscriptions { ...AppAgentSubFields }
     }
   }
 `;
@@ -556,123 +547,141 @@ export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
 `;
 
 // ---------------------------------------------------------------------------
-// Station mutations
+// App mutations (App is the unified caller-identity entity per
+// Constitution Invariant #6; the legacy Station-shaped mutations were
+// removed in 003-station-to-app Phase 3a-2)
 // ---------------------------------------------------------------------------
 
-export const CREATE_STATION_MUTATION = /* GraphQL */ `
-  ${STATION_FIELDS}
-  mutation CreateStation(
-    $name: String!, $stationType: StationType!, $role: Role!,
-    $description: String,
-    $organizationId: String, $userId: String, $expiresAt: String,
-    $agentTools: [String!]
+export const CREATE_APP_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  mutation CreateApp(
+    $orgId: ID!, $name: String!, $appType: AppType, $role: AppMembershipRole,
+    $description: String, $systemPrompt: String,
+    $expiresAt: String, $agentTools: [String!],
+    $aiProvider: String, $aiModel: String, $aiApiKey: String
   ) {
-    createStation(
-      name: $name, stationType: $stationType, role: $role,
-      description: $description,
-      organizationId: $organizationId, userId: $userId, expiresAt: $expiresAt,
-      agentTools: $agentTools
+    createApp(
+      orgId: $orgId, name: $name, appType: $appType, role: $role,
+      description: $description, systemPrompt: $systemPrompt,
+      expiresAt: $expiresAt, agentTools: $agentTools,
+      aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey
     ) {
-      rawKey
-      station { ...StationFields }
+      ...AppFields
     }
   }
 `;
 
-export const UPDATE_STATION_MUTATION = /* GraphQL */ `
-  ${STATION_FIELDS}
-  mutation UpdateStation($id: ID!, $name: String, $urn: String, $stationType: StationType, $description: String, $systemPrompt: String, $agentTools: [String!], $aiProvider: String, $aiModel: String, $aiApiKey: String) {
-    updateStation(id: $id, name: $name, urn: $urn, stationType: $stationType, description: $description, systemPrompt: $systemPrompt, agentTools: $agentTools, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
-      ...StationFields
+export const UPDATE_APP_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  mutation UpdateApp(
+    $id: ID!, $name: String, $urn: String, $appType: AppType,
+    $description: String, $systemPrompt: String, $agentTools: [String!],
+    $aiProvider: String, $aiModel: String, $aiApiKey: String,
+    $expiresAt: String
+  ) {
+    updateApp(
+      id: $id, name: $name, urn: $urn, appType: $appType,
+      description: $description, systemPrompt: $systemPrompt,
+      agentTools: $agentTools,
+      aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey,
+      expiresAt: $expiresAt
+    ) {
+      ...AppFields
     }
   }
 `;
 
-export const REGENERATE_API_KEY_MUTATION = /* GraphQL */ `
-  ${STATION_FIELDS}
-  mutation RegenerateApiKey($id: ID!) {
-    regenerateApiKey(id: $id) { rawKey station { ...StationFields } }
+export const REGENERATE_APP_KEY_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  mutation RegenerateAppKey($id: ID!) {
+    regenerateAppKey(id: $id) { rawKey app { ...AppFields } }
   }
 `;
 
 // ---------------------------------------------------------------------------
-// Station Keys
+// App Keys
 // ---------------------------------------------------------------------------
 
-export const STATION_KEYS_QUERY = /* GraphQL */ `
-  query StationKeys($stationId: ID!) {
-    stationKeys(stationId: $stationId) {
-      id label keyPreview lastUsedAt createdAt revokedAt userId
+export const APP_KEYS_QUERY = /* GraphQL */ `
+  query AppKeys($appId: ID!) {
+    appKeys(appId: $appId) {
+      id label keyPreview lastUsedAt createdAt revokedAt
     }
   }
 `;
 
-export const CREATE_STATION_KEY_MUTATION = /* GraphQL */ `
-  mutation CreateStationKey($stationId: ID!, $label: String) {
-    createStationKey(stationId: $stationId, label: $label) {
+export const CREATE_APP_KEY_MUTATION = /* GraphQL */ `
+  mutation CreateAppKey($appId: ID!, $label: String) {
+    createAppKey(appId: $appId, label: $label) {
       key { id label keyPreview createdAt }
       rawKey
     }
   }
 `;
 
-export const REVOKE_STATION_KEY_MUTATION = /* GraphQL */ `
-  mutation RevokeStationKey($keyId: ID!) {
-    revokeStationKey(keyId: $keyId)
+export const REVOKE_APP_KEY_MUTATION = /* GraphQL */ `
+  mutation RevokeAppKey($id: ID!) {
+    revokeAppKey(id: $id)
   }
 `;
 
-export const REVOKE_STATION_MUTATION = /* GraphQL */ `
-  mutation RevokeStation($id: ID!) { revokeStation(id: $id) }
+export const DELETE_APP_MUTATION = /* GraphQL */ `
+  mutation DeleteApp($id: ID!) { deleteApp(id: $id) }
 `;
 
-export const SUBSCRIBE_STATION_TO_AGENT_MUTATION = /* GraphQL */ `
-  ${STATION_FIELDS}
-  ${STATION_AGENT_SUB_FIELDS}
-  mutation SubscribeStationToAgent($stationId: ID!, $agentId: ID!, $subscriptionType: SubscriptionType, $trainingMode: Boolean) {
-    subscribeStationToAgent(stationId: $stationId, agentId: $agentId, subscriptionType: $subscriptionType, trainingMode: $trainingMode) {
-      ...StationFields
-      agentSubscriptions { ...StationAgentSubFields }
+export const ADD_AGENT_TO_APP_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  ${APP_AGENT_SUB_FIELDS}
+  mutation AddAgentToApp(
+    $appId: ID!, $agentId: ID!,
+    $role: AppAgentRole, $subscriptionType: SubscriptionType, $trainingMode: Boolean
+  ) {
+    addAgentToApp(
+      appId: $appId, agentId: $agentId,
+      role: $role, subscriptionType: $subscriptionType, trainingMode: $trainingMode
+    ) {
+      ...AppFields
+      agentSubscriptions { ...AppAgentSubFields }
     }
   }
 `;
 
-export const UNSUBSCRIBE_STATION_FROM_AGENT_MUTATION = /* GraphQL */ `
-  ${STATION_FIELDS}
-  ${STATION_AGENT_SUB_FIELDS}
-  mutation UnsubscribeStationFromAgent($stationId: ID!, $agentId: ID!) {
-    unsubscribeStationFromAgent(stationId: $stationId, agentId: $agentId) {
-      ...StationFields
-      agentSubscriptions { ...StationAgentSubFields }
+export const REMOVE_AGENT_FROM_APP_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  ${APP_AGENT_SUB_FIELDS}
+  mutation RemoveAgentFromApp($appId: ID!, $agentId: ID!) {
+    removeAgentFromApp(appId: $appId, agentId: $agentId) {
+      ...AppFields
+      agentSubscriptions { ...AppAgentSubFields }
     }
   }
 `;
 
 // ---------------------------------------------------------------------------
-// Station AI Config (uses updateStation mutation)
+// App AI Config (uses updateApp mutation)
 // ---------------------------------------------------------------------------
 
-export const UPDATE_STATION_AI_CONFIG_MUTATION = /* GraphQL */ `
-  ${STATION_FIELDS}
-  mutation UpdateStationAIConfig($id: ID!, $aiProvider: String, $aiModel: String, $aiApiKey: String) {
-    updateStation(id: $id, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
-      ...StationFields
+export const UPDATE_APP_AI_CONFIG_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  mutation UpdateAppAIConfig($id: ID!, $aiProvider: String, $aiModel: String, $aiApiKey: String) {
+    updateApp(id: $id, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
+      ...AppFields
     }
   }
 `;
 
-export const CLEAR_STATION_AI_CONFIG_MUTATION = /* GraphQL */ `
-  ${STATION_FIELDS}
-  mutation ClearStationAIConfig($id: ID!, $aiProvider: String, $aiModel: String, $aiApiKey: String) {
-    updateStation(id: $id, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
-      ...StationFields
+export const CLEAR_APP_AI_CONFIG_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  mutation ClearAppAIConfig($id: ID!, $aiProvider: String, $aiModel: String, $aiApiKey: String) {
+    updateApp(id: $id, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
+      ...AppFields
     }
   }
 `;
 
-export const STATION_AI_CONFIG_QUERY = /* GraphQL */ `
-  query StationAIConfig($stationId: ID!) {
-    stationAIConfig(stationId: $stationId) {
+export const APP_AI_CONFIG_QUERY = /* GraphQL */ `
+  query AppAIConfig($appId: ID!) {
+    appAIConfig(appId: $appId) {
       provider
       apiKey
       model
@@ -894,9 +903,9 @@ export const RELEASE_EDITOR_LOCK_MUTATION = /* GraphQL */ `
   }
 `;
 
-export const STATION_NODES_QUERY = /* GraphQL */ `
-  query StationNodes($stationId: ID!, $limit: Int) {
-    stationNodes(stationId: $stationId, limit: $limit) {
+export const APP_NODES_QUERY = /* GraphQL */ `
+  query AppNodes($appId: ID!, $limit: Int) {
+    appNodes(appId: $appId, limit: $limit) {
       id
       memoryId
       nodeType
@@ -930,7 +939,7 @@ export const SESSIONS_QUERY = /* GraphQL */ `
     sessions(limit: $limit, offset: $offset) {
       id
       type
-      stationId
+      appId
       repo
       branch
       llmModel
@@ -951,7 +960,7 @@ export const USAGE_EVENTS_QUERY = /* GraphQL */ `
       id
       type
       nodeLoc
-      stationId
+      appId
       sessionId
       model
       tokensIn
@@ -1077,7 +1086,7 @@ export const NODE_USAGE_QUERY = /* GraphQL */ `
       id
       type
       nodeLoc
-      stationId
+      appId
       sessionId
       model
       tokensIn
@@ -1130,90 +1139,11 @@ export const APPS_QUERY = /* GraphQL */ `
   }
 `;
 
-export const APP_QUERY = /* GraphQL */ `
-  ${APP_FIELDS}
-  query App($id: ID!) {
-    app(id: $id) { ...AppFields }
-  }
-`;
-
-export const CREATE_APP_MUTATION = /* GraphQL */ `
-  ${APP_FIELDS}
-  mutation CreateApp(
-    $orgId: ID!,
-    $name: String!,
-    $urn: String,
-    $createUserPermission: CreateUserPermission,
-    $identifyUserMethod: IdentifyUserMethod,
-    $sessionTimeoutSeconds: Int,
-    $anonymousTtlDays: Int
-  ) {
-    createApp(
-      orgId: $orgId,
-      name: $name,
-      urn: $urn,
-      createUserPermission: $createUserPermission,
-      identifyUserMethod: $identifyUserMethod,
-      sessionTimeoutSeconds: $sessionTimeoutSeconds,
-      anonymousTtlDays: $anonymousTtlDays
-    ) { ...AppFields }
-  }
-`;
-
-export const UPDATE_APP_MUTATION = /* GraphQL */ `
-  ${APP_FIELDS}
-  mutation UpdateApp(
-    $id: ID!,
-    $name: String,
-    $urn: String,
-    $createUserPermission: CreateUserPermission,
-    $identifyUserMethod: IdentifyUserMethod,
-    $sessionTimeoutSeconds: Int,
-    $anonymousTtlDays: Int
-  ) {
-    updateApp(
-      id: $id,
-      name: $name,
-      urn: $urn,
-      createUserPermission: $createUserPermission,
-      identifyUserMethod: $identifyUserMethod,
-      sessionTimeoutSeconds: $sessionTimeoutSeconds,
-      anonymousTtlDays: $anonymousTtlDays
-    ) { ...AppFields }
-  }
-`;
-
-export const DELETE_APP_MUTATION = /* GraphQL */ `
-  mutation DeleteApp($id: ID!) {
-    deleteApp(id: $id)
-  }
-`;
-
-export const ADD_AGENT_TO_APP_MUTATION = /* GraphQL */ `
-  ${APP_FIELDS}
-  mutation AddAgentToApp($appId: ID!, $agentId: ID!) {
-    addAgentToApp(appId: $appId, agentId: $agentId) { ...AppFields }
-  }
-`;
-
-export const REMOVE_AGENT_FROM_APP_MUTATION = /* GraphQL */ `
-  ${APP_FIELDS}
-  mutation RemoveAgentFromApp($appId: ID!, $agentId: ID!) {
-    removeAgentFromApp(appId: $appId, agentId: $agentId) { ...AppFields }
-  }
-`;
-
-export const CREATE_APP_KEY_MUTATION = /* GraphQL */ `
-  mutation CreateAppKey($appId: ID!, $label: String) {
-    createAppKey(appId: $appId, label: $label) {
-      key { id keyPreview label createdAt lastUsedAt revokedAt }
-      rawKey
-    }
-  }
-`;
-
-export const REVOKE_APP_KEY_MUTATION = /* GraphQL */ `
-  mutation RevokeAppKey($id: ID!) {
-    revokeAppKey(id: $id)
-  }
-`;
+// App queries/mutations are defined earlier in this file (above the
+// Memory section) — APP_QUERY, CREATE_APP_MUTATION, UPDATE_APP_MUTATION,
+// DELETE_APP_MUTATION, ADD_AGENT_TO_APP_MUTATION,
+// REMOVE_AGENT_FROM_APP_MUTATION, CREATE_APP_KEY_MUTATION,
+// REVOKE_APP_KEY_MUTATION. Their pre-existing duplicates here were
+// removed in 003-station-to-app Phase 3b (2026-04-29) when the
+// Station-shaped surface was migrated and the App-shaped surface was
+// extended with the absorbed Station fields.

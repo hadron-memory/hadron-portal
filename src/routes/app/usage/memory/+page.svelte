@@ -8,7 +8,7 @@
   let { data }: { data: PageData } = $props();
 
   interface UsageEvent {
-    id: string; type: string; nodeLoc: string | null; stationId: string | null;
+    id: string; type: string; nodeLoc: string | null; appId: string | null;
     sessionId: string | null; model: string | null; tokensIn: number | null;
     tokensOut: number | null; createdAt: string;
   }

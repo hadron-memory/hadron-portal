@@ -2,26 +2,26 @@
   import Chat from './Chat.svelte';
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import { chatContext } from '$lib/stores/chat-context';
-  import type { AIProvider, StationAIConfig } from '$lib/types';
+  import type { AIProvider, AppAIConfig } from '$lib/types';
 
   let open = $state(false);
   let chatKey = $state(0);
   let chatActive = $state(false);
   let currentContext = $state('');
-  let stationId = $state<string | undefined>(undefined);
+  let appId = $state<string | undefined>(undefined);
   let saving = $state(false);
   let saveError = $state('');
 
-  // Track whether the station already has an encrypted key saved
-  let stationHasKey = $state(false);
+  // Track whether the app already has an encrypted key saved
+  let appHasKey = $state(false);
 
   chatContext.subscribe((ctx) => {
     currentContext = ctx.pageContext;
-    stationId = ctx.stationId;
-    stationHasKey = ctx.hasAiApiKey ?? false;
+    appId = ctx.appId;
+    appHasKey = ctx.hasAiApiKey ?? false;
 
-    // Pre-fill provider/model from station's saved config
-    if (ctx.stationId) {
+    // Pre-fill provider/model from app's saved config
+    if (ctx.appId) {
       if (ctx.aiProvider) aiProvider = ctx.aiProvider as AIProvider;
       if (ctx.aiModel) aiModel = ctx.aiModel;
     }
@@ -37,18 +37,18 @@
   }
 
   async function startChat() {
-    if (!stationId) return;
+    if (!appId) return;
     saveError = '';
 
-    // If user entered a new key, save it encrypted to the station
+    // If user entered a new key, save it encrypted to the app
     if (aiApiKey.trim()) {
       saving = true;
       try {
-        const res = await fetch('/api/stations/ai-config', {
+        const res = await fetch('/api/apps/ai-config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            stationId,
+            appId,
             provider: aiProvider,
             apiKey: aiApiKey,
             model: aiModel,
@@ -60,7 +60,7 @@
           saving = false;
           return;
         }
-        stationHasKey = true;
+        appHasKey = true;
         aiApiKey = ''; // Clear from memory after saving
       } catch {
         saveError = 'Network error saving AI config';
@@ -70,8 +70,8 @@
       saving = false;
     }
 
-    // Only start if the station has a saved key (just saved or previously saved)
-    if (!stationHasKey) return;
+    // Only start if the app has a saved key (just saved or previously saved)
+    if (!appHasKey) return;
 
     chatKey++;
     chatActive = true;
@@ -82,15 +82,15 @@
   }
 
   async function clearSavedConfig() {
-    if (!stationId) return;
+    if (!appId) return;
     saving = true;
     try {
-      await fetch('/api/stations/ai-config', {
+      await fetch('/api/apps/ai-config', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stationId }),
+        body: JSON.stringify({ appId }),
       });
-      stationHasKey = false;
+      appHasKey = false;
       chatActive = false;
     } catch {
       // ignore
@@ -127,10 +127,10 @@
       <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">Hadron Chat</h3>
     </div>
 
-    {#if !stationId}
-      <!-- Not on a station page -->
+    {#if !appId}
+      <!-- Not on an app page -->
       <div class="p-4 text-center text-sm text-zinc-500 dark:text-zinc-400">
-        Navigate to a station page to configure and use the chat assistant.
+        Navigate to an app page to configure and use the chat assistant.
       </div>
     {:else if !chatActive}
       <!-- Config form -->
@@ -147,7 +147,7 @@
         </div>
         <div>
           <label for="fp-key" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">API Key</label>
-          {#if stationHasKey}
+          {#if appHasKey}
             <div class="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-sm dark:border-green-800 dark:bg-green-950">
               <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -163,7 +163,7 @@
             <p class="mt-1 text-[10px] text-zinc-400">Encrypted at rest. Never displayed after saving.</p>
           {/if}
         </div>
-        {#if stationHasKey}
+        {#if appHasKey}
           <div>
             <label for="fp-key-update" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Update API Key (optional)</label>
             <input id="fp-key-update" type="password" bind:value={aiApiKey} placeholder="Enter new key to replace..."
@@ -183,12 +183,12 @@
           <p class="text-xs text-red-500">{saveError}</p>
         {/if}
         <button onclick={startChat}
-          disabled={saving || (!stationHasKey && !aiApiKey.trim())}
+          disabled={saving || (!appHasKey && !aiApiKey.trim())}
           class="w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600
             disabled:opacity-50 disabled:cursor-not-allowed">
           {#if saving}Saving...{:else}Start chat{/if}
         </button>
-        {#if stationHasKey}
+        {#if appHasKey}
           <button onclick={clearSavedConfig}
             disabled={saving}
             class="w-full rounded-lg border border-zinc-300 px-4 py-2 text-xs text-zinc-500 hover:text-red-600 hover:border-red-300
@@ -202,7 +202,7 @@
       <!-- Active chat -->
       <div class="flex min-h-0 flex-1 flex-col">
         {#key chatKey}
-          <Chat config={{ provider: aiProvider, apiKey: '', model: aiModel }} {stationId} systemPrompt={currentContext} />
+          <Chat config={{ provider: aiProvider, apiKey: '', model: aiModel }} {appId} systemPrompt={currentContext} />
         {/key}
       </div>
       <div class="flex gap-2 border-t border-zinc-200 px-4 py-2 dark:border-zinc-800">
