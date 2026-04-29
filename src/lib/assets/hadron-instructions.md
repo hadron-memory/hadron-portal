@@ -9,14 +9,14 @@ conventions.
 
 Hadron organizes knowledge as **nodes** in a tree-like graph within **memories**.
 Each node has a location path (`loc`) using colon-delimited segments (e.g.
-`specs:station-key-composition`). The full URN includes the memory
-(e.g. `hadronmemory.com:dev:specs:station-key-composition`).
+`specs:app-key-composition`). The full URN includes the memory
+(e.g. `hadronmemory.com:dev:specs:app-key-composition`).
 
-Your Station is subscribed to one or more Agents, each of which provides access
+Your App is subscribed to one or more Agents, each of which provides access
 to one or more Memories. This is the composition chain:
 
 ```
-Station → Agent → Memory → Nodes
+App → Agent → Memory → Nodes
 ```
 
 ## MCP Tools
