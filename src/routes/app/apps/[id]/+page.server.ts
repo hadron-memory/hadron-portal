@@ -77,10 +77,11 @@ export const actions: Actions = {
   subscribe: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const agentId = String(fd.get('agentId') ?? '');
+    const role = String(fd.get('role') ?? 'OPERATE');
     const trainingMode = fd.get('trainingMode') === 'true';
     try {
       await gqlClient(locals.token).request(ADD_AGENT_TO_APP_MUTATION, {
-        appId: params.id, agentId, trainingMode,
+        appId: params.id, agentId, role, trainingMode,
       });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to subscribe' });

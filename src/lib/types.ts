@@ -17,7 +17,7 @@ export interface Memory {
   source: string | null;
   readBranch: string | null;
   writeBranch: string | null;
-  visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION';
+  visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'KNOWLEDGE' | 'AGENT_SYSTEM';
   userMemoryOfAgentId?: string | null;
   anonymousExpiresAt?: string | null;
@@ -123,7 +123,7 @@ export interface AppKey {
 export interface AgentMemoryItem {
   id: string;
   role: string;
-  memory: { id: string; urn: string; name: string; visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION' };
+  memory: { id: string; urn: string; name: string; visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION' | 'PERSONAL' };
 }
 
 export interface AppAgentSub {

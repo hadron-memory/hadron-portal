@@ -746,6 +746,15 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                   <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{sub.agent.name}</p>
                   <Urn value={sub.agent.urn} type="agent" size={10} />
                 </div>
+                <form method="POST" action="?/subscribe" use:enhance class="shrink-0">
+                  <input type="hidden" name="agentId" value={sub.agent.id} />
+                  <select name="role"
+                    onchange={(e) => e.currentTarget?.form?.requestSubmit()}
+                    class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
+                    <option value="OPERATE" selected={sub.role === 'OPERATE'}>Operate</option>
+                    <option value="DEVELOP" selected={sub.role === 'DEVELOP'}>Develop</option>
+                  </select>
+                </form>
                 <form method="POST" action="?/unsubscribe" use:enhance class="shrink-0">
                   <input type="hidden" name="agentId" value={sub.agent.id} />
                   <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
@@ -765,6 +774,13 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                 {#each availableAgents as a (a.id)}
                   <option value={a.id}>{a.name}</option>
                 {/each}
+              </select>
+            </div>
+            <div>
+              <label for="role" class="mb-1 block text-xs text-zinc-500">Mode</label>
+              <select id="role" name="role" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
+                <option value="OPERATE">Operate</option>
+                <option value="DEVELOP">Develop</option>
               </select>
             </div>
             <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Add agent</button>
