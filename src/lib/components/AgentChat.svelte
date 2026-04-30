@@ -17,8 +17,8 @@
   function onAssetUploaded(asset: AssetSummary) {
     pendingAttachments = [...pendingAttachments, asset];
   }
-  function removeAttachment(assetId: string) {
-    pendingAttachments = pendingAttachments.filter((a) => a.assetId !== assetId);
+  function removeAttachment(id: string) {
+    pendingAttachments = pendingAttachments.filter((a) => a.id !== id);
   }
 
   // ── State ─────────────────────────────────────────────────────────────
@@ -444,13 +444,13 @@
       <div class="border-t border-zinc-200 p-3 dark:border-zinc-800">
         {#if pendingAttachments.length > 0}
           <div class="mb-2 flex flex-wrap gap-1.5">
-            {#each pendingAttachments as att (att.assetId)}
+            {#each pendingAttachments as att (att.id)}
               <span class="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
                 <AssetChip asset={att} />
                 <button
                   type="button"
                   class="text-zinc-400 hover:text-red-500"
-                  onclick={() => removeAttachment(att.assetId)}
+                  onclick={() => removeAttachment(att.id)}
                   aria-label="Remove attachment"
                 >×</button>
               </span>

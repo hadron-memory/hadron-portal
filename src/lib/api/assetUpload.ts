@@ -1,9 +1,6 @@
 // Client-side asset upload helper. Wraps the begin → R2 PUT → complete
 // round-trip so callers (paperclip composer, agent-initiated picker) deal
 // with one promise and one progress callback.
-//
-// Spec: specs/001-asset-upload/contracts/graphql.md
-//       specs/001-asset-upload/contracts/http-endpoints.md
 
 export type AssetUploadIntent = 'USER' | 'AGENT_REQUEST';
 
@@ -29,7 +26,6 @@ export interface AssetUploadTicket {
 
 export interface AssetSummary {
   id: string;
-  assetId: string;
   filename: string;
   mimeType: string;
   sizeBytes: number;

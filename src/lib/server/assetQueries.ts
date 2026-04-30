@@ -3,24 +3,8 @@
 // $lib/api/assetUpload.ts).
 
 export const BEGIN_ASSET_UPLOAD_MUTATION = /* GraphQL */ `
-  mutation BeginAssetUpload(
-    $agentUrn: String!
-    $filename: String!
-    $mimeType: String!
-    $sizeBytes: Int!
-    $description: String
-    $uploadIntent: AssetUploadIntent!
-    $uploadRequestId: String
-  ) {
-    beginAssetUpload(
-      agentUrn: $agentUrn
-      filename: $filename
-      mimeType: $mimeType
-      sizeBytes: $sizeBytes
-      description: $description
-      uploadIntent: $uploadIntent
-      uploadRequestId: $uploadRequestId
-    ) {
+  mutation BeginAssetUpload($input: BeginAssetUploadInput!) {
+    beginAssetUpload(input: $input) {
       uploadId
       putUrl
       putHeaders { name value }
@@ -33,11 +17,9 @@ export const BEGIN_ASSET_UPLOAD_MUTATION = /* GraphQL */ `
 `;
 
 export const COMPLETE_ASSET_UPLOAD_MUTATION = /* GraphQL */ `
-  mutation CompleteAssetUpload($uploadId: String!) {
-    completeAssetUpload(uploadId: $uploadId) {
+  mutation CompleteAssetUpload($input: CompleteAssetUploadInput!) {
+    completeAssetUpload(input: $input) {
       id
-      assetId
-      loc
       urn
       filename
       mimeType
@@ -58,7 +40,6 @@ export const AGENT_ASSETS_QUERY = /* GraphQL */ `
       hasMore
       assets {
         id
-        assetId
         filename
         mimeType
         sizeBytes
@@ -71,7 +52,7 @@ export const AGENT_ASSETS_QUERY = /* GraphQL */ `
 `;
 
 export const ASSET_DOWNLOAD_URL_QUERY = /* GraphQL */ `
-  query AssetDownloadUrl($assetId: String!, $ttlSeconds: Int) {
+  query AssetDownloadUrl($assetId: ID!, $ttlSeconds: Int) {
     assetDownloadUrl(assetId: $assetId, ttlSeconds: $ttlSeconds) {
       url
       expiresAt
@@ -83,28 +64,10 @@ export const ASSET_DOWNLOAD_URL_QUERY = /* GraphQL */ `
 `;
 
 export const SOFT_DELETE_ASSET_MUTATION = /* GraphQL */ `
-  mutation SoftDeleteAsset($assetId: String!) {
+  mutation SoftDeleteAsset($assetId: ID!) {
     softDeleteAsset(assetId: $assetId) {
       id
       deletedAt
-    }
-  }
-`;
-
-export const RESTORE_ASSET_MUTATION = /* GraphQL */ `
-  mutation RestoreAsset($assetId: String!) {
-    restoreAsset(assetId: $assetId) {
-      id
-      deletedAt
-    }
-  }
-`;
-
-export const SET_AGENT_ASSET_UPLOAD_ENABLED_MUTATION = /* GraphQL */ `
-  mutation SetAgentAssetUploadEnabled($agentUrn: String!, $enable: Boolean!) {
-    setAgentAssetUploadEnabled(agentUrn: $agentUrn, enable: $enable) {
-      id
-      agentTools
     }
   }
 `;

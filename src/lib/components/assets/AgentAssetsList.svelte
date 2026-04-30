@@ -39,9 +39,9 @@
   }
 
   async function download(asset: AssetSummary) {
-    busyAsset = asset.assetId;
+    busyAsset = asset.id;
     try {
-      const url = await getAssetDownloadUrl(asset.assetId);
+      const url = await getAssetDownloadUrl(asset.id);
       window.location.href = url;
     } catch (err) {
       error = err instanceof AssetUploadError ? err.message : (err as Error).message;
@@ -52,10 +52,10 @@
 
   async function remove(asset: AssetSummary) {
     if (!confirm(`Delete "${asset.filename}"? Recovery available for 24h via admin.`)) return;
-    busyAsset = asset.assetId;
+    busyAsset = asset.id;
     try {
-      await deleteAsset(asset.assetId);
-      assets = assets.filter((a) => a.assetId !== asset.assetId);
+      await deleteAsset(asset.id);
+      assets = assets.filter((a) => a.id !== asset.id);
       total -= 1;
     } catch (err) {
       error = err instanceof AssetUploadError ? err.message : (err as Error).message;
@@ -83,7 +83,7 @@
     <p class="text-sm text-zinc-500">No assets uploaded yet.</p>
   {:else}
     <ul class="space-y-2">
-      {#each assets as asset (asset.assetId)}
+      {#each assets as asset (asset.id)}
         <li class="flex items-center gap-3 rounded border border-zinc-200 p-2 dark:border-zinc-700">
           <div class="flex-1 min-w-0">
             <AssetChip {asset} onclick={() => download(asset)} />
@@ -96,7 +96,7 @@
             type="button"
             class="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-700"
             onclick={() => download(asset)}
-            disabled={busyAsset === asset.assetId || asset.scanStatus !== 'CLEAN'}
+            disabled={busyAsset === asset.id || asset.scanStatus !== 'CLEAN'}
             title="Download"
           >
             <Download class="size-4" />
@@ -105,7 +105,7 @@
             type="button"
             class="rounded p-1 text-zinc-500 hover:bg-red-100 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-900/30"
             onclick={() => remove(asset)}
-            disabled={busyAsset === asset.assetId}
+            disabled={busyAsset === asset.id}
             title="Delete"
           >
             <Trash2 class="size-4" />
