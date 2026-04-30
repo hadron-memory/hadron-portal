@@ -21,6 +21,7 @@
   let editMode = $state(false);
   let name = $state(app.name);
   let appSlug = $state(slugOfUrn(app.urn));
+  let appType = $state(app.appType);
   let createUserPermission = $state(app.createUserPermission);
   let identifyUserMethod = $state(app.identifyUserMethod);
   let sessionTimeoutSeconds = $state(app.sessionTimeoutSeconds);
@@ -64,8 +65,16 @@
       { label: 'Apps', href: `/app/orgs/${org.id}/apps` },
       { label: app.name },
     ]} />
-    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">App:</span> {app.name}</h1>
-    <div class="mt-1"><Urn value={app.urn} type="app" /></div>
+    <div class="mt-2 flex items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">App:</span> {app.name}</h1>
+        <div class="mt-1"><Urn value={app.urn} type="app" /></div>
+      </div>
+      <a href="/app/apps/{app.id}"
+        class="shrink-0 rounded-lg border border-indigo-300 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-950">
+        Client setup & MCP →
+      </a>
+    </div>
   </div>
 
   {#if form?.error}
@@ -127,6 +136,18 @@
         </div>
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
+            <label for="appType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+            <select id="appType" name="appType" bind:value={appType}
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <option value="WORKSTATION">💻 Workstation</option>
+              <option value="CHATBOT">💬 Chatbot</option>
+              <option value="AGENT">🤖 Agent</option>
+              <option value="AUTOMATION">⚙️ Automation</option>
+              <option value="CLOUD">☁️ Cloud</option>
+              <option value="IOT">📡 IoT</option>
+            </select>
+          </div>
+          <div>
             <label for="cup" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">User creation</label>
             <select id="cup" name="createUserPermission" bind:value={createUserPermission}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
@@ -160,6 +181,7 @@
             editMode = false;
             name = app.name;
             appSlug = slugOfUrn(app.urn);
+            appType = app.appType;
             createUserPermission = app.createUserPermission;
             identifyUserMethod = app.identifyUserMethod;
             sessionTimeoutSeconds = app.sessionTimeoutSeconds;
@@ -171,6 +193,10 @@
       </form>
     {:else}
       <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+        <div class="flex items-center justify-between px-5 py-3">
+          <span class="text-sm text-zinc-500">Type</span>
+          <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.appType}</span>
+        </div>
         <div class="flex items-center justify-between px-5 py-3">
           <span class="text-sm text-zinc-500">User creation</span>
           <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.createUserPermission}</span>

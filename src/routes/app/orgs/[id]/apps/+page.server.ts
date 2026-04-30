@@ -36,6 +36,7 @@ export const actions: Actions = {
     const fd = await request.formData();
     const name = String(fd.get('name') ?? '').trim();
     const urn = String(fd.get('urn') ?? '').trim() || undefined;
+    const appType = String(fd.get('appType') ?? 'WORKSTATION');
     const createUserPermission = String(fd.get('createUserPermission') ?? 'EXPLICIT');
     const identifyUserMethod = String(fd.get('identifyUserMethod') ?? 'USER_ID');
     const sessionTimeoutSeconds = Number(fd.get('sessionTimeoutSeconds') ?? 900);
@@ -49,6 +50,7 @@ export const actions: Actions = {
           orgId: params.id,
           name,
           urn,
+          appType,
           createUserPermission,
           identifyUserMethod,
           sessionTimeoutSeconds,
