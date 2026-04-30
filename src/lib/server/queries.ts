@@ -127,7 +127,6 @@ export const APP_AGENT_SUB_FIELDS = /* GraphQL */ `
       }
     }
     role
-    subscriptionType
     trainingMode
     createdAt
   }
@@ -632,11 +631,11 @@ export const ADD_AGENT_TO_APP_MUTATION = /* GraphQL */ `
   ${APP_AGENT_SUB_FIELDS}
   mutation AddAgentToApp(
     $appId: ID!, $agentId: ID!,
-    $role: AppAgentRole, $subscriptionType: SubscriptionType, $trainingMode: Boolean
+    $role: AppAgentRole, $trainingMode: Boolean
   ) {
     addAgentToApp(
       appId: $appId, agentId: $agentId,
-      role: $role, subscriptionType: $subscriptionType, trainingMode: $trainingMode
+      role: $role, trainingMode: $trainingMode
     ) {
       ...AppFields
       agentSubscriptions { ...AppAgentSubFields }
