@@ -10,9 +10,12 @@ import {
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
 } from '$lib/server/queries';
+import { SET_AGENT_ASSET_UPLOAD_ENABLED_MUTATION } from '$lib/server/assetQueries';
 import { requireNonConsumer } from '$lib/server/guards';
-import type { Organization, Memory, MemoryNode } from '$lib/types';
+import type { Organization, Memory, MemoryNode, App } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+
+const ASSET_UPLOAD_TOOL_KEY = 'asset:upload';
 
 function extractGqlError(e: unknown, fallback: string): string {
   if (e && typeof e === 'object' && 'response' in e) {
@@ -43,6 +46,14 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   if (!agent || !org) throw error(404, 'Agent not found');
 
+  // Find the caller-identity App for this agent (convention: same URN).
+  // Only that App's `agentTools` gates the asset-upload tool — see
+  // hadron-server setAgentAssetUploadEnabled controller.
+  const callerApp = ((org as Organization & { apps?: App[] }).apps ?? []).find(
+    (a) => a.urn === agent!.urn,
+  ) ?? null;
+  const assetUploadEnabled = callerApp?.agentTools?.includes(ASSET_UPLOAD_TOOL_KEY) ?? false;
+
   // Load nodes from all memories (including system memory) + org system memories
   const memoryIds = (agent.memoryItems ?? []).map((m) => m.memory.id);
   const systemMemoryId = (agent as any).systemMemoryId as string | null;
@@ -70,7 +81,15 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   }
   orgSystemMemories = sysMemResult.orgSystemMemories;
 
-  return { agent, org, agentNodes, allOrgs: orgsData.myOrganizations, orgSystemMemories };
+  return {
+    agent,
+    org,
+    agentNodes,
+    allOrgs: orgsData.myOrganizations,
+    orgSystemMemories,
+    callerAppExists: !!callerApp,
+    assetUploadEnabled,
+  };
 };
 
 export const actions: Actions = {
@@ -200,6 +219,21 @@ export const actions: Actions = {
       });
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to remove memory') });
+    }
+  },
+
+  setAssetUpload: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const agentUrn = String(fd.get('agentUrn') ?? '').trim();
+    const enabled = String(fd.get('enabled') ?? '') === 'true';
+    if (!agentUrn) return fail(400, { error: 'agentUrn required' });
+    try {
+      await gqlClient(locals.token).request(SET_AGENT_ASSET_UPLOAD_ENABLED_MUTATION, {
+        input: { agentUrn, enabled },
+      });
+      return { success: true };
+    } catch (e: unknown) {
+      return fail(500, { error: extractGqlError(e, 'Failed to update asset-upload setting') });
     }
   },
 };

@@ -71,3 +71,13 @@ export const SOFT_DELETE_ASSET_MUTATION = /* GraphQL */ `
     }
   }
 `;
+
+export const SET_AGENT_ASSET_UPLOAD_ENABLED_MUTATION = /* GraphQL */ `
+  mutation SetAgentAssetUploadEnabled($input: SetAgentAssetUploadEnabledInput!) {
+    setAgentAssetUploadEnabled(input: $input) {
+      id
+      urn
+      agentTools
+    }
+  }
+`;
