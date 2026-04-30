@@ -18,6 +18,7 @@
   let name = $state('');
   let appSlug = $state('');
   let slugEdited = $state(false);
+  let appType = $state<'WORKSTATION' | 'CHATBOT' | 'AGENT' | 'AUTOMATION' | 'CLOUD' | 'IOT'>('WORKSTATION');
   let createUserPermission = $state<'DENY' | 'EXPLICIT' | 'IMPLICIT'>('EXPLICIT');
   let identifyUserMethod = $state<'USER_ID' | 'SECRET'>('USER_ID');
   let sessionTimeoutSeconds = $state(900);
@@ -80,6 +81,19 @@
         </div>
 
         <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <label for="appType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+            <select id="appType" name="appType" bind:value={appType}
+              class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white w-full">
+              <option value="WORKSTATION">💻 Workstation</option>
+              <option value="CHATBOT">💬 Chatbot</option>
+              <option value="AGENT">🤖 Agent</option>
+              <option value="AUTOMATION">⚙️ Automation</option>
+              <option value="CLOUD">☁️ Cloud</option>
+              <option value="IOT">📡 IoT</option>
+            </select>
+            <p class="mt-1 text-xs text-zinc-400">Surface the App targets. Affects how it is presented and which UX flows apply.</p>
+          </div>
           <div>
             <label for="cup" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">User creation</label>
             <select id="cup" name="createUserPermission" bind:value={createUserPermission}

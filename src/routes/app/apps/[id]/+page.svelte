@@ -66,8 +66,7 @@
     const map = new Map<string, EffectiveMemory>();
     for (const sub of app.agentSubscriptions ?? []) {
       for (const item of sub.agent.memoryItems ?? []) {
-        const effective = sub.subscriptionType === 'READ_WRITE' && item.role === 'read-write'
-          ? 'read-write' as const : 'read' as const;
+        const effective = item.role === 'read-write' ? 'read-write' as const : 'read' as const;
         const existing = map.get(item.memory.id);
         if (!existing || (effective === 'read-write' && existing.access === 'read')) {
           map.set(item.memory.id, { id: item.memory.id, urn: item.memory.urn, name: item.memory.name, access: effective, agentName: sub.agent.name });
@@ -747,15 +746,6 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                   <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{sub.agent.name}</p>
                   <Urn value={sub.agent.urn} type="agent" size={10} />
                 </div>
-                <form method="POST" action="?/subscribe" use:enhance class="shrink-0">
-                  <input type="hidden" name="agentId" value={sub.agent.id} />
-                  <select name="subscriptionType"
-                    onchange={(e) => e.currentTarget?.form?.requestSubmit()}
-                    class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
-                    <option value="READ_ONLY" selected={sub.subscriptionType === 'READ_ONLY'}>Read Only</option>
-                    <option value="READ_WRITE" selected={sub.subscriptionType === 'READ_WRITE'}>Read/Write</option>
-                  </select>
-                </form>
                 <form method="POST" action="?/unsubscribe" use:enhance class="shrink-0">
                   <input type="hidden" name="agentId" value={sub.agent.id} />
                   <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
@@ -775,13 +765,6 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                 {#each availableAgents as a (a.id)}
                   <option value={a.id}>{a.name}</option>
                 {/each}
-              </select>
-            </div>
-            <div>
-              <label for="subscriptionType" class="mb-1 block text-xs text-zinc-500">Access</label>
-              <select id="subscriptionType" name="subscriptionType" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
-                <option value="READ_ONLY">Read Only</option>
-                <option value="READ_WRITE">Read/Write</option>
               </select>
             </div>
             <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Add agent</button>

@@ -131,7 +131,6 @@ export interface AppAgentSub {
   agentId: string;
   agent: { id: string; urn: string; name: string; description: string | null; systemPrompt?: string | null; memoryItems?: AgentMemoryItem[] };
   role: AppAgentRole;
-  subscriptionType: 'READ_ONLY' | 'READ_WRITE';
   trainingMode: boolean;
   createdAt: string;
 }

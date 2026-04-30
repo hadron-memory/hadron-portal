@@ -127,7 +127,6 @@ export const APP_AGENT_SUB_FIELDS = /* GraphQL */ `
       }
     }
     role
-    subscriptionType
     trainingMode
     createdAt
   }
@@ -553,16 +552,25 @@ export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
 export const CREATE_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
   mutation CreateApp(
-    $orgId: ID!, $name: String!, $appType: AppType, $role: AppMembershipRole,
+    $orgId: ID!, $name: String!, $urn: String,
+    $appType: AppType, $role: AppMembershipRole,
     $description: String, $systemPrompt: String,
     $expiresAt: String, $agentTools: [String!],
-    $aiProvider: String, $aiModel: String, $aiApiKey: String
+    $aiProvider: String, $aiModel: String, $aiApiKey: String,
+    $createUserPermission: CreateUserPermission,
+    $identifyUserMethod: IdentifyUserMethod,
+    $sessionTimeoutSeconds: Int, $anonymousTtlDays: Int
   ) {
     createApp(
-      orgId: $orgId, name: $name, appType: $appType, role: $role,
+      orgId: $orgId, name: $name, urn: $urn,
+      appType: $appType, role: $role,
       description: $description, systemPrompt: $systemPrompt,
       expiresAt: $expiresAt, agentTools: $agentTools,
-      aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey
+      aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey,
+      createUserPermission: $createUserPermission,
+      identifyUserMethod: $identifyUserMethod,
+      sessionTimeoutSeconds: $sessionTimeoutSeconds,
+      anonymousTtlDays: $anonymousTtlDays
     ) {
       ...AppFields
     }
@@ -575,14 +583,21 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
     $id: ID!, $name: String, $urn: String, $appType: AppType,
     $description: String, $systemPrompt: String, $agentTools: [String!],
     $aiProvider: String, $aiModel: String, $aiApiKey: String,
-    $expiresAt: String
+    $expiresAt: String,
+    $createUserPermission: CreateUserPermission,
+    $identifyUserMethod: IdentifyUserMethod,
+    $sessionTimeoutSeconds: Int, $anonymousTtlDays: Int
   ) {
     updateApp(
       id: $id, name: $name, urn: $urn, appType: $appType,
       description: $description, systemPrompt: $systemPrompt,
       agentTools: $agentTools,
       aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey,
-      expiresAt: $expiresAt
+      expiresAt: $expiresAt,
+      createUserPermission: $createUserPermission,
+      identifyUserMethod: $identifyUserMethod,
+      sessionTimeoutSeconds: $sessionTimeoutSeconds,
+      anonymousTtlDays: $anonymousTtlDays
     ) {
       ...AppFields
     }
@@ -632,11 +647,11 @@ export const ADD_AGENT_TO_APP_MUTATION = /* GraphQL */ `
   ${APP_AGENT_SUB_FIELDS}
   mutation AddAgentToApp(
     $appId: ID!, $agentId: ID!,
-    $role: AppAgentRole, $subscriptionType: SubscriptionType, $trainingMode: Boolean
+    $role: AppAgentRole, $trainingMode: Boolean
   ) {
     addAgentToApp(
       appId: $appId, agentId: $agentId,
-      role: $role, subscriptionType: $subscriptionType, trainingMode: $trainingMode
+      role: $role, trainingMode: $trainingMode
     ) {
       ...AppFields
       agentSubscriptions { ...AppAgentSubFields }
