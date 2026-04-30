@@ -1,8 +1,25 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { marked } from 'marked';
   import type { Chat, ChatMessage } from '$lib/types';
+  import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
+  import AssetChip from '$lib/components/assets/AssetChip.svelte';
+  import type { AssetSummary } from '$lib/api/assetUpload';
 
-  let { agentId }: { agentId: string } = $props();
+  function renderMarkdown(text: string): string {
+    return marked.parse(text, { async: false }) as string;
+  }
+
+  let { agentId, agentUrn }: { agentId: string; agentUrn?: string } = $props();
+
+  let pendingAttachments = $state<AssetSummary[]>([]);
+
+  function onAssetUploaded(asset: AssetSummary) {
+    pendingAttachments = [...pendingAttachments, asset];
+  }
+  function removeAttachment(id: string) {
+    pendingAttachments = pendingAttachments.filter((a) => a.id !== id);
+  }
 
   // ── State ─────────────────────────────────────────────────────────────
   let chats = $state<Chat[]>([]);
@@ -393,12 +410,15 @@
         {/if}
         {#each messages as msg, idx (idx)}
           <div class="flex {msg.role === 'user' ? 'justify-end' : 'justify-start'}">
-            <div
-              class="max-w-[85%] whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm
-                {msg.role === 'user'
-                  ? 'bg-indigo-500 text-white'
-                  : 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'}"
-            >{msg.content}</div>
+            {#if msg.role === 'user'}
+              <div class="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-indigo-500 px-3 py-2 text-sm text-white">{msg.content}</div>
+            {:else}
+              <div class="max-w-[85%] rounded-2xl bg-zinc-100 px-3 py-2 text-sm text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100">
+                <div class="prose prose-sm dark:prose-invert max-w-none">
+                  {@html renderMarkdown(msg.content)}
+                </div>
+              </div>
+            {/if}
           </div>
         {/each}
         {#if sending}
@@ -422,7 +442,29 @@
 
       <!-- Input -->
       <div class="border-t border-zinc-200 p-3 dark:border-zinc-800">
+        {#if pendingAttachments.length > 0}
+          <div class="mb-2 flex flex-wrap gap-1.5">
+            {#each pendingAttachments as att (att.id)}
+              <span class="inline-flex items-center gap-1.5 rounded-md bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">
+                <AssetChip asset={att} />
+                <button
+                  type="button"
+                  class="text-zinc-400 hover:text-red-500"
+                  onclick={() => removeAttachment(att.id)}
+                  aria-label="Remove attachment"
+                >×</button>
+              </span>
+            {/each}
+          </div>
+        {/if}
         <div class="flex items-end gap-2">
+          {#if agentUrn}
+            <AssetUploadButton
+              {agentUrn}
+              onuploaded={onAssetUploaded}
+              disabled={!activeChatId || sending}
+            />
+          {/if}
           <textarea
             bind:value={input}
             onkeydown={onInputKeydown}

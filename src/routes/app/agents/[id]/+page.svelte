@@ -567,7 +567,7 @@
     <!-- Full-height chat surface. The parent flex layout gives the chat
          whatever vertical space remains below the agent header and tabs. -->
     <div class="chat-surface flex min-h-0 flex-1">
-      <AgentChat agentId={agent.id} />
+      <AgentChat agentId={agent.id} agentUrn={agent.urn} />
     </div>
   {/if}
 
@@ -674,6 +674,33 @@
             </div>
           </div>
         {/if}
+      </section>
+
+      <!-- Capabilities — platform tools the agent can invoke -->
+      <section class="max-w-lg">
+        <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Capabilities</h2>
+        <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+          {#if data.callerAppExists}
+            <form method="POST" action="?/setAssetUpload" use:enhance={() => async ({ update }) => { await update(); }}>
+              <input type="hidden" name="agentUrn" value={agent.urn} />
+              <input type="hidden" name="enabled" value={(!data.assetUploadEnabled).toString()} />
+              <label class="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={data.assetUploadEnabled}
+                  onchange={(e) => (e.currentTarget.form as HTMLFormElement).requestSubmit()}
+                  class="mt-0.5 rounded border-zinc-300 bg-white text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800"
+                />
+                <span>
+                  <span class="block text-sm font-medium text-zinc-900 dark:text-white">Allow this agent to ask users for uploads</span>
+                  <span class="block text-xs text-zinc-500">When enabled, the agent can invoke the asset-upload tool to prompt the user for documents or images.</span>
+                </span>
+              </label>
+            </form>
+          {:else}
+            <p class="text-sm text-zinc-500">No caller-identity App for this agent. Asset upload requires an App at the agent's URN.</p>
+          {/if}
+        </div>
       </section>
 
       <!-- Properties -->
