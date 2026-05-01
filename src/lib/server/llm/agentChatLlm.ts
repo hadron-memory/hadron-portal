@@ -122,13 +122,16 @@ export async function callAgentChatLlm(args: {
 
   // Force the LLM to use the respond tool. jsonSchema() accepts a raw JSON
   // Schema object, which is what Hadron gives us from the stage's
-  // extractionSpec — no Zod conversion needed.
+  // extractionSpec — no Zod conversion needed. The cast to `any` on the
+  // `tool({...})` arg works around an SDK overload that can't reconcile
+  // an untyped jsonSchema with a typed execute.
   const respondVercelTool = tool({
     description: respondTool.description ?? 'Respond to the user and extract data',
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     inputSchema: jsonSchema(respondTool.parameters as any),
     execute: async (input: RespondCall) => input,
-  });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
 
   const result = await generateText({
     model: languageModel,

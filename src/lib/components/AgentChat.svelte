@@ -1,13 +1,15 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { marked } from 'marked';
+  import DOMPurify from 'dompurify';
   import type { Chat, ChatMessage } from '$lib/types';
   import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
   import AssetChip from '$lib/components/assets/AssetChip.svelte';
   import type { AssetSummary } from '$lib/api/assetUpload';
 
   function renderMarkdown(text: string): string {
-    return marked.parse(text, { async: false }) as string;
+    const raw = marked.parse(text, { async: false }) as string;
+    return DOMPurify.sanitize(raw);
   }
 
   // v2 (spec 006-asset-upload-redesign): memoryId replaces agentUrn for

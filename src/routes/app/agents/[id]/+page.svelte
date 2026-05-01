@@ -302,16 +302,6 @@
   // Track selected add-memory id for warning
   let selectedAddMemoryId = $state('');
 
-  const selectedAddMemory = $derived(
-    allMemories.find((m) => m.id === selectedAddMemoryId)
-  );
-  const addMemoryWarning = $derived(
-    selectedAddMemory && 'visibility' in selectedAddMemory &&
-    visibilityRank[(selectedAddMemory as any).visibility] < visibilityRank[agent.visibility]
-      ? `This memory is ${visibilityLabel[(selectedAddMemory as any).visibility]} but the agent is ${visibilityLabel[agent.visibility]}. The effective access will be ${visibilityLabel[(selectedAddMemory as any).visibility]}.`
-      : ''
-  );
-
   const memoryIdsInAgent = $derived(new Set((agent.memoryItems ?? []).map((item) => item.memory.id)));
   const allMemories = $derived.by(() => {
     const seen = new Set<string>();
@@ -342,6 +332,16 @@
     return result;
   });
   const availableMemories = $derived(allMemories.filter((m) => !memoryIdsInAgent.has(m.id) && m.type !== 'AGENT_SYSTEM'));
+
+  const selectedAddMemory = $derived(
+    allMemories.find((m) => m.id === selectedAddMemoryId)
+  );
+  const addMemoryWarning = $derived(
+    selectedAddMemory && 'visibility' in selectedAddMemory &&
+    visibilityRank[(selectedAddMemory as any).visibility] < visibilityRank[agent.visibility]
+      ? `This memory is ${visibilityLabel[(selectedAddMemory as any).visibility]} but the agent is ${visibilityLabel[agent.visibility]}. The effective access will be ${visibilityLabel[(selectedAddMemory as any).visibility]}.`
+      : ''
+  );
 </script>
 
 <svelte:head><title>{agent.name} · Hadron</title></svelte:head>

@@ -581,6 +581,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
   mutation UpdateApp(
     $id: ID!, $name: String, $urn: String, $appType: AppType,
+    $role: AppMembershipRole,
     $description: String, $systemPrompt: String, $agentTools: [String!],
     $aiProvider: String, $aiModel: String, $aiApiKey: String,
     $expiresAt: String,
@@ -589,7 +590,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
     $sessionTimeoutSeconds: Int, $anonymousTtlDays: Int
   ) {
     updateApp(
-      id: $id, name: $name, urn: $urn, appType: $appType,
+      id: $id, name: $name, urn: $urn, appType: $appType, role: $role,
       description: $description, systemPrompt: $systemPrompt,
       agentTools: $agentTools,
       aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey,

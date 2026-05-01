@@ -1,13 +1,15 @@
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { ME_QUERY, UPDATE_MY_PROFILE_MUTATION, INVITE_USER_MUTATION } from '$lib/server/queries';
+import type { UserSummary } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
   const data = await gqlClient(locals.token)
-    .request<{ me: Record<string, unknown> | null }>(ME_QUERY)
-    .catch(() => ({ me: null }));
-  return { user: data.me ?? locals.user };
+    .request<{ me: UserSummary | null }>(ME_QUERY)
+    .catch(() => ({ me: null as UserSummary | null }));
+  const user: UserSummary = data.me ?? { ...locals.user!, handle: null };
+  return { user };
 };
 
 export const actions: Actions = {

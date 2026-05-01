@@ -76,7 +76,7 @@
                   <Subscribe attrs={cell.attrs()} let:attrs props={cell.props()} let:props>
                     <th {...attrs} class="px-4 py-2.5 cursor-pointer select-none hover:text-zinc-700 dark:hover:text-zinc-200"
                       onclick={props.sort.toggle}
-                      style={props.resize?.style ? `width: ${props.resize.style}` : undefined}
+                      style={(props.resize as unknown as { style?: string })?.style ? `width: ${(props.resize as unknown as { style?: string }).style}` : undefined}
                     >
                       <div class="flex items-center gap-1">
                         <Render of={cell.render()} />
@@ -98,7 +98,7 @@
         </thead>
         <tbody {...$tableBodyAttrs} class="divide-y divide-zinc-200 dark:divide-zinc-800">
           {#each $rows as row (row.id)}
-            {@const agent = row.original as AgentRow}
+            {@const agent = (row as unknown as { original: AgentRow }).original}
             <Subscribe rowAttrs={row.attrs()} let:rowAttrs>
               <tr {...rowAttrs} class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900">
                 {#each row.cells as cell (cell.id)}

@@ -2,6 +2,7 @@
   import { Chat, type UIMessage } from '@ai-sdk/svelte';
   import { DefaultChatTransport } from 'ai';
   import { marked } from 'marked';
+  import DOMPurify from 'dompurify';
   import { t } from '$lib/i18n/t';
   import { isMessageStreaming } from './chat-streaming';
   import type { AppAIConfig } from '$lib/types';
@@ -52,7 +53,8 @@
   }
 
   function renderMarkdown(text: string): string {
-    return marked.parse(text, { async: false }) as string;
+    const raw = marked.parse(text, { async: false }) as string;
+    return DOMPurify.sanitize(raw);
   }
 </script>
 
