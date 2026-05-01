@@ -76,7 +76,7 @@
                   <Subscribe attrs={cell.attrs()} let:attrs props={cell.props()} let:props>
                     <th {...attrs} class="px-4 py-2.5 cursor-pointer select-none hover:text-zinc-700 dark:hover:text-zinc-200"
                       onclick={props.sort.toggle}
-                      style={props.resize?.style ? `width: ${props.resize.style}` : undefined}
+                      style={(props.resize as unknown as { style?: string })?.style ? `width: ${(props.resize as unknown as { style?: string }).style}` : undefined}
                     >
                       <div class="flex items-center gap-1">
                         <Render of={cell.render()} />
@@ -97,7 +97,7 @@
         </thead>
         <tbody {...$tableBodyAttrs} class="divide-y divide-zinc-200 dark:divide-zinc-800">
           {#each $rows as row (row.id)}
-            {@const n = row.original as NodeRow}
+            {@const n = (row as unknown as { original: NodeRow }).original}
             <Subscribe rowAttrs={row.attrs()} let:rowAttrs>
               <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
               <tr {...rowAttrs}

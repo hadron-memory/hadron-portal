@@ -26,9 +26,9 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
 
   // Merge fresh server-side fields (name, avatarUrl, email) over the JWT
   // payload, so the layout always has current user metadata.
-  const user = meData.me
-    ? { ...locals.user, ...meData.me }
-    : locals.user;
+  const user: UserSummary & { roles: string[] } = meData.me
+    ? { ...locals.user, ...meData.me, roles: locals.user.roles }
+    : { ...locals.user, handle: null };
 
   return { user, orgs, isConsumerMode };
 };

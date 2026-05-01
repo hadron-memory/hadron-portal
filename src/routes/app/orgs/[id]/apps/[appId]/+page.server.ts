@@ -58,6 +58,7 @@ export const actions: Actions = {
     const name = String(fd.get('name') ?? '').trim() || undefined;
     const urn = String(fd.get('urn') ?? '').trim() || undefined;
     const appType = String(fd.get('appType') ?? '').trim() || undefined;
+    const role = String(fd.get('role') ?? '').trim() || undefined;
     const description = fd.has('description')
       ? (String(fd.get('description') ?? '').trim() || null)
       : undefined;
@@ -78,6 +79,7 @@ export const actions: Actions = {
         name,
         urn,
         appType,
+        role,
         description,
         systemPrompt,
         createUserPermission,
