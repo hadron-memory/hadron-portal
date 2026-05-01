@@ -1,10 +1,11 @@
-// GraphQL operations for asset upload. Used by the portal's /api/assets/*
-// server endpoints (not directly by client components — those go through
-// $lib/api/assetUpload.ts).
+// GraphQL operations for asset upload. v2 — memory-addressed surface
+// per spec 006-asset-upload-redesign. Used by the portal's
+// /api/assets/* server endpoints (not directly by client components —
+// those go through $lib/api/assetUpload.ts).
 
-export const BEGIN_ASSET_UPLOAD_MUTATION = /* GraphQL */ `
-  mutation BeginAssetUpload($input: BeginAssetUploadInput!) {
-    beginAssetUpload(input: $input) {
+export const BEGIN_ASSET_UPLOAD_V2_MUTATION = /* GraphQL */ `
+  mutation BeginAssetUploadV2($input: BeginAssetUploadV2Input!) {
+    beginAssetUploadV2(input: $input) {
       uploadId
       putUrl
       putHeaders { name value }
@@ -20,6 +21,7 @@ export const COMPLETE_ASSET_UPLOAD_MUTATION = /* GraphQL */ `
   mutation CompleteAssetUpload($input: CompleteAssetUploadInput!) {
     completeAssetUpload(input: $input) {
       id
+      memoryId
       urn
       filename
       mimeType
@@ -33,13 +35,14 @@ export const COMPLETE_ASSET_UPLOAD_MUTATION = /* GraphQL */ `
   }
 `;
 
-export const AGENT_ASSETS_QUERY = /* GraphQL */ `
-  query AgentAssets($agentUrn: String!, $mimeType: String, $skip: Int, $count: Int) {
-    agentAssets(agentUrn: $agentUrn, mimeType: $mimeType, skip: $skip, count: $count) {
+export const MEMORY_ASSETS_QUERY = /* GraphQL */ `
+  query MemoryAssets($memoryId: ID!, $mimeType: String, $skip: Int, $count: Int) {
+    memoryAssets(memoryId: $memoryId, mimeType: $mimeType, skip: $skip, count: $count) {
       total
       hasMore
       assets {
         id
+        memoryId
         filename
         mimeType
         sizeBytes
@@ -68,16 +71,6 @@ export const SOFT_DELETE_ASSET_MUTATION = /* GraphQL */ `
     softDeleteAsset(assetId: $assetId) {
       id
       deletedAt
-    }
-  }
-`;
-
-export const SET_AGENT_ASSET_UPLOAD_ENABLED_MUTATION = /* GraphQL */ `
-  mutation SetAgentAssetUploadEnabled($input: SetAgentAssetUploadEnabledInput!) {
-    setAgentAssetUploadEnabled(input: $input) {
-      id
-      urn
-      agentTools
     }
   }
 `;

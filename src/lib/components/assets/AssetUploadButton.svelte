@@ -3,14 +3,14 @@
   import { uploadAsset, AssetUploadError, type AssetSummary } from '$lib/api/assetUpload';
 
   interface Props {
-    agentUrn: string;
+    memoryId: string;
     accept?: string;
     maxSizeBytes?: number;
     onuploaded?: (asset: AssetSummary) => void;
     onerror?: (err: AssetUploadError) => void;
     disabled?: boolean;
   }
-  let { agentUrn, accept, maxSizeBytes, onuploaded, onerror, disabled }: Props = $props();
+  let { memoryId, accept, maxSizeBytes, onuploaded, onerror, disabled }: Props = $props();
 
   let inputEl: HTMLInputElement;
   let uploading = $state(false);
@@ -37,7 +37,7 @@
     try {
       const asset = await uploadAsset({
         file,
-        agentUrn,
+        memoryId,
         uploadIntent: 'USER',
         signal: controller.signal,
         onProgress: (loaded, total) => {

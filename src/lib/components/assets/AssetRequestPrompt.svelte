@@ -12,7 +12,7 @@
   // can also be invoked directly with explicit props.
 
   interface Props {
-    agentUrn: string;
+    memoryId: string;
     requestId: string;
     prompt: string;
     allowedMimeTypes?: string[];
@@ -24,7 +24,7 @@
     timeoutSeconds?: number;
   }
   let {
-    agentUrn,
+    memoryId,
     requestId,
     prompt,
     allowedMimeTypes,
@@ -87,7 +87,7 @@
     try {
       const asset = await uploadAsset({
         file,
-        agentUrn,
+        memoryId,
         uploadIntent: 'AGENT_REQUEST',
         uploadRequestId: requestId,
         signal: controller.signal,

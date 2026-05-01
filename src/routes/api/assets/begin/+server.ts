@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
-import { BEGIN_ASSET_UPLOAD_MUTATION } from '$lib/server/assetQueries';
+import { BEGIN_ASSET_UPLOAD_V2_MUTATION } from '$lib/server/assetQueries';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -10,7 +10,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   const body = await request.json().catch(() => ({}));
-  const required = ['agentUrn', 'filename', 'mimeType', 'sizeBytes', 'uploadIntent'];
+  // v2 (spec 006): memoryId replaces agentUrn as the addressing key.
+  const required = ['memoryId', 'filename', 'mimeType', 'sizeBytes', 'uploadIntent'];
   for (const k of required) {
     if (body[k] == null) {
       return json({ code: 'INVALID_INPUT', message: `${k} required` }, { status: 400 });
@@ -18,10 +19,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   try {
-    const { beginAssetUpload } = await gqlClient(locals.token).request<{
-      beginAssetUpload: unknown;
-    }>(BEGIN_ASSET_UPLOAD_MUTATION, body);
-    return json(beginAssetUpload);
+    const { beginAssetUploadV2 } = await gqlClient(locals.token).request<{
+      beginAssetUploadV2: unknown;
+    }>(BEGIN_ASSET_UPLOAD_V2_MUTATION, { input: body });
+    return json(beginAssetUploadV2);
   } catch (err) {
     return json(...mapError(err));
   }
@@ -46,6 +47,7 @@ function statusFor(code: string | undefined): number {
     case 'INVALID_INPUT':
     case 'SCAN_PENDING':
     case 'SCAN_BLOCKED':
+    case 'MEMORY_NOT_ACCEPTING_UPLOADS':
       return 400;
     default:
       return 500;

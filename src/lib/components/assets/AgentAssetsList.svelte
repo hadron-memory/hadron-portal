@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { Trash2, Download } from 'lucide-svelte';
   import {
-    listAgentAssets,
+    listMemoryAssets,
     getAssetDownloadUrl,
     deleteAsset,
     AssetUploadError,
@@ -11,10 +11,13 @@
   import AssetChip from './AssetChip.svelte';
 
   interface Props {
-    agentUrn: string;
+    // v2 (spec 006-asset-upload-redesign): memoryId replaces agentUrn.
+    // The list is now scoped to a specific memory rather than the
+    // implicit "user's per-agent memory" derived from an agent.
+    memoryId: string;
     pageSize?: number;
   }
-  let { agentUrn, pageSize = 20 }: Props = $props();
+  let { memoryId, pageSize = 20 }: Props = $props();
 
   let assets = $state<AssetSummary[]>([]);
   let total = $state(0);
@@ -27,7 +30,7 @@
     loading = true;
     error = null;
     try {
-      const result = await listAgentAssets(agentUrn, { skip, count: pageSize });
+      const result = await listMemoryAssets(memoryId, { skip, count: pageSize });
       assets = replace ? result.assets : [...assets, ...result.assets];
       total = result.total;
       hasMore = result.hasMore;
