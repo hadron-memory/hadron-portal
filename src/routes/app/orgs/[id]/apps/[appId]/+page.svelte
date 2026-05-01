@@ -1,8 +1,18 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { goto } from '$app/navigation';
+  import { env } from '$env/dynamic/public';
+  import JSZip from 'jszip';
+  import { onMount, onDestroy } from 'svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import AgentList, { type AgentRow } from '$lib/components/AgentList.svelte';
+  import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
+  import Chat from '$lib/components/Chat.svelte';
+  import { chatContext } from '$lib/stores/chat-context';
+  import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
+  import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
+  import type { AIProvider, AppAIConfig } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -10,18 +20,31 @@
   const org = $derived(data.org);
   const availableAgents = $derived(data.availableAgents);
 
-  // URN slug is everything after the org URN prefix (e.g. "mmdata" for
-  // "micromentor.org:mmdata"). Fall back to the whole URN if for some reason
-  // it doesn't contain a colon (shouldn't happen in practice).
+  // ── Tab state — driven by appType ────────────────────────────────────
+  type TabId = 'chat' | 'memory' | 'settings' | 'client';
+  const isChatbot = $derived(app.appType === 'CHATBOT');
+  let activeTab = $state<TabId>(app.appType === 'CHATBOT' ? 'chat' : 'memory');
+  const tabs = $derived<{ id: TabId; label: string }[]>([
+    ...(isChatbot ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
+    { id: 'memory', label: 'Memory' },
+    { id: 'settings', label: 'Settings' },
+    ...(!isChatbot ? [{ id: 'client' as TabId, label: 'Client' }] : []),
+  ]);
+
+  // URN slug helpers — slug is the part after the org URN's prefix.
   function slugOfUrn(urn: string): string {
     const idx = urn.indexOf(':');
     return idx >= 0 ? urn.slice(idx + 1) : urn;
   }
 
+  // ── Settings edit state ──────────────────────────────────────────────
   let editMode = $state(false);
   let name = $state(app.name);
   let appSlug = $state(slugOfUrn(app.urn));
   let appType = $state(app.appType);
+  let role = $state(app.role);
+  let description = $state(app.description ?? '');
+  let systemPrompt = $state(app.systemPrompt ?? '');
   let createUserPermission = $state(app.createUserPermission);
   let identifyUserMethod = $state(app.identifyUserMethod);
   let sessionTimeoutSeconds = $state(app.sessionTimeoutSeconds);
@@ -30,8 +53,56 @@
   let keyLabel = $state('');
   let selectedAgentId = $state('');
 
-  // Rows for the <AgentList /> table, mapped from app.agents.
-  const agentRows = $derived<AgentRow[]>(app.agents.map((a) => ({
+  // Floating chat assistant context — describe this page so it can help the user.
+  $effect(() => {
+    const agents = (app.agentSubscriptions ?? []).map((s) => s.agent.name);
+    const tools = app.agentTools ?? [];
+    chatContext.set({
+      pageContext: [
+        `The user is viewing app "${app.name}" (type: ${app.appType}).`,
+        app.description ? `Description: ${app.description}` : '',
+        agents.length ? `Subscribed agents: ${agents.join(', ')}.` : 'No agents subscribed yet.',
+        tools.length ? `Selected AI tools: ${tools.join(', ')}.` : 'No AI tools selected yet.',
+        `App URN: ${app.urn}`,
+        `Help this user configure Hadron for their app.`,
+      ].filter(Boolean).join('\n'),
+      appId: app.id,
+      aiProvider: app.aiProvider,
+      aiModel: app.aiModel,
+      hasAiApiKey: app.hasAiApiKey,
+    });
+  });
+  onDestroy(() => {
+    chatContext.set({ pageContext: '' });
+  });
+
+  // Effective memories surfaced through the App's agent subscriptions.
+  const subscribedAgentIds = $derived(new Set((app.agentSubscriptions ?? []).map((s) => s.agent.id)));
+  const subscribableAgents = $derived(
+    (org.agents ?? []).filter((a) => !subscribedAgentIds.has(a.id))
+  );
+
+  interface EffectiveMemory { id: string; urn: string; name: string; access: 'read' | 'read-write'; agentName: string }
+  const effectiveMemories = $derived.by(() => {
+    const map = new Map<string, EffectiveMemory>();
+    for (const sub of app.agentSubscriptions ?? []) {
+      for (const item of sub.agent.memoryItems ?? []) {
+        const effective = item.role === 'read-write' ? 'read-write' as const : 'read' as const;
+        const existing = map.get(item.memory.id);
+        if (!existing || (effective === 'read-write' && existing.access === 'read')) {
+          map.set(item.memory.id, { id: item.memory.id, urn: item.memory.urn, name: item.memory.name, access: effective, agentName: sub.agent.name });
+        }
+      }
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
+  });
+  const SYSTEM_MEMORY_URNS = ['hadronmemory.com:core'];
+  const userMemories = $derived(effectiveMemories.filter((m) => !SYSTEM_MEMORY_URNS.includes(m.urn)));
+  const hasWritableMemory = $derived(effectiveMemories.some((m) => m.access === 'read-write'));
+  const writableMemoryIds = $derived(effectiveMemories.filter((m) => m.access === 'read-write').map((m) => m.id));
+
+  // Agent rows for AgentList in the Settings tab.
+  const agentRows = $derived<AgentRow[]>((app.agents ?? []).map((a) => ({
     id: a.id,
     urn: a.urn,
     name: a.name,
@@ -39,12 +110,9 @@
     orgId: org.id,
   })));
 
-  // Remove-agent handler uses a single hidden form that we programmatically
-  // submit from the AgentList's onremove callback.
   let pendingRemoveAgentId = $state('');
   let removeAgentForm: HTMLFormElement | undefined = $state();
 
-  // When a key is just created, show the raw key once.
   const newRawKey = $derived(form?.rawKey as string | undefined);
 
   function formatDate(s: string | null | undefined): string {
@@ -53,11 +121,384 @@
   }
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
+  const typeIcon: Record<string, string> = { WORKSTATION: '💻', CHATBOT: '💬', CLOUD: '☁️', IOT: '📡', AGENT: '🤖', AUTOMATION: '⚙️' };
+
+  // ── AI Chat config (CHATBOT-only) ────────────────────────────────────
+  let aiProvider = $state<AIProvider>((app.aiProvider as AIProvider) ?? 'openai');
+  let aiApiKey = $state('');
+  let aiModel = $state(app.aiModel ?? DEFAULT_MODELS['openai']);
+  let stBedrockAccessKeyId = $state('');
+  let stBedrockSecretAccessKey = $state('');
+  let stBedrockRegion = $state('us-east-1');
+  let chatActive = $state(false);
+  let chatKey = $state(0);
+  let aiEditing = $state(false);
+
+  let aiConfig = $derived<AppAIConfig>({ provider: aiProvider, apiKey: aiApiKey, model: aiModel });
+
+  onMount(async () => {
+    if (app.hasAiApiKey) {
+      try {
+        const res = await fetch(`/api/apps/ai-config?appId=${app.id}`);
+        if (res.ok) {
+          const { provider, apiKey, model } = await res.json();
+          if (provider && apiKey && model) {
+            aiProvider = provider as AIProvider;
+            aiApiKey = apiKey;
+            aiModel = model;
+            chatKey++;
+            chatActive = true;
+          }
+        }
+      } catch { /* ignore */ }
+    }
+  });
+
+  function onProviderChange(e: Event) {
+    const val = (e.target as HTMLSelectElement).value;
+    aiProvider = val as AIProvider;
+    aiModel = DEFAULT_MODELS[aiProvider];
+  }
+
+  async function saveAndStartChat() {
+    let resolvedKey: string;
+    if (aiProvider === 'bedrock') {
+      if (!stBedrockAccessKeyId.trim() || !stBedrockSecretAccessKey.trim()) return;
+      resolvedKey = JSON.stringify({ accessKeyId: stBedrockAccessKeyId.trim(), secretAccessKey: stBedrockSecretAccessKey.trim(), region: stBedrockRegion });
+    } else {
+      if (!aiApiKey.trim()) return;
+      resolvedKey = aiApiKey;
+    }
+    try {
+      const res = await fetch('/api/apps/ai-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appId: app.id, provider: aiProvider, apiKey: resolvedKey, model: aiModel }),
+      });
+      if (!res.ok) return;
+      aiApiKey = resolvedKey;
+    } catch { return; }
+    chatKey++;
+    chatActive = true;
+  }
+
+  function disconnectChat() { chatActive = false; }
+
+  // ── Client tab state ────────────────────────────────────────────────
+  const AGENT_TOOL_OPTIONS = [
+    { value: 'CLAUDE_CODE', label: 'Claude Code', scope: 'project' },
+    { value: 'COPILOT', label: 'GitHub Copilot', scope: 'project' },
+    { value: 'CURSOR', label: 'Cursor', scope: 'project' },
+    { value: 'WINDSURF', label: 'Windsurf', scope: 'global' },
+    { value: 'ANTIGRAVITY', label: 'Antigravity', scope: 'global' },
+    { value: 'CLAUDE_DESKTOP', label: 'Claude Desktop', scope: 'project' },
+    { value: 'CODEX', label: 'Codex CLI', scope: 'project' },
+    { value: 'CLINE', label: 'Cline', scope: 'project' },
+  ];
+
+  let downloading = $state(false);
+  let agentToolsForm = $state<HTMLFormElement>();
+  let selectedTools = $derived(new Set(app.agentTools ?? []));
+  let withClientApp = $state(false);
+  let newKeyLabel = $state('');
+  let memoriesOpen = $state(false);
+
+  const activeKeys = $derived((app.keys ?? []).filter((k) => !k.revokedAt));
+  let newKeySectionOpen = $state(false);
+
+  function sanitizeLabel(label: string): string {
+    return (label || 'key').replace(/[^a-zA-Z0-9._:-]/g, '-').replace(/-+/g, '-').toLowerCase();
+  }
+
+  function maskedKey(label: string | null, createdAt: string, keyPreview: string | null): string {
+    const sanitized = sanitizeLabel(label ?? 'key');
+    const dateStamp = new Date(createdAt).toISOString().replace(/[-:T]/g, '').slice(0, 12);
+    const masked = keyPreview ? `${'••••••••'}${keyPreview}` : '••••••••••••';
+    return `${sanitized}/${dateStamp}/${masked}`;
+  }
+
+  const trimmedLabel = $derived(newKeyLabel.trim());
+  const sanitizedNewLabel = $derived(sanitizeLabel(trimmedLabel));
+  const duplicateKeyName = $derived(
+    trimmedLabel.length > 0 && activeKeys.some((k) => sanitizeLabel(k.label ?? 'key') === sanitizedNewLabel)
+  );
+  const canDownload = $derived(trimmedLabel.length > 0 && !duplicateKeyName && selectedTools.size > 0);
+  const keyPreviewText = $derived(
+    trimmedLabel.length > 0 ? `${sanitizedNewLabel}/${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)}/••••••••••••` : ''
+  );
+
+  function toggleTool(value: string) {
+    if (selectedTools.has(value)) { selectedTools.delete(value); } else { selectedTools.add(value); }
+    selectedTools = new Set(selectedTools);
+    setTimeout(() => agentToolsForm?.requestSubmit(), 0);
+  }
+
+  // ── Per-tool MCP config generators ────────────────────────────────────
+  const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+  const clientAppUrl = 'http://localhost:3200';
+  const mcpBaseUrl = $derived(withClientApp ? clientAppUrl : serverUrl);
+  const mcpUrl = $derived(mcpBaseUrl.includes('localhost') ? mcpBaseUrl + '/mcp' : mcpBaseUrl.replace(/\/$/, '') + '/mcp');
+
+  function claudeCodeMcpConfig(url: string, apiKey: string, useClientApp: boolean) {
+    if (useClientApp) {
+      return { mcpServers: { hadron: { command: 'hadron-client', args: ['stdio'], env: { HADRON_CLIENT_KEY: apiKey } } } };
+    }
+    return { mcpServers: { hadron: { type: 'http', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
+  }
+  function copilotMcpConfig(url: string, apiKey: string) {
+    return { servers: { hadron: { type: 'url', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } }, inputs: [] };
+  }
+  function cursorMcpConfig(url: string, apiKey: string) {
+    return { mcpServers: { hadron: { url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
+  }
+  function windsurfMcpConfig(url: string, apiKey: string) {
+    return { mcpServers: { hadron: { serverUrl: url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
+  }
+  function antigravityMcpConfig(url: string, apiKey: string) {
+    return { mcpServers: { hadron: { serverUrl: url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
+  }
+  function claudeCodeHooksConfig() {
+    return { hooks: {
+      SessionStart: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/session-start`, timeout: 5 }] }],
+      UserPromptSubmit: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/before-prompt`, timeout: 5 }] }],
+      PostToolUse: [{ matcher: 'mcp__hadron', hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/after-tool`, timeout: 5 }] }],
+      PostCompact: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/post-compact`, timeout: 5 }] }],
+    }};
+  }
+
+  const INSTRUCTIONS_MD = hadronInstructions;
+
+  async function generateAndDownloadZip(apiKey: string, keyLabel: string) {
+    const zip = new JSZip();
+    const tools = app.agentTools ?? [];
+    const url = mcpUrl;
+
+    if (tools.includes('CLAUDE_CODE')) {
+      const pluginManifest: Record<string, unknown> = {
+        name: 'hadron',
+        version: '1.0.0',
+        description: `Hadron knowledge memory for app "${app.name}"`,
+        author: { name: 'Baragaun', url: 'https://hadronmemory.com' },
+        homepage: 'https://hadronmemory.com',
+        license: 'MIT',
+        keywords: ['hadron', 'memory', 'knowledge-graph', 'mcp'],
+      };
+      if (withClientApp) {
+        pluginManifest.hooks = claudeCodeHooksConfig().hooks;
+      }
+      const mcpConfig = claudeCodeMcpConfig(url, apiKey, withClientApp);
+      const marketplaceManifest = {
+        name: 'hadron',
+        owner: { name: 'Baragaun', email: 'info@baragaun.com' },
+        metadata: { description: 'Hadron knowledge memory plugins' },
+        plugins: [{
+          name: 'hadron',
+          source: './plugins/hadron',
+          description: `Hadron knowledge memory for app "${app.name}"`,
+          version: '1.0.0',
+          author: { name: 'Baragaun' },
+        }],
+      };
+      zip.file('.hadron/plugin/.claude-plugin/marketplace.json', JSON.stringify(marketplaceManifest, null, 2));
+      zip.file('.hadron/plugin/plugins/hadron/.claude-plugin/plugin.json', JSON.stringify(pluginManifest, null, 2));
+      zip.file('.mcp.json', JSON.stringify(mcpConfig, null, 2));
+      zip.file('.hadron/plugin/plugins/hadron/skills/get-started/SKILL.md',
+`---
+name: get-started
+description: Learn how to use Hadron knowledge memory in this project
+---
+
+You are helping the user get started with Hadron, a knowledge memory platform for AI agents.
+
+This project is connected to Hadron app "${app.name}".
+
+Available MCP tools:
+- **h-start-session** / **h-end-session** — Track work sessions
+- **h-find-node** — Search nodes by name, tags, or description
+- **h-read-node** — Read a node's full content and edges
+- **h-read-next-node** — Navigate to the next sibling node
+- **h-create-node** — Create or update a node
+- **h-update-node** — Partially update a node
+- **h-move-node** — Rename or move a node
+- **h-validate** — Validate graph structure
+- **h-sync-graph** — Trigger a sync from the git source
+
+Start by calling h-start-session, then use h-find-node to explore what knowledge is available.
+When you learn something new, save it with h-create-node or h-update-node.
+`);
+      zip.file('.hadron/plugin/plugins/hadron/skills/search/SKILL.md',
+`---
+name: search
+description: Search the Hadron knowledge graph
+---
+
+Search the Hadron knowledge graph for relevant information.
+Use h-find-node with the user's query to find matching nodes, then read the most relevant ones with h-read-node.
+Present the results concisely.
+`);
+    }
+
+    if (tools.includes('CLAUDE_CODE'))
+      zip.file('.mcp.json', JSON.stringify(claudeCodeMcpConfig(url, apiKey, withClientApp), null, 2));
+    if (tools.includes('COPILOT'))
+      zip.file('.vscode/mcp.json', JSON.stringify(copilotMcpConfig(url, apiKey), null, 2));
+    if (tools.includes('CURSOR'))
+      zip.file('.cursor/mcp.json', JSON.stringify(cursorMcpConfig(url, apiKey), null, 2));
+    if (tools.includes('CLAUDE_DESKTOP'))
+      zip.file('claude_desktop_config.json', JSON.stringify(cursorMcpConfig(url, apiKey), null, 2));
+    if (tools.includes('CODEX'))
+      zip.file('.codex/mcp.json', JSON.stringify(cursorMcpConfig(url, apiKey), null, 2));
+    if (tools.includes('CLINE'))
+      zip.file('.cline/mcp.json', JSON.stringify(cursorMcpConfig(url, apiKey), null, 2));
+    if (tools.includes('WINDSURF'))
+      zip.file('global-configs/windsurf-mcp_config.json', JSON.stringify(windsurfMcpConfig(url, apiKey), null, 2));
+    if (tools.includes('ANTIGRAVITY'))
+      zip.file('global-configs/antigravity-mcp_config.json', JSON.stringify(antigravityMcpConfig(url, apiKey), null, 2));
+
+    if (withClientApp) {
+      if (tools.includes('CLAUDE_CODE'))
+        zip.file('.claude/settings.json', JSON.stringify(claudeCodeHooksConfig(), null, 2));
+      zip.file('.hadron/config.json', JSON.stringify({ appKey: apiKey, defaultLevel: 'guided' }, null, 2));
+    }
+
+    zip.file('.hadron/INSTRUCTIONS.md', INSTRUCTIONS_MD);
+
+    const user = data.user;
+    const configYml = [
+      '# .hadron/config.yml',
+      '#',
+      '# Project-level configuration for Hadron. This file lives in the .hadron/',
+      '# directory at the project root and persists across sessions.',
+      '',
+      '# The default Hadron memory URN for this project.',
+      '# Set as the active memory at session start via h-set-active-memory.',
+      'default_memory:',
+      '',
+      '# Engineer identity. Used for attribution, script selection, and lookups.',
+      'user:',
+      `  user_id: ${user?.id ?? ''}`,
+      `  username: ${user?.name ?? ''}`,
+      `  email: "${user?.email ?? ''}"`,
+      `  github_username: "${user?.githubUsername ?? ''}"`,
+    ].join('\n');
+    zip.file('.hadron/config.yml', configYml);
+
+    zip.file('bin/hadron-client',
+`#!/usr/bin/env bash
+# Hadron Client launcher — place this on your PATH (e.g. ~/bin or /usr/local/bin)
+# Requires: Node.js >= 20, hadron-client repo cloned and built
+
+HADRON_CLIENT_DIR="\${HADRON_CLIENT_DIR:-\$HOME/src/hadron-memory/hadron-client}"
+node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
+`);
+
+    const hasGlobalTools = tools.includes('WINDSURF') || tools.includes('ANTIGRAVITY');
+    const readmeLines = [
+      '# Hadron Client Setup',
+      '',
+      '## Client Key',
+      '',
+      '```',
+      apiKey,
+      '```',
+      '',
+      '> **Keep your client key safe and do not share it with others!**',
+      '',
+      '## Prerequisites',
+      '',
+      '1. **Node.js >= 20** installed',
+      '2. **Clone and build hadron-client:**',
+      '   ```bash',
+      '   git clone https://github.com/hadron-memory/hadron-client.git ~/src/hadron-memory/hadron-client',
+      '   cd ~/src/hadron-memory/hadron-client',
+      '   npm install && npm run build',
+      '   ```',
+      '3. **Install the `hadron-client` command** — copy the wrapper script to a directory on your PATH:',
+      '   ```bash',
+      '   cp bin/hadron-client ~/bin/hadron-client   # or /usr/local/bin/',
+      '   chmod +x ~/bin/hadron-client',
+      '   ```',
+      '   If your hadron-client repo is not at `~/src/hadron-memory/hadron-client`,',
+      '   set `HADRON_CLIENT_DIR` in the script or your shell profile.',
+      '',
+      '## To upgrade',
+      '',
+      '```bash',
+      '~/src/hadron-memory/hadron-client/bin/upgrade.sh',
+      '```',
+      '',
+      'Then restart your AI coding tool (or reconnect MCP) to pick up changes.',
+      '',
+      '## Project Setup',
+      '',
+      '### Hadron config',
+      '',
+      '1. Copy `.hadron/` into your project root',
+      '2. Edit `.hadron/config.yml` — fill in your `default_memory`, user details, etc.',
+      '3. `.hadron/INSTRUCTIONS.md` is read by AI agents — no edits needed',
+      '',
+      '### AI tool configs',
+      '',
+      'Copy the relevant config files into your project root:',
+    ];
+    if (tools.includes('CLAUDE_CODE'))
+      readmeLines.push('', '### Claude Code', '', '- Copy `.mcp.json` to your project root');
+    if (tools.includes('COPILOT'))
+      readmeLines.push('', '### GitHub Copilot', '', '- Copy `.vscode/mcp.json` to your project', '- Docs: https://code.visualstudio.com/docs/copilot/chat/mcp-servers');
+    if (tools.includes('CURSOR'))
+      readmeLines.push('', '### Cursor', '', '- Copy `.cursor/mcp.json` to your project', '- Docs: https://cursor.com/docs/mcp');
+    if (tools.includes('CLAUDE_DESKTOP'))
+      readmeLines.push('', '### Claude Desktop', '', '- Merge `claude_desktop_config.json` into your Claude Desktop config');
+    if (tools.includes('CODEX'))
+      readmeLines.push('', '### Codex CLI', '', '- Copy `.codex/mcp.json` to your project');
+    if (tools.includes('CLINE'))
+      readmeLines.push('', '### Cline', '', '- Copy `.cline/mcp.json` to your project');
+    if (hasGlobalTools) {
+      readmeLines.push('', '### Global-only configs', '', 'These tools only support global MCP configuration.', 'Merge the hadron entry from the `global-configs/` folder into your existing config file.');
+      if (tools.includes('WINDSURF'))
+        readmeLines.push('', '**Windsurf:** Merge into `~/.codeium/windsurf/mcp_config.json`');
+      if (tools.includes('ANTIGRAVITY'))
+        readmeLines.push('', '**Antigravity:** Merge into `~/.antigravity/mcp_config.json`');
+    }
+    if (withClientApp) readmeLines.push(
+      '', '### Hadron Client App', '',
+      'The client app provides hooks for session tracking and context recovery.',
+      '1. Copy `.hadron/config.json` to your project',
+      '2. Start the client app: `hadron-client start`',
+      '3. Copy `.claude/settings.json` to your project (hooks config)',
+    );
+    zip.file('README.md', readmeLines.join('\n'));
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const dlUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const safeName = sanitizeLabel(keyLabel);
+    a.href = dlUrl; a.download = `hadron-client-config-${safeName}.zip`; a.click();
+    URL.revokeObjectURL(dlUrl);
+  }
+
+  async function downloadSetupZip() {
+    if (!canDownload) return;
+    const label = trimmedLabel;
+    downloading = true;
+    try {
+      const res = await fetch('/api/create-app-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appId: app.id, label }),
+      });
+      if (!res.ok) { alert('Failed to create client key.'); return; }
+      const { rawKey } = await res.json();
+      if (!rawKey) { alert('Failed to create client key.'); return; }
+      newKeyLabel = '';
+      await generateAndDownloadZip(rawKey, label);
+    } finally { downloading = false; }
+  }
 </script>
 
 <svelte:head><title>{app.name} · Apps · {org.name} · Hadron</title></svelte:head>
 
-<div class="space-y-6">
+<div class="space-y-4">
   <div>
     <Breadcrumb items={[
       { label: 'Organizations', href: '/app/orgs' },
@@ -67,13 +508,15 @@
     ]} />
     <div class="mt-2 flex items-start justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">App:</span> {app.name}</h1>
+        <h1 class="flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
+          <span>{typeIcon[app.appType] ?? '🔑'}</span>
+          <span><span class="text-zinc-400 font-normal">App:</span> {app.name}</span>
+          {#if !hasWritableMemory && (app.agentSubscriptions?.length ?? 0) > 0}
+            <span class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">read-only</span>
+          {/if}
+        </h1>
         <div class="mt-1"><Urn value={app.urn} type="app" /></div>
       </div>
-      <a href="/app/apps/{app.id}"
-        class="shrink-0 rounded-lg border border-indigo-300 px-4 py-2 text-sm font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-700 dark:text-indigo-300 dark:hover:bg-indigo-950">
-        Client setup & MCP →
-      </a>
     </div>
   </div>
 
@@ -103,217 +546,589 @@
     </div>
   {/if}
 
-  <!-- Settings (matches the layout of the Memory detail page:
-       section wrapper, h2 + Edit button OUTSIDE the panel, read-only
-       view as a divide-y list of full-width rows) -->
-  <section class="max-w-lg">
-    <div class="mb-4 flex items-center justify-between">
-      <h2 class="font-semibold text-zinc-900 dark:text-white">App</h2>
-      {#if !editMode}
-        <button type="button" onclick={() => { editMode = true; }}
-          class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
-          Edit
-        </button>
+  <!-- Tabs -->
+  <div class="flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
+    {#each tabs as tab}
+      <button
+        onclick={() => activeTab = tab.id}
+        class="border-b-2 px-4 py-2 text-sm font-medium transition
+          {activeTab === tab.id
+            ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+            : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
+      >
+        {tab.label}
+      </button>
+    {/each}
+  </div>
+
+  <!-- ───────────── CHAT TAB (CHATBOT only) ───────────── -->
+  {#if activeTab === 'chat'}
+    <div class="flex flex-col" style="height: calc(100vh - 280px);">
+      {#if chatActive}
+        <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+          {#key chatKey}
+            <Chat config={aiConfig} appId={app.id} systemPrompt={[
+              app.systemPrompt ?? '',
+              `App: "${app.name}" (${app.appType})`,
+              `URN: ${app.urn}`,
+              (app.agentSubscriptions ?? []).length ? `Agents: ${(app.agentSubscriptions ?? []).map(s => s.agent.name).join(', ')}` : '',
+              ...(app.agentSubscriptions ?? []).filter(s => s.agent.systemPrompt).map(s => s.agent.systemPrompt ?? ''),
+            ].filter(Boolean).join('\n')} />
+          {/key}
+        </div>
+        <div class="mt-2 flex gap-3">
+          <button onclick={() => { chatKey++; }} class="text-xs text-zinc-500 hover:text-zinc-300">Restart</button>
+          <button onclick={disconnectChat} class="text-xs text-zinc-500 hover:text-zinc-300">Disconnect</button>
+        </div>
+      {:else}
+        <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
+          <div class="text-center">
+            <p class="mb-4 text-sm text-zinc-500">Configure your AI provider in Settings to start chatting.</p>
+            <button onclick={() => activeTab = 'settings'} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
+              Go to Settings
+            </button>
+          </div>
+        </div>
       {/if}
     </div>
+  {/if}
 
-    {#if editMode}
-      <form method="POST" action="?/update" use:enhance={() => {
-        return async ({ update }) => { editMode = false; await update(); };
-      }} class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
-        <div>
-          <label for="name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-          <input id="name" type="text" name="name" bind:value={name} class={inputClass} />
-        </div>
-        <div>
-          <label for="urn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
-          <div class="flex items-stretch">
-            <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
-            <input id="urn" type="text" name="urn" bind:value={appSlug}
-              class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
-          </div>
-          <p class="mt-1 text-xs text-zinc-400">The slug must be unique within the organization. Changing this rewrites the URN.</p>
-        </div>
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <label for="appType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
-            <select id="appType" name="appType" bind:value={appType}
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-              <option value="WORKSTATION">💻 Workstation</option>
-              <option value="CHATBOT">💬 Chatbot</option>
-              <option value="AGENT">🤖 Agent</option>
-              <option value="AUTOMATION">⚙️ Automation</option>
-              <option value="CLOUD">☁️ Cloud</option>
-              <option value="IOT">📡 IoT</option>
-            </select>
-          </div>
-          <div>
-            <label for="cup" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">User creation</label>
-            <select id="cup" name="createUserPermission" bind:value={createUserPermission}
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-              <option value="DENY">DENY</option>
-              <option value="EXPLICIT">EXPLICIT</option>
-              <option value="IMPLICIT">IMPLICIT</option>
-            </select>
-          </div>
-          <div>
-            <label for="ium" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Identify user by</label>
-            <select id="ium" name="identifyUserMethod" bind:value={identifyUserMethod}
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-              <option value="USER_ID">USER_ID</option>
-              <option value="SECRET">SECRET</option>
-            </select>
-          </div>
-          <div>
-            <label for="timeout" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Session timeout (seconds)</label>
-            <input id="timeout" type="number" name="sessionTimeoutSeconds"
-              bind:value={sessionTimeoutSeconds} min="60" max="86400" class={inputClass} />
-          </div>
-          <div>
-            <label for="anonttl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Anonymous TTL (days)</label>
-            <input id="anonttl" type="number" name="anonymousTtlDays"
-              bind:value={anonymousTtlDays} min="1" max="90" class={inputClass} />
-          </div>
-        </div>
-        <div class="flex gap-2">
-          <button type="submit" class="rounded-lg px-4 py-2 text-sm font-semibold text-white" style="background: #fb8500;">Save</button>
-          <button type="button" onclick={() => {
-            editMode = false;
-            name = app.name;
-            appSlug = slugOfUrn(app.urn);
-            appType = app.appType;
-            createUserPermission = app.createUserPermission;
-            identifyUserMethod = app.identifyUserMethod;
-            sessionTimeoutSeconds = app.sessionTimeoutSeconds;
-            anonymousTtlDays = app.anonymousTtlDays;
-          }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">
-            Cancel
-          </button>
-        </div>
-      </form>
-    {:else}
-      <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class="text-sm text-zinc-500">Type</span>
-          <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.appType}</span>
-        </div>
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class="text-sm text-zinc-500">User creation</span>
-          <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.createUserPermission}</span>
-        </div>
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class="text-sm text-zinc-500">Identify user by</span>
-          <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.identifyUserMethod}</span>
-        </div>
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class="text-sm text-zinc-500">Session timeout</span>
-          <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.sessionTimeoutSeconds} seconds</span>
-        </div>
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class="text-sm text-zinc-500">Anonymous TTL</span>
-          <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.anonymousTtlDays} days</span>
-        </div>
-      </div>
-    {/if}
-  </section>
+  <!-- ───────────── MEMORY TAB ───────────── -->
+  {#if activeTab === 'memory'}
+    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} {writableMemoryIds} />
+  {/if}
 
-  <!-- Agents -->
-  <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-    <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">Agents</h2>
-    <p class="mb-3 text-sm text-zinc-500">Agents this App is allowed to operate. An App Key holder can only call startAgentSession for these.</p>
+  <!-- ───────────── SETTINGS TAB ───────────── -->
+  {#if activeTab === 'settings'}
+    <div class="space-y-8">
+      <!-- App settings (form-driven; mirrors the legacy fields, including the org-original ones) -->
+      <section class="max-w-lg">
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="font-semibold text-zinc-900 dark:text-white">App</h2>
+          {#if !editMode}
+            <button type="button" onclick={() => { editMode = true; }}
+              class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+              Edit
+            </button>
+          {/if}
+        </div>
 
-    <AgentList
-      agents={agentRows}
-      onremove={(agent) => { pendingRemoveAgentId = agent.id; removeAgentForm?.requestSubmit(); }}
-    />
+        {#if editMode}
+          <form method="POST" action="?/update" use:enhance={() => {
+            return async ({ update }) => { editMode = false; await update(); };
+          }} class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+            <div>
+              <label for="name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+              <input id="name" type="text" name="name" bind:value={name} class={inputClass} />
+            </div>
+            <div>
+              <label for="urn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+              <div class="flex items-stretch">
+                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+                <input id="urn" type="text" name="urn" bind:value={appSlug}
+                  class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+              </div>
+              <p class="mt-1 text-xs text-zinc-400">The slug must be unique within the organization. Changing this rewrites the URN.</p>
+            </div>
+            <div>
+              <label for="description" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
+              <input id="description" type="text" name="description" bind:value={description} placeholder="What this app is for" class={inputClass} />
+            </div>
+            <div>
+              <label for="systemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
+              <textarea id="systemPrompt" name="systemPrompt" rows="4" bind:value={systemPrompt}
+                placeholder="Instructions for the LLM when using this app"
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"></textarea>
+              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
+            </div>
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label for="appType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+                <select id="appType" name="appType" bind:value={appType}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                  <option value="WORKSTATION">💻 Workstation</option>
+                  <option value="CHATBOT">💬 Chatbot</option>
+                  <option value="AGENT">🤖 Agent</option>
+                  <option value="AUTOMATION">⚙️ Automation</option>
+                  <option value="CLOUD">☁️ Cloud</option>
+                  <option value="IOT">📡 IoT</option>
+                </select>
+              </div>
+              <div>
+                <label for="editRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Role</label>
+                <select id="editRole" name="role" bind:value={role}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                  <option value="READER">Reader</option>
+                  <option value="CONTRIBUTOR">Contributor</option>
+                  <option value="ADMIN">Admin</option>
+                </select>
+              </div>
+              <div>
+                <label for="cup" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">User creation</label>
+                <select id="cup" name="createUserPermission" bind:value={createUserPermission}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                  <option value="DENY">DENY</option>
+                  <option value="EXPLICIT">EXPLICIT</option>
+                  <option value="IMPLICIT">IMPLICIT</option>
+                </select>
+              </div>
+              <div>
+                <label for="ium" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Identify user by</label>
+                <select id="ium" name="identifyUserMethod" bind:value={identifyUserMethod}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                  <option value="USER_ID">USER_ID</option>
+                  <option value="SECRET">SECRET</option>
+                </select>
+              </div>
+              <div>
+                <label for="timeout" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Session timeout (seconds)</label>
+                <input id="timeout" type="number" name="sessionTimeoutSeconds"
+                  bind:value={sessionTimeoutSeconds} min="60" max="86400" class={inputClass} />
+              </div>
+              <div>
+                <label for="anonttl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Anonymous TTL (days)</label>
+                <input id="anonttl" type="number" name="anonymousTtlDays"
+                  bind:value={anonymousTtlDays} min="1" max="90" class={inputClass} />
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <button type="submit" class="rounded-lg px-4 py-2 text-sm font-semibold text-white" style="background: #fb8500;">Save</button>
+              <button type="button" onclick={() => {
+                editMode = false;
+                name = app.name;
+                appSlug = slugOfUrn(app.urn);
+                appType = app.appType;
+                role = app.role;
+                description = app.description ?? '';
+                systemPrompt = app.systemPrompt ?? '';
+                createUserPermission = app.createUserPermission;
+                identifyUserMethod = app.identifyUserMethod;
+                sessionTimeoutSeconds = app.sessionTimeoutSeconds;
+                anonymousTtlDays = app.anonymousTtlDays;
+              }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">
+                Cancel
+              </button>
+            </div>
+          </form>
+        {:else}
+          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Type</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.appType}</span>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Role</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.role}</span>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">URN</span>
+              <span class="text-sm font-mono text-zinc-900 dark:text-white">{app.urn}</span>
+            </div>
+            {#if app.description}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Description</span>
+                <span class="text-sm text-zinc-900 dark:text-white">{app.description}</span>
+              </div>
+            {/if}
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">User creation</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.createUserPermission}</span>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Identify user by</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.identifyUserMethod}</span>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Session timeout</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.sessionTimeoutSeconds} seconds</span>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Anonymous TTL</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.anonymousTtlDays} days</span>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Created</span>
+              <span class="text-sm text-zinc-900 dark:text-white">{new Date(app.createdAt).toLocaleDateString()}</span>
+            </div>
+          </div>
+        {/if}
+      </section>
 
-    <!-- Hidden form that the AgentList's onremove handler submits.
-         Using a hidden form (vs inline per-row forms) keeps the table clean
-         while still routing through SvelteKit's action layer. -->
-    <form method="POST" action="?/removeAgent" use:enhance bind:this={removeAgentForm} class="hidden">
-      <input type="hidden" name="agentId" value={pendingRemoveAgentId} />
-    </form>
+      <!-- Agents (subscriptions: list with role, plus simple list for App.agents fallback) -->
+      <section class="max-w-2xl">
+        <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">
+          Agents
+          <span class="ml-1 text-sm font-normal text-zinc-500">({(app.agentSubscriptions?.length ?? app.agents?.length ?? 0)})</span>
+        </h2>
+        <p class="mb-3 text-sm text-zinc-500">Agents this App is allowed to operate. An App Key holder can only call startAgentSession for these.</p>
 
-
-    {#if availableAgents.length > 0}
-      <form method="POST" action="?/addAgent" use:enhance class="flex items-end gap-2">
-        <div class="flex-1">
-          <label for="agentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Add an agent</label>
-          <select id="agentId" name="agentId" bind:value={selectedAgentId}
-            class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-            <option value="">Select…</option>
-            {#each availableAgents as a}
-              <option value={a.id}>{a.name} ({a.urn})</option>
+        {#if (app.agentSubscriptions?.length ?? 0) > 0}
+          <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
+            {#each app.agentSubscriptions ?? [] as sub (sub.agentId)}
+              <div class="flex w-full items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
+                <span class="text-base">🤖</span>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{sub.agent.name}</p>
+                  <Urn value={sub.agent.urn} type="agent" size={10} />
+                </div>
+                <form method="POST" action="?/addAgent" use:enhance class="shrink-0">
+                  <input type="hidden" name="agentId" value={sub.agent.id} />
+                  <select name="role"
+                    onchange={(e) => e.currentTarget?.form?.requestSubmit()}
+                    class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
+                    <option value="OPERATE" selected={sub.role === 'OPERATE'}>Operate</option>
+                    <option value="DEVELOP" selected={sub.role === 'DEVELOP'}>Develop</option>
+                  </select>
+                </form>
+                <form method="POST" action="?/removeAgent" use:enhance class="shrink-0">
+                  <input type="hidden" name="agentId" value={sub.agent.id} />
+                  <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+                </form>
+              </div>
             {/each}
-          </select>
-        </div>
-        <button type="submit" disabled={!selectedAgentId}
-          class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-          style="background: #219ebc;">
-          Attach
-        </button>
-      </form>
-    {/if}
-  </div>
+          </div>
+        {:else if agentRows.length > 0}
+          <!-- Fallback: server returned only flat App.agents (no subscription detail). -->
+          <AgentList
+            agents={agentRows}
+            onremove={(agent) => { pendingRemoveAgentId = agent.id; removeAgentForm?.requestSubmit(); }}
+          />
+          <form method="POST" action="?/removeAgent" use:enhance bind:this={removeAgentForm} class="hidden">
+            <input type="hidden" name="agentId" value={pendingRemoveAgentId} />
+          </form>
+        {:else}
+          <p class="mb-4 text-sm text-zinc-500">No agents subscribed yet.</p>
+        {/if}
 
-  <!-- Keys -->
-  <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-    <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">App Keys</h2>
-    <p class="mb-4 text-sm text-zinc-500">
-      App Keys are long-lived server secrets. Store them in your backend environment —
-      never in client-side code.
-    </p>
+        {#if (subscribableAgents.length > 0) || (availableAgents.length > 0)}
+          <form method="POST" action="?/addAgent" use:enhance class="flex flex-wrap items-end gap-3">
+            <div class="flex-1 min-w-[200px]">
+              <label for="agentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Add an agent</label>
+              <select id="agentId" name="agentId" bind:value={selectedAgentId}
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="">Select…</option>
+                {#each (subscribableAgents.length > 0 ? subscribableAgents : availableAgents) as a (a.id)}
+                  <option value={a.id}>{a.name} ({a.urn})</option>
+                {/each}
+              </select>
+            </div>
+            <div>
+              <label for="role" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Mode</label>
+              <select id="role" name="role"
+                class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="OPERATE">Operate</option>
+                <option value="DEVELOP">Develop</option>
+              </select>
+            </div>
+            <button type="submit" disabled={!selectedAgentId}
+              class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              style="background: #219ebc;">
+              Attach
+            </button>
+          </form>
+        {/if}
+      </section>
 
-    <form method="POST" action="?/createKey" use:enhance class="mb-5 flex items-end gap-2">
-      <div class="flex-1">
-        <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Label (optional)</label>
-        <input id="label" type="text" name="label" placeholder="e.g. production-backend"
-          bind:value={keyLabel} class={inputClass} />
-      </div>
-      <button type="submit"
-        class="rounded-lg px-4 py-2 text-sm font-semibold text-white" style="background: #fb8500;">
-        + Generate Key
-      </button>
-    </form>
+      <!-- Accessible Memories (collapsed) -->
+      {#if userMemories.length > 0}
+        <section class="max-w-2xl">
+          <button onclick={() => memoriesOpen = !memoriesOpen} class="flex items-center gap-2 font-semibold text-zinc-900 dark:text-white">
+            <svg width="12" height="12" viewBox="0 0 12 12" class="transition-transform {memoriesOpen ? 'rotate-90' : ''}">
+              <path d="M4 2 L8 6 L4 10" stroke="currentColor" fill="none" stroke-width="1.5" />
+            </svg>
+            Accessible Memories
+            <span class="text-sm font-normal text-zinc-500">({userMemories.length})</span>
+          </button>
+          {#if memoriesOpen}
+          <div class="mt-3 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
+            {#each userMemories as mem (mem.id)}
+              <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
+                <span class="text-base">🧠</span>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{mem.name}</p>
+                  <Urn value={mem.urn} type="memory" size={10} />
+                </div>
+                <span class="shrink-0 rounded-full px-2 py-0.5 text-xs {mem.access === 'read-write' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'}">{mem.access}</span>
+                <span class="text-xs text-zinc-400">via {mem.agentName}</span>
+              </div>
+            {/each}
+          </div>
+          {/if}
+        </section>
+      {/if}
 
-    {#if app.keys.length === 0}
-      <p class="text-sm text-zinc-400">No keys yet.</p>
-    {:else}
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-zinc-200 dark:border-zinc-800">
-            <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Label</th>
-            <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Preview</th>
-            <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Created</th>
-            <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Last used</th>
-            <th class="pb-2"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {#each app.keys as key (key.id)}
-            <tr class={key.revokedAt ? 'opacity-50' : ''}>
-              <td class="py-2 text-zinc-900 dark:text-zinc-200">{key.label ?? '—'}</td>
-              <td class="py-2 font-mono text-xs text-zinc-500">{key.keyPreview}</td>
-              <td class="py-2 text-xs text-zinc-500">{formatDate(key.createdAt)}</td>
-              <td class="py-2 text-xs text-zinc-500">{formatDate(key.lastUsedAt)}</td>
-              <td class="py-2 text-right">
-                {#if key.revokedAt}
-                  <span class="text-xs text-red-500">revoked</span>
-                {:else}
-                  <form method="POST" action="?/revokeKey" use:enhance
-                    onsubmit={(e) => { if (!confirm('Revoke this key? This cannot be undone.')) e.preventDefault(); }}>
-                    <input type="hidden" name="id" value={key.id} />
-                    <button type="submit"
-                      class="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
-                      Revoke
-                    </button>
-                  </form>
-                {/if}
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    {/if}
-  </div>
+      <!-- AI Chat Configuration (CHATBOT only) -->
+      {#if isChatbot}
+        <section class="max-w-lg">
+          <div class="mb-4 flex items-center justify-between">
+            <h2 class="font-semibold text-zinc-900 dark:text-white">AI Chat</h2>
+            {#if !aiEditing}
+              <button onclick={() => aiEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+            {/if}
+          </div>
+
+          {#if aiEditing}
+            <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-3">
+              <div>
+                <label for="ai-provider" class="mb-1 block text-xs text-zinc-500">Provider</label>
+                <select id="ai-provider" value={aiProvider} onchange={onProviderChange}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
+                  {#each AI_PROVIDERS as p (p.value)}
+                    <option value={p.value}>{p.label}</option>
+                  {/each}
+                </select>
+              </div>
+              {#if aiProvider === 'bedrock'}
+                <div>
+                  <label for="ai-bedrock-access-key" class="mb-1 block text-xs text-zinc-500">AWS Access Key ID</label>
+                  <input id="ai-bedrock-access-key" type="password" bind:value={stBedrockAccessKeyId} placeholder="AKIA…"
+                    class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
+                </div>
+                <div>
+                  <label for="ai-bedrock-secret-key" class="mb-1 block text-xs text-zinc-500">AWS Secret Access Key</label>
+                  <input id="ai-bedrock-secret-key" type="password" bind:value={stBedrockSecretAccessKey} placeholder=""
+                    class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
+                </div>
+                <div>
+                  <label for="ai-bedrock-region" class="mb-1 block text-xs text-zinc-500">AWS Region</label>
+                  <select id="ai-bedrock-region" bind:value={stBedrockRegion}
+                    class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
+                    <option value="us-east-1">us-east-1 (N. Virginia)</option>
+                    <option value="us-west-2">us-west-2 (Oregon)</option>
+                    <option value="eu-west-1">eu-west-1 (Ireland)</option>
+                    <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
+                  </select>
+                </div>
+                <p class="mt-1 text-[10px] text-zinc-400">Credentials are encrypted and stored on the server for this app.</p>
+              {:else}
+                <div>
+                  <label for="ai-key" class="mb-1 block text-xs text-zinc-500">API Key</label>
+                  <input id="ai-key" type="password" bind:value={aiApiKey} placeholder="sk-..."
+                    class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
+                  <p class="mt-1 text-[10px] text-zinc-400">Encrypted and stored on the server for this app.</p>
+                </div>
+              {/if}
+              <div>
+                <label for="ai-model" class="mb-1 block text-xs text-zinc-500">Model</label>
+                <input id="ai-model" type="text" bind:value={aiModel}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:border-indigo-500 focus:outline-none" />
+              </div>
+              <div class="flex gap-3">
+                <button onclick={() => { saveAndStartChat(); aiEditing = false; }} disabled={aiProvider === 'bedrock' ? (!stBedrockAccessKeyId.trim() || !stBedrockSecretAccessKey.trim()) : !aiApiKey.trim()}
+                  class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                  Save
+                </button>
+                <button type="button" onclick={() => aiEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+              </div>
+            </div>
+          {:else}
+            <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Provider</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.aiProvider ?? '—'}</span>
+              </div>
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Model</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.aiModel ?? '—'}</span>
+              </div>
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">API Key</span>
+                <span class="text-sm text-zinc-900 dark:text-white">{app.hasAiApiKey ? 'Configured' : 'Not set'}</span>
+              </div>
+            </div>
+          {/if}
+        </section>
+      {/if}
+
+      <!-- App Keys (always visible in Settings; richer download flow lives on Client tab for non-CHATBOT apps) -->
+      <section class="max-w-2xl">
+        <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">App Keys</h2>
+        <p class="mb-4 text-sm text-zinc-500">
+          App Keys are long-lived server secrets. Store them in your backend environment —
+          never in client-side code.
+        </p>
+
+        <form method="POST" action="?/createKey" use:enhance class="mb-5 flex items-end gap-2">
+          <div class="flex-1">
+            <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Label (optional)</label>
+            <input id="label" type="text" name="label" placeholder="e.g. production-backend"
+              bind:value={keyLabel} class={inputClass} />
+          </div>
+          <button type="submit"
+            class="rounded-lg px-4 py-2 text-sm font-semibold text-white" style="background: #fb8500;">
+            + Generate Key
+          </button>
+        </form>
+
+        {#if (app.keys?.length ?? 0) === 0}
+          <p class="text-sm text-zinc-400">No keys yet.</p>
+        {:else}
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-zinc-200 dark:border-zinc-800">
+                <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Label</th>
+                <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Preview</th>
+                <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Created</th>
+                <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Last used</th>
+                <th class="pb-2"></th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {#each app.keys ?? [] as key (key.id)}
+                <tr class={key.revokedAt ? 'opacity-50' : ''}>
+                  <td class="py-2 text-zinc-900 dark:text-zinc-200">{key.label ?? '—'}</td>
+                  <td class="py-2 font-mono text-xs text-zinc-500">{key.keyPreview}</td>
+                  <td class="py-2 text-xs text-zinc-500">{formatDate(key.createdAt)}</td>
+                  <td class="py-2 text-xs text-zinc-500">{formatDate(key.lastUsedAt)}</td>
+                  <td class="py-2 text-right">
+                    {#if key.revokedAt}
+                      <span class="text-xs text-red-500">revoked</span>
+                    {:else}
+                      <form method="POST" action="?/revokeKey" use:enhance
+                        onsubmit={(e) => { if (!confirm('Revoke this key? This cannot be undone.')) e.preventDefault(); }}>
+                        <input type="hidden" name="id" value={key.id} />
+                        <button type="submit"
+                          class="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
+                          Revoke
+                        </button>
+                      </form>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        {/if}
+      </section>
+
+      <!-- Danger zone -->
+      <section class="max-w-lg border-t border-zinc-200 pt-6 dark:border-zinc-800">
+        <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
+        <form method="POST" action="?/deleteApp" use:enhance={() => {
+          return async ({ result, update }) => {
+            if (result.type === 'success') goto(`/app/orgs/${org.id}/apps`);
+            else await update();
+          };
+        }} onsubmit={(e) => {
+          if (!confirm(`Delete app "${app.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
+        }}>
+          <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+            Delete app
+          </button>
+        </form>
+      </section>
+    </div>
+  {/if}
+
+  <!-- ───────────── CLIENT TAB (non-CHATBOT) ───────────── -->
+  {#if activeTab === 'client'}
+    <div class="max-w-2xl space-y-8">
+      <!-- Active client keys -->
+      <section>
+        <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">
+          Client Keys
+          <span class="ml-1 text-sm font-normal text-zinc-500">({activeKeys.length})</span>
+        </h2>
+        {#if activeKeys.length}
+          <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
+            {#each activeKeys as key (key.id)}
+              <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
+                <span class="text-base">🔑</span>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{key.label ?? 'Unnamed key'}</p>
+                  <p class="font-mono text-xs text-zinc-500 dark:text-zinc-400 truncate">{maskedKey(key.label, key.createdAt, key.keyPreview)}</p>
+                  <p class="text-xs text-zinc-400">
+                    Created {new Date(key.createdAt).toLocaleDateString()}
+                    {#if key.lastUsedAt}
+                      · Last used {new Date(key.lastUsedAt).toLocaleDateString()}
+                    {:else}
+                      · Never used
+                    {/if}
+                  </p>
+                </div>
+                <form method="POST" action="?/revokeKey" use:enhance onsubmit={(e) => {
+                  if (!confirm(`Revoke key "${key.label ?? 'Unnamed key'}"? It will stop working immediately.`)) e.preventDefault();
+                }}>
+                  <input type="hidden" name="id" value={key.id} />
+                  <button type="submit" class="text-xs text-red-400 hover:text-red-300">Revoke</button>
+                </form>
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <p class="text-sm text-zinc-500">No active keys. Create one below to get started.</p>
+        {/if}
+      </section>
+
+      <!-- New Client Key -->
+      <section>
+        {#if activeKeys.length > 0}
+          <button onclick={() => newKeySectionOpen = !newKeySectionOpen} class="mb-3 flex items-center gap-2 font-semibold text-zinc-900 dark:text-white">
+            <svg width="12" height="12" viewBox="0 0 12 12" class="transition-transform {newKeySectionOpen ? 'rotate-90' : ''}">
+              <path d="M4 2 L8 6 L4 10" stroke="currentColor" fill="none" stroke-width="1.5" />
+            </svg>
+            New Client Key
+          </button>
+        {:else}
+          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">New Client Key</h2>
+        {/if}
+        {#if !activeKeys.length || newKeySectionOpen}
+          <div class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+            <div>
+              <label for="keyLabel" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+              <input id="keyLabel" type="text" bind:value={newKeyLabel} placeholder="e.g. Project A, Alice's laptop"
+                class="w-full rounded-lg border px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500
+                  {duplicateKeyName ? 'border-red-400 focus:border-red-500 dark:border-red-600' : 'border-zinc-300 focus:border-indigo-500 dark:border-zinc-700'}" />
+              {#if duplicateKeyName}
+                <p class="mt-1 text-xs text-red-400">A key with this name already exists.</p>
+              {/if}
+              {#if keyPreviewText}
+                <p class="mt-1 font-mono text-xs text-zinc-500 dark:text-zinc-400 truncate">{keyPreviewText}</p>
+              {/if}
+            </div>
+
+            <div>
+              <span class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Include plugins</span>
+              <form method="POST" action="?/updateAgentTools" use:enhance={() => { return async ({ update }) => { await update({ reset: false }); }; }}
+                bind:this={agentToolsForm}>
+                {#each [...selectedTools] as tool}
+                  <input type="hidden" name="agentTools" value={tool} />
+                {/each}
+                <div class="grid grid-cols-2 gap-2">
+                  {#each AGENT_TOOL_OPTIONS as tool (tool.value)}
+                    <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                      <input type="checkbox" checked={selectedTools.has(tool.value)} onclick={() => toggleTool(tool.value)}
+                        class="rounded border-zinc-300 bg-white text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                      {tool.label}
+                      {#if tool.scope === 'global'}
+                        <span class="text-[10px] text-zinc-400">(global)</span>
+                      {/if}
+                    </label>
+                  {/each}
+                </div>
+              </form>
+            </div>
+
+            <div class="flex items-center gap-4">
+              <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Client mode:</span>
+              <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                <input type="radio" name="clientMode" checked={withClientApp} onchange={() => { withClientApp = true; }} class="text-indigo-500 focus:ring-indigo-500" />
+                With Client App
+              </label>
+              <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                <input type="radio" name="clientMode" checked={!withClientApp} onchange={() => { withClientApp = false; }} class="text-indigo-500 focus:ring-indigo-500" />
+                Direct
+              </label>
+            </div>
+
+            <button onclick={downloadSetupZip} disabled={downloading || !canDownload}
+              class="w-full rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
+              {downloading ? 'Generating...' : 'Download setup files (.zip)'}
+            </button>
+            <p class="text-[10px] text-zinc-400">Creates a new client key and downloads a zip with the selected plugin configs. Extract in your project root.</p>
+          </div>
+        {/if}
+      </section>
+    </div>
+  {/if}
 </div>

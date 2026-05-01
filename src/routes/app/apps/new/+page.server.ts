@@ -40,7 +40,7 @@ export const actions: Actions = {
           id: data.createApp.id, name: displayName,
         }).catch(() => {});
       }
-      redirect(303, `/app/apps/${data.createApp.id}`);
+      redirect(303, `/app/orgs/${organizationId}/apps/${data.createApp.id}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to create app' });
