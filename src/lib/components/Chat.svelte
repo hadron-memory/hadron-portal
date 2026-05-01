@@ -78,14 +78,12 @@
             : 'bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100'}">
           {#if message.role === 'user'}
             <p class="whitespace-pre-wrap">{getMessageText(message)}</p>
-          {:else if isStreaming}
-            <p class="whitespace-pre-wrap" aria-live="polite">
-              {getMessageText(message)}
-              <span class="inline-block w-2 h-4 ml-0.5 bg-zinc-500 dark:bg-zinc-300 animate-pulse" aria-hidden="true"></span>
-            </p>
           {:else}
-            <div class="prose prose-sm dark:prose-invert max-w-none">
+            <div class="prose prose-sm dark:prose-invert max-w-none" aria-live={isStreaming ? 'polite' : 'off'}>
               {@html renderMarkdown(getMessageText(message))}
+              {#if isStreaming}
+                <span class="inline-block w-2 h-4 ml-0.5 align-middle bg-zinc-500 dark:bg-zinc-300 animate-pulse" aria-hidden="true"></span>
+              {/if}
             </div>
           {/if}
         </div>
