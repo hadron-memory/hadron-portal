@@ -10,7 +10,11 @@
     return marked.parse(text, { async: false }) as string;
   }
 
-  let { agentId, agentUrn }: { agentId: string; agentUrn?: string } = $props();
+  // v2 (spec 006-asset-upload-redesign): memoryId replaces agentUrn for
+  // asset uploads. The parent page picks the destination memory (for now,
+  // the agent's first writable memory). Multi-writable memory-picker UX
+  // is a follow-up; the dominant single-writable case auto-picks.
+  let { agentId, uploadMemoryId }: { agentId: string; uploadMemoryId?: string } = $props();
 
   let pendingAttachments = $state<AssetSummary[]>([]);
 
@@ -458,9 +462,9 @@
           </div>
         {/if}
         <div class="flex items-end gap-2">
-          {#if agentUrn}
+          {#if uploadMemoryId}
             <AssetUploadButton
-              {agentUrn}
+              memoryId={uploadMemoryId}
               onuploaded={onAssetUploaded}
               disabled={!activeChatId || sending}
             />

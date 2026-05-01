@@ -4,8 +4,11 @@
 
 export type AssetUploadIntent = 'USER' | 'AGENT_REQUEST';
 
+// v2 (spec 006-asset-upload-redesign): memoryId replaces agentUrn as the
+// addressing key. The portal targets a specific memory directly; agent-
+// addressed v1 ops are dropped from the client surface.
 export interface BeginAssetUploadInput {
-  agentUrn: string;
+  memoryId: string;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -26,6 +29,11 @@ export interface AssetUploadTicket {
 
 export interface AssetSummary {
   id: string;
+  // v2: nullable in the schema (staged assets have no memory yet).
+  // For US1 / US2 (chat-paperclip + agent-initiated), the asset is
+  // always attached at create time, so memoryId is non-null in
+  // practice on those paths. Staged assets surface in US4.
+  memoryId: string | null;
   filename: string;
   mimeType: string;
   sizeBytes: number;
@@ -36,7 +44,7 @@ export interface AssetSummary {
 
 export interface UploadAssetOptions {
   file: File;
-  agentUrn: string;
+  memoryId: string;
   description?: string;
   uploadIntent?: AssetUploadIntent;
   uploadRequestId?: string;
@@ -55,7 +63,7 @@ export async function uploadAsset(
   opts: UploadAssetOptions,
 ): Promise<AssetSummary> {
   const ticket = await beginUpload({
-    agentUrn: opts.agentUrn,
+    memoryId: opts.memoryId,
     filename: opts.file.name,
     mimeType: opts.file.type || 'application/octet-stream',
     sizeBytes: opts.file.size,
@@ -140,11 +148,11 @@ async function asUploadError(res: Response): Promise<AssetUploadError> {
   );
 }
 
-export async function listAgentAssets(
-  agentUrn: string,
+export async function listMemoryAssets(
+  memoryId: string,
   opts: { mimeType?: string; skip?: number; count?: number } = {},
 ): Promise<{ assets: AssetSummary[]; total: number; hasMore: boolean }> {
-  const params = new URLSearchParams({ agentUrn });
+  const params = new URLSearchParams({ memoryId });
   if (opts.mimeType) params.set('mimeType', opts.mimeType);
   if (opts.skip != null) params.set('skip', String(opts.skip));
   if (opts.count != null) params.set('count', String(opts.count));
