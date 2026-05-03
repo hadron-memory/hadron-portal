@@ -54,7 +54,7 @@ export const actions: Actions = {
       });
       return { ensured: true };
     } catch (e: unknown) {
-      return fail(400, { error: translateAppMemberError(e, 'Failed to add member') });
+      return fail(400, { error: translateAppMemberError(e, 'Failed to save member') });
     }
   },
 
