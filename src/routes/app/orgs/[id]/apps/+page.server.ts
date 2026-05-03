@@ -1,10 +1,12 @@
-import { fail, redirect, isRedirect, error } from '@sveltejs/kit';
+// 009-install-agent-flow T021: the legacy ?/create action that pairs with
+// the removed "+ New App" form is gone. App creation now lives at the
+// install route /app/orgs/[id]/agents/install/[aid]/ — see FR-004.
+import { fail, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATION_QUERY,
   APPS_QUERY,
-  CREATE_APP_MUTATION,
   DELETE_APP_MUTATION,
 } from '$lib/server/queries';
 import type { Organization, App } from '$lib/types';
@@ -32,38 +34,6 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 };
 
 export const actions: Actions = {
-  create: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const name = String(fd.get('name') ?? '').trim();
-    const urn = String(fd.get('urn') ?? '').trim() || undefined;
-    const appType = String(fd.get('appType') ?? 'WORKSTATION');
-    const createUserPermission = String(fd.get('createUserPermission') ?? 'EXPLICIT');
-    const identifyUserMethod = String(fd.get('identifyUserMethod') ?? 'USER_ID');
-    const sessionTimeoutSeconds = Number(fd.get('sessionTimeoutSeconds') ?? 900);
-    const anonymousTtlDays = Number(fd.get('anonymousTtlDays') ?? 7);
-    if (!name) return fail(400, { error: 'Name is required' });
-
-    try {
-      const result = await gqlClient(locals.token).request<{ createApp: App }>(
-        CREATE_APP_MUTATION,
-        {
-          orgId: params.id,
-          name,
-          urn,
-          appType,
-          createUserPermission,
-          identifyUserMethod,
-          sessionTimeoutSeconds,
-          anonymousTtlDays,
-        },
-      );
-      redirect(303, `/app/orgs/${params.id}/apps/${result.createApp.id}`);
-    } catch (e: unknown) {
-      if (isRedirect(e)) throw e;
-      return fail(500, { error: extractGqlError(e, 'Failed to create app') });
-    }
-  },
-
   delete: async ({ request, locals }) => {
     const fd = await request.formData();
     const id = String(fd.get('id') ?? '');
