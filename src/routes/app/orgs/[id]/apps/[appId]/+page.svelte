@@ -28,7 +28,7 @@
   // so it's unit-testable independent of the Svelte component lifecycle.
   type TabId = 'chat' | 'memory' | 'settings' | 'client';
   const hasChatSurface = $derived(hasChatSurfaceFn(app.surfaces));
-  let activeTab = $state<TabId>(hasChatSurfaceFn(app.surfaces) ? 'chat' : 'memory');
+  let activeTab = $state<TabId>(hasChatSurface ? 'chat' : 'memory');
   const tabs = $derived<{ id: TabId; label: string }[]>([
     ...(hasChatSurface ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
     { id: 'memory', label: 'Memory' },

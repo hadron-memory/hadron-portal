@@ -98,17 +98,17 @@ export const actions: Actions = {
   addAgent: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const agentId = String(fd.get('agentId') ?? '');
-    const trainingMode = fd.get('trainingMode') === 'true';
     if (!agentId) return fail(400, { error: 'Missing agent' });
+    // 008-agent-installation: addAgentToApp is now a setter on
+    // App.agent_id; the legacy `role` arg is gone (system memory is
+    // universally read-only from any App context). `trainingMode` is
+    // forwarded only when the form submits it explicitly so the server
+    // default applies otherwise.
+    const trainingModeRaw = fd.get('trainingMode');
+    const variables: Record<string, unknown> = { appId: params.appId, agentId };
+    if (typeof trainingModeRaw === 'string') variables.trainingMode = trainingModeRaw === 'true';
     try {
-      // 008-agent-installation: addAgentToApp is now a setter on
-      // App.agent_id; the legacy `role` arg is gone (system memory is
-      // universally read-only from any App context).
-      await gqlClient(locals.token).request(ADD_AGENT_TO_APP_MUTATION, {
-        appId: params.appId,
-        agentId,
-        trainingMode,
-      });
+      await gqlClient(locals.token).request(ADD_AGENT_TO_APP_MUTATION, variables);
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to add agent') });
     }
