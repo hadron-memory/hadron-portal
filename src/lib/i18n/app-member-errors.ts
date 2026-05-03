@@ -64,8 +64,8 @@ export function translateAppMemberError(e: unknown, fallback: string): string {
       );
     default:
       // Prefer the server's GraphQL error message when present so the
-      // user sees the most informative text, then the caller-supplied
-      // fallback, then the generic Error.message.
+      // user sees the most informative text, then the generic
+      // Error.message, and finally the caller-supplied fallback.
       const errs = (e as GqlErrorLike)?.response?.errors;
       if (errs?.[0]?.message) return errs[0].message;
       return e instanceof Error ? e.message : fallback;
