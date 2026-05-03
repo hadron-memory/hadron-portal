@@ -72,6 +72,18 @@ export const AGENT_FIELDS = /* GraphQL */ `
       role
       memory { id urn name organizationId visibility }
     }
+    # 008-agent-installation: declarative knobs + installation count.
+    memoryProvisioning { appMemory }
+    installationPolicy { maxMembers memberRoles }
+    imports {
+      parentAgentId
+      importedAgentId
+      importedAgent { id urn name }
+      position
+      required
+      createdAt
+    }
+    appCount
     createdAt
   }
 `;
@@ -96,7 +108,25 @@ export const APP_FIELDS = /* GraphQL */ `
     identifyUserMethod
     sessionTimeoutSeconds
     anonymousTtlDays
-    agents { id urn name }
+    # 008-agent-installation: direct FK + new App-level fields.
+    agentId
+    agent {
+      id
+      urn
+      name
+      description
+      systemPrompt
+      surfaces
+      memoryItems {
+        id
+        role
+        memory { id urn name }
+      }
+      installationPolicy { maxMembers memberRoles }
+    }
+    surfaces
+    memberCount
+    trainingMode
     keys {
       id
       keyPreview
@@ -107,28 +137,6 @@ export const APP_FIELDS = /* GraphQL */ `
     }
     createdAt
     updatedAt
-  }
-`;
-
-export const APP_AGENT_SUB_FIELDS = /* GraphQL */ `
-  fragment AppAgentSubFields on AppAgentSub {
-    appId
-    agentId
-    agent {
-      id
-      urn
-      name
-      description
-      systemPrompt
-      memoryItems {
-        id
-        role
-        memory { id urn name }
-      }
-    }
-    role
-    trainingMode
-    createdAt
   }
 `;
 
@@ -300,22 +308,18 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
 
 export const MY_APPS_QUERY = /* GraphQL */ `
   ${APP_FIELDS}
-  ${APP_AGENT_SUB_FIELDS}
   query MyApps {
     myApps {
       ...AppFields
-      agentSubscriptions { ...AppAgentSubFields }
     }
   }
 `;
 
 export const APP_QUERY = /* GraphQL */ `
   ${APP_FIELDS}
-  ${APP_AGENT_SUB_FIELDS}
   query App($id: ID!) {
     app(id: $id) {
       ...AppFields
-      agentSubscriptions { ...AppAgentSubFields }
     }
   }
 `;
@@ -643,30 +647,24 @@ export const DELETE_APP_MUTATION = /* GraphQL */ `
   mutation DeleteApp($id: ID!) { deleteApp(id: $id) }
 `;
 
+// 008-agent-installation: addAgentToApp is now a setter on App.agent_id —
+// the legacy `role` arg is gone (system memory is universally read-only
+// from any App context per R-10).
 export const ADD_AGENT_TO_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
-  ${APP_AGENT_SUB_FIELDS}
-  mutation AddAgentToApp(
-    $appId: ID!, $agentId: ID!,
-    $role: AppAgentRole, $trainingMode: Boolean
-  ) {
-    addAgentToApp(
-      appId: $appId, agentId: $agentId,
-      role: $role, trainingMode: $trainingMode
-    ) {
+  mutation AddAgentToApp($appId: ID!, $agentId: ID!, $trainingMode: Boolean) {
+    addAgentToApp(appId: $appId, agentId: $agentId, trainingMode: $trainingMode) {
       ...AppFields
-      agentSubscriptions { ...AppAgentSubFields }
     }
   }
 `;
 
+// 008-agent-installation: removeAgentFromApp clears App.agent_id.
 export const REMOVE_AGENT_FROM_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
-  ${APP_AGENT_SUB_FIELDS}
   mutation RemoveAgentFromApp($appId: ID!, $agentId: ID!) {
     removeAgentFromApp(appId: $appId, agentId: $agentId) {
       ...AppFields
-      agentSubscriptions { ...AppAgentSubFields }
     }
   }
 `;

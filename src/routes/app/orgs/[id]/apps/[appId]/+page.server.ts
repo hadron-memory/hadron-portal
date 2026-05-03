@@ -41,9 +41,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appId: params.appId, limit: 500 })
     .catch(() => ({ appNodes: [] as MemoryNode[] }));
 
-  const availableAgents = (orgData.organization.agents ?? []).filter(
-    (a) => !appData.app!.agents.some((aa) => aa.id === a.id),
-  );
+  // 008-agent-installation: an App has at most one Agent (App.agent_id).
+  // "Available" = any org agent when none is linked yet; empty otherwise.
+  const availableAgents = appData.app.agentId
+    ? []
+    : (orgData.organization.agents ?? []);
   return {
     app: appData.app,
     org: orgData.organization,
@@ -96,16 +98,17 @@ export const actions: Actions = {
   addAgent: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const agentId = String(fd.get('agentId') ?? '');
-    const role = String(fd.get('role') ?? 'OPERATE');
-    const trainingMode = fd.get('trainingMode') === 'true';
     if (!agentId) return fail(400, { error: 'Missing agent' });
+    // 008-agent-installation: addAgentToApp is now a setter on
+    // App.agent_id; the legacy `role` arg is gone (system memory is
+    // universally read-only from any App context). `trainingMode` is
+    // forwarded only when the form submits it explicitly so the server
+    // default applies otherwise.
+    const trainingModeRaw = fd.get('trainingMode');
+    const variables: Record<string, unknown> = { appId: params.appId, agentId };
+    if (typeof trainingModeRaw === 'string') variables.trainingMode = trainingModeRaw === 'true';
     try {
-      await gqlClient(locals.token).request(ADD_AGENT_TO_APP_MUTATION, {
-        appId: params.appId,
-        agentId,
-        role,
-        trainingMode,
-      });
+      await gqlClient(locals.token).request(ADD_AGENT_TO_APP_MUTATION, variables);
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to add agent') });
     }
