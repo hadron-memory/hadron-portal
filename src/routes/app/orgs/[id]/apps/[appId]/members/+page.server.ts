@@ -8,7 +8,7 @@ import {
   ORGANIZATION_QUERY,
   USERS_QUERY,
 } from '$lib/server/queries';
-import { translateAppMemberError } from '$lib/i18n/app-member-errors';
+import { translateAppMemberError, appMemberErrorStatus } from '$lib/i18n/app-member-errors';
 import type { App, AppMember, Organization, UserSummary } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -54,7 +54,9 @@ export const actions: Actions = {
       });
       return { ensured: true };
     } catch (e: unknown) {
-      return fail(400, { error: translateAppMemberError(e, 'Failed to save member') });
+      return fail(appMemberErrorStatus(e), {
+        error: translateAppMemberError(e, 'Failed to save member'),
+      });
     }
   },
 
@@ -69,7 +71,9 @@ export const actions: Actions = {
       });
       return { removed: true };
     } catch (e: unknown) {
-      return fail(400, { error: translateAppMemberError(e, 'Failed to remove member') });
+      return fail(appMemberErrorStatus(e), {
+        error: translateAppMemberError(e, 'Failed to remove member'),
+      });
     }
   },
 };

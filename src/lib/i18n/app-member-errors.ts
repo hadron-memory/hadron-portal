@@ -62,12 +62,34 @@ export function translateAppMemberError(e: unknown, fallback: string): string {
         'app-member.errors.orphan-app',
         'This App has no Agent linked yet — link one before adding members.',
       );
-    default:
+    default: {
       // Prefer the server's GraphQL error message when present so the
       // user sees the most informative text, then the generic
       // Error.message, and finally the caller-supplied fallback.
       const errs = (e as GqlErrorLike)?.response?.errors;
       if (errs?.[0]?.message) return errs[0].message;
       return e instanceof Error ? e.message : fallback;
+    }
+  }
+}
+
+/**
+ * HTTP status to attach to a SvelteKit `fail(...)` for an App-member
+ * action. Typed errors map to client-facing 4xx codes (validation,
+ * conflict, forbidden); anything else is a true server error and
+ * returns 500 so monitoring picks it up correctly.
+ */
+export function appMemberErrorStatus(e: unknown): number {
+  switch (appMemberErrorCode(e)) {
+    case 'InvalidRoleError':
+      return 400;
+    case 'MaxMembersExceededError':
+      return 409;
+    case 'MissingGrantError':
+      return 403;
+    case 'OrphanAppError':
+      return 409;
+    default:
+      return 500;
   }
 }

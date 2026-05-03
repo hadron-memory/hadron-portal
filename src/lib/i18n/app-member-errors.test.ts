@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { appMemberErrorCode, translateAppMemberError } from './app-member-errors';
+import {
+  appMemberErrorCode,
+  appMemberErrorStatus,
+  translateAppMemberError,
+} from './app-member-errors';
 
 function gqlError(code: string, message = 'something failed'): unknown {
   return { response: { errors: [{ message, extensions: { code } }] } };
@@ -43,5 +47,21 @@ describe('translateAppMemberError', () => {
 
   it('uses Error.message for plain Error instances', () => {
     expect(translateAppMemberError(new Error('boom'), 'fallback')).toBe('boom');
+  });
+});
+
+describe('appMemberErrorStatus', () => {
+  it('returns the right HTTP status per typed code', () => {
+    expect(appMemberErrorStatus(gqlError('InvalidRoleError'))).toBe(400);
+    expect(appMemberErrorStatus(gqlError('MaxMembersExceededError'))).toBe(409);
+    expect(appMemberErrorStatus(gqlError('MissingGrantError'))).toBe(403);
+    expect(appMemberErrorStatus(gqlError('OrphanAppError'))).toBe(409);
+  });
+
+  it('returns 500 for unknown / untyped errors', () => {
+    expect(appMemberErrorStatus(gqlError('SomeFutureError'))).toBe(500);
+    expect(appMemberErrorStatus(new Error('plain'))).toBe(500);
+    expect(appMemberErrorStatus(null)).toBe(500);
+    expect(appMemberErrorStatus({})).toBe(500);
   });
 });
