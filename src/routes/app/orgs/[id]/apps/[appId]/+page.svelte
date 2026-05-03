@@ -6,11 +6,11 @@
   import { onMount, onDestroy } from 'svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
-  import AgentList, { type AgentRow } from '$lib/components/AgentList.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import Chat from '$lib/components/Chat.svelte';
   import { chatContext } from '$lib/stores/chat-context';
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
+  import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import type { AIProvider, AppAIConfig } from '$lib/types';
   import type { PageData, ActionData } from './$types';
@@ -20,15 +20,20 @@
   const org = $derived(data.org);
   const availableAgents = $derived(data.availableAgents);
 
-  // ── Tab state — driven by appType ────────────────────────────────────
+  // ── Tab state — driven by App.surfaces (008-agent-installation T071) ─
+  // The chat tab appears iff the App's `surfaces` array contains 'chat'.
+  // Pre-008 this was gated on `app.appType === 'CHATBOT'`; 008's migration
+  // sets `surfaces = ['chat']` for chatbot Apps so existing apps keep their
+  // tab without behavior change. Gate logic lives in `$lib/app-surfaces`
+  // so it's unit-testable independent of the Svelte component lifecycle.
   type TabId = 'chat' | 'memory' | 'settings' | 'client';
-  const isChatbot = $derived(app.appType === 'CHATBOT');
-  let activeTab = $state<TabId>(app.appType === 'CHATBOT' ? 'chat' : 'memory');
+  const hasChatSurface = $derived(hasChatSurfaceFn(app.surfaces));
+  let activeTab = $state<TabId>(hasChatSurfaceFn(app.surfaces) ? 'chat' : 'memory');
   const tabs = $derived<{ id: TabId; label: string }[]>([
-    ...(isChatbot ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
+    ...(hasChatSurface ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
     { id: 'memory', label: 'Memory' },
     { id: 'settings', label: 'Settings' },
-    ...(!isChatbot ? [{ id: 'client' as TabId, label: 'Client' }] : []),
+    ...(!hasChatSurface ? [{ id: 'client' as TabId, label: 'Client' }] : []),
   ]);
 
   // URN slug helpers — slug is the part after the org URN's prefix.
@@ -55,13 +60,12 @@
 
   // Floating chat assistant context — describe this page so it can help the user.
   $effect(() => {
-    const agents = (app.agentSubscriptions ?? []).map((s) => s.agent.name);
     const tools = app.agentTools ?? [];
     chatContext.set({
       pageContext: [
         `The user is viewing app "${app.name}" (type: ${app.appType}).`,
         app.description ? `Description: ${app.description}` : '',
-        agents.length ? `Subscribed agents: ${agents.join(', ')}.` : 'No agents subscribed yet.',
+        app.agent ? `Linked agent: ${app.agent.name}.` : 'No agent linked yet.',
         tools.length ? `Selected AI tools: ${tools.join(', ')}.` : 'No AI tools selected yet.',
         `App URN: ${app.urn}`,
         `Help this user configure Hadron for their app.`,
@@ -76,22 +80,23 @@
     chatContext.set({ pageContext: '' });
   });
 
-  // Effective memories surfaced through the App's agent subscriptions.
-  const subscribedAgentIds = $derived(new Set((app.agentSubscriptions ?? []).map((s) => s.agent.id)));
+  // 008-agent-installation: an App has at most one Agent (App.agent_id, a
+  // direct FK; the AppAgent join was dropped). The "subscribable agents"
+  // list is now "agents not yet linked" — empty when an Agent is already set.
   const subscribableAgents = $derived(
-    (org.agents ?? []).filter((a) => !subscribedAgentIds.has(a.id))
+    app.agent ? [] : (org.agents ?? [])
   );
 
   interface EffectiveMemory { id: string; urn: string; name: string; access: 'read' | 'read-write'; agentName: string }
   const effectiveMemories = $derived.by(() => {
     const map = new Map<string, EffectiveMemory>();
-    for (const sub of app.agentSubscriptions ?? []) {
-      for (const item of sub.agent.memoryItems ?? []) {
+    if (app.agent) {
+      for (const item of app.agent.memoryItems ?? []) {
         const effective = item.role === 'read-write' ? 'read-write' as const : 'read' as const;
-        const existing = map.get(item.memory.id);
-        if (!existing || (effective === 'read-write' && existing.access === 'read')) {
-          map.set(item.memory.id, { id: item.memory.id, urn: item.memory.urn, name: item.memory.name, access: effective, agentName: sub.agent.name });
-        }
+        map.set(item.memory.id, {
+          id: item.memory.id, urn: item.memory.urn, name: item.memory.name,
+          access: effective, agentName: app.agent.name,
+        });
       }
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -100,18 +105,6 @@
   const userMemories = $derived(effectiveMemories.filter((m) => !SYSTEM_MEMORY_URNS.includes(m.urn)));
   const hasWritableMemory = $derived(effectiveMemories.some((m) => m.access === 'read-write'));
   const writableMemoryIds = $derived(effectiveMemories.filter((m) => m.access === 'read-write').map((m) => m.id));
-
-  // Agent rows for AgentList in the Settings tab.
-  const agentRows = $derived<AgentRow[]>((app.agents ?? []).map((a) => ({
-    id: a.id,
-    urn: a.urn,
-    name: a.name,
-    description: null,
-    orgId: org.id,
-  })));
-
-  let pendingRemoveAgentId = $state('');
-  let removeAgentForm: HTMLFormElement | undefined = $state();
 
   const newRawKey = $derived(form?.rawKey as string | undefined);
 
@@ -511,7 +504,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         <h1 class="flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
           <span>{typeIcon[app.appType] ?? '🔑'}</span>
           <span><span class="text-zinc-400 font-normal">App:</span> {app.name}</span>
-          {#if !hasWritableMemory && (app.agentSubscriptions?.length ?? 0) > 0}
+          {#if !hasWritableMemory && app.agent}
             <span class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">read-only</span>
           {/if}
         </h1>
@@ -571,8 +564,8 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               app.systemPrompt ?? '',
               `App: "${app.name}" (${app.appType})`,
               `URN: ${app.urn}`,
-              (app.agentSubscriptions ?? []).length ? `Agents: ${(app.agentSubscriptions ?? []).map(s => s.agent.name).join(', ')}` : '',
-              ...(app.agentSubscriptions ?? []).filter(s => s.agent.systemPrompt).map(s => s.agent.systemPrompt ?? ''),
+              app.agent ? `Agent: ${app.agent.name}` : '',
+              app.agent?.systemPrompt ?? '',
             ].filter(Boolean).join('\n')} />
           {/key}
         </div>
@@ -754,78 +747,60 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         {/if}
       </section>
 
-      <!-- Agents (subscriptions: list with role, plus simple list for App.agents fallback) -->
+      <!-- Agent (008: at most one per App, via the direct App.agent_id FK) -->
       <section class="max-w-2xl">
         <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">
-          Agents
-          <span class="ml-1 text-sm font-normal text-zinc-500">({(app.agentSubscriptions?.length ?? app.agents?.length ?? 0)})</span>
+          Agent
+          {#if app.agent}
+            <span class="ml-1 text-sm font-normal text-zinc-500">·  {app.memberCount} {app.memberCount === 1 ? 'member' : 'members'}</span>
+          {/if}
         </h2>
-        <p class="mb-3 text-sm text-zinc-500">Agents this App is allowed to operate. An App Key holder can only call startAgentSession for these.</p>
+        <p class="mb-3 text-sm text-zinc-500">The Agent this App deploys. App Key holders can only call into this Agent.</p>
 
-        {#if (app.agentSubscriptions?.length ?? 0) > 0}
-          <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-            {#each app.agentSubscriptions ?? [] as sub (sub.agentId)}
-              <div class="flex w-full items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
-                <span class="text-base">🤖</span>
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{sub.agent.name}</p>
-                  <Urn value={sub.agent.urn} type="agent" size={10} />
-                </div>
-                <form method="POST" action="?/addAgent" use:enhance class="shrink-0">
-                  <input type="hidden" name="agentId" value={sub.agent.id} />
-                  <select name="role"
-                    onchange={(e) => e.currentTarget?.form?.requestSubmit()}
-                    class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
-                    <option value="OPERATE" selected={sub.role === 'OPERATE'}>Operate</option>
-                    <option value="DEVELOP" selected={sub.role === 'DEVELOP'}>Develop</option>
-                  </select>
-                </form>
-                <form method="POST" action="?/removeAgent" use:enhance class="shrink-0">
-                  <input type="hidden" name="agentId" value={sub.agent.id} />
-                  <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
-                </form>
+        {#if app.agent}
+          <div class="mb-4 rounded-xl border border-zinc-200 bg-white px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+            <div class="flex items-center gap-4">
+              <span class="text-base">🤖</span>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{app.agent.name}</p>
+                <Urn value={app.agent.urn} type="agent" size={10} />
+                {#if app.agent.description}
+                  <p class="mt-1 text-xs text-zinc-500">{app.agent.description}</p>
+                {/if}
               </div>
-            {/each}
+              <div class="flex shrink-0 flex-col items-end gap-1 text-xs text-zinc-500">
+                <span>{app.trainingMode ? 'Training mode' : 'Production'}</span>
+                {#if (app.surfaces ?? []).length > 0}
+                  <span>Surfaces: {(app.surfaces ?? []).join(', ')}</span>
+                {/if}
+              </div>
+              <form method="POST" action="?/removeAgent" use:enhance class="shrink-0">
+                <input type="hidden" name="agentId" value={app.agent.id} />
+                <button type="submit" class="text-xs text-red-400 hover:text-red-300">Unlink</button>
+              </form>
+            </div>
           </div>
-        {:else if agentRows.length > 0}
-          <!-- Fallback: server returned only flat App.agents (no subscription detail). -->
-          <AgentList
-            agents={agentRows}
-            onremove={(agent) => { pendingRemoveAgentId = agent.id; removeAgentForm?.requestSubmit(); }}
-          />
-          <form method="POST" action="?/removeAgent" use:enhance bind:this={removeAgentForm} class="hidden">
-            <input type="hidden" name="agentId" value={pendingRemoveAgentId} />
-          </form>
         {:else}
-          <p class="mb-4 text-sm text-zinc-500">No agents subscribed yet.</p>
-        {/if}
-
-        {#if (subscribableAgents.length > 0) || (availableAgents.length > 0)}
-          <form method="POST" action="?/addAgent" use:enhance class="flex flex-wrap items-end gap-3">
-            <div class="flex-1 min-w-[200px]">
-              <label for="agentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Add an agent</label>
-              <select id="agentId" name="agentId" bind:value={selectedAgentId}
-                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="">Select…</option>
-                {#each (subscribableAgents.length > 0 ? subscribableAgents : availableAgents) as a (a.id)}
-                  <option value={a.id}>{a.name} ({a.urn})</option>
-                {/each}
-              </select>
-            </div>
-            <div>
-              <label for="role" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Mode</label>
-              <select id="role" name="role"
-                class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="OPERATE">Operate</option>
-                <option value="DEVELOP">Develop</option>
-              </select>
-            </div>
-            <button type="submit" disabled={!selectedAgentId}
-              class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-              style="background: #219ebc;">
-              Attach
-            </button>
-          </form>
+          <p class="mb-4 text-sm text-zinc-500">No agent linked yet.</p>
+          {#if subscribableAgents.length > 0 || availableAgents.length > 0}
+            <form method="POST" action="?/addAgent" use:enhance class="flex flex-wrap items-end gap-3">
+              <div class="flex-1 min-w-[200px]">
+                <label for="agentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Link an agent</label>
+                <select id="agentId" name="agentId" bind:value={selectedAgentId}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                  <option value="">Select…</option>
+                  {#each (subscribableAgents.length > 0 ? subscribableAgents : availableAgents) as a (a.id)}
+                    <option value={a.id}>{a.name} ({a.urn})</option>
+                  {/each}
+                </select>
+              </div>
+              <button type="submit" disabled={!selectedAgentId}
+                class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                style="background: #219ebc;">
+                Link
+              </button>
+            </form>
+          {/if}
         {/if}
       </section>
 
@@ -857,8 +832,8 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         </section>
       {/if}
 
-      <!-- AI Chat Configuration (CHATBOT only) -->
-      {#if isChatbot}
+      <!-- AI Chat Configuration (visible when App.surfaces includes 'chat') -->
+      {#if hasChatSurface}
         <section class="max-w-lg">
           <div class="mb-4 flex items-center justify-between">
             <h2 class="font-semibold text-zinc-900 dark:text-white">AI Chat</h2>

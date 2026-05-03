@@ -689,6 +689,55 @@
         </section>
       {/if}
 
+      <!-- Installation (008-agent-installation T068) -->
+      {#if agent.memoryProvisioning || agent.installationPolicy || (agent.imports?.length ?? 0) > 0 || agent.appCount !== undefined}
+        <section class="max-w-lg">
+          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Installation</h2>
+          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+            {#if agent.memoryProvisioning}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">App memory</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.memoryProvisioning.appMemory}</span>
+              </div>
+            {/if}
+            {#if agent.installationPolicy}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Max members</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.installationPolicy.maxMembers}</span>
+              </div>
+              <div class="px-5 py-3">
+                <span class="text-sm text-zinc-500">Member roles</span>
+                <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.installationPolicy.memberRoles.join(', ') || '—'}</p>
+              </div>
+            {/if}
+            {#if agent.appCount !== undefined}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Installed in</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.appCount} {agent.appCount === 1 ? 'App' : 'Apps'}</span>
+              </div>
+            {/if}
+            {#if (agent.imports?.length ?? 0) > 0}
+              <div class="px-5 py-3">
+                <span class="text-sm text-zinc-500">Imports</span>
+                <ul class="mt-2 space-y-1">
+                  {#each agent.imports ?? [] as imp (imp.importedAgentId)}
+                    <li class="text-sm text-zinc-900 dark:text-white">
+                      <span class="text-zinc-400">{imp.position}.</span>
+                      <a href="/app/agents/{imp.importedAgentId}" class="text-indigo-500 hover:underline dark:text-indigo-400">{imp.importedAgent.name}</a>
+                      {#if imp.required}
+                        <span class="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300">required</span>
+                      {:else}
+                        <span class="ml-2 rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">optional</span>
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+          </div>
+        </section>
+      {/if}
+
       <!-- Memories -->
       <section>
         <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Memories

@@ -57,6 +57,33 @@ export interface Agent {
   aiApiKeyPreview?: string | null;
   properties: Record<string, unknown> | null;
   memoryItems: AgentMemoryItem[];
+  // 008-agent-installation
+  memoryProvisioning?: MemoryProvisioning;
+  installationPolicy?: InstallationPolicy;
+  imports?: AgentImport[];
+  appCount?: number;
+  createdAt: string;
+}
+
+export interface MemoryProvisioning {
+  appMemory: 'shared' | 'user' | 'none';
+}
+
+export interface InstallationPolicy {
+  /**
+   * Integer-as-string OR the sentinel 'unlimited'. GraphQL returns it as a string;
+   * `parseInt(maxMembers)` succeeds for integer values, 'unlimited' is the sentinel.
+   */
+  maxMembers: string;
+  memberRoles: string[];
+}
+
+export interface AgentImport {
+  parentAgentId: string;
+  importedAgentId: string;
+  importedAgent: { id: string; urn: string; name: string };
+  position: number;
+  required: boolean;
   createdAt: string;
 }
 
@@ -99,8 +126,15 @@ export interface App {
   identifyUserMethod: 'USER_ID' | 'SECRET';
   sessionTimeoutSeconds: number;
   anonymousTtlDays: number;
+  // 008-agent-installation: direct FK to Agent (replaces the AppAgent join).
+  agentId: string | null;
+  agent: AppAgentSummary | null;
+  surfaces: string[];
+  memberCount: number;
+  trainingMode: boolean;
+  members?: AppMember[];
+  // Legacy convenience: `[App.agent]` or `[]`. Prefer `App.agent` directly.
   agents: Array<{ id: string; urn: string; name: string }>;
-  agentSubscriptions?: AppAgentSub[];
   keys: AppKey[];
   createdAt: string;
   updatedAt: string | null;
@@ -108,7 +142,6 @@ export interface App {
 
 export type AppType = 'WORKSTATION' | 'CHATBOT' | 'AGENT' | 'AUTOMATION' | 'CLOUD' | 'IOT';
 export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
-export type AppAgentRole = 'OPERATE' | 'DEVELOP';
 
 export interface AppKey {
   id: string;
@@ -126,13 +159,26 @@ export interface AgentMemoryItem {
   memory: { id: string; urn: string; name: string; visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION' | 'PERSONAL' };
 }
 
-export interface AppAgentSub {
+/** The Agent payload returned from App.agent. */
+export interface AppAgentSummary {
+  id: string;
+  urn: string;
+  name: string;
+  description: string | null;
+  systemPrompt?: string | null;
+  surfaces?: string[];
+  memoryItems?: AgentMemoryItem[];
+  installationPolicy?: InstallationPolicy;
+}
+
+/** 008-agent-installation: User↔App membership. */
+export interface AppMember {
   appId: string;
-  agentId: string;
-  agent: { id: string; urn: string; name: string; description: string | null; systemPrompt?: string | null; memoryItems?: AgentMemoryItem[] };
-  role: AppAgentRole;
-  trainingMode: boolean;
+  userId: string;
+  role: string;
+  user: UserSummary;
   createdAt: string;
+  updatedAt: string | null;
 }
 
 export interface OrgSummary {
