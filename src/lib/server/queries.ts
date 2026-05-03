@@ -591,24 +591,23 @@ export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
 // Constitution Invariant #6).
 // ---------------------------------------------------------------------------
 
+// 009-install-agent-flow: createApp now installs an Agent into an org —
+// agentId is required, the install form omits AI config fields (set later
+// via UPDATE_APP_MUTATION on the App manage page).
 export const CREATE_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
   mutation CreateApp(
-    $orgId: ID!, $name: String!, $urn: String,
+    $orgId: ID!, $agentId: ID!, $name: String!, $urn: String,
     $appType: AppType, $role: AppMembershipRole,
-    $description: String, $systemPrompt: String,
-    $expiresAt: String, $agentTools: [String!],
-    $aiProvider: String, $aiModel: String, $aiApiKey: String,
+    $description: String,
     $createUserPermission: CreateUserPermission,
     $identifyUserMethod: IdentifyUserMethod,
     $sessionTimeoutSeconds: Int, $anonymousTtlDays: Int
   ) {
     createApp(
-      orgId: $orgId, name: $name, urn: $urn,
+      orgId: $orgId, agentId: $agentId, name: $name, urn: $urn,
       appType: $appType, role: $role,
-      description: $description, systemPrompt: $systemPrompt,
-      expiresAt: $expiresAt, agentTools: $agentTools,
-      aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey,
+      description: $description,
       createUserPermission: $createUserPermission,
       identifyUserMethod: $identifyUserMethod,
       sessionTimeoutSeconds: $sessionTimeoutSeconds,

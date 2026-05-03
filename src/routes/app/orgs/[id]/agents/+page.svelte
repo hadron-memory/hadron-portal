@@ -1,5 +1,6 @@
 <script lang="ts">
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import { installStrings } from '$lib/i18n/install-strings';
   import type { PageData } from './$types';
   let { data }: { data: PageData } = $props();
   const org = $derived(data.org);
@@ -35,20 +36,27 @@
   {:else}
     <div class="space-y-3">
       {#each org.agents as agent (agent.id)}
-        <a
-          href="/app/orgs/{org.id}/agents/{agent.id}"
-          class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
-        >
-          <div class="flex-1 min-w-0">
-            <p class="text-sm font-semibold text-indigo-600 dark:text-indigo-300">{agent.name}</p>
+        <!-- 009-install-agent-flow T012: row container is no longer a single
+             wrapping <a> — adding the Install button inside a wrapping anchor
+             would nest interactive elements. The row is a flex container with
+             the agent-link + a sibling Install link. -->
+        <div class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
+          <a href="/app/orgs/{org.id}/agents/{agent.id}" class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{agent.name}</p>
             <p class="font-mono text-xs text-zinc-400">{agent.urn}</p>
             {#if agent.description}
               <p class="mt-1 text-xs text-zinc-500">{agent.description}</p>
             {/if}
-          </div>
-          <span class="text-xs text-zinc-400">{agent.memoryItems.length} memor{agent.memoryItems.length !== 1 ? 'ies' : 'y'}</span>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0 text-zinc-400"><polyline points="9 18 15 12 9 6"></polyline></svg>
-        </a>
+          </a>
+          <span class="hidden text-xs text-zinc-400 sm:inline">{agent.memoryItems.length} memor{agent.memoryItems.length !== 1 ? 'ies' : 'y'}</span>
+          <a
+            href="/app/orgs/{org.id}/agents/install/{agent.id}"
+            class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+            style="background: #fb8500;"
+          >
+            {installStrings.buttonLabel()}
+          </a>
+        </div>
       {/each}
     </div>
   {/if}

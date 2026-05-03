@@ -6,6 +6,7 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
+  import { installStrings } from '$lib/i18n/install-strings';
   import type { MemoryNode } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
@@ -360,13 +361,26 @@
   ]} />
 
   <!-- Header -->
-  <div>
-    <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Agent:</span> {agent.name}</h1>
-    <Urn value={agent.urn} type="agent" />
-    {#if agent.description}
-      <p class="mt-1 text-sm text-zinc-500">{agent.description}</p>
-    {/if}
-    <p class="mt-1 text-xs text-zinc-400">Organization: {org.name}</p>
+  <div class="flex items-start justify-between gap-4">
+    <div class="min-w-0 flex-1">
+      <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Agent:</span> {agent.name}</h1>
+      <Urn value={agent.urn} type="agent" />
+      {#if agent.description}
+        <p class="mt-1 text-sm text-zinc-500">{agent.description}</p>
+      {/if}
+      <p class="mt-1 text-xs text-zinc-400">Organization: {org.name}</p>
+    </div>
+    <!-- 009-install-agent-flow T013: Install action surfaces here as the
+         primary call-to-action for the Agent detail page. Soft-deleted
+         Agents don't reach this page (the load redirect would 404 first),
+         so no client-side gate needed. -->
+    <a
+      href="/app/orgs/{org.id}/agents/install/{agent.id}"
+      class="shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white"
+      style="background: #fb8500;"
+    >
+      {installStrings.buttonLabel()}
+    </a>
   </div>
 
   {#if restrictiveMemories.length > 0}
