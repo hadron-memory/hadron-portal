@@ -749,10 +749,13 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 
       <!-- Agent (008: at most one per App, via the direct App.agent_id FK) -->
       <section class="max-w-2xl">
-        <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">
-          Agent
+        <h2 class="mb-3 flex items-baseline gap-3 text-lg font-semibold text-zinc-900 dark:text-white">
+          <span>Agent</span>
           {#if app.agent}
-            <span class="ml-1 text-sm font-normal text-zinc-500">·  {app.memberCount} {app.memberCount === 1 ? 'member' : 'members'}</span>
+            <a href="/app/orgs/{org.id}/apps/{app.id}/members"
+              class="text-sm font-normal text-indigo-500 hover:underline dark:text-indigo-400">
+              {app.memberCount} {app.memberCount === 1 ? 'member' : 'members'} →
+            </a>
           {/if}
         </h2>
         <p class="mb-3 text-sm text-zinc-500">The Agent this App deploys. App Key holders can only call into this Agent.</p>
