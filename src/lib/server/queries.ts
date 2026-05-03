@@ -324,6 +324,44 @@ export const APP_QUERY = /* GraphQL */ `
   }
 `;
 
+// 008-agent-installation: members carried separately so the bulk
+// myApps/app queries don't have to drag membership rows along.
+export const APP_WITH_MEMBERS_QUERY = /* GraphQL */ `
+  ${APP_FIELDS}
+  query AppWithMembers($id: ID!) {
+    app(id: $id) {
+      ...AppFields
+      members {
+        appId
+        userId
+        role
+        createdAt
+        updatedAt
+        user { id handle githubUsername name avatarUrl email }
+      }
+    }
+  }
+`;
+
+export const ENSURE_APP_MEMBER_MUTATION = /* GraphQL */ `
+  mutation EnsureAppMember($appId: ID!, $userId: ID!, $role: String!) {
+    ensureAppMember(appId: $appId, userId: $userId, role: $role) {
+      appId
+      userId
+      role
+      createdAt
+      updatedAt
+      user { id handle githubUsername name avatarUrl email }
+    }
+  }
+`;
+
+export const REMOVE_APP_MEMBER_MUTATION = /* GraphQL */ `
+  mutation RemoveAppMember($appId: ID!, $userId: ID!) {
+    removeAppMember(appId: $appId, userId: $userId)
+  }
+`;
+
 export const USERS_QUERY = /* GraphQL */ `
   query Users {
     users { id handle githubUsername name avatarUrl email roles maxReferrals }
