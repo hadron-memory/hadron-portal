@@ -593,13 +593,19 @@ export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
 
 // 009-install-agent-flow: createApp now installs an Agent into an org —
 // agentId is required, the install form omits AI config fields (set later
-// via UPDATE_APP_MUTATION on the App manage page).
+// via UPDATE_APP_MUTATION on the App manage page). The install action
+// passes `surfaces` derived from appType (CHATBOT → ['chat'], else
+// ['mcp']) so the App manage page surfaces the right tabs — without it,
+// the schema default ['chat'] would hide the Client tab on WORKSTATION
+// installs and Micromentor's coding-agent CLI flow can't reach the
+// download-setup-zip UI.
 export const CREATE_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
   mutation CreateApp(
     $orgId: ID!, $agentId: ID!, $name: String!, $urn: String,
     $appType: AppType, $role: AppMembershipRole,
     $description: String,
+    $surfaces: [String!],
     $createUserPermission: CreateUserPermission,
     $identifyUserMethod: IdentifyUserMethod,
     $sessionTimeoutSeconds: Int, $anonymousTtlDays: Int
@@ -608,6 +614,7 @@ export const CREATE_APP_MUTATION = /* GraphQL */ `
       orgId: $orgId, agentId: $agentId, name: $name, urn: $urn,
       appType: $appType, role: $role,
       description: $description,
+      surfaces: $surfaces,
       createUserPermission: $createUserPermission,
       identifyUserMethod: $identifyUserMethod,
       sessionTimeoutSeconds: $sessionTimeoutSeconds,
