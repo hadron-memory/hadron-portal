@@ -128,6 +128,14 @@ export const actions: Actions = {
       return fail(404, { error: 'Organization not found.' });
     }
 
+    // Derive surfaces from appType so the App manage page surfaces the
+    // right tabs. Without this, App.surfaces falls through to the schema
+    // default ['chat'], which hides the Client tab on WORKSTATION installs
+    // (where the download-setup-zip flow lives). CHATBOT keeps 'chat';
+    // everything else gets 'mcp' so Chat/Memory/Settings/Client tabs show
+    // correctly. Users can refine surfaces later via updateApp.
+    const surfaces = appType === 'CHATBOT' ? ['chat'] : ['mcp'];
+
     let createdApp: App;
     try {
       const result = await client.request<{ createApp: App }>(CREATE_APP_MUTATION, {
@@ -136,6 +144,7 @@ export const actions: Actions = {
         name,
         urn,
         appType,
+        surfaces,
       });
       createdApp = result.createApp;
     } catch (e) {
