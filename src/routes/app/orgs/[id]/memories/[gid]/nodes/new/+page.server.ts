@@ -71,6 +71,12 @@ export const actions: Actions = {
           description,
           content,
           tags: [],
+          // Spec 011 + hadron-server#104: this is a CREATE form, not an
+          // upsert. createOnly tells the server to reject with
+          // NodeLocConflictError if (loc, memoryId) already exists,
+          // rather than silently updating the existing node. The portal's
+          // typed-error mapper recognizes the code and shows friendly copy.
+          createOnly: true,
         },
       });
       newId = result.upsertNode.id;
