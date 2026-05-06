@@ -33,11 +33,32 @@ describe('cleanLocInput', () => {
     expect(cleanLocInput('  review:render-urn  ')).toBe('review:render-urn');
   });
 
-  it('removes forward slashes from legacy artifacts', () => {
-    expect(cleanLocInput('review/render-urn')).toBe('reviewrender-urn');
+  it('normalizes forward slashes to colons (legacy path-style locs)', () => {
+    expect(cleanLocInput('review/render-urn')).toBe('review:render-urn');
+  });
+
+  it('normalizes mixed path-style + colon legacy artifacts', () => {
+    expect(cleanLocInput('foo/bar:baz')).toBe('foo:bar:baz');
   });
 
   it('does not strip memory prefix when first segment has no dot', () => {
     expect(cleanLocInput('section:nested:leaf')).toBe('section:nested:leaf');
+  });
+
+  // Asymmetric prefix handling (intentional): only node and memory URNs
+  // get stripped to a bare loc. Other URN types pasted into a loc field
+  // are user-paste mistakes — leave them so the server rejects clearly.
+  it('does not strip urn:agent: prefix (left for server to reject)', () => {
+    expect(cleanLocInput('urn:agent:micromentor.org:mmcoding-agent'))
+      .toBe('urn:agent:micromentor.org:mmcoding-agent');
+  });
+
+  it('does not strip urn:app: prefix (left for server to reject)', () => {
+    expect(cleanLocInput('urn:app:micromentor.org:mmcoding'))
+      .toBe('urn:app:micromentor.org:mmcoding');
+  });
+
+  it('does not strip urn:org: prefix (left for server to reject)', () => {
+    expect(cleanLocInput('urn:org:micromentor.org')).toBe('urn:org:micromentor.org');
   });
 });
