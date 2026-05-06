@@ -2,9 +2,9 @@
 
 SvelteKit SaaS frontend for [Hadron](https://hadrongraph.io) — a knowledge graph platform for AI agents.
 
-Serves both consumers (browse marketplace, one-click setup) and teams (org management, graph sync, role-based access). The UI adapts automatically: users with only a personal workspace see a simplified consumer experience; users with organizations see the full enterprise navigation.
+Serves both consumers (browse marketplace, one-click setup) and teams (org management, memory sync, role-based access). The UI adapts automatically: users with only a personal workspace see a simplified consumer experience; users with organizations see the full enterprise navigation.
 
-Connects to the [hadron-server](https://github.com/baragaun/hadron-server) GraphQL API.
+Connects to the [hadron-server](https://github.com/hadron-memory/hadron-server) GraphQL API.
 
 ## Tech stack
 
@@ -62,7 +62,7 @@ Authentication is handled by hadron-server. Two identity providers are supported
 6. `src/hooks.server.ts` decodes the JWT on every request → `event.locals.user` / `event.locals.token`
 7. `/auth/signout` clears the cookie
 
-**Marketplace intent preservation:** Sign-up/sign-in pages accept a `?graph=<id>` query param. After auth, the user is redirected to `/browse?addGraph=<id>` which auto-adds the graph to their personal workspace.
+**Marketplace intent preservation:** Sign-up/sign-in pages accept a `?memory=<id>` query param (legacy `?graph=<id>` also accepted). After auth, the user is redirected to `/browse?addMemory=<id>` (legacy `?addGraph=<id>` also accepted) which auto-adds the memory to their personal workspace. The `graph` aliases are transitional compat from the platform's Graph→Memory rename and may be removed without a constitution amendment per [.specify/memory/constitution.md](.specify/memory/constitution.md) P6.
 
 The frontend never sees or stores OAuth credentials or email tokens.
 
@@ -72,10 +72,10 @@ The frontend never sees or stores OAuth credentials or email tokens.
 
 | Path | Description |
 |---|---|
-| `/` | Landing page — hero, features, public graph preview |
-| `/signup` | Create account (GitHub or email); accepts `?graph=<id>` for marketplace intent |
-| `/signin` | Sign in (GitHub or email); accepts `?graph=<id>` |
-| `/browse` | Marketplace — browse all public graphs, "Use this graph" buttons |
+| `/` | Landing page — hero, features, public memory preview |
+| `/signup` | Create account (GitHub or email); accepts `?memory=<id>` (or legacy `?graph=<id>`) for marketplace intent |
+| `/signin` | Sign in (GitHub or email); accepts `?memory=<id>` (or legacy `?graph=<id>`) |
+| `/browse` | Marketplace — browse all public memories, "Use this memory" buttons |
 | `/auth/callback` | Auth callback — sets cookie and redirects |
 | `/auth/signout` | Clears auth cookie |
 
@@ -83,8 +83,11 @@ The frontend never sees or stores OAuth credentials or email tokens.
 
 | Path | Description |
 |---|---|
-| `/app/dashboard` | Overview — graph stats, quick links, marketplace CTA |
-| `/app/graphs` | My Graphs — all graphs across personal workspace and orgs |
+| `/app/dashboard` | Overview — memory stats, quick links, marketplace CTA |
+| `/app/memories` | My Memories — all memories across personal workspace and orgs |
+| `/app/agents` | My Agents — agents available to the current user |
+| `/app/apps` | My Apps — installed agent instances |
+| `/app/marketplace` | Browse marketplace from inside the app |
 | `/app/setup` | AI Setup — one-time config file download (Claude, Cursor, Windsurf) |
 
 ### Enterprise (authenticated, visible when user has explicit orgs)
@@ -95,16 +98,22 @@ The frontend never sees or stores OAuth credentials or email tokens.
 | `/app/orgs/new` | Create organisation |
 | `/app/orgs/[id]` | Org overview |
 | `/app/orgs/[id]/members` | Manage org members |
-| `/app/orgs/[id]/graphs` | List + manage graphs (with sync-all) |
-| `/app/orgs/[id]/graphs/new` | Add graph config |
-| `/app/orgs/[id]/graphs/[gid]` | Graph settings, sync, org subscriptions |
-| `/app/orgs/[id]/graphs/[gid]/nodes` | Node list with usage stats and sorting |
+| `/app/orgs/[id]/memories` | List + manage memories (with sync-all) |
+| `/app/orgs/[id]/memories/new` | Add memory config |
+| `/app/orgs/[id]/memories/[gid]` | Memory settings, sync, org subscriptions |
+| `/app/orgs/[id]/memories/[gid]/nodes/[nodeId]` | Node detail (with "+ Add child" affordance per spec 011) |
+| `/app/orgs/[id]/memories/[gid]/nodes/[nodeId]/edit` | Edit a node's content / loc / edges |
 | `/app/orgs/[id]/memories/[gid]/nodes/new` | Create a new node in this memory (optional `?parent=<loc>` to add as child) |
-| `/app/orgs/[id]/graphs/[gid]/browse` | Force-directed graph visualization |
-| `/app/orgs/[id]/bundles` | Manage graph bundles |
-| `/app/stations` | List API stations |
-| `/app/stations/new` | Create API station |
-| `/app/stations/[id]` | Station detail, bundle subscriptions |
+| `/app/orgs/[id]/memories/[gid]/browse` | Force-directed memory visualization |
+| `/app/orgs/[id]/agents` | List + manage agents in this org |
+| `/app/orgs/[id]/agents/new` | Define a new agent |
+| `/app/orgs/[id]/agents/[aid]` | Agent detail (with "Install" affordance per spec 009) |
+| `/app/orgs/[id]/agents/install/[aid]` | Install an agent (creates an App per spec 009) |
+| `/app/orgs/[id]/apps` | List apps in this org (read-only since spec 009; create via Install) |
+| `/app/orgs/[id]/apps/[appId]` | App detail — manage AppKey, members, surfaces |
+| `/app/orgs/[id]/apps/[appId]/members` | Manage app members per spec 008 |
+| `/app/orgs/[id]/create-chatbot` | Quick-create flow for a chatbot agent + app |
+| `/app/orgs/[id]/exchange` | Org-level exchange / integrations |
 
 All `/app/*` routes require authentication and redirect to `/` otherwise.
 
@@ -112,8 +121,8 @@ All `/app/*` routes require authentication and redirect to `/` otherwise.
 
 The UI adapts based on whether the user is in **consumer mode** — determined by having exactly one organization with `isVisible: null` (the auto-created org for users who signed up without an invitation).
 
-- **Consumer mode**: Dashboard, My Memories, Browse Marketplace, AI Setup. Organization and station management routes redirect to the dashboard.
-- **Full mode**: Dashboard, My Memories, Browse Marketplace, Organizations, Stations, AI Setup.
+- **Consumer mode**: Dashboard, My Memories, Browse Marketplace, AI Setup. Organization and app-management routes redirect to the dashboard.
+- **Full mode**: Dashboard, My Memories, My Agents, My Apps, Browse Marketplace, Organizations, AI Setup.
 
 The transition is automatic — when a user creates a real organization or is invited to one, the full navigation appears. The `isConsumerMode` flag is derived server-side in the `/app` layout and flows through `$page.data`.
 
