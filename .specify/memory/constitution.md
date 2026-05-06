@@ -146,13 +146,20 @@ P5. **Consumer-mode derivation** — the `isConsumerMode` flag MUST be
     authoritative, client is presentation.
 
 P6. **Marketplace intent preservation** — sign-up and sign-in pages
-    MUST accept and forward a `?graph=<id>` query parameter through
-    the auth callback, terminating at `/browse?addGraph=<id>`. This
-    is not just a UX nicety; it is the contract that lets external
-    "Use this graph" links land authenticated users on the right
-    workspace. Removing or renaming this parameter requires a
-    constitution amendment (and a coordinated update wherever
-    external links are generated).
+    MUST accept a memory-id query parameter, preserve it through the
+    auth callback, and land the authenticated user on `/browse` with
+    that memory queued for one-click add. The canonical parameter
+    names today are `?memory=<id>` on the inbound (sign-in / sign-up)
+    side and `?addMemory=<id>` on the `/browse` side; the legacy
+    aliases `?graph=<id>` and `?addGraph=<id>` MAY be accepted for
+    backwards compatibility (a transitional shim from the platform's
+    Graph→Memory rename) but their removal does NOT require a
+    constitution amendment. What requires an amendment is removing,
+    breaking, or fundamentally restructuring the *intent-preservation
+    contract* itself — the property that an external "Use this
+    memory" link delivers an authenticated user to the right workspace
+    with the memory ready to add. This is not just a UX nicety; it is
+    the contract that makes external marketplace links work.
 
 ## Spec Workflow
 
