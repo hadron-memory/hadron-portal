@@ -1,0 +1,53 @@
+schema_version: "1.0"
+
+extension:
+  id: hadron
+  name: "Hadron Memory Integration"
+  version: "0.1.0"
+  description: "Recall, review, and capture institutional knowledge in the Hadron Graph at Spec Kit hook points."
+  author: hadron-memory
+  repository: https://github.com/hadron-memory/hadron-client
+  license: MIT
+
+requires:
+  speckit_version: ">=0.2.0"
+  tools:
+    - name: hadron-mcp
+      required: true
+      description: "Hadron MCP server (h-find-nodes, h-read-node, h-add-node, h-update-node) must be configured for the agent."
+
+provides:
+  commands:
+    - name: speckit.hadron.recall
+      file: commands/speckit.hadron.recall.md
+      description: "Surface relevant prior knowledge from Hadron memory before specifying."
+    - name: speckit.hadron.review
+      file: commands/speckit.hadron.review.md
+      description: "Apply project review-criteria nodes from Hadron memory to the implementation diff."
+    - name: speckit.hadron.capture
+      file: commands/speckit.hadron.capture.md
+      description: "Capture new knowledge and corrections back into Hadron memory after implementation."
+
+# Recommended hook bindings — copy into your project's .specify/extensions.yml
+# under `hooks:` to activate. Bindings are advisory; the user owns extensions.yml.
+# Recommended primary hook for each command. Note: speckit.hadron.review AND
+# speckit.hadron.capture both bind to `after_implement` — review first, then
+# capture acts on the reviewed result. The extension.yml shape is one
+# command per event (matching the bundled git extension), so capture's
+# binding is documented in the README and emitted by `install-extension`.
+hooks:
+  before_specify:
+    command: speckit.hadron.recall
+    optional: true
+    prompt: "Recall relevant prior knowledge from Hadron memory before specifying?"
+    description: "Surface decisions, conventions, and gotchas from Hadron before /speckit-specify"
+  after_implement:
+    command: speckit.hadron.review
+    optional: true
+    prompt: "Run the implementation diff against Hadron review-criteria nodes?"
+    description: "Apply project-specific review criteria stored in Hadron memory"
+
+tags:
+  - "memory"
+  - "knowledge"
+  - "hadron"
