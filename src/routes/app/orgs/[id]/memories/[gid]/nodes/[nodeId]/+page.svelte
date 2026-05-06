@@ -6,6 +6,7 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NodeList from '$lib/components/NodeList.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+  import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -238,12 +239,20 @@
   {/each}
 
   <!-- Header -->
-  <div>
-    <h1 class="text-xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Node:</span> {node.name}</h1>
-    <Urn value={fullUrn} type="node" />
-    {#if node.description}
-      <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
-    {/if}
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <h1 class="text-xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Node:</span> {node.name}</h1>
+      <Urn value={fullUrn} type="node" />
+      {#if node.description}
+        <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
+      {/if}
+    </div>
+    <a
+      href="{basePath}/nodes/new?parent={encodeURIComponent(node.loc)}"
+      class="shrink-0 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+    >
+      {createNodeStrings.addChildButton()}
+    </a>
   </div>
 
   {#if form?.error}
