@@ -42,7 +42,9 @@
   </div>
   {/if}
 
-  <!-- Tabs (hidden on node detail pages which have their own breadcrumb + layout) -->
+  <!-- Tabs (hidden on node detail pages and on the create-node form,
+       which both have their own breadcrumb + focused layout — note
+       isNodeDetail's regex /\/nodes\/[^/]+/ matches /nodes/new too) -->
   {#if !isNodeDetail}
   <div class="mb-4 flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">
     <div class="flex gap-0">

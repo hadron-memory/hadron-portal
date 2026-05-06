@@ -6,6 +6,7 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NodeList from '$lib/components/NodeList.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+  import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import type { PageData, ActionData } from './$types';
 
@@ -248,7 +249,7 @@
       {/if}
     </div>
     <a
-      href="{basePath}/nodes/new?parent={encodeURIComponent(node.loc)}"
+      href="{basePath}/nodes/new?parent={encodeURIComponent(cleanLocInput(node.loc))}"
       class="shrink-0 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
     >
       {createNodeStrings.addChildButton()}

@@ -4,6 +4,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import { deriveDefaultLoc } from '$lib/create-node/derive-default-loc';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+  import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import type { PageData, ActionData } from './$types';
 
@@ -36,10 +37,13 @@
     loc = parentLoc ? `${parentLoc}:${leaf}` : leaf;
   });
 
-  // URN preview — only render when both inputs are populated (R-1/R-2
-  // pattern from spec 010: composeNodeUrn throws on empty inputs).
+  // URN preview uses the SAME normalization the server action runs
+  // (cleanLocInput) so the preview can't lie about what gets created.
+  // Only render when both inputs are populated (R-1/R-2 pattern from
+  // spec 010: composeNodeUrn throws on empty inputs).
+  const submittedLoc = $derived(cleanLocInput(loc));
   const previewUrn = $derived(
-    memory.urn && loc ? composeNodeUrn(memory.urn, loc) : '',
+    memory.urn && submittedLoc ? composeNodeUrn(memory.urn, submittedLoc) : '',
   );
 
   const inputClass =
@@ -49,6 +53,16 @@
     locManuallyEdited = true;
     loc = (e.target as HTMLInputElement).value;
   }
+
+  // Toggling "advanced types" OFF while system/reference is selected
+  // would orphan the value (the <option> is removed from the DOM but
+  // the bound value persists, leading to a hidden submit). Reset to
+  // 'info' so the dropdown stays in sync with the visible options.
+  $effect(() => {
+    if (!showAdvancedTypes && (nodeType === 'system' || nodeType === 'reference')) {
+      nodeType = 'info';
+    }
+  });
 
   function savingEnhance(formEl: HTMLFormElement) {
     return enhance(formEl, () => {
@@ -172,7 +186,7 @@
       </a>
       <button
         type="submit"
-        disabled={saving || !name || !loc}
+        disabled={saving || !name.trim() || !loc.trim()}
         class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
       >
         {saving ? createNodeStrings.submitting() : createNodeStrings.submit()}
