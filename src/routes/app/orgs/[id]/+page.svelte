@@ -122,8 +122,8 @@
       <div class="grid gap-3 sm:grid-cols-2">
         {#each org.agents as a (a.id)}
           <div class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
-            <a href="/app/orgs/{org.id}/agents" class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">{a.name}</a>
-            <Urn value={a.urn} type="agent" size={10} />
+            <div><a href="/app/orgs/{org.id}/agents" class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">{a.name}</a></div>
+            <div class="mt-0.5"><Urn value={a.urn} type="agent" size={10} /></div>
             {#if a.description}
               <p class="mt-1 text-xs text-zinc-500">{a.description}</p>
             {/if}

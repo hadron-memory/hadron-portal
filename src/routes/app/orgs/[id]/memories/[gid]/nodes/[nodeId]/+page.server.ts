@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, UPSERT_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib/server/queries';
+import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -66,13 +67,7 @@ export const actions: Actions = {
     const seq = seqRaw !== '' ? parseInt(seqRaw, 10) : null;
     const tagsStr = String(fd.get('tags') ?? '').trim();
     const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [];
-    let newLoc = String(fd.get('loc') ?? '').trim();
-
-    // Strip URN prefixes
-    if (newLoc.startsWith('urn:node:')) newLoc = newLoc.slice('urn:node:'.length);
-    if (newLoc.startsWith('loc:')) newLoc = newLoc.slice('loc:'.length);
-    const parts = newLoc.split(':');
-    if (parts.length >= 3 && parts[0].includes('.')) newLoc = parts.slice(2).join(':');
+    const newLoc = cleanLocInput(String(fd.get('loc') ?? ''));
 
     if (!name) return fail(400, { error: 'Name is required' });
 

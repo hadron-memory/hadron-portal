@@ -75,7 +75,7 @@
         >
           <div class="flex-1 min-w-0">
             <p class="text-sm font-semibold text-indigo-600 dark:text-indigo-300">{agent.name}</p>
-            <p class="font-mono text-xs text-zinc-400">{agent.urn}</p>
+            <div class="mt-0.5"><Urn value={agent.urn} type="agent" size={10} /></div>
             {#if agent.description}
               <p class="mt-1 text-xs text-zinc-500">{agent.description}</p>
             {/if}
