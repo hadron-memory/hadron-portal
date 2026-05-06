@@ -58,26 +58,6 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 1. Run `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks` from repo root and parse FEATURE_DIR and AVAILABLE_DOCS list. All paths must be absolute. For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
 
-   **Multi-agent soft-lock check**: After resolving FEATURE_DIR, check `.specify/active-work.json` (at repo root) for an existing entry matching this spec. The file shape is:
-
-   ```json
-   {
-     "active": [
-       {
-         "spec_id": "005-agent-subscription",
-         "started_at": "2026-04-30T12:00:00Z",
-         "phase": "implement",
-         "agent": "<freeform identifier>",
-         "repos": ["hadron-server", "hadron-portal", ...]
-       }
-     ]
-   }
-   ```
-
-   If a matching entry exists and `started_at` is within the last 4 hours, warn the user that another agent appears to be implementing this spec concurrently and ask whether to proceed (the lock is advisory; the user can override). If the entry is older than 4 hours, treat it as stale and overwrite.
-
-   Add (or refresh) this invocation's entry to `active`. The file does not need to exist before this — create it on first use. `/speckit-finalize` removes the entry on successful spec completion. If the file becomes stale due to a crashed session, the user can delete it manually or wait 4 hours for the next invocation to overwrite.
-
 2. **Check checklists status** (if FEATURE_DIR/checklists/ exists):
    - Scan all checklist files in the checklists/ directory
    - For each checklist, count:
@@ -196,7 +176,7 @@ You **MUST** consider the user input before proceeding (if not empty).
    - Confirm the implementation follows the technical plan
    - Report final status with summary of completed work
 
-Note: This command assumes a complete task breakdown exists in tasks.md. If tasks are incomplete or missing, suggest running `/speckit.tasks` first to regenerate the task list.
+Note: This command assumes a complete task breakdown exists in tasks.md. If tasks are incomplete or missing, suggest running `/speckit-tasks` first to regenerate the task list.
 
 10. **Check for extension hooks**: After completion validation, check if `.specify/extensions.yml` exists in the project root.
     - If it exists, read it and look for entries under the `hooks.after_implement` key

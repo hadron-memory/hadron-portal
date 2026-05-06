@@ -25,3 +25,8 @@ recall fires when you start a feature; `speckit.hadron.review` and
 
 See [.specify/memory/constitution.md](.specify/memory/constitution.md) for
 project governance.
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+<!-- SPECKIT END -->
