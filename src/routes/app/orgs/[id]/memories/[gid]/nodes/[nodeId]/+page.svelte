@@ -16,12 +16,15 @@
   // Full URN composed via the canonical composer. The startsWith() check
   // defends against legacy data where a node's stored loc already had its
   // memory URN baked in — strip it before composing so we don't duplicate.
+  // Falls back to bare loc if the memory URN is missing — composeNodeUrn
+  // would throw, and a node-detail page shouldn't crash because of an
+  // upstream data-shape change.
   const fullUrn = $derived.by(() => {
     let loc = node.loc;
     if (data.graph.urn && loc.startsWith(data.graph.urn + ':')) {
       loc = loc.slice(data.graph.urn.length + 1);
     }
-    return composeNodeUrn(data.graph.urn, loc);
+    return data.graph.urn ? composeNodeUrn(data.graph.urn, loc) : loc;
   });
 
   let showSource = $state(false);

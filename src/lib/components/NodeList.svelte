@@ -29,8 +29,12 @@
   }
 
   function nodeUrn(node: MemoryNode): string {
+    // Some queries don't populate node.memory. If neither the prop nor
+    // the node carries a memory URN, render bare loc rather than throw
+    // and take down the whole list — the missing-memory case is a data-
+    // shape concern that should be fixed at the loader, not here.
     const u = memoryUrn || node.memory?.urn || '';
-    return composeNodeUrn(u, node.loc);
+    return u ? composeNodeUrn(u, node.loc) : node.loc;
   }
 
   const store = $derived(readable(nodes));
