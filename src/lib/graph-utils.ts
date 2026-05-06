@@ -108,11 +108,14 @@ export function buildGraphViewData(nodes: MemoryNode[], memoryUrn?: string): Gra
     // node's own memory.urn (some queries don't populate it). If neither
     // is available, render bare loc — composeNodeUrn would throw, and a
     // graph view shouldn't crash because a query shape changed.
+    // R-2 (2026-05-06): also guard empty n.loc — the prefix-slice on
+    // lines 75-80 can yield an empty loc when a node's loc equals the
+    // memory-URN prefix exactly (with trailing colon).
     const ownerUrn = memoryUrn || n.memory?.urn || '';
     topics.push({
       id: n.id, // use DB primary key as graph node ID
       loc: n.loc,
-      urn: ownerUrn ? composeNodeUrn(ownerUrn, n.loc) : n.loc,
+      urn: ownerUrn && n.loc ? composeNodeUrn(ownerUrn, n.loc) : n.loc,
       name: n.name,
       depth,
       description: n.description ?? '',

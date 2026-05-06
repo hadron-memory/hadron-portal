@@ -87,7 +87,8 @@
       // memoryItems doesn't include the system memory, leaving
       // systemMemoryUrn empty. Render bare loc as fallback rather than
       // crash the page; data-shape fix belongs at the loader.
-      urn: systemMemoryUrn ? composeNodeUrn(systemMemoryUrn, n.loc) : n.loc,
+      // R-2 (2026-05-06): also guard empty n.loc for the same reason.
+      urn: systemMemoryUrn && n.loc ? composeNodeUrn(systemMemoryUrn, n.loc) : n.loc,
     };
   }
 
@@ -490,7 +491,7 @@
                 <span class="text-zinc-400 font-normal">Conversation:</span> {conv?.name ?? convLoc}
               </h2>
               {#if conv}
-                <div class="mt-1"><Urn value={systemMemoryUrn ? composeNodeUrn(systemMemoryUrn, conv.loc) : conv.loc} type="node" /></div>
+                <div class="mt-1"><Urn value={systemMemoryUrn && conv.loc ? composeNodeUrn(systemMemoryUrn, conv.loc) : conv.loc} type="node" /></div>
                 {#if conv.description}
                   <p class="mt-1 text-sm text-zinc-500">{conv.description}</p>
                 {/if}
@@ -552,7 +553,7 @@
                 <span class="text-zinc-400 font-normal">Partial:</span> {partial?.name ?? partialLoc}
               </h2>
               {#if partial}
-                <div class="mt-1"><Urn value={systemMemoryUrn ? composeNodeUrn(systemMemoryUrn, partial.loc) : partial.loc} type="node" /></div>
+                <div class="mt-1"><Urn value={systemMemoryUrn && partial.loc ? composeNodeUrn(systemMemoryUrn, partial.loc) : partial.loc} type="node" /></div>
                 {#if partial.description}
                   <p class="mt-1 text-sm text-zinc-500">{partial.description}</p>
                 {/if}

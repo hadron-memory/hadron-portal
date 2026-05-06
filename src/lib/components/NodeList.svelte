@@ -33,8 +33,9 @@
     // the node carries a memory URN, render bare loc rather than throw
     // and take down the whole list — the missing-memory case is a data-
     // shape concern that should be fixed at the loader, not here.
+    // R-2 (2026-05-06): also guard empty node.loc for the same reason.
     const u = memoryUrn || node.memory?.urn || '';
-    return u ? composeNodeUrn(u, node.loc) : node.loc;
+    return u && node.loc ? composeNodeUrn(u, node.loc) : node.loc;
   }
 
   const store = $derived(readable(nodes));

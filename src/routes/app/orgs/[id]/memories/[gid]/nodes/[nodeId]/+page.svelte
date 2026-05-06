@@ -19,12 +19,14 @@
   // Falls back to bare loc if the memory URN is missing — composeNodeUrn
   // would throw, and a node-detail page shouldn't crash because of an
   // upstream data-shape change.
+  // R-2 (2026-05-06): also guard empty loc, which the prefix-strip
+  // above can produce when a stored loc equals the memory URN exactly.
   const fullUrn = $derived.by(() => {
     let loc = node.loc;
     if (data.graph.urn && loc.startsWith(data.graph.urn + ':')) {
       loc = loc.slice(data.graph.urn.length + 1);
     }
-    return data.graph.urn ? composeNodeUrn(data.graph.urn, loc) : loc;
+    return data.graph.urn && loc ? composeNodeUrn(data.graph.urn, loc) : loc;
   });
 
   let showSource = $state(false);
