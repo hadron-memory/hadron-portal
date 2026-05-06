@@ -3,6 +3,7 @@
   import { addSortBy, addTableFilter, addColumnFilters, addResizedColumns } from 'svelte-headless-table/plugins';
   import { readable } from 'svelte/store';
   import Urn from './Urn.svelte';
+  import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
 
   let {
@@ -28,8 +29,12 @@
   }
 
   function nodeUrn(node: MemoryNode): string {
+    // Some queries don't populate node.memory. If neither the prop nor
+    // the node carries a memory URN, render bare loc rather than throw
+    // and take down the whole list — the missing-memory case is a data-
+    // shape concern that should be fixed at the loader, not here.
     const u = memoryUrn || node.memory?.urn || '';
-    return u ? `${u}:${node.loc}` : node.loc;
+    return u ? composeNodeUrn(u, node.loc) : node.loc;
   }
 
   const store = $derived(readable(nodes));

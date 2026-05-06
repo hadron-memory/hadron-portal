@@ -1,4 +1,5 @@
 import type { MemoryNode, TreeEntry, Topic, FolderNode, HierEdge, GraphViewData } from './types';
+import { composeNodeUrn } from './urn/compose-node-urn';
 
 /**
  * Build a flat list of TreeEntry objects from MemoryNode[].
@@ -103,11 +104,15 @@ export function buildGraphViewData(nodes: MemoryNode[], memoryUrn?: string): Gra
         name: e.target.name,
       }));
 
-    const memoryUrn = n.memory?.urn ?? '';
+    // Prefer the function-scoped memoryUrn parameter; fall back to the
+    // node's own memory.urn (some queries don't populate it). If neither
+    // is available, render bare loc — composeNodeUrn would throw, and a
+    // graph view shouldn't crash because a query shape changed.
+    const ownerUrn = memoryUrn || n.memory?.urn || '';
     topics.push({
       id: n.id, // use DB primary key as graph node ID
       loc: n.loc,
-      urn: memoryUrn ? `${memoryUrn}:${n.loc}` : n.loc,
+      urn: ownerUrn ? composeNodeUrn(ownerUrn, n.loc) : n.loc,
       name: n.name,
       depth,
       description: n.description ?? '',
