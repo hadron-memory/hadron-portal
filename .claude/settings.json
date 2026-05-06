@@ -4,7 +4,16 @@
       "Bash(gh issue:*)",
       "Bash(git log:*)",
       "WebFetch(domain:github.com)",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "Bash(gh repo *)",
+      "Bash(gh label *)",
+      "mcp__hadron__h-move-node",
+      "mcp__hadron__h-read-node",
+      "Bash(git checkout *)",
+      "Bash(grep -rn --include=\"*.svelte\" --include=\"*.ts\" -E '\\\\$\\\\{[a-zA-Z_.]*[mM]emoryUrn[^}]*\\\\}:\\\\$\\\\{|urn:memory:[^\"`]*\\\\$\\\\{|`\\\\$\\\\{[a-zA-Z_.]+\\\\.urn\\\\}:\\\\$\\\\{' src/)",
+      "Bash(pnpm vitest *)",
+      "Bash(pnpm run *)",
+      "Bash(git push *)"
     ]
   }
 }
