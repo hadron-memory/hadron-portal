@@ -1,4 +1,5 @@
 import type { MemoryNode, TreeEntry, Topic, FolderNode, HierEdge, GraphViewData } from './types';
+import { composeNodeUrn } from './urn/compose-node-urn';
 
 /**
  * Build a flat list of TreeEntry objects from MemoryNode[].
@@ -107,7 +108,7 @@ export function buildGraphViewData(nodes: MemoryNode[], memoryUrn?: string): Gra
     topics.push({
       id: n.id, // use DB primary key as graph node ID
       loc: n.loc,
-      urn: memoryUrn ? `${memoryUrn}:${n.loc}` : n.loc,
+      urn: composeNodeUrn(memoryUrn, n.loc),
       name: n.name,
       depth,
       description: n.description ?? '',

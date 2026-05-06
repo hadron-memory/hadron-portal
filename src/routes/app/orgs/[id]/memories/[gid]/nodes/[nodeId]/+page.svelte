@@ -5,6 +5,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NodeList from '$lib/components/NodeList.svelte';
+  import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -12,11 +13,15 @@
   const node = $derived(data.node);
   const basePath = $derived(`/app/orgs/${data.org.id}/memories/${data.graph.id}`);
 
-  // Full URN: memory URN + ":" + loc (avoid doubling if loc already contains memory URN)
+  // Full URN composed via the canonical composer. The startsWith() check
+  // defends against legacy data where a node's stored loc already had its
+  // memory URN baked in — strip it before composing so we don't duplicate.
   const fullUrn = $derived.by(() => {
-    if (!data.graph.urn) return node.loc;
-    if (node.loc.startsWith(data.graph.urn + ':')) return node.loc;
-    return `${data.graph.urn}:${node.loc}`;
+    let loc = node.loc;
+    if (data.graph.urn && loc.startsWith(data.graph.urn + ':')) {
+      loc = loc.slice(data.graph.urn.length + 1);
+    }
+    return composeNodeUrn(data.graph.urn, loc);
   });
 
   let showSource = $state(false);

@@ -3,6 +3,7 @@
   import { addSortBy, addTableFilter, addColumnFilters, addResizedColumns } from 'svelte-headless-table/plugins';
   import { readable } from 'svelte/store';
   import Urn from './Urn.svelte';
+  import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
 
   let {
@@ -29,7 +30,7 @@
 
   function nodeUrn(node: MemoryNode): string {
     const u = memoryUrn || node.memory?.urn || '';
-    return u ? `${u}:${node.loc}` : node.loc;
+    return composeNodeUrn(u, node.loc);
   }
 
   const store = $derived(readable(nodes));

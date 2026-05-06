@@ -1,5 +1,5 @@
 <script lang="ts">
-  type UrnType = 'org' | 'memory' | 'agent' | 'app' | 'node';
+  import { parseUrn, type UrnType } from '$lib/urn/parse-urn';
 
   let { value, type, size = 12, compact = false }: {
     value: string;
@@ -10,19 +10,12 @@
 
   let copied = $state(false);
 
-  // Auto-detect type from urn: prefix if present
-  const parsed = $derived.by(() => {
-    const match = value.match(/^urn:(org|memory|agent|app|node):(.+)$/);
-    if (match) return { type: match[1] as UrnType, bare: match[2] };
-    return { type: type ?? null, bare: value };
-  });
-
+  const parsed = $derived(parseUrn(value, type));
   const displayType = $derived(parsed.type);
-  const bareValue = $derived(parsed.bare);
-  const fullUrn = $derived(displayType ? `urn:${displayType}:${bareValue}` : bareValue);
-  const lastSegment = $derived(bareValue.split(':').pop() ?? bareValue);
+  const bareValue = $derived(parsed.bareValue);
+  const fullUrn = $derived(parsed.fullUrn);
 
-  // Type badge: uniform style across all types
+  // Type badge: uniform style across all types (incl. 'unknown' fallback)
   const typeBadgeClass = 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200';
 
   function copy() {
@@ -35,11 +28,10 @@
 <span class="inline-flex items-center gap-1">
   <code class="inline-flex items-center overflow-hidden rounded font-mono leading-tight" style="font-size: 0.6rem;">
     {#if compact}
-      <span class="bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={fullUrn}>{lastSegment}</span>
+      <span class="bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={fullUrn}>{bareValue}</span>
     {:else}
-      {#if displayType}
-        <span class="pl-1.5 pr-0.5 py-0.5 font-medium {typeBadgeClass}">{displayType}:</span>
-      {/if}
+      <span class="pl-1.5 pr-0 py-0.5 font-medium {typeBadgeClass}">urn:</span>
+      <span class="pl-0 pr-0.5 py-0.5 font-medium {typeBadgeClass}">{displayType}:</span>
       <span class="bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">{bareValue}</span>
     {/if}
   </code>
