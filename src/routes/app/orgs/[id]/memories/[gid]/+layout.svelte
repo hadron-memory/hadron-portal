@@ -71,6 +71,6 @@
     {@render children()}
   {:else}
     <!-- Memory browser (Browse/Nodes combined) -->
-    <MemoryBrowser nodes={data.graphNodes ?? []} {basePath} />
+    <MemoryBrowser nodes={data.graphNodes ?? []} {basePath} writableMemoryIds={data.writableMemoryIds ?? []} />
   {/if}
 </div>

@@ -4,7 +4,8 @@ import { buildTreeEntries, buildGraphViewData } from '$lib/graph-utils';
 import type { Organization, Memory, MemoryNode, UsageSummaryEntry } from '$lib/types';
 import type { LayoutServerLoad } from './$types';
 
-export const load: LayoutServerLoad = async ({ params, locals }) => {
+export const load: LayoutServerLoad = async ({ params, locals, parent }) => {
+  const parentData = await parent();
   const client = gqlClient(locals.token);
   const [orgData, memoryData, nodesData, usageData] = await Promise.all([
     client.request<{ organization: Organization }>(
@@ -37,6 +38,11 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     usageByNode[entry.nodeLoc][entry.type] = entry.count;
   }
 
+  // 010-create-node-on-portal: gate the tree's create-child affordance.
+  // Server-side authz remains the trust boundary — see upsertNode resolver's
+  // requireMemoryWriteAccess. This flag is presentation only.
+  const canWrite = !parentData.isConsumerMode;
+
   return {
     org: orgData.organization,
     graph: memory,
@@ -44,5 +50,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     treeEntries,
     graphViewData,
     usageByNode,
+    canWrite,
+    writableMemoryIds: canWrite ? [memory.id] : [],
   };
 };

@@ -3,6 +3,7 @@
   import { page } from "$app/stores";
   import type { TreeEntry } from "$lib/types";
   import { graphState } from "./GraphState.svelte.js";
+  import { nodeCreateStrings } from "$lib/i18n/node-create-strings";
 
   interface TreeNode {
     entry: TreeEntry;
@@ -17,6 +18,8 @@
     onmove,
     onreorder,
     showHidden = $bindable(false),
+    canWrite = false,
+    oncreatechild,
   }: {
     entries: TreeEntry[];
     basePath: string;
@@ -27,6 +30,12 @@
     /** When true, include record and system nodes in the tree. Bindable
      *  so MemoryBrowser can keep TreeView and NodeList in sync. */
     showHidden?: boolean;
+    /** 010-create-node-on-portal: when true, render a '+' affordance per
+     *  non-virtual row. Server-side authz remains the trust boundary. */
+    canWrite?: boolean;
+    /** Invoked with the activated row's loc when the user clicks '+'. The
+     *  parent (MemoryBrowser) is responsible for navigating to the form. */
+    oncreatechild?: (parentLoc: string) => void;
   } = $props();
 
   // Use shared search state so graph can react to the same filter
@@ -324,6 +333,16 @@
         {node.entry.name}
       </button>
     {/if}
+
+    {#if canWrite && !node.entry.isVirtual && oncreatechild}
+      <button
+        class="add-child"
+        type="button"
+        aria-label={nodeCreateStrings.affordanceAria(node.entry.name)}
+        title={nodeCreateStrings.affordanceLabel()}
+        onclick={(e) => { e.preventDefault(); e.stopPropagation(); oncreatechild?.(node.entry.id); }}
+      >+</button>
+    {/if}
   </div>
 
   {#if hasChildren && open}
@@ -422,6 +441,44 @@
     height: 28px;
     position: relative;
   }
+
+  /* 010-create-node-on-portal — hover-revealed '+' affordance, right-aligned.
+     Always visible on touch devices (no hover) per research.md R-7. */
+  .add-child {
+    margin-left: auto;
+    margin-right: 6px;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    line-height: 1;
+    border: none;
+    background: none;
+    color: #71717a;
+    cursor: pointer;
+    border-radius: 3px;
+    font-size: 14px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.1s;
+  }
+
+  .tree-row:hover .add-child,
+  .tree-row:focus-within .add-child,
+  .add-child:focus-visible {
+    opacity: 1;
+  }
+
+  @media (hover: none) {
+    .add-child { opacity: 1; }
+  }
+
+  .add-child:hover {
+    color: #27272a;
+    background: rgba(0, 0, 0, 0.05);
+  }
+
+  :global(.dark) .add-child { color: #8b949e; }
+  :global(.dark) .add-child:hover { color: #c9d1d9; background: rgba(255, 255, 255, 0.05); }
 
   .tree-row.active {
     background: rgba(88, 166, 255, 0.08);

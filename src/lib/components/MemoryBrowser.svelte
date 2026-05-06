@@ -2,7 +2,7 @@
   import TreeView from './TreeView.svelte';
   import TopicGraph from './TopicGraph.svelte';
   import NodeList from './NodeList.svelte';
-  import { invalidateAll } from '$app/navigation';
+  import { goto, invalidateAll } from '$app/navigation';
   import { page } from '$app/stores';
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
@@ -107,6 +107,14 @@
       });
       if (res.ok) await invalidateAll();
     } catch { /* ignore */ }
+  }
+
+  // 010-create-node-on-portal: navigate to the create-node form for the
+  // activated parent. basePath is required (multi-memory contexts without a
+  // basePath disable the affordance — see canWrite computed at the call site).
+  function handleCreateChild(parentLoc: string) {
+    if (!basePath) return;
+    goto(`${basePath}/nodes/new?parent=${encodeURIComponent(parentLoc)}`);
   }
 
   async function handleTreeReorder(parentLoc: string, orderedLocs: string[]) {
@@ -441,7 +449,7 @@
             <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
             <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
           </div>
-          <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
+          <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden canWrite={writableSet.size > 0 && !!basePath} oncreatechild={handleCreateChild} />
         </aside>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
