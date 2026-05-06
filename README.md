@@ -99,6 +99,7 @@ The frontend never sees or stores OAuth credentials or email tokens.
 | `/app/orgs/[id]/graphs/new` | Add graph config |
 | `/app/orgs/[id]/graphs/[gid]` | Graph settings, sync, org subscriptions |
 | `/app/orgs/[id]/graphs/[gid]/nodes` | Node list with usage stats and sorting |
+| `/app/orgs/[id]/memories/[gid]/nodes/new` | Create a new node in this memory (optional `?parent=<loc>` to add as child) |
 | `/app/orgs/[id]/graphs/[gid]/browse` | Force-directed graph visualization |
 | `/app/orgs/[id]/bundles` | Manage graph bundles |
 | `/app/stations` | List API stations |

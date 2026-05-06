@@ -3,6 +3,7 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import type { LayoutData } from './$types';
 
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
@@ -41,26 +42,36 @@
   </div>
   {/if}
 
-  <!-- Tabs (hidden on node detail pages which have their own breadcrumb + layout) -->
+  <!-- Tabs (hidden on node detail pages and on the create-node form,
+       which both have their own breadcrumb + focused layout — note
+       isNodeDetail's regex /\/nodes\/[^/]+/ matches /nodes/new too) -->
   {#if !isNodeDetail}
-  <div class="mb-4 flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
+  <div class="mb-4 flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">
+    <div class="flex gap-0">
+      <a
+        href="{basePath}/browse"
+        class="border-b-2 px-4 py-2 text-sm font-medium transition
+          {activeTab === 'memory'
+            ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+            : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
+      >
+        Memory
+      </a>
+      <a
+        href={basePath}
+        class="border-b-2 px-4 py-2 text-sm font-medium transition
+          {activeTab === 'settings'
+            ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+            : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
+      >
+        Settings
+      </a>
+    </div>
     <a
-      href="{basePath}/browse"
-      class="border-b-2 px-4 py-2 text-sm font-medium transition
-        {activeTab === 'memory'
-          ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-          : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
+      href="{basePath}/nodes/new"
+      class="mb-1 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
     >
-      Memory
-    </a>
-    <a
-      href={basePath}
-      class="border-b-2 px-4 py-2 text-sm font-medium transition
-        {activeTab === 'settings'
-          ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-          : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-    >
-      Settings
+      {createNodeStrings.newNodeButton()}
     </a>
   </div>
   {/if}
