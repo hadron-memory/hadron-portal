@@ -1,4 +1,24 @@
 <!--
+PARENT RE-RATIFICATION — 2026-05-07 (parent v1.2.0 → v1.3.0)
+
+The Hadron-wide parent constitution was amended via spec-kits PR
+#27 (commit 35246dbd) to formalize the fifth nodeType `abstract`
+in Invariant 2. This is corrective — `abstract` was already in
+active use server-side and documented in hadron-docs; the parent
+amendment regularized the constitutional record to match.
+
+Portal-local impact: none. The portal constitution's refinements
+(Principle II/III/V) and portal-only invariants (P1–P6) do not
+restate Invariant 2; the parent's nodeType enumeration is
+inherited unchanged. Re-ratifying this document at v1.0.0 with
+the new parent pin (v1.3.0 + new SHA) per the parent-sync clause
+in the Inheritance section.
+
+No version change to this document. No content change beyond the
+parent pin update.
+
+————————————————————————————————————————————————————————————————
+
 SYNC IMPACT REPORT — initial ratification → 1.0.0
 
 This is the first hadron-portal-local constitution. It does NOT
@@ -29,9 +49,9 @@ Follow-up TODOs:
 ## Inheritance
 
 This constitution **extends** the Hadron-wide constitution at
-`spec-kits/.specify/memory/constitution.md`, version **1.2.0**,
-SHA `20cd64fc333fa50eaa39e75314c56b7fbb4adc03` (last amended
-2026-05-02).
+`spec-kits/.specify/memory/constitution.md`, version **1.3.0**,
+SHA `35246dbdf0421ae7831690bf63120041f6569d31` (last amended
+2026-05-07).
 
 The parent's six core principles (I–VI) and 14 technology invariants
 apply to all work in this repository unmodified. This document only
