@@ -20,7 +20,7 @@ Connects to the [hadron-server](https://github.com/hadron-memory/hadron-server) 
 
 - Node.js ≥ 22 (see `.nvmrc`)
 - [pnpm](https://pnpm.io/) ≥ 10
-- [hadron-server](https://github.com/baragaun/hadron-server) running (defaults to `http://localhost:4000`)
+- [hadron-server](https://github.com/hadron-memory/hadron-server) running (defaults to `http://localhost:4000`)
 
 ## Setup
 
@@ -76,6 +76,8 @@ The frontend never sees or stores OAuth credentials or email tokens.
 | `/signup` | Create account (GitHub or email); accepts `?memory=<id>` (or legacy `?graph=<id>`) for marketplace intent |
 | `/signin` | Sign in (GitHub or email); accepts `?memory=<id>` (or legacy `?graph=<id>`) |
 | `/browse` | Marketplace — browse all public memories, "Use this memory" buttons |
+| `/about` | About page |
+| `/contact` | Contact page |
 | `/auth/callback` | Auth callback — sets cookie and redirects |
 | `/auth/signout` | Clears auth cookie |
 
@@ -89,6 +91,7 @@ The frontend never sees or stores OAuth credentials or email tokens.
 | `/app/apps` | My Apps — installed agent instances |
 | `/app/marketplace` | Browse marketplace from inside the app |
 | `/app/setup` | AI Setup — one-time config file download (Claude, Cursor, Windsurf) |
+| `/app/account` | User account settings and profile |
 
 ### Enterprise (authenticated, visible when user has explicit orgs)
 
@@ -107,13 +110,16 @@ The frontend never sees or stores OAuth credentials or email tokens.
 | `/app/orgs/[id]/memories/[gid]/browse` | Force-directed memory visualization |
 | `/app/orgs/[id]/agents` | List + manage agents in this org |
 | `/app/orgs/[id]/agents/new` | Define a new agent |
-| `/app/orgs/[id]/agents/[aid]` | Agent detail (with "Install" affordance per spec 009) |
+| `/app/orgs/[id]/agents/[aid]` | 301 redirect to the canonical detail page at `/app/agents/[aid]` (avoids maintaining two copies) |
+| `/app/agents/[id]` | Canonical agent detail page (with "Install" affordance per spec 009) |
 | `/app/orgs/[id]/agents/install/[aid]` | Install an agent (creates an App per spec 009) |
 | `/app/orgs/[id]/apps` | List apps in this org (read-only since spec 009; create via Install) |
 | `/app/orgs/[id]/apps/[appId]` | App detail — manage AppKey, members, surfaces |
 | `/app/orgs/[id]/apps/[appId]/members` | Manage app members per spec 008 |
 | `/app/orgs/[id]/create-chatbot` | Quick-create flow for a chatbot agent + app |
-| `/app/orgs/[id]/exchange` | Org-level exchange / integrations |
+| `/app/orgs/[id]/exchange/[connectionId]` | Org-level exchange connection detail (no `/exchange` index route — this is the only exchange path) |
+| `/app/usage/sessions` | Sessions usage view (full mode only) |
+| `/app/usage/memory` | Memory usage view (full mode only) |
 
 All `/app/*` routes require authentication and redirect to `/` otherwise.
 
@@ -121,8 +127,10 @@ All `/app/*` routes require authentication and redirect to `/` otherwise.
 
 The UI adapts based on whether the user is in **consumer mode** — determined by having exactly one organization with `isVisible: null` (the auto-created org for users who signed up without an invitation).
 
-- **Consumer mode**: Dashboard, My Memories, Browse Marketplace, AI Setup. Organization and app-management routes redirect to the dashboard.
-- **Full mode**: Dashboard, My Memories, My Agents, My Apps, Browse Marketplace, Organizations, AI Setup.
+- **Consumer mode**: Dashboard, Memories, Docs (external link). Organization-level views are hidden until the user is invited to or creates a real org.
+- **Full mode**: Dashboard, Memories, Agents, Apps, Docs (external link), plus a Usage section (Sessions, Memory) and the Organizations section (one entry per visible org).
+
+Source of truth: the `consumerNav` and `fullNav` arrays in [`src/routes/app/+layout.svelte`](src/routes/app/+layout.svelte). Update both this README section and the route table above whenever those arrays change, per portal-constitution Refinement II.
 
 The transition is automatic — when a user creates a real organization or is invited to one, the full navigation appears. The `isConsumerMode` flag is derived server-side in the `/app` layout and flows through `$page.data`.
 
