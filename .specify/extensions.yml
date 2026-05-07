@@ -113,6 +113,13 @@ hooks:
       prompt: Commit plan changes?
       description: Auto-commit after implementation planning
       condition: null
+    - extension: hadron
+      command: speckit.hadron.capture
+      enabled: true
+      optional: false
+      prompt: Capture research findings from this plan into Hadron memory?
+      description: Save research-phase learnings (codebase recon, decisions, conventions) via h-add-node / h-update-node
+      condition: null
   after_tasks:
     - extension: git
       command: speckit.git.commit
@@ -139,9 +146,9 @@ hooks:
     - extension: hadron
       command: speckit.hadron.capture
       enabled: true
-      optional: true
-      prompt: Capture what was learned in this spec back into Hadron memory?
-      description: Save new knowledge and corrections via h-add-node / h-update-node — runs after review
+      optional: false
+      prompt: Capture implementation learnings into Hadron memory?
+      description: Save implementation-phase learnings (gotchas, plan-vs-reality mismatches) via h-add-node / h-update-node — runs after review
       condition: null
   after_checklist:
     - extension: git

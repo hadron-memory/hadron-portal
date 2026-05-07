@@ -30,17 +30,27 @@ provides:
 
 # Recommended hook bindings — copy into your project's .specify/extensions.yml
 # under `hooks:` to activate. Bindings are advisory; the user owns extensions.yml.
-# Recommended primary hook for each command. Note: speckit.hadron.review AND
-# speckit.hadron.capture both bind to `after_implement` — review first, then
-# capture acts on the reviewed result. The extension.yml shape is one
-# command per event (matching the bundled git extension), so capture's
-# binding is documented in the README and emitted by `install-extension`.
+# Notes:
+#   - speckit.hadron.capture binds to BOTH after_plan (research-phase capture)
+#     AND after_implement (implementation-phase capture). Two captures with
+#     fresher context each beats one end-of-session pass that has to remember
+#     everything.
+#   - Under after_implement, speckit.hadron.review runs before
+#     speckit.hadron.capture so capture reflects what actually shipped.
+#   - The extension.yml shape lists one command per event below (matching the
+#     bundled git extension); the full multi-binding shape is documented in
+#     the README and emitted by `install-extension`.
 hooks:
   before_specify:
     command: speckit.hadron.recall
     optional: true
     prompt: "Recall relevant prior knowledge from Hadron memory before specifying?"
     description: "Surface decisions, conventions, and gotchas from Hadron before /speckit-specify"
+  after_plan:
+    command: speckit.hadron.capture
+    optional: false
+    prompt: "Capture research findings from this plan into Hadron memory?"
+    description: "Save research-phase learnings (codebase recon, decisions, conventions) via h-add-node / h-update-node"
   after_implement:
     command: speckit.hadron.review
     optional: true

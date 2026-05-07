@@ -10,10 +10,15 @@ commands. Neither writes into the other's directory.
 | Command | Recommended hook | Optional | Purpose |
 |---|---|---|---|
 | `speckit.hadron.recall`  | `before_specify`   | yes | Surface relevant prior decisions, conventions, and gotchas *before the spec is written*, so it informs the spec itself. |
+| `speckit.hadron.capture` | `after_plan`       | **no** | Propose and (with human approval) capture research-phase findings — codebase recon, decisions made, conventions discovered while reading the existing system. |
 | `speckit.hadron.review`  | `after_implement`  | yes | Apply the project's review-criteria nodes to the implementation diff. |
-| `speckit.hadron.capture` | `after_implement` (after review) | yes | Propose and (with human approval) write new knowledge / corrections back to Hadron memory. |
+| `speckit.hadron.capture` | `after_implement` (after review) | **no** | Propose and (with human approval) capture implementation-phase findings — gotchas, plan-vs-reality mismatches, surprises that emerged while shipping. |
 
-`review` and `capture` both bind to `after_implement` — review runs first, then capture acts on the reviewed result. Spec Kit executes hook array entries in order, so keep `review` listed before `capture` when you merge the bindings into your `.specify/extensions.yml`.
+`capture` binds twice — once at `after_plan` and once at `after_implement` — because most learnings emerge during research/recon and would be forgotten by end of implementation. Two captures with fresher context each beats one end-of-session pass.
+
+Both `capture` bindings are non-optional: Spec Kit will surface the capture proposal to the human at each event so it doesn't get silently skipped. (`recall` and `review` are optional — they're useful but not load-bearing for the memory loop.)
+
+Under `after_implement`, `review` runs before `capture` so capture reflects what actually shipped. Spec Kit executes hook array entries in order, so keep `review` listed before `capture` when you merge the bindings into your `.specify/extensions.yml`.
 
 ## Requirements
 

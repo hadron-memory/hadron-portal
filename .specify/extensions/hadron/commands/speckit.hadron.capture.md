@@ -1,41 +1,55 @@
 ---
-description: "Capture new knowledge and corrections back into Hadron memory after implementation."
+description: "Capture knowledge and corrections back into Hadron memory."
 ---
 
 # Capture What Was Learned into Hadron Memory
 
 Update the Hadron Graph with non-obvious knowledge surfaced during this spec —
 new conventions, corrections to outdated nodes, gotchas discovered during
-implementation. This is the institutional-memory step.
+research or implementation. This is the institutional-memory step.
 
 ## When this runs
 
-Invoked as an `after_implement` hook *after* `speckit.hadron.review` on the
-same event (configurable in `.specify/extensions.yml`). Run this **after**
-review (and any follow-up fixes) so capture reflects what actually
-shipped, not what was attempted.
+Invoked at two hook points (configurable in `.specify/extensions.yml`):
 
-Spec Kit executes hook entries in array order; the recommended bindings
-list `review` before `capture` under `after_implement` so this ordering
-holds.
+- **`after_plan`** — captures research-phase findings as they crystallize:
+  codebase recon results, decisions logged in `research.md`, conventions
+  discovered while reading the existing system.
+- **`after_implement`** — captures implementation-phase findings: gotchas,
+  plan-vs-reality mismatches, test-infrastructure quirks, bugs in tooling.
+  Runs *after* `speckit.hadron.review` (when bound) so capture reflects what
+  actually shipped, not what was attempted.
+
+Capturing twice — with fresher context each time — beats one end-of-session
+pass that has to remember everything from earlier in the session.
 
 ## What to do
 
-1. **Reflect on the spec.** Re-read `spec.md`, `plan.md`, the diff, and the
-   review output. Identify items that fall into one of these buckets:
+1. **Reflect on what's available, scoped to the current phase.**
+
+   - At `after_plan`: read `spec.md`, `plan.md`, `research.md`, and the
+     conversation context from this session. Focus on findings new since the
+     last capture (or since session start if this is the first capture).
+   - At `after_implement`: also read `tasks.md`, the diff, and any `review`
+     output produced earlier on this hook event.
+
+   Identify items that fall into one of these buckets:
 
    - **New knowledge** — something the project didn't have a node for that
      future work would benefit from knowing.
    - **Corrections** — a node that existed but was wrong, incomplete, or
      misleading. (You may have used such a node during recall and noticed
      the gap.)
-   - **Gotchas / prior-incidents** — non-obvious failure modes hit during
-     implementation that should be documented.
+   - **Gotchas / prior-incidents** — non-obvious failure modes that should
+     be documented.
+
+   If nothing rises to the bar, say so plainly and continue — a clean "no
+   captures this phase" is a valid outcome.
 
 2. **Propose changes to the human first.** For each candidate, present:
 
    ```markdown
-   ## Capture Proposal
+   ## Capture Proposal — <after_plan | after_implement>
 
    ### New nodes to add
    - **`<proposed-loc>`** — <one-line description>
@@ -75,8 +89,11 @@ holds.
 - Don't write into `.specify/`. Capture writes go through Hadron MCP only.
 - If Hadron MCP is not connected, surface the proposals to the human as a
   text block so they can be re-run later.
+- A clean "no captures this phase" report is fine — don't invent material.
 
 ## Why
 
 Without capture, every spec rediscovers the same lessons. The recall step
-benefits from each prior capture; that is the loop.
+benefits from each prior capture; that is the loop. Capturing twice keeps
+each pass scoped to fresh context and avoids the end-of-session memory
+decay that loses earlier-session findings.
