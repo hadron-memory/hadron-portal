@@ -6,7 +6,7 @@ extension:
   version: "0.1.0"
   description: "Recall, review, and capture institutional knowledge in the Hadron Graph at Spec Kit hook points."
   author: hadron-memory
-  repository: https://github.com/hadron-memory/hadron-client
+  repository: https://github.com/hadron-memory/spec-kits
   license: MIT
 
 requires:
@@ -26,20 +26,27 @@ provides:
       description: "Apply project review-criteria nodes from Hadron memory to the implementation diff."
     - name: speckit.hadron.capture
       file: commands/speckit.hadron.capture.md
-      description: "Capture new knowledge and corrections back into Hadron memory after implementation."
+      description: "Capture new knowledge and corrections back into Hadron memory. Phase-agnostic — runs at after_plan (research-phase findings) and after_implement (implementation-phase findings)."
 
-# Recommended hook bindings — copy into your project's .specify/extensions.yml
-# under `hooks:` to activate. Bindings are advisory; the user owns extensions.yml.
+# Recommended hook bindings — INTENTIONALLY MINIMAL.
+#
+# The extension.yml schema is one command per event, which cannot express the
+# full Hadron binding shape — speckit.hadron.capture binds at TWO events
+# (after_plan + after_implement), and after_implement holds two Hadron commands
+# (review + capture). This block lists one canonical command per event as a
+# pointer; do NOT copy it verbatim into your `.specify/extensions.yml`.
+#
+# The complete recommended bindings are:
+#   - emitted by `extensions/hadron/install.sh` (this directory), printed for
+#     manual paste into your `.specify/extensions.yml`, and
+#   - documented in this extension's README.md.
+#
 # Notes:
-#   - speckit.hadron.capture binds to BOTH after_plan (research-phase capture)
-#     AND after_implement (implementation-phase capture). Two captures with
-#     fresher context each beats one end-of-session pass that has to remember
-#     everything.
+#   - speckit.hadron.capture is mandatory (`optional: false`) at both events
+#     so Spec Kit auto-executes it. Two captures with fresher context each
+#     beats one end-of-session pass that has to remember everything.
 #   - Under after_implement, speckit.hadron.review runs before
 #     speckit.hadron.capture so capture reflects what actually shipped.
-#   - The extension.yml shape lists one command per event below (matching the
-#     bundled git extension); the full multi-binding shape is documented in
-#     the README and emitted by `install-extension`.
 hooks:
   before_specify:
     command: speckit.hadron.recall

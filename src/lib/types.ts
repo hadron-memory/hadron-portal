@@ -19,6 +19,12 @@ export interface Memory {
   writeBranch: string | null;
   visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'KNOWLEDGE' | 'AGENT_SYSTEM';
+  // Spec 005-agent-subscription introduced the four-way memory class
+  // typology. Spec 013-soft-delete-memory reads `class` and `userId` to
+  // gate the detail-page Danger-zone affordance: personal-class memories
+  // are owner-deletable; all others are org-admin-deletable.
+  class?: 'system' | 'app' | 'knowledge' | 'personal';
+  userId?: string | null;
   userMemoryOfAgentId?: string | null;
   anonymousExpiresAt?: string | null;
   agent?: { id: string; urn: string; name: string } | null;

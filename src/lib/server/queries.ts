@@ -23,6 +23,8 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     writeBranch
     visibility
     type
+    class
+    userId
     userMemoryOfAgentId
     anonymousExpiresAt
     agent { id urn name }

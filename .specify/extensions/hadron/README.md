@@ -35,14 +35,19 @@ stops cleanly — Spec Kit's pipeline continues without Hadron-side actions.
 
 ## Installation
 
+The Hadron install script handles everything (App key + `.mcp.json` + `.hadron/config.json` + `.gitignore` + this extension + Spec Kit if not already installed):
+
 ```bash
-hadron-client install-extension
+bash <(curl -sSL https://install.hadronmemory.com/install-speckit-extension-1.0.1.sh)
 ```
 
-This copies the bundled extension into `<project>/.specify/extensions/hadron/`.
-Then bind the commands to hook points in your **own** `.specify/extensions.yml`
-— the recommended bindings are echoed by `install-extension` and listed above.
-The bindings are yours to choose; nothing is wired automatically.
+The script and the extension bundle it pulls down are versioned together — `install-speckit-extension-<version>.sh` fetches the matching `speckit-extension/<version>/` bundle from the same host. Pin to the version above for reproducible installs, or watch this README for newer tags.
+
+It's interactive — answers yes/no prompts for the optional pieces. Pass `NONINTERACTIVE=1` and the relevant env vars (`HADRON_APP_KEY`, `INSTALL_SPECKIT=yes|no`) for CI.
+
+The script drops this extension into `<project>/.specify/extensions/hadron/` and prints the recommended hook bindings (listed in the table above). Paste them into your **own** `.specify/extensions.yml` `hooks:` section — the bindings are yours to choose; nothing is wired automatically.
+
+If you only want this extension (Spec Kit + MCP already set up), copy the directory directly from this repo into `<project>/.specify/extensions/hadron/`.
 
 ## Why this shape
 
