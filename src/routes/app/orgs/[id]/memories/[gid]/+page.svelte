@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -12,11 +13,27 @@
   // not a shared knowledge artifact).
   const isAgentSystem = $derived(g.type === 'AGENT_SYSTEM');
 
+  // Spec 013: class-aware delete authority. Server-side resolver enforces
+  // this; the UI affordance hide is presentation only (per Constitution
+  // Principle V). Personal-class memories — owner only. All others — any
+  // org admin. AGENT_SYSTEM memories are excluded entirely (the resolver
+  // refuses; deleting goes through the owning agent).
+  const myMember = $derived(
+    data.org.members?.find((m) => m.user?.id === data.user?.id),
+  );
+  const canDelete = $derived(
+    !isAgentSystem &&
+      (g.class === 'personal'
+        ? !!data.user?.id && data.user.id === g.userId
+        : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
+  );
+
   let isEditing = $state(false);
   let githubOpen = $state(false);
   let saving = $state(false);
   let syncing = $state(false);
   let pushing = $state(false);
+  let confirmDelete = $state(false);
 
   $effect(() => {
     if (g.source) githubOpen = true;
@@ -301,5 +318,40 @@
       <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">Add</button>
     </form>
   </section>
+  {/if}
+
+  <!-- Spec 013: Danger zone — soft-delete affordance for authorized users.
+       Server-side authz is the trust boundary; the {#if canDelete} hide is
+       presentation only. Pattern verbatim from the agent-detail Danger zone
+       (convention node `conventions:portal-soft-delete-flow`). -->
+  {#if canDelete}
+    <section class="max-w-lg border-t border-zinc-200 pt-6 dark:border-zinc-800">
+      <h3 class="mb-2 text-sm font-semibold text-red-500">{deleteMemoryStrings.heading()}</h3>
+      {#if !confirmDelete}
+        <button
+          onclick={() => (confirmDelete = true)}
+          class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+        >
+          {deleteMemoryStrings.deleteButton()}
+        </button>
+      {:else}
+        <form method="POST" action="?/delete" use:enhance class="flex items-center gap-2">
+          <span class="text-sm text-red-500">{deleteMemoryStrings.confirmPrompt(g.name)}</span>
+          <button
+            type="submit"
+            class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
+          >
+            {deleteMemoryStrings.confirmYes()}
+          </button>
+          <button
+            type="button"
+            onclick={() => (confirmDelete = false)}
+            class="text-sm text-zinc-500 hover:text-zinc-300"
+          >
+            {deleteMemoryStrings.confirmCancel()}
+          </button>
+        </form>
+      {/if}
+    </section>
   {/if}
 </div>

@@ -1,4 +1,4 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
@@ -7,10 +7,19 @@ import {
   PUSH_MEMORY_TO_GIT_MUTATION,
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
+  DELETE_MEMORY_MUTATION,
   MY_ORGANIZATIONS_QUERY,
 } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+
+function extractGqlError(e: unknown, fallback: string): string {
+  if (e && typeof e === 'object' && 'response' in e) {
+    const resp = (e as { response: { errors?: { message: string }[] } }).response;
+    if (resp.errors?.[0]?.message) return resp.errors[0].message;
+  }
+  return e instanceof Error ? e.message : fallback;
+}
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
   await requireNonConsumer(parent);
@@ -91,6 +100,19 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(DELETE_MEMORY_SUBSCRIPTION_MUTATION, { memoryId: params.gid, orgId });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to remove subscription' });
+    }
+  },
+
+  delete: async ({ params, locals }) => {
+    try {
+      await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { id: params.gid });
+      redirect(303, `/app/orgs/${params.id}/memories`);
+    } catch (e: unknown) {
+      // Re-throw SvelteKit's redirect-as-thrown-exception so it isn't
+      // swallowed by the catch and surfaced as "Failed to delete".
+      // (Same load-bearing pattern as deleteAgent.)
+      if (isRedirect(e)) throw e;
+      return fail(500, { error: extractGqlError(e, 'Failed to delete memory') });
     }
   },
 };
