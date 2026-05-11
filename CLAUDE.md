@@ -70,4 +70,6 @@ project governance.
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
+at `/Users/raghvindyadav/GitHub/spec-kits/specs/014-single-active-org/plan.md`
+(branch `014-single-active-org` in both `spec-kits/` and `hadron-portal/`).
 <!-- SPECKIT END -->

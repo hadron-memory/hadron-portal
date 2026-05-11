@@ -51,8 +51,6 @@
 <div class="space-y-6">
   <div>
     <Breadcrumb items={[
-      { label: 'Organizations', href: '/app/orgs' },
-      { label: org.name, href: `/app/orgs/${org.id}` },
       { label: 'Exchange Inbox' },
     ]} />
     <div class="mt-1 flex items-center gap-3">

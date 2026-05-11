@@ -1,0 +1,200 @@
+/**
+ * Spec 014-single-active-org — tests for the `+layout.server.ts` load
+ * function. Verifies the active-org resolution is wired into layout data
+ * and that the layout cleanly falls through to the personal org when no
+ * URL hint is present.
+ *
+ * Strategy mirrors the spec 013 page.server.test.ts pattern: mock
+ * `$lib/server/api`'s `gqlClient`, import the `load` function, and call
+ * it with a hand-rolled SvelteKit-shaped event.
+ *
+ * Note: T003 (extending ME_QUERY with `lastActiveOrgId`) is deferred
+ * pending the hadron-server change (R-7). The layout passes
+ * `lastActiveOrgId: null` to `resolveActiveOrg` today; tests reflect
+ * that. When T003 lands, additional cases (lastActive source) will be
+ * added here.
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mockMyOrgsRequest = vi.fn();
+const mockMeRequest = vi.fn();
+
+vi.mock('$lib/server/api', () => ({
+  gqlClient: () => ({
+    request: (query: string) => {
+      // The portal calls MY_ORGANIZATIONS_QUERY and ME_QUERY in parallel.
+      // Dispatch by query string heuristic.
+      if (query.includes('myOrganizations')) return mockMyOrgsRequest(query);
+      return mockMeRequest(query);
+    },
+  }),
+}));
+
+beforeEach(() => {
+  mockMyOrgsRequest.mockReset();
+  mockMeRequest.mockReset();
+});
+
+function makeOrg(overrides: { id: string; isVisible: boolean | null; name?: string }) {
+  return {
+    id: overrides.id,
+    name: overrides.name ?? `Org ${overrides.id}`,
+    urn: `org:${overrides.id}`,
+    isVisible: overrides.isVisible,
+    githubInstallationId: null,
+    githubAppId: null,
+    hasGithubAppPrivateKey: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+}
+
+function ev(opts: {
+  paramsId?: string;
+  pathname?: string;
+  authed?: boolean;
+}) {
+  return {
+    locals: opts.authed === false
+      ? { user: null, token: null }
+      : {
+          user: { id: 'user-1', roles: ['user'], githubUsername: 'gh-user' },
+          token: 'test-token',
+        },
+    url: new URL(`http://localhost${opts.pathname ?? '/app/dashboard'}`),
+    params: opts.paramsId ? { id: opts.paramsId } : {},
+  } as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+}
+
+async function importLoad() {
+  const mod = await import('./+layout.server');
+  return mod.load;
+}
+
+/**
+ * Narrow the `void | PageData` union the auto-generated SvelteKit load
+ * type returns. In tests we never exercise the unauth redirect branch
+ * (which is the source of the `void` arm), so the result is always the
+ * data shape.
+ */
+async function loadAuthed(
+  ...args: Parameters<Awaited<ReturnType<typeof importLoad>>>
+): Promise<{
+  user: { id: string; roles: string[]; githubUsername: string; name?: string; avatarUrl?: string | null; email?: string };
+  orgs: ReturnType<typeof makeOrg>[];
+  isConsumerMode: boolean;
+  activeOrgId: string | null;
+  activeOrg: ReturnType<typeof makeOrg> | null;
+  personalOrgId: string | null;
+}> {
+  const load = await importLoad();
+  const data = await load(...args);
+  if (!data) throw new Error('Expected layout load to return data, got void (unauth redirect path)');
+  return data as never;
+}
+
+describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
+  it('populates activeOrgId from params.id when on /app/orgs/[id]/...', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({
+      me: { id: 'user-1', handle: 'h', githubUsername: 'gh-user', name: 'U', avatarUrl: null, email: 'a@b', roles: ['user'] },
+    });
+
+    const data = await loadAuthed(ev({ paramsId: 'org-a', pathname: '/app/orgs/org-a/agents' }));
+
+    expect(data.activeOrgId).toBe('org-a');
+    expect(data.activeOrg).toMatchObject({ id: 'org-a' });
+    expect(data.personalOrgId).toBe('org-personal');
+  });
+
+  it('falls through to personal org when no URL hint and no lastActiveOrgId', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
+
+    expect(data.activeOrgId).toBe('org-personal');
+    expect(data.activeOrg).toMatchObject({ id: 'org-personal' });
+    expect(data.personalOrgId).toBe('org-personal');
+  });
+
+  it('302-redirects with the resolved id substituted when paramsId is a non-member org (FR-009 / R-9 path preservation)', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const load = await importLoad();
+    let thrown: unknown;
+    try {
+      await load(ev({ paramsId: 'org-strangers', pathname: '/app/orgs/org-strangers/agents' }));
+    } catch (e) {
+      thrown = e;
+    }
+    expect((thrown as { status: number }).status).toBe(302);
+    expect((thrown as { location: string }).location).toBe('/app/orgs/org-personal/agents');
+  });
+
+  it('preserves a deeper trailing path on inaccessible-deep-link redirect (memories detail page)', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const load = await importLoad();
+    let thrown: unknown;
+    try {
+      await load(ev({ paramsId: 'org-strangers', pathname: '/app/orgs/org-strangers/memories/gid-abc' }));
+    } catch (e) {
+      thrown = e;
+    }
+    expect((thrown as { status: number }).status).toBe(302);
+    expect((thrown as { location: string }).location).toBe('/app/orgs/org-personal/memories/gid-abc');
+  });
+
+  it('does NOT redirect when paramsId IS a member org (resolution.source === url)', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({ paramsId: 'org-a', pathname: '/app/orgs/org-a/agents' }));
+    expect(data.activeOrgId).toBe('org-a');
+  });
+
+  it('preserves the existing isConsumerMode derivation', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
+
+    expect(data.isConsumerMode).toBe(true);
+    expect(data.activeOrgId).toBe('org-personal');
+  });
+
+  it('does NOT set isConsumerMode when user has a visible org alongside the personal one', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
+
+    expect(data.isConsumerMode).toBe(false);
+  });
+
+  it('returns activeOrgId=null when the user has no personal org (defensive — should not occur)', async () => {
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
+
+    expect(data.activeOrgId).toBeNull();
+    expect(data.personalOrgId).toBeNull();
+  });
+});

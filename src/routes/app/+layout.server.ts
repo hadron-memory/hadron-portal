@@ -1,10 +1,11 @@
 import { redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { MY_ORGANIZATIONS_QUERY, ME_QUERY } from '$lib/server/queries';
+import { resolveActiveOrg } from '$lib/server/active-org';
 import type { Organization, UserSummary } from '$lib/types';
 import type { LayoutServerLoad } from './$types';
 
-export const load: LayoutServerLoad = async ({ locals, url }) => {
+export const load: LayoutServerLoad = async ({ locals, url, params }) => {
   if (!locals.user) {
     redirect(303, `/signin?redirect=${encodeURIComponent(url.pathname)}`);
   }
@@ -30,5 +31,34 @@ export const load: LayoutServerLoad = async ({ locals, url }) => {
     ? { ...locals.user, ...meData.me, roles: locals.user.roles }
     : { ...locals.user, handle: null };
 
-  return { user, orgs, isConsumerMode };
+  // Spec 014: resolve the active organization (URL → lastActiveOrgId →
+  // personal). lastActiveOrgId is wired as `null` for now — extending
+  // ME_QUERY to select it (T003) and writing it back via setLastActiveOrg
+  // (T004) is deferred until the hadron-server adds the field. See spec
+  // 014 research.md R-7 for the cross-repo sequencing.
+  const paramsId = typeof params.id === 'string' ? params.id : undefined;
+  const resolution = resolveActiveOrg({
+    paramsId,
+    lastActiveOrgId: null,
+    myOrganizations: orgs,
+  });
+
+  // Spec 014 FR-009 / R-9 — inaccessible deep-link handling. If the URL
+  // names an org id that the user is not a member of (deleted org, kicked,
+  // never had access), the resolver falls through and picks a different
+  // (accessible) org. Redirect to the same path with the resolved id
+  // substituted so the trailing path segment is preserved.
+  if (paramsId && resolution.activeOrgId && resolution.activeOrgId !== paramsId) {
+    const redirected = url.pathname.replace(`/app/orgs/${paramsId}`, `/app/orgs/${resolution.activeOrgId}`);
+    redirect(302, redirected + url.search);
+  }
+
+  return {
+    user,
+    orgs,
+    isConsumerMode,
+    activeOrgId: resolution.activeOrgId,
+    activeOrg: resolution.activeOrg,
+    personalOrgId: resolution.personalOrgId,
+  };
 };

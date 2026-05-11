@@ -30,8 +30,6 @@
 <div class="max-w-lg">
   <div class="mb-6">
     <Breadcrumb items={[
-      { label: 'Organizations', href: '/app/orgs' },
-      { label: data.org.name, href: `/app/orgs/${data.org.id}` },
       { label: 'Agents', href: `/app/orgs/${data.org.id}/agents` },
       { label: 'New' },
     ]} />

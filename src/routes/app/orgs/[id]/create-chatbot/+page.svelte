@@ -57,8 +57,6 @@
 <div class="max-w-2xl mx-auto">
   <div class="mb-6">
     <Breadcrumb items={[
-      { label: 'Organizations', href: '/app/orgs' },
-      { label: org.name, href: `/app/orgs/${org.id}` },
       { label: 'Create Chatbot Agent' },
     ]} />
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">Create Chatbot Agent</h1>

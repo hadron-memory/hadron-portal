@@ -20,8 +20,6 @@
 <div class="space-y-6">
   <div>
     <Breadcrumb items={[
-      { label: 'Organizations', href: '/app/orgs' },
-      { label: org.name, href: `/app/orgs/${org.id}` },
       { label: 'Apps' },
     ]} />
     <div class="mt-2">

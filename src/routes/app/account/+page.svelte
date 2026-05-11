@@ -170,6 +170,23 @@
     {/if}
   </section>
 
+  <!-- Organizations — reachable here from consumer-mode accounts that
+       have no left-menu org section (spec 014 FR-010 + FR-012). -->
+  <section>
+    <div class="mb-3">
+      <h2 class="font-semibold text-zinc-900 dark:text-white">Organizations</h2>
+      <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Manage memberships or create a new organization.</p>
+    </div>
+    <div class="flex gap-3">
+      <a href="/app/orgs/" class="inline-block rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+        View organizations
+      </a>
+      <a href="/app/orgs/new" class="inline-block rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
+        Create organization
+      </a>
+    </div>
+  </section>
+
   <!-- Sign out -->
   <section>
     <a href="/auth/signout" data-sveltekit-reload class="inline-block rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
