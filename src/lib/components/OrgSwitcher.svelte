@@ -3,46 +3,92 @@
    * Spec 014 T020 — OrgSwitcher dropdown for the portal sidebar.
    *
    * Renders a click-target labeled with the active org's name and a caret.
-   * On click, reveals a dropdown listing the user's other VISIBLE memberships
-   * (personal org is excluded — per the contract, the personal org is not
-   * a switch destination). Each entry is an <a target="_blank"> link so
-   * switching opens the other org in a new tab and leaves the current tab
-   * untouched (R-3).
+   * On click, reveals a dropdown listing the user's other memberships
+   * (every org except the currently active one — personal orgs are
+   * included so the user can switch back to their personal workspace
+   * from a visible org; per gemini-code-assist review on spec-kits#34).
+   * Each entry is an <a target="_blank"> link so switching opens the
+   * other org in a new tab and leaves the current tab untouched (R-3).
    *
    * A "See all organizations →" link to /app/orgs/ is rendered below the
    * list (same-tab navigation; this is a management surface, not a switch
    * action — FR-012).
    *
+   * Keyboard navigation: Escape closes; ArrowUp/ArrowDown move focus
+   * between menu items; Home/End jump to first/last; first item is
+   * focused when the menu opens (per gemini-code-assist review on #210).
+   *
    * See contracts/portal-layout-active-org.md.
    */
+  import { tick } from 'svelte';
   import type { Organization } from '$lib/types';
   import { t } from '$lib/i18n/t';
 
   let { activeOrg, orgs }: { activeOrg: Organization; orgs: Organization[] } = $props();
 
-  // Other memberships, excluding the active org and the personal org.
-  // The personal org (isVisible === null) is intentionally not surfaced
-  // as a switch destination per the contract — users reach it via the
-  // "See all organizations" link.
-  const otherMemberships = $derived(
-    orgs.filter((o) => o.id !== activeOrg.id && o.isVisible !== null),
-  );
+  // Other memberships (every org except the active one). The personal
+  // org IS included as a switch destination — without it, a user on a
+  // visible org has no in-UI path back to their personal workspace.
+  const otherMemberships = $derived(orgs.filter((o) => o.id !== activeOrg.id));
 
   let open = $state(false);
   let triggerEl: HTMLButtonElement | undefined = $state();
+  let menuEl: HTMLDivElement | undefined = $state();
 
-  function toggle() {
-    open = !open;
+  async function openMenu() {
+    open = true;
+    await tick();
+    focusItem(0);
   }
 
-  function close() {
+  function closeMenu() {
     open = false;
+  }
+
+  function toggle() {
+    if (open) closeMenu();
+    else openMenu();
+  }
+
+  function items(): HTMLAnchorElement[] {
+    if (!menuEl) return [];
+    return Array.from(menuEl.querySelectorAll<HTMLAnchorElement>('a[role="menuitem"], a[data-testid="org-switcher-see-all"]'));
+  }
+
+  function focusItem(index: number) {
+    const list = items();
+    if (list.length === 0) return;
+    const safe = Math.max(0, Math.min(index, list.length - 1));
+    list[safe]?.focus();
+  }
+
+  function focusedIndex(): number {
+    const list = items();
+    return list.findIndex((el) => el === document.activeElement);
   }
 
   function handleKey(e: KeyboardEvent) {
     if (e.key === 'Escape' && open) {
-      close();
+      e.preventDefault();
+      closeMenu();
       triggerEl?.focus();
+      return;
+    }
+    if (!open) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const i = focusedIndex();
+      focusItem(i < 0 ? 0 : i + 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const i = focusedIndex();
+      focusItem(i <= 0 ? items().length - 1 : i - 1);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      focusItem(0);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      focusItem(items().length - 1);
     }
   }
 
@@ -50,7 +96,7 @@
     if (!open) return;
     const target = e.target as HTMLElement | null;
     if (target && !target.closest('[data-org-switcher]')) {
-      close();
+      closeMenu();
     }
   }
 </script>
@@ -76,6 +122,7 @@
 
   {#if open}
     <div
+      bind:this={menuEl}
       role="menu"
       class="absolute bottom-full left-0 right-0 mb-1 max-h-64 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
       data-testid="org-switcher-dropdown"
@@ -85,7 +132,8 @@
           href="/app/orgs/{o.id}/"
           target="_blank"
           rel="noopener"
-          class="block truncate px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          onclick={closeMenu}
+          class="block truncate px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 focus:bg-zinc-50 focus:outline-none dark:text-zinc-300 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800"
           role="menuitem"
           data-testid="org-switcher-option"
         >
@@ -97,8 +145,8 @@
       {/if}
       <a
         href="/app/orgs/"
-        class="block px-3 py-1.5 text-sm text-indigo-600 hover:bg-zinc-50 dark:text-indigo-400 dark:hover:bg-zinc-800"
-        onclick={close}
+        onclick={closeMenu}
+        class="block px-3 py-1.5 text-sm text-indigo-600 hover:bg-zinc-50 focus:bg-zinc-50 focus:outline-none dark:text-indigo-400 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800"
         data-testid="org-switcher-see-all"
       >
         {t('app.layout.active-org.switcher.see-all', 'See all organizations →')}

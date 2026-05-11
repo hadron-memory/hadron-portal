@@ -43,7 +43,9 @@
     if (match === 'exact') {
       return pathname === href || pathname === href + '/';
     }
-    return pathname.startsWith(href);
+    // Use '/'-boundary prefix match so `/app/orgs/1` doesn't claim
+    // `/app/orgs/10` as a sub-path. Per gemini-code-assist review on #210.
+    return pathname === href || pathname.startsWith(href + '/');
   }
 
   let menuOpen = $state(true);
