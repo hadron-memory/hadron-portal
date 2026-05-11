@@ -4,13 +4,14 @@ import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATION_QUERY,
+  APPS_QUERY,
   LINK_GITHUB_APP_MUTATION,
   UPDATE_ORG_GITHUB_APP_MUTATION,
   UNLINK_GITHUB_APP_MUTATION,
   DELETE_EXCHANGE_CONNECTION_MUTATION,
   TEST_EXCHANGE_CONNECTION_MUTATION,
 } from '$lib/server/queries';
-import type { Organization } from '$lib/types';
+import type { Organization, App } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 function extractGqlError(e: unknown, fallback: string): string {
@@ -21,15 +22,28 @@ function extractGqlError(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
 }
 
+// 015-fix-org-apps-count: ORGANIZATION_QUERY does not select `apps` (it's
+// shared by ~10 routes that don't need apps and would overfetch APP_FIELDS).
+// Issue APPS_QUERY in parallel and surface failure inline (FR-006).
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
-  const data = await gqlClient(locals.token).request<{ organization: Organization | null }>(
-    ORGANIZATION_QUERY,
-    { id: params.id },
-  ).catch(() => { throw error(404, 'Organization not found'); });
+  const client = gqlClient(locals.token);
+  const [orgResult, appsResult] = await Promise.allSettled([
+    client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id }),
+    client.request<{ apps: App[] }>(APPS_QUERY, { orgId: params.id }),
+  ]);
 
-  if (!data.organization) throw error(404, 'Organization not found');
-  return { org: data.organization };
+  if (orgResult.status === 'rejected') throw error(404, 'Organization not found');
+  if (!orgResult.value.organization) throw error(404, 'Organization not found');
+
+  if (appsResult.status === 'rejected') {
+    return {
+      org: orgResult.value.organization,
+      apps: [] as App[],
+      appsError: extractGqlError(appsResult.reason, 'Failed to load apps'),
+    };
+  }
+  return { org: orgResult.value.organization, apps: appsResult.value.apps, appsError: null };
 };
 
 export const actions: Actions = {
