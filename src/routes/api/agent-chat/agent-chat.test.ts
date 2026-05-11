@@ -120,6 +120,7 @@ describe('POST /api/agent-chat/start', () => {
       conversationName: 'deep-dive',
       stageName: 'intro',
       welcomeMessage: 'Welcome! What are we researching today?',
+      welcomeError: null,
       stageTransitioned: false,
     });
 
@@ -166,6 +167,34 @@ describe('POST /api/agent-chat/start', () => {
     const res = await POST(ev({ body: { agentId: 'a1' } }));
     expect(res.status).toBe(500);
     expect((await jsonOf(res)).error).toBe('graphql boom');
+  });
+
+  // Spec 016 — welcome turn is best-effort. startChat must succeed and
+  // the chat must be created, but a failed welcome turn (e.g. agent
+  // has no conversations configured, missing LLM key, LLM error) must
+  // NOT 500 the whole call or leave an orphan chat node. The caller
+  // gets the chatId plus a soft welcomeError hint and proceeds.
+  it('returns 200 with welcomeError when the welcome turn fails (spec 016)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      startChat: {
+        chatId: 'chat-orphan-avoided',
+        systemMessage: '',
+        tools: null,
+        conversationName: null,
+        stageName: null,
+      },
+    });
+    mockRunChatTurn.mockRejectedValueOnce(
+      new Error('Agent has no LLM provider configured. Set one in agent settings first.'),
+    );
+    const { POST } = await import('./start/+server');
+    const res = await POST(ev({ body: { agentId: 'a1' } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.chatId).toBe('chat-orphan-avoided');
+    expect(body.welcomeMessage).toBeNull();
+    expect(body.welcomeError).toMatch(/no LLM provider/);
+    expect(body.stageTransitioned).toBe(false);
   });
 });
 
@@ -296,6 +325,47 @@ describe('POST /api/agent-chat/resume', () => {
     const res = await POST(ev({ body: { agentId: 'a', chatId: 'chat-missing' } }));
     expect(res.status).toBe(404);
   });
+
+  // Spec 016 — regression test for the "chats disappear on reload" symptom.
+  // Reload is simulated by calling /resume directly: the portal UI does the
+  // same thing on mount (after this fix). The contract being pinned: /resume
+  // returns the full chat metadata AND every prior message in seq order, so
+  // the UI never needs to reconstruct history from client-side state.
+  it('returns full chat metadata + complete message history on resume (spec 016 regression)', async () => {
+    const chatId = 'chat-016-regression';
+    const allChats = [
+      {
+        loc: chatId,
+        title: "Alice's pizza",
+        conversationName: 'greet',
+        stageName: 'confirm',
+        messageCount: 6,
+        lastMessageAt: '2026-05-11T10:00:00Z',
+      },
+    ];
+    const fullHistory = [
+      { role: 'assistant', content: "Hi! What's your name?", seq: 1, createdAt: '2026-05-11T09:55:00Z' },
+      { role: 'user', content: 'Alice', seq: 2, createdAt: '2026-05-11T09:55:30Z' },
+      { role: 'assistant', content: 'Hi Alice, what size?', seq: 3, createdAt: '2026-05-11T09:56:00Z' },
+      { role: 'user', content: 'medium', seq: 4, createdAt: '2026-05-11T09:56:30Z' },
+      { role: 'assistant', content: 'Got it — medium for Alice.', seq: 5, createdAt: '2026-05-11T09:57:00Z' },
+      { role: 'user', content: 'thanks', seq: 6, createdAt: '2026-05-11T09:57:30Z' },
+    ];
+    mockRequest
+      .mockResolvedValueOnce({ myChats: allChats })
+      .mockResolvedValueOnce({ chatHistory: fullHistory });
+    const { POST } = await import('./resume/+server');
+    const res = await POST(ev({ body: { agentId: 'a1', chatId } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.chat.loc).toBe(chatId);
+    expect(body.chat.messageCount).toBe(6);
+    expect(body.chat.stageName).toBe('confirm');
+    expect(body.messages).toHaveLength(6);
+    expect(body.messages.map((m: { seq: number }) => m.seq)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(body.messages[0].role).toBe('assistant');
+    expect(body.messages[5].content).toBe('thanks');
+  });
 });
 
 // ── /api/agent-chat/list ───────────────────────────────────────────────────
@@ -321,6 +391,44 @@ describe('GET /api/agent-chat/list', () => {
     expect(res.status).toBe(200);
     expect(await jsonOf(res)).toEqual({ chats });
     expect(mockRequest.mock.calls[0][1]).toEqual({ agentId: 'a1' });
+  });
+
+  // Spec 016 — pins the list contract the UI sidebar relies on.
+  // Each chat entry MUST carry the fields the sidebar renders
+  // (title, messageCount, lastMessageAt) so a reload-restored list
+  // is indistinguishable from a freshly-built one. Ordering is the
+  // server's responsibility (myChats resolver); this test confirms
+  // the portal's pass-through preserves it.
+  it('passes through myChats order and exposes all fields the UI sidebar needs (spec 016)', async () => {
+    const chats = [
+      {
+        loc: 'chat-newer',
+        title: 'Newer',
+        conversationName: 'greet',
+        stageName: 'confirm',
+        messageCount: 4,
+        lastMessageAt: '2026-05-11T10:00:00Z',
+      },
+      {
+        loc: 'chat-older',
+        title: 'Older',
+        conversationName: 'greet',
+        stageName: 'ask-size',
+        messageCount: 2,
+        lastMessageAt: '2026-05-10T10:00:00Z',
+      },
+    ];
+    mockRequest.mockResolvedValueOnce({ myChats: chats });
+    const { GET } = await import('./list/+server');
+    const res = await GET(ev({ searchParams: { agentId: 'a1' } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.chats).toHaveLength(2);
+    expect(body.chats[0].loc).toBe('chat-newer');
+    expect(body.chats[0].title).toBe('Newer');
+    expect(body.chats[0].messageCount).toBe(4);
+    expect(body.chats[0].lastMessageAt).toBe('2026-05-11T10:00:00Z');
+    expect(body.chats[1].loc).toBe('chat-older');
   });
 });
 

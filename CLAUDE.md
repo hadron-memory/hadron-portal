@@ -70,4 +70,6 @@ project governance.
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
+at `specs/016-verify-portal-chatbot/plan.md` in the `spec-kits` repo
+(branch `016-verify-portal-chatbot` in both `spec-kits/` and `hadron-portal/`).
 <!-- SPECKIT END -->

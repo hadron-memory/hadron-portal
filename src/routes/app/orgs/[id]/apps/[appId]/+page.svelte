@@ -7,12 +7,14 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
-  import Chat from '$lib/components/Chat.svelte';
+  import AgentChat from '$lib/components/AgentChat.svelte';
+  import { chooseAppChatTabRender } from '$lib/components/app-chat-tab';
   import { chatContext } from '$lib/stores/chat-context';
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
+  import { t } from '$lib/i18n/t';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
-  import type { AIProvider, AppAIConfig } from '$lib/types';
+  import type { AIProvider } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -28,6 +30,13 @@
   // so it's unit-testable independent of the Svelte component lifecycle.
   type TabId = 'chat' | 'memory' | 'settings' | 'client';
   const hasChatSurface = $derived(hasChatSurfaceFn(app.surfaces));
+  // Spec 016 US4 — Chat tab now uses the agent-chat platform when an
+  // Agent is linked; shows an empty state otherwise. The legacy
+  // /api/chat (Hadron Assistant) is no longer rendered under the
+  // chat surface.
+  const appChatRender = $derived(
+    chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId }),
+  );
   let activeTab = $state<TabId>(hasChatSurface ? 'chat' : 'memory');
   const tabs = $derived<{ id: TabId; label: string }[]>([
     ...(hasChatSurface ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
@@ -123,12 +132,12 @@
   let stBedrockAccessKeyId = $state('');
   let stBedrockSecretAccessKey = $state('');
   let stBedrockRegion = $state('us-east-1');
-  let chatActive = $state(false);
-  let chatKey = $state(0);
   let aiEditing = $state(false);
 
-  let aiConfig = $derived<AppAIConfig>({ provider: aiProvider, apiKey: aiApiKey, model: aiModel });
-
+  // Spec 016 US4 — Chat tab no longer renders Chat.svelte against
+  // /api/chat (Hadron Assistant). It uses AgentChat scoped to
+  // app.agentId. The App's own AI config below is preserved in case
+  // other surfaces need it, but is no longer the gate for chatting.
   onMount(async () => {
     if (app.hasAiApiKey) {
       try {
@@ -139,8 +148,6 @@
             aiProvider = provider as AIProvider;
             aiApiKey = apiKey;
             aiModel = model;
-            chatKey++;
-            chatActive = true;
           }
         }
       } catch { /* ignore */ }
@@ -153,7 +160,7 @@
     aiModel = DEFAULT_MODELS[aiProvider];
   }
 
-  async function saveAndStartChat() {
+  async function saveAiConfig() {
     let resolvedKey: string;
     if (aiProvider === 'bedrock') {
       if (!stBedrockAccessKeyId.trim() || !stBedrockSecretAccessKey.trim()) return;
@@ -171,11 +178,7 @@
       if (!res.ok) return;
       aiApiKey = resolvedKey;
     } catch { return; }
-    chatKey++;
-    chatActive = true;
   }
-
-  function disconnectChat() { chatActive = false; }
 
   // ── Client tab state ────────────────────────────────────────────────
   const AGENT_TOOL_OPTIONS = [
@@ -557,28 +560,27 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
   <!-- ───────────── CHAT TAB (CHATBOT only) ───────────── -->
   {#if activeTab === 'chat'}
     <div class="flex flex-col" style="height: calc(100vh - 280px);">
-      {#if chatActive}
+      {#if appChatRender === 'agent-chat' && app.agentId}
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-          {#key chatKey}
-            <Chat config={aiConfig} appId={app.id} systemPrompt={[
-              app.systemPrompt ?? '',
-              `App: "${app.name}" (${app.appType})`,
-              `URN: ${app.urn}`,
-              app.agent ? `Agent: ${app.agent.name}` : '',
-              app.agent?.systemPrompt ?? '',
-            ].filter(Boolean).join('\n')} />
-          {/key}
+          <AgentChat agentId={app.agentId} />
         </div>
-        <div class="mt-2 flex gap-3">
-          <button onclick={() => { chatKey++; }} class="text-xs text-zinc-500 hover:text-zinc-300">Restart</button>
-          <button onclick={disconnectChat} class="text-xs text-zinc-500 hover:text-zinc-300">Disconnect</button>
-        </div>
-      {:else}
+      {:else if appChatRender === 'empty-no-agent'}
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
-          <div class="text-center">
-            <p class="mb-4 text-sm text-zinc-500">Configure your AI provider in Settings to start chatting.</p>
-            <button onclick={() => activeTab = 'settings'} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
-              Go to Settings
+          <div class="max-w-md text-center">
+            <p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('app-chat.empty.title', 'Link a chatbot agent to enable chat')}
+            </p>
+            <p class="mb-4 text-sm text-zinc-500">
+              {t(
+                'app-chat.empty.description',
+                "This App has the chat surface enabled but no agent is linked yet. The chatbot's conversations, stages, and prompts come from a linked Agent.",
+              )}
+            </p>
+            <button
+              onclick={() => activeTab = 'settings'}
+              class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
+            >
+              {t('app-chat.empty.link-agent-cta', 'Link an agent in Settings')}
             </button>
           </div>
         </div>
@@ -892,7 +894,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                   class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:border-indigo-500 focus:outline-none" />
               </div>
               <div class="flex gap-3">
-                <button onclick={() => { saveAndStartChat(); aiEditing = false; }} disabled={aiProvider === 'bedrock' ? (!stBedrockAccessKeyId.trim() || !stBedrockSecretAccessKey.trim()) : !aiApiKey.trim()}
+                <button onclick={() => { saveAiConfig(); aiEditing = false; }} disabled={aiProvider === 'bedrock' ? (!stBedrockAccessKeyId.trim() || !stBedrockSecretAccessKey.trim()) : !aiApiKey.trim()}
                   class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
                   Save
                 </button>

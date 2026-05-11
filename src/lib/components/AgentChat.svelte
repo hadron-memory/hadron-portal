@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { goto } from '$app/navigation';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import type { Chat, ChatMessage } from '$lib/types';
   import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
   import AssetChip from '$lib/components/assets/AssetChip.svelte';
   import type { AssetSummary } from '$lib/api/assetUpload';
+  import { resolveActiveChatFromUrl } from '$lib/components/agent-chat-helpers.js';
+  import { t } from '$lib/i18n/t.js';
 
   function renderMarkdown(text: string): string {
     const raw = marked.parse(text, { async: false }) as string;
@@ -55,12 +58,48 @@
   // Recent stage-transition toast
   let stageToast = $state<{ from: string; to: string } | null>(null);
 
+  // Spec 016 — welcome turn is best-effort; surface its failure as a
+  // soft hint rather than blocking the chat. Cleared on first send.
+  let welcomeNotice = $state<string | null>(null);
+
   let messagesEl: HTMLDivElement | null = $state(null);
 
   // ── Initial list fetch ───────────────────────────────────────────────
+  // After loading the chat list, auto-resume the chat referenced by
+  // `?chat=<id>` so a reload restores the open conversation. Without
+  // this, every reload silently emptied the transcript pane — to the
+  // user that looked like "chats are not saving."
   onMount(async () => {
     await refreshChatList();
+    const target = resolveActiveChatFromUrl(new URL(window.location.href), chats);
+    if (target) {
+      await resumeChat(target);
+    } else if (new URL(window.location.href).searchParams.has('chat')) {
+      // Stale ?chat=<id> (e.g. chat deleted in another tab) — clear it.
+      syncChatIdToUrl(null);
+    }
   });
+
+  /**
+   * Sync the active chat id into the URL as a query param so a reload
+   * (or shared link) restores the same chat. Uses replaceState to keep
+   * the back button clean — picking another chat is not navigation.
+   */
+  function syncChatIdToUrl(chatId: string | null): void {
+    const url = new URL(window.location.href);
+    if (chatId) {
+      if (url.searchParams.get('chat') === chatId) return;
+      url.searchParams.set('chat', chatId);
+    } else {
+      if (!url.searchParams.has('chat')) return;
+      url.searchParams.delete('chat');
+    }
+    goto(url.pathname + url.search + url.hash, {
+      keepFocus: true,
+      replaceState: true,
+      noScroll: true,
+    });
+  }
 
   async function refreshChatList() {
     loadingList = true;
@@ -93,19 +132,32 @@
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? 'Failed to start chat');
       activeChatId = body.chatId;
+      syncChatIdToUrl(activeChatId);
       activeChatMeta = {
-        title: 'New chat',
+        title: t('agent-chat.new-chat-title', 'New chat'),
         conversationName: body.conversationName,
         stageName: body.stageName,
       };
-      messages = [
-        {
-          role: 'assistant',
-          content: body.welcomeMessage ?? '',
-          seq: 0,
-          createdAt: new Date().toISOString(),
-        },
-      ];
+      // Spec 016 — welcome turn is best-effort. Only render the
+      // welcome bubble when the server actually produced one; on
+      // welcomeError, surface a soft hint and leave the transcript
+      // empty so the user can type the first message themselves.
+      messages = body.welcomeMessage
+        ? [
+            {
+              role: 'assistant',
+              content: body.welcomeMessage,
+              seq: 0,
+              createdAt: new Date().toISOString(),
+            },
+          ]
+        : [];
+      welcomeNotice = body.welcomeError
+        ? t(
+            'agent-chat.welcome-error-hint',
+            "Couldn't generate a welcome message — type below to start the chat. (Underlying error: ",
+          ) + body.welcomeError + ')'
+        : null;
       await refreshChatList();
       scrollMessagesToBottom();
     } catch (e) {
@@ -119,8 +171,10 @@
     if (activeChatId === chatId) return;
     loadingChat = true;
     turnError = null;
+    welcomeNotice = null;
     messages = [];
     activeChatId = chatId;
+    syncChatIdToUrl(chatId);
     activeChatMeta = null;
     try {
       const res = await fetch('/api/agent-chat/resume', {
@@ -140,6 +194,7 @@
     } catch (e) {
       turnError = e instanceof Error ? e.message : 'Failed to resume chat';
       activeChatId = null;
+      syncChatIdToUrl(null);
     } finally {
       loadingChat = false;
     }
@@ -153,6 +208,7 @@
     input = '';
     sending = true;
     turnError = null;
+    welcomeNotice = null;
 
     // Optimistic user bubble
     messages = [
@@ -276,8 +332,10 @@
       }
       if (activeChatId === chatId) {
         activeChatId = null;
+        syncChatIdToUrl(null);
         activeChatMeta = null;
         messages = [];
+        welcomeNotice = null;
       }
       await refreshChatList();
     } catch (e) {
@@ -406,6 +464,12 @@
       {#if stageToast}
         <div class="mx-4 mt-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200">
           Stage transitioned: <strong>{stageToast.from || '(start)'}</strong> → <strong>{stageToast.to}</strong>
+        </div>
+      {/if}
+
+      {#if welcomeNotice}
+        <div class="mx-4 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          {welcomeNotice}
         </div>
       {/if}
 
