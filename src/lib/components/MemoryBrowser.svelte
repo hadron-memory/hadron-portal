@@ -433,10 +433,14 @@
       No nodes to display.
     </div>
   {:else}
-    <div class="flex gap-0" style="min-height: calc(100vh - 320px);">
+    <!-- Shared height for the browser row and its scrolling sidebar. Declared as a
+         CSS variable on the parent so the aside inherits the same value (avoids the
+         two going out of sync if the offset ever changes). Per code-review feedback
+         on PR #211. -->
+    <div class="flex gap-0" style="--memory-browser-h: calc(100vh - 320px); min-height: var(--memory-browser-h);">
       <!-- Tree sidebar -->
       {#if treeOpen}
-        <aside class="shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="width: {treeWidth}px; max-height: calc(100vh - 320px);">
+        <aside class="shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="width: {treeWidth}px; max-height: var(--memory-browser-h);">
           <div class="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
             <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
             <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
