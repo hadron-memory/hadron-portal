@@ -94,7 +94,7 @@
       if (!url.searchParams.has('chat')) return;
       url.searchParams.delete('chat');
     }
-    goto(url.pathname + url.search + url.hash, {
+    goto(url, {
       keepFocus: true,
       replaceState: true,
       noScroll: true,
@@ -152,11 +152,15 @@
             },
           ]
         : [];
+      // Keep the human-readable string whole inside one t() key so
+      // translators see complete prose. Our t() doesn't interpolate,
+      // so we substitute the {error} placeholder after lookup. This
+      // is the only call site for this key.
       welcomeNotice = body.welcomeError
         ? t(
             'agent-chat.welcome-error-hint',
-            "Couldn't generate a welcome message — type below to start the chat. (Underlying error: ",
-          ) + body.welcomeError + ')'
+            "Couldn't generate a welcome message — type below to start the chat. (Underlying error: {error})",
+          ).replace('{error}', body.welcomeError)
         : null;
       await refreshChatList();
       scrollMessagesToBottom();

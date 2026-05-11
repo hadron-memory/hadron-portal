@@ -8,11 +8,11 @@
   import Urn from '$lib/components/Urn.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
-  import { chooseAppChatTabRender } from '$lib/components/app-chat-tab';
+  import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import { chatContext } from '$lib/stores/chat-context';
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
-  import { t } from '$lib/i18n/t';
+  import { t } from '$lib/i18n/t.js';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import type { AIProvider } from '$lib/types';
   import type { PageData, ActionData } from './$types';
@@ -560,7 +560,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
     <div class="flex flex-col" style="height: calc(100vh - 280px);">
       {#if appChatRender === 'agent-chat' && app.agentId}
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-          <AgentChat agentId={app.agentId} />
+          <AgentChat agentId={app.agentId} uploadMemoryId={writableMemoryIds[0]} />
         </div>
       {:else if appChatRender === 'empty-no-agent'}
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
