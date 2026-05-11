@@ -25,25 +25,38 @@ function extractGqlError(e: unknown, fallback: string): string {
 // 015-fix-org-apps-count: ORGANIZATION_QUERY does not select `apps` (it's
 // shared by ~10 routes that don't need apps and would overfetch APP_FIELDS).
 // Issue APPS_QUERY in parallel and surface failure inline (FR-006).
+//
+// Per code-review feedback on #213: await the org request first so an
+// invalid/missing org id returns 404 immediately instead of waiting for
+// the (potentially slow) apps request. The apps request is still kicked
+// off in parallel; we only await its settlement after the org check.
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
-  const [orgResult, appsResult] = await Promise.allSettled([
-    client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id }),
-    client.request<{ apps: App[] }>(APPS_QUERY, { orgId: params.id }),
-  ]);
 
-  if (orgResult.status === 'rejected') throw error(404, 'Organization not found');
-  if (!orgResult.value.organization) throw error(404, 'Organization not found');
+  // Fire both in parallel; attach a no-op catch on apps so an early org
+  // throw doesn't leave the apps promise as an unhandled rejection.
+  const appsPromise = client.request<{ apps: App[] }>(APPS_QUERY, { orgId: params.id });
+  appsPromise.catch(() => { /* result inspected below */ });
 
-  if (appsResult.status === 'rejected') {
+  let orgResult: { organization: Organization | null };
+  try {
+    orgResult = await client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id });
+  } catch {
+    throw error(404, 'Organization not found');
+  }
+  if (!orgResult.organization) throw error(404, 'Organization not found');
+
+  try {
+    const appsResult = await appsPromise;
+    return { org: orgResult.organization, apps: appsResult.apps, appsError: null };
+  } catch (e: unknown) {
     return {
-      org: orgResult.value.organization,
+      org: orgResult.organization,
       apps: [] as App[],
-      appsError: extractGqlError(appsResult.reason, 'Failed to load apps'),
+      appsError: extractGqlError(e, 'Failed to load apps'),
     };
   }
-  return { org: orgResult.value.organization, apps: appsResult.value.apps, appsError: null };
 };
 
 export const actions: Actions = {

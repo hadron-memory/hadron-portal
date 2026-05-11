@@ -77,8 +77,14 @@ function routeMock(opts: {
 }
 
 const fakeOrg = { id: 'org-id-123', name: 'Acme', urn: 'urn:org:acme', members: [], memories: [], agents: [], subscriptions: [], exchangeConnections: [] };
+// Fixture mirrors the AppFields selection set (post-008 single-agent
+// model) and uses literals from the App type union — `agent: null`,
+// `identifyUserMethod: 'USER_ID'`, `createUserPermission: 'DENY'` are
+// all valid per src/lib/types.ts. The legacy `agents` plural is not
+// selected by AppFields and is intentionally omitted; the UI uses
+// `app.agent` directly.
 const fakeApps = [
-  { id: 'app-1', name: 'First App', urn: 'urn:app:first', agents: [], keys: [], identifyUserMethod: 'EMAIL', createUserPermission: 'ANYONE' },
+  { id: 'app-1', name: 'First App', urn: 'urn:app:first', agent: null, keys: [], identifyUserMethod: 'USER_ID', createUserPermission: 'DENY' },
 ];
 
 // ── Tests ──────────────────────────────────────────────────────────────────
