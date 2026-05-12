@@ -4,10 +4,13 @@
   import { env } from '$env/dynamic/public';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import { t } from '$lib/i18n/t';
   import type { App } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
+  const apps = $derived(data.apps);
+  const appsError = $derived(data.appsError);
 
   function activeKeyCount(app: App): number {
     return app.keys.filter((k) => !k.revokedAt).length;
@@ -137,19 +140,21 @@
   <!-- Apps -->
   <section>
     <div class="mb-3 flex items-center justify-between">
-      <h2 class="font-semibold text-zinc-900 dark:text-white">Apps <span class="ml-1 text-sm font-normal text-zinc-500">({org.apps?.length ?? 0})</span></h2>
+      <h2 class="font-semibold text-zinc-900 dark:text-white">Apps {#if appsError === null}<span class="ml-1 text-sm font-normal text-zinc-500">({apps.length})</span>{/if}</h2>
       <a href="/app/orgs/{org.id}/apps" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
     </div>
-    {#if !org.apps?.length}
+    {#if appsError !== null}
+      <p class="text-sm text-red-600 dark:text-red-400">{t('org.detail.apps.load-error', "Couldn't load apps — try again")}</p>
+    {:else if !apps.length}
       <p class="text-sm text-zinc-500">No apps yet. Apps represent third-party systems (like Micromentor's backend) that call Hadron on behalf of their own users.</p>
     {:else}
       <div class="grid gap-3 sm:grid-cols-2">
-        {#each org.apps as app (app.id)}
+        {#each apps as app (app.id)}
           <a href="/app/orgs/{org.id}/apps/{app.id}"
             class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
             <p class="text-sm font-medium text-indigo-600 dark:text-indigo-300">{app.name}</p>
             <Urn value={app.urn} type="app" size={10} />
-            <p class="mt-1 text-xs text-zinc-500">{app.agents.length} agent{app.agents.length !== 1 ? 's' : ''} · {activeKeyCount(app)} key{activeKeyCount(app) !== 1 ? 's' : ''}</p>
+            <p class="mt-1 text-xs text-zinc-500">{app.agent ? 1 : 0} agent{app.agent ? '' : 's'} · {activeKeyCount(app)} key{activeKeyCount(app) !== 1 ? 's' : ''}</p>
             <p class="mt-1 text-xs text-zinc-400">{app.identifyUserMethod} · {app.createUserPermission}</p>
           </a>
         {/each}
