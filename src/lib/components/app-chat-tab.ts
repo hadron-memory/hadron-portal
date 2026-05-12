@@ -1,5 +1,5 @@
 /**
- * Spec 016 — App detail page chat tab render decision.
+ * App detail page chat tab render decision.
  *
  * The App's `surfaces` array gates the tab's visibility (a sibling concern
  * handled at the tabs level via `hasChatSurface`). When the tab IS visible,
@@ -11,10 +11,6 @@
  *     show an empty state directing the user to link one.
  *   - 'hidden' — the chat surface is off; the tab itself shouldn't be
  *     shown. Returned for completeness so callers can be exhaustive.
- *
- * Replaces the prior wiring that rendered `Chat.svelte` against
- * `/api/chat` (the hardcoded Hadron-Assistant system prompt) — which had
- * no persistence and did not exercise chatbot.md at all.
  */
 export type AppChatTabRender = 'agent-chat' | 'empty-no-agent' | 'hidden';
 

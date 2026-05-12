@@ -3,13 +3,12 @@
   import { goto } from '$app/navigation';
   import { env } from '$env/dynamic/public';
   import JSZip from 'jszip';
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
-  import { chatContext } from '$lib/stores/chat-context';
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { t } from '$lib/i18n/t.js';
@@ -30,10 +29,8 @@
   // so it's unit-testable independent of the Svelte component lifecycle.
   type TabId = 'chat' | 'memory' | 'settings' | 'client';
   const hasChatSurface = $derived(hasChatSurfaceFn(app.surfaces));
-  // Spec 016 US4 — Chat tab now uses the agent-chat platform when an
-  // Agent is linked; shows an empty state otherwise. The legacy
-  // /api/chat (Hadron Assistant) is no longer rendered under the
-  // chat surface.
+  // Chat tab renders the agent-chat platform when an Agent is linked;
+  // shows an empty state otherwise.
   const appChatRender = $derived(
     chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId }),
   );
@@ -66,28 +63,6 @@
 
   let keyLabel = $state('');
   let selectedAgentId = $state('');
-
-  // Floating chat assistant context — describe this page so it can help the user.
-  $effect(() => {
-    const tools = app.agentTools ?? [];
-    chatContext.set({
-      pageContext: [
-        `The user is viewing app "${app.name}" (type: ${app.appType}).`,
-        app.description ? `Description: ${app.description}` : '',
-        app.agent ? `Linked agent: ${app.agent.name}.` : 'No agent linked yet.',
-        tools.length ? `Selected AI tools: ${tools.join(', ')}.` : 'No AI tools selected yet.',
-        `App URN: ${app.urn}`,
-        `Help this user configure Hadron for their app.`,
-      ].filter(Boolean).join('\n'),
-      appId: app.id,
-      aiProvider: app.aiProvider,
-      aiModel: app.aiModel,
-      hasAiApiKey: app.hasAiApiKey,
-    });
-  });
-  onDestroy(() => {
-    chatContext.set({ pageContext: '' });
-  });
 
   // 008-agent-installation: an App has at most one Agent (App.agent_id, a
   // direct FK; the AppAgent join was dropped). The "subscribable agents"
@@ -134,10 +109,6 @@
   let stBedrockRegion = $state('us-east-1');
   let aiEditing = $state(false);
 
-  // Spec 016 US4 — Chat tab no longer renders Chat.svelte against
-  // /api/chat (Hadron Assistant). It uses AgentChat scoped to
-  // app.agentId. The App's own AI config below is preserved in case
-  // other surfaces need it, but is no longer the gate for chatting.
   onMount(async () => {
     if (app.hasAiApiKey) {
       try {
