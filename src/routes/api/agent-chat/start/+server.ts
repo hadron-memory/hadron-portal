@@ -6,12 +6,18 @@ import type { RequestHandler } from './$types';
 
 /**
  * POST /api/agent-chat/start
- * Body: { agentId: string, conversationName?: string }
+ * Body: { agentId: string, conversationName?: string, scope?: 'private' | 'shared' }
  *
- * Creates a new chat node in the user's personal memory for the agent,
- * then runs one "welcome" LLM turn so the agent greets the user before
- * they type anything. Returns the chatId, the welcome message, and the
- * initial conversation/stage so the UI can render immediately.
+ * Spec 017: scope defaults to 'private' (FR-003). A 'shared' request requires
+ * a resolvable App context server-side; if none, the server throws
+ * SHARED_CHAT_REQUIRES_APP_CONTEXT which this handler surfaces to the portal
+ * as a structured 400 body.
+ *
+ * Creates a new chat node in the matching memory (personal for private,
+ * app-class for shared), then runs one "welcome" LLM turn so the agent
+ * greets the user before they type anything. Returns the chatId, the
+ * welcome message, and the initial conversation/stage so the UI can
+ * render immediately.
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
@@ -21,7 +27,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     });
   }
 
-  let body: { agentId?: string; conversationName?: string };
+  let body: { agentId?: string; conversationName?: string; scope?: 'private' | 'shared' };
   try {
     body = await request.json();
   } catch {
@@ -36,6 +42,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // Spec 017: scope defaults to 'private' per FR-003.
+  const scope: 'private' | 'shared' = body.scope === 'shared' ? 'shared' : 'private';
 
   // Spec 016 — startChat and the welcome turn used to be coupled: a
   // failed welcome (missing AI config, agent with no conversations
@@ -66,6 +75,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }>(START_CHAT_MUTATION, {
       agentId: body.agentId,
       conversationName: body.conversationName ?? null,
+      scope,
     });
     chatId = startResult.startChat.chatId;
     systemMessage = startResult.startChat.systemMessage;
@@ -74,6 +84,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     stageName = startResult.startChat.stageName;
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to start chat';
+    // Spec 017 FR-006 / SC-005: when scope='shared' is rejected for no
+    // qualifying AppMember context, surface a structured error body so the
+    // portal can name the missing prerequisite to the user.
+    if (msg.includes('SHARED_CHAT_REQUIRES_APP_CONTEXT') || msg.toLowerCase().includes('not a member of any app')) {
+      return new Response(
+        JSON.stringify({
+          error: 'shared-chat-requires-app-context',
+          message: msg,
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -112,6 +134,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       welcomeMessage,
       welcomeError,
       stageTransitioned,
+      scope,
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   );

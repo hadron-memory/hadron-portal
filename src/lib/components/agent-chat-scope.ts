@@ -10,9 +10,6 @@
  *
  * Pure function; no side effects, no network I/O. Caller is
  * responsible for fetching the inputs from page data.
- *
- * Full implementation in T023; this skeleton lands in T001 so
- * AgentChat.svelte can import the symbol incrementally.
  */
 
 /**
@@ -32,6 +29,8 @@ export interface SharedScopeInputs {
  * @returns true when the user can create a shared chat for `agentId`,
  *          false otherwise (no qualifying AppMember row).
  */
-export function shouldOfferSharedScope(_inputs: SharedScopeInputs): boolean {
-  throw new Error('not implemented (T023)');
+export function shouldOfferSharedScope(inputs: SharedScopeInputs): boolean {
+  return inputs.appMemberships.some(
+    (m) => m.agentId !== null && m.agentId === inputs.agentId,
+  );
 }

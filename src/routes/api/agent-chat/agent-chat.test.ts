@@ -122,12 +122,15 @@ describe('POST /api/agent-chat/start', () => {
       welcomeMessage: 'Welcome! What are we researching today?',
       welcomeError: null,
       stageTransitioned: false,
+      // Spec 017 — scope echoed back to the client. Default = private.
+      scope: 'private',
     });
 
-    // startChat called with forwarded args (conversationName defaults to null)
+    // startChat called with forwarded args (conversationName defaults to null;
+    // scope defaults to 'private' per FR-003)
     expect(mockRequest).toHaveBeenCalledTimes(1);
     const [, vars] = mockRequest.mock.calls[0];
-    expect(vars).toEqual({ agentId: 'a1', conversationName: 'deep-dive' });
+    expect(vars).toEqual({ agentId: 'a1', conversationName: 'deep-dive', scope: 'private' });
 
     // runChatTurn called with startPayload for the welcome path
     expect(mockRunChatTurn).toHaveBeenCalledTimes(1);
@@ -158,7 +161,57 @@ describe('POST /api/agent-chat/start', () => {
     });
     const { POST } = await import('./start/+server');
     await POST(ev({ body: { agentId: 'a1' } }));
-    expect(mockRequest.mock.calls[0][1]).toEqual({ agentId: 'a1', conversationName: null });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ agentId: 'a1', conversationName: null, scope: 'private' });
+  });
+
+  it('forwards scope=shared when provided in the request body', async () => {
+    mockRequest.mockResolvedValueOnce({
+      startChat: {
+        chatId: 'c-shared',
+        systemMessage: '',
+        tools: null,
+        conversationName: 'family-meal',
+        stageName: 'plan',
+      },
+    });
+    mockRunChatTurn.mockResolvedValueOnce({
+      assistantMessage: '',
+      stageTransitioned: false,
+      newStageName: null,
+      chatEnded: false,
+    });
+    const { POST } = await import('./start/+server');
+    const res = await POST(ev({ body: { agentId: 'a1', scope: 'shared' } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.scope).toBe('shared');
+    expect(mockRequest.mock.calls[0][1]).toEqual({
+      agentId: 'a1',
+      conversationName: null,
+      scope: 'shared',
+    });
+  });
+
+  it('coerces unknown scope values to private (safe default)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      startChat: { chatId: 'x', systemMessage: '', tools: null, conversationName: null, stageName: null },
+    });
+    mockRunChatTurn.mockResolvedValueOnce({ assistantMessage: '', stageTransitioned: false, newStageName: null, chatEnded: false });
+    const { POST } = await import('./start/+server');
+    await POST(ev({ body: { agentId: 'a1', scope: 'public' } as any }));
+    expect(mockRequest.mock.calls[0][1].scope).toBe('private');
+  });
+
+  it('returns 400 with shared-chat-requires-app-context when the server rejects a shared chat', async () => {
+    mockRequest.mockRejectedValueOnce(
+      new Error('SHARED_CHAT_REQUIRES_APP_CONTEXT: not a member of any App'),
+    );
+    const { POST } = await import('./start/+server');
+    const res = await POST(ev({ body: { agentId: 'a1', scope: 'shared' } }));
+    expect(res.status).toBe(400);
+    const body = await jsonOf(res);
+    expect(body.error).toBe('shared-chat-requires-app-context');
+    expect(body.message).toMatch(/SHARED_CHAT_REQUIRES_APP_CONTEXT|not a member/);
   });
 
   it('returns 500 when startChat mutation fails', async () => {

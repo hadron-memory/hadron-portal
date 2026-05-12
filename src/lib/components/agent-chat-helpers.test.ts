@@ -12,6 +12,8 @@ function chat(loc: string): Chat {
     messageCount: 0,
     createdAt: '',
     lastMessageAt: null,
+    scope: 'private',
+    createdBy: null,
   };
 }
 
