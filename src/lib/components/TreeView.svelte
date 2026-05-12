@@ -311,16 +311,12 @@
 
     {#if href}
       <a {href} class="node-link" class:active class:match={isMatch(node.entry)}>
-        {#if !node.entry.isVirtual}
-          <span class="dot" class:action-dot={node.entry.hasActions}></span>
-        {/if}
+        <span class="dot" class:action-dot={node.entry.hasActions}></span>
         {node.entry.name}
       </a>
     {:else}
-      <button class="node-label" onclick={() => toggle(node.entry.id)}>
-        {#if !node.entry.isVirtual}
-          <span class="dot" class:action-dot={node.entry.hasActions}></span>
-        {/if}
+      <button class="node-label" class:active class:match={isMatch(node.entry)} onclick={() => toggle(node.entry.id)}>
+        <span class="dot" class:virtual-dot={node.entry.isVirtual} class:action-dot={node.entry.hasActions}></span>
         {node.entry.name}
       </button>
     {/if}
@@ -495,6 +491,17 @@
     background: #3fb950;
   }
 
+  /* Virtual (synthetic-folder) nodes have no backing node — hollow dot
+   * keeps the visual cue that they aren't navigable while still matching
+   * the bullet column of real nodes (issue #204). */
+  .dot.virtual-dot {
+    background: transparent;
+    border: 1px solid #58a6ff;
+    width: 6px;
+    height: 6px;
+    box-sizing: border-box;
+  }
+
   .node-link {
     display: flex;
     align-items: center;
@@ -540,8 +547,9 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    color: #71717a;
+    color: #27272a;
     padding: 2px 6px;
+    border-radius: 4px;
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
@@ -552,13 +560,33 @@
     text-align: left;
   }
 
-  :global(.dark) .node-label { color: #8b949e; }
+  :global(.dark) .node-label { color: #c9d1d9; }
 
   .node-label:hover {
-    color: #27272a;
+    color: #09090b;
+    background: rgba(0, 0, 0, 0.05);
   }
 
-  :global(.dark) .node-label:hover { color: #c9d1d9; }
+  :global(.dark) .node-label:hover {
+    color: #f0f6fc;
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .node-label.active {
+    color: #4f46e5;
+    background: rgba(79, 70, 229, 0.1);
+  }
+
+  :global(.dark) .node-label.active {
+    color: #f0f6fc;
+    background: rgba(88, 166, 255, 0.15);
+  }
+
+  .node-label.match {
+    color: #09090b;
+  }
+
+  :global(.dark) .node-label.match { color: #f0f6fc; }
 
   .record-toggle {
     display: flex;
