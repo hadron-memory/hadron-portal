@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { replaceState } from '$app/navigation';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import type { Chat, ChatMessage } from '$lib/types';
@@ -74,16 +74,25 @@
     const target = resolveActiveChatFromUrl(new URL(window.location.href), chats);
     if (target) {
       await resumeChat(target);
-    } else if (new URL(window.location.href).searchParams.has('chat')) {
+    } else if (
+      listError === null &&
+      new URL(window.location.href).searchParams.has('chat')
+    ) {
       // Stale ?chat=<id> (e.g. chat deleted in another tab) — clear it.
+      // Gated on a successful list fetch: a transient list failure
+      // leaves `chats` empty too, but we MUST NOT throw away a valid
+      // ?chat param in that case — the next list reload should still
+      // be able to auto-resume it.
       syncChatIdToUrl(null);
     }
   });
 
   /**
    * Sync the active chat id into the URL as a query param so a reload
-   * (or shared link) restores the same chat. Uses replaceState to keep
-   * the back button clean — picking another chat is not navigation.
+   * (or shared link) restores the same chat. Uses SvelteKit's
+   * `replaceState` (History-API only, no navigation) so we don't
+   * re-run load() / trigger invalidations on every chat switch.
+   * Picking another chat is a UI state change, not navigation.
    */
   function syncChatIdToUrl(chatId: string | null): void {
     const url = new URL(window.location.href);
@@ -94,11 +103,7 @@
       if (!url.searchParams.has('chat')) return;
       url.searchParams.delete('chat');
     }
-    goto(url, {
-      keepFocus: true,
-      replaceState: true,
-      noScroll: true,
-    });
+    replaceState(url, {});
   }
 
   async function refreshChatList() {
