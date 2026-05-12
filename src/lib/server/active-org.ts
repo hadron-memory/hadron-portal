@@ -9,8 +9,9 @@
 // Each step is filtered through the user's membership list; non-member ids
 // are treated as absent so the chain continues.
 //
-// Pure helper: no I/O, no thrown redirects. Callers compose with
-// `throw redirect(302, ...)` themselves.
+// Pure helper: no I/O, no redirects. Callers compose with
+// `redirect(302, ...)` themselves (SvelteKit's redirect helper throws
+// internally; the codebase calls it directly without an outer `throw`).
 
 import type { Organization } from '$lib/types';
 

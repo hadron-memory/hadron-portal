@@ -123,10 +123,9 @@
         {#if !data.isConsumerMode && data.activeOrg && data.orgs.length > 1}
           <OrgSwitcher activeOrg={data.activeOrg} orgs={data.orgs} />
         {:else if !data.isConsumerMode && data.activeOrg}
-          <!-- Multi-org account that happens to have exactly one membership
-               in this snapshot (e.g., personal + one visible, viewing the
-               visible org with no other "other" entries): show the active
-               org name as a static line, no switcher. -->
+          <!-- Non-consumer user with exactly one visible org membership:
+               render the active-org name as a static line, no switcher
+               (nothing to switch to). -->
           <p class="mt-1 px-3 text-xs text-zinc-500 dark:text-zinc-400 truncate" data-testid="active-org-name">
             {data.activeOrg.name}
           </p>

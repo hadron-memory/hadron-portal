@@ -52,7 +52,7 @@
 
   function items(): HTMLAnchorElement[] {
     if (!menuEl) return [];
-    return Array.from(menuEl.querySelectorAll<HTMLAnchorElement>('a[role="menuitem"], a[data-testid="org-switcher-see-all"]'));
+    return Array.from(menuEl.querySelectorAll<HTMLAnchorElement>('a[role="menuitem"]'));
   }
 
   function focusItem(index: number) {
@@ -147,6 +147,7 @@
         href="/app/orgs/"
         onclick={closeMenu}
         class="block px-3 py-1.5 text-sm text-indigo-600 hover:bg-zinc-50 focus:bg-zinc-50 focus:outline-none dark:text-indigo-400 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800"
+        role="menuitem"
         data-testid="org-switcher-see-all"
       >
         {t('app.layout.active-org.switcher.see-all', 'See all organizations →')}
