@@ -794,6 +794,8 @@ export const MY_CHATS_QUERY = /* GraphQL */ `
       messageCount
       createdAt
       lastMessageAt
+      scope
+      createdBy
     }
   }
 `;
@@ -810,8 +812,16 @@ export const CHAT_HISTORY_QUERY = /* GraphQL */ `
 `;
 
 export const START_CHAT_MUTATION = /* GraphQL */ `
-  mutation StartChat($agentId: ID!, $conversationName: String) {
-    startChat(agentId: $agentId, conversationName: $conversationName) {
+  mutation StartChat(
+    $agentId: ID!
+    $conversationName: String
+    $scope: ChatScope
+  ) {
+    startChat(
+      agentId: $agentId
+      conversationName: $conversationName
+      scope: $scope
+    ) {
       chatId
       systemMessage
       tools
