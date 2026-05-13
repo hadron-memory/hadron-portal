@@ -1,7 +1,12 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { PUBLIC_MEMORIES_QUERY, ADD_TO_MY_MEMORIES_MUTATION } from '$lib/server/queries';
-import type { Memory } from '$lib/types';
+import {
+  PUBLIC_MEMORIES_QUERY,
+  ADD_TO_MY_MEMORIES_MUTATION,
+  MY_ORGANIZATIONS_QUERY,
+} from '$lib/server/queries';
+import { resolveActiveOrg } from '$lib/server/active-org';
+import type { Memory, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -24,7 +29,18 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(ADD_TO_MY_MEMORIES_MUTATION, { memoryId });
-      redirect(303, '/app/dashboard');
+      // Resolve the active org and redirect straight to /app/orgs/<id>/
+      // to avoid the /app/dashboard 303→302 chain. One extra GQL call
+      // server-side is cheaper than a full browser redirect hop.
+      const orgsData = await gqlClient(locals.token)
+        .request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
+        .catch(() => ({ myOrganizations: [] as Organization[] }));
+      const { activeOrgId } = resolveActiveOrg({
+        paramsId: undefined,
+        lastActiveOrgId: null,
+        myOrganizations: orgsData.myOrganizations,
+      });
+      redirect(303, activeOrgId ? `/app/orgs/${activeOrgId}/` : '/app/orgs/');
     } catch (e: unknown) {
       if (e && typeof e === 'object' && 'status' in e) throw e;
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to add memory' });

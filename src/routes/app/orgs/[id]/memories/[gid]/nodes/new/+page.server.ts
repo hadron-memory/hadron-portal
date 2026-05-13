@@ -15,9 +15,13 @@ export const load: PageServerLoad = async ({ url, parent }) => {
   // gate AND for existingLocs. requireNonConsumer would call parent()
   // internally, duplicating the layout's GraphQL fan-out (org/memory/
   // nodes/usage) — caught in PR review.
-  const layout = await parent();
-  if ((layout as unknown as { isConsumerMode?: boolean }).isConsumerMode) {
-    redirect(303, '/app/dashboard');
+  const layout = await parent() as unknown as {
+    isConsumerMode?: boolean;
+    activeOrgId?: string | null;
+    graphNodes?: MemoryNode[];
+  };
+  if (layout.isConsumerMode) {
+    redirect(303, layout.activeOrgId ? `/app/orgs/${layout.activeOrgId}/` : '/app/orgs/');
   }
 
   // The memory layout loader (../+layout.server.ts) already loaded the
@@ -32,7 +36,7 @@ export const load: PageServerLoad = async ({ url, parent }) => {
   // time, so collision suffixing in deriveDefaultLoc is computed against
   // the canonical loc shape that will actually be submitted (legacy
   // memory-prefixed locs in storage map to the same bare form here).
-  const existingLocs = ((layout as unknown as { graphNodes?: MemoryNode[] }).graphNodes ?? [])
+  const existingLocs = (layout.graphNodes ?? [])
     .map((n) => cleanLocInput(n.loc))
     .filter((s) => s !== '');
 

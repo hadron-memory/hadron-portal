@@ -46,11 +46,14 @@ export const load: LayoutServerLoad = async ({ locals, url, params }) => {
   // Spec 014 FR-009 / R-9 — inaccessible deep-link handling. If the URL
   // names an org id that the user is not a member of (deleted org, kicked,
   // never had access), the resolver falls through and picks a different
-  // (accessible) org. Redirect to the same path with the resolved id
-  // substituted so the trailing path segment is preserved.
+  // (accessible) org. Swap segment index 3 (the org id slot in
+  // /app/orgs/<id>/...) rather than using string replace, so an org id
+  // that happens to appear as a substring elsewhere in the path can't
+  // cause the wrong segment to be rewritten.
   if (paramsId && resolution.activeOrgId && resolution.activeOrgId !== paramsId) {
-    const redirected = url.pathname.replace(`/app/orgs/${paramsId}`, `/app/orgs/${resolution.activeOrgId}`);
-    redirect(302, redirected + url.search);
+    const segments = url.pathname.split('/');
+    segments[3] = resolution.activeOrgId;
+    redirect(302, segments.join('/') + url.search);
   }
 
   return {
