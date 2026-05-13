@@ -531,7 +531,7 @@
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
             <h3 class="truncate text-sm font-semibold text-zinc-900 dark:text-white">
-              {activeChatMeta?.title ?? 'New chat'}
+              {activeChatMeta?.title ?? t('agent-chat.new-chat-title', 'New chat')}
             </h3>
             {#if activeChatMeta}
               <!-- Spec 017 — active-chat scope label (FR-010): keep the
