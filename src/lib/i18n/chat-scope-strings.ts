@@ -64,6 +64,18 @@ export const chatScopeStrings = {
     ),
 
   /**
+   * Surfaced when an MCP App-key session attempts to start a shared
+   * chat. Practically unreachable via the portal (`/api/agent-chat/start`
+   * is JWT-only) but kept for defense-in-depth so the user sees a
+   * typed message instead of a generic 500.
+   */
+  errorAppSessionShared: (): string =>
+    t(
+      'chat-scope.error.app-session-shared',
+      "Shared chats aren't available from this connection. Open the chat from a signed-in browser session.",
+    ),
+
+  /**
    * Generic in-chat error surfaced when a tool tries to read a
    * memory outside the chat's allowed read-set (per FR-014).
    * Deliberately does NOT name the offending memory.
@@ -72,5 +84,20 @@ export const chatScopeStrings = {
     t(
       'chat-scope.error.tool-out-of-scope',
       "This tool can't run inside a shared chat.",
+    ),
+
+  /** Delete-confirmation body for a PRIVATE chat. */
+  deleteConfirmPrivate: (): string =>
+    t(
+      'chat-scope.delete-confirm.private',
+      "This will remove the chat and all its messages from your personal memory. This can't be undone.",
+    ),
+
+  /** Delete-confirmation body for a SHARED chat. Note: other App
+   *  members will lose access too — name it. */
+  deleteConfirmShared: (): string =>
+    t(
+      'chat-scope.delete-confirm.shared',
+      "This will remove the shared chat and all its messages from the App's shared memory. Other App members will lose access too. This can't be undone.",
     ),
 };
