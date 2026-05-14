@@ -70,6 +70,6 @@ project governance.
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at `specs/018-fix-agent-page-not-found/plan.md` in the `spec-kits` repo
-(branch `018-fix-agent-page-not-found` in both `spec-kits/` and `hadron-portal/`).
+at `specs/019-agent-chat-tester/plan.md` in the `spec-kits` repo
+(branch `019-agent-chat-tester` in both `spec-kits/` and `hadron-portal/`).
 <!-- SPECKIT END -->

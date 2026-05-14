@@ -1,0 +1,292 @@
+import { gqlClient } from '$lib/server/api';
+import {
+  MY_ORGANIZATIONS_QUERY,
+  GRAPH_NODES_QUERY,
+  START_CHAT_MUTATION,
+  UPSERT_NODE_MUTATION,
+  NODE_BY_ID_QUERY,
+} from '$lib/server/queries';
+import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
+import {
+  decodeFixture,
+  encodeFixture,
+  applyRunResult,
+  type FixtureRecord,
+  type RouteTrace,
+  type Assertion,
+} from '$lib/server/agent-tester/fixture-codec';
+import { judgeAgentReply, judgeVerdict } from '$lib/server/agent-tester/llm-judge';
+import type { Organization } from '$lib/types';
+import type { RequestHandler } from './$types';
+
+/**
+ * POST /api/agent-chat/fixtures/run
+ *
+ * Spec 019 T028 — Replay one fixture or all fixtures for an agent.
+ *
+ * Body: { agentId, fixtureLoc?, costCapAcknowledged?: boolean }
+ *
+ * fixtureLoc null → run all fixtures sequentially.
+ *
+ * Each run reads the saved fixture, drives the chat platform with its
+ * test message, computes drift against the captured baseline, and
+ * (single-fixture mode) updates the saved record's baseline only when
+ * an "accept new baseline" flag is set — we DON'T silently overwrite
+ * baselines on every replay (that would defeat the drift detector).
+ *
+ * Cost cap: LLM-judge assertions cost tokens. The endpoint estimates
+ * cost up-front; if it exceeds the cap AND costCapAcknowledged is
+ * not true, returns 409 with the estimate.
+ */
+
+const DEFAULT_COST_CAP_USD = 0.10;
+// Rough estimate per llm-judge call (input ~300 + output ~80 tokens
+// on a Claude-Sonnet-class model at typical pricing). Real costs vary
+// by provider and model; this is a defensive upper-bound order-of-
+// magnitude check.
+const EST_USD_PER_JUDGE_CALL = 0.005;
+
+async function resolveAgent(token: string, agentId: string): Promise<{
+  agentId: string;
+  systemMemoryId: string;
+} | null> {
+  const data = await gqlClient(token).request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY);
+  for (const o of data.myOrganizations) {
+    const a = (o.agents ?? []).find((x) => x.id === agentId);
+    if (a) {
+      const memId = (a as unknown as { systemMemoryId?: string | null }).systemMemoryId ?? null;
+      if (!memId) return null;
+      return { agentId, systemMemoryId: memId };
+    }
+  }
+  return null;
+}
+
+interface RunBody {
+  agentId?: string;
+  fixtureLoc?: string | null;
+  costCapAcknowledged?: boolean;
+  acceptNewBaseline?: boolean; // single-fixture mode only
+}
+
+export const POST: RequestHandler = async ({ request, locals }) => {
+  if (!locals.token) return json({ error: 'Unauthorized' }, 401);
+  let body: RunBody;
+  try { body = await request.json(); }
+  catch { return json({ error: 'Invalid JSON body' }, 400); }
+  if (!body.agentId) return json({ error: 'agentId is required' }, 400);
+
+  const resolved = await resolveAgent(locals.token, body.agentId);
+  if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
+
+  // Collect target fixtures.
+  const target = await loadFixtures(locals.token, resolved.systemMemoryId, body.fixtureLoc ?? null);
+  if (target.length === 0) {
+    return json({ error: body.fixtureLoc ? 'Fixture not found' : 'No fixtures to run' }, 404);
+  }
+
+  // Cost cap (LLM-judge assertions only).
+  const judgeCalls = target.filter((t) => t.record.turns[0].assertion?.mode === 'llm-judge').length;
+  const estimatedCost = judgeCalls * EST_USD_PER_JUDGE_CALL;
+  if (estimatedCost > DEFAULT_COST_CAP_USD && !body.costCapAcknowledged) {
+    return json({
+      error: 'cost-cap-exceeded',
+      estimatedCost: { currency: 'USD', amount: Number(estimatedCost.toFixed(2)) },
+      cap: { currency: 'USD', amount: DEFAULT_COST_CAP_USD },
+    }, 409);
+  }
+
+  // Run sequentially.
+  const results = [];
+  let passed = 0, failed = 0;
+  for (const t of target) {
+    const result = await runOneFixture(locals.token, body.agentId, t);
+    if (result.newVerdict === 'pass') passed++; else failed++;
+    results.push(result);
+
+    // Optional baseline update — single-fixture mode only.
+    if (body.fixtureLoc && body.acceptNewBaseline) {
+      await persistNewBaseline(locals.token, resolved.systemMemoryId, t.loc, t.record, {
+        reply: result.newReply, route: result.newRoute, verdict: result.newVerdict,
+      });
+    }
+  }
+
+  return json({
+    results,
+    summary: {
+      totalRuns: target.length,
+      passed,
+      failed,
+      estimatedCost: { currency: 'USD', amount: Number(estimatedCost.toFixed(2)) },
+      exceededCap: estimatedCost > DEFAULT_COST_CAP_USD,
+    },
+  }, 200);
+};
+
+// ── Fixture loading ─────────────────────────────────────────────────────────
+
+interface LoadedFixture { nodeId: string; loc: string; record: FixtureRecord; }
+
+async function loadFixtures(
+  token: string,
+  systemMemoryId: string,
+  filterLoc: string | null,
+): Promise<LoadedFixture[]> {
+  const client = gqlClient(token);
+  const result = await client.request<{ nodes: Array<{
+    id: string; loc: string; memoryId: string; data: unknown;
+  }> }>(GRAPH_NODES_QUERY, { limit: 500 });
+  const out: LoadedFixture[] = [];
+  for (const n of result.nodes) {
+    if (n.memoryId !== systemMemoryId) continue;
+    if (!n.loc.startsWith('fixtures:')) continue;
+    if (filterLoc && n.loc !== filterLoc) continue;
+    const record = decodeFixture(n.data);
+    if (!record) continue;
+    out.push({ nodeId: n.id, loc: n.loc, record });
+  }
+  return out;
+}
+
+// ── Run-one ─────────────────────────────────────────────────────────────────
+
+interface RunOneResult {
+  fixtureLoc: string;
+  newReply: string;
+  newRoute: RouteTrace;
+  newVerdict: 'pass' | 'fail';
+  newDetail: string;
+  drift: {
+    reply: 'same' | 'different';
+    route: 'same' | 'different';
+    verdict: 'still-passing' | 'still-failing' | 'newly-passing' | 'newly-failing' | 'no-baseline';
+  };
+}
+
+async function runOneFixture(
+  token: string,
+  agentId: string,
+  fixture: LoadedFixture,
+): Promise<RunOneResult> {
+  const turn = fixture.record.turns[0];
+  const client = gqlClient(token);
+
+  const startResult = await client.request<{
+    startChat: {
+      chatId: string;
+      systemMessage: string;
+      tools: HadronTool[] | null;
+      conversationName: string | null;
+      stageName: string | null;
+    };
+  }>(START_CHAT_MUTATION, { agentId, conversationName: null });
+
+  const { chatId, conversationName, stageName } = startResult.startChat;
+
+  await runChatTurn({
+    token, agentId, chatId, userMessage: null,
+    startPayload: {
+      systemMessage: startResult.startChat.systemMessage,
+      tools: startResult.startChat.tools,
+    },
+  });
+
+  const t = await runChatTurn({ token, agentId, chatId, userMessage: turn.user });
+
+  const newRoute: RouteTrace = {
+    conversationLoc: t.conversationHandoff ?? conversationName ?? null,
+    stageLoc: t.newStageName ?? stageName ?? null,
+    personaName: turn.persona,
+  };
+
+  const { verdict, detail } = await evaluateAssertion(turn.assertion, t.assistantMessage, token, agentId);
+
+  const drift = computeDrift(turn, t.assistantMessage, newRoute, verdict);
+
+  return {
+    fixtureLoc: fixture.loc,
+    newReply: t.assistantMessage,
+    newRoute,
+    newVerdict: verdict,
+    newDetail: detail,
+    drift,
+  };
+}
+
+async function evaluateAssertion(
+  a: Assertion | null,
+  reply: string,
+  token: string,
+  agentId: string,
+): Promise<{ verdict: 'pass' | 'fail'; detail: string }> {
+  // No assertion = the run is a probe; verdict is "pass" by convention
+  // (we're just capturing baselines). The drift detector still compares
+  // the reply against the captured one.
+  if (!a) return { verdict: 'pass', detail: 'probe-only (no assertion)' };
+  if (a.mode === 'literal-contains') {
+    const pass = reply.includes(a.value);
+    return { verdict: pass ? 'pass' : 'fail', detail: pass ? `contains "${a.value}"` : `did not contain "${a.value}"` };
+  }
+  if (a.mode === 'regex') {
+    const re = new RegExp(a.pattern, a.flags ?? '');
+    const pass = re.test(reply);
+    return { verdict: pass ? 'pass' : 'fail', detail: pass ? `matched /${a.pattern}/` : `did not match /${a.pattern}/` };
+  }
+  // llm-judge
+  const judge = await judgeAgentReply({ token, agentId, reply, criterion: a.criterion });
+  return judgeVerdict(judge, a.threshold);
+}
+
+function computeDrift(
+  turn: FixtureRecord['turns'][number],
+  newReply: string,
+  newRoute: RouteTrace,
+  newVerdict: 'pass' | 'fail',
+): RunOneResult['drift'] {
+  if (turn.capturedAt === null) {
+    return { reply: 'different', route: 'different', verdict: 'no-baseline' };
+  }
+  const replyDrift = turn.capturedReply === newReply ? 'same' : 'different';
+  const routeDrift =
+    turn.capturedRoute?.conversationLoc === newRoute.conversationLoc &&
+    turn.capturedRoute?.stageLoc === newRoute.stageLoc
+      ? 'same' : 'different';
+
+  let verdictDrift: RunOneResult['drift']['verdict'];
+  if (turn.capturedVerdict === 'pass' && newVerdict === 'pass') verdictDrift = 'still-passing';
+  else if (turn.capturedVerdict === 'fail' && newVerdict === 'fail') verdictDrift = 'still-failing';
+  else if (newVerdict === 'pass') verdictDrift = 'newly-passing';
+  else verdictDrift = 'newly-failing';
+
+  return { reply: replyDrift, route: routeDrift, verdict: verdictDrift };
+}
+
+// ── Baseline update ─────────────────────────────────────────────────────────
+
+async function persistNewBaseline(
+  token: string,
+  systemMemoryId: string,
+  loc: string,
+  record: FixtureRecord,
+  result: { reply: string; route: RouteTrace; verdict: 'pass' | 'fail' },
+): Promise<void> {
+  const updated = applyRunResult(record, result);
+  await gqlClient(token).request(UPSERT_NODE_MUTATION, {
+    input: {
+      memoryId: systemMemoryId,
+      loc,
+      name: updated.label,
+      nodeType: 'system',
+      data: encodeFixture(updated),
+    },
+  });
+}
+
+function json(body: unknown, status: number): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
