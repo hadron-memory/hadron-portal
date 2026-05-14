@@ -22,7 +22,7 @@ function extractGqlError(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
 }
 
-export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
+export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
 

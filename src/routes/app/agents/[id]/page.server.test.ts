@@ -131,7 +131,12 @@ describe('/app/agents/[id] loader', () => {
     expect(result.org.id).toBe('org-b');
   });
 
-  it('US1 — ?org=<id> hint restricts lookup to that org (no cross-org pivot)', async () => {
+  it('US1 — happy path: resolves the agent when a correct ?org=<id> hint is supplied', async () => {
+    // The loader does NOT use ?org= to restrict the scan today (the
+    // strict variant was reverted on 2026-05-14 because it 404'd
+    // legitimate cases). The hint is metadata-only — the cross-org
+    // scan finds the agent regardless. The lower test on line 226
+    // covers the wrong-hint variant.
     routeMock({
       myOrgs: {
         data: {
@@ -143,7 +148,6 @@ describe('/app/agents/[id] loader', () => {
       },
     });
     const load = await importLoad();
-    // Asking for agent-bbb with ?org=org-b succeeds:
     const result = (await load(ev({ agentId: 'agent-bbb', orgHint: 'org-b' }))) as {
       agent: typeof agentInB;
       org: typeof orgB;
