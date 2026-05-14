@@ -1,7 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { gqlClient } from '$lib/server/api';
-import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATION_QUERY,
   APPS_QUERY,
@@ -30,8 +29,12 @@ function extractGqlError(e: unknown, fallback: string): string {
 // invalid/missing org id returns 404 immediately instead of waiting for
 // the (potentially slow) apps request. The apps request is still kicked
 // off in parallel; we only await its settlement after the org check.
-export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  await requireNonConsumer(parent);
+// Spec 014 D7: this page IS the dashboard. requireNonConsumer is not
+// applied here because guards.ts redirects consumer-mode users to
+// `/app/orgs/<activeOrgId>/` (which lands on this page); applying the
+// guard would loop. Subroutes (apps, agents, members, etc.) keep the
+// guard — consumer mode should not expose admin chrome.
+export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
 
   // Fire both in parallel; attach a no-op catch on apps so an early org

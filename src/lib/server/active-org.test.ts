@@ -116,4 +116,32 @@ describe('resolveActiveOrg — spec 014 R-1/R-2/R-9', () => {
     expect(r.source).toBe('url');
     expect(r.personalOrgId).toBe('org-personal');
   });
+
+  // hadron-server's `personal-workspace.ts` writes `isVisible: false` on
+  // provisioning; the read filter is `{ not: true }`. Lock in that both
+  // null AND false count as "personal" so the portal stays aligned with
+  // the server contract.
+  it('treats isVisible=false as personal (hadron-server provisioning shape)', () => {
+    const personalFalse = makeOrg({ id: 'org-personal-false', isVisible: false });
+    const r = resolveActiveOrg({
+      paramsId: undefined,
+      lastActiveOrgId: null,
+      myOrganizations: [personalFalse, orgA],
+    });
+    expect(r.activeOrgId).toBe('org-personal-false');
+    expect(r.personalOrgId).toBe('org-personal-false');
+    expect(r.source).toBe('personal');
+  });
+
+  it('prefers isVisible=true orgs over isVisible=false when the URL points at a visible one', () => {
+    const personalFalse = makeOrg({ id: 'org-personal-false', isVisible: false });
+    const r = resolveActiveOrg({
+      paramsId: 'org-a',
+      lastActiveOrgId: null,
+      myOrganizations: [personalFalse, orgA],
+    });
+    expect(r.activeOrgId).toBe('org-a');
+    expect(r.personalOrgId).toBe('org-personal-false');
+    expect(r.source).toBe('url');
+  });
 });

@@ -23,7 +23,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params }) => {
   ]);
 
   const orgs = orgsData.myOrganizations;
-  const isConsumerMode = orgs.length === 1 && orgs[0].isVisible === null;
+  const isConsumerMode = orgs.length === 1 && orgs[0].isVisible !== true;
 
   // Merge fresh server-side fields (name, avatarUrl, email) over the JWT
   // payload, so the layout always has current user metadata.

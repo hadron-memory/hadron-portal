@@ -197,4 +197,20 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
     expect(data.activeOrgId).toBeNull();
     expect(data.personalOrgId).toBeNull();
   });
+
+  // hadron-server's `personal-workspace.ts` writes `isVisible: false` on
+  // provisioning; this is the shape users currently land in. Lock in
+  // that the layout's isConsumerMode derivation matches the server's
+  // `{ not: true }` filter.
+  it('sets isConsumerMode=true when the sole org has isVisible=false (server provisioning shape)', async () => {
+    const personalFalse = makeOrg({ id: 'org-personal-false', isVisible: false });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personalFalse] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
+
+    expect(data.isConsumerMode).toBe(true);
+    expect(data.activeOrgId).toBe('org-personal-false');
+    expect(data.personalOrgId).toBe('org-personal-false');
+  });
 });

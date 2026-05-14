@@ -1,13 +1,19 @@
 // Active-organization resolution helper for the portal.
 //
 // Spec: 014-single-active-org. See research.md R-1 (resolution location),
-// R-2 (personal org via isVisible === null), R-9 (inaccessible-org fall-
-// through with path preservation). The chain is:
+// R-2 (personal org identification), R-9 (inaccessible-org fall-through
+// with path preservation). The chain is:
 //   1. URL hint  — params.id when under /app/orgs/[id]/...
 //   2. lastActiveOrgId — User field, set by the portal on every org-scoped load
-//   3. personal org — orgs.find(o => o.isVisible === null)
+//   3. personal org — orgs.find(o => o.isVisible !== true)
 // Each step is filtered through the user's membership list; non-member ids
 // are treated as absent so the chain continues.
+//
+// Personal-org contract: hadron-server's `personal-workspace.ts` writes
+// `isVisible: false`, and every server-side read uses `isVisible: { not: true }`
+// (e.g. `server.ts:290`, `resolvers.ts:3315`). The migration column is
+// nullable, so the platform answer is "not visible" = null OR false. Match
+// the server filter exactly, not just one of the two states.
 //
 // Pure helper: no I/O, no redirects. Callers compose with
 // `redirect(302, ...)` themselves (SvelteKit's redirect helper throws
@@ -33,7 +39,7 @@ export interface ResolveActiveOrgInput {
 export function resolveActiveOrg(input: ResolveActiveOrgInput): ActiveOrgResolution {
   const { paramsId, lastActiveOrgId, myOrganizations } = input;
 
-  const personalOrg = myOrganizations.find((o) => o.isVisible === null) ?? null;
+  const personalOrg = myOrganizations.find((o) => o.isVisible !== true) ?? null;
   const personalOrgId = personalOrg?.id ?? null;
 
   // Step 1: URL hint, filtered through membership.
