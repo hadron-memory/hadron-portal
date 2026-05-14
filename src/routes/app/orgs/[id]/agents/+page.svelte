@@ -12,8 +12,6 @@
   <div class="flex items-start justify-between">
     <div>
       <Breadcrumb items={[
-        { label: 'Organizations', href: '/app/orgs' },
-        { label: org.name, href: `/app/orgs/${org.id}` },
         { label: 'Agents' },
       ]} />
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{org.name}'s Agents</h1>

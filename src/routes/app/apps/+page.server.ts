@@ -1,11 +1,10 @@
-import { gqlClient } from '$lib/server/api';
-import { MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
-import type { Organization } from '$lib/types';
+// Spec 014: /app/apps is now a 302 redirector to the active-org's
+// scoped variant. See spec FR-008 and contracts/portal-redirector-chain.md.
+import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ locals }) => {
-  const data = await gqlClient(locals.token)
-    .request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
-    .catch(() => ({ myOrganizations: [] as Organization[] }));
-  return { orgs: data.myOrganizations };
+export const load: PageServerLoad = async ({ parent }) => {
+  const { activeOrgId } = await parent();
+  if (!activeOrgId) redirect(303, '/app/orgs/');
+  redirect(302, `/app/orgs/${activeOrgId}/apps`);
 };

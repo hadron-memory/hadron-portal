@@ -85,21 +85,23 @@ The frontend never sees or stores OAuth credentials or email tokens.
 
 | Path | Description |
 |---|---|
-| `/app/dashboard` | Overview — memory stats, quick links, marketplace CTA |
-| `/app/memories` | My Memories — all memories across personal workspace and orgs |
-| `/app/agents` | My Agents — agents available to the current user |
-| `/app/apps` | My Apps — installed agent instances |
-| `/app/marketplace` | Browse marketplace from inside the app |
+| `/app/dashboard` | **302 redirector → `/app/orgs/<active>/`** (spec 014 — the rendered dashboard now lives under the active org's URL) |
+| `/app/memories` | **302 redirector → `/app/orgs/<active>/memories`** (spec 014 FR-008) |
+| `/app/agents` | **302 redirector → `/app/orgs/<active>/agents`** (spec 014 FR-008) |
+| `/app/apps` | **302 redirector → `/app/orgs/<active>/apps`** (spec 014 FR-008) |
+| `/app/marketplace` | Browse marketplace from inside the app (explicitly cross-org per spec 014 — not redirected) |
 | `/app/setup` | AI Setup — one-time config file download (Claude, Cursor, Windsurf) |
-| `/app/account` | User account settings and profile |
+| `/app/account` | User account settings and profile (includes "Create Organization" CTA) |
 
 ### Enterprise (authenticated, visible when user has explicit orgs)
 
+Spec 014 ("single active organization") removed the top-level `ORGANIZATIONS` sidebar section in favor of a Slack-style switcher under "Signed in as". The active org is **URL-driven** (`/app/orgs/<id>/...`); the switcher opens other orgs in **new tabs** so multi-tab use is the default cross-org workflow. The membership-management list at `/app/orgs/` remains reachable from the switcher's "See all" link and from `/app/account`.
+
 | Path | Description |
 |---|---|
-| `/app/orgs` | List organisations |
+| `/app/orgs` | List organisations (membership-management surface; reachable from switcher "See all" and account page) |
 | `/app/orgs/new` | Create organisation |
-| `/app/orgs/[id]` | Org overview |
+| `/app/orgs/[id]` | **Rendered active-org dashboard** (the destination of the `/app/dashboard` redirector since spec 014) |
 | `/app/orgs/[id]/members` | Manage org members |
 | `/app/orgs/[id]/memories` | List + manage memories (with sync-all) |
 | `/app/orgs/[id]/memories/new` | Add memory config |

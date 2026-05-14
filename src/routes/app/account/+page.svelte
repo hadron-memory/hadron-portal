@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -168,6 +169,23 @@
         <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Create invitation</button>
       </form>
     {/if}
+  </section>
+
+  <!-- Organizations — reachable here from consumer-mode accounts that
+       have no left-menu org section (spec 014 FR-010 + FR-012). -->
+  <section>
+    <div class="mb-3">
+      <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.account.orgs.heading', 'Organizations')}</h2>
+      <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('app.account.orgs.subtitle', 'Manage memberships or create a new organization.')}</p>
+    </div>
+    <div class="flex gap-3">
+      <a href="/app/orgs/" class="inline-block rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+        {t('app.account.orgs.view', 'View organizations')}
+      </a>
+      <a href="/app/orgs/new" class="inline-block rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
+        {t('app.account.orgs.create', 'Create organization')}
+      </a>
+    </div>
   </section>
 
   <!-- Sign out -->

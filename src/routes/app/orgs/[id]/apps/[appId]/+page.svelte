@@ -494,8 +494,6 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 <div class="space-y-4">
   <div>
     <Breadcrumb items={[
-      { label: 'Organizations', href: '/app/orgs' },
-      { label: org.name, href: `/app/orgs/${org.id}` },
       { label: 'Apps', href: `/app/orgs/${org.id}/apps` },
       { label: app.name },
     ]} />

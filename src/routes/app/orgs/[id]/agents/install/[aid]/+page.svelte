@@ -25,8 +25,6 @@
 <div class="space-y-6">
   <div>
     <Breadcrumb items={[
-      { label: 'Organizations', href: '/app/orgs' },
-      { label: org.name, href: `/app/orgs/${org.id}` },
       { label: 'Agents', href: `/app/orgs/${org.id}/agents` },
       { label: agent.name, href: `/app/agents/${agent.id}` },
       { label: t('install.breadcrumb.install', 'Install') },

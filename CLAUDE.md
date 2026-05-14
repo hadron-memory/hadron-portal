@@ -70,6 +70,6 @@ project governance.
 <!-- SPECKIT START -->
 For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
-at `specs/015-fix-org-apps-count/plan.md` in the `spec-kits` repo
-(branch `015-fix-org-apps-count` in both `spec-kits/` and `hadron-portal/`).
+at `specs/014-single-active-org/plan.md` in the `spec-kits` repo
+(branch `014-single-active-org` in both `spec-kits/` and `hadron-portal/`).
 <!-- SPECKIT END -->

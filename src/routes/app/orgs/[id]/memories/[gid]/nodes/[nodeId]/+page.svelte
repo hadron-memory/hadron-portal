@@ -214,8 +214,6 @@
 <div class="space-y-4">
   <!-- Breadcrumb -->
   <Breadcrumb items={[
-    { label: 'Organizations', href: '/app/orgs' },
-    { label: data.org.name, href: `/app/orgs/${data.org.id}` },
     { label: 'Memories', href: `/app/orgs/${data.org.id}/memories` },
     { label: data.graph.name, href: basePath },
     { label: 'Nodes', href: `${basePath}/browse` },

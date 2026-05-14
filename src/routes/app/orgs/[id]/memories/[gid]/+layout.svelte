@@ -24,8 +24,6 @@
   {@const isAgentSystem = data.graph.type === 'AGENT_SYSTEM'}
   <div class="mb-4">
     <Breadcrumb items={[
-      { label: 'Organizations', href: '/app/orgs' },
-      { label: data.org.name, href: `/app/orgs/${data.org.id}` },
       { label: isAgentSystem ? 'Agents' : 'Memories', href: isAgentSystem ? `/app/orgs/${data.org.id}/agents` : `/app/orgs/${data.org.id}/memories` },
       { label: data.graph.name },
     ]} />

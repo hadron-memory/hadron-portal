@@ -36,8 +36,6 @@
 <div class="space-y-8">
   <div>
     <Breadcrumb items={[
-      { label: 'Organizations', href: '/app/orgs' },
-      { label: org.name, href: `/app/orgs/${org.id}` },
       { label: 'Apps', href: `/app/orgs/${org.id}/apps` },
       { label: app.name, href: `/app/orgs/${org.id}/apps/${app.id}` },
       { label: 'Members' },
