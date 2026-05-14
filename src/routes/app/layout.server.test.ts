@@ -221,6 +221,23 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
     expect(data.activeOrgId).toBe('org-personal');
   });
 
+  // Pin the gate's scope: any future top-level [id]-bearing surface
+  // outside /app/orgs/ must NOT trigger the org-id rewrite. Future
+  // routes like /app/agents/<id>/test (spec 019) and any marketplace
+  // surface depend on this.
+  it('Spec 018: does NOT rewrite segment 3 on a hypothetical /app/foo/[id] surface either', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({
+      paramsId: 'thing-not-an-org-id',
+      pathname: '/app/foo/thing-not-an-org-id',
+    }));
+
+    expect(data.activeOrgId).toBe('org-personal');
+  });
+
   it('sets isConsumerMode=true when the sole org has isVisible=false (server provisioning shape)', async () => {
     const personalFalse = makeOrg({ id: 'org-personal-false', isVisible: false });
     mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personalFalse] });

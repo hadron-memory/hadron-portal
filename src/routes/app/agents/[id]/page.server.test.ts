@@ -36,9 +36,8 @@ async function importLoad() {
   return mod.load;
 }
 
-function ev(opts: { agentId?: string; orgHint?: string | null; token?: string | null } = {}) {
+function ev(opts: { agentId?: string; token?: string | null } = {}) {
   const url = new URL('http://test/app/agents/' + (opts.agentId ?? 'agent-id-123'));
-  if (opts.orgHint != null) url.searchParams.set('org', opts.orgHint);
   return {
     params: { id: opts.agentId ?? 'agent-id-123' },
     locals: { token: opts.token === undefined ? 'test-token' : opts.token },
@@ -131,12 +130,12 @@ describe('/app/agents/[id] loader', () => {
     expect(result.org.id).toBe('org-b');
   });
 
-  it('US1 — happy path: resolves the agent when a correct ?org=<id> hint is supplied', async () => {
-    // The loader does NOT use ?org= to restrict the scan today (the
-    // strict variant was reverted on 2026-05-14 because it 404'd
-    // legitimate cases). The hint is metadata-only — the cross-org
-    // scan finds the agent regardless. The lower test on line 226
-    // covers the wrong-hint variant.
+  it('US1 — happy path: cross-org scan resolves the agent in its owning org', async () => {
+    // The loader scans every org the user is a member of and returns
+    // the first match. The org-scoped redirector at
+    // /app/orgs/<id>/agents/<aid> simply redirects here without any
+    // hint — see plan.md D-1 for why the earlier `?org=` hint was
+    // dropped.
     routeMock({
       myOrgs: {
         data: {
@@ -148,7 +147,7 @@ describe('/app/agents/[id] loader', () => {
       },
     });
     const load = await importLoad();
-    const result = (await load(ev({ agentId: 'agent-bbb', orgHint: 'org-b' }))) as {
+    const result = (await load(ev({ agentId: 'agent-bbb' }))) as {
       agent: typeof agentInB;
       org: typeof orgB;
     };
@@ -227,12 +226,12 @@ describe('/app/agents/[id] loader', () => {
     expect(bodyStr).not.toContain('agent-aaa');
   });
 
-  it('US1 — ?org=<wrong-but-member-org> still resolves the agent in its real owning org', async () => {
-    // The ?org= hint is advisory — if it points at the wrong member-org,
-    // the loader still scans the user's other memberships and resolves
-    // the agent. Stricter behavior (refuse-on-hint-mismatch) was tried
-    // and reverted on 2026-05-14 because it 404'd legitimate cases when
-    // the hint was stale or missing.
+  it('US1 — agent in a non-first member org is still resolved by the scan', async () => {
+    // The loader walks every member org in order until it finds the
+    // agent; this asserts the walk doesn't stop at the first org. An
+    // earlier strict-pivot variant (org-scope by `?org=` hint) was
+    // tried and reverted because it 404'd legitimate cross-org
+    // navigation. See plan.md D-1.
     routeMock({
       myOrgs: {
         data: {
@@ -244,7 +243,7 @@ describe('/app/agents/[id] loader', () => {
       },
     });
     const load = await importLoad();
-    const result = (await load(ev({ agentId: 'agent-bbb', orgHint: 'org-a' }))) as {
+    const result = (await load(ev({ agentId: 'agent-bbb' }))) as {
       agent: typeof agentInB;
       org: typeof orgB;
     };

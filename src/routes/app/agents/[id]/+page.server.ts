@@ -33,15 +33,14 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // legitimate not-found.
   const orgsData = await client.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY);
 
-  // Spec 018: the `?org=` query param is set by /app/orgs/<id>/agents/<aid>
-  // when redirecting here, but we treat it as advisory only. The
-  // earlier strict variant of this loader skipped every org whose id
-  // didn't match the hint, which 404'd legitimate agents whenever the
-  // hint was wrong, missing, or pointed at a different org than the
-  // one actually owning the agent (e.g. the same agent shown in
-  // multiple list surfaces). Scan all of myOrganizations and return
-  // the first match — the membership gate is enforced by the fact
-  // that myOrganizations only contains orgs the user belongs to.
+  // Spec 018 D-1: scan all of myOrganizations and return the first
+  // match. An earlier variant org-scoped the search by a `?org=<id>`
+  // query hint passed from /app/orgs/<id>/agents/<aid>, but it 404'd
+  // legitimate cross-org navigation (same agent reachable from
+  // multiple list surfaces, stale hint after an org change, etc.).
+  // The membership gate is enforced by the fact that myOrganizations
+  // only contains orgs the user belongs to — no extra org-id check
+  // needed here.
   let agent = null;
   let org = null;
   for (const o of orgsData.myOrganizations) {
