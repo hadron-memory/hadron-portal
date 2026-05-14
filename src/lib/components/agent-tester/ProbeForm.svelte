@@ -103,7 +103,7 @@
 
   <div>
     <label for="probe-persona" class="block text-sm font-medium text-zinc-700 dark:text-zinc-200">
-      {t('agent-tester.probe.persona-label', 'Persona (optional)')}
+      {t('agent-tester.probe.persona-label', 'Persona tag (metadata only)')}
     </label>
     <input
       id="probe-persona"
@@ -113,6 +113,9 @@
       class="mt-1 block w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
       disabled={running}
     />
+    <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+      {t('agent-tester.probe.persona-note', 'On single-message runs this is a label only — the bot uses its default routing. For real persona-driven testing, use the Scripted persona section below.')}
+    </p>
   </div>
 
   <fieldset class="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">

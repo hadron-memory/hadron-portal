@@ -37,6 +37,42 @@ function buildJudgeUserMessage(reply: string, criterion: string): string {
 }
 
 /**
+ * Find the first balanced top-level `{...}` block in a string. Skips
+ * braces inside string literals (so `"contains \\\"{\\\""` doesn't
+ * throw off the depth counter). Returns the substring including
+ * braces, or null.
+ *
+ * Replaces a previous greedy `\{[\s\S]*\}` regex that over-captured
+ * across multiple JSON-like objects + intervening prose. (Raised in
+ * PR #217 review.)
+ */
+export function extractFirstJsonObject(text: string): string | null {
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escape) escape = false;
+      else if (ch === '\\') escape = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) return text.slice(start, i + 1);
+      if (depth < 0) return null;
+    }
+  }
+  return null;
+}
+
+/**
  * Parse a model response. The model is instructed to return ONLY JSON,
  * but real models frequently wrap it in fences or add preamble. Strip
  * common wrappers and parse defensively.
@@ -48,9 +84,10 @@ export function parseJudgeResponse(raw: string): JudgeResult {
   const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenceMatch) text = fenceMatch[1].trim();
 
-  // First-object heuristic: find the first {...} block.
-  const objMatch = text.match(/\{[\s\S]*\}/);
-  if (objMatch) text = objMatch[0];
+  // Extract the first balanced JSON object. Falls back to the raw
+  // text if no balanced block is found (covers the clean-JSON path).
+  const extracted = extractFirstJsonObject(text);
+  if (extracted) text = extracted;
 
   try {
     const parsed = JSON.parse(text) as { score?: unknown; rationale?: unknown };

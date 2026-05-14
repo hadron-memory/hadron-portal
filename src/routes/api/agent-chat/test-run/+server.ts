@@ -72,8 +72,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     const { chatId, conversationName, stageName } = startResult.startChat;
 
-    // Welcome turn (discarded — the Tester probes user-driven behavior).
-    await runChatTurn({
+    // Welcome turn: the bot's reply itself is discarded (the Tester
+    // probes user-driven behaviour), but any stage / conversation
+    // transition the welcome triggers MUST flow forward — otherwise
+    // routeTrace lies about where the user message actually landed.
+    const welcomeTurn = await runChatTurn({
       token: locals.token,
       agentId: body.agentId,
       chatId,
@@ -91,9 +94,25 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       userMessage: body.message,
     });
 
-    const finalConversation = turn.conversationHandoff ?? conversationName ?? null;
-    const finalStage = turn.newStageName ?? stageName ?? null;
+    // Resolve conversation + stage with welcome-turn results as the
+    // fallback so a transition triggered by the welcome is preserved.
+    const finalConversation =
+      turn.conversationHandoff ?? welcomeTurn.conversationHandoff ?? conversationName ?? null;
+    const finalStage =
+      turn.newStageName ?? welcomeTurn.newStageName ?? stageName ?? null;
 
+    // NOTE: `personaName` is **metadata-only** in US1 single-message
+    // mode. The chat-platform's `runChatTurn` does not accept a
+    // per-turn persona override — personas are driven by
+    // `h-chat-run-persona` (the scripted-persona path, US4) and by
+    // server-side state machinery, not by a single-turn HTTP call.
+    // We surface the user's input here so the UI can show what they
+    // asked for, but the bot's actual routing is its default. To
+    // probe persona-specific behaviour, use the Scripted persona
+    // section (US4) which delegates to /api/agent-chat/test-persona.
+    // `routeCandidates` is intentionally empty in US1; the chat
+    // platform does not yet expose rejected-route metadata on a
+    // single-turn request.
     const routeTrace = {
       conversationLoc: finalConversation,
       stageLoc: finalStage,

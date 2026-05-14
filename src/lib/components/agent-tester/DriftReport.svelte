@@ -14,13 +14,23 @@
     };
   }
 
+  // Per PR #217 review (high-3): a single fixture's error MUST NOT
+  // abort the whole batch. The server now isolates each run and
+  // returns one of these shapes per fixture.
+  interface RunErrorResult { fixtureLoc: string; error: string }
+  type Result = RunResult | RunErrorResult;
+
   let {
     results,
     onacceptbaseline,
   }: {
-    results: RunResult[];
+    results: Result[];
     onacceptbaseline?: (loc: string) => void;
   } = $props();
+
+  function isError(r: Result): r is RunErrorResult {
+    return 'error' in r;
+  }
 
   function verdictLabel(v: RunResult['drift']['verdict']): string {
     switch (v) {
@@ -49,40 +59,55 @@
   </h2>
   <ul class="space-y-3">
     {#each results as r (r.fixtureLoc)}
-      <li class="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-        <div class="flex items-center justify-between">
-          <span class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{r.fixtureLoc}</span>
-          <span class="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {verdictClass(r.drift.verdict)}">
-            {verdictLabel(r.drift.verdict)}
-          </span>
-        </div>
-        <div class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
-          <dt class="text-zinc-500 dark:text-zinc-400">{t('agent-tester.drift.reply-label', 'Reply')}</dt>
-          <dd class="text-zinc-900 dark:text-zinc-100">
-            {r.drift.reply === 'different' ? t('agent-tester.drift.changed', '(changed)') : t('agent-tester.drift.unchanged', '(unchanged)')}
-          </dd>
-          <dt class="text-zinc-500 dark:text-zinc-400">{t('agent-tester.drift.route-label', 'Route')}</dt>
-          <dd class="text-zinc-900 dark:text-zinc-100 font-mono">
-            {r.newRoute.stageLoc ?? '—'}{r.drift.route === 'different' ? ' ' + t('agent-tester.drift.changed', '(changed)') : ''}
-          </dd>
-          <dt class="text-zinc-500 dark:text-zinc-400">{t('agent-tester.drift.detail-label', 'Detail')}</dt>
-          <dd class="text-zinc-700 dark:text-zinc-300">{r.newDetail}</dd>
-        </div>
-        {#if r.drift.reply === 'different' || r.drift.verdict === 'newly-failing' || r.drift.verdict === 'newly-passing'}
-          <details class="mt-2 text-xs">
-            <summary class="cursor-pointer text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300">
-              {t('agent-tester.drift.show-reply', 'Show new reply')}
-            </summary>
-            <pre class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-2 text-xs text-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">{r.newReply}</pre>
-          </details>
-          {#if onacceptbaseline}
-            <button
-              type="button"
-              onclick={() => onacceptbaseline?.(r.fixtureLoc)}
-              class="mt-2 rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-            >
-              {t('agent-tester.drift.accept-baseline', 'Accept new baseline')}
-            </button>
+      <li class="rounded-md border p-3 {isError(r)
+        ? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950'
+        : 'border-zinc-200 dark:border-zinc-800'}">
+        {#if isError(r)}
+          <div class="flex items-center justify-between">
+            <span class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{r.fixtureLoc}</span>
+            <span class="rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-800 dark:bg-amber-700 dark:text-amber-100">
+              {t('agent-tester.drift.errored', 'Errored')}
+            </span>
+          </div>
+          <p class="mt-2 text-xs text-amber-800 dark:text-amber-200">{r.error}</p>
+          <p class="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+            {t('agent-tester.drift.errored-note', 'Run continued with other fixtures. Retry this one individually.')}
+          </p>
+        {:else}
+          <div class="flex items-center justify-between">
+            <span class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{r.fixtureLoc}</span>
+            <span class="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide {verdictClass(r.drift.verdict)}">
+              {verdictLabel(r.drift.verdict)}
+            </span>
+          </div>
+          <div class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+            <dt class="text-zinc-500 dark:text-zinc-400">{t('agent-tester.drift.reply-label', 'Reply')}</dt>
+            <dd class="text-zinc-900 dark:text-zinc-100">
+              {r.drift.reply === 'different' ? t('agent-tester.drift.changed', '(changed)') : t('agent-tester.drift.unchanged', '(unchanged)')}
+            </dd>
+            <dt class="text-zinc-500 dark:text-zinc-400">{t('agent-tester.drift.route-label', 'Route')}</dt>
+            <dd class="text-zinc-900 dark:text-zinc-100 font-mono">
+              {r.newRoute.stageLoc ?? '—'}{r.drift.route === 'different' ? ' ' + t('agent-tester.drift.changed', '(changed)') : ''}
+            </dd>
+            <dt class="text-zinc-500 dark:text-zinc-400">{t('agent-tester.drift.detail-label', 'Detail')}</dt>
+            <dd class="text-zinc-700 dark:text-zinc-300">{r.newDetail}</dd>
+          </div>
+          {#if r.drift.reply === 'different' || r.drift.verdict === 'newly-failing' || r.drift.verdict === 'newly-passing'}
+            <details class="mt-2 text-xs">
+              <summary class="cursor-pointer text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300">
+                {t('agent-tester.drift.show-reply', 'Show new reply')}
+              </summary>
+              <pre class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-2 text-xs text-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">{r.newReply}</pre>
+            </details>
+            {#if onacceptbaseline}
+              <button
+                type="button"
+                onclick={() => onacceptbaseline?.(r.fixtureLoc)}
+                class="mt-2 rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >
+                {t('agent-tester.drift.accept-baseline', 'Accept new baseline')}
+              </button>
+            {/if}
           {/if}
         {/if}
       </li>

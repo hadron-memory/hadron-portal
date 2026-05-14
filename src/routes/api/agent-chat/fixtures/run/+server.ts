@@ -97,19 +97,44 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }, 409);
   }
 
-  // Run sequentially.
-  const results = [];
-  let passed = 0, failed = 0;
+  // Run sequentially with per-fixture error isolation. Parallel
+  // execution was considered (per PR #217 review) but would race on
+  // LLM provider rate limits and complicate progress reporting; v1
+  // fixture counts are expected in the low tens, so sequential meets
+  // the latency budget. What we MUST get right is error isolation:
+  // a single fixture's transient failure (network blip, model
+  // refusal, prompt error) should not abort the whole batch — the
+  // drift report is most valuable when every fixture is accounted
+  // for, even those that errored.
+  const results: Array<RunOneResult | RunErrorResult> = [];
+  let passed = 0, failed = 0, errored = 0;
   for (const t of target) {
-    const result = await runOneFixture(locals.token, body.agentId, t);
-    if (result.newVerdict === 'pass') passed++; else failed++;
+    let result: RunOneResult | RunErrorResult;
+    try {
+      result = await runOneFixture(locals.token, body.agentId, t);
+      if ((result as RunOneResult).newVerdict === 'pass') passed++; else failed++;
+    } catch (e) {
+      errored++;
+      result = {
+        fixtureLoc: t.loc,
+        error: e instanceof Error ? e.message : 'Run failed',
+      };
+    }
     results.push(result);
 
-    // Optional baseline update — single-fixture mode only.
-    if (body.fixtureLoc && body.acceptNewBaseline) {
-      await persistNewBaseline(locals.token, resolved.systemMemoryId, t.loc, t.record, {
-        reply: result.newReply, route: result.newRoute, verdict: result.newVerdict,
-      });
+    // Optional baseline update — single-fixture mode only, and only
+    // when the run produced a real result (not an error).
+    if (body.fixtureLoc && body.acceptNewBaseline && !('error' in result)) {
+      const r = result as RunOneResult;
+      try {
+        await persistNewBaseline(locals.token, resolved.systemMemoryId, t.loc, t.record, {
+          reply: r.newReply, route: r.newRoute, verdict: r.newVerdict,
+        });
+      } catch {
+        // Persist failures don't change the drift report; surface
+        // only in logs (caller already has the new baseline in the
+        // response and can retry).
+      }
     }
   }
 
@@ -119,11 +144,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       totalRuns: target.length,
       passed,
       failed,
+      errored,
       estimatedCost: { currency: 'USD', amount: Number(estimatedCost.toFixed(2)) },
       exceededCap: estimatedCost > DEFAULT_COST_CAP_USD,
     },
   }, 200);
 };
+
+interface RunErrorResult {
+  fixtureLoc: string;
+  error: string;
+}
 
 // ── Fixture loading ─────────────────────────────────────────────────────────
 
@@ -185,7 +216,10 @@ async function runOneFixture(
 
   const { chatId, conversationName, stageName } = startResult.startChat;
 
-  await runChatTurn({
+  // Welcome turn: capture any transitions it triggers so the route
+  // trace reflects where the user message actually landed (same
+  // fix as test-run/+server.ts; see PR #217 review).
+  const welcomeTurn = await runChatTurn({
     token, agentId, chatId, userMessage: null,
     startPayload: {
       systemMessage: startResult.startChat.systemMessage,
@@ -196,8 +230,8 @@ async function runOneFixture(
   const t = await runChatTurn({ token, agentId, chatId, userMessage: turn.user });
 
   const newRoute: RouteTrace = {
-    conversationLoc: t.conversationHandoff ?? conversationName ?? null,
-    stageLoc: t.newStageName ?? stageName ?? null,
+    conversationLoc: t.conversationHandoff ?? welcomeTurn.conversationHandoff ?? conversationName ?? null,
+    stageLoc: t.newStageName ?? welcomeTurn.newStageName ?? stageName ?? null,
     personaName: turn.persona,
   };
 

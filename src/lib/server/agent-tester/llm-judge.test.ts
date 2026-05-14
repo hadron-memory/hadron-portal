@@ -26,7 +26,32 @@ vi.mock('$lib/server/llm/agentChatLlm.js', () => ({
   createLanguageModel: vi.fn(),
 }));
 
-const { parseJudgeResponse, judgeVerdict } = await import('./llm-judge');
+const { parseJudgeResponse, judgeVerdict, extractFirstJsonObject } = await import('./llm-judge');
+
+describe('extractFirstJsonObject — bracket-balanced extraction', () => {
+  it('returns null when no braces are present', () => {
+    expect(extractFirstJsonObject('plain text')).toBeNull();
+  });
+
+  it('extracts the first balanced object', () => {
+    expect(extractFirstJsonObject('preamble {"a": 1} trailer')).toBe('{"a": 1}');
+  });
+
+  it('does not over-capture across two objects (regression — was broken with greedy regex)', () => {
+    const input = 'first thought: {"score": 0.2, "rationale": "low"} then I reconsidered: {"score": 0.9, "rationale": "high"}';
+    expect(extractFirstJsonObject(input)).toBe('{"score": 0.2, "rationale": "low"}');
+  });
+
+  it('ignores braces inside string literals', () => {
+    const input = '{"rationale": "the bot literally said \\"{\\""}';
+    expect(extractFirstJsonObject(input)).toBe(input);
+  });
+
+  it('handles nested objects', () => {
+    expect(extractFirstJsonObject('{"score": 0.5, "meta": {"k": "v"}}'))
+      .toBe('{"score": 0.5, "meta": {"k": "v"}}');
+  });
+});
 
 describe('parseJudgeResponse', () => {
   it('parses a bare JSON object', () => {
@@ -68,6 +93,12 @@ describe('parseJudgeResponse', () => {
     const r = parseJudgeResponse('{"score": 0.4}');
     expect(r.score).toBe(0.4);
     expect(r.rationale).toBe('(no rationale)');
+  });
+
+  it('picks the first balanced object when the model emits two (was broken pre-PR-217-review)', () => {
+    const r = parseJudgeResponse('thought 1: {"score": 0.2, "rationale": "low"} thought 2: {"score": 0.9, "rationale": "high"}');
+    expect(r.score).toBe(0.2);
+    expect(r.rationale).toBe('low');
   });
 });
 
