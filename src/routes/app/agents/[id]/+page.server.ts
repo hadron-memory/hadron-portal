@@ -22,14 +22,26 @@ function extractGqlError(e: unknown, fallback: string): string {
   return e instanceof Error ? e.message : fallback;
 }
 
-export const load: PageServerLoad = async ({ params, locals, parent }) => {
+export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
 
-  const orgsData = await client.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
-    .catch(() => ({ myOrganizations: [] as Organization[] }));
+  // Spec 018: the previous loader silently coerced any MY_ORGANIZATIONS_QUERY
+  // failure into `{ myOrganizations: [] }`, which then produced a misleading
+  // "Agent not found" 404 for transient GraphQL/network errors. Let errors
+  // propagate so SvelteKit returns a 500 the user can distinguish from a
+  // legitimate not-found.
+  const orgsData = await client.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY);
 
-  // Find the agent across all orgs
+  // Spec 018: the `?org=` query param is set by /app/orgs/<id>/agents/<aid>
+  // when redirecting here, but we treat it as advisory only. The
+  // earlier strict variant of this loader skipped every org whose id
+  // didn't match the hint, which 404'd legitimate agents whenever the
+  // hint was wrong, missing, or pointed at a different org than the
+  // one actually owning the agent (e.g. the same agent shown in
+  // multiple list surfaces). Scan all of myOrganizations and return
+  // the first match — the membership gate is enforced by the fact
+  // that myOrganizations only contains orgs the user belongs to.
   let agent = null;
   let org = null;
   for (const o of orgsData.myOrganizations) {
@@ -41,7 +53,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }
   }
 
-  if (!agent || !org) throw error(404, 'Agent not found');
+  if (!agent || !org) throw error(404, 'Agent not found or no longer available');
 
   // 006-asset-upload-redesign FR-013: per-agent asset-upload toggle is
   // gone. The v1 callerApp/assetUploadEnabled lookup is removed; the

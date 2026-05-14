@@ -202,6 +202,25 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
   // provisioning; this is the shape users currently land in. Lock in
   // that the layout's isConsumerMode derivation matches the server's
   // `{ not: true }` filter.
+  // Spec 018 regression — the segment-3 rewrite is gated to /app/orgs/.
+  // Previously it fired on any route with an [id] segment (including
+  // /app/agents/[id]), which corrupted the agent id with the active org
+  // id and forced the agent detail page to 404 on a URL it never asked
+  // for. The rewrite MUST remain a no-op on non-/app/orgs/ paths.
+  it('Spec 018: does NOT rewrite segment 3 on /app/agents/[id] when params.id is the agent id', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({
+      paramsId: 'agent-abc-not-an-org-id',
+      pathname: '/app/agents/agent-abc-not-an-org-id',
+    }));
+
+    // No redirect — load returns normally with the personal org active.
+    expect(data.activeOrgId).toBe('org-personal');
+  });
+
   it('sets isConsumerMode=true when the sole org has isVisible=false (server provisioning shape)', async () => {
     const personalFalse = makeOrg({ id: 'org-personal-false', isVisible: false });
     mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personalFalse] });
