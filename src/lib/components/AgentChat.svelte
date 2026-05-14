@@ -143,12 +143,15 @@
       });
       const body = await res.json();
       if (!res.ok) {
-        // Spec 017 FR-006 / SC-005 — surface the no-app-context error
-        // with the documented i18n copy so the user can act on it.
+        // Spec 017 FR-006 / SC-005 — surface the scoped error keys with
+        // the documented i18n copy so the user can act on each failure.
         if (body.error === 'shared-chat-requires-app-context') {
           throw new Error(
             `${chatScopeStrings.errorNoAppContextTitle()} — ${chatScopeStrings.errorNoAppContextBody()}`,
           );
+        }
+        if (body.error === 'shared-chat-not-available-for-app-sessions') {
+          throw new Error(chatScopeStrings.errorAppSessionShared());
         }
         throw new Error(body.error ?? 'Failed to start chat');
       }
@@ -162,6 +165,11 @@
         // here on.
         scope: body.scope === 'shared' ? 'shared' : 'private',
       };
+      // Spec 017 D3 (safety > collaboration): reset the picker to
+      // 'private' after a successful chat creation so the user makes a
+      // deliberate choice for every shared chat, instead of inheriting
+      // the previous chat's audience.
+      nextChatScope = 'private';
       // Spec 016 — welcome turn is best-effort. Only render the
       // welcome bubble when the server actually produced one; on
       // welcomeError, surface a soft hint and leave the transcript
@@ -662,12 +670,16 @@
 </div>
 
 {#if pendingDeleteChatId}
+  {@const pendingDeleteChat = chats.find((c) => c.loc === pendingDeleteChatId)}
+  {@const pendingDeleteScope =
+    pendingDeleteChat?.scope === 'shared' ? 'shared' : 'private'}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
     <div class="max-w-md rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <h3 class="mb-2 text-base font-semibold text-zinc-900 dark:text-white">Delete this chat?</h3>
       <p class="mb-4 text-sm text-zinc-500">
-        This will remove the chat and all its messages from your personal memory.
-        This can't be undone.
+        {pendingDeleteScope === 'shared'
+          ? chatScopeStrings.deleteConfirmShared()
+          : chatScopeStrings.deleteConfirmPrivate()}
       </p>
       <div class="flex justify-end gap-2">
         <button

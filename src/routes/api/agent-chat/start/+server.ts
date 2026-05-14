@@ -4,6 +4,20 @@ import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import type { RequestHandler } from './$types';
 
+/** Extract the typed error code that hadron-server's `ChatScopeError`
+ *  exposes via `GraphQLError.extensions.code`. Returns null when the
+ *  thrown value isn't shaped like a graphql-request error or has no
+ *  extensions.code (e.g. legacy non-GraphQLError throws). */
+function getGqlErrorCode(e: unknown): string | null {
+  if (!e || typeof e !== 'object') return null;
+  const errs = (
+    e as {
+      response?: { errors?: Array<{ extensions?: { code?: string } }> };
+    }
+  ).response?.errors;
+  return errs?.[0]?.extensions?.code ?? null;
+}
+
 /**
  * POST /api/agent-chat/start
  * Body: { agentId: string, conversationName?: string, scope?: 'private' | 'shared' }
@@ -84,13 +98,38 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     stageName = startResult.startChat.stageName;
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to start chat';
-    // Spec 017 FR-006 / SC-005: when scope='shared' is rejected for no
-    // qualifying AppMember context, surface a structured error body so the
-    // portal can name the missing prerequisite to the user.
-    if (msg.includes('SHARED_CHAT_REQUIRES_APP_CONTEXT') || msg.toLowerCase().includes('not a member of any app')) {
+    // Spec 017 FR-006 / SC-005 — distinguish ChatScopeError sub-codes so
+    // the portal can render an actionable message per failure mode.
+    //
+    // Wire format: hadron-server's `ChatScopeError` extends `GraphQLError`
+    // with `extensions: { code }`, so `extensions.code` is the primary
+    // signal. The English `message.toLowerCase().includes(...)` checks
+    // below are a defense-in-depth fallback for environments where the
+    // server hasn't yet shipped the `extends GraphQLError` change — they
+    // can be removed once the deploy is confirmed.
+    const code = getGqlErrorCode(e);
+    if (
+      code === 'SHARED_CHAT_REQUIRES_APP_CONTEXT' ||
+      msg.toLowerCase().includes('not a member of any app')
+    ) {
       return new Response(
         JSON.stringify({
           error: 'shared-chat-requires-app-context',
+          message: msg,
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (
+      code === 'SHARED_CHAT_NOT_AVAILABLE_FOR_APP_SESSIONS' ||
+      msg.toLowerCase().includes('not available for mcp app-key sessions')
+    ) {
+      // Practically unreachable via the portal (/api/agent-chat/start is
+      // JWT-only), but kept so MCP-App-key callers via this endpoint get
+      // a typed response instead of a 500.
+      return new Response(
+        JSON.stringify({
+          error: 'shared-chat-not-available-for-app-sessions',
           message: msg,
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } },

@@ -202,16 +202,104 @@ describe('POST /api/agent-chat/start', () => {
     expect(mockRequest.mock.calls[0][1].scope).toBe('private');
   });
 
-  it('returns 400 with shared-chat-requires-app-context when the server rejects a shared chat', async () => {
+  it('returns 400 with shared-chat-requires-app-context when the server rejects a shared chat (English fallback)', async () => {
     mockRequest.mockRejectedValueOnce(
-      new Error('SHARED_CHAT_REQUIRES_APP_CONTEXT: not a member of any App'),
+      new Error("Cannot create a shared chat — you are not a member of any App that installs this Agent."),
     );
     const { POST } = await import('./start/+server');
     const res = await POST(ev({ body: { agentId: 'a1', scope: 'shared' } }));
     expect(res.status).toBe(400);
     const body = await jsonOf(res);
     expect(body.error).toBe('shared-chat-requires-app-context');
-    expect(body.message).toMatch(/SHARED_CHAT_REQUIRES_APP_CONTEXT|not a member/);
+    expect(body.message).toMatch(/not a member/i);
+  });
+
+  // hadron-server's `ChatScopeError` extends GraphQLError so Apollo
+  // emits `extensions.code` on the wire. Reading it is more reliable
+  // than substring-matching English messages — covered by the test
+  // below — but the English fallback above is kept as defense in depth.
+  it('returns 400 with shared-chat-requires-app-context via extensions.code (primary path)', async () => {
+    mockRequest.mockRejectedValueOnce(
+      Object.assign(new Error('msg-from-server'), {
+        response: {
+          errors: [
+            {
+              message: 'msg-from-server',
+              extensions: { code: 'SHARED_CHAT_REQUIRES_APP_CONTEXT' },
+            },
+          ],
+        },
+      }),
+    );
+    const { POST } = await import('./start/+server');
+    const res = await POST(ev({ body: { agentId: 'a1', scope: 'shared' } }));
+    expect(res.status).toBe(400);
+    expect((await jsonOf(res)).error).toBe('shared-chat-requires-app-context');
+  });
+
+  it('returns 400 with shared-chat-not-available-for-app-sessions via extensions.code', async () => {
+    mockRequest.mockRejectedValueOnce(
+      Object.assign(new Error('msg-from-server'), {
+        response: {
+          errors: [
+            {
+              message: 'msg-from-server',
+              extensions: { code: 'SHARED_CHAT_NOT_AVAILABLE_FOR_APP_SESSIONS' },
+            },
+          ],
+        },
+      }),
+    );
+    const { POST } = await import('./start/+server');
+    const res = await POST(ev({ body: { agentId: 'a1', scope: 'shared' } }));
+    expect(res.status).toBe(400);
+    expect((await jsonOf(res)).error).toBe('shared-chat-not-available-for-app-sessions');
+  });
+
+  it('returns 400 for app-session-shared via the English fallback (extensions.code absent)', async () => {
+    mockRequest.mockRejectedValueOnce(
+      new Error("Shared chats are not available for MCP App-key sessions — start the chat from a signed-in user surface."),
+    );
+    const { POST } = await import('./start/+server');
+    const res = await POST(ev({ body: { agentId: 'a1', scope: 'shared' } }));
+    expect(res.status).toBe(400);
+    expect((await jsonOf(res)).error).toBe('shared-chat-not-available-for-app-sessions');
+  });
+
+  // Scope-coercion edge cases. The load-bearing safety property here is
+  // that `body.scope === 'shared'` is the ONLY input that produces
+  // shared; anything else (including capitalization variants, null,
+  // undefined, and bogus values) coerces to 'private'.
+  it('coerces undefined scope to private', async () => {
+    mockRequest.mockResolvedValueOnce({
+      startChat: { chatId: 'x', systemMessage: '', tools: null, conversationName: null, stageName: null },
+    });
+    mockRunChatTurn.mockResolvedValueOnce({ assistantMessage: '', stageTransitioned: false, newStageName: null, chatEnded: false });
+    const { POST } = await import('./start/+server');
+    await POST(ev({ body: { agentId: 'a1' } })); // scope omitted
+    expect(mockRequest.mock.calls[0][1].scope).toBe('private');
+  });
+
+  it('coerces null scope to private', async () => {
+    mockRequest.mockResolvedValueOnce({
+      startChat: { chatId: 'x', systemMessage: '', tools: null, conversationName: null, stageName: null },
+    });
+    mockRunChatTurn.mockResolvedValueOnce({ assistantMessage: '', stageTransitioned: false, newStageName: null, chatEnded: false });
+    const { POST } = await import('./start/+server');
+    await POST(ev({ body: { agentId: 'a1', scope: null } as any }));
+    expect(mockRequest.mock.calls[0][1].scope).toBe('private');
+  });
+
+  it('coerces capitalization variants (Shared, SHARED) to private', async () => {
+    mockRequest.mockResolvedValue({
+      startChat: { chatId: 'x', systemMessage: '', tools: null, conversationName: null, stageName: null },
+    });
+    mockRunChatTurn.mockResolvedValue({ assistantMessage: '', stageTransitioned: false, newStageName: null, chatEnded: false });
+    const { POST } = await import('./start/+server');
+    await POST(ev({ body: { agentId: 'a1', scope: 'Shared' } as any }));
+    expect(mockRequest.mock.calls[0][1].scope).toBe('private');
+    await POST(ev({ body: { agentId: 'a1', scope: 'SHARED' } as any }));
+    expect(mockRequest.mock.calls[1][1].scope).toBe('private');
   });
 
   it('returns 500 when startChat mutation fails', async () => {
