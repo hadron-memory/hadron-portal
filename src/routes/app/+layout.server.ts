@@ -50,7 +50,18 @@ export const load: LayoutServerLoad = async ({ locals, url, params }) => {
   // /app/orgs/<id>/...) rather than using string replace, so an org id
   // that happens to appear as a substring elsewhere in the path can't
   // cause the wrong segment to be rewritten.
-  if (paramsId && resolution.activeOrgId && resolution.activeOrgId !== paramsId) {
+  //
+  // Spec 018: gate on /app/orgs/ — `params.id` exists on every route
+  // with an `[id]` segment, including /app/agents/[id]/, where segment
+  // 3 is the AGENT id, not an org id. Without this gate the layout
+  // rewrote the agent id to the active org id and the agent detail
+  // page 404'd on a URL it never asked for.
+  if (
+    url.pathname.startsWith('/app/orgs/') &&
+    paramsId &&
+    resolution.activeOrgId &&
+    resolution.activeOrgId !== paramsId
+  ) {
     const segments = url.pathname.split('/');
     segments[3] = resolution.activeOrgId;
     redirect(302, segments.join('/') + url.search);
