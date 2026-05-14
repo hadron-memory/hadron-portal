@@ -98,6 +98,19 @@ export async function callAgentChatLlm(args: {
     ? [{ role: 'user' as const, content: 'Please begin the conversation.' }]
     : messages;
 
+  // Normalize the system prompt before handing it to the SDK.
+  //   - The Bedrock Converse adapter (and others) splits the system string
+  //     into structured blocks; a trailing empty segment trips the API's
+  //     "system.N.member.text" length-≥-1 validation.
+  //   - An empty / whitespace-only string can yield an empty block at
+  //     index 0; preferring `undefined` over `""` keeps providers from
+  //     constructing a degenerate system payload at all.
+  //   - Trim trailing whitespace specifically because the chat-bootstrap
+  //     path can produce strings like `"<agent prompt>\n\n"` when a stage
+  //     prompt is empty (see startChat resolver).
+  const trimmedSystem = systemMessage.trim();
+  const systemForSdk = trimmedSystem.length > 0 ? trimmedSystem : undefined;
+
   // Find the respond tool. Hadron always ships a single tool per stage but
   // the array shape leaves room for more later.
   const respondTool = (args.tools ?? []).find((t) => t.name === 'respond');
@@ -107,7 +120,7 @@ export async function callAgentChatLlm(args: {
     // path still works.
     const result = await generateText({
       model: languageModel,
-      system: systemMessage,
+      system: systemForSdk,
       messages: effectiveMessages.map((m) => ({ role: m.role, content: m.content })),
     });
     return {
@@ -135,7 +148,7 @@ export async function callAgentChatLlm(args: {
 
   const result = await generateText({
     model: languageModel,
-    system: systemMessage,
+    system: systemForSdk,
     messages: effectiveMessages.map((m) => ({ role: m.role, content: m.content })),
     tools: { respond: respondVercelTool },
     // Force the LLM to call the respond tool on every turn. This is the
