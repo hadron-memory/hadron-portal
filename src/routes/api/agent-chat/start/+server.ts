@@ -4,14 +4,34 @@ import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import type { RequestHandler } from './$types';
 
+/** Extract the typed error code that hadron-server's `ChatScopeError`
+ *  exposes via `GraphQLError.extensions.code`. Returns null when the
+ *  thrown value isn't shaped like a graphql-request error or has no
+ *  extensions.code (e.g. legacy non-GraphQLError throws). */
+function getGqlErrorCode(e: unknown): string | null {
+  if (!e || typeof e !== 'object') return null;
+  const errs = (
+    e as {
+      response?: { errors?: Array<{ extensions?: { code?: string } }> };
+    }
+  ).response?.errors;
+  return errs?.[0]?.extensions?.code ?? null;
+}
+
 /**
  * POST /api/agent-chat/start
- * Body: { agentId: string, conversationName?: string }
+ * Body: { agentId: string, conversationName?: string, scope?: 'private' | 'shared' }
  *
- * Creates a new chat node in the user's personal memory for the agent,
- * then runs one "welcome" LLM turn so the agent greets the user before
- * they type anything. Returns the chatId, the welcome message, and the
- * initial conversation/stage so the UI can render immediately.
+ * Spec 017: scope defaults to 'private' (FR-003). A 'shared' request requires
+ * a resolvable App context server-side; if none, the server throws
+ * SHARED_CHAT_REQUIRES_APP_CONTEXT which this handler surfaces to the portal
+ * as a structured 400 body.
+ *
+ * Creates a new chat node in the matching memory (personal for private,
+ * app-class for shared), then runs one "welcome" LLM turn so the agent
+ * greets the user before they type anything. Returns the chatId, the
+ * welcome message, and the initial conversation/stage so the UI can
+ * render immediately.
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
@@ -21,7 +41,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     });
   }
 
-  let body: { agentId?: string; conversationName?: string };
+  let body: { agentId?: string; conversationName?: string; scope?: 'private' | 'shared' };
   try {
     body = await request.json();
   } catch {
@@ -36,6 +56,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   }
+
+  // Spec 017: scope defaults to 'private' per FR-003.
+  const scope: 'private' | 'shared' = body.scope === 'shared' ? 'shared' : 'private';
 
   // Spec 016 — startChat and the welcome turn used to be coupled: a
   // failed welcome (missing AI config, agent with no conversations
@@ -66,6 +89,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }>(START_CHAT_MUTATION, {
       agentId: body.agentId,
       conversationName: body.conversationName ?? null,
+      scope,
     });
     chatId = startResult.startChat.chatId;
     systemMessage = startResult.startChat.systemMessage;
@@ -74,6 +98,43 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     stageName = startResult.startChat.stageName;
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Failed to start chat';
+    // Spec 017 FR-006 / SC-005 — distinguish ChatScopeError sub-codes so
+    // the portal can render an actionable message per failure mode.
+    //
+    // Wire format: hadron-server's `ChatScopeError` extends `GraphQLError`
+    // with `extensions: { code }`, so `extensions.code` is the primary
+    // signal. The English `message.toLowerCase().includes(...)` checks
+    // below are a defense-in-depth fallback for environments where the
+    // server hasn't yet shipped the `extends GraphQLError` change — they
+    // can be removed once the deploy is confirmed.
+    const code = getGqlErrorCode(e);
+    if (
+      code === 'SHARED_CHAT_REQUIRES_APP_CONTEXT' ||
+      msg.toLowerCase().includes('not a member of any app')
+    ) {
+      return new Response(
+        JSON.stringify({
+          error: 'shared-chat-requires-app-context',
+          message: msg,
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
+    if (
+      code === 'SHARED_CHAT_NOT_AVAILABLE_FOR_APP_SESSIONS' ||
+      msg.toLowerCase().includes('not available for mcp app-key sessions')
+    ) {
+      // Practically unreachable via the portal (/api/agent-chat/start is
+      // JWT-only), but kept so MCP-App-key callers via this endpoint get
+      // a typed response instead of a 500.
+      return new Response(
+        JSON.stringify({
+          error: 'shared-chat-not-available-for-app-sessions',
+          message: msg,
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      );
+    }
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
@@ -112,6 +173,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       welcomeMessage,
       welcomeError,
       stageTransitioned,
+      scope,
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   );

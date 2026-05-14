@@ -9,6 +9,7 @@
   import type { AssetSummary } from '$lib/api/assetUpload';
   import { resolveActiveChatFromUrl } from '$lib/components/agent-chat-helpers.js';
   import { t } from '$lib/i18n/t.js';
+  import { chatScopeStrings } from '$lib/i18n/chat-scope-strings.js';
 
   function renderMarkdown(text: string): string {
     const raw = marked.parse(text, { async: false }) as string;
@@ -40,7 +41,13 @@
     title: string;
     conversationName: string | null;
     stageName: string | null;
+    /** Spec 017 — chosen at creation, immutable per FR-002. */
+    scope: 'private' | 'shared';
   } | null>(null);
+
+  // Spec 017 — composer-header scope picker. The user's pending choice
+  // for the NEXT chat they start. Defaults to 'private' per FR-003.
+  let nextChatScope = $state<'private' | 'shared'>('private');
   let messages = $state<ChatMessage[]>([]);
   let loadingChat = $state(false);
 
@@ -132,17 +139,37 @@
       const res = await fetch('/api/agent-chat/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId }),
+        body: JSON.stringify({ agentId, scope: nextChatScope }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? 'Failed to start chat');
+      if (!res.ok) {
+        // Spec 017 FR-006 / SC-005 — surface the scoped error keys with
+        // the documented i18n copy so the user can act on each failure.
+        if (body.error === 'shared-chat-requires-app-context') {
+          throw new Error(
+            `${chatScopeStrings.errorNoAppContextTitle()} — ${chatScopeStrings.errorNoAppContextBody()}`,
+          );
+        }
+        if (body.error === 'shared-chat-not-available-for-app-sessions') {
+          throw new Error(chatScopeStrings.errorAppSessionShared());
+        }
+        throw new Error(body.error ?? 'Failed to start chat');
+      }
       activeChatId = body.chatId;
       syncChatIdToUrl(activeChatId);
       activeChatMeta = {
         title: t('agent-chat.new-chat-title', 'New chat'),
         conversationName: body.conversationName,
         stageName: body.stageName,
+        // Spec 017 — record the scope used at creation; immutable from
+        // here on.
+        scope: body.scope === 'shared' ? 'shared' : 'private',
       };
+      // Spec 017 D3 (safety > collaboration): reset the picker to
+      // 'private' after a successful chat creation so the user makes a
+      // deliberate choice for every shared chat, instead of inheriting
+      // the previous chat's audience.
+      nextChatScope = 'private';
       // Spec 016 — welcome turn is best-effort. Only render the
       // welcome bubble when the server actually produced one; on
       // welcomeError, surface a soft hint and leave the transcript
@@ -197,6 +224,9 @@
         title: body.chat.title,
         conversationName: body.chat.conversationName,
         stageName: body.chat.stageName,
+        // Spec 017 — scope is part of the chat metadata; pulled through
+        // from MY_CHATS_QUERY which now selects it.
+        scope: body.chat.scope === 'shared' ? 'shared' : 'private',
       };
       messages = body.messages ?? [];
       scrollMessagesToBottom();
@@ -370,6 +400,43 @@
   <!-- ── Chat list sidebar ───────────────────────────────────────────── -->
   <aside class="flex w-64 shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-800">
     <div class="border-b border-zinc-200 p-3 dark:border-zinc-800">
+      <!-- Spec 017 — segmented scope picker. The user's choice here
+           dictates the next chat's tier when they click "+ New chat".
+           Default = Private per FR-003. Hidden Shared option (per
+           FR-006/SC-005) would need an AppMember check that isn't yet
+           plumbed into this component — the server still rejects an
+           unqualified Shared request and the rejection surfaces inline
+           below as a turnError. -->
+      <div
+        class="mb-2 grid grid-cols-2 gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-[11px] font-medium dark:border-zinc-800 dark:bg-zinc-950"
+        role="group"
+        aria-label={t('agent-chat.scope-picker.label', 'Chat scope')}
+      >
+        <button
+          type="button"
+          onclick={() => (nextChatScope = 'private')}
+          class="rounded-md px-2 py-1 transition
+            {nextChatScope === 'private'
+              ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white'
+              : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'}"
+          title={chatScopeStrings.pickerHelpPrivate()}
+          aria-pressed={nextChatScope === 'private'}
+        >
+          {chatScopeStrings.pickerPrivate()}
+        </button>
+        <button
+          type="button"
+          onclick={() => (nextChatScope = 'shared')}
+          class="rounded-md px-2 py-1 transition
+            {nextChatScope === 'shared'
+              ? 'bg-white text-zinc-900 shadow-sm dark:bg-zinc-800 dark:text-white'
+              : 'text-zinc-500 hover:text-zinc-700 dark:text-zinc-400'}"
+          title={chatScopeStrings.pickerHelpShared()}
+          aria-pressed={nextChatScope === 'shared'}
+        >
+          {chatScopeStrings.pickerSharedFallback()}
+        </button>
+      </div>
       <button
         type="button"
         onclick={startNewChat}
@@ -413,7 +480,23 @@
                       ? 'bg-indigo-50 text-indigo-900 dark:bg-indigo-950/40 dark:text-indigo-200'
                       : 'text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
                 >
-                  <div class="truncate font-medium">{chat.title}</div>
+                  <div class="flex items-center gap-1.5">
+                    <span class="truncate font-medium">{chat.title}</span>
+                    <!-- Spec 017 — scope badge per row (FR-009) -->
+                    <span
+                      class="shrink-0 rounded px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide
+                        {chat.scope === 'shared'
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                          : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}"
+                      title={chat.scope === 'shared'
+                        ? chatScopeStrings.pickerHelpShared()
+                        : chatScopeStrings.pickerHelpPrivate()}
+                    >
+                      {chat.scope === 'shared'
+                        ? chatScopeStrings.badgeShared()
+                        : chatScopeStrings.badgePrivate()}
+                    </span>
+                  </div>
                   <div class="mt-0.5 flex items-center gap-2 text-[10px] text-zinc-400">
                     <span>{chat.messageCount} msg{chat.messageCount === 1 ? '' : 's'}</span>
                     {#if chat.lastMessageAt}
@@ -454,9 +537,28 @@
       <!-- Header -->
       <header class="flex items-center gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
         <div class="min-w-0 flex-1">
-          <h3 class="truncate text-sm font-semibold text-zinc-900 dark:text-white">
-            {activeChatMeta?.title ?? 'New chat'}
-          </h3>
+          <div class="flex items-center gap-2">
+            <h3 class="truncate text-sm font-semibold text-zinc-900 dark:text-white">
+              {activeChatMeta?.title ?? t('agent-chat.new-chat-title', 'New chat')}
+            </h3>
+            {#if activeChatMeta}
+              <!-- Spec 017 — active-chat scope label (FR-010): keep the
+                   user aware of the audience while they're composing. -->
+              <span
+                class="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide
+                  {activeChatMeta.scope === 'shared'
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300'
+                    : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}"
+                title={activeChatMeta.scope === 'shared'
+                  ? chatScopeStrings.pickerHelpShared()
+                  : chatScopeStrings.pickerHelpPrivate()}
+              >
+                {activeChatMeta.scope === 'shared'
+                  ? chatScopeStrings.badgeShared()
+                  : chatScopeStrings.badgePrivate()}
+              </span>
+            {/if}
+          </div>
           <div class="mt-0.5 flex items-center gap-2 text-[10px] text-zinc-400">
             {#if activeChatMeta?.conversationName}
               <span class="rounded bg-zinc-100 px-1.5 py-0.5 font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
@@ -568,12 +670,16 @@
 </div>
 
 {#if pendingDeleteChatId}
+  {@const pendingDeleteChat = chats.find((c) => c.loc === pendingDeleteChatId)}
+  {@const pendingDeleteScope =
+    pendingDeleteChat?.scope === 'shared' ? 'shared' : 'private'}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
     <div class="max-w-md rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
       <h3 class="mb-2 text-base font-semibold text-zinc-900 dark:text-white">Delete this chat?</h3>
       <p class="mb-4 text-sm text-zinc-500">
-        This will remove the chat and all its messages from your personal memory.
-        This can't be undone.
+        {pendingDeleteScope === 'shared'
+          ? chatScopeStrings.deleteConfirmShared()
+          : chatScopeStrings.deleteConfirmPrivate()}
       </p>
       <div class="flex justify-end gap-2">
         <button

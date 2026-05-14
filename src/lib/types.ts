@@ -93,7 +93,7 @@ export interface AgentImport {
   createdAt: string;
 }
 
-/** A saved chat in a user's personal memory for an agent. */
+/** A saved chat — private chats live in the user's personal memory; shared chats live in the App's app-class memory. */
 export interface Chat {
   id: string;
   loc: string;
@@ -103,6 +103,10 @@ export interface Chat {
   messageCount: number;
   createdAt: string;
   lastMessageAt: string | null;
+  /** Spec 017 — chat-scope tier. */
+  scope: 'private' | 'shared';
+  /** Spec 017 — chat author (chat-root createdBy). Null on legacy chats. */
+  createdBy: string | null;
 }
 
 /** One message in a chat history. */
