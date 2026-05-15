@@ -816,11 +816,13 @@ export const START_CHAT_MUTATION = /* GraphQL */ `
     $agentId: ID!
     $conversationName: String
     $scope: ChatScope
+    $isTestRun: Boolean
   ) {
     startChat(
       agentId: $agentId
       conversationName: $conversationName
       scope: $scope
+      isTestRun: $isTestRun
     ) {
       chatId
       systemMessage

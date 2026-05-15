@@ -11,9 +11,18 @@ import type { RequestHandler } from './$types';
  * Spec 019 — Agent Chat Tester. Runs a single test message against an
  * agent's chatbot and returns the reply plus a structured route trace.
  * In US2, the endpoint also evaluates an optional assertion in one of
- * three modes: literal-contains, regex, or llm-judge. Production-state
- * isolation (FR-015 / SC-005) is preserved by NOT calling
- * SAVE_CHAT_SUMMARY_MUTATION or any training/feedback path.
+ * three modes: literal-contains, regex, or llm-judge.
+ *
+ * Production-state isolation (FR-015 / SC-005) is **partial** in v1.
+ * The endpoint passes `isTestRun: true` to `startChat`, which skips
+ * the cross-cutting `AgentSubscription` auto-provision side-effect
+ * (the only piece that bleeds beyond the chatbot feature into the
+ * platform's license-grant model). The chat itself still creates real
+ * chat-root + message + route-history rows in the user's per-agent
+ * memory, and the agent's extraction spec still writes back facts.
+ * Full isolation is the topic of the
+ * `tester-vs-production-memory-boundary` design discussion. Users are
+ * notified of the v1 limitation in the Tester UI.
  *
  * Body: { agentId, message, persona?, resetSession?, assertion? }
  */
@@ -57,6 +66,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   try {
     const client = gqlClient(locals.token);
 
+    // Spec 019: scope hardcoded to 'private' — no user-facing knob.
+    // Sharing a test run to every AppMember would be a privacy/audit
+    // hazard that the Tester is supposed to avoid. isTestRun=true skips
+    // the AgentSubscription auto-provision side-effect on the server.
     const startResult = await client.request<{
       startChat: {
         chatId: string;
@@ -68,6 +81,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }>(START_CHAT_MUTATION, {
       agentId: body.agentId,
       conversationName: null,
+      scope: 'private',
+      isTestRun: true,
     });
 
     const { chatId, conversationName, stageName } = startResult.startChat;

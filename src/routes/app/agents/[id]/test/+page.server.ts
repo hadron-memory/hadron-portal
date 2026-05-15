@@ -3,7 +3,7 @@ import { gqlClient } from '$lib/server/api';
 import { MY_ORGANIZATIONS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
 import { requireNonConsumer } from '$lib/server/guards';
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
-import type { Organization } from '$lib/types';
+import type { Agent, Organization } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 // Spec 019 — Agent Chat Tester. The loader resolves the agent through
@@ -17,7 +17,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   const orgsData = await client.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY);
 
-  let agent: Organization['agents'][number] | null = null;
+  let agent: Agent | null = null;
   let org: Organization | null = null;
   for (const o of orgsData.myOrganizations) {
     const found = (o.agents ?? []).find((a) => a.id === params.id);

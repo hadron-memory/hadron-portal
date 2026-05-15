@@ -41,10 +41,19 @@ import type { RequestHandler } from './$types';
  */
 
 const DEFAULT_COST_CAP_USD = 0.10;
-// Rough estimate per llm-judge call (input ~300 + output ~80 tokens
-// on a Claude-Sonnet-class model at typical pricing). Real costs vary
-// by provider and model; this is a defensive upper-bound order-of-
-// magnitude check.
+// Rough estimates per call on a Claude-Sonnet-class model at typical
+// pricing. Real costs vary by provider and model; the goal here is
+// order-of-magnitude defense, not accounting.
+//
+// Per fixture run we make 2 agent LLM calls (welcome turn + the
+// user-message turn). The judge is an optional add-on.
+//
+// Bypass note: this is a per-`Run all` cap — running fixtures one at
+// a time still bypasses it. Tightening to a rolling per-org / per-user
+// budget is deferred to the production-state-isolation design
+// discussion since both concerns share the same architectural seam.
+const EST_USD_PER_AGENT_TURN = 0.01;
+const EST_AGENT_TURNS_PER_FIXTURE = 2;
 const EST_USD_PER_JUDGE_CALL = 0.005;
 
 async function resolveAgent(token: string, agentId: string): Promise<{
@@ -86,9 +95,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ error: body.fixtureLoc ? 'Fixture not found' : 'No fixtures to run' }, 404);
   }
 
-  // Cost cap (LLM-judge assertions only).
+  // Cost cap: count both the agent's own LLM turns (2 per fixture)
+  // AND the optional llm-judge call (1 per fixture that uses judge
+  // mode). The agent calls dominate; counting only the judge — as the
+  // pre-salvage version did — under-reported by an order of magnitude.
   const judgeCalls = target.filter((t) => t.record.turns[0].assertion?.mode === 'llm-judge').length;
-  const estimatedCost = judgeCalls * EST_USD_PER_JUDGE_CALL;
+  const agentCost = target.length * EST_AGENT_TURNS_PER_FIXTURE * EST_USD_PER_AGENT_TURN;
+  const judgeCost = judgeCalls * EST_USD_PER_JUDGE_CALL;
+  const estimatedCost = agentCost + judgeCost;
   if (estimatedCost > DEFAULT_COST_CAP_USD && !body.costCapAcknowledged) {
     return json({
       error: 'cost-cap-exceeded',
@@ -212,7 +226,15 @@ async function runOneFixture(
       conversationName: string | null;
       stageName: string | null;
     };
-  }>(START_CHAT_MUTATION, { agentId, conversationName: null });
+  }>(START_CHAT_MUTATION, {
+    agentId,
+    conversationName: null,
+    // Spec 019: match the test-run endpoint's posture. scope hardcoded
+    // to private (no sharing a fixture run across AppMembers);
+    // isTestRun skips the AgentSubscription side-effect.
+    scope: 'private',
+    isTestRun: true,
+  });
 
   const { chatId, conversationName, stageName } = startResult.startChat;
 

@@ -252,9 +252,22 @@
       {t('agent-tester.heading', 'Test chatbot')}: {agent.name}
     </h1>
     <p class="text-sm text-zinc-500 dark:text-zinc-400">
-      {t('agent-tester.subhead', 'Send a single message to probe routing, personas, and stage transitions. Each run starts a fresh session — no production state is written.')}
+      {t('agent-tester.subhead', 'Send a single message to probe routing and stage transitions.')}
     </p>
   </header>
+
+  <!-- v1 honesty notice: the Tester drives the real chat platform.
+       Full production-state isolation is the topic of the
+       tester-vs-production-memory-boundary design discussion. -->
+  <section class="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+    <p>
+      <strong class="font-semibold">{t('agent-tester.notice.heading', 'Test runs are real chats')}:</strong>
+      {t(
+        'agent-tester.notice.body',
+        'each run creates a chat in your history under this agent and may write extracted facts back into your personal memory. The platform license-grant (AgentSubscription) is the one side-effect that is suppressed. Cleaner test-only isolation is planned.',
+      )}
+    </p>
+  </section>
 
   {#if !llmReady}
     <section class="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">

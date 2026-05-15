@@ -6,16 +6,14 @@
  *   returns reply + routeTrace.
  * - Auth gate (401), input validation (400), unconfigured-LLM gate
  *   (409).
- * - Production-state isolation (SC-005 / FR-015): the endpoint MUST
- *   NOT call SAVE_CHAT_SUMMARY_MUTATION or training-record paths.
+ * - Cross-cutting AgentSubscription side-effect skipped via
+ *   `isTestRun: true` on startChat (the only piece of production-state
+ *   isolation actually enforced in v1).
  * - US2 (T015): assertion-mode handling for literal-contains, regex,
  *   and llm-judge.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  START_CHAT_MUTATION,
-  SAVE_CHAT_SUMMARY_MUTATION,
-} from '$lib/server/queries';
+import { START_CHAT_MUTATION } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 const mockRunChatTurn = vi.fn();
@@ -144,16 +142,28 @@ describe('POST /api/agent-chat/test-run', () => {
     expect(body.assertion).toBeNull();
   });
 
-  it('Production-state isolation (FR-015 / SC-005): MUST NOT call SAVE_CHAT_SUMMARY_MUTATION', async () => {
+  // Spec 019: the only piece of "production-state isolation" actually
+  // enforced in v1 is the AgentSubscription side-effect — gated on the
+  // `isTestRun: true` arg the endpoint passes to startChat. Verify the
+  // arg is in the GraphQL variables; the server-side test in
+  // hadron-server's `resolvers.agentChat.test.ts` covers the
+  // skip-on-true assertion against the actual database.
+  //
+  // (The earlier `SAVE_CHAT_SUMMARY_MUTATION` no-leak assertion was
+  // removed — it asserted the endpoint didn't directly call a mutation
+  // that lives inside the mocked `runChatTurn` function, so it was
+  // structurally incapable of failing. The honest contract is captured
+  // here on the call we do make, not on a call we never made.)
+  it('passes isTestRun=true and scope=private on startChat', async () => {
     mockHappyPath();
     const POST = await importPOST();
     await POST(ev({ body: { agentId: 'a', message: 'hello' } }));
 
-    // Collect every GraphQL query the endpoint actually fired.
-    const calledQueries = mockRequest.mock.calls.map((c) => c[0] as string);
-    expect(calledQueries).not.toContain(SAVE_CHAT_SUMMARY_MUTATION);
-    // (test-persona endpoint also doesn't fire it; we inherit that
-    // isolation behavior by simply not calling it.)
+    const startCall = mockRequest.mock.calls.find((c) => c[0] === START_CHAT_MUTATION);
+    expect(startCall).toBeDefined();
+    const vars = startCall![1] as Record<string, unknown>;
+    expect(vars.isTestRun).toBe(true);
+    expect(vars.scope).toBe('private');
   });
 
   // ─── US2: assertion modes (T015) ───────────────────────────────────────

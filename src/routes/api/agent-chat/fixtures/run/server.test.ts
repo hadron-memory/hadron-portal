@@ -177,8 +177,10 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     expect(body.summary.totalRuns).toBe(2);
   });
 
-  it('cost-cap exceeded: returns 409 with the estimate when many llm-judge fixtures exist', async () => {
-    // 25 llm-judge fixtures × $0.005 = $0.125 > $0.10 default cap.
+  it('cost-cap exceeded: returns 409 with the estimate when batch cost exceeds the cap', async () => {
+    // 25 fixtures × 2 agent-turns × $0.01 = $0.50 agent cost,
+    // + 25 llm-judge × $0.005 = $0.125 judge cost
+    // = $0.625 total > $0.10 default cap.
     const nodes = Array.from({ length: 25 }, (_, i) =>
       fixtureNode(`fixtures:${i.toString().padStart(3, '0')}`, { assertionMode: 'llm-judge' }),
     );
