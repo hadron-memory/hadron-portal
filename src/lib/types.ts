@@ -139,6 +139,10 @@ export interface App {
   // 008-agent-installation: direct FK to Agent (replaces the AppAgent join).
   agentId: string | null;
   agent: AppAgentSummary | null;
+  // Spec 021 US1: server-computed R2 canonical install URN
+  // (urn:agent:<installing-org>::<app-slug>::<author-org>:<agent-slug>).
+  // Null when the App has no agent attached.
+  installedAgentUrn: string | null;
   surfaces: string[];
   memberCount: number;
   trainingMode: boolean;

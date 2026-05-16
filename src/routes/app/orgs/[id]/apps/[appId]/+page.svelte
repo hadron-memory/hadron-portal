@@ -738,6 +738,16 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{app.agent.name}</p>
                 <Urn value={app.agent.urn} type="agent" size={10} />
+                {#if app.installedAgentUrn}
+                  <!-- Spec 021 US1: R2 canonical install URN. Surfaces the
+                       canonical form that audit logs reference, so the
+                       user can copy/paste the install URN without
+                       composing it manually. -->
+                  <div class="mt-1">
+                    <span class="mr-1 text-xs text-zinc-500">Install URN:</span>
+                    <Urn value={app.installedAgentUrn} type="agent" size={10} />
+                  </div>
+                {/if}
                 {#if app.agent.description}
                   <p class="mt-1 text-xs text-zinc-500">{app.agent.description}</p>
                 {/if}

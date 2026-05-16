@@ -126,6 +126,9 @@ export const APP_FIELDS = /* GraphQL */ `
       }
       installationPolicy { maxMembers memberRoles }
     }
+    # Spec 021 US1: canonical R2 install URN combining App + Agent
+    # identities. Null when App has no agent attached.
+    installedAgentUrn
     surfaces
     memberCount
     trainingMode
