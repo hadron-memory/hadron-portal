@@ -141,8 +141,12 @@ export interface App {
   agent: AppAgentSummary | null;
   // Spec 021 US1: server-computed R2 canonical install URN
   // (urn:agent:<installing-org>::<app-slug>::<author-org>:<agent-slug>).
-  // Null when the App has no agent attached.
-  installedAgentUrn: string | null;
+  // Optional because not every query that returns App fetches this
+  // field — it lives outside the shared AppFields fragment so list
+  // views, mutations, etc. don't hard-depend on a server-side field
+  // that's only needed by the App detail page. Null when fetched but
+  // the App has no agent attached.
+  installedAgentUrn?: string | null;
   surfaces: string[];
   memberCount: number;
   trainingMode: boolean;

@@ -126,9 +126,6 @@ export const APP_FIELDS = /* GraphQL */ `
       }
       installationPolicy { maxMembers memberRoles }
     }
-    # Spec 021 US1: canonical R2 install URN combining App + Agent
-    # identities. Null when App has no agent attached.
-    installedAgentUrn
     surfaces
     memberCount
     trainingMode
@@ -325,6 +322,14 @@ export const APP_QUERY = /* GraphQL */ `
   query App($id: ID!) {
     app(id: $id) {
       ...AppFields
+      # Spec 021 US1: canonical R2 install URN combining App + Agent
+      # identities. Scoped to this query (rather than baked into
+      # AppFields) so other consumers of the shared fragment — the
+      # list views, mutations, etc. — don't hard-depend on the new
+      # server-side field. That keeps the portal deployable against
+      # a server that hasn't picked up spec-021-US1 yet without
+      # breaking unrelated app queries.
+      installedAgentUrn
     }
   }
 `;
