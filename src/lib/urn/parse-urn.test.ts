@@ -253,6 +253,38 @@ describe('validateUserSlug (FR-019)', () => {
   });
 });
 
+// hadron-client PR #9 Copilot review: stripTypeMarkers used to strip
+// at every segment INCLUDING index 0 (the org slot). A malformed URN
+// like `urn:agent:app:micromentor.org::coding-agent` would have its
+// `app:` stripped from segments[0] before validation, silently
+// canonicalizing. The fix skips index 0; the first-segment-must-be-
+// one-atom validator now catches this. Same bug existed in the portal's
+// parser (the code was ported from hadron-server); this locks the fix.
+describe('parseCanonicalUrn — type-markers are NOT stripped from the org segment (index 0)', () => {
+  it('rejects urn:agent:app:org::slug as invalid-segment-shape', () => {
+    try {
+      parseCanonicalUrn('urn:agent:app:micromentor.org::coding-agent');
+      throw new Error('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(UrnParseError);
+      expect((e as UrnParseError).reason).toBe('invalid-segment-shape');
+      expect((e as UrnParseError).offendingSegment).toBe('app:micromentor.org');
+    }
+  });
+
+  it('rejects urn:memory:memory:org::slug::role', () => {
+    expect(() =>
+      parseCanonicalUrn('urn:memory:memory:micromentor.org::coding-agent::system'),
+    ).toThrow(UrnParseError);
+  });
+
+  it('rejects urn:agent:agent:org::slug', () => {
+    expect(() =>
+      parseCanonicalUrn('urn:agent:agent:micromentor.org::coding-agent'),
+    ).toThrow(UrnParseError);
+  });
+});
+
 describe('parseCanonicalUrn — node-leaf locs are NOT mangled by cat 4 strip', () => {
   // Cross-repo regression test for hadron-server's Codex-#3 fix.
   it('preserves a node leaf that begins with a type-marker word', () => {

@@ -346,6 +346,13 @@ function stripTypeMarkers(
   const isNodeUrn = NODE_URN_TYPES.has(urnType);
   const lastIdx = segments.length - 1;
   const out = segments.map((segment, i) => {
+    // Index 0 is the org segment — it can NEVER carry a type marker
+    // (the type is already in the URN's `urn:<type>:` prefix). Skipping
+    // here prevents malformed inputs like `urn:agent:app:org::slug` from
+    // being silently canonicalized to `urn:agent:org::slug` (Copilot
+    // review on hadron-client PR #9).
+    if (i === 0) return segment;
+    // Node-URN leaf is the free-form node loc — never a type marker.
     if (isNodeUrn && i === lastIdx) return segment;
     const atoms = segment.split(':');
     if (atoms.length >= 2 && TYPE_MARKERS.has(atoms[0])) {
