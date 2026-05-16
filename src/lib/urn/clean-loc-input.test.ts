@@ -61,4 +61,47 @@ describe('cleanLocInput', () => {
   it('does not strip urn:org: prefix (left for server to reject)', () => {
     expect(cleanLocInput('urn:org:micromentor.org')).toBe('urn:org:micromentor.org');
   });
+
+  // Spec 021 grammar — `::` separates hierarchy levels; the node loc is
+  // the FINAL `::`-segment. Codex review on PR #222 caught that the
+  // pre-fix logic mangled spec-021 inputs by splitting on every `:` and
+  // slicing only two atoms — leaving most of the URN path in the loc.
+  describe('spec 021 — `::` grammar', () => {
+    it('extracts the loc from a spec-021 node URN', () => {
+      // The 4-segment memory + single-segment leaf shape.
+      expect(
+        cleanLocInput('urn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports'),
+      ).toBe('review:sort-imports');
+    });
+
+    it('extracts a single-atom leaf from a spec-021 node URN', () => {
+      expect(
+        cleanLocInput('urn:node:micromentor.org::coding-app::coding-agent::system::notify'),
+      ).toBe('notify');
+    });
+
+    it('extracts a multi-atom leaf preserving intra-leaf colons', () => {
+      expect(
+        cleanLocInput('urn:node:hadronmemory.com::dev::a:b:c:d:e'),
+      ).toBe('a:b:c:d:e');
+    });
+
+    it('handles a bare spec-021-shape value (no urn:node: prefix)', () => {
+      // After `parseDisplayUrn` returns type='unknown' for a non-prefixed
+      // value, the `::` split still extracts the last segment.
+      expect(
+        cleanLocInput('hadronmemory.com::dev::review:render-urn'),
+      ).toBe('review:render-urn');
+    });
+
+    it('extracts the role-marker segment when a memory URN is pasted (server rejects as wrong shape)', () => {
+      // Memory URN pasted into a loc field is a user-paste mistake.
+      // The final `::`-segment is the role marker (e.g., `system`); the
+      // server-side mutation will reject it with a clear loc-shape error
+      // — better than silently coercing the wrong-shape input.
+      expect(
+        cleanLocInput('urn:memory:micromentor.org::coding-app::coding-agent::system'),
+      ).toBe('system');
+    });
+  });
 });
