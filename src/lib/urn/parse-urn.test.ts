@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { parseUrn } from './parse-urn';
+import { readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import {
+  parseDisplayUrn as parseUrn,
+  parseUrn as parseCanonicalUrn,
+  toParserCanonical,
+  isParserCanonical,
+  validateUserSlug,
+  UrnParseError,
+  type AliasCategory,
+} from './parse-urn';
 
-describe('parseUrn', () => {
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+describe('parseDisplayUrn (spec 010)', () => {
   describe('US2 — auto-detected type from urn: prefix', () => {
     it('detects org', () => {
       const r = parseUrn('urn:org:micromentor.org');
@@ -99,5 +113,155 @@ describe('parseUrn', () => {
         expect(r.fullUrn.startsWith('urn:')).toBe(true);
       });
     }
+  });
+});
+
+// =====================================================================
+// Spec 021 — canonical-form parser parity with hadron-server
+//
+// Every record in parser-golden-set.json is asserted against this
+// portal's parseUrn() implementation. The fixture is sha256-matched
+// across hadron-server / hadron-portal / hadron-client (T002-T004); CI
+// drift gate (T005) blocks divergence.
+// =====================================================================
+
+interface GoldenCase {
+  _section?: string;
+  _note?: string;
+  input: string;
+  expectedType?: string;
+  expectedParserCanonical?: string;
+  expectedParserRewrites?: AliasCategory[];
+  expectedNeedsResolver?: boolean;
+  expectedReject?: string;
+  offendingSegment?: string;
+}
+
+const goldenSet: { cases: GoldenCase[] } = JSON.parse(
+  readFileSync(join(__dirname, '__fixtures__/parser-golden-set.json'), 'utf-8'),
+);
+const goldenCases: GoldenCase[] = goldenSet.cases.filter(c => c.input !== undefined);
+
+describe('parseUrn (spec 021) — golden-set parity', () => {
+  for (const c of goldenCases) {
+    const label = c.expectedReject
+      ? `[reject:${c.expectedReject}] ${c.input}`
+      : `${c.input} → ${c.expectedParserCanonical}`;
+    it(label, () => {
+      if (c.expectedReject) {
+        try {
+          parseCanonicalUrn(c.input);
+          throw new Error(`Expected UrnParseError(${c.expectedReject}) but parsing succeeded`);
+        } catch (e) {
+          expect(e).toBeInstanceOf(UrnParseError);
+          expect((e as UrnParseError).reason).toBe(c.expectedReject);
+          if (c.offendingSegment) {
+            expect((e as UrnParseError).offendingSegment).toBe(c.offendingSegment);
+          }
+          expect((e as UrnParseError).input).toBe(c.input);
+        }
+        return;
+      }
+      const result = parseCanonicalUrn(c.input);
+      expect(result.type).toBe(c.expectedType);
+      expect(result.parserCanonical).toBe(c.expectedParserCanonical);
+      const got = [...result.parserRewrites].sort();
+      const exp = [...(c.expectedParserRewrites ?? [])].sort();
+      expect(got).toEqual(exp);
+      expect(result.needsResolverCanonicalization).toBe(c.expectedNeedsResolver === true);
+      // Idempotence
+      const reparsed = parseCanonicalUrn(result.parserCanonical);
+      expect(reparsed.parserCanonical).toBe(result.parserCanonical);
+      expect(reparsed.parserRewrites).toEqual([]);
+    });
+  }
+});
+
+describe('parseCanonicalUrn — case sensitivity (D9)', () => {
+  it('preserves slug case in parserCanonical', () => {
+    expect(parseCanonicalUrn('urn:agent:Hadronmemory.com::Coding-Agent').parserCanonical).toBe(
+      'urn:agent:Hadronmemory.com::Coding-Agent',
+    );
+  });
+
+  it('treats slugs differing only in case as different URNs', () => {
+    const a = parseCanonicalUrn('urn:agent:acme.com::Coding-Agent');
+    const b = parseCanonicalUrn('urn:agent:acme.com::coding-agent');
+    expect(a.parserCanonical).not.toBe(b.parserCanonical);
+  });
+});
+
+describe('toParserCanonical / isParserCanonical', () => {
+  it('toParserCanonical rewrites non-canonical to canonical', () => {
+    expect(
+      toParserCanonical('urn:agent:micromentor.org::app:coding-app::agent:hadronmemory.com:coding-agent'),
+    ).toBe('urn:agent:micromentor.org::coding-app::hadronmemory.com:coding-agent');
+  });
+
+  it('toParserCanonical is idempotent', () => {
+    const once = toParserCanonical('urn:agent:micromentor.org::app:coding-app');
+    expect(toParserCanonical(once)).toBe(once);
+  });
+
+  it('isParserCanonical returns true for canonical inputs', () => {
+    expect(isParserCanonical('urn:agent:hadronmemory.com::coding-agent')).toBe(true);
+  });
+
+  it('isParserCanonical returns false for inputs needing rewrites', () => {
+    expect(
+      isParserCanonical('urn:agent:micromentor.org::app:coding-app'),
+    ).toBe(false);
+  });
+
+  it('isParserCanonical returns false for inputs that fail to parse', () => {
+    expect(isParserCanonical('not-a-urn')).toBe(false);
+    expect(isParserCanonical('urn:loc:foo')).toBe(false);
+  });
+});
+
+describe('validateUserSlug (FR-019)', () => {
+  it('accepts a simple slug', () => {
+    expect(() => validateUserSlug('coding-agent')).not.toThrow();
+  });
+
+  it('accepts a domain-name slug', () => {
+    expect(() => validateUserSlug('a.b.c.com')).not.toThrow();
+  });
+
+  it('rejects "system" as reserved', () => {
+    expect(() => validateUserSlug('system')).toThrow(UrnParseError);
+  });
+
+  it('rejects "Agent" (mixed-case) as reserved', () => {
+    expect(() => validateUserSlug('Agent')).toThrow(UrnParseError);
+  });
+
+  it('rejects whitespace as invalid-charset', () => {
+    try {
+      validateUserSlug('foo bar');
+    } catch (e) {
+      expect((e as UrnParseError).reason).toBe('invalid-charset');
+    }
+  });
+
+  it('rejects 65-char slug as slug-too-long', () => {
+    try {
+      validateUserSlug('x'.repeat(65));
+    } catch (e) {
+      expect((e as UrnParseError).reason).toBe('slug-too-long');
+    }
+  });
+});
+
+describe('parseCanonicalUrn — node-leaf locs are NOT mangled by cat 4 strip', () => {
+  // Cross-repo regression test for hadron-server's Codex-#3 fix.
+  it('preserves a node leaf that begins with a type-marker word', () => {
+    const r = parseCanonicalUrn(
+      'urn:node:micromentor.org::coding-app::coding-agent::system::app:settings',
+    );
+    expect(r.parserCanonical).toBe(
+      'urn:node:micromentor.org::coding-app::coding-agent::system::app:settings',
+    );
+    expect(r.parserRewrites).toEqual([]);
   });
 });

@@ -2,34 +2,45 @@ import { describe, expect, it } from 'vitest';
 import { composeNodeUrn } from './compose-node-urn';
 
 describe('composeNodeUrn', () => {
-  describe('happy path', () => {
-    it('composes with prefixed memory URN and simple loc', () => {
+  describe('happy path (spec 021 — `::` hierarchy separator)', () => {
+    it('composes with prefixed legacy-shape memory URN and simple loc', () => {
       expect(composeNodeUrn('urn:memory:micromentor.org:mmdata', 'review:sort-imports')).toBe(
-        'urn:node:micromentor.org:mmdata:review:sort-imports',
+        'urn:node:micromentor.org:mmdata::review:sort-imports',
+      );
+    });
+
+    it('composes with prefixed spec-021-shape memory URN', () => {
+      expect(
+        composeNodeUrn(
+          'urn:memory:micromentor.org::coding-app::coding-agent::system',
+          'review:sort-imports',
+        ),
+      ).toBe(
+        'urn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports',
       );
     });
 
     it('composes with bare slug-path memory URN (no urn:memory: prefix)', () => {
       expect(composeNodeUrn('micromentor.org:mmdata', 'review:sort-imports')).toBe(
-        'urn:node:micromentor.org:mmdata:review:sort-imports',
+        'urn:node:micromentor.org:mmdata::review:sort-imports',
       );
     });
 
-    it('preserves all loc segments when loc has multiple colons', () => {
-      expect(
-        composeNodeUrn('urn:memory:hadronmemory.com:dev', 'a:b:c:d:e'),
-      ).toBe('urn:node:hadronmemory.com:dev:a:b:c:d:e');
+    it('preserves all loc segments when loc has multiple internal colons', () => {
+      expect(composeNodeUrn('urn:memory:hadronmemory.com:dev', 'a:b:c:d:e')).toBe(
+        'urn:node:hadronmemory.com:dev::a:b:c:d:e',
+      );
     });
 
     it('preserves a single-segment loc', () => {
-      expect(composeNodeUrn('urn:memory:org:mem', 'top')).toBe('urn:node:org:mem:top');
+      expect(composeNodeUrn('urn:memory:org:mem', 'top')).toBe('urn:node:org:mem::top');
     });
   });
 
   describe('PK-as-value pass-through (defect lives at caller, not composer)', () => {
     it('accepts a UUIDv7 as value without complaint', () => {
       const uuid = '0190ee19-8b3a-7d4f-b8e1-2f9c8b5d4a3e';
-      expect(composeNodeUrn('urn:memory:org:mem', uuid)).toBe(`urn:node:org:mem:${uuid}`);
+      expect(composeNodeUrn('urn:memory:org:mem', uuid)).toBe(`urn:node:org:mem::${uuid}`);
     });
   });
 
@@ -70,10 +81,25 @@ describe('composeNodeUrn', () => {
   });
 
   describe('round-trip', () => {
-    it('produces a URN whose suffix after urn:node: matches memory-slug-path:loc', () => {
-      const result = composeNodeUrn('urn:memory:hadronmemory.com:dev', 'conventions:urn-format');
+    it('produces a URN whose suffix after urn:node: matches memory-slug-path::loc', () => {
+      const result = composeNodeUrn(
+        'urn:memory:hadronmemory.com:dev',
+        'conventions:urn-format',
+      );
       expect(result.startsWith('urn:node:')).toBe(true);
-      expect(result.slice('urn:node:'.length)).toBe('hadronmemory.com:dev:conventions:urn-format');
+      expect(result.slice('urn:node:'.length)).toBe(
+        'hadronmemory.com:dev::conventions:urn-format',
+      );
+    });
+
+    it('round-trips a spec-021-shape memory URN cleanly', () => {
+      const result = composeNodeUrn(
+        'urn:memory:micromentor.org::coding-app::coding-agent::system',
+        'pong:notify',
+      );
+      expect(result).toBe(
+        'urn:node:micromentor.org::coding-app::coding-agent::system::pong:notify',
+      );
     });
   });
 });

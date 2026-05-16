@@ -1,4 +1,7 @@
-import { parseUrn } from './parse-urn';
+// Spec 010 display surface (renamed from `parseUrn` in spec 021 to make
+// room for the new canonical-form parser at that name). Behavior here
+// is unchanged.
+import { parseDisplayUrn as parseUrn } from './parse-urn';
 
 /**
  * Normalize a user-supplied loc input into a bare loc string suitable for
