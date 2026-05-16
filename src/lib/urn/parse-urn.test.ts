@@ -262,9 +262,6 @@ describe('validateUserSlug (FR-019)', () => {
 // parser (the code was ported from hadron-server); this locks the fix.
 describe('parseCanonicalUrn — type-markers are NOT stripped from the org segment (index 0)', () => {
   it('rejects urn:agent:app:org::slug as invalid-segment-shape', () => {
-    expect(() =>
-      parseCanonicalUrn('urn:agent:app:micromentor.org::coding-agent'),
-    ).toThrow(UrnParseError);
     try {
       parseCanonicalUrn('urn:agent:app:micromentor.org::coding-agent');
       throw new Error('should have thrown');
