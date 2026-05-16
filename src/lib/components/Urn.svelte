@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { parseUrn, type UrnType } from '$lib/urn/parse-urn';
+  // Spec 010 display surface (renamed from `parseUrn` in spec 021 to make
+  // room for the new canonical-form parser at the `parseUrn` name).
+  // Behavior is unchanged here.
+  import { parseDisplayUrn, type UrnType } from '$lib/urn/parse-urn';
 
   let { value, type, size = 12, compact = false }: {
     value: string;
@@ -10,7 +13,7 @@
 
   let copied = $state(false);
 
-  const parsed = $derived(parseUrn(value, type));
+  const parsed = $derived(parseDisplayUrn(value, type));
   const displayType = $derived(parsed.type);
   const bareValue = $derived(parsed.bareValue);
   const fullUrn = $derived(parsed.fullUrn);
