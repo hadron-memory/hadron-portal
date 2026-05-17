@@ -30,7 +30,7 @@ export const installStrings = {
    * as a member. 023-app-shape US6: the catalog has the entry ready;
    * actual UI surface (the user-facing join flow) ships in a follow-up.
    */
-  joinButtonLabel: (): string => t('join-app.button.label', 'Install'),
+  joinButtonLabel: (): string => t('install.join.button.label', 'Install'),
 
   /** Hover/aria text explaining why the Install affordance is disabled. */
   crossOrgDisabledHint: (): string =>
