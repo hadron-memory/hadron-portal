@@ -6,13 +6,31 @@
  * in only one place are inlined at the call site; strings shared across
  * multiple components (the "Install" button label, the cross-org tooltip)
  * live here so the wording stays consistent.
+ *
+ * 023-app-shape US6 — vocabulary: the user-facing word "Install" covers
+ * BOTH levels of the install ceremony — `createApp` (an Org installs an
+ * Agent, creating an App) and `joinApp` (a User joins an existing App as
+ * a member). The polysemy is deliberate (PWA analogy). API surfaces name
+ * them distinctly; copy does not. Both shared button labels live here.
  */
 
 import { t } from './t';
 
 export const installStrings = {
-  /** Button / link label shown next to each Agent that can be installed. */
+  /**
+   * Org-level install — the Agent → App creation button (`createApp`).
+   * Rendered on the Agent's row in the org Agents list and on the Agent
+   * detail page.
+   */
   buttonLabel: (): string => t('install.button.label', 'Install'),
+
+  /**
+   * User-level install — the "join this App" button (`joinApp`).
+   * Same word, different layer: a User adds themselves to an existing App
+   * as a member. 023-app-shape US6: the catalog has the entry ready;
+   * actual UI surface (the user-facing join flow) ships in a follow-up.
+   */
+  joinButtonLabel: (): string => t('install.join.button.label', 'Install'),
 
   /** Hover/aria text explaining why the Install affordance is disabled. */
   crossOrgDisabledHint: (): string =>
