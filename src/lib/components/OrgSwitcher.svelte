@@ -114,6 +114,7 @@
     class="mt-1 flex w-full items-center gap-1 rounded-md px-3 py-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white"
     data-testid="org-switcher-trigger"
   >
+    <span class="shrink-0 opacity-60">{t('app.layout.active-org.switcher.label', 'Organization')}</span>
     <span class="truncate">{activeOrg.name}</span>
     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ml-auto opacity-60 shrink-0">
       <polyline points="6 9 12 15 18 9" />
@@ -130,8 +131,6 @@
       {#each otherMemberships as o (o.id)}
         <a
           href="/app/orgs/{o.id}/"
-          target="_blank"
-          rel="noopener"
           onclick={closeMenu}
           class="block truncate px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-50 focus:bg-zinc-50 focus:outline-none dark:text-zinc-300 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800"
           role="menuitem"
