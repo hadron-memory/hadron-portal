@@ -386,3 +386,29 @@ export interface AppAIConfig {
   apiKey: string;
   model: string;
 }
+
+// ---------------------------------------------------------------------------
+// Spec 025-oauth-for-mcp: user-scoped API keys (Bearer credentials for MCP).
+// Mirror of the Phase 1 `UserApiKey` GraphQL type. The raw `hdr_user_<…>`
+// value is never stored — it surfaces exactly once in
+// `UserApiKeyCreateResult.rawKey` at mint time and never appears again.
+// ---------------------------------------------------------------------------
+
+export interface UserApiKey {
+  id: string;
+  keyPreview: string;
+  label: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  // `'portal'` for keys minted via the GraphQL `createUserApiKey`;
+  // `'oauth:<client_id>'` for tokens minted by `POST /oauth/token`.
+  // Powers the source badge in the revocation UI so a user can tell
+  // which OAuth client issued a token.
+  issuedVia: string | null;
+}
+
+export interface UserApiKeyCreateResult {
+  userApiKey: UserApiKey;
+  rawKey: string;
+}

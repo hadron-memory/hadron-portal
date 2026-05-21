@@ -1222,3 +1222,53 @@ export const APPS_QUERY = /* GraphQL */ `
 // DELETE_APP_MUTATION, ADD_AGENT_TO_APP_MUTATION,
 // REMOVE_AGENT_FROM_APP_MUTATION, CREATE_APP_KEY_MUTATION,
 // REVOKE_APP_KEY_MUTATION.
+
+// ---------------------------------------------------------------------------
+// Spec 025-oauth-for-mcp: user-scoped API keys (Bearer credentials for MCP).
+// The /app/account/api-keys page reads + mutates via these three ops.
+// ---------------------------------------------------------------------------
+
+export const MY_USER_API_KEYS_QUERY = /* GraphQL */ `
+  query MyUserApiKeys {
+    myUserApiKeys {
+      id
+      keyPreview
+      label
+      createdAt
+      lastUsedAt
+      revokedAt
+      issuedVia
+    }
+  }
+`;
+
+export const CREATE_USER_API_KEY_MUTATION = /* GraphQL */ `
+  mutation CreateUserApiKey($label: String) {
+    createUserApiKey(label: $label) {
+      userApiKey {
+        id
+        keyPreview
+        label
+        createdAt
+        lastUsedAt
+        revokedAt
+        issuedVia
+      }
+      rawKey
+    }
+  }
+`;
+
+export const REVOKE_USER_API_KEY_MUTATION = /* GraphQL */ `
+  mutation RevokeUserApiKey($id: ID!) {
+    revokeUserApiKey(id: $id) {
+      id
+      keyPreview
+      label
+      createdAt
+      lastUsedAt
+      revokedAt
+      issuedVia
+    }
+  }
+`;
