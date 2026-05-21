@@ -37,6 +37,15 @@ export const apiKeysStrings = {
   /** Mint submit-button label. */
   mintButton: (): string => t('api-keys.mint.button', 'Mint new key'),
 
+  /** Mint section heading — distinct from the submit button. */
+  mintSectionHeading: (): string =>
+    t('api-keys.mint.heading', 'Mint a new API key'),
+
+  /** Short label for the label input (a11y — read by screen readers
+   *  as the field's name). The longer help sentence renders under
+   *  the input as descriptive help, NOT as the field's label. */
+  labelInputLabel: (): string => t('api-keys.mint.label', 'Label'),
+
   /** Header above the one-shot raw-key reveal. */
   rawKeyRevealHeading: (): string =>
     t('api-keys.reveal.heading', 'Your new API key — copy it now'),
@@ -56,6 +65,10 @@ export const apiKeysStrings = {
   emptyState: (): string =>
     t('api-keys.empty', "You haven't minted any API keys yet."),
 
+  /** Column heading: label (user-supplied display name). */
+  columnLabel: (): string => t('api-keys.column.label', 'Label'),
+  /** Column heading: key preview (last 4 chars). */
+  columnKey: (): string => t('api-keys.column.key', 'Key'),
   /** Column heading: status (active / revoked). */
   columnStatus: (): string => t('api-keys.column.status', 'Status'),
   /** Column heading: source (portal / oauth client). */
@@ -81,9 +94,17 @@ export const apiKeysStrings = {
    * the OAuth client_id. Caller passes the client_id; the string formats
    * as `OAuth: <client_id>` so the user can identify which app issued
    * the key (e.g. "OAuth: dcr_abc123…").
+   *
+   * Default text uses a `{clientId}` placeholder rather than embedding
+   * the variable, so the `t()` lookup is stable per key — a translator
+   * sees `"OAuth: {clientId}"` once, not a different default for each
+   * client. Substitution happens after the i18n boundary.
    */
   sourceOAuth: (clientId: string): string =>
-    t('api-keys.source.oauth', `OAuth: ${clientId}`),
+    t('api-keys.source.oauth', 'OAuth: {clientId}').replace(
+      '{clientId}',
+      clientId,
+    ),
 
   /** Revoke-row button. */
   revokeButton: (): string => t('api-keys.revoke.button', 'Revoke'),
@@ -97,6 +118,9 @@ export const apiKeysStrings = {
       'api-keys.revoke.confirm-body',
       'After revoking, any script or app using this key will immediately stop authenticating. This cannot be undone.',
     ),
+  /** Revoke confirmation dialog: label preceding the key-preview value. */
+  revokeConfirmKeyPrefix: (): string =>
+    t('api-keys.revoke.confirm-key-prefix', 'Key:'),
   /** Revoke confirmation dialog: confirm button. */
   revokeConfirmYes: (): string =>
     t('api-keys.revoke.confirm-yes', 'Yes, revoke this key'),

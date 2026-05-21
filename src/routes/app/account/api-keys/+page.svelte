@@ -24,9 +24,19 @@
   const loadError = $derived('loadError' in data ? data.loadError : undefined);
 
   // Cleared on the next navigation; persists across the post-mint render.
+  // Narrowing on the `success: 'mint'` discriminator (set by
+  // actions.create's return value in +page.server.ts) gives proper
+  // type inference for `form.rawKey` without an `in`-check + cast.
   const rawKey = $derived(
-    form && 'rawKey' in form ? (form.rawKey as string | undefined) : undefined,
+    form && 'success' in form && form.success === 'mint' ? form.rawKey : undefined,
   );
+
+  // Reset hook bound to the "I have copied this key" dismiss button.
+  // SvelteKit re-renders when `form` changes; setting it to null wipes
+  // the reveal banner without a navigation round-trip.
+  function dismissReveal() {
+    form = null;
+  }
 
   // Revoke-confirm dialog state.
   let confirmId = $state<string | null>(null);
@@ -79,7 +89,9 @@
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{loadError}</div>
   {/if}
 
-  <!-- Action error (mint or revoke failure) — generic banner. -->
+  <!-- Action error (mint or revoke failure) — generic banner. `error`
+       comes from `fail()` in +page.server.ts; success returns don't
+       carry it, so `'error' in form` is the right discriminator here. -->
   {#if form && 'error' in form && form.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
@@ -96,18 +108,28 @@
       <p class="mb-3 text-sm text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealWarning()}</p>
       <code class="block break-all rounded bg-amber-100 px-3 py-2 font-mono text-sm text-amber-950 dark:bg-amber-900 dark:text-amber-100">{rawKey}</code>
       <div class="mt-3 flex justify-end">
-        <a href="/app/account/api-keys" class="rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700">{i18n.rawKeyRevealDismiss()}</a>
+        <button
+          type="button"
+          onclick={dismissReveal}
+          class="rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+        >
+          {i18n.rawKeyRevealDismiss()}
+        </button>
       </div>
     </div>
   {/if}
 
   <!-- Mint form. -->
   <section>
-    <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">{i18n.mintButton()}</h2>
+    <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">{i18n.mintSectionHeading()}</h2>
     <form method="POST" action="?/create" use:enhance class="flex items-end gap-2">
       <div class="flex-1">
+        <!-- a11y: <label> is the field name (one short word); the
+             longer help sentence renders below the input as
+             descriptive help so screen readers don't announce the
+             whole sentence as the field name. -->
         <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          {i18n.labelInputHelp()}
+          {i18n.labelInputLabel()}
         </label>
         <input
           id="label"
@@ -115,8 +137,12 @@
           type="text"
           placeholder={i18n.labelInputPlaceholder()}
           maxlength="200"
+          aria-describedby="label-help"
           class={inputClass}
         />
+        <p id="label-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          {i18n.labelInputHelp()}
+        </p>
       </div>
       <button
         type="submit"
@@ -136,8 +162,8 @@
         <table class="w-full text-sm">
           <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
             <tr>
-              <th class="px-4 py-2">Label</th>
-              <th class="px-4 py-2">Key</th>
+              <th class="px-4 py-2">{i18n.columnLabel()}</th>
+              <th class="px-4 py-2">{i18n.columnKey()}</th>
               <th class="px-4 py-2">{i18n.columnStatus()}</th>
               <th class="px-4 py-2">{i18n.columnSource()}</th>
               <th class="px-4 py-2">{i18n.columnCreated()}</th>
@@ -200,7 +226,9 @@
         {i18n.revokeConfirmTitle()}
       </h2>
       <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">{i18n.revokeConfirmBody()}</p>
-      <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-500">Key: <span class="font-mono">…{confirmPreview}</span></p>
+      <p class="mb-4 text-xs text-zinc-500 dark:text-zinc-500">
+        {i18n.revokeConfirmKeyPrefix()} <span class="font-mono">…{confirmPreview}</span>
+      </p>
       <form
         method="POST"
         action="?/revoke"

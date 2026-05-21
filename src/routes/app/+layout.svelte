@@ -2,6 +2,7 @@
   import type { LayoutData } from './$types';
   import { page } from '$app/stores';
   import { t } from '$lib/i18n/t';
+  import { apiKeysStrings } from '$lib/i18n/api-keys-strings';
   import OrgSwitcher from '$lib/components/OrgSwitcher.svelte';
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
@@ -95,7 +96,7 @@
             ? 'bg-zinc-100 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-white'
             : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white'}"
       >
-        {t('app.nav.api-keys', 'API keys')}
+        {apiKeysStrings.navLabel()}
       </a>
       <a
         href="https://docs.hadronmemory.com"
