@@ -7,11 +7,17 @@ import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  await requireNonConsumer(parent);
-  const parentData = await parent();
-  const data = await gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
-    NODE_BY_ID_QUERY, { id: params.nodeId },
-  );
+  // parent() and nodeById are independent — fetch in parallel.
+  // SvelteKit memoizes parent() across the load, so the guard's later call
+  // does not refetch; passing a thunk that resolves to the already-fetched
+  // value keeps the guard signature reusable without an extra round-trip.
+  const [parentData, data] = await Promise.all([
+    parent(),
+    gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
+      NODE_BY_ID_QUERY, { id: params.nodeId },
+    ),
+  ]);
+  await requireNonConsumer(async () => parentData);
   if (!data.nodeById) throw new Error(`Node not found: ${params.nodeId}`);
   const node = data.nodeById;
 

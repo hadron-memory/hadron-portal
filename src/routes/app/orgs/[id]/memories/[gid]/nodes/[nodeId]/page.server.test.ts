@@ -28,6 +28,17 @@ async function importLoad() {
   return mod.load;
 }
 
+type BreadcrumbSeg = { label: string; path: string; nodeId: string | null };
+type LoadResult = { node: unknown; breadcrumb: BreadcrumbSeg[] };
+
+// SvelteKit's generated PageServerLoad return type widens to `T | void`
+// (the `void` half is for loaders that redirect). The happy-path tests
+// below never redirect, so narrow at the call site.
+async function runLoad(event: Parameters<Awaited<ReturnType<typeof importLoad>>>[0]) {
+  const load = await importLoad();
+  return (await load(event)) as LoadResult;
+}
+
 function loadEvent(opts: {
   gid: string;
   nodeId: string;
@@ -60,14 +71,15 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
       },
     });
 
-    const load = await importLoad();
-    const result = await load(loadEvent({
+    const result = await runLoad(loadEvent({
       gid: memA,
       nodeId: 'A-chats-setup-pk',
-      // Parent layout already filters to memA — but defensively the loader
-      // also filters by memoryId in case the contract changes.
+      // Foreign B-chats-pk is present in the parent fixture so the loader's
+      // memoryId filter is the load-bearing assertion, not the (today)
+      // redundant pre-filter at the layout boundary.
       parentGraphNodes: [
         { id: 'A-chats-pk', memoryId: memA, loc: 'chats' },
+        { id: 'B-chats-pk', memoryId: memB, loc: 'chats' },
         { id: 'A-chats-setup-pk', memoryId: memA, loc: 'chats:setup' },
       ],
     }));
@@ -89,8 +101,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
       },
     });
 
-    const load = await importLoad();
-    const result = await load(loadEvent({
+    const result = await runLoad(loadEvent({
       gid: memA,
       nodeId: 'A-chats-setup-pk',
       // Memory A has the leaf but not the `chats` parent — only memory B has
@@ -119,8 +130,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
       },
     });
 
-    const load = await importLoad();
-    await load(loadEvent({
+    await runLoad(loadEvent({
       gid: memA,
       nodeId: 'leaf-pk',
       parentGraphNodes: [
