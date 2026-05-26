@@ -7,15 +7,30 @@ import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  await requireNonConsumer(parent);
-  const data = await gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
-    NODE_BY_ID_QUERY, { id: params.nodeId },
-  );
+  // parent() and nodeById are independent — fetch in parallel.
+  // SvelteKit memoizes parent() across the load, so the guard's later call
+  // does not refetch; passing a thunk that resolves to the already-fetched
+  // value keeps the guard signature reusable without an extra round-trip.
+  const [parentData, data] = await Promise.all([
+    parent(),
+    gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
+      NODE_BY_ID_QUERY, { id: params.nodeId },
+    ),
+  ]);
+  await requireNonConsumer(async () => parentData);
   if (!data.nodeById) throw new Error(`Node not found: ${params.nodeId}`);
   const node = data.nodeById;
 
-  // Build breadcrumb from loc segments — look up ancestor nodes by loc
-  const client = gqlClient(locals.token);
+  // Build breadcrumb from loc segments — look up ancestor nodes within THIS
+  // memory only. Resolving by loc alone (via NODE_QUERY) would cross-pollinate
+  // with any other memory the caller can access that happens to share the loc,
+  // producing breadcrumb links like memories/A/nodes/<B's PK>. See #234.
+  const memoryNodes = parentData.graphNodes ?? [];
+  const ancestorIdByLoc = new Map<string, string>();
+  for (const n of memoryNodes) {
+    if (n.memoryId === params.gid) ancestorIdByLoc.set(n.loc, n.id);
+  }
+
   const parts = node.loc.split(':');
   const breadcrumb: Array<{ label: string; path: string; nodeId: string | null }> = [];
 
@@ -23,11 +38,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     const ancestorLoc = parts.slice(0, i + 1).join(':');
     let nodeId: string | null = null;
     if (i < parts.length - 1) {
-      // Look up ancestor node
-      try {
-        const res = await client.request<{ node: { id: string } | null }>(NODE_QUERY, { loc: ancestorLoc });
-        nodeId = res.node?.id ?? null;
-      } catch { /* not found */ }
+      nodeId = ancestorIdByLoc.get(ancestorLoc) ?? null;
     }
     breadcrumb.push({ label: parts[i], path: ancestorLoc, nodeId });
   }
