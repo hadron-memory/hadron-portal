@@ -49,11 +49,21 @@ function makeOrg(overrides: { id: string; isVisible: boolean | null; name?: stri
   };
 }
 
+// Test users — the cookie name is scoped to user.id, so tests that read or
+// assert the cookie must reference the matching scoped name.
+const TEST_USER_ID = 'user-1';
+const ACTIVE_ORG_COOKIE_NAME = `hadron_active_org_${TEST_USER_ID}`;
+
 function ev(opts: {
   paramsId?: string;
   pathname?: string;
   authed?: boolean;
+  /** Pre-existing active-org cookie value (defaults to absent). */
+  activeOrgCookie?: string;
 }) {
+  const cookieJar = new Map<string, string>();
+  if (opts.activeOrgCookie) cookieJar.set(ACTIVE_ORG_COOKIE_NAME, opts.activeOrgCookie);
+  const setCalls: Array<{ name: string; value: string; opts: unknown }> = [];
   return {
     locals: opts.authed === false
       ? { user: null, token: null }
@@ -63,7 +73,21 @@ function ev(opts: {
         },
     url: new URL(`http://localhost${opts.pathname ?? '/app/dashboard'}`),
     params: opts.paramsId ? { id: opts.paramsId } : {},
-  } as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+    cookies: {
+      get: (name: string) => cookieJar.get(name),
+      set: (name: string, value: string, o: unknown) => {
+        cookieJar.set(name, value);
+        setCalls.push({ name, value, opts: o });
+      },
+      delete: (name: string) => { cookieJar.delete(name); },
+      getAll: () => [...cookieJar.entries()].map(([name, value]) => ({ name, value })),
+      serialize: (name: string, value: string) => `${name}=${value}`,
+    },
+    /** Test-only accessor for asserting `cookies.set` was/wasn't called. */
+    _cookieSetCalls: setCalls,
+  } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0] & {
+    _cookieSetCalls: Array<{ name: string; value: string; opts: unknown }>;
+  };
 }
 
 async function importLoad() {
@@ -248,5 +272,144 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
     expect(data.isConsumerMode).toBe(true);
     expect(data.activeOrgId).toBe('org-personal-false');
     expect(data.personalOrgId).toBe('org-personal-false');
+  });
+});
+
+/**
+ * #232 — persist URL-selected org via `hadron_active_org` cookie so
+ * navigations to routes without an org URL hint (e.g. /app/agents/[id])
+ * keep the previously-selected org active instead of falling through
+ * to the personal org.
+ */
+describe('+layout.server.ts — #232 active-org cookie persistence', () => {
+  it('writes the cookie when the URL drives org selection (source=url)', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const event = ev({ paramsId: 'org-a', pathname: '/app/orgs/org-a/agents' });
+    await loadAuthed(event);
+
+    const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string }> })._cookieSetCalls;
+    expect(cookieWrites).toContainEqual(
+      expect.objectContaining({ name: ACTIVE_ORG_COOKIE_NAME, value: 'org-a' }),
+    );
+  });
+
+  it('uses the cookie as lastActiveOrgId on routes without an org URL hint (repro for #232)', async () => {
+    // Repro shape: user clicks an agent from /app/orgs/org-a/agents, lands
+    // on /app/agents/<id>. Before this fix, the layout fell through to
+    // the personal org. With the cookie present, it should keep org-a.
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true, name: 'Hadron Memory' });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({
+      paramsId: 'agent-abc',
+      pathname: '/app/agents/agent-abc',
+      activeOrgCookie: 'org-a',
+    }));
+
+    expect(data.activeOrgId).toBe('org-a');
+    expect(data.activeOrg).toMatchObject({ id: 'org-a', name: 'Hadron Memory' });
+  });
+
+  it('refreshes the cookie on every successful read so the 30-day TTL extends with usage', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const event = ev({
+      pathname: '/app/agents/agent-abc',
+      paramsId: 'agent-abc',
+      activeOrgCookie: 'org-a',
+    });
+    await loadAuthed(event);
+
+    const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string }> })._cookieSetCalls;
+    expect(cookieWrites).toContainEqual(
+      expect.objectContaining({ name: ACTIVE_ORG_COOKIE_NAME, value: 'org-a' }),
+    );
+  });
+
+  it('does NOT write the cookie when resolution falls through to the personal org', async () => {
+    // No URL hint, no cookie → personal fallback. We must NOT write the
+    // personal id into the cookie, because that would make personal sticky
+    // and prevent the cookie from ever capturing a real selection.
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const event = ev({ pathname: '/app/dashboard' });
+    await loadAuthed(event);
+
+    const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string }> })._cookieSetCalls;
+    expect(cookieWrites.filter((c) => c.name === ACTIVE_ORG_COOKIE_NAME)).toHaveLength(0);
+  });
+
+  it('tolerates a stale cookie (org the user no longer has access to) by falling through to personal', async () => {
+    // User was kicked from org-a; the cookie still says org-a. Resolver's
+    // membership filter handles this — the cookie value is ignored and
+    // resolution continues to personal. The stale cookie is NOT overwritten
+    // (personal-source rule above) — it'll expire naturally, or be replaced
+    // the next time the user visits an /app/orgs/<id>/ URL.
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({
+      pathname: '/app/dashboard',
+      activeOrgCookie: 'org-a-no-longer-member',
+    }));
+
+    expect(data.activeOrgId).toBe('org-personal');
+  });
+
+  it('sets the cookie with HttpOnly, SameSite=Lax, Path=/, and a 30-day MaxAge', async () => {
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const event = ev({ paramsId: 'org-a', pathname: '/app/orgs/org-a/agents' });
+    await loadAuthed(event);
+
+    const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string; opts: Record<string, unknown> }> })._cookieSetCalls;
+    const orgCookieWrite = cookieWrites.find((c) => c.name === ACTIVE_ORG_COOKIE_NAME);
+    expect(orgCookieWrite?.opts).toMatchObject({
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax',
+      // `secure` is gated to NODE_ENV === 'production'. In the test env
+      // NODE_ENV is 'test', so the flag is false here — production
+      // deployments get it true via the same gate `hadron_token` uses
+      // (see auth/callback/+page.server.ts).
+      secure: false,
+      maxAge: 60 * 60 * 24 * 30,
+    });
+  });
+
+  it('scopes the cookie name to the authenticated user id to avoid cross-user state leakage on shared devices', async () => {
+    // If user A logs out and user B logs in on the same browser, B must
+    // not inherit A's active org. The cookie name encodes the user id, so
+    // the get() lookup for B (cookie `hadron_active_org_<B-id>`) misses
+    // any value A wrote (cookie `hadron_active_org_<A-id>`), and B falls
+    // through to the personal-org default cleanly.
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const event = ev({ paramsId: 'org-a', pathname: '/app/orgs/org-a/agents' });
+    await loadAuthed(event);
+
+    const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string }> })._cookieSetCalls;
+    const names = cookieWrites.map((c) => c.name);
+    expect(names).toContain(`hadron_active_org_${TEST_USER_ID}`);
+    expect(names).not.toContain('hadron_active_org');
   });
 });
