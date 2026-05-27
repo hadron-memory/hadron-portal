@@ -40,19 +40,30 @@
 
   // #230: copy-to-clipboard on the raw-key reveal. `copied` toggles
   // briefly for the "Copied!" confirmation; the timer is cleared on
-  // each click to avoid stale resets if the user clicks twice quickly.
+  // each click to avoid stale resets if the user clicks twice quickly,
+  // and on unmount so we don't fire a state update against a destroyed
+  // component (per gemini-bot review on PR #242).
   let copied = $state(false);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  $effect(() => () => {
+    if (copiedTimer) clearTimeout(copiedTimer);
+  });
+
   async function copyKey(value: string) {
+    // Defensive: navigator.clipboard is undefined in insecure contexts
+    // (HTTP, file://, sandboxed iframes) and on a few older browsers.
+    // Bail before `await` so we don't throw an uncaught rejection.
+    if (!navigator?.clipboard) return;
     try {
       await navigator.clipboard.writeText(value);
       copied = true;
       if (copiedTimer) clearTimeout(copiedTimer);
       copiedTimer = setTimeout(() => { copied = false; }, 2000);
     } catch {
-      // Clipboard API unavailable (insecure context, denied permission,
-      // etc.) — silently no-op. The user can still select+copy the
-      // <code> block manually.
+      // writeText can still reject (permission denied, transient
+      // platform error) — silently no-op. The <code> block stays
+      // selectable as the manual fallback.
     }
   }
 
