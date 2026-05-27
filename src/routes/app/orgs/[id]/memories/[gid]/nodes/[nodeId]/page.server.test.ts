@@ -143,6 +143,62 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     // Only NODE_BY_ID_QUERY ran; the per-ancestor NODE_QUERY calls are gone.
     expect(mockRequest).toHaveBeenCalledTimes(1);
   });
+
+  it('#237 — redirects when node.memoryId does not match params.gid (PK-mismatch guard)', async () => {
+    // The route is scoped by [gid] but nodeById resolves by PK alone.
+    // A URL combining memory A's gid with memory B's nodeId was
+    // silently rendering memory B's node under memory A's layout.
+    // The guard redirects to the correct memory URL.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        // Node lives in mem-B, but the URL says mem-A. The guard
+        // should redirect to mem-B's URL with the same nodeId.
+        id: 'leaf-pk', memoryId: 'mem-B', loc: 'foo', name: 'foo',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+
+    const load = await importLoad();
+    let thrown: unknown;
+    try {
+      await load(loadEvent({
+        gid: 'mem-A',
+        nodeId: 'leaf-pk',
+        parentGraphNodes: [],
+      }));
+    } catch (e) {
+      thrown = e;
+    }
+    expect((thrown as { status: number }).status).toBe(303);
+    expect((thrown as { location: string }).location).toBe('/app/orgs/org-1/memories/mem-B/nodes/leaf-pk');
+  });
+
+  it('#237 — does NOT redirect when node.memoryId matches params.gid (happy path)', async () => {
+    // Sanity check: the guard MUST be a no-op when the URL is
+    // internally consistent. If this regresses, every node-detail
+    // page load starts throwing 303s in a redirect loop.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+
+    const result = await runLoad(loadEvent({
+      gid: 'mem-A',
+      nodeId: 'leaf-pk',
+      parentGraphNodes: [{ id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo' }],
+    }));
+
+    // No redirect — load returns the data shape.
+    expect(result.breadcrumb).toBeDefined();
+  });
 });
 
 /**
@@ -290,9 +346,20 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     expect(vars.input.edges).toEqual([{ targetId: 'pk-target', label: 'uses' }]);
   });
 
-  it('reorder: each per-loc upsert preserves the matching node`s tags', async () => {
+  it("reorder: each per-loc upsert preserves the matching node's tags", async () => {
     // reorder iterates updates and upserts each one. Each upsert must
     // carry its own node's tags (NOT a shared blob, NOT empty).
+    // First mocked call is the #237 anchor-node fetch; per-loc reads
+    // start at index 1.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk-anchor', memoryId: 'mem-A', loc: 'a', name: 'anchor',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
     mockRequest.mockResolvedValueOnce({
       node: {
         id: 'pk-a', memoryId: 'mem-A', loc: 'a', name: 'a',
@@ -317,7 +384,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     const actions = await importActions();
     await actions.reorder(actionEvent({
       gid: 'mem-A',
-      nodeId: 'pk-a',
+      nodeId: 'pk-anchor',
       form: {
         updates: JSON.stringify([
           { loc: 'a', seq: 1 },
@@ -326,10 +393,138 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
       },
     }));
 
-    // Calls 0 + 2 are NODE_QUERY reads; calls 1 + 3 are the upserts.
-    const [, varsA] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown } }];
-    const [, varsB] = mockRequest.mock.calls[3]! as [unknown, { input: { tags?: unknown } }];
+    // Call index map: [0] anchor fetch, [1] NODE_QUERY for 'a', [2]
+    // upsert 'a', [3] NODE_QUERY for 'b', [4] upsert 'b'.
+    const [, varsA] = mockRequest.mock.calls[2]! as [unknown, { input: { tags?: unknown } }];
+    const [, varsB] = mockRequest.mock.calls[4]! as [unknown, { input: { tags?: unknown } }];
     expect(varsA.input.tags).toEqual(['a-tag']);
     expect(varsB.input.tags).toEqual(['b-tag1', 'b-tag2']);
+  });
+});
+
+/**
+ * #237 review follow-up — mutating actions must derive memoryId from the
+ * fetched node, not from `params.gid`. The load-time URL guard only fires
+ * on GETs; form actions run before `load`, so a POST with a stale URL
+ * would otherwise mutate / delete / move against the wrong memory.
+ *
+ * One test per representative action — `updateContent` (the original
+ * #235 repro path), `delete` (because its redirect target is also URL-
+ * derived), `createParent` (because it didn't previously fetch the
+ * anchor node), and `reorder` (because its memoryId fan-out has a wider
+ * blast radius). The remaining actions (updateMeta, updateEdges) follow
+ * the same shape — the pattern is uniform.
+ */
+describe('node-detail actions — derive memoryId from fetched node (#237)', () => {
+  it('updateContent: mutation uses node.memoryId, not params.gid', async () => {
+    // Stale URL says mem-A; node actually lives in mem-B. The upsert
+    // input must carry mem-B, so the user's edit lands on the right row.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: 'old',
+        tokens: null, tags: ['x'], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk' } });
+
+    const actions = await importActions();
+    await actions.updateContent(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk',
+      form: { content: 'new' },
+    }));
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string } }];
+    expect(vars.input.memoryId).toBe('mem-B');
+    expect(vars.input.memoryId).not.toBe('mem-A');
+  });
+
+  it('delete: DELETE_NODE_MUTATION targets node.memoryId, and redirect URL points at it too', async () => {
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce(true); // deleteNode returns Boolean
+
+    const actions = await importActions();
+    let thrown: unknown;
+    try {
+      await actions.delete(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: {} }));
+    } catch (e) {
+      thrown = e;
+    }
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { loc: string; memoryId: string }];
+    expect(vars.memoryId).toBe('mem-B');
+    // Redirect to mem-B's list, not mem-A's.
+    expect((thrown as { status: number }).status).toBe(303);
+    expect((thrown as { location: string }).location).toBe('/app/orgs/org-1/memories/mem-B/nodes');
+  });
+
+  it('createParent: upsert uses anchorNode.memoryId, not params.gid', async () => {
+    // The form supplies a loc + name; the upsert's memoryId must match
+    // the anchor node's actual memory (so a stale URL gid doesn't
+    // create the new parent in the wrong memory).
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk-anchor', memoryId: 'mem-B', loc: 'foo:bar', name: 'bar',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'new-parent-pk' } });
+
+    const actions = await importActions();
+    await actions.createParent(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-anchor',
+      form: { loc: 'foo', name: 'foo' },
+    }));
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string } }];
+    expect(vars.input.memoryId).toBe('mem-B');
+  });
+
+  it('reorder: every per-loc upsert uses anchorNode.memoryId, not params.gid', async () => {
+    // Anchor fetch up front, then a NODE_QUERY + UPSERT per loc.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk-anchor', memoryId: 'mem-B', loc: 'foo:a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk-a', memoryId: 'mem-B', loc: 'foo:a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-a' } });
+
+    const actions = await importActions();
+    await actions.reorder(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-anchor',
+      form: { updates: JSON.stringify([{ loc: 'foo:a', seq: 1 }]) },
+    }));
+
+    // Calls: [0] anchor fetch, [1] NODE_QUERY for loc 'foo:a', [2] upsert.
+    const [, vars] = mockRequest.mock.calls[2]! as [unknown, { input: { memoryId: string } }];
+    expect(vars.input.memoryId).toBe('mem-B');
   });
 });
