@@ -111,14 +111,20 @@
     aria-haspopup="menu"
     aria-expanded={open}
     aria-label={t('app.layout.active-org.switcher.aria-label', 'Switch organization')}
-    class="mt-1 flex w-full items-center gap-1 rounded-md px-3 py-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white"
+    class="mt-1 flex w-full flex-col items-start rounded-md px-3 py-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white"
     data-testid="org-switcher-trigger"
   >
-    <span class="shrink-0 opacity-60">{t('app.layout.active-org.switcher.label', 'Organization')}</span>
-    <span class="truncate">{activeOrg.name}</span>
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ml-auto opacity-60 shrink-0">
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
+    <!-- #228: stack the "Organization" label above the org name so the
+         trigger mirrors the "Signed in as / <user>" block above it in
+         +layout.svelte (tiny 10px label, then the value on its own
+         line). Previously the label sat inline left of the name. -->
+    <span class="text-[10px] text-zinc-400">{t('app.layout.active-org.switcher.label', 'Organization')}</span>
+    <span class="flex w-full items-center gap-1">
+      <span class="truncate">{activeOrg.name}</span>
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ml-auto opacity-60 shrink-0">
+        <polyline points="6 9 12 15 18 9" />
+      </svg>
+    </span>
   </button>
 
   {#if open}
