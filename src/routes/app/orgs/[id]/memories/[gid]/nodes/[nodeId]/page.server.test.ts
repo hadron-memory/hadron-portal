@@ -208,6 +208,36 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     expect(vars.input.tags).toEqual(['meta', 'onboarding']);
   });
 
+  it('updateContent: coalesces a null `node.tags` to [] so a defensive runtime null can`t trigger the server`s ?? [] default', async () => {
+    // TypeScript types `MemoryNode.tags` as `string[]` and the GraphQL
+    // schema declares `tags: [String!]!`, but the portal-side `?? []`
+    // is defensive insurance against a future schema regression or
+    // deserializer bug. This test pins that defensive behavior — if
+    // someone removes the `?? []` thinking it`s redundant, this fails.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk-null', memoryId: 'mem-A', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: null,
+        // Cast: TS says non-null but we`re testing the belt-and-
+        // suspenders coalesce against a runtime null.
+        tokens: null, tags: null as unknown as string[], seq: null,
+        data: null, ownerRepo: null, isRunnable: null, createdAt: '',
+        updatedAt: '', outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-null' } });
+
+    const actions = await importActions();
+    await actions.updateContent(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-null',
+      form: { content: 'x' },
+    }));
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown } }];
+    expect(vars.input.tags).toEqual([]);
+  });
+
   it('updateContent: preserves tags even when the node has zero tags (the [] case must round-trip explicitly)', async () => {
     // Subtle: when the node ALREADY has zero tags, we still want to pass
     // `tags: []` through the mutation rather than omit the field. This
