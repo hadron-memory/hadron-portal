@@ -49,15 +49,20 @@ function makeOrg(overrides: { id: string; isVisible: boolean | null; name?: stri
   };
 }
 
+// Test users — the cookie name is scoped to user.id, so tests that read or
+// assert the cookie must reference the matching scoped name.
+const TEST_USER_ID = 'user-1';
+const ACTIVE_ORG_COOKIE_NAME = `hadron_active_org_${TEST_USER_ID}`;
+
 function ev(opts: {
   paramsId?: string;
   pathname?: string;
   authed?: boolean;
-  /** Pre-existing `hadron_active_org` cookie value (defaults to absent). */
+  /** Pre-existing active-org cookie value (defaults to absent). */
   activeOrgCookie?: string;
 }) {
   const cookieJar = new Map<string, string>();
-  if (opts.activeOrgCookie) cookieJar.set('hadron_active_org', opts.activeOrgCookie);
+  if (opts.activeOrgCookie) cookieJar.set(ACTIVE_ORG_COOKIE_NAME, opts.activeOrgCookie);
   const setCalls: Array<{ name: string; value: string; opts: unknown }> = [];
   return {
     locals: opts.authed === false
@@ -288,7 +293,7 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
 
     const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string }> })._cookieSetCalls;
     expect(cookieWrites).toContainEqual(
-      expect.objectContaining({ name: 'hadron_active_org', value: 'org-a' }),
+      expect.objectContaining({ name: ACTIVE_ORG_COOKIE_NAME, value: 'org-a' }),
     );
   });
 
@@ -326,7 +331,7 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
 
     const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string }> })._cookieSetCalls;
     expect(cookieWrites).toContainEqual(
-      expect.objectContaining({ name: 'hadron_active_org', value: 'org-a' }),
+      expect.objectContaining({ name: ACTIVE_ORG_COOKIE_NAME, value: 'org-a' }),
     );
   });
 
@@ -343,7 +348,7 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
     await loadAuthed(event);
 
     const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string }> })._cookieSetCalls;
-    expect(cookieWrites.filter((c) => c.name === 'hadron_active_org')).toHaveLength(0);
+    expect(cookieWrites.filter((c) => c.name === ACTIVE_ORG_COOKIE_NAME)).toHaveLength(0);
   });
 
   it('tolerates a stale cookie (org the user no longer has access to) by falling through to personal', async () => {
@@ -374,12 +379,37 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
     await loadAuthed(event);
 
     const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string; opts: Record<string, unknown> }> })._cookieSetCalls;
-    const orgCookieWrite = cookieWrites.find((c) => c.name === 'hadron_active_org');
+    const orgCookieWrite = cookieWrites.find((c) => c.name === ACTIVE_ORG_COOKIE_NAME);
     expect(orgCookieWrite?.opts).toMatchObject({
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
+      // `secure` is gated to NODE_ENV === 'production'. In the test env
+      // NODE_ENV is 'test', so the flag is false here — production
+      // deployments get it true via the same gate `hadron_token` uses
+      // (see auth/callback/+page.server.ts).
+      secure: false,
       maxAge: 60 * 60 * 24 * 30,
     });
+  });
+
+  it('scopes the cookie name to the authenticated user id to avoid cross-user state leakage on shared devices', async () => {
+    // If user A logs out and user B logs in on the same browser, B must
+    // not inherit A's active org. The cookie name encodes the user id, so
+    // the get() lookup for B (cookie `hadron_active_org_<B-id>`) misses
+    // any value A wrote (cookie `hadron_active_org_<A-id>`), and B falls
+    // through to the personal-org default cleanly.
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const event = ev({ paramsId: 'org-a', pathname: '/app/orgs/org-a/agents' });
+    await loadAuthed(event);
+
+    const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string }> })._cookieSetCalls;
+    const names = cookieWrites.map((c) => c.name);
+    expect(names).toContain(`hadron_active_org_${TEST_USER_ID}`);
+    expect(names).not.toContain('hadron_active_org');
   });
 });

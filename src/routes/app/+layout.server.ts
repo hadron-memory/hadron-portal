@@ -7,11 +7,19 @@ import type { LayoutServerLoad } from './$types';
 
 // Cookie that persists the user's last URL-selected org across navigations
 // to routes without an org URL hint (e.g. /app/agents/[id], /app/dashboard).
-// See #232. Future server-side `User.lastActiveOrgId` (spec 014 T003/T004)
-// can supersede this — keep the cookie as a fallback / cross-device-off
-// path even after that lands.
-const ACTIVE_ORG_COOKIE = 'hadron_active_org';
+// See #232. The cookie name is scoped by user id (`hadron_active_org_<uid>`)
+// so multiple users on the same browser don't inherit each other's org
+// selection on login — the resolver's membership filter would block the
+// cross-user value anyway, but the per-user namespace prevents the UX
+// confusion of a B-org popping up after B signs in following A. Future
+// server-side `User.lastActiveOrgId` (spec 014 T003/T004) can supersede
+// this for cross-device persistence; the cookie remains the same-device
+// fast path.
+const ACTIVE_ORG_COOKIE_PREFIX = 'hadron_active_org';
 const ACTIVE_ORG_COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+function activeOrgCookieName(userId: string): string {
+  return `${ACTIVE_ORG_COOKIE_PREFIX}_${userId}`;
+}
 
 export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) => {
   if (!locals.user) {
@@ -48,7 +56,8 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // it over the cookie for cross-device persistence — the cookie remains
   // the same-device fast path.
   const paramsId = typeof params.id === 'string' ? params.id : undefined;
-  const cookieOrgId = cookies.get(ACTIVE_ORG_COOKIE) ?? null;
+  const cookieName = activeOrgCookieName(locals.user.id);
+  const cookieOrgId = cookies.get(cookieName) ?? null;
   const resolution = resolveActiveOrg({
     paramsId,
     lastActiveOrgId: cookieOrgId,
@@ -63,10 +72,11 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
     (resolution.source === 'url' || resolution.source === 'lastActive') &&
     resolution.activeOrgId
   ) {
-    cookies.set(ACTIVE_ORG_COOKIE, resolution.activeOrgId, {
+    cookies.set(cookieName, resolution.activeOrgId, {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
       maxAge: ACTIVE_ORG_COOKIE_MAX_AGE,
     });
   }
