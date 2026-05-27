@@ -1,5 +1,6 @@
 <script lang="ts">
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import { installStrings } from '$lib/i18n/install-strings';
   import type { PageData } from './$types';
   let { data }: { data: PageData } = $props();
@@ -39,13 +40,22 @@
              would nest interactive elements. The row is a flex container with
              the agent-link + a sibling Install link. -->
         <div class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
-          <a href="/app/orgs/{org.id}/agents/{agent.id}" class="flex-1 min-w-0">
-            <p class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{agent.name}</p>
-            <p class="font-mono text-xs text-zinc-400">{agent.urn}</p>
+          <!-- #233: URN rendered via the canonical <Urn> component so the
+               type badge + copy button are consistent with AgentList. The
+               <a> wraps only the name to avoid nesting the Urn's copy
+               button inside an anchor (matches AgentList.svelte's
+               pattern). Side-effect: clicking the description no longer
+               navigates — that was an accidental link target from when
+               the whole row was wrapped. -->
+          <div class="flex-1 min-w-0">
+            <div>
+              <a href="/app/orgs/{org.id}/agents/{agent.id}" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{agent.name}</a>
+            </div>
+            <div class="mt-0.5"><Urn value={agent.urn} type="agent" size={8} /></div>
             {#if agent.description}
               <p class="mt-1 text-xs text-zinc-500">{agent.description}</p>
             {/if}
-          </a>
+          </div>
           <span class="hidden text-xs text-zinc-400 sm:inline">{agent.memoryItems.length} memor{agent.memoryItems.length !== 1 ? 'ies' : 'y'}</span>
           <a
             href="/app/orgs/{org.id}/agents/install/{agent.id}"
