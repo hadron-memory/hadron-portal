@@ -144,3 +144,162 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * #235 — content/edges/reorder saves must NOT clear the node's tags.
+ *
+ * Server-side root cause: `upsertNode` resolver at hadron-server
+ * resolvers.ts:2678 defaults `serializeTags(input.tags ?? [])` — when the
+ * portal omits `tags`, the server writes `[]`. Other "missing" fields are
+ * safe because Prisma treats undefined as no-op, but tags has the
+ * explicit empty-array default.
+ *
+ * Portal-side fix: every save action that already loads the current node
+ * passes the existing `tags` through the mutation input. These tests pin
+ * the contract per action so a future refactor can't silently regress.
+ */
+import type { Actions } from './$types';
+
+async function importActions() {
+  const mod = await import('./+page.server');
+  return mod.actions;
+}
+
+function actionEvent(opts: {
+  gid: string;
+  nodeId: string;
+  form: Record<string, string>;
+}) {
+  const formData = new FormData();
+  for (const [k, v] of Object.entries(opts.form)) formData.append(k, v);
+  return {
+    params: { id: 'org-1', gid: opts.gid, nodeId: opts.nodeId },
+    locals: { token: 'tok' },
+    request: { formData: async () => formData },
+  } as unknown as Parameters<Actions[keyof Actions]>[0];
+}
+
+describe('node-detail actions — preserve tags on save (#235)', () => {
+  it('updateContent: tags are explicitly passed through so the server doesn`t default-clear them', async () => {
+    // NODE_BY_ID_QUERY load returns a node with tags. The action must
+    // include those same tags in the UPSERT_NODE_MUTATION input.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk-1', memoryId: 'mem-A', loc: 'instructions', name: 'instructions',
+        nodeType: 'info', alias: null, description: null, content: 'old content',
+        tokens: null, tags: ['meta', 'onboarding'], seq: null, data: null,
+        ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-1' } });
+
+    const actions = await importActions();
+    await actions.updateContent(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-1',
+      form: { content: 'new content' },
+    }));
+
+    // Second call is the UPSERT_NODE_MUTATION. Its input must carry the
+    // existing tags array verbatim.
+    const upsertCall = mockRequest.mock.calls[1]!;
+    const [, vars] = upsertCall as [unknown, { input: { tags?: unknown } }];
+    expect(vars.input.tags).toEqual(['meta', 'onboarding']);
+  });
+
+  it('updateContent: preserves tags even when the node has zero tags (the [] case must round-trip explicitly)', async () => {
+    // Subtle: when the node ALREADY has zero tags, we still want to pass
+    // `tags: []` through the mutation rather than omit the field. This
+    // shields the action from accidentally regressing if someone "cleans
+    // up" the explicit pass-through later, thinking it's redundant for
+    // empty arrays.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk-2', memoryId: 'mem-A', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-2' } });
+
+    const actions = await importActions();
+    await actions.updateContent(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-2',
+      form: { content: 'x' },
+    }));
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown } }];
+    expect(vars.input.tags).toEqual([]);
+  });
+
+  it('updateEdges: tags are passed through alongside the new edges', async () => {
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk-3', memoryId: 'mem-A', loc: 'src', name: 'src',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: ['kept'], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-3' } });
+
+    const actions = await importActions();
+    await actions.updateEdges(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-3',
+      form: { edges: JSON.stringify([{ targetId: 'pk-target', label: 'uses' }]) },
+    }));
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown; edges?: unknown } }];
+    expect(vars.input.tags).toEqual(['kept']);
+    expect(vars.input.edges).toEqual([{ targetId: 'pk-target', label: 'uses' }]);
+  });
+
+  it('reorder: each per-loc upsert preserves the matching node`s tags', async () => {
+    // reorder iterates updates and upserts each one. Each upsert must
+    // carry its own node's tags (NOT a shared blob, NOT empty).
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk-a', memoryId: 'mem-A', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: ['a-tag'], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-a' } });
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk-b', memoryId: 'mem-A', loc: 'b', name: 'b',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: ['b-tag1', 'b-tag2'], seq: null, data: null,
+        ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-b' } });
+
+    const actions = await importActions();
+    await actions.reorder(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-a',
+      form: {
+        updates: JSON.stringify([
+          { loc: 'a', seq: 1 },
+          { loc: 'b', seq: 2 },
+        ]),
+      },
+    }));
+
+    // Calls 0 + 2 are NODE_QUERY reads; calls 1 + 3 are the upserts.
+    const [, varsA] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown } }];
+    const [, varsB] = mockRequest.mock.calls[3]! as [unknown, { input: { tags?: unknown } }];
+    expect(varsA.input.tags).toEqual(['a-tag']);
+    expect(varsB.input.tags).toEqual(['b-tag1', 'b-tag2']);
+  });
+});
