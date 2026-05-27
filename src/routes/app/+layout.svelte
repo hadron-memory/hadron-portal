@@ -53,9 +53,18 @@
 </script>
 
 <div class="flex gap-8 px-6 py-8">
-  <!-- Sidebar -->
+  <!-- Sidebar — sticky to the viewport so the account info at the bottom
+       stays visible on long pages (#231). Without sticky, the aside grew
+       with content height and the `mt-auto`-pinned account block fell
+       below the fold whenever the main column required scrolling.
+       `self-start` keeps the aside from stretching to match the flex
+       sibling's height; `max-height` + `overflow-y-auto` lets long nav
+       lists scroll inside the aside without overflowing the viewport. -->
   {#if menuOpen}
-    <aside class="flex w-48 shrink-0 flex-col" style="min-height: calc(100vh - 8rem);">
+    <aside
+      class="sticky top-8 self-start flex w-48 shrink-0 flex-col overflow-y-auto"
+      style="max-height: calc(100vh - 4rem); min-height: calc(100vh - 8rem);"
+    >
       <div class="mb-4 flex items-center justify-end">
         <button onclick={() => menuOpen = false} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('app.layout.collapse-menu', 'Collapse menu')}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
