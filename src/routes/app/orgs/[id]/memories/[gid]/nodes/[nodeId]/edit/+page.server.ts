@@ -57,14 +57,17 @@ export const actions: Actions = {
 
     if (!name) return fail(400, { error: 'Name is required' });
 
-    // If loc changed, move the node first
+    // #237: route every mutation through the node's actual memoryId, not
+    // the URL's gid. Form actions run BEFORE `load`, so the URL guard
+    // above doesn't run on POST — a stale URL would otherwise commit
+    // the user's edit into the wrong memory.
     const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
     if (loc !== currentNode.loc) {
       try {
         await client.request(MOVE_NODE_MUTATION, {
           from: currentNode.loc,
           to: loc,
-          memoryId: params.gid,
+          memoryId: currentNode.memoryId,
         });
       } catch (e: unknown) {
         return fail(500, { error: e instanceof Error ? e.message : 'Failed to move node' });
@@ -74,7 +77,7 @@ export const actions: Actions = {
     try {
       await client.request(UPSERT_NODE_MUTATION, {
         input: {
-          memoryId: params.gid,
+          memoryId: currentNode.memoryId,
           loc,
           name,
           description,
@@ -89,6 +92,7 @@ export const actions: Actions = {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to save' });
     }
 
-    redirect(303, `/app/orgs/${params.id}/memories/${params.gid}/nodes/${params.nodeId}`);
+    // Redirect to the actual memory's detail URL, not the URL's gid.
+    redirect(303, `/app/orgs/${params.id}/memories/${currentNode.memoryId}/nodes/${params.nodeId}`);
   },
 };

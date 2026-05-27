@@ -60,14 +60,30 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 };
 
 export const actions: Actions = {
+  // #237 review follow-up: every mutating action below derives `memoryId`
+  // from the node fetched by PK rather than from `params.gid`. The load
+  // guard above only protects GETs — form actions run BEFORE `load`, so
+  // a POST to a stale-URL (different memory in the URL than where the
+  // node actually lives) would otherwise mutate / delete / move against
+  // the wrong memory. Deriving memoryId from the fetched node preserves
+  // the user's input (their submission goes to the correct destination)
+  // and the post-action navigation re-runs `load`, whose redirect then
+  // fixes the URL on screen.
   createParent: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const loc = String(fd.get('loc') ?? '').trim();
     const name = String(fd.get('name') ?? '').trim();
     if (!loc || !name) return fail(400, { error: 'Missing loc or name' });
+    const client = gqlClient(locals.token);
+    // #237: derive memoryId from the anchor (URL) node so a stale URL
+    // doesn't write the new parent into the wrong memory.
+    const { nodeById: anchorNode } = await client.request<{ nodeById: MemoryNode | null }>(
+      NODE_BY_ID_QUERY, { id: params.nodeId },
+    );
+    if (!anchorNode) return fail(404, { error: 'Node not found' });
     try {
-      const res = await gqlClient(locals.token).request<{ upsertNode: { id: string } }>(UPSERT_NODE_MUTATION, {
-        input: { memoryId: params.gid, loc, name, nodeType: 'info' },
+      const res = await client.request<{ upsertNode: { id: string } }>(UPSERT_NODE_MUTATION, {
+        input: { memoryId: anchorNode.memoryId, loc, name, nodeType: 'info' },
       });
       return { createdParentId: res.upsertNode.id };
     } catch (e: unknown) {
@@ -95,11 +111,12 @@ export const actions: Actions = {
 
     if (!name) return fail(400, { error: 'Name is required' });
 
-    // Move if loc changed
+    // Move if loc changed. #237: route both mutations through the node's
+    // actual memoryId, not the URL's.
     const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
     if (loc !== currentNode.loc) {
       try {
-        await client.request(MOVE_NODE_MUTATION, { from: currentNode.loc, to: loc, memoryId: params.gid });
+        await client.request(MOVE_NODE_MUTATION, { from: currentNode.loc, to: loc, memoryId: currentNode.memoryId });
       } catch (e: unknown) {
         return fail(500, { error: e instanceof Error ? e.message : 'Failed to move node' });
       }
@@ -107,7 +124,7 @@ export const actions: Actions = {
 
     try {
       await client.request(UPSERT_NODE_MUTATION, {
-        input: { memoryId: params.gid, loc, name, description, alias, seq: Number.isNaN(seq) ? null : seq, tags },
+        input: { memoryId: currentNode.memoryId, loc, name, description, alias, seq: Number.isNaN(seq) ? null : seq, tags },
       });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to save' });
@@ -115,17 +132,20 @@ export const actions: Actions = {
   },
 
   delete: async ({ params, locals }) => {
-    // Load the node to get its loc
+    // Load the node to get its loc AND its actual memoryId (#237).
     const data = await gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
     );
     if (!data.nodeById) return fail(404, { error: 'Node not found' });
+    const node = data.nodeById;
     try {
-      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { loc: data.nodeById.loc, memoryId: params.gid });
+      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { loc: node.loc, memoryId: node.memoryId });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete' });
     }
-    redirect(303, `/app/orgs/${params.id}/memories/${params.gid}/nodes`);
+    // Redirect to the *actual* memory's list — not the URL's gid, which
+    // may have been stale.
+    redirect(303, `/app/orgs/${params.id}/memories/${node.memoryId}/nodes`);
   },
 
   updateContent: async ({ request, params, locals }) => {
@@ -139,7 +159,8 @@ export const actions: Actions = {
 
       await client.request(UPSERT_NODE_MUTATION, {
         input: {
-          memoryId: params.gid,
+          // #237: memoryId from the node, not the URL.
+          memoryId: node.memoryId,
           loc: node.loc,
           name: node.name,
           // #235: tags must be passed through explicitly. The upsertNode
@@ -182,7 +203,8 @@ export const actions: Actions = {
       if (!node) return fail(404, { error: 'Node not found' });
       await client.request(UPSERT_NODE_MUTATION, {
         input: {
-          memoryId: params.gid,
+          // #237: memoryId from the node, not the URL.
+          memoryId: node.memoryId,
           loc: node.loc,
           name: node.name,
           // #235: preserve tags — see updateContent for the rationale
@@ -211,13 +233,27 @@ export const actions: Actions = {
     }
 
     const client = gqlClient(locals.token);
+    // #237: derive memoryId from the URL's anchor node so a stale-URL
+    // POST reorders within the actual memory, not the URL's gid.
+    const { nodeById: anchorNode } = await client.request<{ nodeById: MemoryNode | null }>(
+      NODE_BY_ID_QUERY, { id: params.nodeId },
+    );
+    if (!anchorNode) return fail(404, { error: 'Anchor node not found' });
     try {
       for (const u of updates) {
+        // NODE_QUERY(loc:) is still memory-blind here (#234 left this
+        // call site as a noted follow-up). Worst case on collision: the
+        // siblings being reordered are within `anchorNode.memoryId`'s
+        // tree (the user is drag-reordering that tree), so `name` comes
+        // from the right place in practice. If a foreign memory shares
+        // the same loc and wins the resolver's first-match, the upsert
+        // below still targets anchorNode.memoryId, so the wrong-name
+        // value goes into the right memory's row — visible-but-fixable.
         const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc });
         if (!node) continue;
         await client.request(UPSERT_NODE_MUTATION, {
           input: {
-            memoryId: params.gid,
+            memoryId: anchorNode.memoryId,
             loc: u.loc,
             name: node.name,
             // #235: preserve tags — see updateContent for the rationale
