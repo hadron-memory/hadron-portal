@@ -38,6 +38,24 @@
     form = null;
   }
 
+  // #230: copy-to-clipboard on the raw-key reveal. `copied` toggles
+  // briefly for the "Copied!" confirmation; the timer is cleared on
+  // each click to avoid stale resets if the user clicks twice quickly.
+  let copied = $state(false);
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  async function copyKey(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      copied = true;
+      if (copiedTimer) clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => { copied = false; }, 2000);
+    } catch {
+      // Clipboard API unavailable (insecure context, denied permission,
+      // etc.) — silently no-op. The user can still select+copy the
+      // <code> block manually.
+    }
+  }
+
   // Revoke-confirm dialog state.
   let confirmId = $state<string | null>(null);
   let confirmPreview = $state<string>('');
@@ -106,7 +124,21 @@
     >
       <h2 class="mb-2 text-base font-semibold text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealHeading()}</h2>
       <p class="mb-3 text-sm text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealWarning()}</p>
-      <code class="block break-all rounded bg-amber-100 px-3 py-2 font-mono text-sm text-amber-950 dark:bg-amber-900 dark:text-amber-100">{rawKey}</code>
+      <!-- #230: copy button beside the code block. <code> is flex-1 so
+           long keys wrap; button is shrink-0 so it stays full-width on
+           narrow viewports. -->
+      <div class="flex items-start gap-2">
+        <code class="flex-1 break-all rounded bg-amber-100 px-3 py-2 font-mono text-sm text-amber-950 dark:bg-amber-900 dark:text-amber-100">{rawKey}</code>
+        <button
+          type="button"
+          onclick={() => copyKey(rawKey ?? '')}
+          aria-live="polite"
+          class="shrink-0 rounded-md border border-amber-600 bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-200 dark:border-amber-500 dark:bg-amber-900 dark:text-amber-100 dark:hover:bg-amber-800"
+          data-testid="raw-key-copy"
+        >
+          {copied ? i18n.rawKeyRevealCopied() : i18n.rawKeyRevealCopy()}
+        </button>
+      </div>
       <div class="mt-3 flex justify-end">
         <button
           type="button"
@@ -122,34 +154,45 @@
   <!-- Mint form. -->
   <section>
     <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">{i18n.mintSectionHeading()}</h2>
-    <form method="POST" action="?/create" use:enhance class="flex items-end gap-2">
-      <div class="flex-1">
-        <!-- a11y: <label> is the field name (one short word); the
-             longer help sentence renders below the input as
-             descriptive help so screen readers don't announce the
-             whole sentence as the field name. -->
-        <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          {i18n.labelInputLabel()}
-        </label>
-        <input
-          id="label"
-          name="label"
-          type="text"
-          placeholder={i18n.labelInputPlaceholder()}
-          maxlength="200"
-          aria-describedby="label-help"
-          class={inputClass}
-        />
-        <p id="label-help" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          {i18n.labelInputHelp()}
-        </p>
+    <!-- #229: restructured so the help text sits BELOW the input+button
+         row instead of inside the input wrapper. Previously the help
+         text inflated the input wrapper's height; with `items-end`,
+         the Save button got pushed below the input, looking
+         misaligned. Now: input + button in one items-end flex row,
+         help text below as a sibling. Also narrows the input to
+         `max-w-xs` (~20rem) per the issue's "trim to half size" ask —
+         the help sentence still fits comfortably on the row beneath
+         because it spans the full form width. -->
+    <form method="POST" action="?/create" use:enhance class="space-y-1">
+      <div class="flex items-end gap-2">
+        <div class="max-w-xs flex-1">
+          <!-- a11y: <label> is the field name (one short word); the
+               longer help sentence renders below the row as
+               descriptive help so screen readers don't announce the
+               whole sentence as the field name. -->
+          <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            {i18n.labelInputLabel()}
+          </label>
+          <input
+            id="label"
+            name="label"
+            type="text"
+            placeholder={i18n.labelInputPlaceholder()}
+            maxlength="200"
+            aria-describedby="label-help"
+            class={inputClass}
+          />
+        </div>
+        <button
+          type="submit"
+          class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+        >
+          {i18n.mintButton()}
+        </button>
       </div>
-      <button
-        type="submit"
-        class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
-      >
-        {i18n.mintButton()}
-      </button>
+      <p id="label-help" class="text-xs text-zinc-500 dark:text-zinc-400">
+        {i18n.labelInputHelp()}
+      </p>
     </form>
   </section>
 
