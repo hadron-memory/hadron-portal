@@ -34,17 +34,28 @@ export const apiKeysStrings = {
   labelInputHelp: (): string =>
     t('api-keys.mint.label-help', 'Optional. A name only you see — helps you remember which device/script uses this key.'),
 
-  /** Mint submit-button label. */
-  mintButton: (): string => t('api-keys.mint.button', 'Mint new key'),
+  /** Mint submit-button label. Renamed from "Mint new key" to "Save"
+   *  per #229. New i18n key so future translators are prompted to
+   *  update — verb-changing rename ("Mint" → "Save") would
+   *  otherwise hide behind a stale `api-keys.mint.button` translation
+   *  in non-English locales (per gemini-bot review on PR #242). */
+  mintButton: (): string => t('api-keys.mint.button-save', 'Save'),
 
-  /** Mint section heading — distinct from the submit button. */
+  /** Mint section heading — distinct from the submit button. Renamed
+   *  from "Mint a new API key" to "Create a new API key" per #229 —
+   *  vocabulary alignment with the rest of the portal ("Create"
+   *  appears on every other create-form heading). New i18n key for
+   *  the same translator-prompt reason as `mintButton`. */
   mintSectionHeading: (): string =>
-    t('api-keys.mint.heading', 'Mint a new API key'),
+    t('api-keys.mint.heading-create', 'Create a new API key'),
 
   /** Short label for the label input (a11y — read by screen readers
    *  as the field's name). The longer help sentence renders under
-   *  the input as descriptive help, NOT as the field's label. */
-  labelInputLabel: (): string => t('api-keys.mint.label', 'Label'),
+   *  the input as descriptive help, NOT as the field's label.
+   *  Renamed from "Label" to "Name" per #229. New i18n key so a
+   *  non-English locale's "Etikett" (German for "Label") doesn't
+   *  silently outlive the rename. */
+  labelInputLabel: (): string => t('api-keys.mint.label-name', 'Name'),
 
   /** Header above the one-shot raw-key reveal. */
   rawKeyRevealHeading: (): string =>
@@ -61,12 +72,20 @@ export const apiKeysStrings = {
   rawKeyRevealDismiss: (): string =>
     t('api-keys.reveal.dismiss', 'I have copied this key'),
 
+  /** Copy-to-clipboard button on the raw-key reveal (#230). */
+  rawKeyRevealCopy: (): string => t('api-keys.reveal.copy', 'Copy'),
+  /** Copy-success confirmation, shown briefly after the click (#230). */
+  rawKeyRevealCopied: (): string => t('api-keys.reveal.copied', 'Copied!'),
+
   /** Empty-state message when the user has no keys. */
   emptyState: (): string =>
     t('api-keys.empty', "You haven't minted any API keys yet."),
 
-  /** Column heading: label (user-supplied display name). */
-  columnLabel: (): string => t('api-keys.column.label', 'Label'),
+  /** Column heading: label (user-supplied display name). Renamed
+   *  from "Label" to "Name" per #229 — keeps the form input label
+   *  and the table column heading consistent. New i18n key so a
+   *  future non-English locale's column heading stays in sync. */
+  columnLabel: (): string => t('api-keys.column.label-name', 'Name'),
   /** Column heading: key preview (last 4 chars). */
   columnKey: (): string => t('api-keys.column.key', 'Key'),
   /** Column heading: status (active / revoked). */
