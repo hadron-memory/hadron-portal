@@ -119,8 +119,12 @@
          +layout.svelte (tiny 10px label, then the value on its own
          line). Previously the label sat inline left of the name. -->
     <span class="text-[10px] text-zinc-400">{t('app.layout.active-org.switcher.label', 'Organization')}</span>
-    <span class="flex w-full items-center gap-1">
-      <span class="truncate">{activeOrg.name}</span>
+    <!-- min-w-0 on both the flex container AND the truncating child so a
+         long org name shrinks rather than overflowing the sidebar / pushing
+         the caret out of view. Default flex behavior is "don't shrink below
+         min-content" — `min-w-0` opts out, letting the truncate engage. -->
+    <span class="flex w-full min-w-0 items-center gap-1">
+      <span class="min-w-0 truncate">{activeOrg.name}</span>
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ml-auto opacity-60 shrink-0">
         <polyline points="6 9 12 15 18 9" />
       </svg>
