@@ -48,7 +48,9 @@
                navigates — that was an accidental link target from when
                the whole row was wrapped. -->
           <div class="flex-1 min-w-0">
-            <a href="/app/orgs/{org.id}/agents/{agent.id}" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{agent.name}</a>
+            <div>
+              <a href="/app/orgs/{org.id}/agents/{agent.id}" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{agent.name}</a>
+            </div>
             <div class="mt-0.5"><Urn value={agent.urn} type="agent" size={8} /></div>
             {#if agent.description}
               <p class="mt-1 text-xs text-zinc-500">{agent.description}</p>

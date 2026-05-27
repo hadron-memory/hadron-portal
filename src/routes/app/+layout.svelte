@@ -63,7 +63,7 @@
   {#if menuOpen}
     <aside
       class="sticky top-8 self-start flex w-48 shrink-0 flex-col overflow-y-auto"
-      style="max-height: calc(100vh - 4rem); min-height: calc(100vh - 8rem);"
+      style="max-height: calc(100vh - 4rem); min-height: calc(100vh - 4rem);"
     >
       <div class="mb-4 flex items-center justify-end">
         <button onclick={() => menuOpen = false} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('app.layout.collapse-menu', 'Collapse menu')}>
