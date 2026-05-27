@@ -21,6 +21,19 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   if (!data.nodeById) throw new Error(`Node not found: ${params.nodeId}`);
   const node = data.nodeById;
 
+  // #237: the URL-acceptance counterpart to #234's URL-emission fix. The
+  // route is scoped by `[gid]` but `nodeById` resolves by PK alone, so a
+  // mismatched URL (stale tab after a node move, manual edit, future link
+  // bug, etc.) would silently render a foreign node under the current
+  // memory's basePath. Redirect to the correct memory's URL so the user
+  // lands on the right page — matches the R-9 inaccessible-deep-link
+  // pattern in +layout.server.ts. If the user can't access node.memoryId,
+  // the redirected memory layout will throw "Memory not found" — a clean
+  // failure mode rather than the silent wrong-node render.
+  if (node.memoryId !== params.gid) {
+    redirect(303, `/app/orgs/${params.id}/memories/${node.memoryId}/nodes/${params.nodeId}`);
+  }
+
   // Build breadcrumb from loc segments — look up ancestor nodes within THIS
   // memory only. Resolving by loc alone (via NODE_QUERY) would cross-pollinate
   // with any other memory the caller can access that happens to share the loc,

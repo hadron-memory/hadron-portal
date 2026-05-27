@@ -12,6 +12,14 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     NODE_BY_ID_QUERY, { id: params.nodeId },
   );
   if (!data.nodeById) throw new Error(`Node not found: ${params.nodeId}`);
+  // #237: same URL-acceptance guard as the detail page. Without it, an
+  // edit URL with a mismatched (gid, nodeId) would let the user save
+  // changes into the foreign node while believing they edit the current
+  // memory's row. Redirect to the correct edit URL so the destination
+  // memory is consistent with the node's actual ownership.
+  if (data.nodeById.memoryId !== params.gid) {
+    redirect(303, `/app/orgs/${params.id}/memories/${data.nodeById.memoryId}/nodes/${params.nodeId}/edit`);
+  }
   return { node: data.nodeById };
 };
 

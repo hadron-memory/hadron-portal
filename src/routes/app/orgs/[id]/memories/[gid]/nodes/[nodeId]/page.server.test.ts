@@ -143,6 +143,62 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     // Only NODE_BY_ID_QUERY ran; the per-ancestor NODE_QUERY calls are gone.
     expect(mockRequest).toHaveBeenCalledTimes(1);
   });
+
+  it('#237 — redirects when node.memoryId does not match params.gid (PK-mismatch guard)', async () => {
+    // The route is scoped by [gid] but nodeById resolves by PK alone.
+    // A URL combining memory A's gid with memory B's nodeId was
+    // silently rendering memory B's node under memory A's layout.
+    // The guard redirects to the correct memory URL.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        // Node lives in mem-B, but the URL says mem-A. The guard
+        // should redirect to mem-B's URL with the same nodeId.
+        id: 'leaf-pk', memoryId: 'mem-B', loc: 'foo', name: 'foo',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+
+    const load = await importLoad();
+    let thrown: unknown;
+    try {
+      await load(loadEvent({
+        gid: 'mem-A',
+        nodeId: 'leaf-pk',
+        parentGraphNodes: [],
+      }));
+    } catch (e) {
+      thrown = e;
+    }
+    expect((thrown as { status: number }).status).toBe(303);
+    expect((thrown as { location: string }).location).toBe('/app/orgs/org-1/memories/mem-B/nodes/leaf-pk');
+  });
+
+  it('#237 — does NOT redirect when node.memoryId matches params.gid (happy path)', async () => {
+    // Sanity check: the guard MUST be a no-op when the URL is
+    // internally consistent. If this regresses, every node-detail
+    // page load starts throwing 303s in a redirect loop.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+
+    const result = await runLoad(loadEvent({
+      gid: 'mem-A',
+      nodeId: 'leaf-pk',
+      parentGraphNodes: [{ id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo' }],
+    }));
+
+    // No redirect — load returns the data shape.
+    expect(result.breadcrumb).toBeDefined();
+  });
 });
 
 /**
