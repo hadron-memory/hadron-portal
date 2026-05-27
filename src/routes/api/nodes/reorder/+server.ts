@@ -19,8 +19,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     for (const u of updates) {
       const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc });
       if (!node) continue;
+      // #235: tags must be passed through. The upsertNode resolver
+      // defaults `input.tags ?? []`, so omitting tags clears them. See
+      // routes/app/orgs/[id]/memories/[gid]/nodes/[nodeId]/+page.server.ts
+      // updateContent for the long-form rationale (including why we
+      // coalesce a null `node.tags` to []).
       await client.request(UPSERT_NODE_MUTATION, {
-        input: { memoryId, loc: u.loc, name: node.name, seq: u.seq },
+        input: { memoryId, loc: u.loc, name: node.name, tags: node.tags ?? [], seq: u.seq },
       });
     }
     return json({ ok: true });

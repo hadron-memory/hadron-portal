@@ -129,6 +129,16 @@ export const actions: Actions = {
           memoryId: params.gid,
           loc: node.loc,
           name: node.name,
+          // #235: tags must be passed through explicitly. The upsertNode
+          // resolver defaults `input.tags ?? []`, so omitting tags clears
+          // them on save. Other "missing" fields (description, alias,
+          // seq, data) are safe because Prisma treats undefined as
+          // "don't update" — but tags has an explicit empty-array
+          // default that bypasses that semantic. The `?? []` guards
+          // against the runtime case where node.tags arrives as null
+          // (e.g. via a future schema-shape regression): explicit []
+          // matches what the user already has, so it round-trips safely.
+          tags: node.tags ?? [],
           content,
         },
       });
@@ -162,6 +172,9 @@ export const actions: Actions = {
           memoryId: params.gid,
           loc: node.loc,
           name: node.name,
+          // #235: preserve tags — see updateContent for the rationale
+          // (including why we coalesce a null `node.tags` to []).
+          tags: node.tags ?? [],
           edges: edges.map((e) => ({
             targetId: e.targetId,
             label: e.label ?? null,
@@ -194,6 +207,9 @@ export const actions: Actions = {
             memoryId: params.gid,
             loc: u.loc,
             name: node.name,
+            // #235: preserve tags — see updateContent for the rationale
+            // (including why we coalesce a null `node.tags` to []).
+            tags: node.tags ?? [],
             seq: u.seq,
           },
         });
