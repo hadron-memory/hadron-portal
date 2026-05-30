@@ -54,23 +54,23 @@
 
 <div class="flex gap-8 px-6 py-8">
   <!-- Sidebar — sticky to the viewport so the account info at the bottom
-       stays visible on long pages (#231). Without sticky, the aside grew
-       with content height and the `mt-auto`-pinned account block fell
-       below the fold whenever the main column required scrolling.
-       `self-start` keeps the aside from stretching to match the flex
-       sibling's height; `max-height` + `overflow-y-auto` lets long nav
-       lists scroll inside the aside without overflowing the viewport. -->
+       stays visible on long pages (#231). The aside has a fixed viewport
+       height; the nav scrolls internally (`flex-1 min-h-0 overflow-y-auto`)
+       while the account block stays pinned at the bottom (`shrink-0`). The
+       earlier layout put `overflow-y-auto` on the aside itself and pinned
+       the account block with `mt-auto` — that scrolled the *whole* sidebar
+       and pushed the account widget below the fold (#245). -->
   {#if menuOpen}
     <aside
-      class="sticky top-8 self-start flex w-48 shrink-0 flex-col overflow-y-auto"
+      class="sticky top-8 self-start flex w-48 shrink-0 flex-col"
       style="max-height: calc(100vh - 4rem); min-height: calc(100vh - 4rem);"
     >
-      <div class="mb-4 flex items-center justify-end">
+      <div class="mb-4 flex items-center justify-end shrink-0">
         <button onclick={() => menuOpen = false} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('app.layout.collapse-menu', 'Collapse menu')}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
       </div>
-      <nav class="flex flex-col gap-1">
+      <nav class="flex flex-1 min-h-0 flex-col gap-1 overflow-y-auto">
       {#each navItems as item}
         <a
           href={item.href}
@@ -118,7 +118,7 @@
       </a>
     </nav>
       <!-- User avatar + name + active-org indicator pinned to bottom -->
-      <div class="mt-auto pt-4">
+      <div class="shrink-0 pt-4">
         <hr class="mb-3 border-zinc-200 dark:border-zinc-800" />
         <a href="/app/account" class="flex items-center gap-3 rounded-md px-3 py-2 text-sm transition
           {$page.url.pathname.startsWith('/app/account')
