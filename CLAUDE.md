@@ -1,5 +1,11 @@
 # hadron-portal
 
+At the start of **every change** — before drafting a plan — call `h-read-node`
+with `urn: "urn:node:hadronmemory.com::dev::start-here"`. It's a
+symptom-to-pattern routing index into the findings, conventions, ops, and
+review branches. For one-time orientation (what Hadron is, repo layout, where
+the source of truth lives), read `urn:node:hadronmemory.com::dev::instructions`.
+
 ## Before reading code, consult Hadron memory
 
 Before reading project code to build context for a task, query Hadron memory
