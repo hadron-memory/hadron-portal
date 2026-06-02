@@ -1,5 +1,11 @@
 # hadron-portal
 
+At the start of **every change** — before drafting a plan — call `h-read-node`
+with `urn: "urn:node:hadronmemory.com::dev::start-here"`. It's a
+symptom-to-pattern routing index into the findings, conventions, ops, and
+review branches. For one-time orientation (what Hadron is, repo layout, where
+the source of truth lives), read `urn:node:hadronmemory.com::dev::instructions`.
+
 ## Before reading code, consult Hadron memory
 
 Before reading project code to build context for a task, query Hadron memory
@@ -19,57 +25,3 @@ you hit, a node that turned out to be wrong — capture it immediately via
 decays and findings get lost. The `speckit.hadron.capture` hook (bound at
 `after_plan` and `after_implement`) is a backstop, not the primary
 mechanism.
-
-## Hadron sessions are orthogonal to Spec Kit
-
-The Hadron session lifecycle (`h-start-session` → `h-save-session-task` →
-`h-end-session`) runs alongside Spec Kit's chain — they're complementary,
-not alternative. Spec Kit owns the workflow steps in between.
-
-The 6-phase protocol returned by `h-start-session` lists "save plan" and
-"update memory" as middle phases. **Under Spec Kit these are bookkeeping
-markers, not separate tool calls.** `plan.md` is the saved plan — do
-**not** call `h-save-plan`. Memory updates flow through `h-add-node` /
-`h-update-node` directly (or via the `capture` hook), not through a
-separate `h-update-memory` step. Always call `h-end-session` at close.
-
-## Spec Kit
-
-Drive feature work through `/speckit-specify` → `/speckit-clarify` →
-`/speckit-plan` → `/speckit-tasks` → `/speckit-implement` →
-`/speckit-finalize`.
-
-The Hadron extension binds these commands to Spec Kit hook points:
-
-| Hook point | Command | Optional |
-|---|---|---|
-| `before_specify` | `speckit.hadron.recall` — surface relevant prior knowledge | yes |
-| `after_plan` | `speckit.hadron.capture` — capture research-phase findings | **no** |
-| `after_implement` | `speckit.hadron.review` — apply review-criteria nodes to the diff | yes |
-| `after_implement` | `speckit.hadron.capture` — capture implementation-phase findings | **no** |
-
-`capture` binds twice on purpose — most learnings emerge during research/
-recon and would be forgotten by end of implementation. Two captures with
-fresher context each beats one end-of-session pass.
-
-## Note: two kinds of "hooks"
-
-**Spec Kit extension hooks** (the rows above) are the human-gated mechanism
-declared in `.specify/extensions.yml`. Spec Kit's skills surface them to
-the user — mandatory ones auto-execute, optional ones are offered as a
-suggestion. These are what we use.
-
-**Claude Code hooks** (`SessionStart`, `UserPromptSubmit`, `PostCompact`,
-etc.) are an out-of-band injection mechanism that bypasses the human. We
-do **not** use these in Spec Kit projects — they conflict with Spec Kit's
-"everything goes through the human" pattern.
-
-See [.specify/memory/constitution.md](.specify/memory/constitution.md) for
-project governance.
-
-<!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-at `specs/019-agent-chat-tester/plan.md` in the `spec-kits` repo
-(branch `019-agent-chat-tester` in both `spec-kits/` and `hadron-portal/`).
-<!-- SPECKIT END -->
