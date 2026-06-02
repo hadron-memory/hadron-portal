@@ -181,6 +181,37 @@ export const actions: Actions = {
     }
   },
 
+  updateAbstract: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    // Send the raw string; the server normalizes empty/whitespace-only to
+    // null (spec 031) and recomputes abstractOriginHash from current
+    // content (spec 032). Length cap (2000) is enforced server-side too,
+    // with a client-side maxlength as the first line of defense.
+    const abstract = String(fd.get('abstract') ?? '');
+
+    const client = gqlClient(locals.token);
+    try {
+      const { nodeById: node } = await client.request<{ nodeById: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      if (!node) return fail(404, { error: 'Node not found' });
+
+      await client.request(UPSERT_NODE_MUTATION, {
+        input: {
+          // #237: memoryId from the node, not the URL.
+          memoryId: node.memoryId,
+          loc: node.loc,
+          name: node.name,
+          // #235: tags must be passed through explicitly or the upsertNode
+          // resolver's `input.tags ?? []` default clears them. See
+          // updateContent for the full rationale.
+          tags: node.tags ?? [],
+          abstract,
+        },
+      });
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
+    }
+  },
+
   updateEdges: async ({ request, params, locals }) => {
     // Replaces the full set of outgoing edges on this node. The client sends
     // a JSON-encoded array of { targetId, label } — we pass it through the

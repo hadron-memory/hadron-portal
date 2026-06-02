@@ -51,6 +51,7 @@ export const actions: Actions = {
     const rawLoc = String(fd.get('loc') ?? '').trim();
     const nodeType = String(fd.get('nodeType') ?? 'info').trim();
     const description = String(fd.get('description') ?? '').trim() || null;
+    const abstract = String(fd.get('abstract') ?? '').trim() || null;
     const content = String(fd.get('content') ?? '').trim() || null;
 
     if (!name) {
@@ -73,6 +74,7 @@ export const actions: Actions = {
           name,
           nodeType,
           description,
+          abstract,
           content,
           tags: [],
           // Spec 011 + hadron-server#104: this is a CREATE form, not an

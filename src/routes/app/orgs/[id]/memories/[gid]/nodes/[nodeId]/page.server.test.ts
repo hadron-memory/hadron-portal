@@ -528,3 +528,69 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     expect(vars.input.memoryId).toBe('mem-B');
   });
 });
+
+/**
+ * #257 slice 1 — updateAbstract inline save. The abstract is the default
+ * vector-index source (spec 031/033), edited inline on the detail page just
+ * like content. The action must (a) send the abstract through upsertNode,
+ * (b) preserve tags (#235 guard), and (c) derive memoryId from the fetched
+ * node (#237 guard). The raw string is sent verbatim — the server
+ * normalizes empty/whitespace-only to null and caps length.
+ */
+describe('node-detail action — updateAbstract (#257)', () => {
+  it('sends the abstract through upsertNode while preserving tags and node.memoryId', async () => {
+    // Stale URL says mem-A; the node lives in mem-B and carries tags.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, abstract: 'old summary',
+        content: 'body', tokens: null, tags: ['kept'], seq: null, data: null,
+        ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk' } });
+
+    const actions = await importActions();
+    await actions.updateAbstract(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk',
+      form: { abstract: 'new summary' },
+    }));
+
+    const [, vars] = mockRequest.mock.calls[1]! as [
+      unknown,
+      { input: { abstract: unknown; tags: unknown; memoryId: string; content?: unknown } },
+    ];
+    expect(vars.input.abstract).toBe('new summary');
+    expect(vars.input.tags).toEqual(['kept']);
+    expect(vars.input.memoryId).toBe('mem-B');
+    // Content is NOT sent — omitting it preserves the existing body
+    // (Prisma treats undefined as no-op), so an abstract edit can't
+    // clobber content.
+    expect(vars.input.content).toBeUndefined();
+  });
+
+  it('sends an empty string when the abstract is cleared (server normalizes to null)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk', memoryId: 'mem-A', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, abstract: 'something',
+        content: null, tokens: null, tags: [], seq: null, data: null,
+        ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk' } });
+
+    const actions = await importActions();
+    await actions.updateAbstract(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk',
+      form: { abstract: '' },
+    }));
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { abstract: unknown } }];
+    expect(vars.input.abstract).toBe('');
+  });
+});
