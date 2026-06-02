@@ -38,6 +38,10 @@ export const actions: Actions = {
     const name = String(fd.get('name') ?? '').trim();
     const description = String(fd.get('description') ?? '').trim() || null;
     const alias = String(fd.get('alias') ?? '').trim() || null;
+    // Empty/whitespace-only → null so the server clears the abstract rather
+    // than storing an empty string (it normalizes the same way, but being
+    // explicit keeps the mutation payload honest). Cap is enforced server-side.
+    const abstract = String(fd.get('abstract') ?? '').trim() || null;
     const content = String(fd.get('content') ?? '').trim() || null;
     const seqVal = fd.get('seq');
     const seqRaw = seqVal != null ? String(seqVal).trim() : '';
@@ -82,6 +86,7 @@ export const actions: Actions = {
           name,
           description,
           alias,
+          abstract,
           content,
           seq,
           tags,

@@ -1086,6 +1086,7 @@ export const NODE_FIELDS = /* GraphQL */ `
     name
     alias
     description
+    abstract
     content
     tokens
     tags

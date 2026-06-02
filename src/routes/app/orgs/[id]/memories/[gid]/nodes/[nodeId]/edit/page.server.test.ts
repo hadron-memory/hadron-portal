@@ -128,13 +128,15 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
       await actions.default(actionEvent({
         gid: 'mem-A',
         nodeId: 'pk',
-        form: { name: 'new', content: 'new' },
+        form: { name: 'new', content: 'new', abstract: 'a summary' },
       }));
     } catch (e) {
       thrown = e;
     }
-    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string } }];
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string; abstract: unknown } }];
     expect(vars.input.memoryId).toBe('mem-B');
+    // #257: the edit form persists the abstract through the same upsert.
+    expect(vars.input.abstract).toBe('a summary');
     // Post-action redirect URL should point at mem-B too.
     expect((thrown as { status: number }).status).toBe(303);
     expect((thrown as { location: string }).location).toBe('/app/orgs/org-1/memories/mem-B/nodes/pk');

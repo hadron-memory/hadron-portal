@@ -19,7 +19,10 @@
   let locManuallyEdited = $state(false);
   let nodeType = $state<'info' | 'record' | 'system' | 'reference'>('info');
   let description = $state('');
+  let abstract = $state('');
   let content = $state('');
+
+  const ABSTRACT_MAX = 2000;
   let showAdvancedTypes = $state(false);
   let saving = $state(false);
 
@@ -161,6 +164,16 @@
         {createNodeStrings.fieldDescription()}
       </label>
       <input id="description" name="description" type="text" bind:value={description} class={inputClass} />
+    </div>
+
+    <div>
+      <label for="abstract" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
+        {createNodeStrings.fieldAbstract()}
+      </label>
+      <textarea id="abstract" name="abstract" rows="3" bind:value={abstract} maxlength={ABSTRACT_MAX}
+        placeholder="Paragraph-length summary — the default source for vector search."
+        class={inputClass}></textarea>
+      <p class="mt-1 text-right text-xs {abstract.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-500 dark:text-zinc-400'}">{abstract.length} / {ABSTRACT_MAX}</p>
     </div>
 
     <div>

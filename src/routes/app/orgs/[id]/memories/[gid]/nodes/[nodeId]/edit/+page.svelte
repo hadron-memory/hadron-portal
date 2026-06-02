@@ -13,7 +13,10 @@
   let alias = $state(node.alias ?? '');
   let seqStr = $state(node.seq !== null && node.seq !== undefined ? String(node.seq) : '');
   let tagsStr = $state(node.tags.join(', '));
+  let abstract = $state(node.abstract ?? '');
   let content = $state(node.content ?? '');
+
+  const ABSTRACT_MAX = 2000;
 
   // Edge management
   let edges: Array<{ targetId: string; label: string }> = $state(
@@ -112,6 +115,16 @@
         <button type="button" onclick={addEdge}
           class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700">Add</button>
       </div>
+    </section>
+
+    <!-- Abstract -->
+    <section class="space-y-3">
+      <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Abstract</h2>
+      <textarea name="abstract" bind:value={abstract} maxlength={ABSTRACT_MAX}
+        placeholder="Paragraph-length summary — the default source for vector search."
+        class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none"
+        style="min-height: 120px; resize: vertical;"></textarea>
+      <div class="text-right text-xs {abstract.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-500'}">{abstract.length} / {ABSTRACT_MAX}</div>
     </section>
 
     <!-- Content -->

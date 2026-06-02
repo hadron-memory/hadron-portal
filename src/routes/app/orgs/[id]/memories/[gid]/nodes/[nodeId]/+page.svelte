@@ -60,6 +60,37 @@
     }
   }
 
+  // Abstract — paragraph-length summary, the default vector-index source
+  // (spec 031/033). Edited inline here exactly like content. The Abstract
+  // tab is ALWAYS shown (unlike Content, which is gated on hasContent —
+  // issue #256): an empty abstract still needs an authoring surface, or
+  // there is no portal path to populate the index's default source.
+  const ABSTRACT_MAX = 2000;
+  let showAbstractSource = $state(false);
+  let copiedAbstract = $state(false);
+  let editAbstract = $state('');
+  let savingAbstract = $state(false);
+
+  $effect(() => {
+    editAbstract = node.abstract ?? '';
+  });
+
+  async function saveAbstract() {
+    savingAbstract = true;
+    try {
+      const fd = new FormData();
+      fd.set('abstract', editAbstract);
+      const res = await fetch('?/updateAbstract', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('Save failed');
+      await invalidateAll();
+      showAbstractSource = false;
+    } catch (err) {
+      console.error('Save failed:', err);
+    } finally {
+      savingAbstract = false;
+    }
+  }
+
   // Markdown rendering
   let renderedHtml = $state('');
   let markedReady = $state(false);
@@ -70,22 +101,30 @@
     markedReady = true;
   });
 
-  $effect(() => {
-    if (markedReady && MarkedClass && node.content) {
-      const m = new MarkedClass({
-        renderer: {
-          html(token: { text: string }) {
-            return token.text
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;');
-          },
+  // Shared renderer config — escape raw HTML in both content and abstract.
+  function renderMarkdown(src: string): string {
+    if (!MarkedClass) return '';
+    const m = new MarkedClass({
+      renderer: {
+        html(token: { text: string }) {
+          return token.text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
         },
-      });
-      renderedHtml = m.parse(node.content, { async: false }) as string;
-    } else {
-      renderedHtml = '';
-    }
+      },
+    });
+    return m.parse(src, { async: false }) as string;
+  }
+
+  let renderedAbstractHtml = $state('');
+
+  $effect(() => {
+    renderedHtml = markedReady && node.content ? renderMarkdown(node.content) : '';
+  });
+
+  $effect(() => {
+    renderedAbstractHtml = markedReady && node.abstract ? renderMarkdown(node.abstract) : '';
   });
 
   async function copyContent() {
@@ -97,8 +136,18 @@
     } catch { /* no-op */ }
   }
 
+  async function copyAbstract() {
+    if (!node.abstract) return;
+    try {
+      await navigator.clipboard.writeText(node.abstract);
+      copiedAbstract = true;
+      setTimeout(() => (copiedAbstract = false), 2000);
+    } catch { /* no-op */ }
+  }
+
   const hasReferences = $derived(node.outgoingEdges.length > 0 || node.incomingEdges.length > 0);
   const hasContent = $derived(!!node.content);
+  const hasAbstract = $derived(!!node.abstract);
 
   // ── Edge editing ────────────────────────────────────────────────────
   // Edge editing replaces the full outgoing set via upsertNode(edges: [...]).
@@ -197,8 +246,10 @@
   // URN slug for edit form
   const urnSlug = $derived(node.loc);
 
-  // Default tab: content first, then children, then references, then settings
-  let activeTab = $state<'content' | 'children' | 'references' | 'settings'>('content');
+  // Default tab: content first, then children, then references, then settings.
+  // The Abstract tab is always available but never the default — content is
+  // the primary surface when present.
+  let activeTab = $state<'content' | 'abstract' | 'children' | 'references' | 'settings'>('content');
   $effect(() => {
     if (hasContent) activeTab = 'content';
     else if (hasChildren) activeTab = 'children';
@@ -267,6 +318,14 @@
           onclick={() => activeTab = 'content'}
         >Content</button>
       {/if}
+      <!-- Always shown — an empty abstract still needs an authoring surface
+           (the default vector-index source). Unlike Content (#256). -->
+      <button
+        class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'abstract' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+        onclick={() => activeTab = 'abstract'}
+      >Abstract
+        {#if !hasAbstract}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">empty</span>{/if}
+      </button>
       {#if hasChildren}
         <button
           class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'children' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
@@ -324,6 +383,59 @@
         </div>
       {:else}
         <div class="prose prose-sm prose-zinc mt-3 max-w-none dark:prose-invert">{@html renderedHtml}</div>
+      {/if}
+    {/if}
+
+    <!-- ═══ ABSTRACT TAB ═══ -->
+    {#if activeTab === 'abstract'}
+      <div class="flex items-center justify-between">
+        <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+          <button
+            class="px-2 py-1 text-xs {!showAbstractSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+            onclick={() => showAbstractSource = false}
+          >Rendered</button>
+          <button
+            class="px-2 py-1 text-xs {showAbstractSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+            onclick={() => showAbstractSource = true}
+          >Source</button>
+        </div>
+        {#if hasAbstract}
+          <button onclick={copyAbstract} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy abstract">
+            {#if copiedAbstract}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            {:else}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            {/if}
+          </button>
+        {/if}
+      </div>
+      {#if showAbstractSource}
+        <div class="mt-3">
+          <textarea
+            class="w-full min-h-[300px] rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
+            maxlength={ABSTRACT_MAX}
+            placeholder="A paragraph-length summary of this node. This is the default source for vector search."
+            bind:value={editAbstract}
+          ></textarea>
+          <div class="mt-2 flex items-center justify-between">
+            <span class="text-xs {editAbstract.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-400'}">{editAbstract.length} / {ABSTRACT_MAX}</span>
+            <button
+              onclick={saveAbstract}
+              disabled={savingAbstract || editAbstract === (node.abstract ?? '')}
+              class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            >{savingAbstract ? 'Saving...' : 'Save'}</button>
+          </div>
+        </div>
+      {:else if hasAbstract}
+        <div class="prose prose-sm prose-zinc mt-3 max-w-none dark:prose-invert">{@html renderedAbstractHtml}</div>
+      {:else}
+        <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">No abstract yet. The abstract is a paragraph-length summary and the default source for vector search.</p>
+          <button
+            onclick={() => showAbstractSource = true}
+            class="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+          >Write an abstract</button>
+        </div>
       {/if}
     {/if}
 

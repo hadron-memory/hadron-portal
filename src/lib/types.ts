@@ -269,6 +269,7 @@ export interface MemoryNode {
   name: string;
   alias: string | null;
   description: string | null;
+  abstract: string | null;
   content: string | null;
   tokens: number | null;
   tags: string[];

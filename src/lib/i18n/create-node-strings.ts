@@ -27,6 +27,7 @@ export const createNodeStrings = {
   fieldLoc: (): string => t('create-node.field.loc', 'Loc (address)'),
   fieldNodeType: (): string => t('create-node.field.node-type', 'Type'),
   fieldDescription: (): string => t('create-node.field.description', 'Description'),
+  fieldAbstract: (): string => t('create-node.field.abstract', 'Abstract'),
   fieldContent: (): string => t('create-node.field.content', 'Content'),
   fieldParent: (): string => t('create-node.field.parent', 'Parent'),
 
