@@ -86,9 +86,12 @@
 
   // Resync local state when the page data changes (after a successful save,
   // invalidateAll reloads `g`). Mirrors the node-detail editContent pattern —
-  // `g.*` only changes on navigation/invalidate, never mid-edit.
+  // `g.*` only changes on navigation/invalidate, never mid-edit. The enable
+  // toggle is left alone while the disclosure panel is open so a server
+  // backstop (needsEncryptedAck) can keep the user's enable intent and let
+  // them acknowledge + enable in one flow instead of resyncing back to false.
   $effect(() => {
-    viEnabled = g.vectorIndexEnabled ?? false;
+    if (!showDisclosure) viEnabled = g.vectorIndexEnabled ?? false;
     viSource = g.embeddingSource ?? 'abstract';
     viChunkTokens = g.chunkTokens != null ? String(g.chunkTokens) : '';
     viChunkOverlap = g.chunkOverlap != null ? String(g.chunkOverlap) : '';
@@ -118,12 +121,25 @@
   function vectorEnhance(formEl: HTMLFormElement) {
     return enhance(formEl, () => {
       viSaving = true;
-      return async ({ update }) => {
+      return async ({ result, update }) => {
         viSaving = false;
-        showDisclosure = false;
-        confirmRevoke = false;
-        disclosureAccepted = false;
+        const needsAck =
+          result.type === 'failure' &&
+          (result.data as { needsEncryptedAck?: boolean } | undefined)?.needsEncryptedAck === true;
+        if (result.type === 'success') {
+          showDisclosure = false;
+          confirmRevoke = false;
+          disclosureAccepted = false;
+        }
         await update();
+        // Server backstop: the encrypted memory needs acknowledgement. Re-open
+        // the disclosure AFTER the data resync (the resync effect leaves
+        // viEnabled alone while showDisclosure is true) so the user can accept
+        // and enable in a single follow-up submit.
+        if (needsAck) {
+          viEnabled = true;
+          showDisclosure = true;
+        }
       };
     });
   }

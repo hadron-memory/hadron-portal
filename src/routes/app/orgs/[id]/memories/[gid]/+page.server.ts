@@ -15,8 +15,10 @@ import type { Actions, PageServerLoad } from './$types';
 
 function extractGqlError(e: unknown, fallback: string): string {
   if (e && typeof e === 'object' && 'response' in e) {
-    const resp = (e as { response: { errors?: { message: string }[] } }).response;
-    if (resp.errors?.[0]?.message) return resp.errors[0].message;
+    // `response` can be null/undefined on transport errors even though the
+    // `'response' in e` check passes — optional-chain before reading errors.
+    const resp = (e as { response?: { errors?: { message: string }[] } }).response;
+    if (resp?.errors?.[0]?.message) return resp.errors[0].message;
   }
   return e instanceof Error ? e.message : fallback;
 }
@@ -28,10 +30,12 @@ function extractGqlError(e: unknown, fallback: string): string {
 // disclosure can still be surfaced if proactive detection ever misses.
 function isEncryptedAckError(e: unknown): boolean {
   if (e && typeof e === 'object' && 'response' in e) {
+    // `response` may be null/undefined here — this runs in a catch path, so a
+    // TypeError would crash the action instead of returning fail(). Guard it.
     const resp = (e as {
-      response: { errors?: { message?: string; extensions?: { code?: string } }[] };
+      response?: { errors?: { message?: string; extensions?: { code?: string } }[] };
     }).response;
-    const err = resp.errors?.[0];
+    const err = resp?.errors?.[0];
     return (
       err?.extensions?.code === 'EncryptedVectorIndexNotAcknowledgedError' ||
       (err?.message?.includes('ENCRYPTED_VECTOR_INDEX_NOT_ACKNOWLEDGED') ?? false)
@@ -40,13 +44,14 @@ function isEncryptedAckError(e: unknown): boolean {
   return false;
 }
 
-// Parse an optional non-negative integer dial; '' / invalid → undefined
-// (omit from the mutation so the server keeps its current value).
+// Parse an optional non-negative integer dial. Only a run of digits is
+// accepted — '', negatives, decimals, and partials like "12abc" all → undefined
+// (omit from the mutation so the server keeps its current value rather than
+// receiving a silently-truncated number).
 function intDial(raw: FormDataEntryValue | null): number | undefined {
   const s = String(raw ?? '').trim();
-  if (s === '') return undefined;
-  const n = parseInt(s, 10);
-  return Number.isNaN(n) ? undefined : n;
+  if (!/^\d+$/.test(s)) return undefined;
+  return parseInt(s, 10);
 }
 
 export const load: PageServerLoad = async ({ locals, parent }) => {

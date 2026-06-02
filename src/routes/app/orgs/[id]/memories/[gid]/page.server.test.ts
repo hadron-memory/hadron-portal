@@ -219,7 +219,7 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
     expect(vars.acknowledgeVectorInversionRisk).toBe(true);
   });
 
-  it('omits empty/invalid chunk dials so the server keeps its current values', async () => {
+  it('omits empty/partial/negative chunk dials so the server keeps its current values', async () => {
     mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
     const actions = await importActions();
 
@@ -227,12 +227,25 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
       vectorIndexEnabled: 'true',
       embeddingSource: 'contentChunks',
       chunkTokens: '',
-      chunkOverlap: 'not-a-number',
+      // Partial/garbage must be rejected outright (NOT parseInt-truncated to 12)
+      // and negatives omitted — digits-only.
+      chunkOverlap: '12abc',
     }));
 
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars.chunkTokens).toBeUndefined();
     expect(vars.chunkOverlap).toBeUndefined();
+
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'true',
+      embeddingSource: 'contentChunks',
+      chunkTokens: '-5',
+      chunkOverlap: '1.5',
+    }));
+    const [, vars2] = mockRequest.mock.calls[1]! as [unknown, Record<string, unknown>];
+    expect(vars2.chunkTokens).toBeUndefined();
+    expect(vars2.chunkOverlap).toBeUndefined();
   });
 
   it('maps the encrypted-ack error (by extensions.code) to fail(400) with needsEncryptedAck', async () => {
