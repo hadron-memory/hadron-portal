@@ -24,6 +24,14 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     visibility
     type
     class
+    isEncrypted
+    # 033-rag-vector-retrieval: per-memory vector-index config.
+    vectorIndexEnabled
+    embeddingSource
+    chunkTokens
+    chunkOverlap
+    forceFixedSize
+    vectorIndexEncryptedAckAt
     userId
     userMemoryOfAgentId
     anonymousExpiresAt
@@ -500,7 +508,10 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
     $tags: [String!], $license: String,
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
-    $source: String, $readBranch: String, $writeBranch: String, $visibility: MemoryVisibility
+    $source: String, $readBranch: String, $writeBranch: String, $visibility: MemoryVisibility,
+    $vectorIndexEnabled: Boolean, $embeddingSource: EmbeddingSource,
+    $acknowledgeVectorInversionRisk: Boolean,
+    $chunkTokens: Int, $chunkOverlap: Int, $forceFixedSize: Boolean
   ) {
     updateMemory(
       id: $id, name: $name, urn: $urn, organizationId: $organizationId, shortDescription: $shortDescription, description: $description,
@@ -508,7 +519,10 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
       category0: $category0, category1: $category1, category2: $category2,
       iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
       source: $source, readBranch: $readBranch, writeBranch: $writeBranch,
-      visibility: $visibility
+      visibility: $visibility,
+      vectorIndexEnabled: $vectorIndexEnabled, embeddingSource: $embeddingSource,
+      acknowledgeVectorInversionRisk: $acknowledgeVectorInversionRisk,
+      chunkTokens: $chunkTokens, chunkOverlap: $chunkOverlap, forceFixedSize: $forceFixedSize
     ) { ...MemoryFields }
   }
 `;

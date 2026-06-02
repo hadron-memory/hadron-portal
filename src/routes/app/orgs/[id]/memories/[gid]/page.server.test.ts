@@ -148,3 +148,141 @@ describe("memory-detail `delete` action (spec 013)", () => {
     expect((thrown as { status: number }).status).toBe(303);
   });
 });
+
+// ── Tests for the `updateVectorIndex` action (spec 033 §2/§3) ────────────
+
+/** RequestEvent-shaped object carrying form data for the vector action. */
+function vectorEv(form: Record<string, string>) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(form)) fd.append(k, v);
+  return {
+    params: { id: 'org-id-123', gid: 'mem-id-abc' },
+    locals: { token: 'test-token' },
+    request: { formData: async () => fd },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['updateVectorIndex']>[0];
+}
+
+describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
+  it('sends parsed config through updateMemory and returns success', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    const result = (await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'true',
+      embeddingSource: 'both',
+      chunkTokens: '256',
+      chunkOverlap: '32',
+      forceFixedSize: 'true',
+    }))) as { success?: boolean } | undefined;
+
+    expect(result).toEqual({ success: true });
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars).toMatchObject({
+      id: 'mem-id-abc',
+      vectorIndexEnabled: true,
+      embeddingSource: 'both',
+      chunkTokens: 256,
+      chunkOverlap: 32,
+      forceFixedSize: true,
+    });
+  });
+
+  it('parses booleans from strings and omits acknowledgement unless explicitly accepted', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'false',
+      embeddingSource: 'abstract',
+      forceFixedSize: 'false',
+      acknowledgeVectorInversionRisk: 'false',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.vectorIndexEnabled).toBe(false);
+    expect(vars.forceFixedSize).toBe(false);
+    // Never send `false` — only assert acknowledgement when truly accepted.
+    expect(vars.acknowledgeVectorInversionRisk).toBeUndefined();
+  });
+
+  it('sends acknowledgeVectorInversionRisk: true when the disclosure was accepted', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'true',
+      embeddingSource: 'abstract',
+      acknowledgeVectorInversionRisk: 'true',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.acknowledgeVectorInversionRisk).toBe(true);
+  });
+
+  it('omits empty/partial/negative chunk dials so the server keeps its current values', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'true',
+      embeddingSource: 'contentChunks',
+      chunkTokens: '',
+      // Partial/garbage must be rejected outright (NOT parseInt-truncated to 12)
+      // and negatives omitted — digits-only.
+      chunkOverlap: '12abc',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.chunkTokens).toBeUndefined();
+    expect(vars.chunkOverlap).toBeUndefined();
+
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'true',
+      embeddingSource: 'contentChunks',
+      chunkTokens: '-5',
+      chunkOverlap: '1.5',
+    }));
+    const [, vars2] = mockRequest.mock.calls[1]! as [unknown, Record<string, unknown>];
+    expect(vars2.chunkTokens).toBeUndefined();
+    expect(vars2.chunkOverlap).toBeUndefined();
+  });
+
+  it('maps the encrypted-ack error (by extensions.code) to fail(400) with needsEncryptedAck', async () => {
+    const ackError = Object.assign(new Error('outer'), {
+      response: {
+        errors: [{
+          message: 'ENCRYPTED_VECTOR_INDEX_NOT_ACKNOWLEDGED: ...',
+          extensions: { code: 'EncryptedVectorIndexNotAcknowledgedError' },
+        }],
+      },
+    });
+    mockRequest.mockRejectedValueOnce(ackError);
+    const actions = await importActions();
+
+    const result = (await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'true',
+      embeddingSource: 'abstract',
+    }))) as { status: number; data: { needsEncryptedAck?: boolean } } | undefined;
+
+    expect(result!.status).toBe(400);
+    expect(result!.data.needsEncryptedAck).toBe(true);
+  });
+
+  it('falls back to fail(500) for unrelated GraphQL errors', async () => {
+    const gqlError = Object.assign(new Error('outer'), {
+      response: { errors: [{ message: 'Forbidden' }] },
+    });
+    mockRequest.mockRejectedValueOnce(gqlError);
+    const actions = await importActions();
+
+    const result = (await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'true',
+      embeddingSource: 'abstract',
+    }))) as { status: number; data: { error: string; needsEncryptedAck?: boolean } } | undefined;
+
+    expect(result!.status).toBe(500);
+    expect(result!.data.error).toBe('Forbidden');
+    expect(result!.data.needsEncryptedAck).toBeUndefined();
+  });
+});

@@ -15,10 +15,43 @@ import type { Actions, PageServerLoad } from './$types';
 
 function extractGqlError(e: unknown, fallback: string): string {
   if (e && typeof e === 'object' && 'response' in e) {
-    const resp = (e as { response: { errors?: { message: string }[] } }).response;
-    if (resp.errors?.[0]?.message) return resp.errors[0].message;
+    // `response` can be null/undefined on transport errors even though the
+    // `'response' in e` check passes — optional-chain before reading errors.
+    const resp = (e as { response?: { errors?: { message: string }[] } }).response;
+    if (resp?.errors?.[0]?.message) return resp.errors[0].message;
   }
   return e instanceof Error ? e.message : fallback;
+}
+
+// FR-026: enabling the vector index on an encrypted memory without
+// acknowledging the embedding-inversion disclosure fails with this code.
+// The portal detects the case client-side and sends
+// acknowledgeVectorInversionRisk; this is the server-side backstop so the
+// disclosure can still be surfaced if proactive detection ever misses.
+function isEncryptedAckError(e: unknown): boolean {
+  if (e && typeof e === 'object' && 'response' in e) {
+    // `response` may be null/undefined here — this runs in a catch path, so a
+    // TypeError would crash the action instead of returning fail(). Guard it.
+    const resp = (e as {
+      response?: { errors?: { message?: string; extensions?: { code?: string } }[] };
+    }).response;
+    const err = resp?.errors?.[0];
+    return (
+      err?.extensions?.code === 'EncryptedVectorIndexNotAcknowledgedError' ||
+      (err?.message?.includes('ENCRYPTED_VECTOR_INDEX_NOT_ACKNOWLEDGED') ?? false)
+    );
+  }
+  return false;
+}
+
+// Parse an optional non-negative integer dial. Only a run of digits is
+// accepted — '', negatives, decimals, and partials like "12abc" all → undefined
+// (omit from the mutation so the server keeps its current value rather than
+// receiving a silently-truncated number).
+function intDial(raw: FormDataEntryValue | null): number | undefined {
+  const s = String(raw ?? '').trim();
+  if (!/^\d+$/.test(s)) return undefined;
+  return parseInt(s, 10);
 }
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
@@ -61,6 +94,49 @@ export const actions: Actions = {
       return { success: true };
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to update' });
+    }
+  },
+
+  // Spec 033 §2/§3 — vector-index config lives in its own action (not the
+  // metadata `update` above) so a memory-wide re-index only fires when these
+  // fields actually change, never on an unrelated name/tag edit.
+  updateVectorIndex: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const enabled = fd.get('vectorIndexEnabled') === 'true';
+    const embeddingSourceRaw = String(fd.get('embeddingSource') ?? '');
+    const embeddingSource = (['abstract', 'contentChunks', 'both'] as const).includes(
+      embeddingSourceRaw as 'abstract' | 'contentChunks' | 'both',
+    )
+      ? embeddingSourceRaw
+      : undefined;
+    // Only assert the encrypted-memory acknowledgement when the user actually
+    // accepted it — never send `false`, which would be a no-op the server
+    // could misread as an explicit decline.
+    const acknowledgeVectorInversionRisk =
+      fd.get('acknowledgeVectorInversionRisk') === 'true' ? true : undefined;
+
+    try {
+      await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
+        id: params.gid,
+        vectorIndexEnabled: enabled,
+        embeddingSource,
+        acknowledgeVectorInversionRisk,
+        chunkTokens: intDial(fd.get('chunkTokens')),
+        chunkOverlap: intDial(fd.get('chunkOverlap')),
+        forceFixedSize: fd.get('forceFixedSize') === 'true',
+      });
+      return { success: true };
+    } catch (e: unknown) {
+      // Surface the FR-026 disclosure requirement as a structured failure so
+      // the page can render the acknowledgement panel even if the client-side
+      // proactive check was bypassed.
+      if (isEncryptedAckError(e)) {
+        return fail(400, {
+          error: 'This encrypted memory requires acknowledging the vector-inversion disclosure before enabling the index.',
+          needsEncryptedAck: true,
+        });
+      }
+      return fail(500, { error: extractGqlError(e, 'Failed to update vector index') });
     }
   },
 

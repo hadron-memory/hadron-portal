@@ -24,6 +24,16 @@ export interface Memory {
   // gate the detail-page Danger-zone affordance: personal-class memories
   // are owner-deletable; all others are org-admin-deletable.
   class?: 'system' | 'app' | 'knowledge' | 'personal';
+  isEncrypted?: boolean;
+  // Spec 033-rag-vector-retrieval: per-memory vector-index config. Chunk
+  // dials are nullable (null = platform default 512 / 64). vectorIndexEncryptedAckAt
+  // is the FR-026 disclosure-acceptance timestamp (null until acknowledged).
+  vectorIndexEnabled?: boolean;
+  embeddingSource?: 'abstract' | 'contentChunks' | 'both';
+  chunkTokens?: number | null;
+  chunkOverlap?: number | null;
+  forceFixedSize?: boolean;
+  vectorIndexEncryptedAckAt?: string | null;
   userId?: string | null;
   userMemoryOfAgentId?: string | null;
   anonymousExpiresAt?: string | null;
