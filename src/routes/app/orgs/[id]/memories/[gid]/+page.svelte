@@ -62,6 +62,71 @@
       return async ({ update }) => { pushing = false; await update(); };
     });
   }
+
+  // ── Vector index (spec 033 §2/§3) ───────────────────────────────────
+  // The FR-026 disclosure text MUST match the server's FR_026_DISCLOSURE
+  // constant verbatim (src/lib/entityRef/errors.ts in hadron-server).
+  const FR_026_DISCLOSURE = [
+    '(a) Stored vectors are plaintext — they are NOT encrypted at rest the way the content column is.',
+    '(b) Embedding inversion can partially reconstruct source text from a vector (partial, not full reconstruction).',
+    '(c) Anyone with database access is therefore a potential viewer of that partial content, even though the content column itself is encrypted.',
+    "(d) The opt-in is revocable; revoking stops further indexing AND removes the memory's already-stored vectors.",
+  ];
+
+  let viEnabled = $state(g.vectorIndexEnabled ?? false);
+  let viSource = $state<'abstract' | 'contentChunks' | 'both'>(g.embeddingSource ?? 'abstract');
+  let viChunkTokens = $state(g.chunkTokens != null ? String(g.chunkTokens) : '');
+  let viChunkOverlap = $state(g.chunkOverlap != null ? String(g.chunkOverlap) : '');
+  let viForceFixedSize = $state(g.forceFixedSize ?? false);
+  let viSaving = $state(false);
+  let showDisclosure = $state(false);
+  let disclosureAccepted = $state(false);
+  let confirmRevoke = $state(false);
+  let viFormEl: HTMLFormElement;
+
+  // Resync local state when the page data changes (after a successful save,
+  // invalidateAll reloads `g`). Mirrors the node-detail editContent pattern —
+  // `g.*` only changes on navigation/invalidate, never mid-edit.
+  $effect(() => {
+    viEnabled = g.vectorIndexEnabled ?? false;
+    viSource = g.embeddingSource ?? 'abstract';
+    viChunkTokens = g.chunkTokens != null ? String(g.chunkTokens) : '';
+    viChunkOverlap = g.chunkOverlap != null ? String(g.chunkOverlap) : '';
+    viForceFixedSize = g.forceFixedSize ?? false;
+  });
+
+  const viSourceIncludesChunks = $derived(viSource === 'contentChunks' || viSource === 'both');
+  const viDirty = $derived(
+    viEnabled !== (g.vectorIndexEnabled ?? false) ||
+    viSource !== (g.embeddingSource ?? 'abstract') ||
+    viChunkTokens.trim() !== (g.chunkTokens != null ? String(g.chunkTokens) : '') ||
+    viChunkOverlap.trim() !== (g.chunkOverlap != null ? String(g.chunkOverlap) : '') ||
+    viForceFixedSize !== (g.forceFixedSize ?? false),
+  );
+  // First-time enable on an encrypted memory that hasn't accepted FR-026 yet.
+  const viNeedsAck = $derived(!!g.isEncrypted && viEnabled && !g.vectorIndexEncryptedAckAt);
+  // Turning the index OFF on an encrypted memory that currently has it on —
+  // the server drops stored vectors, so confirm first.
+  const viIsRevoking = $derived(!!g.isEncrypted && !viEnabled && (g.vectorIndexEnabled ?? false));
+
+  function attemptVectorSave() {
+    if (viNeedsAck && !disclosureAccepted) { showDisclosure = true; return; }
+    if (viIsRevoking && !confirmRevoke) { confirmRevoke = true; return; }
+    viFormEl.requestSubmit();
+  }
+
+  function vectorEnhance(formEl: HTMLFormElement) {
+    return enhance(formEl, () => {
+      viSaving = true;
+      return async ({ update }) => {
+        viSaving = false;
+        showDisclosure = false;
+        confirmRevoke = false;
+        disclosureAccepted = false;
+        await update();
+      };
+    });
+  }
 </script>
 
 <svelte:head><title>{g.name} &middot; Settings &middot; Hadron</title></svelte:head>
@@ -275,6 +340,120 @@
         </form>
       </div>
     {/if}
+  </section>
+
+  <!-- Spec 033 §2/§3: Vector index settings -->
+  <section class="max-w-lg">
+    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Vector index</h2>
+    <form bind:this={viFormEl} method="POST" action="?/updateVectorIndex" use:vectorEnhance
+      class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+      <!-- Booleans submitted as explicit hidden values (unchecked checkboxes
+           don't post; the server needs true/false, not present/absent). -->
+      <input type="hidden" name="vectorIndexEnabled" value={String(viEnabled)} />
+      <input type="hidden" name="forceFixedSize" value={String(viForceFixedSize)} />
+      <input type="hidden" name="acknowledgeVectorInversionRisk" value={String(disclosureAccepted)} />
+
+      <label class="flex items-start gap-3">
+        <input type="checkbox" bind:checked={viEnabled} class="mt-0.5 h-4 w-4" />
+        <span>
+          <span class="block text-sm font-medium text-zinc-900 dark:text-white">Enable vector index</span>
+          <span class="block text-xs text-zinc-500 dark:text-zinc-400">Allows semantic (meaning-based) search over this memory's nodes.</span>
+        </span>
+      </label>
+
+      {#if g.isEncrypted}
+        <p class="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+          This memory is <span class="font-medium">encrypted</span>. Enabling the
+          vector index requires acknowledging that stored vectors are plaintext
+          (see disclosure on save).
+        </p>
+      {/if}
+
+      {#if viEnabled}
+        <div>
+          <label for="embeddingSource" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Embedding source</label>
+          <select id="embeddingSource" name="embeddingSource" bind:value={viSource} class={inputClass}>
+            <option value="abstract">Abstract (default)</option>
+            <option value="contentChunks">Content chunks</option>
+            <option value="both">Both</option>
+          </select>
+          <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">The abstract is the default source. Content chunks index the full body in token windows.</p>
+        </div>
+
+        {#if viSourceIncludesChunks}
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label for="chunkTokens" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Chunk size <span class="text-zinc-500">(tokens, 64–4096)</span></label>
+              <input id="chunkTokens" name="chunkTokens" type="text" inputmode="numeric" bind:value={viChunkTokens} placeholder="512" class={inputClass} />
+            </div>
+            <div>
+              <label for="chunkOverlap" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Chunk overlap <span class="text-zinc-500">(tokens, &lt; size)</span></label>
+              <input id="chunkOverlap" name="chunkOverlap" type="text" inputmode="numeric" bind:value={viChunkOverlap} placeholder="64" class={inputClass} />
+            </div>
+          </div>
+          <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <input type="checkbox" bind:checked={viForceFixedSize} class="h-4 w-4" />
+            Force fixed-size chunking <span class="text-xs text-zinc-500">(bypass structure-aware splitting)</span>
+          </label>
+        {/if}
+      {/if}
+
+      {#if g.vectorIndexEncryptedAckAt}
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">Encrypted-index disclosure accepted on {new Date(g.vectorIndexEncryptedAckAt).toLocaleString()}.</p>
+      {/if}
+
+      {#if viDirty && !showDisclosure && !confirmRevoke}
+        <p class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+          Saving will drop existing vectors and re-embed all nodes — this can take a while on large memories.
+        </p>
+      {/if}
+
+      <!-- FR-026 disclosure — text matches the server's FR_026_DISCLOSURE verbatim. -->
+      {#if showDisclosure}
+        <div class="space-y-3 rounded-lg border border-amber-400 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950/40">
+          <p class="text-sm font-semibold text-amber-900 dark:text-amber-200">Enabling vector search on an encrypted memory</p>
+          <ul class="space-y-1.5 text-xs text-amber-900 dark:text-amber-200">
+            {#each FR_026_DISCLOSURE as line}<li>{line}</li>{/each}
+          </ul>
+          <label class="flex items-center gap-2 text-sm font-medium text-amber-900 dark:text-amber-200">
+            <input type="checkbox" bind:checked={disclosureAccepted} class="h-4 w-4" />
+            I understand and accept the tradeoff
+          </label>
+          <div class="flex gap-2">
+            <button type="button" disabled={!disclosureAccepted || viSaving} onclick={() => viFormEl.requestSubmit()}
+              class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">
+              {viSaving ? 'Saving...' : 'Enable with acknowledgement'}
+            </button>
+            <button type="button" onclick={() => { showDisclosure = false; disclosureAccepted = false; viEnabled = false; }}
+              class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Revoke confirmation — disabling drops stored vectors server-side. -->
+      {#if confirmRevoke}
+        <div class="space-y-3 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/40">
+          <p class="text-sm text-red-700 dark:text-red-300">Disabling the index removes this memory's already-stored vectors. Re-enabling later re-embeds every node from scratch.</p>
+          <div class="flex gap-2">
+            <button type="button" disabled={viSaving} onclick={() => viFormEl.requestSubmit()}
+              class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">
+              {viSaving ? 'Saving...' : 'Disable and remove vectors'}
+            </button>
+            <button type="button" onclick={() => { confirmRevoke = false; viEnabled = true; }}
+              class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
+          </div>
+        </div>
+      {/if}
+
+      {#if !showDisclosure && !confirmRevoke}
+        <div>
+          <button type="button" onclick={attemptVectorSave} disabled={viSaving || !viDirty}
+            class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+            {viSaving ? 'Saving...' : 'Save vector index settings'}
+          </button>
+        </div>
+      {/if}
+    </form>
   </section>
 
   <!-- Subscriptions (not applicable to AGENT_SYSTEM memories) -->
