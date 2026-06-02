@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { onMount } from 'svelte';
+  import DOMPurify from 'dompurify';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NodeList from '$lib/components/NodeList.svelte';
@@ -101,20 +102,27 @@
     markedReady = true;
   });
 
-  // Shared renderer config — escape raw HTML in both content and abstract.
+  // Shared renderer for both content and abstract. The Marked instance is
+  // cached once MarkedClass loads (its renderer config is static) so we
+  // don't reinstantiate per render. Portal Invariant P4: markdown → HTML →
+  // DOMPurify before insertion — escaping raw-HTML tokens alone leaves
+  // anchor-based vectors (e.g. javascript: URLs) through.
+  let markedInstance: import('marked').Marked | null = null;
   function renderMarkdown(src: string): string {
     if (!MarkedClass) return '';
-    const m = new MarkedClass({
-      renderer: {
-        html(token: { text: string }) {
-          return token.text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
+    if (!markedInstance) {
+      markedInstance = new MarkedClass({
+        renderer: {
+          html(token: { text: string }) {
+            return token.text
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;');
+          },
         },
-      },
-    });
-    return m.parse(src, { async: false }) as string;
+      });
+    }
+    return DOMPurify.sanitize(markedInstance.parse(src, { async: false }) as string);
   }
 
   let renderedAbstractHtml = $state('');
@@ -412,7 +420,7 @@
       {#if showAbstractSource}
         <div class="mt-3">
           <textarea
-            class="w-full min-h-[300px] rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
+            class="w-full min-h-[120px] rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             maxlength={ABSTRACT_MAX}
             placeholder="A paragraph-length summary of this node. This is the default source for vector search."
             bind:value={editAbstract}
