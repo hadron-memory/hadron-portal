@@ -200,9 +200,14 @@
           <div>
             <label for="urnSlugInput" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
             <div class="flex items-stretch">
-              <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.org?.urn ?? ''}:</span>
+              <!-- #260: org may be null (non-member viewing an org-owned
+                   memory). Only render the `<org-urn>:` prefix when we have it,
+                   so it never shows a bare ":". -->
+              {#if data.org?.urn}
+                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.org.urn}:</span>
+              {/if}
               <input id="urnSlugInput" name="urnSlug" type="text" value={urnSlug}
-                class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+                class="w-full border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {data.org?.urn ? 'rounded-r-lg' : 'rounded-lg'}" />
             </div>
           </div>
         {/if}

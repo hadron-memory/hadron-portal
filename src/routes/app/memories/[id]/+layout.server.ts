@@ -29,9 +29,14 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   // memory's own organizationId, not a URL segment. ORGANIZATION_QUERY is
   // authz-gated, so a non-member viewer gets `org: null` — the settings page
   // guards on that and hides member-only affordances (server enforces anyway).
-  const orgData = await client
-    .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: memory.organizationId })
-    .catch(() => ({ organization: null }));
+  // Guard the call: a memory with no owning org id (defensive — the schema
+  // types it non-null) would otherwise fire a wasted request / non-null
+  // GraphQL validation error.
+  const orgData = memory.organizationId
+    ? await client
+        .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: memory.organizationId })
+        .catch(() => ({ organization: null }))
+    : { organization: null };
 
   // Filter nodes to this memory
   const memoryNodes = nodesData.nodes.filter((n) => n.memoryId === params.id);
