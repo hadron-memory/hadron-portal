@@ -163,7 +163,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
     expect((thrown as { location: string }).location).toBe('/app/orgs/org-personal/agents');
   });
 
-  it('preserves a deeper trailing path on inaccessible-deep-link redirect (memories detail page)', async () => {
+  it('preserves a deeper trailing path on inaccessible-deep-link redirect (org-scoped sub-route)', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
@@ -171,12 +171,26 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
     const load = await importLoad();
     let thrown: unknown;
     try {
-      await load(ev({ paramsId: 'org-strangers', pathname: '/app/orgs/org-strangers/memories/gid-abc' }));
+      await load(ev({ paramsId: 'org-strangers', pathname: '/app/orgs/org-strangers/agents/agent-xyz' }));
     } catch (e) {
       thrown = e;
     }
     expect((thrown as { status: number }).status).toBe(302);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-personal/memories/gid-abc');
+    expect((thrown as { location: string }).location).toBe('/app/orgs/org-personal/agents/agent-xyz');
+  });
+
+  it('#260 — does NOT redirect on /app/memories/[id] (params.id is a memory id, gate is /app/orgs-only)', async () => {
+    // Memory detail pages are org-less now. `params.id` is the memory id, which
+    // never matches a member org, so resolveActiveOrg falls through to personal
+    // — but the segment-3 rewrite gate is scoped to /app/orgs/ and must NOT fire
+    // here, or every shared-memory deep link would bounce to the active org.
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({ paramsId: 'mem-xyz', pathname: '/app/memories/mem-xyz' }));
+
+    expect(data.activeOrgId).toBe('org-personal');
   });
 
   it('does NOT redirect when paramsId IS a member org (resolution.source === url)', async () => {

@@ -3,7 +3,7 @@
 
   let { data }: { data: PageData } = $props();
 
-  const basePath = $derived(`/app/orgs/${data.org.id}/memories/${data.graph.id}`);
+  const basePath = $derived(`/app/memories/${data.graph.id}`);
   const nodes = $derived(data.graphNodes);
   const usageByNode = $derived(data.usageByNode);
 

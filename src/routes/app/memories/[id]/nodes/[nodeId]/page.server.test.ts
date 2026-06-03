@@ -40,12 +40,13 @@ async function runLoad(event: Parameters<Awaited<ReturnType<typeof importLoad>>>
 }
 
 function loadEvent(opts: {
+  // #260: org-less route — the memory id is `params.id` (the old `gid`).
   gid: string;
   nodeId: string;
   parentGraphNodes: Array<{ id: string; memoryId: string; loc: string }>;
 }) {
   return {
-    params: { id: 'org-1', gid: opts.gid, nodeId: opts.nodeId },
+    params: { id: opts.gid, nodeId: opts.nodeId },
     locals: { token: 'tok' },
     parent: vi.fn().mockResolvedValue({
       graphNodes: opts.parentGraphNodes,
@@ -173,7 +174,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
       thrown = e;
     }
     expect((thrown as { status: number }).status).toBe(303);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-1/memories/mem-B/nodes/leaf-pk');
+    expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes/leaf-pk');
   });
 
   it('#237 — does NOT redirect when node.memoryId matches params.gid (happy path)', async () => {
@@ -222,6 +223,7 @@ async function importActions() {
 }
 
 function actionEvent(opts: {
+  // #260: org-less route — the memory id is `params.id` (the old `gid`).
   gid: string;
   nodeId: string;
   form: Record<string, string>;
@@ -229,7 +231,7 @@ function actionEvent(opts: {
   const formData = new FormData();
   for (const [k, v] of Object.entries(opts.form)) formData.append(k, v);
   return {
-    params: { id: 'org-1', gid: opts.gid, nodeId: opts.nodeId },
+    params: { id: opts.gid, nodeId: opts.nodeId },
     locals: { token: 'tok' },
     request: { formData: async () => formData },
   } as unknown as Parameters<Actions[keyof Actions]>[0];
@@ -465,7 +467,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     expect(vars.memoryId).toBe('mem-B');
     // Redirect to mem-B's list, not mem-A's.
     expect((thrown as { status: number }).status).toBe(303);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-1/memories/mem-B/nodes');
+    expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes');
   });
 
   it('createParent: upsert uses anchorNode.memoryId, not params.gid', async () => {

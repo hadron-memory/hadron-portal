@@ -26,9 +26,10 @@ async function importLoad() {
   return mod.load;
 }
 
+// #260: org-less route — the memory id is `params.id` (the old `gid`).
 function loadEvent(opts: { gid: string; nodeId: string }) {
   return {
-    params: { id: 'org-1', gid: opts.gid, nodeId: opts.nodeId },
+    params: { id: opts.gid, nodeId: opts.nodeId },
     locals: { token: 'tok' },
     parent: vi.fn().mockResolvedValue({
       isConsumerMode: false,
@@ -57,7 +58,7 @@ describe('edit-node load — #237 PK-mismatch guard', () => {
       thrown = e;
     }
     expect((thrown as { status: number }).status).toBe(303);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-1/memories/mem-B/nodes/leaf-pk/edit');
+    expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes/leaf-pk/edit');
   });
 
   it('does NOT redirect when node.memoryId matches params.gid (happy path)', async () => {
@@ -101,7 +102,7 @@ function actionEvent(opts: {
   const formData = new FormData();
   for (const [k, v] of Object.entries(opts.form)) formData.append(k, v);
   return {
-    params: { id: 'org-1', gid: opts.gid, nodeId: opts.nodeId },
+    params: { id: opts.gid, nodeId: opts.nodeId },
     locals: { token: 'tok' },
     request: { formData: async () => formData },
   } as unknown as Parameters<Actions[keyof Actions]>[0];
@@ -139,7 +140,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     expect(vars.input.abstract).toBe('a summary');
     // Post-action redirect URL should point at mem-B too.
     expect((thrown as { status: number }).status).toBe(303);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-1/memories/mem-B/nodes/pk');
+    expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes/pk');
   });
 
   it('MOVE_NODE_MUTATION uses node.memoryId when the loc changes', async () => {

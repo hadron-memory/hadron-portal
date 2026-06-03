@@ -22,9 +22,9 @@
 
   function nodeHref(node: MemoryNode): string {
     if (basePath) return `${basePath}/nodes/${node.id}`;
-    const orgId = node.memory?.organizationId;
+    // #260: memory pages are org-less, so the fallback needs only the memory id.
     const memId = node.memory?.id;
-    if (orgId && memId) return `/app/orgs/${orgId}/memories/${memId}/nodes/${node.id}`;
+    if (memId) return `/app/memories/${memId}/nodes/${node.id}`;
     return '';
   }
 

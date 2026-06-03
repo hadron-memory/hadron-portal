@@ -5,7 +5,7 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const node = $derived(data.node);
-  const basePath = $derived(`/app/orgs/${data.org.id}/memories/${data.graph.id}`);
+  const basePath = $derived(`/app/memories/${data.graph.id}`);
 
   let name = $state(node.name);
   let loc = $state(node.loc);

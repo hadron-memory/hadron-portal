@@ -68,14 +68,17 @@ export const actions: Actions = {
     const displayName = String(fd.get('displayName') ?? '').trim() || undefined;
     const urnSlug = String(fd.get('urnSlug') ?? '').trim() || undefined;
     const newOrgId = String(fd.get('organizationId') ?? '').trim() || undefined;
+    // #260: the org is no longer in the URL, so the no-op-transfer guard
+    // compares against the memory's current org id submitted as a hidden field.
+    const currentOrgId = String(fd.get('currentOrganizationId') ?? '').trim() || undefined;
     const tagsRaw = String(fd.get('tags') ?? '').trim();
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : [];
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
-        id: params.gid,
+        id: params.id,
         name: displayName,
         urn: urnSlug,
-        organizationId: newOrgId !== params.id ? newOrgId : undefined,
+        organizationId: newOrgId && newOrgId !== currentOrgId ? newOrgId : undefined,
         shortDescription: String(fd.get('shortDescription') ?? '').trim() || null,
         description: String(fd.get('description') ?? '').trim() || null,
         tags,
@@ -117,7 +120,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
-        id: params.gid,
+        id: params.id,
         vectorIndexEnabled: enabled,
         embeddingSource,
         acknowledgeVectorInversionRisk,
@@ -142,7 +145,7 @@ export const actions: Actions = {
 
   sync: async ({ params, locals }) => {
     try {
-      await gqlClient(locals.token).request(SYNC_MEMORY_MUTATION, { id: params.gid });
+      await gqlClient(locals.token).request(SYNC_MEMORY_MUTATION, { id: params.id });
       return { synced: true };
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Sync failed' });
@@ -151,7 +154,7 @@ export const actions: Actions = {
 
   pushToGit: async ({ params, locals }) => {
     try {
-      await gqlClient(locals.token).request(PUSH_MEMORY_TO_GIT_MUTATION, { id: params.gid });
+      await gqlClient(locals.token).request(PUSH_MEMORY_TO_GIT_MUTATION, { id: params.id });
       return { pushed: true };
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Push to Git failed' });
@@ -163,7 +166,7 @@ export const actions: Actions = {
     const orgId = String(fd.get('orgId') ?? '');
     const role = String(fd.get('role') ?? 'READER');
     try {
-      await gqlClient(locals.token).request(CREATE_MEMORY_SUBSCRIPTION_MUTATION, { memoryId: params.gid, orgId, role });
+      await gqlClient(locals.token).request(CREATE_MEMORY_SUBSCRIPTION_MUTATION, { memoryId: params.id, orgId, role });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to add subscription' });
     }
@@ -173,16 +176,22 @@ export const actions: Actions = {
     const fd = await request.formData();
     const orgId = String(fd.get('orgId') ?? '');
     try {
-      await gqlClient(locals.token).request(DELETE_MEMORY_SUBSCRIPTION_MUTATION, { memoryId: params.gid, orgId });
+      await gqlClient(locals.token).request(DELETE_MEMORY_SUBSCRIPTION_MUTATION, { memoryId: params.id, orgId });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to remove subscription' });
     }
   },
 
-  delete: async ({ params, locals }) => {
+  delete: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    // #260: org is no longer in the URL — the delete form submits the memory's
+    // owning org id so we can land the user back on that org's memories list.
+    // The deleter is always a member of the owning org (canDelete requires it),
+    // so the redirect is reachable; fall back to the active-org redirector.
+    const orgId = String(fd.get('organizationId') ?? '').trim();
     try {
-      await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { id: params.gid });
-      redirect(303, `/app/orgs/${params.id}/memories`);
+      await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { id: params.id });
+      redirect(303, orgId ? `/app/orgs/${orgId}/memories` : '/app/memories');
     } catch (e: unknown) {
       // Re-throw SvelteKit's redirect-as-thrown-exception so it isn't
       // swallowed by the catch and surfaced as "Failed to delete".

@@ -9,12 +9,12 @@
   import { onDestroy } from 'svelte';
   import type { MemoryNode, TreeEntry } from '$lib/types';
 
-  /** Build the URL to a node's detail page, or empty if org context is missing */
+  /** Build the URL to a node's detail page, or empty if memory context is missing */
   function nodeHref(node: MemoryNode, base: string): string {
     if (base) return `${base}/nodes/${node.id}`;
-    const orgId = node.memory?.organizationId;
+    // #260: memory pages are org-less, so the fallback needs only the memory id.
     const memId = node.memory?.id;
-    if (orgId && memId) return `/app/orgs/${orgId}/memories/${memId}/nodes/${node.id}`;
+    if (memId) return `/app/memories/${memId}/nodes/${node.id}`;
     return '';
   }
 

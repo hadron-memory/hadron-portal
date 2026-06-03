@@ -8,7 +8,14 @@
 
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
-  const basePath = $derived(`/app/orgs/${data.org.id}/memories/${data.graph.id}`);
+  const basePath = $derived(`/app/memories/${data.graph.id}`);
+
+  // #260: org context comes from the memory's owning org, which may be one the
+  // user isn't a member of (org is then null). Only link the section crumb back
+  // to that org's list when the user is a member; otherwise render it as text.
+  const orgListHref = $derived(
+    data.org ? `/app/orgs/${data.org.id}/${data.graph.type === 'AGENT_SYSTEM' ? 'agents' : 'memories'}` : undefined,
+  );
 
   // Determine which view is active
   const isNodeDetail = $derived($page.url.pathname.match(/\/nodes\/[^/]+/) !== null);
@@ -24,7 +31,7 @@
   {@const isAgentSystem = data.graph.type === 'AGENT_SYSTEM'}
   <div class="mb-4">
     <Breadcrumb items={[
-      { label: isAgentSystem ? 'Agents' : 'Memories', href: isAgentSystem ? `/app/orgs/${data.org.id}/agents` : `/app/orgs/${data.org.id}/memories` },
+      { label: isAgentSystem ? 'Agents' : 'Memories', href: orgListHref },
       { label: data.graph.name },
     ]} />
     <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">
