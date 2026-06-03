@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const node = data.nodeById;
 
   // #237: the URL-acceptance counterpart to #234's URL-emission fix. The
-  // route is scoped by `[gid]` but `nodeById` resolves by PK alone, so a
+  // route is scoped by `[id]` (the memory id) but `nodeById` resolves by PK alone, so a
   // mismatched URL (stale tab after a node move, manual edit, future link
   // bug, etc.) would silently render a foreign node under the current
   // memory's basePath. Redirect to the correct memory's URL so the user
@@ -30,8 +30,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // pattern in +layout.server.ts. If the user can't access node.memoryId,
   // the redirected memory layout will throw "Memory not found" — a clean
   // failure mode rather than the silent wrong-node render.
-  if (node.memoryId !== params.gid) {
-    redirect(303, `/app/orgs/${params.id}/memories/${node.memoryId}/nodes/${params.nodeId}`);
+  if (node.memoryId !== params.id) {
+    redirect(303, `/app/memories/${node.memoryId}/nodes/${params.nodeId}`);
   }
 
   // Build breadcrumb from loc segments — look up ancestor nodes within THIS
@@ -41,7 +41,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const memoryNodes = parentData.graphNodes ?? [];
   const ancestorIdByLoc = new Map<string, string>();
   for (const n of memoryNodes) {
-    if (n.memoryId === params.gid) ancestorIdByLoc.set(n.loc, n.id);
+    if (n.memoryId === params.id) ancestorIdByLoc.set(n.loc, n.id);
   }
 
   const parts = node.loc.split(':');
@@ -145,7 +145,7 @@ export const actions: Actions = {
     }
     // Redirect to the *actual* memory's list — not the URL's gid, which
     // may have been stale.
-    redirect(303, `/app/orgs/${params.id}/memories/${node.memoryId}/nodes`);
+    redirect(303, `/app/memories/${node.memoryId}/nodes`);
   },
 
   updateContent: async ({ request, params, locals }) => {

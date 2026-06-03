@@ -18,8 +18,11 @@
   // Principle V). Personal-class memories — owner only. All others — any
   // org admin. AGENT_SYSTEM memories are excluded entirely (the resolver
   // refuses; deleting goes through the owning agent).
+  // #260: org may be null when viewing a memory owned by an org the user isn't
+  // a member of — they then have no membership row, so canDelete is false
+  // (server-enforced regardless).
   const myMember = $derived(
-    data.org.members?.find((m) => m.user?.id === data.user?.id),
+    data.org?.members?.find((m) => m.user?.id === data.user?.id),
   );
   const canDelete = $derived(
     !isAgentSystem &&
@@ -179,6 +182,10 @@
             <input id="displayName" name="displayName" type="text" value={g.name} class={inputClass} />
           </div>
 
+          <!-- #260: org is no longer in the URL; submit the current org id so
+               the server can skip a no-op transfer when the select is absent. -->
+          <input type="hidden" name="currentOrganizationId" value={g.organizationId} />
+
           {#if (data as any).allOrgs && (data as any).allOrgs.length > 1}
             <div>
               <label for="organizationId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Organization</label>
@@ -193,9 +200,14 @@
           <div>
             <label for="urnSlugInput" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
             <div class="flex items-stretch">
-              <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.org.urn}:</span>
+              <!-- #260: org may be null (non-member viewing an org-owned
+                   memory). Only render the `<org-urn>:` prefix when we have it,
+                   so it never shows a bare ":". -->
+              {#if data.org?.urn}
+                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.org.urn}:</span>
+              {/if}
               <input id="urnSlugInput" name="urnSlug" type="text" value={urnSlug}
-                class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+                class="w-full border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {data.org?.urn ? 'rounded-r-lg' : 'rounded-lg'}" />
             </div>
           </div>
         {/if}
@@ -531,6 +543,8 @@
         </button>
       {:else}
         <form method="POST" action="?/delete" use:enhance class="flex items-center gap-2">
+          <!-- #260: owning org id so the post-delete redirect can return to it. -->
+          <input type="hidden" name="organizationId" value={g.organizationId} />
           <span class="text-sm text-red-500">{deleteMemoryStrings.confirmPrompt(g.name)}</span>
           <button
             type="submit"

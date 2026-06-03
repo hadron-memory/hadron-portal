@@ -14,6 +14,21 @@
   const parentLoc = $derived(data.parentLoc);
   const existingLocs = $derived(data.existingLocs);
 
+  // #260: org-less memory route. The owning-org crumbs are only included when
+  // the user is a member of that org (org present); a non-member contributor
+  // gets a leaner trail that starts at the memory.
+  const breadcrumbItems = $derived([
+    { href: '/app/dashboard', label: 'Dashboard' },
+    ...(data.org
+      ? [
+          { href: `/app/orgs/${data.org.id}`, label: data.org.name },
+          { href: `/app/orgs/${data.org.id}/memories`, label: 'Memories' },
+        ]
+      : []),
+    { href: `/app/memories/${memory.id}`, label: memory.name },
+    { label: 'New node' },
+  ]);
+
   let name = $state('');
   let loc = $state('');
   let locManuallyEdited = $state(false);
@@ -79,15 +94,7 @@
 </script>
 
 <div class="mx-auto max-w-2xl space-y-4 p-4">
-  <Breadcrumb
-    items={[
-      { href: '/app/dashboard', label: 'Dashboard' },
-      { href: `/app/orgs/${data.org.id}`, label: data.org.name },
-      { href: `/app/orgs/${data.org.id}/memories`, label: 'Memories' },
-      { href: `/app/orgs/${data.org.id}/memories/${memory.id}`, label: memory.name },
-      { label: 'New node' },
-    ]}
-  />
+  <Breadcrumb items={breadcrumbItems} />
 
   <div>
     <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">
@@ -192,7 +199,7 @@
 
     <div class="flex items-center justify-end gap-2">
       <a
-        href="/app/orgs/{data.org.id}/memories/{memory.id}"
+        href="/app/memories/{memory.id}"
         class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
       >
         Cancel

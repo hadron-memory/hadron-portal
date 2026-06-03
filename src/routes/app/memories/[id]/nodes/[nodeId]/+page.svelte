@@ -14,7 +14,10 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const node = $derived(data.node);
-  const basePath = $derived(`/app/orgs/${data.org.id}/memories/${data.graph.id}`);
+  const basePath = $derived(`/app/memories/${data.graph.id}`);
+  // #260: link the section crumb to the owning org's memories list only when
+  // the user is a member (org present); otherwise render it as plain text.
+  const memoriesHref = $derived(data.org ? `/app/orgs/${data.org.id}/memories` : undefined);
 
   // Full URN composed via the canonical composer. The startsWith() check
   // defends against legacy data where a node's stored loc already had its
@@ -273,7 +276,7 @@
 <div class="space-y-4">
   <!-- Breadcrumb -->
   <Breadcrumb items={[
-    { label: 'Memories', href: `/app/orgs/${data.org.id}/memories` },
+    { label: 'Memories', href: memoriesHref },
     { label: data.graph.name, href: basePath },
     { label: 'Nodes', href: `${basePath}/browse` },
     ...data.breadcrumb.slice(0, -1).map((seg) =>

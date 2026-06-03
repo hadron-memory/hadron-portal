@@ -534,7 +534,7 @@
                   // own rich editing (content, data, edges, etc.)
                   const memId = agent.systemMemoryId;
                   if (memId) {
-                    window.location.href = `/app/orgs/${org.id}/memories/${memId}/nodes/${row.id}`;
+                    window.location.href = `/app/memories/${memId}/nodes/${row.id}`;
                   }
                 }}
               />
@@ -576,7 +576,7 @@
 
             {#if partial}
               <p class="text-xs text-zinc-400">
-                <a href="/app/orgs/{org.id}/memories/{agent.systemMemoryId}/nodes/{partial.id}"
+                <a href="/app/memories/{agent.systemMemoryId}/nodes/{partial.id}"
                   class="text-indigo-500 hover:underline">Edit this partial →</a>
               </p>
             {/if}
@@ -780,7 +780,7 @@
                 </span>
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium">
-                    <a href="/app/orgs/{org.id}/memories/{item.memory.id}/browse" class="text-indigo-600 hover:underline dark:text-indigo-300">{item.memory.name}</a>
+                    <a href="/app/memories/{item.memory.id}/browse" class="text-indigo-600 hover:underline dark:text-indigo-300">{item.memory.name}</a>
                     {#if visibilityRank[item.memory.visibility] < visibilityRank[agent.visibility]}
                       <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="More restrictive than agent">{visibilityLabel[item.memory.visibility]}</span>
                     {/if}

@@ -69,7 +69,7 @@ export const actions: Actions = {
         upsertNode: { id: string };
       }>(UPSERT_NODE_MUTATION, {
         input: {
-          memoryId: params.gid,
+          memoryId: params.id,
           loc,
           name,
           nodeType,
@@ -96,6 +96,6 @@ export const actions: Actions = {
       return fail(500, { error: createNodeStrings.genericError() });
     }
 
-    redirect(303, `/app/orgs/${params.id}/memories/${params.gid}/nodes/${newId}`);
+    redirect(303, `/app/memories/${params.id}/nodes/${newId}`);
   },
 };

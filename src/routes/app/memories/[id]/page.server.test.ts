@@ -52,15 +52,21 @@ beforeEach(() => {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/** Minimal RequestEvent-shaped object for SvelteKit form actions. */
+/** Minimal RequestEvent-shaped object for SvelteKit form actions.
+ *  #260: memory routes are org-less — the memory id is `params.id`, and the
+ *  delete action reads the owning org id from a hidden form field so it can
+ *  redirect back to that org's memories list. */
 function ev(opts: {
+  memId?: string;
   orgId?: string;
-  gid?: string;
   token?: string | null;
 }) {
+  const fd = new FormData();
+  if (opts.orgId !== undefined) fd.append('organizationId', opts.orgId);
   return {
-    params: { id: opts.orgId ?? 'org-id-123', gid: opts.gid ?? 'mem-id-abc' },
+    params: { id: opts.memId ?? 'mem-id-abc' },
     locals: { token: opts.token === undefined ? 'test-token' : opts.token },
+    request: { formData: async () => fd },
   } as Parameters<
     Awaited<ReturnType<typeof importActions>>['delete']
   >[0];
@@ -80,7 +86,7 @@ describe("memory-detail `delete` action (spec 013)", () => {
 
     let thrown: unknown;
     try {
-      await actions.delete(ev({ orgId: 'org-x', gid: 'mem-y' }));
+      await actions.delete(ev({ memId: 'mem-y', orgId: 'org-x' }));
     } catch (e) {
       thrown = e;
     }
@@ -90,7 +96,7 @@ describe("memory-detail `delete` action (spec 013)", () => {
     expect((thrown as { status: number }).status).toBe(303);
     expect((thrown as { location: string }).location).toBe('/app/orgs/org-x/memories');
 
-    // Mutation invoked once with the gid as the id argument.
+    // Mutation invoked once with the memory id (params.id) as the id argument.
     expect(mockRequest).toHaveBeenCalledTimes(1);
     const [, vars] = mockRequest.mock.calls[0]!;
     expect(vars).toEqual({ id: 'mem-y' });
@@ -156,7 +162,7 @@ function vectorEv(form: Record<string, string>) {
   const fd = new FormData();
   for (const [k, v] of Object.entries(form)) fd.append(k, v);
   return {
-    params: { id: 'org-id-123', gid: 'mem-id-abc' },
+    params: { id: 'mem-id-abc' },
     locals: { token: 'test-token' },
     request: { formData: async () => fd },
   } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['updateVectorIndex']>[0];

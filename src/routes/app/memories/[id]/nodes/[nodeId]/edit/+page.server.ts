@@ -17,8 +17,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // changes into the foreign node while believing they edit the current
   // memory's row. Redirect to the correct edit URL so the destination
   // memory is consistent with the node's actual ownership.
-  if (data.nodeById.memoryId !== params.gid) {
-    redirect(303, `/app/orgs/${params.id}/memories/${data.nodeById.memoryId}/nodes/${params.nodeId}/edit`);
+  if (data.nodeById.memoryId !== params.id) {
+    redirect(303, `/app/memories/${data.nodeById.memoryId}/nodes/${params.nodeId}/edit`);
   }
   return { node: data.nodeById };
 };
@@ -98,6 +98,6 @@ export const actions: Actions = {
     }
 
     // Redirect to the actual memory's detail URL, not the URL's gid.
-    redirect(303, `/app/orgs/${params.id}/memories/${currentNode.memoryId}/nodes/${params.nodeId}`);
+    redirect(303, `/app/memories/${currentNode.memoryId}/nodes/${params.nodeId}`);
   },
 };
