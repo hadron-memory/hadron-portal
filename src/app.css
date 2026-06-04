@@ -53,3 +53,33 @@ html:not(.dark) input::placeholder,
 html:not(.dark) textarea::placeholder {
   color: rgb(161 161 170); /* zinc-400 */
 }
+
+/*
+ * Inline code in rendered markdown (#246).
+ *
+ * The @tailwindcss/typography plugin decorates inline <code> with literal
+ * backtick pseudo-elements (content: "`") and a heavy font-weight. That's
+ * why `code` spans showed up bold with visible backticks. Drop the backticks
+ * and render inline code as monospace on a subtly tinted, rounded background
+ * instead. Targets inline code only — block code (<pre><code>) keeps its own
+ * styling. The plugin's base rules use :where() (zero specificity), so these
+ * class-scoped rules win without !important.
+ */
+.prose :not(pre) > code {
+  font-weight: 500;
+  background-color: rgb(244 244 245); /* zinc-100 */
+  color: rgb(39 39 42); /* zinc-800 */
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+}
+
+.prose :not(pre) > code::before,
+.prose :not(pre) > code::after {
+  content: none;
+}
+
+.dark .prose :not(pre) > code {
+  background-color: rgb(39 39 42); /* zinc-800 */
+  color: rgb(228 228 231); /* zinc-200 */
+}
