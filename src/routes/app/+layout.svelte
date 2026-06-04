@@ -64,11 +64,13 @@
        the sidebar is sized to the LARGEST viewport (UI bars hidden), so when
        a browser/OS chrome bar is showing the bottom of the sidebar — the
        account widget — rendered below the visible fold until the user
-       scrolled. `100dvh` tracks the currently visible height. -->
+       scrolled. `100dvh` tracks the currently visible height. The `100vh`
+       declaration is a fallback first: browsers without `dvh` support drop
+       the invalid `dvh` line and keep the prior `vh` behavior. -->
   {#if menuOpen}
     <aside
       class="sticky top-8 self-start flex w-48 shrink-0 flex-col"
-      style="max-height: calc(100dvh - 4rem); min-height: calc(100dvh - 4rem);"
+      style="max-height: calc(100vh - 4rem); max-height: calc(100dvh - 4rem); min-height: calc(100vh - 4rem); min-height: calc(100dvh - 4rem);"
     >
       <div class="mb-4 flex items-center justify-end shrink-0">
         <button onclick={() => menuOpen = false} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('app.layout.collapse-menu', 'Collapse menu')}>
@@ -134,7 +136,7 @@
           {$page.url.pathname.startsWith('/app/account')
             ? 'text-zinc-900 dark:text-white'
             : 'text-zinc-500 dark:text-zinc-400'}">
-          <a href="/app/account" class="shrink-0" aria-label={t('app.layout.account', 'Account')}>
+          <a href="/app/account" class="shrink-0 transition hover:opacity-80" aria-label={t('app.layout.account', 'Account')}>
             {#if data.user.avatarUrl}
               <img src={data.user.avatarUrl} alt="" class="h-8 w-8 rounded-full" />
             {:else}
