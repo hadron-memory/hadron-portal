@@ -66,9 +66,9 @@
 
   // Abstract — paragraph-length summary, the default vector-index source
   // (spec 031/033). Edited inline here exactly like content. The Abstract
-  // tab is ALWAYS shown (unlike Content, which is gated on hasContent —
-  // issue #256): an empty abstract still needs an authoring surface, or
-  // there is no portal path to populate the index's default source.
+  // tab is ALWAYS shown: an empty abstract still needs an authoring surface,
+  // or there is no portal path to populate the index's default source. (The
+  // Content tab is now always shown for the same reason — issue #256.)
   const ABSTRACT_MAX = 2000;
   let showAbstractSource = $state(false);
   let copiedAbstract = $state(false);
@@ -268,17 +268,35 @@
       : ['content', 'abstract', 'references', 'settings'],
   );
 
-  // Initial tab: Content when present, else the Children list for a pure
-  // container node, else Content (its empty-state authoring surface).
-  let activeTab = $state<NodeTab>(hasContent ? 'content' : hasChildren ? 'children' : 'content');
+  function defaultTab(): NodeTab {
+    // Content when present, else the Children list for a pure container
+    // node, else Content (its empty-state authoring surface).
+    return hasContent ? 'content' : hasChildren ? 'children' : 'content';
+  }
 
-  // Keep the active tab valid across navigation. When the current tab isn't
-  // available on the node we navigated to — e.g. drilling from a parent's
-  // Children tab into a leaf child (#251) — fall back to Content, which is
-  // always present. Reading `availableTabs` tracks hasChildren on every run,
-  // so this also fixes the stale-tab bug where the old short-circuited
-  // default chain skipped the dependency and left no tab selected.
+  let activeTab = $state<NodeTab>(defaultTab());
+
+  // SvelteKit reuses this component instance when navigating between nodes
+  // (the route param changes but the component doesn't remount), so all the
+  // transient `$state` below would otherwise leak across nodes — a stale
+  // Source editor, an armed delete confirmation, or an active tab the new
+  // node doesn't have (#251). Reset everything when the node id changes, and
+  // re-pick the new node's default tab.
+  let lastNodeId: string | undefined;
   $effect(() => {
+    if (lastNodeId !== node.id) {
+      lastNodeId = node.id;
+      activeTab = defaultTab();
+      showSource = false;
+      showAbstractSource = false;
+      confirmDelete = false;
+      editingEdges = false;
+      isEditing = false;
+      return;
+    }
+    // Same node: keep the active tab valid if its availability changes (e.g.
+    // children removed). Reading `availableTabs` tracks hasChildren so the
+    // fallback fires reliably. Content is always present (#256).
     if (!availableTabs.includes(activeTab)) activeTab = 'content';
   });
 
@@ -334,7 +352,7 @@
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
 
-  <!-- Tabs: Content | References | Settings -->
+  <!-- Tabs: Content | Abstract | Children (when present) | References | Settings -->
   <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
     <div class="mb-3 flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
       <!-- Always shown (#256) — an empty node still needs an authoring
@@ -344,15 +362,15 @@
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'content' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'content'}
       >Content
-        {#if !hasContent}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">empty</span>{/if}
+        {#if !hasContent}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
       </button>
       <!-- Always shown — an empty abstract still needs an authoring surface
-           (the default vector-index source). Unlike Content (#256). -->
+           (the default vector-index source), same rationale as Content (#256). -->
       <button
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'abstract' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'abstract'}
       >Abstract
-        {#if !hasAbstract}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">empty</span>{/if}
+        {#if !hasAbstract}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
       </button>
       {#if hasChildren}
         <button
@@ -401,7 +419,7 @@
         <div class="mt-3">
           <textarea
             class="w-full min-h-[300px] rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
-            placeholder="The node's primary body, written in Markdown."
+            placeholder={createNodeStrings.contentSourcePlaceholder()}
             bind:value={editContent}
           ></textarea>
           <div class="mt-2 flex justify-end">
@@ -416,11 +434,11 @@
         <div class="prose prose-sm prose-zinc mt-3 max-w-none dark:prose-invert">{@html renderedHtml}</div>
       {:else}
         <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-          <p class="text-sm text-zinc-500 dark:text-zinc-400">No content yet. Content is the node's primary body, rendered as Markdown.</p>
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">{createNodeStrings.contentEmptyTitle()}</p>
           <button
             onclick={() => showSource = true}
             class="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-          >Write content</button>
+          >{createNodeStrings.contentEmptyCta()}</button>
         </div>
       {/if}
     {/if}
