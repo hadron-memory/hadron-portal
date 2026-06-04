@@ -67,6 +67,17 @@ export const createNodeStrings = {
   /** Validation: empty loc. */
   errorLocRequired: (): string =>
     t('create-node.error.loc-required', 'Loc is required.'),
+
+  /** Node-detail tab strip — empty-state authoring surfaces (#256). */
+  emptyBadge: (): string => t('node-detail.badge.empty', 'empty'),
+  contentSourcePlaceholder: (): string =>
+    t('node-detail.content.source-placeholder', "The node's primary body, written in Markdown."),
+  contentEmptyTitle: (): string =>
+    t(
+      'node-detail.content.empty-title',
+      "No content yet. Content is the node's primary body, rendered as Markdown.",
+    ),
+  contentEmptyCta: (): string => t('node-detail.content.empty-cta', 'Write content'),
 };
 
 /**

@@ -66,9 +66,9 @@
 
   // Abstract — paragraph-length summary, the default vector-index source
   // (spec 031/033). Edited inline here exactly like content. The Abstract
-  // tab is ALWAYS shown (unlike Content, which is gated on hasContent —
-  // issue #256): an empty abstract still needs an authoring surface, or
-  // there is no portal path to populate the index's default source.
+  // tab is ALWAYS shown: an empty abstract still needs an authoring surface,
+  // or there is no portal path to populate the index's default source. (The
+  // Content tab is now always shown for the same reason — issue #256.)
   const ABSTRACT_MAX = 2000;
   let showAbstractSource = $state(false);
   let copiedAbstract = $state(false);
@@ -257,15 +257,47 @@
   // URN slug for edit form
   const urnSlug = $derived(node.loc);
 
-  // Default tab: content first, then children, then references, then settings.
-  // The Abstract tab is always available but never the default — content is
-  // the primary surface when present.
-  let activeTab = $state<'content' | 'abstract' | 'children' | 'references' | 'settings'>('content');
+  type NodeTab = 'content' | 'abstract' | 'children' | 'references' | 'settings';
+
+  // Content / Abstract / References / Settings are always present; Children
+  // only when the node has children. (#256: Content is no longer gated on
+  // hasContent — an empty node still needs an authoring surface.)
+  const availableTabs = $derived<NodeTab[]>(
+    hasChildren
+      ? ['content', 'abstract', 'children', 'references', 'settings']
+      : ['content', 'abstract', 'references', 'settings'],
+  );
+
+  function defaultTab(): NodeTab {
+    // Content when present, else the Children list for a pure container
+    // node, else Content (its empty-state authoring surface).
+    return hasContent ? 'content' : hasChildren ? 'children' : 'content';
+  }
+
+  let activeTab = $state<NodeTab>(defaultTab());
+
+  // SvelteKit reuses this component instance when navigating between nodes
+  // (the route param changes but the component doesn't remount), so all the
+  // transient `$state` below would otherwise leak across nodes — a stale
+  // Source editor, an armed delete confirmation, or an active tab the new
+  // node doesn't have (#251). Reset everything when the node id changes, and
+  // re-pick the new node's default tab.
+  let lastNodeId: string | undefined;
   $effect(() => {
-    if (hasContent) activeTab = 'content';
-    else if (hasChildren) activeTab = 'children';
-    else if (hasReferences) activeTab = 'references';
-    else activeTab = 'settings';
+    if (lastNodeId !== node.id) {
+      lastNodeId = node.id;
+      activeTab = defaultTab();
+      showSource = false;
+      showAbstractSource = false;
+      confirmDelete = false;
+      editingEdges = false;
+      isEditing = false;
+      return;
+    }
+    // Same node: keep the active tab valid if its availability changes (e.g.
+    // children removed). Reading `availableTabs` tracks hasChildren so the
+    // fallback fires reliably. Content is always present (#256).
+    if (!availableTabs.includes(activeTab)) activeTab = 'content';
   });
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
@@ -320,22 +352,25 @@
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
 
-  <!-- Tabs: Content | References | Settings -->
+  <!-- Tabs: Content | Abstract | Children (when present) | References | Settings -->
   <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
     <div class="mb-3 flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
-      {#if hasContent}
-        <button
-          class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'content' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
-          onclick={() => activeTab = 'content'}
-        >Content</button>
-      {/if}
+      <!-- Always shown (#256) — an empty node still needs an authoring
+           surface, or there's no portal path to add content. Mirrors the
+           Abstract tab's always-on treatment below. -->
+      <button
+        class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'content' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+        onclick={() => activeTab = 'content'}
+      >Content
+        {#if !hasContent}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
+      </button>
       <!-- Always shown — an empty abstract still needs an authoring surface
-           (the default vector-index source). Unlike Content (#256). -->
+           (the default vector-index source), same rationale as Content (#256). -->
       <button
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'abstract' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'abstract'}
       >Abstract
-        {#if !hasAbstract}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">empty</span>{/if}
+        {#if !hasAbstract}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
       </button>
       {#if hasChildren}
         <button
@@ -358,7 +393,7 @@
     </div>
 
     <!-- ═══ CONTENT TAB ═══ -->
-    {#if activeTab === 'content' && hasContent}
+    {#if activeTab === 'content'}
       <div class="flex items-center justify-between">
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
           <button
@@ -370,30 +405,41 @@
             onclick={() => showSource = true}
           >Source</button>
         </div>
-        <button onclick={copyContent} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy content">
-          {#if copied}
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          {:else}
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-          {/if}
-        </button>
+        {#if hasContent}
+          <button onclick={copyContent} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy content">
+            {#if copied}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            {:else}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            {/if}
+          </button>
+        {/if}
       </div>
       {#if showSource}
         <div class="mt-3">
           <textarea
             class="w-full min-h-[300px] rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
+            placeholder={createNodeStrings.contentSourcePlaceholder()}
             bind:value={editContent}
           ></textarea>
           <div class="mt-2 flex justify-end">
             <button
               onclick={saveContent}
-              disabled={saving || editContent === node.content}
+              disabled={saving || editContent === (node.content ?? '')}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{saving ? 'Saving...' : 'Save'}</button>
           </div>
         </div>
-      {:else}
+      {:else if hasContent}
         <div class="prose prose-sm prose-zinc mt-3 max-w-none dark:prose-invert">{@html renderedHtml}</div>
+      {:else}
+        <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">{createNodeStrings.contentEmptyTitle()}</p>
+          <button
+            onclick={() => showSource = true}
+            class="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+          >{createNodeStrings.contentEmptyCta()}</button>
+        </div>
       {/if}
     {/if}
 
