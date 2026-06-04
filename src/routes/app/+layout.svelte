@@ -59,11 +59,18 @@
        while the account block stays pinned at the bottom (`shrink-0`). The
        earlier layout put `overflow-y-auto` on the aside itself and pinned
        the account block with `mt-auto` — that scrolled the *whole* sidebar
-       and pushed the account widget below the fold (#245). -->
+       and pushed the account widget below the fold (#245).
+       #264: height is `100dvh` (dynamic viewport), not `100vh`. With `100vh`
+       the sidebar is sized to the LARGEST viewport (UI bars hidden), so when
+       a browser/OS chrome bar is showing the bottom of the sidebar — the
+       account widget — rendered below the visible fold until the user
+       scrolled. `100dvh` tracks the currently visible height. The `100vh`
+       declaration is a fallback first: browsers without `dvh` support drop
+       the invalid `dvh` line and keep the prior `vh` behavior. -->
   {#if menuOpen}
     <aside
       class="sticky top-8 self-start flex w-48 shrink-0 flex-col"
-      style="max-height: calc(100vh - 4rem); min-height: calc(100vh - 4rem);"
+      style="max-height: calc(100vh - 4rem); max-height: calc(100dvh - 4rem); min-height: calc(100vh - 4rem); min-height: calc(100dvh - 4rem);"
     >
       <div class="mb-4 flex items-center justify-end shrink-0">
         <button onclick={() => menuOpen = false} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('app.layout.collapse-menu', 'Collapse menu')}>
@@ -117,38 +124,45 @@
         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="opacity-50"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
       </a>
     </nav>
-      <!-- User avatar + name + active-org indicator pinned to bottom -->
+      <!-- User avatar + name + active-org pinned to bottom. #264: the org
+           name (and switcher, when present) sits directly below the user's
+           name as a third line in the same block — no "Organization" label.
+           Avatar and name both link to /app/account; the org line is a
+           sibling so it can host the OrgSwitcher button (a button can't be
+           nested inside the account <a>). -->
       <div class="shrink-0 pt-4">
         <hr class="mb-3 border-zinc-200 dark:border-zinc-800" />
-        <a href="/app/account" class="flex items-center gap-3 rounded-md px-3 py-2 text-sm transition
+        <div class="flex items-start gap-3 rounded-md px-3 py-2
           {$page.url.pathname.startsWith('/app/account')
-            ? 'font-medium text-zinc-900 dark:text-white'
-            : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white'}">
-          {#if data.user.avatarUrl}
-            <img src={data.user.avatarUrl} alt="" class="h-8 w-8 rounded-full shrink-0" />
-          {:else}
-            <div class="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-700 shrink-0"></div>
-          {/if}
-          <div class="min-w-0">
-            <p class="text-[10px] text-zinc-400">{t('app.layout.signed-in-as', 'Signed in as')}</p>
-            <p class="truncate">{data.user.name ?? data.user.githubUsername ?? data.user.email}</p>
+            ? 'text-zinc-900 dark:text-white'
+            : 'text-zinc-500 dark:text-zinc-400'}">
+          <a href="/app/account" class="shrink-0 transition hover:opacity-80" aria-label={t('app.layout.account', 'Account')}>
+            {#if data.user.avatarUrl}
+              <img src={data.user.avatarUrl} alt="" class="h-8 w-8 rounded-full" />
+            {:else}
+              <div class="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
+            {/if}
+          </a>
+          <div class="min-w-0 flex-1">
+            <a href="/app/account" class="block text-sm transition hover:text-zinc-900 dark:hover:text-white
+              {$page.url.pathname.startsWith('/app/account') ? 'font-medium' : ''}">
+              <span class="block text-[10px] text-zinc-400">{t('app.layout.signed-in-as', 'Signed in as')}</span>
+              <span class="block truncate">{data.user.name ?? data.user.githubUsername ?? data.user.email}</span>
+            </a>
+            <!-- Spec 014 FR-004 + US2 / #264: active org directly under the
+                 name. Switcher renders only for multi-membership, non-consumer
+                 users (FR-010 keeps it off for single-personal-org accounts);
+                 each option opens that org in a new tab (R-3). A single-org
+                 user gets a static name line — no dropdown to nowhere. -->
+            {#if !data.isConsumerMode && data.activeOrg && data.orgs.length > 1}
+              <OrgSwitcher activeOrg={data.activeOrg} orgs={data.orgs} />
+            {:else if !data.isConsumerMode && data.activeOrg}
+              <p class="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400" data-testid="active-org-name">
+                {data.activeOrg.name}
+              </p>
+            {/if}
           </div>
-        </a>
-        <!-- Spec 014 FR-004 + US2: active org name + switcher dropdown
-             under "Signed in as". Switcher renders only for multi-membership,
-             non-consumer users (FR-010 keeps it off for single-personal-org
-             accounts). With >1 membership, the trigger reveals other
-             memberships — each opens that org in a new tab (R-3). -->
-        {#if !data.isConsumerMode && data.activeOrg && data.orgs.length > 1}
-          <OrgSwitcher activeOrg={data.activeOrg} orgs={data.orgs} />
-        {:else if !data.isConsumerMode && data.activeOrg}
-          <!-- Non-consumer user with exactly one visible org membership:
-               render the active-org name as a static line, no switcher
-               (nothing to switch to). -->
-          <p class="mt-1 px-3 text-xs text-zinc-500 dark:text-zinc-400 truncate" data-testid="active-org-name">
-            {data.activeOrg.name}
-          </p>
-        {/if}
+        </div>
       </div>
   </aside>
   {:else}

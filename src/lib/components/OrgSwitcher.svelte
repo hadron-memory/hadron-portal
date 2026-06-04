@@ -110,32 +110,26 @@
     onclick={toggle}
     aria-haspopup="menu"
     aria-expanded={open}
-    aria-label={t('app.layout.active-org.switcher.aria-label', 'Switch organization')}
-    class="mt-1 flex w-full flex-col items-start rounded-md px-3 py-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white"
+    aria-label={`${t('app.layout.active-org.switcher.aria-label', 'Switch organization')}: ${activeOrg.name}`}
+    class="mt-0.5 flex w-full min-w-0 items-center gap-1 rounded py-1 text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
     data-testid="org-switcher-trigger"
   >
-    <!-- #228: stack the "Organization" label above the org name so the
-         trigger mirrors the "Signed in as / <user>" block above it in
-         +layout.svelte (tiny 10px label, then the value on its own
-         line). Previously the label sat inline left of the name. -->
-    <span class="text-[10px] text-zinc-400">{t('app.layout.active-org.switcher.label', 'Organization')}</span>
-    <!-- min-w-0 on both the flex container AND the truncating child so a
-         long org name shrinks rather than overflowing the sidebar / pushing
-         the caret out of view. Default flex behavior is "don't shrink below
-         min-content" — `min-w-0` opts out, letting the truncate engage. -->
-    <span class="flex w-full min-w-0 items-center gap-1">
-      <span class="min-w-0 truncate">{activeOrg.name}</span>
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ml-auto opacity-60 shrink-0">
-        <polyline points="6 9 12 15 18 9" />
-      </svg>
-    </span>
+    <!-- #264: no "Organization" label — the org name sits directly under the
+         user's name. min-w-0 on the button AND the truncating child so a long
+         org name shrinks rather than overflowing the sidebar / pushing the
+         caret out of view (flex children don't shrink below min-content
+         without min-w-0). -->
+    <span class="min-w-0 truncate">{activeOrg.name}</span>
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ml-auto shrink-0 opacity-60">
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
   </button>
 
   {#if open}
     <div
       bind:this={menuEl}
       role="menu"
-      class="absolute bottom-full left-0 right-0 mb-1 max-h-64 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      class="absolute bottom-full left-0 mb-1 max-h-64 min-w-[12rem] max-w-[16rem] overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
       data-testid="org-switcher-dropdown"
     >
       {#each otherMemberships as o (o.id)}
