@@ -53,24 +53,25 @@
 </script>
 
 <div class="flex gap-8 px-6 py-8">
-  <!-- Sidebar — sticky to the viewport so the account info at the bottom
-       stays visible on long pages (#231). The aside has a fixed viewport
-       height; the nav scrolls internally (`flex-1 min-h-0 overflow-y-auto`)
-       while the account block stays pinned at the bottom (`shrink-0`). The
-       earlier layout put `overflow-y-auto` on the aside itself and pinned
-       the account block with `mt-auto` — that scrolled the *whole* sidebar
-       and pushed the account widget below the fold (#245).
-       #264: height is `100dvh` (dynamic viewport), not `100vh`. With `100vh`
-       the sidebar is sized to the LARGEST viewport (UI bars hidden), so when
-       a browser/OS chrome bar is showing the bottom of the sidebar — the
-       account widget — rendered below the visible fold until the user
-       scrolled. `100dvh` tracks the currently visible height. The `100vh`
-       declaration is a fallback first: browsers without `dvh` support drop
-       the invalid `dvh` line and keep the prior `vh` behavior. -->
+  <!-- Sidebar — sticky, sized to the available height; the nav scrolls
+       internally (`flex-1 min-h-0 overflow-y-auto`) while the account block
+       stays pinned at the bottom (`shrink-0`) on long pages (#231/#245).
+
+       Height is `calc(100dvh - 8rem)`, NOT `- 4rem`. The sidebar sits BELOW
+       the top <Nav> header bar (~4rem) plus this row's 2rem top padding, so
+       at scroll 0 — before `position: sticky` engages — its top edge is ~6rem
+       down the viewport. With only 4rem subtracted, the bottom of the sidebar
+       (the account widget) landed ~2rem BELOW the viewport and was clipped
+       until the user scrolled far enough for sticky to pull it up to `top-8`
+       — exactly the "cut off until you scroll" symptom in #264. Subtracting
+       8rem clears the Nav + top padding + a bottom gap so the widget is fully
+       visible at scroll 0, in the stuck state, and at every scroll between.
+       `dvh` tracks the visible viewport (mobile UI bars); the `vh` line is a
+       fallback for browsers without `dvh` support. -->
   {#if menuOpen}
     <aside
       class="sticky top-8 self-start flex w-48 shrink-0 flex-col"
-      style="max-height: calc(100vh - 4rem); max-height: calc(100dvh - 4rem); min-height: calc(100vh - 4rem); min-height: calc(100dvh - 4rem);"
+      style="max-height: calc(100vh - 8rem); max-height: calc(100dvh - 8rem); min-height: calc(100vh - 8rem); min-height: calc(100dvh - 8rem);"
     >
       <div class="mb-4 flex items-center justify-end shrink-0">
         <button onclick={() => menuOpen = false} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('app.layout.collapse-menu', 'Collapse menu')}>
