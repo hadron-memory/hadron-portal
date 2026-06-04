@@ -9,7 +9,9 @@
 </script>
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
-  <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+  <!-- #248: no max-width — the header bar grows with the page width instead
+       of being capped at max-w-7xl and centered. -->
+  <div class="flex items-center justify-between px-4 py-3">
     <!-- Logo -->
     <a href="/">
       <img src={dark ? '/img/hadron-logo-v2-dark.png' : '/img/hadron-logo-v2.png'} alt="Hadron" class="h-9 w-auto" />
