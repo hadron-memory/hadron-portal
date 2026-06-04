@@ -417,8 +417,13 @@
       </div>
       {#if showSource}
         <div class="mt-3">
+          <!-- #247: fill the available viewport height rather than a fixed
+               300px, so the source editor is comfortable for long content.
+               Viewport-relative (minus the nav/breadcrumb/header/tabs chrome
+               above and the Save row below); the textarea scrolls internally
+               and the page scrolls past it on short viewports. -->
           <textarea
-            class="w-full min-h-[300px] rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
+            class="w-full min-h-[calc(100vh-18rem)] rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
             bind:value={editContent}
           ></textarea>
