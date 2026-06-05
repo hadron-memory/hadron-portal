@@ -132,38 +132,43 @@
            name as a third line in the same block — no "Organization" label.
            Avatar and name both link to /app/account; the org line is a
            sibling so it can host the OrgSwitcher button (a button can't be
-           nested inside the account <a>). -->
+           nested inside the account <a>).
+           The "Signed in as" label sits on its own row ABOVE the avatar/name
+           row, so the avatar aligns with the name intrinsically (`items-center`)
+           — no magic margin that would misalign if the localized label wraps. -->
       <div class="shrink-0 pt-4">
         <hr class="mb-3 border-zinc-200 dark:border-zinc-800" />
-        <div class="flex items-start gap-3 rounded-md px-3 py-2
+        <div class="rounded-md px-3 py-2
           {$page.url.pathname.startsWith('/app/account')
             ? 'text-zinc-900 dark:text-white'
             : 'text-zinc-500 dark:text-zinc-400'}">
-          <a href="/app/account" class="shrink-0 transition hover:opacity-80" aria-label={t('app.layout.account', 'Account')}>
-            {#if data.user.avatarUrl}
-              <img src={data.user.avatarUrl} alt="" class="h-8 w-8 rounded-full" />
-            {:else}
-              <div class="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
-            {/if}
-          </a>
-          <div class="min-w-0 flex-1">
-            <a href="/app/account" class="block text-sm transition hover:text-zinc-900 dark:hover:text-white
-              {$page.url.pathname.startsWith('/app/account') ? 'font-medium' : ''}">
-              <span class="block text-[10px] text-zinc-400">{t('app.layout.signed-in-as', 'Signed in as')}</span>
-              <span class="block truncate">{data.user.name ?? data.user.githubUsername ?? data.user.email}</span>
+          <p class="mb-1 text-[10px] text-zinc-400">{t('app.layout.signed-in-as', 'Signed in as')}</p>
+          <div class="flex items-center gap-3">
+            <a href="/app/account" class="shrink-0 transition hover:opacity-80" aria-label={t('app.layout.account', 'Account')}>
+              {#if data.user.avatarUrl}
+                <img src={data.user.avatarUrl} alt="" class="h-8 w-8 rounded-full" />
+              {:else}
+                <div class="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
+              {/if}
             </a>
-            <!-- Spec 014 FR-004 + US2 / #264: active org directly under the
-                 name. Switcher renders only for multi-membership, non-consumer
-                 users (FR-010 keeps it off for single-personal-org accounts);
-                 each option opens that org in a new tab (R-3). A single-org
-                 user gets a static name line — no dropdown to nowhere. -->
-            {#if !data.isConsumerMode && data.activeOrg && data.orgs.length > 1}
-              <OrgSwitcher activeOrg={data.activeOrg} orgs={data.orgs} />
-            {:else if !data.isConsumerMode && data.activeOrg}
-              <p class="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400" data-testid="active-org-name">
-                {data.activeOrg.name}
-              </p>
-            {/if}
+            <div class="min-w-0 flex-1">
+              <a href="/app/account" class="block truncate text-sm transition hover:text-zinc-900 dark:hover:text-white
+                {$page.url.pathname.startsWith('/app/account') ? 'font-medium' : ''}">
+                {data.user.name ?? data.user.githubUsername ?? data.user.email}
+              </a>
+              <!-- Spec 014 FR-004 + US2 / #264: active org directly under the
+                   name. Switcher renders only for multi-membership, non-consumer
+                   users (FR-010 keeps it off for single-personal-org accounts);
+                   each option opens that org in a new tab (R-3). A single-org
+                   user gets a static name line — no dropdown to nowhere. -->
+              {#if !data.isConsumerMode && data.activeOrg && data.orgs.length > 1}
+                <OrgSwitcher activeOrg={data.activeOrg} orgs={data.orgs} />
+              {:else if !data.isConsumerMode && data.activeOrg}
+                <p class="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400" data-testid="active-org-name">
+                  {data.activeOrg.name}
+                </p>
+              {/if}
+            </div>
           </div>
         </div>
       </div>
