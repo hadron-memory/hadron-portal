@@ -67,11 +67,13 @@
        8rem clears the Nav + top padding + a bottom gap so the widget is fully
        visible at scroll 0, in the stuck state, and at every scroll between.
        `dvh` tracks the visible viewport (mobile UI bars); the `vh` line is a
-       fallback for browsers without `dvh` support. -->
+       fallback for browsers without `dvh` support. The offset is a CSS var so
+       it's stated once (cf. --memory-browser-h in MemoryBrowser.svelte);
+       min==max height collapses to a plain `height`. -->
   {#if menuOpen}
     <aside
       class="sticky top-8 self-start flex w-48 shrink-0 flex-col"
-      style="max-height: calc(100vh - 8rem); max-height: calc(100dvh - 8rem); min-height: calc(100vh - 8rem); min-height: calc(100dvh - 8rem);"
+      style="--sidebar-offset: 8rem; height: calc(100vh - var(--sidebar-offset)); height: calc(100dvh - var(--sidebar-offset));"
     >
       <div class="mb-4 flex items-center justify-end shrink-0">
         <button onclick={() => menuOpen = false} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('app.layout.collapse-menu', 'Collapse menu')}>
