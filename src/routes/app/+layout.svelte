@@ -139,7 +139,10 @@
           {$page.url.pathname.startsWith('/app/account')
             ? 'text-zinc-900 dark:text-white'
             : 'text-zinc-500 dark:text-zinc-400'}">
-          <a href="/app/account" class="shrink-0 transition hover:opacity-80" aria-label={t('app.layout.account', 'Account')}>
+          <!-- mt-5 drops the avatar by one label line (the text-sm 20px
+               line-height of "Signed in as") so its top aligns with the
+               user's name rather than the label above it. -->
+          <a href="/app/account" class="mt-5 shrink-0 transition hover:opacity-80" aria-label={t('app.layout.account', 'Account')}>
             {#if data.user.avatarUrl}
               <img src={data.user.avatarUrl} alt="" class="h-8 w-8 rounded-full" />
             {:else}
