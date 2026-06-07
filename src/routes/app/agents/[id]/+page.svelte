@@ -296,11 +296,13 @@
     return urn.includes(':') ? urn.split(':').slice(1).join(':') : urn;
   }
 
-  const visibilityRank: Record<string, number> = { PRIVATE: 0, ORGANIZATION: 1, PUBLIC: 2 };
-  const visibilityLabel: Record<string, string> = { PRIVATE: 'Private', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
+  // Ordered most→least restrictive. Spec 034 added GROUP to memory visibility;
+  // agent.visibility is still one of PRIVATE/ORGANIZATION/PUBLIC.
+  const visibilityRank: Record<string, number> = { PRIVATE: 0, GROUP: 1, ORGANIZATION: 2, PUBLIC: 3 };
+  const visibilityLabel: Record<string, string> = { PRIVATE: 'Private', GROUP: 'Group', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
   // Spec 034: a memory's visibility is now nullable (null = owner-only
-  // personal/private — the most restrictive). Rank null as 0 for the
-  // "more restrictive than the agent" comparison below.
+  // personal/private — the most restrictive) and may be GROUP. Route every
+  // memory-visibility read through these so null/GROUP rank and label safely.
   const memVisRank = (v: string | null) => (v == null ? 0 : (visibilityRank[v] ?? 0));
   const memVisLabel = (v: string | null) => (v == null ? 'Only you' : (visibilityLabel[v] ?? v));
 
@@ -348,12 +350,12 @@
   const selectedAddMemory = $derived(
     allMemories.find((m) => m.id === selectedAddMemoryId)
   );
-  const addMemoryWarning = $derived(
-    selectedAddMemory && 'visibility' in selectedAddMemory &&
-    visibilityRank[(selectedAddMemory as any).visibility] < visibilityRank[agent.visibility]
-      ? `This memory is ${visibilityLabel[(selectedAddMemory as any).visibility]} but the agent is ${visibilityLabel[agent.visibility]}. The effective access will be ${visibilityLabel[(selectedAddMemory as any).visibility]}.`
-      : ''
-  );
+  const addMemoryWarning = $derived.by(() => {
+    if (!selectedAddMemory || !('visibility' in selectedAddMemory)) return '';
+    const memVis = (selectedAddMemory as { visibility?: string | null }).visibility ?? null;
+    if (memVisRank(memVis) >= visibilityRank[agent.visibility]) return '';
+    return `This memory is ${memVisLabel(memVis)} but the agent is ${visibilityLabel[agent.visibility]}. The effective access will be ${memVisLabel(memVis)}.`;
+  });
 </script>
 
 <svelte:head><title>{agent.name} · Hadron</title></svelte:head>
