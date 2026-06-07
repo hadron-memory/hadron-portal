@@ -45,7 +45,7 @@
   });
 
   const urnSlug = $derived(g.urn ? g.urn.split(':').slice(1).join(':') : '');
-  const visibilityLabel: Record<string, string> = { PRIVATE: 'Private', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
+  const visibilityLabel: Record<string, string> = { ORGANIZATION: 'Organization', PUBLIC: 'Public', GROUP: 'Group' };
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
@@ -262,14 +262,18 @@
               <input id="heroUrl" name="heroUrl" type="url" value={g.heroUrl ?? ''} class={inputClass} />
             </div>
           </div>
-          <div>
-            <label for="visibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
-            <select id="visibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-              <option value="PRIVATE" selected={g.visibility === 'PRIVATE'}>Private</option>
-              <option value="ORGANIZATION" selected={g.visibility === 'ORGANIZATION'}>Organization</option>
-              <option value="PUBLIC" selected={g.visibility === 'PUBLIC'}>Public</option>
-            </select>
-          </div>
+          <!-- Spec 034: visibility is meaningful only for knowledge (PUBLIC vs
+               ORG). group is structurally GROUP; owner-only (personal/private)
+               has no visibility. -->
+          {#if g.class === 'knowledge'}
+            <div>
+              <label for="visibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
+              <select id="visibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="ORGANIZATION" selected={g.visibility === 'ORGANIZATION'}>Organization</option>
+                <option value="PUBLIC" selected={g.visibility === 'PUBLIC'}>Public</option>
+              </select>
+            </div>
+          {/if}
         {/if}
 
         <!-- GitHub integration -->
@@ -318,8 +322,10 @@
         {/if}
         {#if !isAgentSystem}
           <div class="flex items-center justify-between px-5 py-3">
-            <span class="text-sm text-zinc-500">Visibility</span>
-            <span class="text-sm font-medium text-zinc-900 dark:text-white">{visibilityLabel[g.visibility] ?? g.visibility}</span>
+            <span class="text-sm text-zinc-500">{isOwnerOnly ? 'Access' : 'Visibility'}</span>
+            <span class="text-sm font-medium text-zinc-900 dark:text-white">
+              {#if isOwnerOnly}Only you{:else}{(g.visibility && visibilityLabel[g.visibility]) ?? g.visibility ?? '—'}{/if}
+            </span>
           </div>
         {/if}
         {#if g.shortDescription}
