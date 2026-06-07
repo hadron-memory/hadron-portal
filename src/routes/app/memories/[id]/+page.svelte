@@ -13,20 +13,22 @@
   // not a shared knowledge artifact).
   const isAgentSystem = $derived(g.type === 'AGENT_SYSTEM');
 
-  // Spec 013: class-aware delete authority. Server-side resolver enforces
+  // Spec 013 + 034: class-aware delete authority. Server-side resolver enforces
   // this; the UI affordance hide is presentation only (per Constitution
-  // Principle V). Personal-class memories — owner only. All others — any
-  // org admin. AGENT_SYSTEM memories are excluded entirely (the resolver
-  // refuses; deleting goes through the owning agent).
+  // Principle V). Owner-only classes (personal/private) — owner only, via
+  // Memory.userId. All others — any org admin. AGENT_SYSTEM memories are
+  // excluded entirely (the resolver refuses; deleting goes through the owning
+  // agent).
   // #260: org may be null when viewing a memory owned by an org the user isn't
   // a member of — they then have no membership row, so canDelete is false
   // (server-enforced regardless).
   const myMember = $derived(
     data.org?.members?.find((m) => m.user?.id === data.user?.id),
   );
+  const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
   const canDelete = $derived(
     !isAgentSystem &&
-      (g.class === 'personal'
+      (isOwnerOnly
         ? !!data.user?.id && data.user.id === g.userId
         : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
   );

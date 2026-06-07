@@ -23,7 +23,10 @@ export interface Memory {
   // typology. Spec 013-soft-delete-memory reads `class` and `userId` to
   // gate the detail-page Danger-zone affordance: personal-class memories
   // are owner-deletable; all others are org-admin-deletable.
-  class?: 'system' | 'app' | 'knowledge' | 'personal';
+  // Spec 034-memory-class-access: `personal` and `private` are owner-only
+  // (free-standing, owned via Memory.userId); `group` is team-shared. All are
+  // user-creatable via createMemory(memoryClass:).
+  class?: 'system' | 'app' | 'knowledge' | 'personal' | 'private' | 'group';
   isEncrypted?: boolean;
   // Spec 033-rag-vector-retrieval: per-memory vector-index config. Chunk
   // dials are nullable (null = platform default 512 / 64). vectorIndexEncryptedAckAt

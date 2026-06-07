@@ -33,7 +33,17 @@ export const actions: Actions = {
     const source = String(fd.get('source') ?? '').trim() || null;
     const readBranch = String(fd.get('readBranch') ?? '').trim() || null;
     const writeBranch = String(fd.get('writeBranch') ?? '').trim() || null;
-    const visibility = String(fd.get('visibility') ?? 'PRIVATE');
+    // Spec 034: owner-only classes (personal/private) derive visibility
+    // server-side, so we don't send a visibility for them. Only knowledge is
+    // visibility-governed.
+    const memoryClass = String(fd.get('memoryClass') ?? 'knowledge');
+    // Only the user-creatable classes the form offers; reject anything else
+    // (e.g. system/app) before it reaches the server.
+    if (memoryClass !== 'knowledge' && memoryClass !== 'personal' && memoryClass !== 'private') {
+      return fail(400, { error: 'Invalid memory kind' });
+    }
+    const isOwnerOnly = memoryClass === 'personal' || memoryClass === 'private';
+    const visibility = isOwnerOnly ? null : String(fd.get('visibility') ?? 'PRIVATE');
 
     if (!name) return fail(400, { error: 'Name is required' });
 
@@ -41,7 +51,7 @@ export const actions: Actions = {
       const result = await gqlClient(locals.token).request<{ createMemory: { id: string } }>(CREATE_MEMORY_MUTATION, {
         orgId: params.id, name, shortDescription, description, tags, license,
         category0, category1, category2, iconUrl, heroUrl, homeUrl,
-        source, readBranch, writeBranch, visibility,
+        source, readBranch, writeBranch, visibility, memoryClass,
       });
       // If display name differs from slug, update the name
       if (displayName && displayName !== name) {
