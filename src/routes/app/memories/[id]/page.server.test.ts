@@ -292,3 +292,38 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
     expect(result!.data.needsEncryptedAck).toBeUndefined();
   });
 });
+
+// ── Tests for the `update` action — visibility handling (spec 034) ───────
+
+/** RequestEvent-shaped object carrying form data for the metadata update. */
+function updateEv(form: Record<string, string>) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(form)) fd.append(k, v);
+  return {
+    params: { id: 'mem-id-abc' },
+    locals: { token: 'test-token' },
+    request: { formData: async () => fd },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['update']>[0];
+}
+
+describe('memory-detail `update` action — visibility (spec 034)', () => {
+  it('passes visibility through when the control is present (knowledge memory)', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.update(updateEv({ displayName: 'Kb', visibility: 'ORGANIZATION' }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.visibility).toBe('ORGANIZATION');
+  });
+
+  it('omits visibility when the control is absent (owner-only/group/system) so the stored value is untouched', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.update(updateEv({ displayName: 'Private mem' }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.visibility).toBeUndefined();
+  });
+});

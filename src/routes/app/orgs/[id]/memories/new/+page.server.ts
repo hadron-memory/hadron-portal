@@ -43,7 +43,9 @@ export const actions: Actions = {
       return fail(400, { error: 'Invalid memory kind' });
     }
     const isOwnerOnly = memoryClass === 'personal' || memoryClass === 'private';
-    const visibility = isOwnerOnly ? null : String(fd.get('visibility') ?? 'PRIVATE');
+    // knowledge is the only visibility-governed class created here; default to
+    // ORGANIZATION (spec 034 dropped PRIVATE — privacy is the personal/private class).
+    const visibility = isOwnerOnly ? null : String(fd.get('visibility') ?? 'ORGANIZATION');
 
     if (!name) return fail(400, { error: 'Name is required' });
 

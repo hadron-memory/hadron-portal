@@ -92,7 +92,10 @@ export const actions: Actions = {
         source: String(fd.get('source') ?? '').trim() || null,
         readBranch: String(fd.get('readBranch') ?? '').trim() || null,
         writeBranch: String(fd.get('writeBranch') ?? '').trim() || null,
-        visibility: String(fd.get('visibility') ?? 'PRIVATE'),
+        // Spec 034: the visibility control only renders for knowledge memories;
+        // when it's absent (owner-only/group/system), omit it so updateMemory
+        // leaves the stored value untouched rather than forcing a default.
+        visibility: fd.has('visibility') ? String(fd.get('visibility')) : undefined,
       });
       return { success: true };
     } catch (e: unknown) {

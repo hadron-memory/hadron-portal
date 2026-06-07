@@ -146,7 +146,6 @@
       <div>
         <label for="visibility" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
         <select id="visibility" name="visibility" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-          <option value="PRIVATE">Private</option>
           <option value="ORGANIZATION">Organization</option>
           <option value="PUBLIC">Public</option>
         </select>

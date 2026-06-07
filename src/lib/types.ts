@@ -17,7 +17,11 @@ export interface Memory {
   source: string | null;
   readBranch: string | null;
   writeBranch: string | null;
-  visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION' | 'PERSONAL';
+  // Spec 034: MemoryVisibility pruned to {PUBLIC, ORGANIZATION, GROUP},
+  // nullable — meaningful only for knowledge (PUBLIC vs ORG) and group (GROUP);
+  // null for owner-only (personal/private) and the app/system classes. The old
+  // PERSONAL/PRIVATE values are removed (privacy is now the class, not visibility).
+  visibility: 'PUBLIC' | 'ORGANIZATION' | 'GROUP' | null;
   type?: 'KNOWLEDGE' | 'AGENT_SYSTEM';
   // Spec 005-agent-subscription introduced the four-way memory class
   // typology. Spec 013-soft-delete-memory reads `class` and `userId` to
@@ -187,7 +191,7 @@ export interface AppKey {
 export interface AgentMemoryItem {
   id: string;
   role: string;
-  memory: { id: string; urn: string; name: string; visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION' | 'PERSONAL' };
+  memory: { id: string; urn: string; name: string; visibility: 'PUBLIC' | 'ORGANIZATION' | 'GROUP' | null };
 }
 
 /** The Agent payload returned from App.agent. */

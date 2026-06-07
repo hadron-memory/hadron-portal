@@ -90,6 +90,12 @@ describe('create-memory action (spec 034)', () => {
     expect(vars?.visibility).toBe('PUBLIC');
   });
 
+  it('knowledge with no visibility field defaults to ORGANIZATION (spec 034 dropped PRIVATE)', async () => {
+    await runCreate({ slug: 'kb', displayName: 'kb', memoryClass: 'knowledge' });
+    const vars = createVars();
+    expect(vars?.visibility).toBe('ORGANIZATION');
+  });
+
   it('rejects a non-user-creatable class with a 400 and never calls the API', async () => {
     const result = await runCreate({ slug: 'x', displayName: 'x', memoryClass: 'system' });
     expect((result as { status?: number })?.status).toBe(400);
