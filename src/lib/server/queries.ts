@@ -488,7 +488,7 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
     $source: String, $readBranch: String, $writeBranch: String,
-    $visibility: MemoryVisibility, $type: MemoryType
+    $visibility: MemoryVisibility, $type: MemoryType, $memoryClass: MemoryClass
   ) {
     createMemory(
       orgId: $orgId, name: $name, shortDescription: $shortDescription, description: $description,
@@ -496,7 +496,7 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
       category0: $category0, category1: $category1, category2: $category2,
       iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
       source: $source, readBranch: $readBranch, writeBranch: $writeBranch,
-      visibility: $visibility, type: $type
+      visibility: $visibility, type: $type, memoryClass: $memoryClass
     ) { ...MemoryFields }
   }
 `;

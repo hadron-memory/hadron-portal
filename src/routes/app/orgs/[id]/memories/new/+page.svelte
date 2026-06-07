@@ -10,6 +10,10 @@
   let slugManuallyEdited = $state(false);
   let githubOpen = $state(false);
   let colonWarning = $state(false);
+  // Spec 034: knowledge = org-shared (visibility-governed); personal/private =
+  // owner-only (visibility is auto-derived server-side, so we hide that knob).
+  let memoryClass = $state<'knowledge' | 'personal' | 'private'>('knowledge');
+  const isOwnerOnly = $derived(memoryClass === 'personal' || memoryClass === 'private');
 
   $effect(() => {
     if (!slugManuallyEdited) {
@@ -127,13 +131,27 @@
     </div>
 
     <div>
-      <label for="visibility" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
-      <select id="visibility" name="visibility" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-        <option value="PRIVATE">Private</option>
-        <option value="ORGANIZATION">Organization</option>
-        <option value="PUBLIC">Public</option>
+      <label for="memoryClass" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Memory kind</label>
+      <select id="memoryClass" name="memoryClass" bind:value={memoryClass} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+        <option value="knowledge">Organization knowledge</option>
+        <option value="personal">Personal — only you (shareable later)</option>
+        <option value="private">Private — only you</option>
       </select>
+      {#if isOwnerOnly}
+        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Only you can read or write this memory. The organization is just a container and is granted no access.</p>
+      {/if}
     </div>
+
+    {#if memoryClass === 'knowledge'}
+      <div>
+        <label for="visibility" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
+        <select id="visibility" name="visibility" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+          <option value="PRIVATE">Private</option>
+          <option value="ORGANIZATION">Organization</option>
+          <option value="PUBLIC">Public</option>
+        </select>
+      </div>
+    {/if}
 
     <!-- GitHub integration (collapsed by default) -->
     <div class="rounded-lg border border-zinc-200 dark:border-zinc-800">

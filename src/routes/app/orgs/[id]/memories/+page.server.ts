@@ -7,6 +7,7 @@ import {
   DELETE_MEMORY_MUTATION,
   SYNC_MEMORY_MUTATION,
   PUBLIC_MEMORIES_QUERY,
+  MY_MEMORIES_QUERY,
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
 } from '$lib/server/queries';
@@ -16,7 +17,7 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
-  const [orgData, systemData, publicData] = await Promise.all([
+  const [orgData, systemData, publicData, myData] = await Promise.all([
     client.request<{ organization: Organization }>(
       ORGANIZATION_QUERY, { id: params.id },
     ),
@@ -26,6 +27,9 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     gqlClient().request<{ publicMemories: Memory[] }>(PUBLIC_MEMORIES_QUERY).catch(() => ({
       publicMemories: [] as Memory[],
     })),
+    client.request<{ myMemories: Memory[] }>(MY_MEMORIES_QUERY).catch(() => ({
+      myMemories: [] as Memory[],
+    })),
   ]);
   // Exclude memories already owned or subscribed to by this org
   const ownedIds = new Set((orgData.organization.memories ?? []).map((m) => m.id));
@@ -33,10 +37,20 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const availableMemories = publicData.publicMemories.filter(
     (m) => !ownedIds.has(m.id) && !subscribedIds.has(m.id) && m.organizationId !== params.id,
   );
+  // Spec 034: owner-only memories (personal/private) are excluded from
+  // Organization.memories server-side, so surface the caller's own ones whose
+  // container is this org. myMemories already scopes to the owner via userId.
+  const privateMemories = (myData.myMemories ?? []).filter(
+    (m) =>
+      m.organizationId === params.id &&
+      m.userId === locals.user?.id &&
+      (m.class === 'personal' || m.class === 'private'),
+  );
   return {
     org: orgData.organization,
     systemMemories: systemData.orgSystemMemories,
     availableMemories,
+    privateMemories,
   };
 };
 

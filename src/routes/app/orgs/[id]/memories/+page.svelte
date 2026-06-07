@@ -70,6 +70,26 @@
     </div>
   {/if}
 
+  <!-- Private memories (spec 034: owner-only personal/private, this user only) -->
+  {#if data.privateMemories?.length}
+    <div>
+      <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">Private memories <span class="ml-1 text-sm font-normal text-zinc-500">({data.privateMemories.length})</span></h2>
+      <p class="mb-3 text-sm text-zinc-500">Owner-only memories — visible to you alone. The organization is just a container and is granted no access.</p>
+      <div class="space-y-3">
+        {#each data.privateMemories as g (g.id)}
+          <div class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+            <div class="flex-1 min-w-0">
+              <a href="/app/memories/{g.id}/browse" class="text-sm font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{g.name}</a>
+              <span class="ml-2 rounded px-1.5 py-0.5 text-xs bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">{g.class === 'private' ? 'Private' : 'Personal'}</span>
+              <Urn value={g.urn} type="memory" size={10} />
+            </div>
+            <a href="/app/memories/{g.id}" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Edit</a>
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
+
   <!-- System memories (agent chatbot system memories) -->
   {#if data.systemMemories?.length}
     <div>
