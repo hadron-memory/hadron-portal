@@ -488,7 +488,7 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
     $source: String, $readBranch: String, $writeBranch: String,
-    $visibility: MemoryVisibility, $type: MemoryType, $memoryClass: MemoryClass
+    $visibility: MemoryVisibility, $type: MemoryType, $memoryClass: MemoryClass = knowledge
   ) {
     createMemory(
       orgId: $orgId, name: $name, shortDescription: $shortDescription, description: $description,

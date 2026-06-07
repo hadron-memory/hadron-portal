@@ -37,6 +37,11 @@ export const actions: Actions = {
     // server-side, so we don't send a visibility for them. Only knowledge is
     // visibility-governed.
     const memoryClass = String(fd.get('memoryClass') ?? 'knowledge');
+    // Only the user-creatable classes the form offers; reject anything else
+    // (e.g. system/app) before it reaches the server.
+    if (memoryClass !== 'knowledge' && memoryClass !== 'personal' && memoryClass !== 'private') {
+      return fail(400, { error: 'Invalid memory kind' });
+    }
     const isOwnerOnly = memoryClass === 'personal' || memoryClass === 'private';
     const visibility = isOwnerOnly ? null : String(fd.get('visibility') ?? 'PRIVATE');
 

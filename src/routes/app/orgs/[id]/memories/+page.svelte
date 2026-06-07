@@ -40,11 +40,11 @@
     <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Subscribed to memory.</div>
   {/if}
 
-  {#if !org.memories?.length}
+  {#if !org.memories?.length && !data.privateMemories?.length}
     <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
       No memories yet. <a href="/app/orgs/{org.id}/memories/new" class="text-indigo-600 hover:underline dark:text-indigo-400">Add one →</a>
     </div>
-  {:else}
+  {:else if org.memories?.length}
     <div class="space-y-3">
       {#each org.memories as g (g.id)}
         <div class="flex items-center gap-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

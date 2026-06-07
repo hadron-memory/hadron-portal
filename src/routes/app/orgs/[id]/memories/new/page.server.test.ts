@@ -89,4 +89,10 @@ describe('create-memory action (spec 034)', () => {
     expect(vars?.memoryClass).toBe('knowledge');
     expect(vars?.visibility).toBe('PUBLIC');
   });
+
+  it('rejects a non-user-creatable class with a 400 and never calls the API', async () => {
+    const result = await runCreate({ slug: 'x', displayName: 'x', memoryClass: 'system' });
+    expect((result as { status?: number })?.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
 });

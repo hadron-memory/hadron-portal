@@ -43,7 +43,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const privateMemories = (myData.myMemories ?? []).filter(
     (m) =>
       m.organizationId === params.id &&
-      m.userId === locals.user?.id &&
+      !!locals.user?.id &&
+      m.userId === locals.user.id &&
       (m.class === 'personal' || m.class === 'private'),
   );
   return {
