@@ -59,11 +59,16 @@ export const actions: Actions = {
       // `type` column, and its visibility is nulled on promotion). Once
       // promoted it gets filtered out of the main memory list and can't be
       // deleted directly.
+      // Always create it ORGANIZATION (the most restrictive non-null knowledge
+      // visibility), NOT the agent's visibility: a PUBLIC agent would otherwise
+      // briefly expose its prompts/design in a PUBLIC memory, and leave a PUBLIC
+      // orphan if createAgent fails before the promotion nulls it. The value is
+      // moot post-promotion, so the safe floor costs nothing.
       const systemResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
         orgId: params.id,
         name: systemMemorySlug,
         shortDescription: systemDisplayName,
-        visibility: memoryVisibility,
+        visibility: 'ORGANIZATION',
       });
       const systemMemoryId = systemResult.createMemory.id;
       await client.request(UPDATE_MEMORY_MUTATION, {
