@@ -11,7 +11,7 @@
   // settings view: no org transfer, no categories, no license, no visibility,
   // no subscriptions. Most fields don't apply (they're the agent's program,
   // not a shared knowledge artifact).
-  const isAgentSystem = $derived(g.type === 'AGENT_SYSTEM');
+  const isAgentSystem = $derived(g.class === 'system');
 
   // Spec 013 + 034: class-aware delete authority. Server-side resolver enforces
   // this; the UI affordance hide is presentation only (per Constitution

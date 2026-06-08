@@ -22,7 +22,6 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     readBranch
     writeBranch
     visibility
-    type
     class
     isEncrypted
     # 033-rag-vector-retrieval: per-memory vector-index config.
@@ -488,7 +487,7 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
     $source: String, $readBranch: String, $writeBranch: String,
-    $visibility: MemoryVisibility, $type: MemoryType, $memoryClass: MemoryClass = knowledge
+    $visibility: MemoryVisibility, $memoryClass: MemoryClass = knowledge
   ) {
     createMemory(
       orgId: $orgId, name: $name, shortDescription: $shortDescription, description: $description,
@@ -496,7 +495,7 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
       category0: $category0, category1: $category1, category2: $category2,
       iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
       source: $source, readBranch: $readBranch, writeBranch: $writeBranch,
-      visibility: $visibility, type: $type, memoryClass: $memoryClass
+      visibility: $visibility, memoryClass: $memoryClass
     ) { ...MemoryFields }
   }
 `;
@@ -573,14 +572,14 @@ export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
 
 export const CREATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: MemoryVisibility) {
+  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility) {
     createAgent(orgId: $orgId, name: $name, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
   }
 `;
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: MemoryVisibility) {
+  mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility) {
     updateAgent(id: $id, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
   }
 `;

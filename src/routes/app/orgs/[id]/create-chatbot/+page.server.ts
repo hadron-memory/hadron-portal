@@ -30,7 +30,13 @@ export const actions: Actions = {
     const agentSlug = String(fd.get('agentSlug') ?? '').trim();
     const agentDescription = String(fd.get('agentDescription') ?? '').trim() || null;
     const systemPrompt = String(fd.get('systemPrompt') ?? '').trim() || null;
-    const visibility = String(fd.get('visibility') ?? 'PRIVATE').trim();
+    // Spec 035: the form's visibility drives the AGENT (AgentVisibility:
+    // PUBLIC | ORGANIZATION | PERSONAL). The memories it creates take
+    // MemoryVisibility (no PERSONAL), so map PERSONAL -> ORGANIZATION for the
+    // createMemory calls. (The system memory's visibility is moot — createAgent
+    // nulls it when it promotes the memory to class='system'.)
+    const visibility = String(fd.get('visibility') ?? 'PERSONAL').trim();
+    const memoryVisibility = visibility === 'PERSONAL' ? 'ORGANIZATION' : visibility;
 
     const includeKnowledge = String(fd.get('includeKnowledge') ?? '') === 'true';
     const knowledgeMemoryName = String(fd.get('knowledgeMemoryName') ?? '').trim();
@@ -46,18 +52,18 @@ export const actions: Actions = {
     try {
       const systemDisplayName = `${agentName} System`;
 
-      // 1. Create the system memory (conversation designs, prompts).
-      // Mark it as AGENT_SYSTEM from creation so it's treated as the
-      // chatbot's program rather than a regular knowledge memory —
-      // it gets filtered out of the main memory list, won't be
-      // deletable directly, and its name/visibility stay in sync
-      // with the agent.
+      // 1. Create the system memory (conversation designs, prompts). It is
+      // created as a regular (knowledge) memory here; createAgent below
+      // promotes it to class='system' when it's attached as systemMemoryId
+      // (spec 035 — the system memory is identified by `class`, not the dropped
+      // `type` column, and its visibility is nulled on promotion). Once
+      // promoted it gets filtered out of the main memory list and can't be
+      // deleted directly.
       const systemResult = await client.request<{ createMemory: Memory }>(CREATE_MEMORY_MUTATION, {
         orgId: params.id,
         name: systemMemorySlug,
         shortDescription: systemDisplayName,
-        visibility,
-        type: 'AGENT_SYSTEM',
+        visibility: memoryVisibility,
       });
       const systemMemoryId = systemResult.createMemory.id;
       await client.request(UPDATE_MEMORY_MUTATION, {
@@ -71,7 +77,7 @@ export const actions: Actions = {
           orgId: params.id,
           name: knowledgeMemorySlug,
           shortDescription: knowledgeMemoryName,
-          visibility,
+          visibility: memoryVisibility,
         });
         knowledgeMemoryId = knowledgeResult.createMemory.id;
         await client.request(UPDATE_MEMORY_MUTATION, {

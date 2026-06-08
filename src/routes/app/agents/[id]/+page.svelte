@@ -297,9 +297,11 @@
   }
 
   // Ordered most→least restrictive. Spec 034 added GROUP to memory visibility;
-  // agent.visibility is still one of PRIVATE/ORGANIZATION/PUBLIC.
-  const visibilityRank: Record<string, number> = { PRIVATE: 0, GROUP: 1, ORGANIZATION: 2, PUBLIC: 3 };
-  const visibilityLabel: Record<string, string> = { PRIVATE: 'Private', GROUP: 'Group', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
+  // spec 035: agent.visibility is one of PERSONAL/ORGANIZATION/PUBLIC (its own
+  // AgentVisibility enum). PERSONAL (agent, creator-only) and a null memory
+  // visibility (owner-only) are both the most restrictive, rank 0.
+  const visibilityRank: Record<string, number> = { PERSONAL: 0, GROUP: 1, ORGANIZATION: 2, PUBLIC: 3 };
+  const visibilityLabel: Record<string, string> = { PERSONAL: 'Personal', GROUP: 'Group', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
   // Spec 034: a memory's visibility is now nullable (null = owner-only
   // personal/private — the most restrictive) and may be GROUP. Route every
   // memory-visibility read through these so null/GROUP rank and label safely.
@@ -319,7 +321,7 @@
   const memoryIdsInAgent = $derived(new Set((agent.memoryItems ?? []).map((item) => item.memory.id)));
   const allMemories = $derived.by(() => {
     const seen = new Set<string>();
-    const result: Array<{ id: string; urn: string; name: string; visibility?: string; type?: string; orgName?: string }> = [];
+    const result: Array<{ id: string; urn: string; name: string; visibility?: string | null; class?: string; orgName?: string }> = [];
     for (const o of (data as any).allOrgs ?? [org]) {
       for (const m of o.memories ?? []) {
         if (!seen.has(m.id)) {
@@ -345,7 +347,7 @@
     }
     return result;
   });
-  const availableMemories = $derived(allMemories.filter((m) => !memoryIdsInAgent.has(m.id) && m.type !== 'AGENT_SYSTEM'));
+  const availableMemories = $derived(allMemories.filter((m) => !memoryIdsInAgent.has(m.id) && m.class !== 'system'));
 
   const selectedAddMemory = $derived(
     allMemories.find((m) => m.id === selectedAddMemoryId)
@@ -653,7 +655,7 @@
             <div>
               <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
               <select id="editVisibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="PRIVATE" selected={agent.visibility === 'PRIVATE'}>Private</option>
+                <option value="PERSONAL" selected={agent.visibility === 'PERSONAL'}>Personal</option>
                 <option value="ORGANIZATION" selected={agent.visibility === 'ORGANIZATION'}>Organization</option>
                 <option value="PUBLIC" selected={agent.visibility === 'PUBLIC'}>Public</option>
               </select>

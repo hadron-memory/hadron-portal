@@ -22,7 +22,6 @@ export interface Memory {
   // null for owner-only (personal/private) and the app/system classes. The old
   // PERSONAL/PRIVATE values are removed (privacy is now the class, not visibility).
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'GROUP' | null;
-  type?: 'KNOWLEDGE' | 'AGENT_SYSTEM';
   // Spec 005-agent-subscription introduced the four-way memory class
   // typology. Spec 013-soft-delete-memory reads `class` and `userId` to
   // gate the detail-page Danger-zone affordance: personal-class memories
@@ -71,7 +70,10 @@ export interface Agent {
   description: string | null;
   systemPrompt: string | null;
   systemMemoryId: string | null;
-  visibility: 'PUBLIC' | 'PRIVATE' | 'ORGANIZATION';
+  // Spec 035: Agent.visibility is its own AgentVisibility enum (decoupled from
+  // MemoryVisibility). PERSONAL = creator-only draft (named PERSONAL, not
+  // PRIVATE, so it never collides with the memory `private` class).
+  visibility: 'PUBLIC' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'ASSISTANT' | 'CHATBOT';
   surfaces?: string[];
   aiProvider?: string | null;
