@@ -14,7 +14,7 @@
   // user isn't a member of (org is then null). Only link the section crumb back
   // to that org's list when the user is a member; otherwise render it as text.
   const orgListHref = $derived(
-    data.org ? `/app/orgs/${data.org.id}/${data.graph.type === 'AGENT_SYSTEM' ? 'agents' : 'memories'}` : undefined,
+    data.org ? `/app/orgs/${data.org.id}/${data.graph.class === 'system' ? 'agents' : 'memories'}` : undefined,
   );
 
   // Determine which view is active
@@ -28,7 +28,7 @@
 <div class="space-y-4">
   <!-- Breadcrumb + Header (hidden on node detail pages which have their own) -->
   {#if !isNodeDetail}
-  {@const isAgentSystem = data.graph.type === 'AGENT_SYSTEM'}
+  {@const isAgentSystem = data.graph.class === 'system'}
   <div class="mb-4">
     <Breadcrumb items={[
       { label: isAgentSystem ? 'Agents' : 'Memories', href: orgListHref },
