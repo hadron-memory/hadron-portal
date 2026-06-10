@@ -11,6 +11,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ViewPicker from '$lib/components/table/ViewPicker.svelte';
+  import ColumnToggle from '$lib/components/table/ColumnToggle.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -48,7 +49,7 @@
   let globalFilter = $state('');
 
   const columns: ColumnDef<Session>[] = [
-    { accessorKey: 'startedAt', header: 'Started' },
+    { accessorKey: 'startedAt', header: 'Started', enableHiding: false }, // identity column
     { accessorKey: 'type', header: 'Type' },
     {
       accessorFn: (row) => row.summary ?? (row.repo ? `${row.repo}${row.branch ? ` (${row.branch})` : ''}` : '—'),
@@ -121,6 +122,7 @@
         <option value={size}>{size} per page</option>
       {/each}
     </select>
+    <ColumnToggle {table} />
     <ViewPicker {table} listKey="usage:sessions" />
   </div>
 

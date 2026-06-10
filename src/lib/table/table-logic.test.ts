@@ -169,3 +169,38 @@ describe('applyView resilience (spec 020 FR-013 / SC-005)', () => {
     expect(table.getRowModel().rows[0].original.name).toBe('Alice');
   });
 });
+
+describe('column visibility (ColumnToggle mechanism)', () => {
+  function visTable() {
+    let state = {} as TableState;
+    const cols: ColumnDef<Row>[] = [
+      { accessorKey: 'name', header: 'Name', enableHiding: false }, // identity column
+      { accessorKey: 'nodeType', header: 'Type' },
+    ];
+    const table = createTable<Row>({
+      data: DATA,
+      columns: cols,
+      state,
+      onStateChange: (u) => {
+        state = u instanceof Function ? u(state) : u;
+        table.setOptions((p) => ({ ...p, state }));
+      },
+      getCoreRowModel: getCoreRowModel(),
+      renderFallbackValue: null,
+    } as TableOptionsResolved<Row>);
+    state = table.initialState;
+    table.setOptions((p) => ({ ...p, state }));
+    return table;
+  }
+
+  it('protects the identity column (enableHiding:false) and hides toggled columns', () => {
+    const table = visTable();
+    expect(table.getColumn('name')!.getCanHide()).toBe(false);
+    expect(table.getColumn('nodeType')!.getCanHide()).toBe(true);
+
+    table.getColumn('nodeType')!.toggleVisibility(false);
+    expect(table.getVisibleLeafColumns().map((c) => c.id)).toEqual(['name']);
+    // and it's reflected in the rendered cells
+    expect(table.getRowModel().rows[0].getVisibleCells().map((c) => c.column.id)).toEqual(['name']);
+  });
+});

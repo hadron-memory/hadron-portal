@@ -14,6 +14,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
   import ViewPicker from './table/ViewPicker.svelte';
+  import ColumnToggle from './table/ColumnToggle.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
 
@@ -58,7 +59,7 @@
   let globalFilter = $state('');
 
   const columns: ColumnDef<MemoryNode>[] = [
-    { accessorKey: 'name', header: 'Node' },
+    { accessorKey: 'name', header: 'Node', enableHiding: false }, // identity column — always shown
     { accessorKey: 'nodeType', header: 'Type' },
     { accessorFn: (n) => n.description ?? '', id: 'description', header: 'Description' },
   ];
@@ -193,6 +194,9 @@
           <option value={size}>{size} per page</option>
         {/each}
       </select>
+    {/if}
+    {#if !orderable}
+      <ColumnToggle {table} />
     {/if}
     {#if !orderable && listKey}
       <ViewPicker {table} {listKey} />

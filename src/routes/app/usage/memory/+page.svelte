@@ -11,6 +11,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ViewPicker from '$lib/components/table/ViewPicker.svelte';
+  import ColumnToggle from '$lib/components/table/ColumnToggle.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -33,7 +34,7 @@
   // Columns hold raw, sortable accessor values; display formatting is applied
   // at render time via `fmt` (keyed by column id) so numeric/date sort is kept.
   const columns: ColumnDef<UsageEvent>[] = [
-    { accessorKey: 'createdAt', header: 'Time' },
+    { accessorKey: 'createdAt', header: 'Time', enableHiding: false }, // identity column
     { accessorKey: 'type', header: 'Type' },
     { accessorKey: 'nodeLoc', header: 'Node' },
     { accessorKey: 'model', header: 'Model' },
@@ -97,6 +98,7 @@
         <option value={size}>{size} per page</option>
       {/each}
     </select>
+    <ColumnToggle {table} />
     <ViewPicker {table} listKey="usage:memory" />
   </div>
 
