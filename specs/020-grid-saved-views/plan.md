@@ -61,15 +61,13 @@ No unresolved NEEDS CLARIFICATION — the three open decisions were resolved in 
 ### Verdict
 
 - [x] All applicable **design** items honored. No Complexity Tracking entries.
-- [ ] **UNRESOLVED process item — spec location.** The portal constitution's
-  Spec Workflow (`.specify/memory/constitution.md`, "Spec Workflow") states
-  portal specs live under `spec-kits/specs/NNN-name/` and that `hadron-portal`
-  MUST NOT host its own `specs/` directory; however, the repo's `.specify`
-  tooling created this spec in-repo at `specs/020-grid-saved-views/`. This is a
-  process/location conflict, not a design violation. **Next step**: decide with
-  reviewers whether to (a) relocate this spec to `spec-kits/specs/020-…` (and
-  drop the in-repo `specs/` dir), or (b) amend the portal constitution to permit
-  in-repo specs and reconcile the tooling. Resolve before `/speckit-finalize`.
+- [x] **Process item — spec location: RESOLVED.** The portal constitution's
+  Spec Workflow currently says portal specs live under `spec-kits/specs/NNN-name/`
+  and that `hadron-portal` MUST NOT host its own `specs/` directory. The
+  maintainer has confirmed the constitution is **incorrect** on this point and
+  will amend it to permit in-repo specs; this spec stays at
+  `specs/020-grid-saved-views/`. Constitution amendment tracked separately by the
+  maintainer.
 
 ## Test Plan *(per Principle I)*
 
