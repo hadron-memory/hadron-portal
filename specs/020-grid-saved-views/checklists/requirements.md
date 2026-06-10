@@ -35,6 +35,15 @@
 - Clarification session 2026-06-09 resolved three decisions: sticky last-selected
   view across reloads (FR-005/FR-005a), duplicate view names allowed (FR-015),
   and silent-discard of unsaved tweaks on view switch (FR-007).
+- **"No implementation details" scope (PR #279 review)**: the **normative**
+  sections (Functional Requirements, Success Criteria) are technology-agnostic —
+  SC-007 and FR-002 were reworded to drop storage/model specifics. The
+  **Background** and **Assumptions** sections do name the existing grid/store
+  subsystem this feature extends; that is intentional and template-permitted
+  (Background = context; Assumptions = dependencies on an existing system). The
+  three "no implementation details" items therefore remain checked on the basis
+  that the *requirements* are tech-agnostic, with this caveat recorded for
+  transparency.
 - v1 deliberately adds no backend (localStorage only); the Entity Impact section
   is omitted because the platform data model is untouched. A future
   server-backed step would introduce an entity and an Entities.md update then.

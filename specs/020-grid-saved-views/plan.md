@@ -60,11 +60,16 @@ No unresolved NEEDS CLARIFICATION — the three open decisions were resolved in 
 
 ### Verdict
 
-- [x] All applicable items honored. One process note (not a design violation): the
-  portal constitution's Spec Workflow says portal specs live under
-  `spec-kits/specs/`, but the repo's `.specify` tooling created this spec in-repo
-  at `specs/020-grid-saved-views/`. Proceeding as the tooling/flow dictate;
-  flagged for finalize-time reconciliation. No Complexity Tracking entries.
+- [x] All applicable **design** items honored. No Complexity Tracking entries.
+- [ ] **UNRESOLVED process item — spec location.** The portal constitution's
+  Spec Workflow (`.specify/memory/constitution.md`, "Spec Workflow") states
+  portal specs live under `spec-kits/specs/NNN-name/` and that `hadron-portal`
+  MUST NOT host its own `specs/` directory; however, the repo's `.specify`
+  tooling created this spec in-repo at `specs/020-grid-saved-views/`. This is a
+  process/location conflict, not a design violation. **Next step**: decide with
+  reviewers whether to (a) relocate this spec to `spec-kits/specs/020-…` (and
+  drop the in-repo `specs/` dir), or (b) amend the portal constitution to permit
+  in-repo specs and reconcile the tooling. Resolve before `/speckit-finalize`.
 
 ## Test Plan *(per Principle I)*
 
@@ -119,7 +124,7 @@ src/lib/table/
 ├── viewStore.ts                 # NEW: SavedViewRecord type + ViewStore interface + listKey helpers
 ├── localStorageViewStore.ts     # NEW: localStorage implementation of ViewStore (the v1 store)
 ├── viewController.svelte.ts     # NEW: runes controller — reactive {views, activeId, isModified} + actions
-├── savedView.test.ts            # EXTEND (table-logic.test.ts currently covers savedView; add globalFilter + applyView)
+├── table-logic.test.ts          # EXTEND: current saved-view tests live here; add globalFilter + applyView coverage
 ├── viewStore.test.ts            # NEW
 └── viewController.test.ts       # NEW
 

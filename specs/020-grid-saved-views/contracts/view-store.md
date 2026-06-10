@@ -26,7 +26,9 @@ export interface ViewStore {
   list(listKey: string): Promise<SavedViewRecord[]>;
   get(listKey: string, id: string): Promise<SavedViewRecord | null>;
   create(listKey: string, name: string, view: SavedView): Promise<SavedViewRecord>;
-  update(listKey: string, id: string, patch: Partial<Pick<SavedViewRecord, 'name' | 'view' | 'isDefault'>>): Promise<SavedViewRecord>;
+  // `isDefault` is intentionally NOT patchable here — use setDefault (it owns
+  // the one-default invariant). update() only touches name/view.
+  update(listKey: string, id: string, patch: Partial<Pick<SavedViewRecord, 'name' | 'view'>>): Promise<SavedViewRecord>;
   remove(listKey: string, id: string): Promise<void>;
 
   getDefault(listKey: string): Promise<SavedViewRecord | null>;
@@ -40,8 +42,8 @@ export interface ViewStore {
 **Behavioral contract**
 - `setDefault` MUST clear `isDefault` on all other records for the `listKey`
   (one-default invariant).
-- `create` MUST trim the name, reject empty (throw a typed error), cap length,
-  and allow duplicate names.
+- `create` MUST trim the name, reject empty (throw a typed error), cap length
+  (max 100 characters), and allow duplicate names.
 - All methods MUST NOT throw on unavailable storage for *reads* (return empty/
   null); *writes* MAY surface a typed `ViewStorageError` the UI shows
   non-blockingly.
@@ -81,8 +83,9 @@ export function createViewController(args: {
 default view → else leave the list's built-in arrangement untouched. `init` runs
 client-side (onMount), never during SSR/init.
 
-**`isModified` contract**: `serializeView(extractView(table.getState())) !==
-serializeView(activeView.view)`; `false` when there is no active view.
+**`isModified` contract**: `activeView ? serializeView(extractView(table.getState()))
+!== serializeView(activeView.view) : false` — guarded so it is `false` when there
+is no active view (no `activeView.view` dereference).
 
 ## `ViewPicker.svelte` — UI (`src/lib/components/table/ViewPicker.svelte`)
 

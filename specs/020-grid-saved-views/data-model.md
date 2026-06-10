@@ -31,7 +31,7 @@ A named, persisted wrapper around a `SavedView`.
 |---|---|---|
 | `id` | `string` | `crypto.randomUUID()`; stable identity (names may duplicate) |
 | `listKey` | `string` | which list this view belongs to (see List Key Scheme) |
-| `name` | `string` | user label; non-empty, trimmed, length-capped; duplicates allowed |
+| `name` | `string` | user label; non-empty, trimmed, max 100 chars; duplicates allowed |
 | `view` | `SavedView` | the captured arrangement |
 | `isDefault` | `boolean` | at most one `true` per `listKey` |
 | `createdAt` | `string` | ISO timestamp |

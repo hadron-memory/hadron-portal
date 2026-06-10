@@ -74,8 +74,9 @@ arrangement.
 **Acceptance Scenarios**:
 
 1. **Given** a list with a custom sort, search term, hidden column, and page
-   size, **When** the user saves it as a named view and marks it default,
-   **Then** reloading the page reopens the list in exactly that arrangement.
+   size, **When** the user saves it as a named view, **Then** that view becomes
+   the active view and reloading the page reopens the list in exactly that
+   arrangement.
 2. **Given** a saved view, **When** the user changes the live arrangement
    without saving and reloads, **Then** the list reopens in the saved view's
    arrangement (unsaved changes are discarded), not the last live state.
@@ -103,11 +104,11 @@ chosen default is the one applied on a fresh load.
 2. **Given** one view is marked default and the user has never selected a view
    on this list, **When** the user opens the list fresh, **Then** the default
    view is applied.
+3. **Given** the user marks a different view as default, **When** they reload,
+   **Then** the newly chosen default is applied and only one view is default.
 4. **Given** the user previously selected a non-default view, **When** they
    reload or return to the list later, **Then** the last-selected (active) view
    is reapplied rather than the default (sticky active view).
-3. **Given** the user marks a different view as default, **When** they reload,
-   **Then** the newly chosen default is applied and only one view is default.
 
 ---
 
@@ -198,8 +199,9 @@ longer applies.
   that embed an entity id (e.g. a memory) scope views to that entity.
 - **FR-002 (Captured state)**: A view MUST capture the full user-controllable
   arrangement: sort, per-column filters, **global search term**, column
-  visibility, column order, and page size. (This extends the current SavedView
-  model, which omits the global search term.)
+  visibility, column order, and page size. (Today's per-list arrangement state
+  does not persist the global search term; the captured-state model must be
+  extended to include it.)
 - **FR-003 (Save as named view)**: Users MUST be able to save the current
   arrangement as a new named view for the current list.
 - **FR-004 (List & switch)**: Users MUST be able to see all views for the
@@ -245,7 +247,7 @@ longer applies.
   lists migrated onto the grid in the future) without per-list code beyond
   supplying the key.
 - **FR-015 (Naming rules)**: View names MUST be non-empty and trimmed and capped
-  at a readable length so the picker stays usable. Duplicate names within a list
+  at **100 characters** so the picker stays usable. Duplicate names within a list
   key ARE allowed — views are identified by a stable id, not by name.
 - **FR-016 (Scope/privacy)**: In v1, views are scoped to the local browser
   profile and are not shared or synced across devices or users; the model MUST
@@ -280,9 +282,9 @@ longer applies.
 - **SC-006**: When the live arrangement differs from the active view, the
   "modified" state is shown in **100%** of divergence cases and clears after
   Save or Reset.
-- **SC-007**: Replacing the localStorage store with an alternative
-  implementation requires **no changes** to any list UI or the picker component
-  (verified by the store being the only persistence dependency).
+- **SC-007**: Replacing the underlying storage mechanism with an alternative
+  requires **no changes** to any list or the view-picker — the persistence layer
+  is the only part that changes.
 
 ## Assumptions
 
