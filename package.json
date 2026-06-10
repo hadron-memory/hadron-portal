@@ -32,6 +32,7 @@
     "@ai-sdk/svelte": "^4.0.140",
     "@ai-sdk/xai": "^3.0.74",
     "@tailwindcss/typography": "^0.5.19",
+    "@tanstack/table-core": "^8.21.3",
     "ai": "^6.0.140",
     "bits-ui": "^1.0.0",
     "clsx": "^2.0.0",
