@@ -119,12 +119,6 @@
   <div class="flex items-center gap-4">
     <input type="text" placeholder="Search sessions..." bind:value={globalFilter}
       class="max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-    <select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
-      class="rounded-lg border border-zinc-300 bg-white px-2 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-      {#each [10, 20, 50, 100] as size}
-        <option value={size}>{size} per page</option>
-      {/each}
-    </select>
     <ColumnToggle {table} />
     <ViewPicker {table} listKey="usage:sessions" />
   </div>
@@ -142,7 +136,7 @@
             <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               {#each headerGroup.headers as header (header.id)}
                 <th
-                  class="sticky top-0 z-10 cursor-pointer select-none border-b border-zinc-200 bg-zinc-50 px-4 py-2.5 hover:text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:text-zinc-200"
+                  class="sticky top-0 z-10 cursor-pointer select-none border-b border-r border-zinc-200 bg-zinc-50 px-4 py-2.5 hover:text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:text-zinc-200"
                   style="width: {header.getSize()}px;"
                   onclick={header.column.getToggleSortingHandler()}
                 >
@@ -168,7 +162,7 @@
             <tr class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900">
               {#each row.getVisibleCells() as cell (cell.id)}
                 {@const f = fmt[cell.column.id]}
-                <td class="px-4 py-2.5 text-zinc-600 dark:text-zinc-400">
+                <td class="border-r border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
                   <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
                 </td>
               {/each}
@@ -178,17 +172,24 @@
       </table>
     </div>
 
-    <!-- Pagination -->
-    {#if pageCount > 1}
-      <div class="flex items-center justify-between">
-        <span class="text-sm text-zinc-500">Page {pageIndex + 1} of {pageCount}</span>
-        <div class="flex gap-2">
+    <!-- Footer: page size (left of Prev/Next) + pagination; always visible -->
+    <div class="flex items-center justify-between gap-3">
+      <span class="text-sm text-zinc-500">{pageCount > 1 ? `Page ${pageIndex + 1} of ${pageCount}` : ''}</span>
+      <div class="flex items-center gap-2">
+        <select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
+          aria-label="Rows per page"
+          class="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+          {#each [10, 20, 50, 100] as size}
+            <option value={size}>{size} per page</option>
+          {/each}
+        </select>
+        {#if pageCount > 1}
           <button disabled={!table.getCanPreviousPage()} onclick={() => table.previousPage()}
             class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Previous</button>
           <button disabled={!table.getCanNextPage()} onclick={() => table.nextPage()}
             class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Next</button>
-        </div>
+        {/if}
       </div>
-    {/if}
+    </div>
   {/if}
 </div>
