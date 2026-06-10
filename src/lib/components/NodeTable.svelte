@@ -111,7 +111,7 @@
                     </div>
                     <div class="mt-0.5"><Urn value={n.urn} type="node" size={8} /></div>
                   </td>
-                {:else}
+                {:else if cell.column.id === 'description'}
                   <td class="max-w-xs truncate px-4 py-2.5 text-xs text-zinc-500">{n.description ?? '—'}</td>
                 {/if}
               {/each}

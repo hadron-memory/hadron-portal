@@ -105,7 +105,7 @@
                     </div>
                     <div class="mt-0.5"><Urn value={agent.urn} type="agent" size={8} /></div>
                   </td>
-                {:else}
+                {:else if cell.column.id === 'description'}
                   <td class="max-w-xs truncate px-4 py-2.5 text-xs text-zinc-500">{agent.description ?? '—'}</td>
                 {/if}
               {/each}

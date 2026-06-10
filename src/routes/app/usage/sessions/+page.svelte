@@ -21,13 +21,18 @@
     return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
-  function duration(start: string | null, end: string | null): string {
-    if (!start || !end) return '—';
-    const s = new Date(start);
-    const e = new Date(end);
-    if (isNaN(s.getTime()) || isNaN(e.getTime())) return '—';
-    const ms = e.getTime() - s.getTime();
-    if (ms < 0) return '—';
+  // Raw elapsed milliseconds (or null) so the Duration column sorts numerically;
+  // formatting happens in `fmt.duration` at render time.
+  function durationMs(start: string | null, end: string | null): number | null {
+    if (!start || !end) return null;
+    const s = new Date(start).getTime();
+    const e = new Date(end).getTime();
+    if (isNaN(s) || isNaN(e) || e - s < 0) return null;
+    return e - s;
+  }
+
+  function formatDuration(ms: number | null): string {
+    if (ms == null) return '—';
     if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
     if (ms < 3600_000) return `${Math.round(ms / 60_000)}m`;
     return `${(ms / 3600_000).toFixed(1)}h`;
@@ -50,7 +55,7 @@
       header: 'Summary',
     },
     { accessorKey: 'llmModel', header: 'Model' },
-    { accessorFn: (row) => duration(row.startedAt, row.endedAt), id: 'duration', header: 'Duration' },
+    { accessorFn: (row) => durationMs(row.startedAt, row.endedAt), id: 'duration', header: 'Duration' },
     { accessorKey: 'turnCount', header: 'Turns' },
     { accessorFn: (row) => (row.inputTokens ?? 0) + (row.outputTokens ?? 0), id: 'tokens', header: 'Tokens' },
     { accessorKey: 'errorCount', header: 'Errors' },
@@ -59,6 +64,7 @@
   const fmt: Record<string, (v: unknown) => string> = {
     startedAt: (v) => formatDate(v as string | null),
     llmModel: (v) => (v as string | null) ?? '—',
+    duration: (v) => formatDuration(v as number | null),
     turnCount: (v) => (v == null ? '—' : String(v)),
     tokens: (v) => ((v as number) > 0 ? (v as number).toLocaleString() : '—'),
     errorCount: (v) => (v == null ? '—' : String(v)),
