@@ -9,7 +9,8 @@ import {
   type TableOptionsResolved,
   type ColumnDef,
 } from '@tanstack/table-core';
-import { extractView, serializeView, deserializeView } from './savedView';
+import { extractView, applyView, serializeView, deserializeView } from './savedView';
+import type { SavedView } from './savedView';
 
 // The bake-off's testability claim: with TanStack the table BEHAVIOR
 // (sort/filter/paginate) and the saved-view (de)serialization are plain logic
@@ -119,5 +120,52 @@ describe('saved-view serialization', () => {
     expect(v!.sorting).toEqual([]);
     expect(v!.columnVisibility).toEqual({});
     expect(v!.pagination).toEqual({ pageIndex: 0, pageSize: 25 });
+  });
+
+  it('round-trips the global search term (spec 020 FR-002)', () => {
+    const view: SavedView = {
+      sorting: [],
+      columnFilters: [],
+      globalFilter: 'hello world',
+      columnVisibility: {},
+      columnOrder: [],
+      pagination: { pageIndex: 0, pageSize: 25 },
+    };
+    expect(deserializeView(serializeView(view))!.globalFilter).toBe('hello world');
+    // missing globalFilter defaults to ''
+    expect(deserializeView('{}')!.globalFilter).toBe('');
+  });
+
+  it('extractView reads the global filter off table state', () => {
+    const state = { globalFilter: 'q' } as unknown as TableState;
+    expect(extractView({ ...state, sorting: [], columnFilters: [], columnVisibility: {}, columnOrder: [], pagination: { pageIndex: 0, pageSize: 10 } } as TableState).globalFilter).toBe('q');
+  });
+});
+
+describe('applyView resilience (spec 020 FR-013 / SC-005)', () => {
+  const view = (over: Partial<SavedView>): SavedView => ({
+    sorting: [],
+    columnFilters: [],
+    globalFilter: '',
+    columnVisibility: {},
+    columnOrder: [],
+    pagination: { pageIndex: 0, pageSize: 25 },
+    ...over,
+  });
+
+  it('ignores unknown column/sort ids without throwing, applies the rest', () => {
+    const table = makeTable();
+    expect(() =>
+      applyView(table, view({ sorting: [{ id: 'ghost', desc: false }], columnVisibility: { ghost: false }, pagination: { pageIndex: 0, pageSize: 5 } })),
+    ).not.toThrow();
+    // a valid slice (pagination) still applied; the list did not break
+    expect(table.getState().pagination.pageSize).toBe(5);
+    expect(table.getRowModel().rows.length).toBeGreaterThan(0);
+  });
+
+  it('applies a known sort', () => {
+    const table = makeTable();
+    applyView(table, view({ sorting: [{ id: 'name', desc: false }] }));
+    expect(table.getRowModel().rows[0].original.name).toBe('Alice');
   });
 });

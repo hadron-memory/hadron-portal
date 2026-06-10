@@ -10,6 +10,7 @@
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import ViewPicker from '$lib/components/table/ViewPicker.svelte';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -96,6 +97,7 @@
         <option value={size}>{size} per page</option>
       {/each}
     </select>
+    <ViewPicker {table} listKey="usage:memory" />
   </div>
 
   {#if data.events.length === 0}
