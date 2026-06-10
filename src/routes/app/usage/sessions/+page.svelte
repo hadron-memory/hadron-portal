@@ -178,7 +178,7 @@
       <div class="flex items-center gap-2">
         <select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
           aria-label="Rows per page"
-          class="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+          class="rounded-lg border border-zinc-300 !bg-zinc-100 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:!bg-zinc-800 dark:text-white">
           {#each [10, 20, 50, 100] as size}
             <option value={size}>{size} per page</option>
           {/each}

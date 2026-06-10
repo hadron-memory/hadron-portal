@@ -43,7 +43,7 @@
 
 {#if columns.length > 0}
   <details bind:this={detailsEl} bind:open class="relative">
-    <summary class="cursor-pointer list-none rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+    <summary class="cursor-pointer list-none rounded-md border border-zinc-300 bg-zinc-100 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700">
       {t('table.columns', 'Columns')} ▾
     </summary>
     <div class="absolute right-0 z-20 mt-1 w-44 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
