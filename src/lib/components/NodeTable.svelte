@@ -9,6 +9,7 @@
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
+  import ViewPicker from './table/ViewPicker.svelte';
 
   // Lightweight row shape. Same fields as MemoryNode, but nothing is required
   // to be loaded eagerly — callers pick what they pass in.
@@ -27,12 +28,15 @@
     onselect,
     searchPlaceholder = 'Search…',
     emptyLabel = 'No entries.',
+    listKey,
   }: {
     nodes: NodeRow[];
     /** Called when a row is clicked. If not provided, rows are not clickable. */
     onselect?: (node: NodeRow) => void;
     searchPlaceholder?: string;
     emptyLabel?: string;
+    /** When set, renders the saved-views picker. */
+    listKey?: string;
   } = $props();
 
   let globalFilter = $state('');
@@ -69,8 +73,11 @@
 
 <div class="space-y-3">
   {#if nodes.length > 0}
-    <input type="text" placeholder={searchPlaceholder} bind:value={globalFilter}
-      class="max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+    <div class="flex flex-wrap items-center gap-3">
+      <input type="text" placeholder={searchPlaceholder} bind:value={globalFilter}
+        class="max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+      {#if listKey}<ViewPicker {table} {listKey} />{/if}
+    </div>
   {/if}
 
   {#if nodes.length === 0}

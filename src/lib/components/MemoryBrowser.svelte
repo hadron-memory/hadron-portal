@@ -32,6 +32,13 @@
 
   const writableSet = $derived(new Set(writableMemoryIds));
 
+  // Saved-views key for the flat node list (spec 020), scoped to the single
+  // memory being browsed. Only set when viewing one memory's detail (basePath
+  // is `/app/memories/<id>`); absent on the multi-memory global browse page.
+  const nodeListKey = $derived(
+    basePath && !multiMemory ? `memory:${basePath.split('/').pop()}:nodes` : undefined,
+  );
+
   // ── Sub-view ──────────────────────────────────────────────────────────
   // Persist the graph/nodes view choice in localStorage so that when the
   // user navigates to a node detail page and hits Back, they land on the
@@ -474,7 +481,7 @@
           </div>
         {:else}
           <div class="p-4">
-            <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} />
+            <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} />
           </div>
         {/if}
       </div>

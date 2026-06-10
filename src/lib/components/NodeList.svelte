@@ -13,6 +13,7 @@
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
+  import ViewPicker from './table/ViewPicker.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
 
@@ -22,12 +23,15 @@
     memoryUrn = '',
     orderable = false,
     onreorder,
+    listKey,
   }: {
     nodes: MemoryNode[];
     basePath?: string;
     memoryUrn?: string;
     orderable?: boolean;
     onreorder?: (orderedLocs: string[]) => void;
+    /** When set (and not orderable), renders the saved-views picker. */
+    listKey?: string;
   } = $props();
 
   function nodeHref(node: MemoryNode): string {
@@ -87,6 +91,10 @@
   });
 
   onMount(() => {
+    // Seed the legacy standalone page-size. When saved views are enabled, the
+    // ViewPicker's init() is async (awaits storage), so it resumes AFTER this
+    // synchronous seed and overrides the page size from the active view if one
+    // exists — and leaves this seed in place when no view is active (spec D7).
     try {
       const v = Number(window.localStorage.getItem(PAGE_SIZE_KEY));
       if (PAGE_SIZES.includes(v)) table.setPageSize(v);
@@ -185,6 +193,9 @@
           <option value={size}>{size} per page</option>
         {/each}
       </select>
+    {/if}
+    {#if !orderable && listKey}
+      <ViewPicker {table} {listKey} />
     {/if}
   </div>
 
