@@ -6,7 +6,7 @@
   import type { Table } from '@tanstack/table-core';
   import { createViewController } from '$lib/table/viewController.svelte';
   import { localStorageViewStore } from '$lib/table/localStorageViewStore';
-  import type { ViewStore } from '$lib/table/viewStore';
+  import { type ViewStore, ViewStorageError } from '$lib/table/viewStore';
   import { savedViewsStrings as s } from '$lib/i18n/saved-views-strings';
 
   let {
@@ -17,22 +17,34 @@
 
   const ctrl = createViewController({ table, listKey, store });
 
+  // Surface storage write failures (disabled/full) non-blockingly rather than
+  // letting the async controller actions reject unhandled (spec edge case).
+  let error = $state<string | null>(null);
+  async function run(action: Promise<unknown>) {
+    try {
+      await action;
+      error = null;
+    } catch (e) {
+      error = e instanceof ViewStorageError ? e.message : 'Could not update views.';
+    }
+  }
+
   onMount(() => {
-    ctrl.init();
+    run(ctrl.init());
   });
 
   function promptSaveAs() {
     const name = window.prompt(s.namePrompt());
-    if (name && name.trim()) ctrl.saveAs(name);
+    if (name && name.trim()) run(ctrl.saveAs(name));
   }
 
   function promptRename(id: string, current: string) {
     const name = window.prompt(s.renamePrompt(), current);
-    if (name && name.trim()) ctrl.rename(id, name);
+    if (name && name.trim()) run(ctrl.rename(id, name));
   }
 
   function confirmRemove(id: string, name: string) {
-    if (window.confirm(s.confirmDelete(name))) ctrl.remove(id);
+    if (window.confirm(s.confirmDelete(name))) run(ctrl.remove(id));
   }
 
   const btn =
@@ -49,7 +61,7 @@
         value={ctrl.activeId ?? ''}
         onchange={(e) => {
           const v = (e.target as HTMLSelectElement).value;
-          if (v) ctrl.select(v);
+          if (v) run(ctrl.select(v));
         }}
         class="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
       >
@@ -66,13 +78,17 @@
       <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">{s.modifiedBadge()}</span>
     {/if}
 
-    <button type="button" class={btn} disabled={!ctrl.activeView || !ctrl.isModified} onclick={() => ctrl.save()}>{s.save()}</button>
+    <button type="button" class={btn} disabled={!ctrl.activeView || !ctrl.isModified} onclick={() => run(ctrl.save())}>{s.save()}</button>
     <button type="button" class={btn} disabled={!ctrl.isModified} onclick={() => ctrl.reset()}>{s.reset()}</button>
     <button type="button" class={btn} onclick={promptSaveAs}>{s.saveAs()}</button>
     {#if ctrl.activeView}
-      <button type="button" class={btn} disabled={ctrl.activeView.isDefault} onclick={() => ctrl.activeView && ctrl.setDefault(ctrl.activeView.id)}>{s.setDefault()}</button>
+      <button type="button" class={btn} disabled={ctrl.activeView.isDefault} onclick={() => ctrl.activeView && run(ctrl.setDefault(ctrl.activeView.id))}>{s.setDefault()}</button>
       <button type="button" class={btn} onclick={() => ctrl.activeView && promptRename(ctrl.activeView.id, ctrl.activeView.name)}>{s.rename()}</button>
       <button type="button" class={btn} onclick={() => ctrl.activeView && confirmRemove(ctrl.activeView.id, ctrl.activeView.name)}>{s.remove()}</button>
     {/if}
+  {/if}
+
+  {#if error}
+    <span class="text-xs text-red-600 dark:text-red-400">{error}</span>
   {/if}
 </div>

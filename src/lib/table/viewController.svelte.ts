@@ -5,6 +5,7 @@ import type { Table, RowData } from '@tanstack/table-core';
 import { extractView, applyView, serializeView } from './savedView';
 import { type ViewStore, type SavedViewRecord, resolveInitialView } from './viewStore';
 import { localStorageViewStore } from './localStorageViewStore';
+import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve } from './viewActions';
 
 export interface ViewController {
   readonly views: SavedViewRecord[];
@@ -56,23 +57,19 @@ export function createViewController<T extends RowData>(args: {
   async function select(id: string) {
     const v = views.find((x) => x.id === id);
     if (!v) return;
-    applyView(table, v.view); // discards any unsaved tweaks (FR-007)
+    await applyAndActivate(store, table, listKey, v); // discards unsaved tweaks (FR-007)
     activeId = id;
-    await store.setActiveId(listKey, id);
   }
 
   async function saveAs(name: string) {
-    const isFirst = views.length === 0;
-    const record = await store.create(listKey, name, extractView(table.getState()));
-    if (isFirst) await store.setDefault(listKey, record.id); // first view → default
-    await store.setActiveId(listKey, record.id);
+    const record = await createViewFrom(store, table, listKey, name, views.length === 0);
     await refresh();
     activeId = record.id;
   }
 
   async function save() {
     if (!activeView) return;
-    await store.update(listKey, activeView.id, { view: extractView(table.getState()) });
+    await overwriteView(store, table, listKey, activeView.id);
     await refresh();
   }
 
@@ -86,21 +83,9 @@ export function createViewController<T extends RowData>(args: {
   }
 
   async function remove(id: string) {
-    const wasActive = activeId === id;
-    await store.remove(listKey, id);
-    await refresh();
-    if (wasActive) {
-      // Re-resolve: default → built-in (leave the table as-is if no default).
-      const def = views.find((v) => v.isDefault) ?? null;
-      if (def) {
-        applyView(table, def.view);
-        activeId = def.id;
-        await store.setActiveId(listKey, def.id);
-      } else {
-        activeId = null;
-        await store.setActiveId(listKey, null);
-      }
-    }
+    const result = await removeAndResolve(store, table, listKey, id, activeId === id, activeId);
+    views = result.views;
+    activeId = result.activeId;
   }
 
   async function setDefault(id: string) {

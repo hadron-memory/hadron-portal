@@ -91,10 +91,10 @@
   });
 
   onMount(() => {
-    // When saved views are enabled (listKey set), the active view owns page size
-    // (spec 020 D7) — skip the legacy standalone page-size load so it doesn't
-    // race with / override the view applied by the ViewPicker.
-    if (listKey) return;
+    // Seed the legacy standalone page-size. When saved views are enabled, the
+    // ViewPicker's init() is async (awaits storage), so it resumes AFTER this
+    // synchronous seed and overrides the page size from the active view if one
+    // exists — and leaves this seed in place when no view is active (spec D7).
     try {
       const v = Number(window.localStorage.getItem(PAGE_SIZE_KEY));
       if (PAGE_SIZES.includes(v)) table.setPageSize(v);

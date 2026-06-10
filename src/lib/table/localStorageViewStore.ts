@@ -114,10 +114,12 @@ export class LocalStorageViewStore implements ViewStore {
   }
 
   async setDefault(listKey: string, id: string | null): Promise<void> {
-    const records = this.readRecords(listKey).map((r) => ({
-      ...r,
-      isDefault: id != null && r.id === id,
-    }));
+    const ts = nowIso();
+    const records = this.readRecords(listKey).map((r) => {
+      const isDefault = id != null && r.id === id;
+      // Bump updatedAt only for records whose default flag actually changed.
+      return isDefault === r.isDefault ? r : { ...r, isDefault, updatedAt: ts };
+    });
     this.writeRecords(listKey, records);
   }
 
