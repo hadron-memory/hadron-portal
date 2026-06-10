@@ -12,14 +12,37 @@
   // enableHiding:false in the list's column defs).
   const columns = $derived(table.getAllLeafColumns().filter((c) => c.getCanHide()));
 
+  let open = $state(false);
+  let detailsEl = $state<HTMLDetailsElement>();
+
   function label(c: Column<any>): string {
     const h = c.columnDef.header;
     return typeof h === 'string' ? h : c.id;
   }
+
+  // Close the dropdown on outside-click or Escape (native <details> stays open
+  // otherwise). Listeners are only attached while open.
+  $effect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (detailsEl && !detailsEl.contains(e.target as Node)) open = false;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') open = false;
+    };
+    // Defer the click listener a tick so the opening click doesn't close it.
+    const timer = setTimeout(() => document.addEventListener('click', onClick), 0);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('click', onClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  });
 </script>
 
 {#if columns.length > 0}
-  <details class="relative">
+  <details bind:this={detailsEl} bind:open class="relative">
     <summary class="cursor-pointer list-none rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
       {t('table.columns', 'Columns')} ▾
     </summary>

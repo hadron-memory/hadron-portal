@@ -34,7 +34,7 @@
   // Columns hold raw, sortable accessor values; display formatting is applied
   // at render time via `fmt` (keyed by column id) so numeric/date sort is kept.
   const columns: ColumnDef<UsageEvent>[] = [
-    { accessorKey: 'createdAt', header: 'Time' },
+    { accessorKey: 'createdAt', header: 'Time', enableHiding: false }, // identity column
     { accessorKey: 'type', header: 'Type' },
     { accessorKey: 'nodeLoc', header: 'Node' },
     { accessorKey: 'model', header: 'Model' },

@@ -49,7 +49,7 @@
   let globalFilter = $state('');
 
   const columns: ColumnDef<Session>[] = [
-    { accessorKey: 'startedAt', header: 'Started' },
+    { accessorKey: 'startedAt', header: 'Started', enableHiding: false }, // identity column
     { accessorKey: 'type', header: 'Type' },
     {
       accessorFn: (row) => row.summary ?? (row.repo ? `${row.repo}${row.branch ? ` (${row.branch})` : ''}` : '—'),
