@@ -41,17 +41,32 @@ export function viewToInitialState(view: SavedView | null | undefined): Partial<
 
 export const serializeView = (view: SavedView): string => JSON.stringify(view);
 
+const isObject = (x: unknown): x is Record<string, unknown> =>
+  typeof x === 'object' && x !== null && !Array.isArray(x);
+
+function validPagination(p: unknown): PaginationState {
+  if (isObject(p) && typeof p.pageIndex === 'number' && typeof p.pageSize === 'number') {
+    return { pageIndex: p.pageIndex, pageSize: p.pageSize };
+  }
+  return { pageIndex: 0, pageSize: 25 };
+}
+
+// Input may come from persisted storage or hand edits, so validate each slice's
+// shape (array vs object, numeric pagination) and fall back to defaults rather
+// than trust the JSON — a malformed slice would otherwise crash table consumers.
 export function deserializeView(json: string): SavedView | null {
+  let v: unknown;
   try {
-    const v = JSON.parse(json) as Partial<SavedView>;
-    return {
-      sorting: v.sorting ?? [],
-      columnFilters: v.columnFilters ?? [],
-      columnVisibility: v.columnVisibility ?? {},
-      columnOrder: v.columnOrder ?? [],
-      pagination: v.pagination ?? { pageIndex: 0, pageSize: 25 },
-    };
+    v = JSON.parse(json);
   } catch {
     return null;
   }
+  if (!isObject(v)) return null;
+  return {
+    sorting: Array.isArray(v.sorting) ? (v.sorting as SortingState) : [],
+    columnFilters: Array.isArray(v.columnFilters) ? (v.columnFilters as ColumnFiltersState) : [],
+    columnVisibility: isObject(v.columnVisibility) ? (v.columnVisibility as VisibilityState) : {},
+    columnOrder: Array.isArray(v.columnOrder) ? (v.columnOrder as ColumnOrderState) : [],
+    pagination: validPagination(v.pagination),
+  };
 }

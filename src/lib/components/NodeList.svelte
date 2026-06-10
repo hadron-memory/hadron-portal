@@ -65,6 +65,9 @@
     },
     columns,
     enableMultiSort: false,
+    // In the orderable (children) list, manual drag order is the source of
+    // truth — sorting would fight it, so it's disabled there (PR #277 review).
+    enableSorting: !orderable,
     state: {
       get globalFilter() {
         return globalFilter;
@@ -144,7 +147,11 @@
     }
     const ordered = [...nodes];
     const [moved] = ordered.splice(from, 1);
-    ordered.splice(to, 0, moved);
+    // The drop row is highlighted with a top border (insert *before* it). After
+    // removing `from`, everything past it shifts left by one, so a downward move
+    // must insert at `to - 1` to land above the drop target (PR #277 review).
+    const insertAt = from < to ? to - 1 : to;
+    ordered.splice(insertAt, 0, moved);
     onreorder(ordered.map((n) => n.loc));
     resetDrag();
   }
@@ -192,14 +199,16 @@
               {#if orderable}<th class="w-8 px-2 py-2.5"></th>{/if}
               {#each headerGroup.headers as header (header.id)}
                 <th
-                  class="cursor-pointer select-none px-4 py-2.5 hover:text-zinc-700 dark:hover:text-zinc-200"
-                  onclick={header.column.getToggleSortingHandler()}
+                  class="select-none px-4 py-2.5 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''}"
+                  onclick={header.column.getCanSort() ? header.column.getToggleSortingHandler() : undefined}
                 >
                   <div class="flex items-center gap-1">
                     {header.column.columnDef.header}
-                    <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>
-                      {sortIndicator(header.column.getIsSorted())}
-                    </span>
+                    {#if header.column.getCanSort()}
+                      <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>
+                        {sortIndicator(header.column.getIsSorted())}
+                      </span>
+                    {/if}
                   </div>
                 </th>
               {/each}

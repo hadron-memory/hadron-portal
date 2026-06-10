@@ -106,4 +106,18 @@ describe('saved-view serialization', () => {
   it('deserialize tolerates garbage', () => {
     expect(deserializeView('not json{')).toBeNull();
   });
+
+  it('deserialize rejects non-object JSON (null, array, primitive)', () => {
+    expect(deserializeView('null')).toBeNull();
+    expect(deserializeView('[]')).toBeNull();
+    expect(deserializeView('42')).toBeNull();
+  });
+
+  it('deserialize falls back to defaults for malformed slices', () => {
+    const v = deserializeView('{"sorting":"oops","pagination":"nope","columnVisibility":[]}');
+    expect(v).not.toBeNull();
+    expect(v!.sorting).toEqual([]);
+    expect(v!.columnVisibility).toEqual({});
+    expect(v!.pagination).toEqual({ pageIndex: 0, pageSize: 25 });
+  });
 });
