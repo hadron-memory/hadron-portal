@@ -51,6 +51,9 @@ export function createSvelteTable<TData extends RowData>(options: TableOptions<T
   }
 
   updateOptions();
+  // `$effect.pre` (NOT deprecated — it's the documented "run before DOM update"
+  // rune) so options flush before the template reads the row model, avoiding a
+  // stale first paint when reactive options change.
   $effect.pre(() => {
     updateOptions();
   });
