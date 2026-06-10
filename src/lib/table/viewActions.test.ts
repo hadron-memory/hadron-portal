@@ -26,6 +26,7 @@ function tableStub() {
     globalFilter: '',
     columnVisibility: {},
     columnOrder: [],
+    columnSizing: {},
     pagination: { pageIndex: 0, pageSize: 25 },
   };
   const calls: string[] = [];
@@ -39,6 +40,7 @@ function tableStub() {
     setGlobalFilter: push('setGlobalFilter'),
     setColumnVisibility: push('setColumnVisibility'),
     setColumnOrder: push('setColumnOrder'),
+    setColumnSizing: push('setColumnSizing'),
     setPagination: push('setPagination'),
     reset: push('reset'),
   } as unknown as Table<unknown> & { __state: typeof state; calls: string[] };

@@ -24,6 +24,7 @@ const view = (): SavedView => ({
   globalFilter: '',
   columnVisibility: {},
   columnOrder: [],
+  columnSizing: {},
   pagination: { pageIndex: 0, pageSize: 25 },
 });
 

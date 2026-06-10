@@ -11,6 +11,7 @@ import type {
   ColumnFiltersState,
   VisibilityState,
   ColumnOrderState,
+  ColumnSizingState,
   PaginationState,
   Table,
   RowData,
@@ -23,6 +24,7 @@ export interface SavedView {
   globalFilter: string;
   columnVisibility: VisibilityState;
   columnOrder: ColumnOrderState;
+  columnSizing: ColumnSizingState;
   pagination: PaginationState;
 }
 
@@ -34,6 +36,7 @@ export function extractView(state: TableState): SavedView {
     globalFilter: typeof state.globalFilter === 'string' ? state.globalFilter : '',
     columnVisibility: state.columnVisibility,
     columnOrder: state.columnOrder,
+    columnSizing: state.columnSizing,
     pagination: state.pagination,
   };
 }
@@ -50,6 +53,7 @@ export function applyView<T extends RowData>(table: Table<T>, view: SavedView): 
   table.setGlobalFilter(view.globalFilter ?? '');
   table.setColumnVisibility(view.columnVisibility ?? {});
   table.setColumnOrder(view.columnOrder ?? []);
+  table.setColumnSizing(view.columnSizing ?? {});
   table.setPagination(view.pagination ?? { pageIndex: 0, pageSize: 25 });
 }
 
@@ -87,6 +91,7 @@ export function deserializeView(json: string): SavedView | null {
     globalFilter: typeof v.globalFilter === 'string' ? v.globalFilter : '',
     columnVisibility: isObject(v.columnVisibility) ? (v.columnVisibility as VisibilityState) : {},
     columnOrder: Array.isArray(v.columnOrder) ? (v.columnOrder as ColumnOrderState) : [],
+    columnSizing: isObject(v.columnSizing) ? (v.columnSizing as ColumnSizingState) : {},
     pagination: validPagination(v.pagination),
   };
 }

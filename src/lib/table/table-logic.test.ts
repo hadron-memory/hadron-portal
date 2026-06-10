@@ -129,6 +129,7 @@ describe('saved-view serialization', () => {
       globalFilter: 'hello world',
       columnVisibility: {},
       columnOrder: [],
+      columnSizing: {},
       pagination: { pageIndex: 0, pageSize: 25 },
     };
     expect(deserializeView(serializeView(view))!.globalFilter).toBe('hello world');
@@ -149,6 +150,7 @@ describe('applyView resilience (spec 020 FR-013 / SC-005)', () => {
     globalFilter: '',
     columnVisibility: {},
     columnOrder: [],
+    columnSizing: {},
     pagination: { pageIndex: 0, pageSize: 25 },
     ...over,
   });
