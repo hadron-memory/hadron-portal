@@ -1,7 +1,7 @@
 // localStorage implementation of ViewStore (spec 020, v1). Per-list namespaced
 // keys; SSR/disabled-storage safe (reads degrade to empty, writes throw a typed
 // error). Storage is injectable so the logic is unit-testable without a DOM.
-import type { SavedView } from './savedView';
+import { type SavedView, normalizeView } from './savedView';
 import {
   type ViewStore,
   type SavedViewRecord,
@@ -43,7 +43,11 @@ export class LocalStorageViewStore implements ViewStore {
       const raw = s.getItem(recordsKey(listKey));
       if (!raw) return [];
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? (parsed as SavedViewRecord[]) : [];
+      // Normalize each stored view to the full shape so legacy records (saved
+      // before a slice like columnSizing existed) compare/apply cleanly.
+      return Array.isArray(parsed)
+        ? (parsed as SavedViewRecord[]).map((r) => ({ ...r, view: normalizeView(r.view) }))
+        : [];
     } catch {
       return [];
     }

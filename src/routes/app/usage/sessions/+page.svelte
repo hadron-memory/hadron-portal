@@ -127,7 +127,7 @@
     <p class="text-sm text-zinc-500">No sessions found.</p>
   {:else}
     <!-- Bounded, internally-scrolling container so the page itself doesn't scroll
-         and the pagination footer below stays visible. The thead is sticky so
+         and the pagination footer below stays visible. The `<thead>` is sticky so
          column headers remain while the body scrolls. (Tune the offset below.) -->
     <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: calc(100vh - 19rem);">
       <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
@@ -140,8 +140,8 @@
                   style="width: {header.getSize()}px;"
                   onclick={header.column.getToggleSortingHandler()}
                 >
-                  <div class="flex items-center gap-1">
-                    <span class="truncate">{header.column.columnDef.header}</span>
+                  <div class="flex min-w-0 items-center gap-1">
+                    <span class="min-w-0 truncate">{header.column.columnDef.header}</span>
                     <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
                   </div>
                   {#if header.column.getCanResize()}
@@ -150,6 +150,7 @@
                       class="absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
                       onmousedown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                       ontouchstart={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
+                      onclick={(e) => e.stopPropagation()}
                     ></div>
                   {/if}
                 </th>
