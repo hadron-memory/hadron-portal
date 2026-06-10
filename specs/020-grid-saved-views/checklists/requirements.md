@@ -32,10 +32,9 @@
 ## Notes
 
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`.
-- One naming-rule detail (allow duplicate view names vs require uniqueness) is
-  intentionally deferred to planning per FR-015 — it does not block scope or
-  primary flows and has a safe default (allow duplicates), so it is not flagged
-  as a blocking clarification.
+- Clarification session 2026-06-09 resolved three decisions: sticky last-selected
+  view across reloads (FR-005/FR-005a), duplicate view names allowed (FR-015),
+  and silent-discard of unsaved tweaks on view switch (FR-007).
 - v1 deliberately adds no backend (localStorage only); the Entity Impact section
   is omitted because the platform data model is untouched. A future
   server-backed step would introduce an entity and an Entities.md update then.

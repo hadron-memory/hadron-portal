@@ -47,6 +47,14 @@ non-grid lists onto the same grid widget; because the picker and store are
 generic and keyed by an opaque list key, those lists gain saved views for free
 once migrated. This spec must keep the picker/store list-agnostic so that holds.
 
+## Clarifications
+
+### Session 2026-06-09
+
+- Q: After selecting a non-default view and reloading, what does the list show? → A: The last-selected view (sticky) — the active view is remembered per browser and reapplied on reload; the default applies only on the first-ever visit before any selection.
+- Q: Must view names be unique within a list? → A: Allow duplicates — names are free-text labels; views are identified by a stable id.
+- Q: When a view has unsaved tweaks and the user switches to a different view, what happens to the tweaks? → A: Silently discard them and apply the selected view (the "modified" badge is the warning).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Save an arrangement and have it come back (Priority: P1)
@@ -92,8 +100,12 @@ chosen default is the one applied on a fresh load.
 1. **Given** several saved views for a list, **When** the user selects a
    different view in the picker, **Then** the list immediately re-arranges to
    that view and the picker shows it as active.
-2. **Given** one view is marked default, **When** the user opens the list fresh
-   (no prior session state), **Then** the default view is applied.
+2. **Given** one view is marked default and the user has never selected a view
+   on this list, **When** the user opens the list fresh, **Then** the default
+   view is applied.
+4. **Given** the user previously selected a non-default view, **When** they
+   reload or return to the list later, **Then** the last-selected (active) view
+   is reapplied rather than the default (sticky active view).
 3. **Given** the user marks a different view as default, **When** they reload,
    **Then** the newly chosen default is applied and only one view is default.
 
@@ -167,6 +179,8 @@ longer applies.
   FRs) so the picker stays usable.
 - **Cross-list isolation**: a view saved for one list never appears on or
   applies to another; keys are per-list.
+- **Switching with unsaved tweaks**: selecting another view while the current
+  one is modified silently discards the tweaks (per FR-007); no confirm dialog.
 - **Multiple tabs**: changes made in one browser tab should not corrupt views;
   last-write-wins per view is acceptable for v1.
 - **Existing page-size preference**: the per-list page-size already persisted
@@ -192,14 +206,23 @@ longer applies.
   current list and switch the active view; switching MUST immediately apply that
   view's arrangement.
 - **FR-005 (Default view)**: Users MUST be able to mark exactly one view per
-  list as the default; the default MUST auto-apply when the list is opened with
-  no prior in-session selection. At most one default exists per list key.
+  list as the default. The default MUST auto-apply on the **first-ever** open of
+  that list (when no active view has been remembered yet) and serves as the
+  fallback when the remembered active view is deleted. At most one default
+  exists per list key.
+- **FR-005a (Sticky active view)**: The system MUST remember the **last-selected
+  (active) view** per list key and reapply it on reload and on return to the
+  list, taking precedence over the default once the user has selected any view.
+  The remembered active view persists with the same scope as the views
+  themselves (local browser profile in v1).
 - **FR-006 (Modified detection)**: The system MUST detect when the live
   arrangement diverges from the active view in any captured dimension and
   reflect this as a "modified" state.
 - **FR-007 (Save / Save as / Reset)**: In a modified state, users MUST be able
   to Save (overwrite the active view), Save as (create a new view), or Reset
-  (revert the live arrangement to the active view).
+  (revert the live arrangement to the active view). Switching to a different view
+  while in a modified state MUST silently discard the unsaved tweaks and apply
+  the selected view (the "modified" indicator is the only warning).
 - **FR-008 (Rename)**: Users MUST be able to rename a view.
 - **FR-009 (Delete)**: Users MUST be able to delete a view; the list MUST then
   resolve to a valid arrangement (default view, else the list's built-in
@@ -221,10 +244,9 @@ longer applies.
   component parameterized by list key, usable on any grid-backed list (including
   lists migrated onto the grid in the future) without per-list code beyond
   supplying the key.
-- **FR-015 (Naming rules)**: View names MUST be non-empty and trimmed; the
-  system MUST define behavior for duplicate names within a list key (allow vs
-  require-unique — fixed in planning) and cap length so the picker stays
-  readable.
+- **FR-015 (Naming rules)**: View names MUST be non-empty and trimmed and capped
+  at a readable length so the picker stays usable. Duplicate names within a list
+  key ARE allowed — views are identified by a stable id, not by name.
 - **FR-016 (Scope/privacy)**: In v1, views are scoped to the local browser
   profile and are not shared or synced across devices or users; the model MUST
   NOT preclude a later per-user, server-synced, or shareable scope.
@@ -246,8 +268,9 @@ longer applies.
   manual re-configuration**.
 - **SC-002**: Switching the active view re-arranges the list **immediately**
   (perceived as instant; under ~1 second on a list of typical size).
-- **SC-003**: When a default view is set, it is applied on **100%** of fresh
-  list opens.
+- **SC-003**: A returning user lands on their last-selected view on **100%** of
+  reloads/returns; the default view is applied on the first-ever open (before
+  any selection) on **100%** of such opens.
 - **SC-004**: Saved views work uniformly on **all** grid-backed lists (memory
   browse nodes, agents, node tables, and both usage tables) with no list
   reporting unsupported behavior.
