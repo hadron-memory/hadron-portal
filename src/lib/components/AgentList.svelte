@@ -10,6 +10,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
   import ViewPicker from './table/ViewPicker.svelte';
+  import ColumnToggle from './table/ColumnToggle.svelte';
 
   // Minimal shape — callers only need to supply these. Additional fields
   // are ignored. `orgId` is required to build hotlink targets.
@@ -42,7 +43,7 @@
   let globalFilter = $state('');
 
   const columns: ColumnDef<AgentRow>[] = [
-    { accessorKey: 'name', header: 'Agent' },
+    { accessorKey: 'name', header: 'Agent', enableHiding: false }, // identity column
     { accessorFn: (a) => a.description ?? '', id: 'description', header: 'Description' },
   ];
 
@@ -76,6 +77,7 @@
     <div class="flex flex-wrap items-center gap-3">
       <input type="text" placeholder="Search agents..." bind:value={globalFilter}
         class="max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+      <ColumnToggle {table} />
       {#if listKey}<ViewPicker {table} {listKey} />{/if}
     </div>
   {/if}
