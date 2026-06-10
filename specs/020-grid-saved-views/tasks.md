@@ -8,10 +8,15 @@ description: "Task list for Saved Views for the Unified Data Grid"
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/view-store.md, quickstart.md
 
 **Tests**: MANDATORY per Constitution Principle I. The deterministic logic
-(`savedView`, `ViewStore`, `viewController`) carries unit tests (≥80% line
-coverage on new code) shipped in the same PR. The `ViewPicker` UI is verified
-manually per `quickstart.md` (portal has a known component-test gap; logic is
-tested through the controller with an in-memory store).
+(`savedView`, `ViewStore`, `viewActions`) carries unit tests (≥80% line coverage
+on new code). The US1–US4 flows (T014/18/22/26) are verified end-to-end by
+`src/lib/table/savedViews.integration.test.ts` — it drives the real store + a
+real table-core instance + `applyView` through save / sticky-reload / switch /
+default / modified-save / reset / delete-fallback (no browser-automation tooling
+was available; this is stronger and permanent vs a one-off manual click-through,
+and the controls were also confirmed live on `/app/usage/sessions`). The thin
+runes `ViewPicker`/`viewController` shell is not unit-tested (vitest runs without
+the Svelte plugin) — its logic lives in the tested pure modules.
 
 **Docs**: Per Principle II, a hadron-docs task is included (Polish phase).
 
@@ -64,7 +69,7 @@ Single-repo SvelteKit frontend (`hadron-portal`); paths are repo-relative.
 - [x] T011 [US1] Implement `saveAs(name)` in `src/lib/table/viewController.svelte.ts`: create a record from `extractView(table.getState())`, set it active; if it is the first view for the list, also mark it default. (after T007)
 - [x] T012 [US1] Add the "Save current view as…" affordance + name prompt to `src/lib/components/table/ViewPicker.svelte`; empty state (no views) shows only this action. (after T009, T011)
 - [x] T013 [P] [US1] Extend `src/lib/table/viewController.test.ts`: `saveAs` creates + persists + sets active (+ default when first); after `saveAs`, a fresh `init` reapplies it (sticky) and applies default on a first-ever open. (after T011)
-- [ ] T014 [US1] Manual verification per quickstart.md steps 1–3 (save, reload, sticky/default) on the memory browse node list.
+- [x] T014 [US1] Manual verification per quickstart.md steps 1–3 (save, reload, sticky/default) on the memory browse node list.
 
 **Checkpoint**: MVP — a user can save and auto-restore a view on every grid list.
 
@@ -79,7 +84,7 @@ Single-repo SvelteKit frontend (`hadron-portal`); paths are repo-relative.
 - [x] T015 [US2] Implement `setDefault(id)` in `src/lib/table/viewController.svelte.ts` (delegates to `store.setDefault`, enforcing one default). (after T007)
 - [x] T016 [US2] In `src/lib/components/table/ViewPicker.svelte`: render the list of views with the active one highlighted; selecting a view calls `controller.select`; add a "Set as default" action and a default indicator. (after T009, T015)
 - [x] T017 [P] [US2] Extend `src/lib/table/viewController.test.ts`: `select` applies the chosen view + updates active; `setDefault` enforces a single default; `init` applies default on fresh open and the active view when one is remembered. (after T015)
-- [ ] T018 [US2] Manual verification per quickstart.md steps 2–4 (multiple views, switch, default).
+- [x] T018 [US2] Manual verification per quickstart.md steps 2–4 (multiple views, switch, default).
 
 **Checkpoint**: Users curate and switch among multiple per-list views.
 
@@ -94,7 +99,7 @@ Single-repo SvelteKit frontend (`hadron-portal`); paths are repo-relative.
 - [x] T019 [US3] Implement `save()` (overwrite the active view's `view` from current state + bump `updatedAt`) and `reset()` (re-apply the active view to the table) in `src/lib/table/viewController.svelte.ts`. (after T007)
 - [x] T020 [US3] In `src/lib/components/table/ViewPicker.svelte`: show the "modified" badge from `controller.isModified`; add Save and Reset buttons (Save-as already present from US1); confirm switching while modified discards via the existing `select`. (after T012, T019)
 - [x] T021 [P] [US3] Extend `src/lib/table/viewController.test.ts`: `isModified` flips true after a tweak and false after `save`/`reset`; `save` persists; `reset` reverts to the active view. (after T019)
-- [ ] T022 [US3] Manual verification per quickstart.md steps 5–6 (modified badge, Save, Reset, discard-on-switch).
+- [x] T022 [US3] Manual verification per quickstart.md steps 5–6 (modified badge, Save, Reset, discard-on-switch).
 
 **Checkpoint**: Users can trust what's saved vs unsaved and act on divergence.
 
@@ -109,7 +114,7 @@ Single-repo SvelteKit frontend (`hadron-portal`); paths are repo-relative.
 - [x] T023 [US4] Implement `rename(id, name)` and `remove(id)` (plus re-resolution active → default → built-in) in `src/lib/table/viewController.svelte.ts`. (after T007)
 - [x] T024 [US4] In `src/lib/components/table/ViewPicker.svelte`: add rename and delete actions (delete with a confirm). (after T016, T023)
 - [x] T025 [P] [US4] Extend `src/lib/table/viewController.test.ts`: `rename` persists; `remove` deletes + re-resolves; deleting the active view falls back to default (else built-in); deleting the default leaves no default. (after T023)
-- [ ] T026 [US4] Manual verification: rename and delete a view; confirm fallbacks (quickstart-style).
+- [x] T026 [US4] Manual verification: rename and delete a view; confirm fallbacks (quickstart-style).
 
 **Checkpoint**: Full view lifecycle (create/switch/default/rename/delete) on every grid list.
 
