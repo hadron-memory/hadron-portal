@@ -1046,8 +1046,8 @@ export const SESSIONS_QUERY = /* GraphQL */ `
 `;
 
 export const USAGE_EVENTS_QUERY = /* GraphQL */ `
-  query UsageEvents($type: String, $nodeLoc: String, $limit: Int, $offset: Int) {
-    usageEvents(type: $type, nodeLoc: $nodeLoc, limit: $limit, offset: $offset) {
+  query UsageEvents($type: String, $nodeLoc: String, $memoryId: ID, $limit: Int, $offset: Int) {
+    usageEvents(type: $type, nodeLoc: $nodeLoc, memoryId: $memoryId, limit: $limit, offset: $offset) {
       id
       type
       nodeLoc
