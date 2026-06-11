@@ -3,7 +3,6 @@
   // description, tags, integration status, dates) + stats. Edge count, last use,
   // and "agents/apps that include this memory" need new server queries and are
   // deferred (flagged below).
-  import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
@@ -15,17 +14,18 @@
   const isAgentSystem = $derived(g.class === 'system');
   const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
   const visibilityLabel: Record<string, string> = {
-    ORGANIZATION: 'Organization',
-    PUBLIC: 'Public',
-    GROUP: 'Group',
+    ORGANIZATION: t('memory-info.visibility.organization', 'Organization'),
+    PUBLIC: t('memory-info.visibility.public', 'Public'),
+    GROUP: t('memory-info.visibility.group', 'Group'),
   };
 
+  // Pin the locale so SSR and client format identically (no hydration mismatch).
   function fmtDate(s: string | null | undefined): string {
     if (!s) return '—';
     const d = new Date(s);
     return isNaN(d.getTime())
       ? '—'
-      : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+      : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
   }
 
   const card = 'rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-200 overflow-hidden dark:border-zinc-800 dark:bg-zinc-900 dark:divide-zinc-800';
@@ -58,7 +58,8 @@
         <span class={rowLabel}>{t('memory-info.class', 'Class')}</span>
         <span class={rowValue}>{g.class ?? '—'}</span>
       </div>
-      {#if !isAgentSystem}
+      {#if g.class !== 'system' && g.class !== 'app'}
+        <!-- visibility is null/meaningless for system + app classes -->
         <div class="flex items-center justify-between px-5 py-3">
           <span class={rowLabel}>{isOwnerOnly ? t('memory-info.access', 'Access') : t('memory-info.visibility', 'Visibility')}</span>
           <span class={rowValue}>
@@ -122,7 +123,7 @@
     <div class={card}>
       <div class="flex items-center justify-between px-5 py-3">
         <span class={rowLabel}>{t('memory-info.nodes', 'Nodes')}</span>
-        <span class={rowValue}>{nodeCount.toLocaleString()}</span>
+        <span class={rowValue}>{nodeCount.toLocaleString('en-US')}</span>
       </div>
     </div>
     <p class="mt-2 text-xs text-zinc-400">
