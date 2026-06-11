@@ -8,6 +8,7 @@
     type ColumnDef,
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { t } from '$lib/i18n/t';
   import Urn from './Urn.svelte';
   import ViewPicker from './table/ViewPicker.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
@@ -43,8 +44,8 @@
   let globalFilter = $state('');
 
   const columns: ColumnDef<AgentRow>[] = [
-    { accessorKey: 'name', header: 'Agent', enableHiding: false, size: 300 }, // identity column
-    { accessorFn: (a) => a.description ?? '', id: 'description', header: 'Description', size: 400 },
+    { accessorKey: 'name', header: t('common.agent', 'Agent'), enableHiding: false, size: 300 }, // identity column
+    { accessorFn: (a) => a.description ?? '', id: 'description', header: t('common.description', 'Description'), size: 400 },
   ];
 
   const table = createSvelteTable<AgentRow>({
