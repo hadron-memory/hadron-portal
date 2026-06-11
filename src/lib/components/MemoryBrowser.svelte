@@ -68,6 +68,41 @@
     }
   });
 
+  // Within the nodes view, the tree and the flat table are two representations
+  // of the same node set — showing both side-by-side is redundant. Pick one via
+  // a Tree | Table toggle (persisted). The graph view keeps the tree as a
+  // navigation sidebar (a different, complementary representation), so this only
+  // governs activeView === 'nodes'.
+  const NODES_PANE_KEY = 'hadron:memoryBrowser:nodesPane';
+  function readStoredPane(): 'tree' | 'table' {
+    if (typeof window === 'undefined') return 'table';
+    try {
+      return window.localStorage.getItem(NODES_PANE_KEY) === 'tree' ? 'tree' : 'table';
+    } catch {
+      return 'table';
+    }
+  }
+  // Seed a deterministic default for SSR, then hydrate the persisted choice on
+  // the client inside an effect — seeding $state directly from localStorage
+  // would diverge from the server-rendered 'table' and trip a hydration
+  // mismatch. The first effect run reads the stored value (without persisting);
+  // later runs persist user changes.
+  let nodesPane = $state<'tree' | 'table'>('table');
+  let paneHydrated = false;
+  $effect(() => {
+    if (!paneHydrated) {
+      paneHydrated = true;
+      const stored = readStoredPane();
+      if (stored !== nodesPane) nodesPane = stored;
+      return;
+    }
+    try {
+      window.localStorage.setItem(NODES_PANE_KEY, nodesPane);
+    } catch {
+      /* ignore quota / disabled storage */
+    }
+  });
+
   let treeOpen = $state(true);
   let treeWidth = $state(256);
   let dragging = $state(false);
@@ -206,6 +241,14 @@
       return true;
     })
   );
+
+  // Whether the current (memory/type/tag-filtered) pool still contains
+  // record/system nodes — gates the "Show hidden" control in the filter bar
+  // for the nodes view. Both nodes panes pass hideSearch to TreeView (which
+  // also hides its own Records checkbox), so this filter-bar control is the
+  // single toggle. Based on filteredNodes to mirror TreeView's own
+  // visibility test, so it disappears when active filters exclude them all.
+  const hasHiddenNodes = $derived(filteredNodes.some((n) => HIDDEN_TYPES.has(n.nodeType ?? 'info')));
 
   const searchedNodes = $derived(
     filteredNodes.filter((n) => {
@@ -423,8 +466,9 @@
       <button onclick={clearAllFilters} class="text-xs text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Clear all</button>
     {/if}
 
-    <!-- Right: view toggle + count. The toggle is hidden when the view is fixed
-         by the tab layout (#266). -->
+    <!-- Right: view toggles + count. The Graph/Nodes toggle is hidden when the
+         view is fixed by the tab layout (#266); the Tree/Table toggle shows
+         whenever the nodes view is active. -->
     <div class="ml-auto flex items-center gap-3">
       {#if !forcedView}
         <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
@@ -438,22 +482,40 @@
           >Nodes</button>
         </div>
       {/if}
+      {#if activeView === 'nodes'}
+        {#if hasHiddenNodes}
+          <label class="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 cursor-pointer">
+            <input type="checkbox" bind:checked={showHidden}
+              class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
+            Show hidden
+          </label>
+        {/if}
+        <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+          <button
+            onclick={() => nodesPane = 'tree'}
+            class="px-2.5 py-1 text-xs {nodesPane === 'tree' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+          >Tree</button>
+          <button
+            onclick={() => nodesPane = 'table'}
+            class="px-2.5 py-1 text-xs {nodesPane === 'table' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+          >Table</button>
+        </div>
+      {/if}
       <span class="text-xs text-zinc-400">{searchedNodes.length}{searchedNodes.length !== nodes.length ? ` / ${nodes.length}` : ''}</span>
     </div>
   </div>
 
-  <!-- Main area: tree + content -->
+  <!-- Main area. Shared height is a CSS variable so the scrolling panes inherit
+       one value (NodeList reads --memory-browser-h to bound its own scroll).
+       Per code-review feedback on PR #211. -->
   {#if nodes.length === 0}
     <div class="flex items-center justify-center rounded-xl border border-zinc-200 bg-white p-12 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900" style="min-height: 400px;">
       No nodes to display.
     </div>
-  {:else}
-    <!-- Shared height for the browser row and its scrolling sidebar. Declared as a
-         CSS variable on the parent so the aside inherits the same value (avoids the
-         two going out of sync if the offset ever changes). Per code-review feedback
-         on PR #211. -->
+  {:else if activeView === 'graph'}
+    <!-- Graph view: the tree stays as a navigation sidebar beside the graph —
+         a complementary representation, not a duplicate of the table. -->
     <div class="flex gap-0" style="--memory-browser-h: calc(100vh - 320px); min-height: var(--memory-browser-h);">
-      <!-- Tree sidebar -->
       {#if treeOpen}
         <aside class="shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="width: {treeWidth}px; max-height: var(--memory-browser-h);">
           <div class="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
@@ -479,20 +541,29 @@
         </button>
       {/if}
 
-      <!-- Content -->
       <div class="min-w-0 flex-1 overflow-hidden {treeOpen ? 'rounded-r-lg' : 'rounded-lg'} border border-zinc-200 dark:border-zinc-800">
-        {#if activeView === 'graph'}
-          <div style="display: flex; height: 100%;">
-            {#key filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
-              <TopicGraph data={graphViewData} {focusId} {basePath} />
-            {/key}
-          </div>
-        {:else}
-          <div class="p-4">
-            <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} />
-          </div>
-        {/if}
+        <div style="display: flex; height: 100%;">
+          {#key filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
+            <TopicGraph data={graphViewData} {focusId} {basePath} />
+          {/key}
+        </div>
       </div>
+    </div>
+  {:else}
+    <!-- Nodes view: tree OR table, full width — chosen via the toggle above.
+         Both are representations of the same node set, so we show one at a
+         time rather than side-by-side. -->
+    <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800"
+      style="--memory-browser-h: calc(100vh - 320px); min-height: var(--memory-browser-h);">
+      {#if nodesPane === 'tree'}
+        <div class="overflow-y-auto bg-zinc-50 dark:bg-zinc-950" style="max-height: var(--memory-browser-h);">
+          <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
+        </div>
+      {:else}
+        <div class="p-4">
+          <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} />
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
