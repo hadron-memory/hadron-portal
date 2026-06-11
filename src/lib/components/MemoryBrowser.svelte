@@ -82,9 +82,20 @@
       return 'table';
     }
   }
-  let nodesPane = $state<'tree' | 'table'>(readStoredPane());
+  // Seed a deterministic default for SSR, then hydrate the persisted choice on
+  // the client inside an effect — seeding $state directly from localStorage
+  // would diverge from the server-rendered 'table' and trip a hydration
+  // mismatch. The first effect run reads the stored value (without persisting);
+  // later runs persist user changes.
+  let nodesPane = $state<'tree' | 'table'>('table');
+  let paneHydrated = false;
   $effect(() => {
-    if (typeof window === 'undefined') return;
+    if (!paneHydrated) {
+      paneHydrated = true;
+      const stored = readStoredPane();
+      if (stored !== nodesPane) nodesPane = stored;
+      return;
+    }
     try {
       window.localStorage.setItem(NODES_PANE_KEY, nodesPane);
     } catch {
@@ -222,11 +233,6 @@
   // toggle); the filter is applied in searchedNodes below, which feeds
   // NodeList.
   const HIDDEN_TYPES = new Set(['record', 'system']);
-  // Whether the pool contains record/system nodes — gates the "Show hidden"
-  // control. In the tree pane TreeView renders its own checkbox; in the
-  // table pane (no tree) we surface an equivalent in the filter bar so the
-  // toggle stays reachable.
-  const hasHiddenNodes = $derived(nodes.some((n) => HIDDEN_TYPES.has(n.nodeType ?? 'info')));
   const filteredNodes = $derived(
     nodes.filter((n) => {
       if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(n.memory?.urn ?? '')) return false;
@@ -235,6 +241,14 @@
       return true;
     })
   );
+
+  // Whether the current (memory/type/tag-filtered) pool still contains
+  // record/system nodes — gates the "Show hidden" control in the filter bar
+  // for the nodes view. Both nodes panes pass hideSearch to TreeView (which
+  // also hides its own Records checkbox), so this filter-bar control is the
+  // single toggle. Based on filteredNodes to mirror TreeView's own
+  // visibility test, so it disappears when active filters exclude them all.
+  const hasHiddenNodes = $derived(filteredNodes.some((n) => HIDDEN_TYPES.has(n.nodeType ?? 'info')));
 
   const searchedNodes = $derived(
     filteredNodes.filter((n) => {
@@ -469,7 +483,7 @@
         </div>
       {/if}
       {#if activeView === 'nodes'}
-        {#if nodesPane === 'table' && hasHiddenNodes}
+        {#if hasHiddenNodes}
           <label class="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 cursor-pointer">
             <input type="checkbox" bind:checked={showHidden}
               class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
