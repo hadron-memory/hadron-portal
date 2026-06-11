@@ -5,7 +5,7 @@ import type { Table, RowData } from '@tanstack/table-core';
 import { extractView, applyView, serializeView } from './savedView';
 import { type ViewStore, type SavedViewRecord, resolveInitialView } from './viewStore';
 import { localStorageViewStore } from './localStorageViewStore';
-import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve } from './viewActions';
+import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, duplicateView } from './viewActions';
 
 export interface ViewController {
   readonly views: SavedViewRecord[];
@@ -20,6 +20,7 @@ export interface ViewController {
   rename(id: string, name: string): Promise<void>;
   remove(id: string): Promise<void>;
   setDefault(id: string): Promise<void>;
+  duplicate(id: string): Promise<void>;
 }
 
 export function createViewController<T extends RowData>(args: {
@@ -93,6 +94,14 @@ export function createViewController<T extends RowData>(args: {
     await refresh();
   }
 
+  async function duplicate(id: string) {
+    const src = views.find((v) => v.id === id);
+    if (!src) return;
+    const record = await duplicateView(store, listKey, src, `${src.name} (copy)`);
+    await refresh();
+    activeId = record.id;
+  }
+
   return {
     get views() {
       return views;
@@ -114,5 +123,6 @@ export function createViewController<T extends RowData>(args: {
     rename,
     remove,
     setDefault,
+    duplicate,
   };
 }
