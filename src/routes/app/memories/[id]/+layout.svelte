@@ -25,10 +25,17 @@
   // (the regex matches /nodes/<id> and /nodes/new).
   const isNodeDetail = $derived(/\/nodes\/[^/]+/.test(path));
   const activeTab = $derived(
-    path === `${basePath}/graph` ? 'graph' : path === `${basePath}/settings` ? 'settings' : 'nodes',
+    path === `${basePath}/info`
+      ? 'info'
+      : path === `${basePath}/graph`
+        ? 'graph'
+        : path === `${basePath}/settings`
+          ? 'settings'
+          : 'nodes',
   );
 
   const tabs = $derived([
+    { id: 'info', label: t('memory-detail.tab.info', 'Info'), href: `${basePath}/info` },
     { id: 'nodes', label: t('memory-detail.tab.nodes', 'Nodes'), href: `${basePath}/nodes` },
     { id: 'graph', label: t('memory-detail.tab.graph', 'Graph'), href: `${basePath}/graph` },
     { id: 'settings', label: t('memory-detail.tab.settings', 'Settings'), href: `${basePath}/settings` },
