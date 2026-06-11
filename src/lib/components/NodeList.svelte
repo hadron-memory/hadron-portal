@@ -205,14 +205,14 @@
       class="rounded-lg border border-zinc-200 dark:border-zinc-800 {orderable ? 'overflow-x-auto' : 'overflow-auto'}"
       style={orderable ? '' : 'max-height: calc(var(--memory-browser-h, calc(100vh - 24rem)) - 7rem);'}
     >
-      <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
+      <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize() + (orderable ? 32 : 0)}px);">
         <thead>
           {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
             <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              {#if orderable}<th class="sticky top-0 z-10 w-8 border-b border-zinc-200 bg-zinc-50 px-2 py-2.5 dark:border-zinc-800 dark:bg-zinc-900"></th>{/if}
+              {#if orderable}<th class="sticky top-0 z-10 w-8 border-b border-r border-zinc-200 bg-zinc-50 px-2 py-2.5 dark:border-zinc-800 dark:bg-zinc-900"></th>{/if}
               {#each headerGroup.headers as header (header.id)}
                 <th
-                  class="sticky top-0 z-10 select-none border-b border-r border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''}"
+                  class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''}"
                   style="width: {header.getSize()}px;"
                   onclick={header.column.getCanSort() ? header.column.getToggleSortingHandler() : undefined}
                 >
@@ -227,7 +227,7 @@
                   {#if header.column.getCanResize()}
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
                     <div
-                      class="absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
+                      class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
                       onmousedown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                       ontouchstart={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                       onclick={(e) => e.stopPropagation()}
@@ -254,11 +254,11 @@
               ondragend={resetDrag}
             >
               {#if orderable}
-                <td class="w-8 cursor-grab select-none px-2 py-2.5 text-zinc-400" title="Drag to reorder">⠿</td>
+                <td class="w-8 cursor-grab select-none border-r border-zinc-200 px-2 py-2.5 text-zinc-400 dark:border-zinc-800" title="Drag to reorder">⠿</td>
               {/if}
               {#each row.getVisibleCells() as cell (cell.id)}
                 {#if cell.column.id === 'name'}
-                  <td class="border-r border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
                     <div class="truncate">
                       {#if href}
                         <a {href} class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{n.name}</a>
@@ -272,11 +272,11 @@
                     <div class="mt-0.5 truncate"><Urn value={nodeUrn(n)} type="node" size={8} /></div>
                   </td>
                 {:else if cell.column.id === 'nodeType'}
-                  <td class="border-r border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
                     <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{n.nodeType}</span>
                   </td>
                 {:else}
-                  <td class="border-r border-zinc-200 px-4 py-2.5 text-xs text-zinc-500 dark:border-zinc-800">
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-500 dark:border-zinc-800">
                     <div class="truncate">{n.description ?? '—'}</div>
                   </td>
                 {/if}

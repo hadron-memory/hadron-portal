@@ -110,7 +110,7 @@
             <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               {#each headerGroup.headers as header (header.id)}
                 <th
-                  class="sticky top-0 z-10 cursor-pointer select-none border-b border-r border-zinc-200 bg-zinc-50 px-4 py-2.5 hover:text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:text-zinc-200"
+                  class="sticky top-0 z-10 cursor-pointer select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 hover:text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:text-zinc-200"
                   style="width: {header.getSize()}px;"
                   onclick={header.column.getToggleSortingHandler()}
                 >
@@ -121,7 +121,7 @@
                   {#if header.column.getCanResize()}
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
                     <div
-                      class="absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
+                      class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
                       onmousedown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                       ontouchstart={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                       onclick={(e) => e.stopPropagation()}
@@ -137,7 +137,7 @@
             <tr class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900">
               {#each row.getVisibleCells() as cell (cell.id)}
                 {@const f = fmt[cell.column.id]}
-                <td class="border-r border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+                <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
                   <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
                 </td>
               {/each}
