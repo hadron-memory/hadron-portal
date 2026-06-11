@@ -31,6 +31,7 @@
     { id: 'settings', label: t('memory-detail.tab.settings', 'Settings'), href: `${basePath}/settings` },
     { id: 'integrations', label: t('memory-detail.tab.integrations', 'Integrations'), href: `${basePath}/integrations` },
     { id: 'subscriptions', label: t('memory-detail.tab.subscriptions', 'Subscriptions'), href: `${basePath}/subscriptions` },
+    { id: 'usage', label: t('memory-detail.tab.usage', 'Usage'), href: `${basePath}/usage` },
   ]);
 
   // The active tab is the sub-route's last segment (falls back to nodes).
