@@ -3,10 +3,6 @@ import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   UPDATE_MEMORY_MUTATION,
-  SYNC_MEMORY_MUTATION,
-  PUSH_MEMORY_TO_GIT_MUTATION,
-  CREATE_MEMORY_SUBSCRIPTION_MUTATION,
-  DELETE_MEMORY_SUBSCRIPTION_MUTATION,
   DELETE_MEMORY_MUTATION,
   MY_ORGANIZATIONS_QUERY,
 } from '$lib/server/queries';
@@ -89,9 +85,8 @@ export const actions: Actions = {
         iconUrl: String(fd.get('iconUrl') ?? '').trim() || null,
         heroUrl: String(fd.get('heroUrl') ?? '').trim() || null,
         homeUrl: String(fd.get('homeUrl') ?? '').trim() || null,
-        source: String(fd.get('source') ?? '').trim() || null,
-        readBranch: String(fd.get('readBranch') ?? '').trim() || null,
-        writeBranch: String(fd.get('writeBranch') ?? '').trim() || null,
+        // GitHub integration fields (source/readBranch/writeBranch) moved to the
+        // /integrations tab (#266) so this update can't clobber them.
         // Spec 034: the visibility control only renders for knowledge memories;
         // when it's absent (owner-only/group/system), omit it so updateMemory
         // leaves the stored value untouched rather than forcing a default.
@@ -143,45 +138,6 @@ export const actions: Actions = {
         });
       }
       return fail(500, { error: extractGqlError(e, 'Failed to update vector index') });
-    }
-  },
-
-  sync: async ({ params, locals }) => {
-    try {
-      await gqlClient(locals.token).request(SYNC_MEMORY_MUTATION, { id: params.id });
-      return { synced: true };
-    } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Sync failed' });
-    }
-  },
-
-  pushToGit: async ({ params, locals }) => {
-    try {
-      await gqlClient(locals.token).request(PUSH_MEMORY_TO_GIT_MUTATION, { id: params.id });
-      return { pushed: true };
-    } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Push to Git failed' });
-    }
-  },
-
-  subscribe: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const orgId = String(fd.get('orgId') ?? '');
-    const role = String(fd.get('role') ?? 'READER');
-    try {
-      await gqlClient(locals.token).request(CREATE_MEMORY_SUBSCRIPTION_MUTATION, { memoryId: params.id, orgId, role });
-    } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to add subscription' });
-    }
-  },
-
-  unsubscribe: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const orgId = String(fd.get('orgId') ?? '');
-    try {
-      await gqlClient(locals.token).request(DELETE_MEMORY_SUBSCRIPTION_MUTATION, { memoryId: params.id, orgId });
-    } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to remove subscription' });
     }
   },
 

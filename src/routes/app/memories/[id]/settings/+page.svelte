@@ -34,15 +34,8 @@
   );
 
   let isEditing = $state(false);
-  let githubOpen = $state(false);
   let saving = $state(false);
-  let syncing = $state(false);
-  let pushing = $state(false);
   let confirmDelete = $state(false);
-
-  $effect(() => {
-    if (g.source) githubOpen = true;
-  });
 
   const urnSlug = $derived(g.urn ? g.urn.split(':').slice(1).join(':') : '');
   const visibilityLabel: Record<string, string> = { ORGANIZATION: 'Organization', PUBLIC: 'Public', GROUP: 'Group' };
@@ -53,18 +46,6 @@
     return enhance(formEl, () => {
       saving = true;
       return async ({ update }) => { saving = false; isEditing = false; await update(); };
-    });
-  }
-  function syncingEnhance(formEl: HTMLFormElement) {
-    return enhance(formEl, () => {
-      syncing = true;
-      return async ({ update }) => { syncing = false; await update(); };
-    });
-  }
-  function pushingEnhance(formEl: HTMLFormElement) {
-    return enhance(formEl, () => {
-      pushing = true;
-      return async ({ update }) => { pushing = false; await update(); };
     });
   }
 
@@ -156,10 +137,8 @@
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
-  {#if form?.success || form?.synced || (form as any)?.pushed}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {form?.synced ? 'Memory synced.' : (form as any)?.pushed ? 'Pushed to Git.' : 'Changes saved.'}
-    </div>
+  {#if form?.success}
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
   {/if}
 
   <!-- Memory settings -->
@@ -276,35 +255,6 @@
           {/if}
         {/if}
 
-        <!-- GitHub integration -->
-        <div class="rounded-lg border border-zinc-200 dark:border-zinc-800">
-          <button type="button" onclick={() => githubOpen = !githubOpen}
-            class="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50 rounded-lg">
-            <span>GitHub integration {#if !g.source}<span class="font-normal text-zinc-500">(optional)</span>{/if}</span>
-            <svg width="12" height="12" viewBox="0 0 12 12" class="transition-transform {githubOpen ? 'rotate-90' : ''}">
-              <path d="M4 2 L8 6 L4 10" stroke="currentColor" fill="none" stroke-width="1.5" />
-            </svg>
-          </button>
-          {#if githubOpen}
-            <div class="space-y-4 border-t border-zinc-200 px-4 py-4 dark:border-zinc-800">
-              <div>
-                <label for="source" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Git source URL</label>
-                <input id="source" name="source" type="text" value={g.source ?? ''} placeholder="https://github.com/owner/repo.git" class={inputClass} />
-              </div>
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label for="readBranch" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Read branch</label>
-                  <input id="readBranch" name="readBranch" type="text" value={g.readBranch ?? ''} placeholder="main" class={inputClass} />
-                </div>
-                <div>
-                  <label for="writeBranch" class="mb-1 block text-sm text-zinc-700 dark:text-zinc-300">Write branch</label>
-                  <input id="writeBranch" name="writeBranch" type="text" value={g.writeBranch ?? ''} placeholder="hadron-updates" class={inputClass} />
-                </div>
-              </div>
-            </div>
-          {/if}
-        </div>
-
         <div class="flex gap-3">
           <button type="submit" disabled={saving} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
             {saving ? 'Saving...' : 'Save'}
@@ -346,34 +296,10 @@
             <span class="text-sm text-zinc-900 dark:text-white">{g.tags.join(', ')}</span>
           </div>
         {/if}
-        {#if g.source}
-          <div class="flex items-center justify-between px-5 py-3">
-            <span class="text-sm text-zinc-500">Git source</span>
-            <span class="text-sm font-mono text-zinc-900 dark:text-white">{g.source}</span>
-          </div>
-        {/if}
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class="text-sm text-zinc-500">Sync status</span>
-          <span class="text-sm text-zinc-900 dark:text-white">{g.syncStatus ?? '—'}{#if g.lastSyncedAt} · {new Date(g.lastSyncedAt).toLocaleDateString()}{/if}</span>
-        </div>
         <div class="flex items-center justify-between px-5 py-3">
           <span class="text-sm text-zinc-500">Created</span>
           <span class="text-sm text-zinc-900 dark:text-white">{new Date(g.createdAt).toLocaleDateString()}</span>
         </div>
-      </div>
-
-      <!-- Sync/push actions (outside edit mode) -->
-      <div class="mt-4 flex gap-3">
-        <form method="POST" action="?/sync" use:syncingEnhance>
-          <button type="submit" disabled={syncing} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white disabled:opacity-50">
-            {syncing ? 'Syncing...' : 'Sync from Git'}
-          </button>
-        </form>
-        <form method="POST" action="?/pushToGit" use:pushingEnhance>
-          <button type="submit" disabled={pushing} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white disabled:opacity-50">
-            {pushing ? 'Pushing...' : 'Push to Git'}
-          </button>
-        </form>
       </div>
     {/if}
   </section>
@@ -491,49 +417,6 @@
       {/if}
     </form>
   </section>
-
-  <!-- Subscriptions (not applicable to AGENT_SYSTEM memories) -->
-  {#if !isAgentSystem}
-  <section>
-    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Org subscriptions
-      <span class="ml-1 text-sm font-normal text-zinc-500">({g.subscriptions?.length ?? 0})</span>
-    </h2>
-
-    {#if g.subscriptions?.length}
-      <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-        {#each g.subscriptions as s (s.id)}
-          <div class="flex items-center gap-4 bg-white px-5 py-4 dark:bg-zinc-900">
-            <div class="flex-1">
-              <p class="text-sm text-zinc-900 dark:text-white">{s.organization.name}</p>
-              <p class="font-mono text-xs text-zinc-500">{s.organization.urn}</p>
-            </div>
-            <span class="text-xs text-zinc-500">{s.role}</span>
-            <form method="POST" action="?/unsubscribe" use:enhance>
-              <input type="hidden" name="orgId" value={s.organization.id} />
-              <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
-            </form>
-          </div>
-        {/each}
-      </div>
-    {/if}
-
-    <form method="POST" action="?/subscribe" use:enhance class="flex items-end gap-3 max-w-md">
-      <div class="flex-1">
-        <label for="subOrgId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Organization ID</label>
-        <input id="subOrgId" name="orgId" type="text" required placeholder="org-cuid"
-          class="{inputClass} font-mono" />
-      </div>
-      <div>
-        <label for="subRole" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
-        <select id="subRole" name="role" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-          <option value="READER">Reader</option>
-          <option value="CONTRIBUTOR">Contributor</option>
-        </select>
-      </div>
-      <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">Add</button>
-    </form>
-  </section>
-  {/if}
 
   <!-- Spec 013: Danger zone — soft-delete affordance for authorized users.
        Server-side authz is the trust boundary; the {#if canDelete} hide is
