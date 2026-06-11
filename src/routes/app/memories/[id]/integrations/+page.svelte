@@ -38,9 +38,9 @@
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
-  {#if form?.success || form?.synced || (form as any)?.pushed}
+  {#if form && ('success' in form || 'synced' in form || 'pushed' in form)}
     <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {form?.synced ? t('integrations.synced', 'Memory synced.') : (form as any)?.pushed ? t('integrations.pushed', 'Pushed to Git.') : t('integrations.saved', 'Changes saved.')}
+      {'synced' in form ? t('integrations.synced', 'Memory synced.') : 'pushed' in form ? t('integrations.pushed', 'Pushed to Git.') : t('integrations.saved', 'Changes saved.')}
     </div>
   {/if}
 

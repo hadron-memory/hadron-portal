@@ -1,11 +1,19 @@
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { requireNonConsumer } from '$lib/server/guards';
+import { extractGqlError } from '$lib/server/gqlError';
 import {
   UPDATE_MEMORY_MUTATION,
   SYNC_MEMORY_MUTATION,
   PUSH_MEMORY_TO_GIT_MUTATION,
 } from '$lib/server/queries';
-import type { Actions } from './$types';
+import type { Actions, PageServerLoad } from './$types';
+
+// This is a mutating edit surface (update/sync/push), so — like /settings —
+// keep consumer-mode users out of it.
+export const load: PageServerLoad = async ({ parent }) => {
+  await requireNonConsumer(parent);
+};
 
 // #266: the GitHub integration (source + branches) and sync/push actions split
 // out of the Settings page into their own tab. This `update` touches ONLY the
@@ -23,7 +31,7 @@ export const actions: Actions = {
       });
       return { success: true };
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to update integration' });
+      return fail(500, { error: extractGqlError(e, 'Failed to update integration') });
     }
   },
 
@@ -32,7 +40,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(SYNC_MEMORY_MUTATION, { id: params.id });
       return { synced: true };
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Sync failed' });
+      return fail(500, { error: extractGqlError(e, 'Sync failed') });
     }
   },
 
@@ -41,7 +49,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(PUSH_MEMORY_TO_GIT_MUTATION, { id: params.id });
       return { pushed: true };
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Push to Git failed' });
+      return fail(500, { error: extractGqlError(e, 'Push to Git failed') });
     }
   },
 };
