@@ -21,6 +21,12 @@ export const savedViewsStrings = {
   rename: (): string => t('saved-views.action.rename', 'Rename'),
   remove: (): string => t('saved-views.action.delete', 'Delete'),
   setDefault: (): string => t('saved-views.action.set-default', 'Set as default'),
+  duplicate: (): string => t('saved-views.action.duplicate', 'Duplicate'),
+  duplicateName: (name: string): string => t('saved-views.duplicate-name', `${name} (copy)`),
+  newView: (): string => t('saved-views.action.new', '+ New view'),
+  actionsLabel: (): string => t('saved-views.actions-label', 'View actions'),
+  unsavedChanges: (): string => t('saved-views.unsaved-changes', 'Unsaved changes'),
+  updateError: (): string => t('saved-views.error.update', 'Could not update views.'),
 
   namePrompt: (): string => t('saved-views.prompt.name', 'View name'),
   renamePrompt: (): string => t('saved-views.prompt.rename', 'Rename view'),

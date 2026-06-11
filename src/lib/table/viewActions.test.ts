@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { Table } from '@tanstack/table-core';
 import { LocalStorageViewStore } from './localStorageViewStore';
-import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve } from './viewActions';
+import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, duplicateView } from './viewActions';
 
 function fakeStorage(): Storage {
   const m = new Map<string, string>();
@@ -122,5 +122,21 @@ describe('removeAndResolve', () => {
     expect(res.activeId).toBeNull();
     expect(t.calls).toContain('reset');
     expect(await s.getActiveId(KEY)).toBeNull();
+  });
+});
+
+describe('duplicateView', () => {
+  it('creates a copy of the source view, applies it, and makes it active', async () => {
+    const s = store();
+    const t = tableStub();
+    const src = await createViewFrom(s, t, KEY, 'Original', true);
+    const copy = await duplicateView(s, t, KEY, src, 'Original (copy)');
+    expect(copy.id).not.toBe(src.id);
+    expect(copy.name).toBe('Original (copy)');
+    expect(copy.isDefault).toBe(false);
+    expect(copy.view).toEqual(src.view);
+    expect(t.calls).toContain('setSorting'); // applied to the table
+    expect(await s.getActiveId(KEY)).toBe(copy.id);
+    expect(await s.list(KEY)).toHaveLength(2);
   });
 });
