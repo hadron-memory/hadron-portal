@@ -24,22 +24,17 @@
   // Node detail / create pages bring their own chrome — hide the tab layout there
   // (the regex matches /nodes/<id> and /nodes/new).
   const isNodeDetail = $derived(/\/nodes\/[^/]+/.test(path));
-  const activeTab = $derived(
-    path === `${basePath}/info`
-      ? 'info'
-      : path === `${basePath}/graph`
-        ? 'graph'
-        : path === `${basePath}/settings`
-          ? 'settings'
-          : 'nodes',
-  );
-
   const tabs = $derived([
     { id: 'info', label: t('memory-detail.tab.info', 'Info'), href: `${basePath}/info` },
     { id: 'nodes', label: t('memory-detail.tab.nodes', 'Nodes'), href: `${basePath}/nodes` },
     { id: 'graph', label: t('memory-detail.tab.graph', 'Graph'), href: `${basePath}/graph` },
     { id: 'settings', label: t('memory-detail.tab.settings', 'Settings'), href: `${basePath}/settings` },
+    { id: 'integrations', label: t('memory-detail.tab.integrations', 'Integrations'), href: `${basePath}/integrations` },
+    { id: 'subscriptions', label: t('memory-detail.tab.subscriptions', 'Subscriptions'), href: `${basePath}/subscriptions` },
   ]);
+
+  // The active tab is the sub-route's last segment (falls back to nodes).
+  const activeTab = $derived(tabs.find((tb) => path === tb.href)?.id ?? 'nodes');
 </script>
 
 <div class="space-y-4">
