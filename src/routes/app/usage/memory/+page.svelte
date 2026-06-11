@@ -10,7 +10,7 @@
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
-  import ViewPicker from '$lib/components/table/ViewPicker.svelte';
+  import ViewTabs from '$lib/components/table/ViewTabs.svelte';
   import ColumnToggle from '$lib/components/table/ColumnToggle.svelte';
   import type { PageData } from './$types';
 
@@ -90,12 +90,14 @@
   ]} />
   <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">Memory Usage</h1>
 
-  <!-- Filter + page size -->
+  <!-- Saved-views tab strip -->
+  <ViewTabs {table} listKey="usage:memory" />
+
+  <!-- Filter + columns -->
   <div class="flex items-center gap-4">
     <input type="text" placeholder="Search events..." bind:value={globalFilter}
       class="max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
     <ColumnToggle {table} />
-    <ViewPicker {table} listKey="usage:memory" />
   </div>
 
   {#if data.events.length === 0}
@@ -103,7 +105,7 @@
   {:else}
     <!-- Bounded, internally-scrolling container; sticky header; footer stays
          visible below. (Tune the offset below.) -->
-    <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: calc(100vh - 19rem);">
+    <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: calc(100vh - 23rem);">
       <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
         <thead>
           {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}

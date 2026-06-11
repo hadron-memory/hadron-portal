@@ -113,7 +113,6 @@
     {#each sortedViews as v (v.id)}
       {#if v.id === ctrl.activeId}
         <div class="{tabBase} {activeTab}" title={v.name}>
-          {#if v.isDefault}<span class="text-amber-500" aria-label="Default">★</span>{/if}
           <span class="truncate">{v.name}</span>
           {#if ctrl.isModified}<span class="text-amber-500" title="Unsaved changes">•</span>{/if}
           <button
@@ -131,7 +130,6 @@
           onclick={() => run(ctrl.select(v.id))}
           class="{tabBase} {inactiveTab}"
         >
-          {#if v.isDefault}<span class="text-amber-500" aria-label="Default">★</span>{/if}
           <span class="truncate">{v.name}</span>
         </button>
       {/if}

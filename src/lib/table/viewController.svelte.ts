@@ -1,6 +1,6 @@
 // Runes controller binding a grid `table` + `listKey` + `ViewStore` (spec 020).
 // Holds the reactive picker state and the actions; this is the testable logic
-// (the ViewPicker component is a thin shell over it).
+// (the ViewTabs component is a thin shell over it).
 import type { Table, RowData } from '@tanstack/table-core';
 import { extractView, applyView, serializeView } from './savedView';
 import { type ViewStore, type SavedViewRecord, resolveInitialView } from './viewStore';

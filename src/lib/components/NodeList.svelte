@@ -13,7 +13,7 @@
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
-  import ViewPicker from './table/ViewPicker.svelte';
+  import ViewTabs from './table/ViewTabs.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
@@ -97,7 +97,7 @@
 
   onMount(() => {
     // Seed the legacy standalone page-size. When saved views are enabled, the
-    // ViewPicker's init() is async (awaits storage), so it resumes AFTER this
+    // ViewTabs' init() is async (awaits storage), so it resumes AFTER this
     // synchronous seed and overrides the page size from the active view if one
     // exists — and leaves this seed in place when no view is active (spec D7).
     try {
@@ -180,6 +180,9 @@
 </script>
 
 <div class="space-y-3">
+  {#if !orderable && listKey}
+    <ViewTabs {table} {listKey} />
+  {/if}
   <div class="flex items-center gap-4">
     <input
       type="text"
@@ -189,9 +192,6 @@
     />
     {#if !orderable}
       <ColumnToggle {table} />
-    {/if}
-    {#if !orderable && listKey}
-      <ViewPicker {table} {listKey} />
     {/if}
   </div>
 
@@ -203,7 +203,7 @@
          the `7rem`); the orderable children list keeps its natural height. -->
     <div
       class="rounded-lg border border-zinc-200 dark:border-zinc-800 {orderable ? 'overflow-x-auto' : 'overflow-auto'}"
-      style={orderable ? '' : 'max-height: calc(var(--memory-browser-h, calc(100vh - 24rem)) - 7rem);'}
+      style={orderable ? '' : 'max-height: calc(var(--memory-browser-h, calc(100vh - 24rem)) - 10rem);'}
     >
       <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize() + (orderable ? 32 : 0)}px);">
         <thead>
