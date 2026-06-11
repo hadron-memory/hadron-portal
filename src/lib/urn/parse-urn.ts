@@ -23,6 +23,28 @@
  */
 
 // ============================================================================
+// URN resolver normalization — #262
+// ============================================================================
+
+/**
+ * Normalize a URN as received in the `/app/u/<urn>` route segment before
+ * handing it to the server's `resolveUrn` query.
+ *
+ * SvelteKit already URL-decodes the path segment, so a programmatically
+ * generated `encodeURIComponent('urn:memory:…')` link arrives here already
+ * decoded. The only normalization needed is trimming stray surrounding
+ * whitespace (e.g. from a copy-paste that grabbed a trailing space).
+ *
+ * The `urn:<type>:` prefix is the server's dispatch key, so it is preserved
+ * verbatim. A bare (un-prefixed) URN is left untouched — it is ambiguous
+ * across kinds (`org::slug` could be a memory or an agent) and the server
+ * resolves it to null, which the route turns into a 404.
+ */
+export function normalizeUrn(raw: string): string {
+  return raw.trim();
+}
+
+// ============================================================================
 // Legacy display surface — spec 010
 // ============================================================================
 

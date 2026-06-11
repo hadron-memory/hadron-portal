@@ -1140,6 +1140,21 @@ export const NODE_QUERY = /* GraphQL */ `
   }
 `;
 
+// #262: resolve a `urn:<type>:`-prefixed URN to the ids the /app/u/<urn>
+// route needs to redirect to the resource's canonical page. Returns null
+// when unresolvable OR the caller lacks access (collapsed to a 404 by the
+// route, so existence is never disclosed).
+export const RESOLVE_URN_QUERY = /* GraphQL */ `
+  query ResolveUrn($urn: String!) {
+    resolveUrn(urn: $urn) {
+      kind
+      id
+      memoryId
+      organizationId
+    }
+  }
+`;
+
 export const NODE_BY_ID_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodeById($id: ID!) {
