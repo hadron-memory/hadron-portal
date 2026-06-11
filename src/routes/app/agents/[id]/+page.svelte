@@ -789,7 +789,7 @@
                 </span>
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium">
-                    <a href="/app/memories/{item.memory.id}/browse" class="text-indigo-600 hover:underline dark:text-indigo-300">{item.memory.name}</a>
+                    <a href="/app/memories/{item.memory.id}" class="text-indigo-600 hover:underline dark:text-indigo-300">{item.memory.name}</a>
                     {#if memVisRank(item.memory.visibility) < visibilityRank[agent.visibility]}
                       <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="More restrictive than agent">{memVisLabel(item.memory.visibility)}</span>
                     {/if}

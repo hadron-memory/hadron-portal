@@ -310,7 +310,7 @@
   <Breadcrumb items={[
     { label: 'Memories', href: memoriesHref },
     { label: data.graph.name, href: basePath },
-    { label: 'Nodes', href: `${basePath}/browse` },
+    { label: 'Nodes', href: `${basePath}/nodes` },
     ...data.breadcrumb.slice(0, -1).map((seg) =>
       seg.nodeId
         ? { label: seg.label, href: `${basePath}/nodes/${seg.nodeId}` }
@@ -641,7 +641,7 @@
             {#if !isEditing}
               <div class="flex items-center gap-2">
                 <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
-                <a href="{basePath}/browse?focus={node.id}" class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Graph</a>
+                <a href="{basePath}/graph?focus={node.id}" class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Graph</a>
               </div>
             {/if}
           </div>

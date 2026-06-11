@@ -23,11 +23,14 @@
     basePath = '',
     multiMemory = false,
     writableMemoryIds = [],
+    forcedView,
   }: {
     nodes: MemoryNode[];
     basePath?: string;
     multiMemory?: boolean;
     writableMemoryIds?: string[];
+    /** When set (the #266 tab layout), fixes the view and hides the toggle. */
+    forcedView?: 'graph' | 'nodes';
   } = $props();
 
   const writableSet = $derived(new Set(writableMemoryIds));
@@ -53,11 +56,13 @@
       return 'graph';
     }
   }
-  let activeView = $state<'graph' | 'nodes'>(readStoredView());
+  // forcedView (the #266 tab layout) overrides the persisted toggle choice.
+  let storedView = $state<'graph' | 'nodes'>(readStoredView());
+  const activeView = $derived(forcedView ?? storedView);
   $effect(() => {
-    if (typeof window === 'undefined') return;
+    if (forcedView || typeof window === 'undefined') return;
     try {
-      window.localStorage.setItem(VIEW_MODE_KEY, activeView);
+      window.localStorage.setItem(VIEW_MODE_KEY, storedView);
     } catch {
       /* ignore quota / disabled storage */
     }
@@ -76,7 +81,7 @@
   // the node is selected and centered, and we switch to the graph view.
   const focusId = $derived($page.url.searchParams.get('focus') ?? undefined);
   $effect(() => {
-    if (focusId) activeView = 'graph';
+    if (focusId && !forcedView) storedView = 'graph';
   });
 
   function startDrag(e: MouseEvent) {
@@ -418,18 +423,21 @@
       <button onclick={clearAllFilters} class="text-xs text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Clear all</button>
     {/if}
 
-    <!-- Right: view toggle + count -->
+    <!-- Right: view toggle + count. The toggle is hidden when the view is fixed
+         by the tab layout (#266). -->
     <div class="ml-auto flex items-center gap-3">
-      <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
-        <button
-          onclick={() => activeView = 'graph'}
-          class="px-2.5 py-1 text-xs {activeView === 'graph' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
-        >Graph</button>
-        <button
-          onclick={() => activeView = 'nodes'}
-          class="px-2.5 py-1 text-xs {activeView === 'nodes' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
-        >Nodes</button>
-      </div>
+      {#if !forcedView}
+        <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+          <button
+            onclick={() => storedView = 'graph'}
+            class="px-2.5 py-1 text-xs {activeView === 'graph' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+          >Graph</button>
+          <button
+            onclick={() => storedView = 'nodes'}
+            class="px-2.5 py-1 text-xs {activeView === 'nodes' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+          >Nodes</button>
+        </div>
+      {/if}
       <span class="text-xs text-zinc-400">{searchedNodes.length}{searchedNodes.length !== nodes.length ? ` / ${nodes.length}` : ''}</span>
     </div>
   </div>

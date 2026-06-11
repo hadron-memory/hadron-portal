@@ -96,7 +96,7 @@
         {#each org.memories as g (g.id)}
           <div class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
             <div class="flex items-center justify-between">
-              <a href="/app/memories/{g.id}/browse" class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">{g.name}</a>
+              <a href="/app/memories/{g.id}" class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">{g.name}</a>
               <span class="rounded px-1.5 py-0.5 text-xs {g.visibility === 'PUBLIC' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{g.visibility}</span>
             </div>
             <Urn value={g.urn} type="memory" size={10} />
