@@ -28,7 +28,7 @@
       await action;
       error = null;
     } catch (e) {
-      error = e instanceof ViewStorageError ? e.message : 'Could not update views.';
+      error = e instanceof ViewStorageError ? e.message : s.updateError();
     }
   }
 
@@ -49,7 +49,7 @@
       return;
     }
     const r = caretEl?.getBoundingClientRect();
-    if (r) menuPos = { top: r.bottom + 4, left: Math.min(r.left, window.innerWidth - MENU_W - 8) };
+    if (r) menuPos = { top: r.bottom + 4, left: Math.max(8, Math.min(r.left, window.innerWidth - MENU_W - 8)) };
     menuOpen = true;
   }
 
@@ -114,11 +114,13 @@
       {#if v.id === ctrl.activeId}
         <div class="{tabBase} {activeTab}" title={v.name}>
           <span class="truncate">{v.name}</span>
-          {#if ctrl.isModified}<span class="text-amber-500" title="Unsaved changes">•</span>{/if}
+          {#if ctrl.isModified}<span class="text-amber-500" title={s.unsavedChanges()}>•</span>{/if}
           <button
             bind:this={caretEl}
             type="button"
             aria-label={s.actionsLabel()}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
             onclick={toggleMenu}
             class="ml-0.5 rounded px-1 text-xs text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600 dark:hover:bg-zinc-700 dark:hover:text-zinc-200"
           >▾</button>
@@ -159,12 +161,13 @@
 {#if menuOpen && ctrl.activeView}
   <div
     bind:this={menuEl}
+    role="menu"
     class="fixed z-30 w-44 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
     style="top: {menuPos.top}px; left: {menuPos.left}px;"
   >
-    <button type="button" class={menuItem} onclick={renameActive}>{s.rename()}</button>
-    <button type="button" class={menuItem} onclick={() => menuAction(() => ctrl.duplicate(ctrl.activeView!.id))}>{s.duplicate()}</button>
-    <button type="button" class={menuItem} disabled={ctrl.activeView.isDefault} onclick={() => menuAction(() => ctrl.setDefault(ctrl.activeView!.id))}>{s.setDefault()}</button>
-    <button type="button" class="{menuItem} text-red-600 dark:text-red-400" onclick={deleteActive}>{s.remove()}</button>
+    <button type="button" role="menuitem" class={menuItem} onclick={renameActive}>{s.rename()}</button>
+    <button type="button" role="menuitem" class={menuItem} onclick={() => menuAction(() => ctrl.duplicate(ctrl.activeView!.id))}>{s.duplicate()}</button>
+    <button type="button" role="menuitem" class={menuItem} disabled={ctrl.activeView.isDefault} onclick={() => menuAction(() => ctrl.setDefault(ctrl.activeView!.id))}>{s.setDefault()}</button>
+    <button type="button" role="menuitem" class="{menuItem} text-red-600 dark:text-red-400" onclick={deleteActive}>{s.remove()}</button>
   </div>
 {/if}

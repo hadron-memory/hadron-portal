@@ -126,15 +126,16 @@ describe('removeAndResolve', () => {
 });
 
 describe('duplicateView', () => {
-  it('creates a copy of the source view and makes it active', async () => {
+  it('creates a copy of the source view, applies it, and makes it active', async () => {
     const s = store();
     const t = tableStub();
     const src = await createViewFrom(s, t, KEY, 'Original', true);
-    const copy = await duplicateView(s, KEY, src, 'Original (copy)');
+    const copy = await duplicateView(s, t, KEY, src, 'Original (copy)');
     expect(copy.id).not.toBe(src.id);
     expect(copy.name).toBe('Original (copy)');
     expect(copy.isDefault).toBe(false);
     expect(copy.view).toEqual(src.view);
+    expect(t.calls).toContain('setSorting'); // applied to the table
     expect(await s.getActiveId(KEY)).toBe(copy.id);
     expect(await s.list(KEY)).toHaveLength(2);
   });

@@ -69,14 +69,20 @@ export async function removeAndResolve<T extends RowData>(
   return { views, activeId: null };
 }
 
-/** Create a copy of a saved view (its stored arrangement, not live state) and make it active. */
-export async function duplicateView(
+/**
+ * Create a copy of a saved view (its stored arrangement, not the live state),
+ * apply it to the table, and make it active — so the table matches the new
+ * active view rather than leaving stale/tweaked live state behind.
+ */
+export async function duplicateView<T extends RowData>(
   store: ViewStore,
+  table: Table<T>,
   listKey: string,
   src: SavedViewRecord,
   name: string,
 ): Promise<SavedViewRecord> {
   const record = await store.create(listKey, name, src.view);
+  applyView(table, record.view);
   await store.setActiveId(listKey, record.id);
   return record;
 }

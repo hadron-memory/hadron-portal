@@ -6,6 +6,7 @@ import { extractView, applyView, serializeView } from './savedView';
 import { type ViewStore, type SavedViewRecord, resolveInitialView } from './viewStore';
 import { localStorageViewStore } from './localStorageViewStore';
 import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, duplicateView } from './viewActions';
+import { savedViewsStrings as s } from '$lib/i18n/saved-views-strings';
 
 export interface ViewController {
   readonly views: SavedViewRecord[];
@@ -97,7 +98,7 @@ export function createViewController<T extends RowData>(args: {
   async function duplicate(id: string) {
     const src = views.find((v) => v.id === id);
     if (!src) return;
-    const record = await duplicateView(store, listKey, src, `${src.name} (copy)`);
+    const record = await duplicateView(store, table, listKey, src, s.duplicateName(src.name));
     await refresh();
     activeId = record.id;
   }
