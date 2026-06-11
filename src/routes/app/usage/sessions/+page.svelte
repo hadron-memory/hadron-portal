@@ -131,7 +131,7 @@
     <!-- Bounded, internally-scrolling container so the page itself doesn't scroll
          and the pagination footer below stays visible. The `<thead>` is sticky so
          column headers remain while the body scrolls. (Tune the offset below.) -->
-    <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: calc(100vh - 19rem);">
+    <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: calc(100vh - 23rem);">
       <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
         <thead>
           {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
