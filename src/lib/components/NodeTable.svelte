@@ -8,6 +8,7 @@
     type ColumnDef,
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { t } from '$lib/i18n/t';
   import Urn from './Urn.svelte';
   import ViewPicker from './table/ViewPicker.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
@@ -43,8 +44,8 @@
   let globalFilter = $state('');
 
   const columns: ColumnDef<NodeRow>[] = [
-    { accessorKey: 'name', header: 'Name', enableHiding: false }, // identity column
-    { accessorFn: (n) => n.description ?? '', id: 'description', header: 'Description' },
+    { accessorKey: 'name', header: t('common.name', 'Name'), enableHiding: false, size: 300 }, // identity column
+    { accessorFn: (n) => n.description ?? '', id: 'description', header: t('common.description', 'Description'), size: 400 },
   ];
 
   const table = createSvelteTable<NodeRow>({
@@ -53,6 +54,8 @@
     },
     columns,
     enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
     state: {
       get globalFilter() {
         return globalFilter;
@@ -85,17 +88,30 @@
   {#if nodes.length === 0}
     <p class="text-sm text-zinc-500">{emptyLabel}</p>
   {:else}
-    <div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-      <table class="w-full text-sm">
+    <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: 60vh;">
+      <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
         <thead>
           {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
-            <tr class="border-b border-zinc-200 bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+            <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
               {#each headerGroup.headers as header (header.id)}
-                <th class="cursor-pointer select-none px-4 py-2.5 hover:text-zinc-700 dark:hover:text-zinc-200" onclick={header.column.getToggleSortingHandler()}>
-                  <div class="flex items-center gap-1">
-                    {header.column.columnDef.header}
+                <th
+                  class="sticky top-0 z-10 cursor-pointer select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 hover:text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:text-zinc-200"
+                  style="width: {header.getSize()}px;"
+                  onclick={header.column.getToggleSortingHandler()}
+                >
+                  <div class="flex min-w-0 items-center gap-1">
+                    <span class="min-w-0 truncate">{header.column.columnDef.header}</span>
                     <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
                   </div>
+                  {#if header.column.getCanResize()}
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <div
+                      class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
+                      onmousedown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
+                      ontouchstart={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
+                      onclick={(e) => e.stopPropagation()}
+                    ></div>
+                  {/if}
                 </th>
               {/each}
             </tr>
@@ -111,17 +127,19 @@
             >
               {#each row.getVisibleCells() as cell (cell.id)}
                 {#if cell.column.id === 'name'}
-                  <td class="px-4 py-2.5">
-                    <div class="flex items-center gap-2">
-                      <span class="font-medium {onselect ? 'text-indigo-600 dark:text-indigo-300' : 'text-zinc-900 dark:text-white'}">{n.name}</span>
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
+                    <div class="flex min-w-0 items-center gap-2">
+                      <span class="min-w-0 truncate font-medium {onselect ? 'text-indigo-600 dark:text-indigo-300' : 'text-zinc-900 dark:text-white'}">{n.name}</span>
                       {#if n.nodeType}
-                        <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{n.nodeType}</span>
+                        <span class="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{n.nodeType}</span>
                       {/if}
                     </div>
-                    <div class="mt-0.5"><Urn value={n.urn} type="node" size={8} /></div>
+                    <div class="mt-0.5 truncate"><Urn value={n.urn} type="node" size={8} /></div>
                   </td>
                 {:else if cell.column.id === 'description'}
-                  <td class="max-w-xs truncate px-4 py-2.5 text-xs text-zinc-500">{n.description ?? '—'}</td>
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-500 dark:border-zinc-800">
+                    <div class="truncate">{n.description ?? '—'}</div>
+                  </td>
                 {/if}
               {/each}
             </tr>
