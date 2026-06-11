@@ -24,6 +24,7 @@ const view = (): SavedView => ({
   globalFilter: '',
   columnVisibility: {},
   columnOrder: [],
+  columnSizing: {},
   pagination: { pageIndex: 0, pageSize: 25 },
 });
 
@@ -112,5 +113,33 @@ describe('LocalStorageViewStore', () => {
     expect(await s.getActiveId(KEY)).toBeNull();
     // writes surface a typed error
     await expect(s.create(KEY, 'A', view())).rejects.toBeInstanceOf(ViewStorageError);
+  });
+
+  it('normalizes legacy stored views missing newer slices (forward-compat)', async () => {
+    const storage = fakeStorage();
+    // A record saved before columnSizing existed (no columnSizing key).
+    const legacy = [
+      {
+        id: 'legacy-1',
+        listKey: KEY,
+        name: 'Legacy',
+        isDefault: false,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        view: {
+          sorting: [],
+          columnFilters: [],
+          globalFilter: '',
+          columnVisibility: {},
+          columnOrder: [],
+          pagination: { pageIndex: 0, pageSize: 20 },
+        },
+      },
+    ];
+    storage.setItem(`hadron:views:v1:${KEY}`, JSON.stringify(legacy));
+    const s = new LocalStorageViewStore(storage);
+    const got = await s.list(KEY);
+    // missing slice is filled so it won't read as perpetually "modified"
+    expect(got[0].view.columnSizing).toEqual({});
   });
 });

@@ -11,6 +11,7 @@ import type {
   ColumnFiltersState,
   VisibilityState,
   ColumnOrderState,
+  ColumnSizingState,
   PaginationState,
   Table,
   RowData,
@@ -23,6 +24,7 @@ export interface SavedView {
   globalFilter: string;
   columnVisibility: VisibilityState;
   columnOrder: ColumnOrderState;
+  columnSizing: ColumnSizingState;
   pagination: PaginationState;
 }
 
@@ -34,6 +36,7 @@ export function extractView(state: TableState): SavedView {
     globalFilter: typeof state.globalFilter === 'string' ? state.globalFilter : '',
     columnVisibility: state.columnVisibility,
     columnOrder: state.columnOrder,
+    columnSizing: state.columnSizing,
     pagination: state.pagination,
   };
 }
@@ -50,6 +53,7 @@ export function applyView<T extends RowData>(table: Table<T>, view: SavedView): 
   table.setGlobalFilter(view.globalFilter ?? '');
   table.setColumnVisibility(view.columnVisibility ?? {});
   table.setColumnOrder(view.columnOrder ?? []);
+  table.setColumnSizing(view.columnSizing ?? {});
   table.setPagination(view.pagination ?? { pageIndex: 0, pageSize: 25 });
 }
 
@@ -73,6 +77,25 @@ function validPagination(p: unknown): PaginationState {
 // Input may come from persisted storage or hand edits, so validate each slice's
 // shape (array vs object, numeric pagination) and fall back to defaults rather
 // than trust the JSON — a malformed slice would otherwise crash table consumers.
+/**
+ * Coerce a possibly-partial/legacy view object into a complete SavedView,
+ * defaulting any missing slice. Critical for forward-compat: an older stored
+ * view (e.g. saved before `columnSizing` existed) must normalize to the full
+ * shape, or it would always compare as "modified" against current state.
+ */
+export function normalizeView(v: unknown): SavedView {
+  const o = isObject(v) ? v : {};
+  return {
+    sorting: Array.isArray(o.sorting) ? (o.sorting as SortingState) : [],
+    columnFilters: Array.isArray(o.columnFilters) ? (o.columnFilters as ColumnFiltersState) : [],
+    globalFilter: typeof o.globalFilter === 'string' ? o.globalFilter : '',
+    columnVisibility: isObject(o.columnVisibility) ? (o.columnVisibility as VisibilityState) : {},
+    columnOrder: Array.isArray(o.columnOrder) ? (o.columnOrder as ColumnOrderState) : [],
+    columnSizing: isObject(o.columnSizing) ? (o.columnSizing as ColumnSizingState) : {},
+    pagination: validPagination(o.pagination),
+  };
+}
+
 export function deserializeView(json: string): SavedView | null {
   let v: unknown;
   try {
@@ -81,12 +104,5 @@ export function deserializeView(json: string): SavedView | null {
     return null;
   }
   if (!isObject(v)) return null;
-  return {
-    sorting: Array.isArray(v.sorting) ? (v.sorting as SortingState) : [],
-    columnFilters: Array.isArray(v.columnFilters) ? (v.columnFilters as ColumnFiltersState) : [],
-    globalFilter: typeof v.globalFilter === 'string' ? v.globalFilter : '',
-    columnVisibility: isObject(v.columnVisibility) ? (v.columnVisibility as VisibilityState) : {},
-    columnOrder: Array.isArray(v.columnOrder) ? (v.columnOrder as ColumnOrderState) : [],
-    pagination: validPagination(v.pagination),
-  };
+  return normalizeView(v);
 }
