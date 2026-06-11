@@ -2,6 +2,7 @@
   // #266: memory-detail is a tab layout. The layout renders the breadcrumb +
   // header + tab bar; each tab is a sub-route rendered via {@render children()}.
   import { page } from '$app/stores';
+  import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { t } from '$lib/i18n/t';
@@ -75,5 +76,12 @@
     </div>
   {/if}
 
+  <!-- Nodes/Graph share one MemoryBrowser rendered HERE (in the persistent
+       layout) so its tree width, open/closed, search, and filters survive
+       switching between the two tabs (the page components would remount). The
+       page components only set the <title>. -->
+  {#if !isNodeDetail && (activeTab === 'nodes' || activeTab === 'graph')}
+    <MemoryBrowser nodes={data.graphNodes ?? []} {basePath} forcedView={activeTab} />
+  {/if}
   {@render children()}
 </div>
