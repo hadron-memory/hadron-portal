@@ -7,7 +7,7 @@ import type { PageServerLoad } from './$types';
 /**
  * #262 — URN resolver route. Takes a Hadron URN in a single path segment
  * (URNs are colon-delimited, never slash-delimited, so the whole URN fits
- * one SvelteKit segment) and 308-redirects to the resource's canonical
+ * one SvelteKit segment) and 307-redirects to the resource's canonical
  * PK-based page. URN links are stable, shareable aliases that survive PK
  * changes; the canonical page stays the single real page per resource.
  *
@@ -25,6 +25,8 @@ type UrnResolution = {
   organizationId: string | null;
 };
 
+const KNOWN_KINDS = new Set<UrnResolution['kind']>(['memory', 'node', 'agent', 'org', 'app']);
+
 export const load: PageServerLoad = async ({ params, locals }) => {
   const urn = normalizeUrn(params.urn);
 
@@ -38,14 +40,27 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   const target = canonicalPath(resolveUrn);
   if (!target) {
-    // A kind we resolved but have no canonical portal page for yet. Treat as
-    // not-found rather than redirecting to a broken path.
-    throw error(404, `No canonical page for ${resolveUrn.kind} URNs yet.`);
+    if (!KNOWN_KINDS.has(resolveUrn.kind)) {
+      // A kind the server resolved but the portal has no canonical page for.
+      throw error(404, `No canonical portal page for "${resolveUrn.kind}" URNs.`);
+    }
+    // Known kind, but a required parent id was missing (node without memoryId,
+    // app without organizationId) — a malformed/incomplete resolution rather
+    // than a normal not-found. Surface that explicitly instead of redirecting
+    // to a broken path.
+    throw error(
+      500,
+      `Incomplete resolution for "${urn}": the ${resolveUrn.kind} is missing the ids needed to build its page.`,
+    );
   }
 
-  // 308 (permanent, method-preserving) — URN aliases are stable, so the
-  // redirect is cacheable.
-  redirect(308, target);
+  // 307 (temporary, method-preserving) — NOT 308. URN aliases deliberately
+  // survive PK changes (#262), so the canonical target can change over time;
+  // a permanent redirect would be cached by browsers/proxies and bypass this
+  // resolver forever, stranding clients on a stale PK. 307 also keeps the
+  // access check fresh on every visit. The extra round-trip is the accepted
+  // cost of stable aliases.
+  redirect(307, target);
 };
 
 /** Map a resolved URN to its canonical PK-based portal path. */

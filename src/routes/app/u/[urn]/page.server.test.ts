@@ -1,7 +1,7 @@
 /**
  * #262 — tests for the /app/u/[urn] URN resolver route. Mocks the server's
  * `resolveUrn` query (via $lib/server/api's gqlClient) and asserts the route
- * turns each kind's resolution into the right 308 redirect, and a null
+ * turns each kind's resolution into the right 307 redirect, and a null
  * resolution into a 404.
  *
  * Strategy mirrors layout.server.test.ts: mock gqlClient, import `load`,
@@ -53,12 +53,12 @@ async function expectError(urn: string): Promise<{ status: number }> {
 }
 
 describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
-  it('redirects a memory URN to /app/memories/{id} (308)', async () => {
+  it('redirects a memory URN to /app/memories/{id} (307)', async () => {
     mockRequest.mockResolvedValueOnce({
       resolveUrn: { kind: 'memory', id: 'mem-1', memoryId: null, organizationId: null },
     });
     const r = await expectRedirect('urn:memory:acme.com::dev');
-    expect(r.status).toBe(308);
+    expect(r.status).toBe(307);
     expect(r.location).toBe('/app/memories/mem-1');
   });
 
@@ -67,7 +67,7 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
       resolveUrn: { kind: 'node', id: 'node-1', memoryId: 'mem-9', organizationId: null },
     });
     const r = await expectRedirect('urn:node:acme.com::dev::findings:foo');
-    expect(r.status).toBe(308);
+    expect(r.status).toBe(307);
     expect(r.location).toBe('/app/memories/mem-9/nodes/node-1');
   });
 
@@ -103,12 +103,14 @@ describe('/app/u/[urn] — unresolvable and inaccessible URNs 404', () => {
     expect(r.status).toBe(404);
   });
 
-  it('404s a node resolution missing memoryId rather than building a broken path', async () => {
+  it('500s (not a broken redirect) when a node resolves without a memoryId', async () => {
+    // A known kind missing its required parent id is an incomplete/malformed
+    // resolution, distinct from a clean not-found — surfaced as 500, not 404.
     mockRequest.mockResolvedValueOnce({
       resolveUrn: { kind: 'node', id: 'node-1', memoryId: null, organizationId: null },
     });
     const r = await expectError('urn:node:acme.com::dev::x');
-    expect(r.status).toBe(404);
+    expect(r.status).toBe(500);
   });
 
   it('passes the URN through to the server verbatim (trimmed)', async () => {
