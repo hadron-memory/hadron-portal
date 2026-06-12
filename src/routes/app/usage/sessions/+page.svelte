@@ -12,6 +12,7 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ViewTabs from '$lib/components/table/ViewTabs.svelte';
   import ColumnToggle from '$lib/components/table/ColumnToggle.svelte';
+  import { t } from '$lib/i18n/t';
   import { tableStrings } from '$lib/i18n/table-strings';
   import type { PageData } from './$types';
 
@@ -121,7 +122,7 @@
 
   <!-- Filter + columns -->
   <div class="flex items-center gap-4">
-    <input type="text" placeholder="Search sessions..." aria-label="Search sessions" bind:value={globalFilter}
+    <input type="text" placeholder={t('sessions.search.placeholder', 'Search sessions...')} aria-label={t('sessions.search.aria-label', 'Search sessions')} bind:value={globalFilter}
       class="max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
     <ColumnToggle {table} />
   </div>
