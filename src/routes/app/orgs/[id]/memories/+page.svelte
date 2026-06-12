@@ -19,11 +19,9 @@
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
-  import ViewTabs from '$lib/components/table/ViewTabs.svelte';
-  import ColumnToggle from '$lib/components/table/ColumnToggle.svelte';
+  import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
-  import { tableStrings } from '$lib/i18n/table-strings';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -156,13 +154,7 @@
     getPaginationRowModel: getPaginationRowModel(),
   });
 
-  const pageSize = $derived(table.getState().pagination.pageSize);
-  const pageIndex = $derived(table.getState().pagination.pageIndex);
-  const pageCount = $derived(table.getPageCount());
 
-  function sortIndicator(state: false | 'asc' | 'desc'): string {
-    return state === 'asc' ? '▲' : state === 'desc' ? '▼' : '⇅';
-  }
 </script>
 
 <svelte:head><title>Memories · {org.name} · Hadron</title></svelte:head>
@@ -203,122 +195,46 @@
       No memories yet. <a href="/app/orgs/{org.id}/memories/new" class="text-indigo-600 hover:underline dark:text-indigo-400">Add one →</a>
     </div>
   {:else}
-    <!-- Saved-views tab strip -->
-    <ViewTabs {table} listKey="orgs:memories" />
-
-    <!-- Filter + columns -->
-    <div class="flex items-center gap-4">
-      <input type="text" placeholder={t('org-memories.search.placeholder', 'Search memories...')} aria-label={t('org-memories.search.aria-label', 'Search memories')} bind:value={globalFilter}
-        class="max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-      <ColumnToggle {table} />
-    </div>
-
-    <!-- Bounded, internally-scrolling container so the page itself doesn't
-         scroll and the pagination footer below stays visible. The `<thead>`
-         is sticky so column headers remain while the body scrolls. The 200px
-         floor keeps the body visible on short viewports. The 28rem offset is
-         tuned per page to this page's chrome height (header buttons, banners,
-         tab strip, footer, subscribe form below) — same convention as the
-         sessions/api-keys grids, which use smaller offsets. -->
-    <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: max(200px, calc(100vh - 28rem));">
-      <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
-        <thead>
-          {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
-            <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-              {#each headerGroup.headers as header (header.id)}
-                <th
-                  class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''}"
-                  style="width: {header.getSize()}px;"
-                  tabindex={header.column.getCanSort() ? 0 : undefined}
-                  aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
-                  onclick={header.column.getToggleSortingHandler()}
-                  onkeydown={(e) => {
-                    if (header.column.getCanSort() && (e.key === 'Enter' || e.key === ' ')) {
-                      e.preventDefault();
-                      header.column.getToggleSortingHandler()?.(e);
-                    }
-                  }}
-                >
-                  <div class="flex min-w-0 items-center gap-1">
-                    <span class="min-w-0 truncate">{header.column.columnDef.header}</span>
-                    {#if header.column.getCanSort()}
-                      <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
-                    {/if}
-                  </div>
-                  {#if header.column.getCanResize()}
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div
-                      class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
-                      onmousedown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
-                      ontouchstart={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
-                      onclick={(e) => e.stopPropagation()}
-                    ></div>
-                  {/if}
-                </th>
-              {/each}
-            </tr>
-          {/each}
-        </thead>
-        <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
-          {#each table.getRowModel().rows as row (row.id)}
-            {@const m = row.original}
-            <tr class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900">
-              {#each row.getVisibleCells() as cell (cell.id)}
-                <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
-                  {#if cell.column.id === 'name'}
-                    <div class="truncate">
-                      <a href="/app/memories/{m.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{m.name}</a>
-                    </div>
-                  {:else if cell.column.id === 'urn'}
-                    <Urn value={m.urn} type="memory" size={10} />
-                  {:else if cell.column.id === 'type'}
-                    <span class="inline-block rounded px-1.5 py-0.5 text-xs {badgeClass(m)}">{m.badge}</span>
-                  {:else if cell.column.id === 'actions'}
-                    <div class="flex items-center gap-3">
-                      <a href="/app/memories/{m.id}" class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Edit</a>
-                      {#if m.section === 'org'}
-                        <form method="POST" action="?/delete" use:enhance onsubmit={(e) => { if (!confirm(`Delete "${m.name}"?`)) e.preventDefault(); }}>
-                          <input type="hidden" name="id" value={m.id} />
-                          <button type="submit" class="text-red-400 hover:text-red-300">Delete</button>
-                        </form>
-                      {:else if m.section === 'subscribed'}
-                        <form method="POST" action="?/unsubscribe" use:enhance onsubmit={(e) => { if (!confirm(`Unsubscribe from "${m.name}"?`)) e.preventDefault(); }}>
-                          <input type="hidden" name="memoryId" value={m.id} />
-                          <button type="submit" class="text-red-400 hover:text-red-300">Unsubscribe</button>
-                        </form>
-                      {/if}
-                    </div>
-                  {:else}
-                    {@const f = fmt[cell.column.id]}
-                    <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
-                  {/if}
-                </td>
-              {/each}
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Footer: page size (left of Prev/Next) + pagination; always visible -->
-    <div class="flex items-center justify-between gap-3">
-      <span class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
-      <div class="flex items-center gap-2">
-        <select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
-          aria-label={tableStrings.rowsPerPage()}
-          class="rounded-lg border border-zinc-300 !bg-zinc-100 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:!bg-zinc-800 dark:text-white">
-          {#each [10, 20, 50, 100] as size}
-            <option value={size}>{tableStrings.perPage(size)}</option>
-          {/each}
-        </select>
-        {#if pageCount > 1}
-          <button disabled={!table.getCanPreviousPage()} onclick={() => table.previousPage()}
-            class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">{tableStrings.previous()}</button>
-          <button disabled={!table.getCanNextPage()} onclick={() => table.nextPage()}
-            class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">{tableStrings.next()}</button>
+    <!-- 28rem offset tuned to this page's chrome height (header buttons,
+         banners, subscribe form below) — per-page convention. -->
+    <DataTable
+      {table}
+      listKey="orgs:memories"
+      searchPlaceholder={t('org-memories.search.placeholder', 'Search memories...')}
+      searchAriaLabel={t('org-memories.search.aria-label', 'Search memories')}
+      bind:globalFilter
+      maxHeight="max(200px, calc(100vh - 28rem))"
+    >
+      {#snippet cell(cell, m)}
+        {#if cell.column.id === 'name'}
+          <div class="truncate">
+            <a href="/app/memories/{m.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{m.name}</a>
+          </div>
+        {:else if cell.column.id === 'urn'}
+          <Urn value={m.urn} type="memory" size={10} />
+        {:else if cell.column.id === 'type'}
+          <span class="inline-block rounded px-1.5 py-0.5 text-xs {badgeClass(m)}">{m.badge}</span>
+        {:else if cell.column.id === 'actions'}
+          <div class="flex items-center gap-3">
+            <a href="/app/memories/{m.id}" class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Edit</a>
+            {#if m.section === 'org'}
+              <form method="POST" action="?/delete" use:enhance onsubmit={(e) => { if (!confirm(`Delete "${m.name}"?`)) e.preventDefault(); }}>
+                <input type="hidden" name="id" value={m.id} />
+                <button type="submit" class="text-red-400 hover:text-red-300">Delete</button>
+              </form>
+            {:else if m.section === 'subscribed'}
+              <form method="POST" action="?/unsubscribe" use:enhance onsubmit={(e) => { if (!confirm(`Unsubscribe from "${m.name}"?`)) e.preventDefault(); }}>
+                <input type="hidden" name="memoryId" value={m.id} />
+                <button type="submit" class="text-red-400 hover:text-red-300">Unsubscribe</button>
+              </form>
+            {/if}
+          </div>
+        {:else}
+          {@const f = fmt[cell.column.id]}
+          <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
         {/if}
-      </div>
-    </div>
+      {/snippet}
+    </DataTable>
   {/if}
 
   <!-- Subscribe to external memories -->

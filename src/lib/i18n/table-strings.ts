@@ -27,6 +27,9 @@ export const tableStrings = {
   perPage: (size: number): string =>
     t('table.pagination.per-page', '{size} per page').replace('{size}', String(size)),
 
+  /** aria-label on a column's drag/keyboard resize handle. */
+  resizeColumn: (): string => t('table.resize-column', 'Resize column'),
+
   /** Previous-page button. */
   previous: (): string => t('table.pagination.previous', 'Previous'),
 
