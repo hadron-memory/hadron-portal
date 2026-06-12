@@ -30,6 +30,7 @@
   import ViewTabs from '$lib/components/table/ViewTabs.svelte';
   import ColumnToggle from '$lib/components/table/ColumnToggle.svelte';
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
+  import { tableStrings } from '$lib/i18n/table-strings';
   import type { UserApiKey } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
@@ -289,15 +290,17 @@
 
       <!-- Filter + columns -->
       <div class="flex items-center gap-4">
-        <input type="text" placeholder={i18n.searchPlaceholder()} bind:value={globalFilter}
+        <input type="text" placeholder={i18n.searchPlaceholder()} aria-label={i18n.searchPlaceholder()} bind:value={globalFilter}
           class="max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
         <ColumnToggle {table} />
       </div>
 
       <!-- Bounded, internally-scrolling container so the page itself doesn't
            scroll and the pagination footer below stays visible. The `<thead>`
-           is sticky so column headers remain while the body scrolls. -->
-      <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: calc(100vh - 23rem);">
+           is sticky so column headers remain while the body scrolls. The 200px
+           floor keeps the body visible on short viewports (e.g. mobile
+           landscape) where 100vh - 23rem would go to zero or negative. -->
+      <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: max(200px, calc(100vh - 23rem));">
         <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
           <thead>
             {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
@@ -376,20 +379,20 @@
 
       <!-- Footer: page size (left of Prev/Next) + pagination; always visible -->
       <div class="flex items-center justify-between gap-3">
-        <span class="text-sm text-zinc-500">{pageCount > 1 ? `Page ${pageIndex + 1} of ${pageCount}` : ''}</span>
+        <span class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
         <div class="flex items-center gap-2">
           <select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
-            aria-label="Rows per page"
+            aria-label={tableStrings.rowsPerPage()}
             class="rounded-lg border border-zinc-300 !bg-zinc-100 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:!bg-zinc-800 dark:text-white">
             {#each [10, 20, 50, 100] as size}
-              <option value={size}>{size} per page</option>
+              <option value={size}>{tableStrings.perPage(size)}</option>
             {/each}
           </select>
           {#if pageCount > 1}
             <button disabled={!table.getCanPreviousPage()} onclick={() => table.previousPage()}
-              class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Previous</button>
+              class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">{tableStrings.previous()}</button>
             <button disabled={!table.getCanNextPage()} onclick={() => table.nextPage()}
-              class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Next</button>
+              class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">{tableStrings.next()}</button>
           {/if}
         </div>
       </div>
