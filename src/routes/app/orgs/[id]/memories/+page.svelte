@@ -115,14 +115,14 @@
   let globalFilter = $state('');
 
   const columns: ColumnDef<MemoryRow>[] = [
-    { accessorKey: 'name', header: 'Name', enableHiding: false, size: 200 }, // identity column
-    { accessorKey: 'urn', header: 'URN', size: 280 },
-    { accessorKey: 'badge', id: 'type', header: 'Type', size: 110 },
-    { accessorKey: 'storage', header: 'Storage', size: 100 },
-    { accessorKey: 'branch', header: 'Branch', size: 100 },
-    { accessorKey: 'lastSyncedAt', header: 'Last synced', size: 120 },
-    { accessorKey: 'fromOrg', header: 'From', size: 140 },
-    { id: 'actions', header: 'Actions', enableSorting: false, size: 140 },
+    { accessorKey: 'name', header: t('org-memories.column.name', 'Name'), enableHiding: false, size: 200 }, // identity column
+    { accessorKey: 'urn', header: t('org-memories.column.urn', 'URN'), size: 280 },
+    { accessorKey: 'badge', id: 'type', header: t('org-memories.column.type', 'Type'), size: 110 },
+    { accessorKey: 'storage', header: t('org-memories.column.storage', 'Storage'), size: 100 },
+    { accessorKey: 'branch', header: t('org-memories.column.branch', 'Branch'), size: 100 },
+    { accessorKey: 'lastSyncedAt', header: t('org-memories.column.last-synced', 'Last synced'), size: 120 },
+    { accessorKey: 'fromOrg', header: t('org-memories.column.from', 'From'), size: 140 },
+    { id: 'actions', header: t('org-memories.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 140 },
   ];
 
   const fmt: Record<string, (v: unknown) => string> = {
@@ -216,7 +216,10 @@
     <!-- Bounded, internally-scrolling container so the page itself doesn't
          scroll and the pagination footer below stays visible. The `<thead>`
          is sticky so column headers remain while the body scrolls. The 200px
-         floor keeps the body visible on short viewports. -->
+         floor keeps the body visible on short viewports. The 28rem offset is
+         tuned per page to this page's chrome height (header buttons, banners,
+         tab strip, footer, subscribe form below) — same convention as the
+         sessions/api-keys grids, which use smaller offsets. -->
     <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: max(200px, calc(100vh - 28rem));">
       <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
         <thead>
@@ -226,7 +229,15 @@
                 <th
                   class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''}"
                   style="width: {header.getSize()}px;"
+                  tabindex={header.column.getCanSort() ? 0 : undefined}
+                  aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
                   onclick={header.column.getToggleSortingHandler()}
+                  onkeydown={(e) => {
+                    if (header.column.getCanSort() && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      header.column.getToggleSortingHandler()?.(e);
+                    }
+                  }}
                 >
                   <div class="flex min-w-0 items-center gap-1">
                     <span class="min-w-0 truncate">{header.column.columnDef.header}</span>
