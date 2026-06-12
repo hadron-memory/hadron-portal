@@ -81,6 +81,10 @@ export const apiKeysStrings = {
   emptyState: (): string =>
     t('api-keys.empty', "You haven't minted any API keys yet."),
 
+  /** Key-list search input placeholder (TanStack global filter). */
+  searchPlaceholder: (): string =>
+    t('api-keys.search.placeholder', 'Search keys...'),
+
   /** Column heading: label (user-supplied display name). Renamed
    *  from "Label" to "Name" per #229 — keeps the form input label
    *  and the table column heading consistent. New i18n key so a

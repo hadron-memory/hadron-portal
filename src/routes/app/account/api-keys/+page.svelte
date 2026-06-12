@@ -7,7 +7,10 @@
        `?/create` action; the rawKey value comes from `form` and is
        wiped on the next page navigation).
     3. Mint form (label input + submit).
-    4. Key list (table-style, dimmed rows for revoked, source-label badge).
+    4. Key list — @tanstack/table-core via the Svelte 5 runes adapter
+       (src/lib/table/*), same pattern as /app/usage/sessions: saved-view
+       tabs, global filter, column toggle, sortable + resizable columns,
+       pagination.
     5. Revoke confirmation dialog (modal).
 
   i18n: every user-visible string routes through `apiKeysStrings` per
@@ -15,8 +18,19 @@
 -->
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import {
+    getCoreRowModel,
+    getSortedRowModel,
+    getFilteredRowModel,
+    getPaginationRowModel,
+    type ColumnDef,
+  } from '@tanstack/table-core';
+  import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import ViewTabs from '$lib/components/table/ViewTabs.svelte';
+  import ColumnToggle from '$lib/components/table/ColumnToggle.svelte';
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
+  import type { UserApiKey } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -96,13 +110,71 @@
     return issuedVia;
   }
 
+  let globalFilter = $state('');
+
+  // Status + Source accessors return the rendered i18n string (not the raw
+  // field) so sorting groups rows the way the user sees them and the global
+  // `includesString` filter matches what's on screen.
+  const columns: ColumnDef<UserApiKey>[] = [
+    { accessorKey: 'label', header: i18n.columnLabel(), enableHiding: false, size: 200 }, // identity column
+    { accessorKey: 'keyPreview', header: i18n.columnKey(), size: 90 },
+    {
+      accessorFn: (row) => (row.revokedAt !== null ? i18n.statusRevoked() : i18n.statusActive()),
+      id: 'status',
+      header: i18n.columnStatus(),
+      size: 100,
+    },
+    { accessorFn: (row) => sourceLabel(row.issuedVia), id: 'source', header: i18n.columnSource(), size: 160 },
+    { accessorKey: 'createdAt', header: i18n.columnCreated(), size: 170 },
+    { accessorKey: 'lastUsedAt', header: i18n.columnLastUsed(), size: 170 },
+    { id: 'actions', header: i18n.columnAction(), enableSorting: false, size: 100 },
+  ];
+
+  const fmt: Record<string, (v: unknown) => string> = {
+    label: (v) => (v as string | null) ?? '—',
+    createdAt: (v) => formatTimestamp(v as string | null),
+    lastUsedAt: (v) => formatTimestamp(v as string | null),
+  };
+
+  const table = createSvelteTable<UserApiKey>({
+    get data() {
+      return keys;
+    },
+    columns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return globalFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      globalFilter = typeof u === 'function' ? u(globalFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
+  const pageSize = $derived(table.getState().pagination.pageSize);
+  const pageIndex = $derived(table.getState().pagination.pageIndex);
+  const pageCount = $derived(table.getPageCount());
+
+  function sortIndicator(state: false | 'asc' | 'desc'): string {
+    return state === 'asc' ? '▲' : state === 'desc' ? '▼' : '⇅';
+  }
+
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 </script>
 
 <svelte:head><title>API keys · Hadron</title></svelte:head>
 
-<div class="max-w-3xl space-y-8">
+<div class="space-y-8">
   <div>
     <Breadcrumb items={[
       { label: 'Dashboard', href: '/app/dashboard' },
@@ -110,26 +182,26 @@
       { label: i18n.pageHeading() },
     ]} />
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">{i18n.pageHeading()}</h1>
-    <p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{i18n.pageLead()}</p>
+    <p class="mt-2 max-w-3xl text-sm text-zinc-500 dark:text-zinc-400">{i18n.pageLead()}</p>
   </div>
 
   <!-- Surface load errors as a non-blocking inline banner. -->
   {#if loadError}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{loadError}</div>
+    <div class="max-w-3xl rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{loadError}</div>
   {/if}
 
   <!-- Action error (mint or revoke failure) — generic banner. `error`
        comes from `fail()` in +page.server.ts; success returns don't
        carry it, so `'error' in form` is the right discriminator here. -->
   {#if form && 'error' in form && form.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+    <div class="max-w-3xl rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
 
   <!-- One-shot reveal: shown after a successful mint, persists for one
        render. The key value is in `form.rawKey` (cleared on next nav). -->
   {#if rawKey}
     <div
-      class="rounded-lg border-2 border-amber-500 bg-amber-50 p-5 dark:border-amber-600 dark:bg-amber-950"
+      class="max-w-3xl rounded-lg border-2 border-amber-500 bg-amber-50 p-5 dark:border-amber-600 dark:bg-amber-950"
       role="alert"
       data-testid="raw-key-reveal"
     >
@@ -163,7 +235,7 @@
   {/if}
 
   <!-- Mint form. -->
-  <section>
+  <section class="max-w-3xl">
     <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">{i18n.mintSectionHeading()}</h2>
     <!-- #229: restructured so the help text sits BELOW the input+button
          row instead of inside the input wrapper. Previously the help
@@ -207,60 +279,119 @@
     </form>
   </section>
 
-  <!-- Key list. -->
-  <section>
+  <!-- Key list (TanStack table, same chrome as /app/usage/sessions). -->
+  <section class="space-y-4">
     {#if keys.length === 0}
       <p class="text-sm text-zinc-500 dark:text-zinc-400">{i18n.emptyState()}</p>
     {:else}
-      <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <table class="w-full text-sm">
-          <thead class="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-            <tr>
-              <th class="px-4 py-2">{i18n.columnLabel()}</th>
-              <th class="px-4 py-2">{i18n.columnKey()}</th>
-              <th class="px-4 py-2">{i18n.columnStatus()}</th>
-              <th class="px-4 py-2">{i18n.columnSource()}</th>
-              <th class="px-4 py-2">{i18n.columnCreated()}</th>
-              <th class="px-4 py-2">{i18n.columnLastUsed()}</th>
-              <th class="px-4 py-2 text-right">{i18n.columnAction()}</th>
-            </tr>
+      <!-- Saved-views tab strip -->
+      <ViewTabs {table} listKey="account:api-keys" />
+
+      <!-- Filter + columns -->
+      <div class="flex items-center gap-4">
+        <input type="text" placeholder={i18n.searchPlaceholder()} bind:value={globalFilter}
+          class="max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+        <ColumnToggle {table} />
+      </div>
+
+      <!-- Bounded, internally-scrolling container so the page itself doesn't
+           scroll and the pagination footer below stays visible. The `<thead>`
+           is sticky so column headers remain while the body scrolls. -->
+      <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: calc(100vh - 23rem);">
+        <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
+          <thead>
+            {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
+              <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                {#each headerGroup.headers as header (header.id)}
+                  <th
+                    class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''}"
+                    style="width: {header.getSize()}px;"
+                    onclick={header.column.getToggleSortingHandler()}
+                  >
+                    <div class="flex min-w-0 items-center gap-1">
+                      <span class="min-w-0 truncate">{header.column.columnDef.header}</span>
+                      {#if header.column.getCanSort()}
+                        <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
+                      {/if}
+                    </div>
+                    {#if header.column.getCanResize()}
+                      <!-- svelte-ignore a11y_no_static_element_interactions -->
+                      <div
+                        class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
+                        onmousedown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
+                        ontouchstart={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
+                        onclick={(e) => e.stopPropagation()}
+                      ></div>
+                    {/if}
+                  </th>
+                {/each}
+              </tr>
+            {/each}
           </thead>
-          <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {#each keys as key (key.id)}
+          <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
+            {#each table.getRowModel().rows as row (row.id)}
+              {@const key = row.original}
               {@const isRevoked = key.revokedAt !== null}
-              <tr class={isRevoked ? 'opacity-50' : ''} data-testid="api-key-row" data-key-id={key.id}>
-                <td class="px-4 py-3 text-zinc-900 dark:text-zinc-100">{key.label ?? '—'}</td>
-                <td class="px-4 py-3 font-mono text-xs text-zinc-500 dark:text-zinc-400">…{key.keyPreview}</td>
-                <td class="px-4 py-3">
-                  {#if isRevoked}
-                    <span class="inline-block rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" data-testid="status-revoked">
-                      {i18n.statusRevoked()}
-                    </span>
-                  {:else}
-                    <span class="inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-800 dark:bg-green-900 dark:text-green-200" data-testid="status-active">
-                      {i18n.statusActive()}
-                    </span>
-                  {/if}
-                </td>
-                <td class="px-4 py-3 text-xs text-zinc-600 dark:text-zinc-400">{sourceLabel(key.issuedVia)}</td>
-                <td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400">{formatTimestamp(key.createdAt)}</td>
-                <td class="px-4 py-3 text-xs text-zinc-500 dark:text-zinc-400">{formatTimestamp(key.lastUsedAt)}</td>
-                <td class="px-4 py-3 text-right">
-                  {#if !isRevoked}
-                    <button
-                      type="button"
-                      onclick={() => openConfirm(key.id, key.keyPreview)}
-                      class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                      data-testid="revoke-button"
-                    >
-                      {i18n.revokeButton()}
-                    </button>
-                  {/if}
-                </td>
+              <tr
+                class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900 {isRevoked ? 'opacity-50' : ''}"
+                data-testid="api-key-row"
+                data-key-id={key.id}
+              >
+                {#each row.getVisibleCells() as cell (cell.id)}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+                    {#if cell.column.id === 'keyPreview'}
+                      <div class="truncate font-mono text-xs">…{key.keyPreview}</div>
+                    {:else if cell.column.id === 'status'}
+                      {#if isRevoked}
+                        <span class="inline-block rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" data-testid="status-revoked">
+                          {i18n.statusRevoked()}
+                        </span>
+                      {:else}
+                        <span class="inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-800 dark:bg-green-900 dark:text-green-200" data-testid="status-active">
+                          {i18n.statusActive()}
+                        </span>
+                      {/if}
+                    {:else if cell.column.id === 'actions'}
+                      {#if !isRevoked}
+                        <button
+                          type="button"
+                          onclick={() => openConfirm(key.id, key.keyPreview)}
+                          class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                          data-testid="revoke-button"
+                        >
+                          {i18n.revokeButton()}
+                        </button>
+                      {/if}
+                    {:else}
+                      {@const f = fmt[cell.column.id]}
+                      <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
+                    {/if}
+                  </td>
+                {/each}
               </tr>
             {/each}
           </tbody>
         </table>
+      </div>
+
+      <!-- Footer: page size (left of Prev/Next) + pagination; always visible -->
+      <div class="flex items-center justify-between gap-3">
+        <span class="text-sm text-zinc-500">{pageCount > 1 ? `Page ${pageIndex + 1} of ${pageCount}` : ''}</span>
+        <div class="flex items-center gap-2">
+          <select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
+            aria-label="Rows per page"
+            class="rounded-lg border border-zinc-300 !bg-zinc-100 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:!bg-zinc-800 dark:text-white">
+            {#each [10, 20, 50, 100] as size}
+              <option value={size}>{size} per page</option>
+            {/each}
+          </select>
+          {#if pageCount > 1}
+            <button disabled={!table.getCanPreviousPage()} onclick={() => table.previousPage()}
+              class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Previous</button>
+            <button disabled={!table.getCanNextPage()} onclick={() => table.nextPage()}
+              class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Next</button>
+          {/if}
+        </div>
       </div>
     {/if}
   </section>
