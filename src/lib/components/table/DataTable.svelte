@@ -121,6 +121,8 @@
                   role="separator"
                   aria-orientation="vertical"
                   aria-label={tableStrings.resizeColumn()}
+                  aria-valuenow={header.getSize()}
+                  aria-valuemin={40}
                   tabindex={0}
                   onmousedown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                   ontouchstart={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
