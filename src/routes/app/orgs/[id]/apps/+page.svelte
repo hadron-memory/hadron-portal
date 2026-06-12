@@ -38,21 +38,21 @@
   let globalFilter = $state('');
 
   const columns: ColumnDef<App>[] = [
-    { accessorKey: 'name', header: 'Name', enableHiding: false, size: 180 }, // identity column
-    { accessorKey: 'urn', header: 'URN', size: 260 },
-    { accessorFn: (row) => row.agent?.name ?? null, id: 'agent', header: 'Agent', size: 150 },
-    { accessorKey: 'identifyUserMethod', header: 'Identify users', size: 120 },
-    { accessorKey: 'createUserPermission', header: 'Create users', size: 120 },
-    { accessorFn: (row) => activeKeyCount(row), id: 'activeKeys', header: 'Active keys', size: 100 },
-    { accessorKey: 'sessionTimeoutSeconds', header: 'Session timeout', size: 130 },
-    { accessorKey: 'anonymousTtlDays', header: 'Anon TTL', size: 90 },
-    { id: 'actions', header: 'Actions', enableSorting: false, size: 150 },
+    { accessorKey: 'name', header: t('org-apps.column.name', 'Name'), enableHiding: false, size: 180 }, // identity column
+    { accessorKey: 'urn', header: t('org-apps.column.urn', 'URN'), size: 260 },
+    { accessorFn: (row) => row.agent?.name ?? null, id: 'agent', header: t('org-apps.column.agent', 'Agent'), size: 150 },
+    { accessorKey: 'identifyUserMethod', header: t('org-apps.column.identify-users', 'Identify users'), size: 120 },
+    { accessorKey: 'createUserPermission', header: t('org-apps.column.create-users', 'Create users'), size: 120 },
+    { accessorFn: (row) => activeKeyCount(row), id: 'activeKeys', header: t('org-apps.column.active-keys', 'Active keys'), size: 100 },
+    { accessorKey: 'sessionTimeoutSeconds', header: t('org-apps.column.session-timeout', 'Session timeout'), size: 130 },
+    { accessorKey: 'anonymousTtlDays', header: t('org-apps.column.anon-ttl', 'Anon TTL'), size: 90 },
+    { id: 'actions', header: t('org-apps.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 150 },
   ];
 
   const fmt: Record<string, (v: unknown) => string> = {
     agent: (v) => (v as string | null) ?? '—',
-    sessionTimeoutSeconds: (v) => `${Math.round((v as number) / 60)}m`,
-    anonymousTtlDays: (v) => `${v}d`,
+    sessionTimeoutSeconds: (v) => (typeof v === 'number' ? `${Math.round(v / 60)}m` : '—'),
+    anonymousTtlDays: (v) => (v != null ? `${v}d` : '—'),
   };
 
   const table = createSvelteTable<App>({
@@ -128,7 +128,10 @@
     <!-- Bounded, internally-scrolling container so the page itself doesn't
          scroll and the pagination footer below stays visible. The `<thead>`
          is sticky so column headers remain while the body scrolls. The 200px
-         floor keeps the body visible on short viewports. -->
+         floor keeps the body visible on short viewports. The 25rem offset is
+         tuned per page to this page's chrome height (taller header with lead
+         paragraph than sessions/api-keys, which use 23rem) — same convention
+         as the other grids. -->
     <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: max(200px, calc(100vh - 25rem));">
       <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
         <thead>
@@ -138,7 +141,15 @@
                 <th
                   class="sticky top-0 z-10 select-none border-b border-r last:border-r-0 border-zinc-200 bg-zinc-50 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-900 {header.column.getCanSort() ? 'cursor-pointer hover:text-zinc-700 dark:hover:text-zinc-200' : ''}"
                   style="width: {header.getSize()}px;"
+                  tabindex={header.column.getCanSort() ? 0 : undefined}
+                  aria-sort={header.column.getIsSorted() === 'asc' ? 'ascending' : header.column.getIsSorted() === 'desc' ? 'descending' : undefined}
                   onclick={header.column.getToggleSortingHandler()}
+                  onkeydown={(e) => {
+                    if (header.column.getCanSort() && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault();
+                      header.column.getToggleSortingHandler()?.(e);
+                    }
+                  }}
                 >
                   <div class="flex min-w-0 items-center gap-1">
                     <span class="min-w-0 truncate">{header.column.columnDef.header}</span>
