@@ -23,6 +23,29 @@
  */
 
 // ============================================================================
+// Scheme prefix (issue #239) — mirrors hadron-server/src/lib/urn.ts
+// ============================================================================
+//
+// `hrn:` (Hadron Resource Name) is the CANONICAL scheme prefix; the legacy
+// `urn:` scheme is accepted on input forever. Both parser surfaces accept
+// either; both emission paths compose `hrn:`.
+
+export const CANONICAL_SCHEME = 'hrn';
+export const LEGACY_SCHEME = 'urn';
+
+const SCHEME_PREFIX_RE = /^(?:hrn|urn):/;
+
+/** True when the input leads with a scheme prefix (`hrn:` or legacy `urn:`). */
+export function hasSchemePrefix(input: string): boolean {
+  return SCHEME_PREFIX_RE.test(input);
+}
+
+/** Rewrite a leading legacy `urn:` scheme to canonical `hrn:`; pass through otherwise. */
+export function normalizeScheme(input: string): string {
+  return input.startsWith('urn:') ? `hrn:${input.slice(4)}` : input;
+}
+
+// ============================================================================
 // URN resolver normalization — #262
 // ============================================================================
 
@@ -76,7 +99,7 @@ export type ParsedUrn = DisplayParsedUrn;
 // the display set fall through to 'unknown' here — that's intentional, so
 // pages that render new URN types pick up a generic look while still
 // surfacing the literal `urn:<type>:` prefix to users.
-const DISPLAY_URN_REGEX = /^urn:(org|memory|agent|app|node):(.+)$/;
+const DISPLAY_URN_REGEX = /^(?:hrn|urn):(org|memory|agent|app|node):(.+)$/;
 
 /**
  * Auto-detect the type from a `urn:<type>:` prefix on `value` if present;
@@ -94,17 +117,17 @@ export function parseDisplayUrn(
   if (match) {
     const type = match[1] as DisplayUrnType;
     const bareValue = match[2];
-    return { type, bareValue, fullUrn: `urn:${type}:${bareValue}` };
+    return { type, bareValue, fullUrn: `${CANONICAL_SCHEME}:${type}:${bareValue}` };
   }
 
   if (typeProp) {
-    return { type: typeProp, bareValue: value, fullUrn: `urn:${typeProp}:${value}` };
+    return { type: typeProp, bareValue: value, fullUrn: `${CANONICAL_SCHEME}:${typeProp}:${value}` };
   }
 
   // No detectable type and no caller-supplied type — render as `unknown`
   // so the bug is visually obvious. Per FR-006, the calling scope should
   // always specify a type; reaching this branch is a bug at the caller.
-  return { type: 'unknown', bareValue: value, fullUrn: `urn:unknown:${value}` };
+  return { type: 'unknown', bareValue: value, fullUrn: `${CANONICAL_SCHEME}:unknown:${value}` };
 }
 
 // ============================================================================
@@ -158,7 +181,8 @@ export type AliasCategory =
   | 'source-install-memory'
   | 'node-role-polymorphism'
   | 'path-slug-shortening'
-  | 'type-marker-optionality';
+  | 'type-marker-optionality'
+  | 'legacy-urn-scheme';
 
 const TYPE_MARKERS: ReadonlySet<string> = new Set(['app', 'agent', 'memory']);
 
@@ -201,7 +225,7 @@ function messageFor(
     case 'unknown-type':
       return `URN "${input}" uses an unknown type.`;
     case 'malformed-grammar':
-      return `URN "${input}" does not match the expected "urn:<type>:<path>" grammar${cite}.`;
+      return `URN "${input}" does not match the expected "hrn:<type>:<path>" grammar${cite} (legacy "urn:" scheme also accepted).`;
     case 'empty-segment':
       return `URN "${input}" contains an empty path-segment.`;
     case 'trailing-double-colon':
@@ -239,21 +263,22 @@ export interface ParsedCanonicalUrn {
  * case-insensitive.
  */
 export function parseUrn(input: string): ParsedCanonicalUrn {
-  if (/^(urn:)?loc:/i.test(input)) {
+  if (/^((urn|hrn):)?loc:/i.test(input)) {
     throw new UrnParseError(input, 'loc-segment-rejected');
   }
 
-  const prefixMatch = input.match(/^urn:([a-z][a-z0-9-]*):(.+)$/);
+  const prefixMatch = input.match(/^(hrn|urn):([a-z][a-z0-9-]*):(.+)$/);
   if (!prefixMatch) {
     throw new UrnParseError(input, 'malformed-grammar');
   }
+  const legacySchemeUsed = prefixMatch[1] === LEGACY_SCHEME;
 
-  const type = prefixMatch[1];
+  const type = prefixMatch[2];
   if (!URN_TYPE_SET.has(type)) {
     throw new UrnParseError(input, 'unknown-type');
   }
 
-  const path = prefixMatch[2];
+  const path = prefixMatch[3];
 
   if (path.endsWith('::')) {
     throw new UrnParseError(input, 'trailing-double-colon');
@@ -273,6 +298,11 @@ export function parseUrn(input: string): ParsedCanonicalUrn {
   }
 
   const parserRewrites: AliasCategory[] = [];
+
+  // Issue #239: legacy `urn:` scheme normalizes to canonical `hrn:`.
+  if (legacySchemeUsed) {
+    parserRewrites.push('legacy-urn-scheme');
+  }
 
   const { segments: cat4Segments, fired: cat4Fired } = stripTypeMarkers(
     rawSegments,
@@ -297,7 +327,7 @@ export function parseUrn(input: string): ParsedCanonicalUrn {
     needsCat2(type as CanonicalUrnType) ||
     needsCat3(type as CanonicalUrnType, cat1Segments);
 
-  const parserCanonical = `urn:${type}:${cat1Segments.join('::')}`;
+  const parserCanonical = `${CANONICAL_SCHEME}:${type}:${cat1Segments.join('::')}`;
 
   return {
     type: type as CanonicalUrnType,

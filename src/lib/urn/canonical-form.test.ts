@@ -3,9 +3,9 @@ import { toCanonicalForPreview, isFullyCanonical } from './canonical-form';
 
 describe('toCanonicalForPreview', () => {
   it('returns canonical form for a canonical-input URN with no resolver needed', () => {
-    const result = toCanonicalForPreview('urn:agent:hadronmemory.com::coding-agent');
+    const result = toCanonicalForPreview('hrn:agent:hadronmemory.com::coding-agent');
     expect(result).toEqual({
-      canonical: 'urn:agent:hadronmemory.com::coding-agent',
+      canonical: 'hrn:agent:hadronmemory.com::coding-agent',
       needsServerCanonicalization: false,
     });
   });
@@ -15,7 +15,7 @@ describe('toCanonicalForPreview', () => {
       'urn:agent:micromentor.org::app:coding-app::agent:hadronmemory.com:coding-agent',
     );
     expect(result?.canonical).toBe(
-      'urn:agent:micromentor.org::coding-app::hadronmemory.com:coding-agent',
+      'hrn:agent:micromentor.org::coding-app::hadronmemory.com:coding-agent',
     );
     expect(result?.needsServerCanonicalization).toBe(false);
   });
@@ -47,8 +47,8 @@ describe('toCanonicalForPreview', () => {
 
 describe('isFullyCanonical', () => {
   it('returns true for canonical inputs that need no resolver', () => {
-    expect(isFullyCanonical('urn:agent:hadronmemory.com::coding-agent')).toBe(true);
-    expect(isFullyCanonical('urn:memory:hadronmemory.com::coding-agent::system')).toBe(true);
+    expect(isFullyCanonical('hrn:agent:hadronmemory.com::coding-agent')).toBe(true);
+    expect(isFullyCanonical('hrn:memory:hadronmemory.com::coding-agent::system')).toBe(true);
   });
 
   it('returns false for inputs needing parser-layer rewrites', () => {
