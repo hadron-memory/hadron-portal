@@ -58,7 +58,7 @@ export function composeNodeUrn(memoryUrn: string, value: string): string {
     // Wrong-type prefix — silent coercion is a security risk (the wrong
     // owner URN could resolve to an unauthorized resource downstream).
     throw new Error(
-      `composeNodeUrn: memoryUrn must start with 'hrn:memory:' or be a bare slug-path; got '${memoryUrn}'`,
+      `composeNodeUrn: memoryUrn must start with 'hrn:memory:' (or legacy 'urn:memory:') or be a bare slug-path; got '${memoryUrn}'`,
     );
   } else {
     slugPath = memoryUrn;

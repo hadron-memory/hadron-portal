@@ -42,7 +42,10 @@ export function hasSchemePrefix(input: string): boolean {
 
 /** Rewrite a leading legacy `urn:` scheme to canonical `hrn:`; pass through otherwise. */
 export function normalizeScheme(input: string): string {
-  return input.startsWith('urn:') ? `hrn:${input.slice(4)}` : input;
+  const legacyPrefix = `${LEGACY_SCHEME}:`;
+  return input.startsWith(legacyPrefix)
+    ? `${CANONICAL_SCHEME}:${input.slice(legacyPrefix.length)}`
+    : input;
 }
 
 // ============================================================================
@@ -94,16 +97,19 @@ export type ParsedUrn = DisplayParsedUrn;
 
 // The display regex stays narrow (spec-010 types only). The spec-021 parser
 // below knows the full D1 registry; this regex only needs to extract a
-// `urn:<known-display-type>:` prefix when one is present so the renderer
-// can apply the right type-badge styling. Spec-021 types that aren't in
-// the display set fall through to 'unknown' here — that's intentional, so
-// pages that render new URN types pick up a generic look while still
-// surfacing the literal `urn:<type>:` prefix to users.
+// scheme-prefixed (`hrn:` canonical or legacy `urn:`) `<known-display-type>:`
+// prefix when one is present so the renderer can apply the right type-badge
+// styling. Spec-021 types that aren't in the display set fall through to
+// 'unknown' here — that's intentional, so pages that render new URN types
+// pick up a generic look while still surfacing the literal `<type>:` prefix
+// to users. fullUrn is always reconstructed in canonical `hrn:` form.
 const DISPLAY_URN_REGEX = /^(?:hrn|urn):(org|memory|agent|app|node):(.+)$/;
 
 /**
- * Auto-detect the type from a `urn:<type>:` prefix on `value` if present;
- * fall back to the supplied `typeProp`; final fallback is `'unknown'`.
+ * Auto-detect the type from a scheme prefix (`hrn:<type>:` or legacy
+ * `urn:<type>:`) on `value` if present; fall back to the supplied
+ * `typeProp`; final fallback is `'unknown'`. `fullUrn` is emitted in
+ * canonical `hrn:` form regardless of the input scheme.
  *
  * The auto-detected type wins over `typeProp` — this preserves the
  * pre-spec-010 component behavior (callers sometimes pass a generic
