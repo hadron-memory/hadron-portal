@@ -11,7 +11,7 @@ describe('composeNodeUrn', () => {
     // slug-paths to `::` so the output is always spec-021-parseable.
     it('composes with prefixed legacy-shape memory URN — auto-converts `:` to `::`', () => {
       expect(composeNodeUrn('urn:memory:micromentor.org:mmdata', 'review:sort-imports')).toBe(
-        'urn:node:micromentor.org::mmdata::review:sort-imports',
+        'hrn:node:micromentor.org::mmdata::review:sort-imports',
       );
     });
 
@@ -22,31 +22,31 @@ describe('composeNodeUrn', () => {
           'review:sort-imports',
         ),
       ).toBe(
-        'urn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports',
+        'hrn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports',
       );
     });
 
     it('composes with bare legacy slug-path memory URN (no urn:memory: prefix)', () => {
       expect(composeNodeUrn('micromentor.org:mmdata', 'review:sort-imports')).toBe(
-        'urn:node:micromentor.org::mmdata::review:sort-imports',
+        'hrn:node:micromentor.org::mmdata::review:sort-imports',
       );
     });
 
     it('preserves all loc segments when loc has multiple internal colons', () => {
       expect(composeNodeUrn('urn:memory:hadronmemory.com:dev', 'a:b:c:d:e')).toBe(
-        'urn:node:hadronmemory.com::dev::a:b:c:d:e',
+        'hrn:node:hadronmemory.com::dev::a:b:c:d:e',
       );
     });
 
     it('preserves a single-segment loc', () => {
-      expect(composeNodeUrn('urn:memory:org:mem', 'top')).toBe('urn:node:org::mem::top');
+      expect(composeNodeUrn('urn:memory:org:mem', 'top')).toBe('hrn:node:org::mem::top');
     });
   });
 
   describe('PK-as-value pass-through (defect lives at caller, not composer)', () => {
     it('accepts a UUIDv7 as value without complaint', () => {
       const uuid = '0190ee19-8b3a-7d4f-b8e1-2f9c8b5d4a3e';
-      expect(composeNodeUrn('urn:memory:org:mem', uuid)).toBe(`urn:node:org::mem::${uuid}`);
+      expect(composeNodeUrn('urn:memory:org:mem', uuid)).toBe(`hrn:node:org::mem::${uuid}`);
     });
   });
 
@@ -117,15 +117,15 @@ describe('composeNodeUrn', () => {
   });
 
   describe('shape', () => {
-    it('produces a URN starting with urn:node: prefix', () => {
+    it('produces a URN starting with hrn:node: prefix', () => {
       const result = composeNodeUrn(
         'urn:memory:hadronmemory.com:dev',
         'conventions:urn-format',
       );
-      expect(result.startsWith('urn:node:')).toBe(true);
+      expect(result.startsWith('hrn:node:')).toBe(true);
       // After auto-conversion the slug-path is `hadronmemory.com::dev`,
       // joined with the loc by `::`.
-      expect(result.slice('urn:node:'.length)).toBe(
+      expect(result.slice('hrn:node:'.length)).toBe(
         'hadronmemory.com::dev::conventions:urn-format',
       );
     });
@@ -136,7 +136,7 @@ describe('composeNodeUrn', () => {
         'pong:notify',
       );
       expect(result).toBe(
-        'urn:node:micromentor.org::coding-app::coding-agent::system::pong:notify',
+        'hrn:node:micromentor.org::coding-app::coding-agent::system::pong:notify',
       );
     });
   });

@@ -1,8 +1,10 @@
+import { CANONICAL_SCHEME, hasSchemePrefix, normalizeScheme } from './parse-urn';
+
 /**
  * Compose a canonical node URN from a memory URN and a value (loc, or PK
  * as a defect-fallback chosen by the caller). Strict at input: throws on
  * wrong-type prefix, empty inputs. Forgiving at shape: accepts the memory
- * URN with or without its `urn:memory:` prefix, AND with either spec-010
+ * URN with or without its `hrn:memory:` prefix, AND with either spec-010
  * single-`:` grammar OR spec-021 `::` grammar (during the migration period,
  * both coexist).
  *
@@ -23,19 +25,19 @@
  * the portal sees will already be in spec-021 form.
  *
  * Example (spec-021 install-shape memory):
- *   memoryUrn: urn:memory:micromentor.org::coding-app::coding-agent::system
+ *   memoryUrn: hrn:memory:micromentor.org::coding-app::coding-agent::system
  *   value:     review:sort-imports
- *   result:    urn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports
+ *   result:    hrn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports
  *
  * Example (legacy single-`:` memory):
- *   memoryUrn: urn:memory:hadronmemory.com:dev
+ *   memoryUrn: hrn:memory:hadronmemory.com:dev
  *   value:     auth:tokens
- *   result:    urn:node:hadronmemory.com::dev::auth:tokens
+ *   result:    hrn:node:hadronmemory.com::dev::auth:tokens
  *              (slug-path auto-converted from `hadronmemory.com:dev` to
  *              `hadronmemory.com::dev` so the result parses cleanly)
  *
- * The result is in `urn:node:` form. D11 cat 2 (node-role polymorphism —
- * rewrite to `urn:<role>:...` when the node has a known role) is a
+ * The result is in `hrn:node:` form. D11 cat 2 (node-role polymorphism —
+ * rewrite to `hrn:<role>:...` when the node has a known role) is a
  * RESOLVER-LAYER concern and not applied here; the resolver has DB
  * access to look up the node's role.
  */
@@ -47,14 +49,16 @@ export function composeNodeUrn(memoryUrn: string, value: string): string {
     throw new Error('composeNodeUrn: value is empty');
   }
 
+  // Accept canonical `hrn:memory:` and legacy `urn:memory:` (issue #239).
   let slugPath: string;
-  if (memoryUrn.startsWith('urn:memory:')) {
-    slugPath = memoryUrn.slice('urn:memory:'.length);
-  } else if (memoryUrn.startsWith('urn:')) {
+  const memScheme = normalizeScheme(memoryUrn);
+  if (memScheme.startsWith('hrn:memory:')) {
+    slugPath = memScheme.slice('hrn:memory:'.length);
+  } else if (hasSchemePrefix(memoryUrn)) {
     // Wrong-type prefix — silent coercion is a security risk (the wrong
     // owner URN could resolve to an unauthorized resource downstream).
     throw new Error(
-      `composeNodeUrn: memoryUrn must start with 'urn:memory:' or be a bare slug-path; got '${memoryUrn}'`,
+      `composeNodeUrn: memoryUrn must start with 'hrn:memory:' (or legacy 'urn:memory:') or be a bare slug-path; got '${memoryUrn}'`,
     );
   } else {
     slugPath = memoryUrn;
@@ -73,5 +77,5 @@ export function composeNodeUrn(memoryUrn: string, value: string): string {
   // one more `::`-separated piece. Internally the loc keeps its own `:`
   // separators unchanged (node locs are intra-memory paths, not
   // hierarchy-separated by `::`).
-  return `urn:node:${slugPath}::${value}`;
+  return `${CANONICAL_SCHEME}:node:${slugPath}::${value}`;
 }
