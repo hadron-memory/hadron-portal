@@ -1094,6 +1094,7 @@ export const NODE_FIELDS = /* GraphQL */ `
   fragment NodeFields on Node {
     id
     memoryId
+    memory { id urn name }
     nodeType
     loc
     name
