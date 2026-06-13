@@ -17,7 +17,7 @@ const node = {
   name: 'Preflight',
   description: null,
   tags: [],
-} as never;
+} as any;
 
 describe('node listing renders the full node URN, not loc-only', () => {
   // Data-layer guard: the root cause was NODE_FIELDS omitting `memory`, so
