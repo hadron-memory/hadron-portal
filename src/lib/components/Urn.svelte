@@ -2,7 +2,7 @@
   // Spec 010 display surface (renamed from `parseUrn` in spec 021 to make
   // room for the new canonical-form parser at the `parseUrn` name).
   // Behavior is unchanged here.
-  import { parseDisplayUrn, type UrnType } from '$lib/urn/parse-urn';
+  import { CANONICAL_SCHEME, parseDisplayUrn, type UrnType } from '$lib/urn/parse-urn';
 
   let { value, type, size = 12, compact = false }: {
     value: string;
@@ -33,7 +33,7 @@
     {#if compact}
       <span class="bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={fullUrn}>{bareValue}</span>
     {:else}
-      <span class="pl-1.5 pr-0 py-0.5 font-medium {typeBadgeClass}">urn:</span>
+      <span class="pl-1.5 pr-0 py-0.5 font-medium {typeBadgeClass}">{CANONICAL_SCHEME}:</span>
       <span class="pl-0 pr-0.5 py-0.5 font-medium {typeBadgeClass}">{displayType}:</span>
       <span class="bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">{bareValue}</span>
     {/if}
