@@ -24,17 +24,23 @@ export interface ChatTurnResult {
 export async function fetchAgentAIConfig(
   token: string | null,
   agentId: string,
+  opts?: { appId?: string | null; configName?: string | null },
 ): Promise<{ provider: AIProvider; apiKey: string; model: string }> {
-  // 036-ai-service-config: resolve the agent's `default` named config
-  // (App → Agent → Org → Host walk; returns the decrypted key). Successor to
-  // the legacy `agentAIConfig` shim. `resolveAIConfig` throws
-  // NoAiConfigAvailableError when nothing resolves — translate that back into
-  // the same "configure a provider" guidance the legacy path surfaced, but
-  // let auth/transport errors propagate untouched.
+  // 036-ai-service-config: resolve a named config (default `default`) for the
+  // chat's context. Passing `appId` makes the walk App → Agent → Org → Host
+  // (so app-level configs apply); agentId-only stays Agent → Org → Host.
+  // `configName` lets the App chat pick a specific config. Returns the
+  // decrypted key. `resolveAIConfig` throws NoAiConfigAvailableError when
+  // nothing resolves — translate that into the "configure a provider"
+  // guidance, but let auth/transport errors propagate untouched.
   try {
     const result = await gqlClient(token).request<{
       resolveAIConfig: { provider: string; apiKey: string; model: string };
-    }>(RESOLVE_AI_CONFIG_QUERY, { name: 'default', agentId });
+    }>(RESOLVE_AI_CONFIG_QUERY, {
+      name: opts?.configName ?? 'default',
+      appId: opts?.appId ?? undefined,
+      agentId,
+    });
     return {
       provider: result.resolveAIConfig.provider as AIProvider,
       apiKey: result.resolveAIConfig.apiKey,
@@ -64,6 +70,11 @@ export async function runChatTurn(args: {
   agentId: string;
   chatId: string;
   userMessage: string | null;
+  /** App context for config resolution (App chat tab). Optional — the
+   *  agent-builder chat omits it and resolves in agent-context. */
+  appId?: string | null;
+  /** Named config to run with (App chat picker). Defaults to `default`. */
+  configName?: string | null;
   /** Pre-fetched startChat response for the welcome turn. Omitted for
    *  regular turns — in that case we call sendChatMessage first. */
   startPayload?: {
@@ -71,11 +82,11 @@ export async function runChatTurn(args: {
     tools: HadronTool[] | null;
   };
 }): Promise<ChatTurnResult> {
-  const { token, agentId, chatId, userMessage, startPayload } = args;
+  const { token, agentId, chatId, userMessage, appId, configName, startPayload } = args;
   const client = gqlClient(token);
 
   // 1. Fetch the agent's decrypted AI config
-  const ai = await fetchAgentAIConfig(token, agentId);
+  const ai = await fetchAgentAIConfig(token, agentId, { appId, configName });
 
   // 2. Get the compiled system prompt + tool schema + message history
   let systemMessage: string;

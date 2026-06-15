@@ -29,8 +29,22 @@
   const hasChatSurface = $derived(hasChatSurfaceFn(app.surfaces));
   // Chat tab renders the agent-chat platform when an Agent is linked;
   // shows an empty state otherwise.
+  // 036-ai-service-config: configs resolvable for this app's chat context
+  // (App→Agent→Org→Host, masked). Powers the picker + LLM-readiness gate.
+  const usableChatConfigs = $derived((data.chatConfigs ?? []).filter((c) => c.hasApiKey));
+  // null chatConfigs = couldn't list (e.g. viewer isn't an App member) →
+  // unknown → don't block the chat.
+  const llmReady = $derived(data.chatConfigs === null ? null : usableChatConfigs.length > 0);
   const appChatRender = $derived(
-    chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId }),
+    chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId, llmReady }),
+  );
+  // Picker selection overlaid on the default (`default`, else first usable).
+  let selectedConfigName = $state<string | null>(null);
+  const effectiveConfigName = $derived(
+    selectedConfigName
+      ?? usableChatConfigs.find((c) => c.name === 'default')?.name
+      ?? usableChatConfigs[0]?.name
+      ?? null,
   );
   let activeTab = $state<TabId>(hasChatSurface ? 'chat' : 'memory');
   const tabs = $derived<{ id: TabId; label: string }[]>([
@@ -477,8 +491,48 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
   {#if activeTab === 'chat'}
     <div class="flex flex-col" style="height: calc(100vh - 280px);">
       {#if appChatRender === 'agent-chat' && app.agentId}
+        {#if usableChatConfigs.length > 0}
+          <div class="mb-2 flex items-center gap-2 text-sm">
+            <label for="chat-config" class="text-zinc-500">{t('app-chat.config.label', 'AI config')}</label>
+            <select
+              id="chat-config"
+              value={effectiveConfigName ?? ''}
+              onchange={(e) => (selectedConfigName = e.currentTarget.value)}
+              class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+            >
+              {#each usableChatConfigs as c (c.id)}
+                <option value={c.name}>{c.name} ({c.provider} · {c.model})</option>
+              {/each}
+            </select>
+          </div>
+        {/if}
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-          <AgentChat agentId={app.agentId} uploadMemoryId={writableMemoryIds[0]} />
+          <AgentChat
+            agentId={app.agentId}
+            appId={app.id}
+            configName={effectiveConfigName ?? undefined}
+            uploadMemoryId={writableMemoryIds[0]}
+          />
+        </div>
+      {:else if appChatRender === 'no-llm-config'}
+        <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
+          <div class="max-w-md text-center">
+            <p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('app-chat.no-llm.title', 'Connect an LLM provider to enable chat')}
+            </p>
+            <p class="mb-4 text-sm text-zinc-500">
+              {t(
+                'app-chat.no-llm.description',
+                'This App has a chatbot agent linked, but no AI service configuration with a key resolves for it yet. Add one for this App, its agent, or the organization.',
+              )}
+            </p>
+            <button
+              onclick={() => activeTab = 'settings'}
+              class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
+            >
+              {t('app-chat.no-llm.cta', 'Configure AI providers in Settings')}
+            </button>
+          </div>
         </div>
       {:else if appChatRender === 'empty-no-agent'}
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">

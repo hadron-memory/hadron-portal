@@ -41,7 +41,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     });
   }
 
-  let body: { agentId?: string; conversationName?: string; scope?: 'private' | 'shared' };
+  let body: {
+    agentId?: string;
+    conversationName?: string;
+    scope?: 'private' | 'shared';
+    appId?: string;
+    configName?: string;
+  };
   try {
     body = await request.json();
   } catch {
@@ -155,6 +161,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       agentId: body.agentId,
       chatId,
       userMessage: null,
+      appId: body.appId,
+      configName: body.configName,
       startPayload: { systemMessage, tools },
     });
     welcomeMessage = turn.assistantMessage;
