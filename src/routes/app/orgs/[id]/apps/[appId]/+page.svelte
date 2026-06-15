@@ -496,8 +496,18 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
   {#if activeTab === 'chat'}
     <div class="flex flex-col" style="height: calc(100vh - 280px);">
       {#if appChatRender === 'agent-chat' && app.agentId}
+        <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
+          <AgentChat
+            agentId={app.agentId}
+            appId={app.id}
+            configName={effectiveConfigName ?? undefined}
+            uploadMemoryId={writableMemoryIds[0]}
+          />
+        </div>
         {#if usableChatConfigs.length > 0}
-          <div class="mb-2 flex items-center gap-2 text-sm">
+          <!-- Config picker sits below the chat, next to where the composer
+               lives — matching where model pickers appear in most chat apps. -->
+          <div class="mt-2 flex items-center gap-2 text-sm">
             <label for="chat-config" class="text-zinc-500">{t('app-chat.config.label', 'AI config')}</label>
             <select
               id="chat-config"
@@ -511,14 +521,6 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             </select>
           </div>
         {/if}
-        <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
-          <AgentChat
-            agentId={app.agentId}
-            appId={app.id}
-            configName={effectiveConfigName ?? undefined}
-            uploadMemoryId={writableMemoryIds[0]}
-          />
-        </div>
       {:else if appChatRender === 'no-llm-config'}
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
           <div class="max-w-md text-center">
