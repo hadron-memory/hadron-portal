@@ -5,6 +5,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { t } from '$lib/i18n/t';
+  import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
   import type { App } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -163,13 +164,13 @@
   <!-- AI providers -->
   <section>
     <div class="mb-3 flex items-center justify-between">
-      <h2 class="font-semibold text-zinc-900 dark:text-white">AI providers {#if aiConfigs !== null}<span class="ml-1 text-sm font-normal text-zinc-500">({aiConfigs.length})</span>{/if}</h2>
+      <h2 class="font-semibold text-zinc-900 dark:text-white">{aiConfigStrings.heading()} {#if Array.isArray(aiConfigs)}<span class="ml-1 text-sm font-normal text-zinc-500">({aiConfigs.length})</span>{/if}</h2>
       <a href="/app/orgs/{org.id}/ai-configs" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
     </div>
-    {#if aiConfigs === null}
-      <p class="text-sm text-zinc-500">Named AI service configurations (provider, model, key) that agents, apps, and other consumers resolve by name.</p>
+    {#if !Array.isArray(aiConfigs)}
+      <p class="text-sm text-zinc-500">{aiConfigStrings.overviewBlurb()}</p>
     {:else if !aiConfigs.length}
-      <p class="text-sm text-zinc-500">No AI service configurations yet.</p>
+      <p class="text-sm text-zinc-500">{aiConfigStrings.empty()}</p>
     {:else}
       <div class="grid gap-3 sm:grid-cols-2">
         {#each aiConfigs as c (c.id)}
@@ -178,9 +179,9 @@
             <div class="flex items-center justify-between gap-2">
               <span class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{c.name}</span>
               {#if c.enabled}
-                <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">Enabled</span>
+                <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">{aiConfigStrings.enabledBadge()}</span>
               {:else}
-                <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">Disabled</span>
+                <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">{aiConfigStrings.disabledBadge()}</span>
               {/if}
             </div>
             <p class="mt-1 text-xs text-zinc-500">{c.provider} · {c.model}</p>
