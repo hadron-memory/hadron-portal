@@ -11,6 +11,8 @@
   const org = $derived(data.org);
   const apps = $derived(data.apps);
   const appsError = $derived(data.appsError);
+  // 036: null when the (admin-gated) list couldn't be loaded for this viewer.
+  const aiConfigs = $derived(data.aiConfigs);
 
   function activeKeyCount(app: App): number {
     return app.keys.filter((k) => !k.revokedAt).length;
@@ -161,10 +163,31 @@
   <!-- AI providers -->
   <section>
     <div class="mb-3 flex items-center justify-between">
-      <h2 class="font-semibold text-zinc-900 dark:text-white">AI providers</h2>
+      <h2 class="font-semibold text-zinc-900 dark:text-white">AI providers {#if aiConfigs !== null}<span class="ml-1 text-sm font-normal text-zinc-500">({aiConfigs.length})</span>{/if}</h2>
       <a href="/app/orgs/{org.id}/ai-configs" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
     </div>
-    <p class="text-sm text-zinc-500">Named AI service configurations (provider, model, key) that agents, apps, and other consumers resolve by name.</p>
+    {#if aiConfigs === null}
+      <p class="text-sm text-zinc-500">Named AI service configurations (provider, model, key) that agents, apps, and other consumers resolve by name.</p>
+    {:else if !aiConfigs.length}
+      <p class="text-sm text-zinc-500">No AI service configurations yet.</p>
+    {:else}
+      <div class="grid gap-3 sm:grid-cols-2">
+        {#each aiConfigs as c (c.id)}
+          <a href="/app/orgs/{org.id}/ai-configs"
+            class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-mono text-sm font-medium text-indigo-600 dark:text-indigo-300">{c.name}</span>
+              {#if c.enabled}
+                <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">Enabled</span>
+              {:else}
+                <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">Disabled</span>
+              {/if}
+            </div>
+            <p class="mt-1 text-xs text-zinc-500">{c.provider} · {c.model}</p>
+          </a>
+        {/each}
+      </div>
+    {/if}
   </section>
 
   <!-- Integrations -->
