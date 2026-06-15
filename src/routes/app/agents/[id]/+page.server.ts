@@ -77,11 +77,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       ORG_SYSTEM_MEMORIES_QUERY, { orgId: org.id },
     ).catch(() => ({ orgSystemMemories: [] as Memory[] })),
     // 036: the AGENT-owned named configs. org-ADMIN gated server-side; a
-    // non-admin member's call errors — coerce to empty (the page hides the
-    // manager for non-admins anyway).
+    // non-admin member's call errors (the page hides the manager for them
+    // anyway). Coerce to null so a transient failure surfaces as a load error
+    // to admins instead of a misleading empty list.
     client.request<{ aiServiceConfigs: AiServiceConfig[] }>(
       AI_SERVICE_CONFIGS_QUERY, { ownerType: 'AGENT', ownerId: agent.id },
-    ).catch(() => ({ aiServiceConfigs: [] as AiServiceConfig[] })),
+    ).catch(() => null),
   ]);
 
   if (nodesResult) {
@@ -98,7 +99,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     agentNodes,
     allOrgs: orgsData.myOrganizations,
     orgSystemMemories,
-    agentConfigs: configsResult.aiServiceConfigs,
+    agentConfigs: configsResult?.aiServiceConfigs ?? [],
+    configsError: configsResult === null,
     currentUserId: locals.user?.id ?? null,
   };
 };

@@ -137,6 +137,12 @@
       error = params.error;
       return;
     }
+    // Persist the bedrock region in params so the region dropdown round-trips
+    // on a later edit — the masked list never returns the key, so the region
+    // (also encoded into the key) can't be recovered from there. Server params
+    // validation is passthrough, so the extra key is preserved untouched.
+    const paramsValue =
+      providerInput === 'bedrock' ? { ...params.value, bedrockRegion } : params.value;
     const enteredKey = resolveKeyInput({
       provider: providerInput,
       apiKey: apiKeyInput,
@@ -158,7 +164,7 @@
           provider: providerInput,
           model: modelInput.trim(),
           apiKey: enteredKey || undefined,
-          params: params.value,
+          params: paramsValue,
           enabled: enabledInput,
         });
       } else {
@@ -169,7 +175,7 @@
           name,
           provider: providerInput,
           model: modelInput.trim(),
-          params: params.value,
+          params: paramsValue,
           enabled: enabledInput,
           ...keyArg,
         });

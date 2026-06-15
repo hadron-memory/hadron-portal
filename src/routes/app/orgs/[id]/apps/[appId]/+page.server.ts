@@ -33,11 +33,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id })
       .catch(() => ({ organization: null })),
     // 036: APP-owned named configs. org-ADMIN gated server-side; a non-admin
-    // member's call errors — coerce to empty (the page hides the manager for
-    // non-admins anyway).
+    // member's call errors (the page hides the manager for them anyway).
+    // Coerce to null so a transient failure surfaces as a load error to admins
+    // instead of a misleading empty list.
     client.request<{ aiServiceConfigs: AiServiceConfig[] }>(AI_SERVICE_CONFIGS_QUERY, {
       ownerType: 'APP', ownerId: params.appId,
-    }).catch(() => ({ aiServiceConfigs: [] as AiServiceConfig[] })),
+    }).catch(() => null),
   ]);
   if (!appData.app) throw error(404, 'App not found');
   if (!orgData.organization) throw error(404, 'Organization not found');
@@ -58,7 +59,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     org: orgData.organization,
     availableAgents,
     appNodes: nodesData.appNodes,
-    appConfigs: configsData.aiServiceConfigs,
+    appConfigs: configsData?.aiServiceConfigs ?? [],
+    configsError: configsData === null,
     currentUserId: locals.user?.id ?? null,
   };
 };

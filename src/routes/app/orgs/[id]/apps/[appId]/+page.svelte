@@ -771,6 +771,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           configs={data.appConfigs ?? []}
           members={org.members ?? []}
           currentUserId={data.currentUserId}
+          configsError={data.configsError}
         />
       </section>
 

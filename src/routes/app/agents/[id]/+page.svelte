@@ -713,6 +713,7 @@
           configs={data.agentConfigs ?? []}
           members={org.members ?? []}
           currentUserId={data.currentUserId}
+          configsError={data.configsError}
         />
 
         <!-- Chat tab readiness checklist -->
