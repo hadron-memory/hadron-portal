@@ -1,6 +1,6 @@
 import { gqlClient } from '$lib/server/api';
 import {
-  AGENT_AI_CONFIG_QUERY,
+  RESOLVE_AI_CONFIG_QUERY,
   SEND_CHAT_MESSAGE_MUTATION,
   PROCESS_CHAT_RESPONSE_MUTATION,
   SAVE_CHAT_SUMMARY_MUTATION,
@@ -25,17 +25,28 @@ export async function fetchAgentAIConfig(
   token: string | null,
   agentId: string,
 ): Promise<{ provider: AIProvider; apiKey: string; model: string }> {
-  const result = await gqlClient(token).request<{
-    agentAIConfig: { provider: string; apiKey: string; model: string } | null;
-  }>(AGENT_AI_CONFIG_QUERY, { agentId });
-  if (!result.agentAIConfig) {
-    throw new Error('Agent has no LLM provider configured. Set one in agent settings first.');
+  // 036-ai-service-config: resolve the agent's `default` named config
+  // (App → Agent → Org → Host walk; returns the decrypted key). Successor to
+  // the legacy `agentAIConfig` shim. `resolveAIConfig` throws
+  // NoAiConfigAvailableError when nothing resolves — translate that back into
+  // the same "configure a provider" guidance the legacy path surfaced, but
+  // let auth/transport errors propagate untouched.
+  try {
+    const result = await gqlClient(token).request<{
+      resolveAIConfig: { provider: string; apiKey: string; model: string };
+    }>(RESOLVE_AI_CONFIG_QUERY, { name: 'default', agentId });
+    return {
+      provider: result.resolveAIConfig.provider as AIProvider,
+      apiKey: result.resolveAIConfig.apiKey,
+      model: result.resolveAIConfig.model,
+    };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : '';
+    if (msg.includes('NoAiConfigAvailable') || /no ai config|not configured/i.test(msg)) {
+      throw new Error('Agent has no LLM provider configured. Set one in agent settings first.');
+    }
+    throw e;
   }
-  return {
-    provider: result.agentAIConfig.provider as AIProvider,
-    apiKey: result.agentAIConfig.apiKey,
-    model: result.agentAIConfig.model,
-  };
 }
 
 /**

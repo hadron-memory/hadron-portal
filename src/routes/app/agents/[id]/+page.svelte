@@ -1,11 +1,11 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { invalidateAll } from '$app/navigation';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
+  import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
@@ -149,146 +149,6 @@
 
   let isEditing = $state(false);
   let confirmDelete = $state(false);
-
-  // ── AI config editor state ──
-  let editAiConfig = $state(false);
-  let aiProviderInput = $state<'anthropic' | 'openai' | 'glm' | 'bedrock'>('anthropic');
-  let aiModelInput = $state('');
-  let aiApiKeyInput = $state('');
-  let bedrockAccessKeyId = $state('');
-  let bedrockSecretAccessKey = $state('');
-  let bedrockRegion = $state('us-east-1');
-  let aiConfigBusy = $state(false);
-  let aiConfigError = $state<string | null>(null);
-  let aiConfigTestResult = $state<{
-    ok: boolean;
-    provider?: string;
-    model?: string;
-    reply?: string;
-    error?: string;
-  } | null>(null);
-
-  function startEditAiConfig() {
-    aiProviderInput = (agent.aiProvider as 'anthropic' | 'openai' | 'glm' | 'bedrock') ?? 'anthropic';
-    aiModelInput = agent.aiModel ?? '';
-    aiApiKeyInput = '';
-    bedrockAccessKeyId = '';
-    bedrockSecretAccessKey = '';
-    bedrockRegion = 'us-east-1';
-    aiConfigError = null;
-    aiConfigTestResult = null;
-    editAiConfig = true;
-  }
-
-  async function saveAiConfig() {
-    if (!aiProviderInput || !aiModelInput.trim()) {
-      aiConfigError = 'Provider and model are required.';
-      return;
-    }
-    // API key is required only on first save (no existing key)
-    if (aiProviderInput === 'bedrock') {
-      if (!agent.hasAiApiKey && (!bedrockAccessKeyId.trim() || !bedrockSecretAccessKey.trim())) {
-        aiConfigError = 'AWS Access Key ID and Secret Access Key are required.';
-        return;
-      }
-    } else if (!agent.hasAiApiKey && !aiApiKeyInput.trim()) {
-      aiConfigError = 'API key is required.';
-      return;
-    }
-    // For Bedrock, JSON-encode the three credential fields into apiKey
-    let resolvedApiKey: string | undefined;
-    if (aiProviderInput === 'bedrock') {
-      if (bedrockAccessKeyId.trim() || bedrockSecretAccessKey.trim()) {
-        resolvedApiKey = JSON.stringify({ accessKeyId: bedrockAccessKeyId.trim(), secretAccessKey: bedrockSecretAccessKey.trim(), region: bedrockRegion });
-      }
-    } else {
-      resolvedApiKey = aiApiKeyInput.trim() || undefined;
-    }
-    aiConfigBusy = true;
-    aiConfigError = null;
-    aiConfigTestResult = null;
-    try {
-      const res = await fetch('/api/agent-chat/ai-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'save',
-          agentId: agent.id,
-          provider: aiProviderInput,
-          model: aiModelInput.trim(),
-          apiKey: resolvedApiKey,
-        }),
-      });
-      const body = await res.json();
-      if (!res.ok || body.error) throw new Error(body.error ?? 'Failed to save AI config');
-      editAiConfig = false;
-      await invalidateAll();
-    } catch (e) {
-      aiConfigError = e instanceof Error ? e.message : 'Failed to save AI config';
-    } finally {
-      aiConfigBusy = false;
-    }
-  }
-
-  async function testAiConfig() {
-    if (!aiProviderInput || !aiModelInput.trim()) {
-      aiConfigError = 'Provider and model are required to test.';
-      return;
-    }
-    aiConfigBusy = true;
-    aiConfigError = null;
-    aiConfigTestResult = null;
-    try {
-      // Pass the current form values so the user can test before saving.
-      // If no new key is entered, the backend merges with the saved key.
-      let testApiKey: string | undefined;
-      if (aiProviderInput === 'bedrock' && (bedrockAccessKeyId.trim() || bedrockSecretAccessKey.trim())) {
-        testApiKey = JSON.stringify({ accessKeyId: bedrockAccessKeyId.trim(), secretAccessKey: bedrockSecretAccessKey.trim(), region: bedrockRegion });
-      } else {
-        testApiKey = aiApiKeyInput.trim() || undefined;
-      }
-      const res = await fetch('/api/agent-chat/ai-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'test',
-          agentId: agent.id,
-          provider: aiProviderInput,
-          model: aiModelInput.trim(),
-          apiKey: testApiKey,
-        }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? 'Test failed');
-      aiConfigTestResult = body;
-    } catch (e) {
-      aiConfigError = e instanceof Error ? e.message : 'Test failed';
-    } finally {
-      aiConfigBusy = false;
-    }
-  }
-
-  async function clearAiConfig() {
-    if (!confirm('Clear AI config for this agent? The API key will be removed.')) return;
-    aiConfigBusy = true;
-    aiConfigError = null;
-    aiConfigTestResult = null;
-    try {
-      const res = await fetch('/api/agent-chat/ai-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'clear', agentId: agent.id }),
-      });
-      const body = await res.json();
-      if (!res.ok || body.error) throw new Error(body.error ?? 'Failed to clear');
-      editAiConfig = false;
-      await invalidateAll();
-    } catch (e) {
-      aiConfigError = e instanceof Error ? e.message : 'Failed to clear AI config';
-    } finally {
-      aiConfigBusy = false;
-    }
-  }
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
@@ -845,154 +705,36 @@
         {/if}
       </section>
 
-      <!-- LLM provider (powers the portal Chat tab) -->
-      <section class="max-w-lg">
-        <div class="mb-4 flex items-center justify-between">
-          <h2 class="font-semibold text-zinc-900 dark:text-white">LLM provider</h2>
-          {#if !editAiConfig}
-            <button type="button" onclick={() => startEditAiConfig()}
-              class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
-              {agent.hasAiApiKey ? 'Edit' : 'Configure'}
-            </button>
-          {/if}
-        </div>
+      <!-- AI providers (registry; the Chat tab resolves the 'default' config) -->
+      <section class="max-w-2xl">
+        <AiServiceConfigSection
+          ownerType="AGENT"
+          ownerId={agent.id}
+          configs={data.agentConfigs ?? []}
+          members={org.members ?? []}
+          currentUserId={data.currentUserId}
+          configsError={data.configsError}
+        />
 
-        {#if editAiConfig}
-          <div class="rounded-xl border border-zinc-200 bg-white p-5 space-y-4 dark:border-zinc-800 dark:bg-zinc-900">
-            <div>
-              <label for="aiProvider" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Provider</label>
-              <select id="aiProvider" bind:value={aiProviderInput}
-                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="anthropic">Anthropic</option>
-                <option value="openai">OpenAI</option>
-                <option value="glm">GLM (z.ai)</option>
-                <option value="bedrock">AWS Bedrock</option>
-              </select>
-            </div>
-            <div>
-              <label for="aiModel" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Model</label>
-              <input id="aiModel" type="text" bind:value={aiModelInput}
-                placeholder={aiProviderInput === 'anthropic' ? 'claude-opus-4-6' : aiProviderInput === 'openai' ? 'gpt-4o-mini' : aiProviderInput === 'bedrock' ? 'anthropic.claude-sonnet-4-20250514-v1:0' : 'glm-4-flash'}
-                class={inputClass} />
-              <p class="mt-1 text-xs text-zinc-400">{aiProviderInput === 'bedrock' ? 'Bedrock model ID (e.g. anthropic.claude-sonnet-4-20250514-v1:0).' : 'Exact model string (e.g. claude-opus-4-6, gpt-4o-mini).'}</p>
-            </div>
-            {#if aiProviderInput === 'bedrock'}
-              <div>
-                <label for="bedrockAccessKeyId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AWS Access Key ID</label>
-                <input id="bedrockAccessKeyId" type="password" bind:value={bedrockAccessKeyId}
-                  placeholder={agent.hasAiApiKey ? '(leave blank to keep current)' : 'AKIA…'}
-                  class={inputClass} />
-              </div>
-              <div>
-                <label for="bedrockSecretAccessKey" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AWS Secret Access Key</label>
-                <input id="bedrockSecretAccessKey" type="password" bind:value={bedrockSecretAccessKey}
-                  placeholder={agent.hasAiApiKey ? '(leave blank to keep current)' : ''}
-                  class={inputClass} />
-              </div>
-              <div>
-                <label for="bedrockRegion" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">AWS Region</label>
-                <select id="bedrockRegion" bind:value={bedrockRegion}
-                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                  <option value="us-east-1">us-east-1 (N. Virginia)</option>
-                  <option value="us-west-2">us-west-2 (Oregon)</option>
-                  <option value="eu-west-1">eu-west-1 (Ireland)</option>
-                  <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
-                </select>
-              </div>
-              <p class="text-xs text-zinc-400">Credentials are encrypted at rest with the Hadron server's master key.</p>
-            {:else}
-              <div>
-                <label for="aiApiKey" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">API key</label>
-                <input id="aiApiKey" type="password" bind:value={aiApiKeyInput}
-                  placeholder={agent.hasAiApiKey ? '(leave blank to keep current key)' : 'sk-…'}
-                  class={inputClass} />
-                <p class="mt-1 text-xs text-zinc-400">Encrypted at rest with the Hadron server's master key.</p>
-              </div>
-            {/if}
-            {#if aiConfigError}
-              <div class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">{aiConfigError}</div>
-            {/if}
-            {#if aiConfigTestResult}
-              <div class="rounded-md border px-3 py-2 text-xs {aiConfigTestResult.ok
-                ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'
-                : 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'}">
-                {#if aiConfigTestResult.ok}
-                  ✓ Works — {aiConfigTestResult.provider} / {aiConfigTestResult.model}. Reply: "{aiConfigTestResult.reply}"
-                {:else}
-                  × {aiConfigTestResult.error}
+        <!-- Chat tab readiness checklist -->
+        {#if !(hasSystemMemory && hasAiApiKey && hasNonSetupConversations)}
+          <div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/30">
+            <div class="mb-2 font-medium text-amber-800 dark:text-amber-300">Chat tab is hidden. All three must be true:</div>
+            <ul class="space-y-1 text-zinc-700 dark:text-zinc-300">
+              <li>{hasSystemMemory ? '✓' : '✗'} System memory assigned</li>
+              <li>{hasAiApiKey ? '✓' : '✗'} LLM provider configured (a “default” config with a key)</li>
+              <li>
+                {hasNonSetupConversations ? '✓' : '✗'} At least one non-setup conversation
+                {#if !hasNonSetupConversations}
+                  <span class="text-zinc-500">
+                    (found {systemNodes.filter((n) => n.loc.startsWith('conversations:') && n.loc.split(':').length === 2).length}
+                    conversation node{systemNodes.filter((n) => n.loc.startsWith('conversations:') && n.loc.split(':').length === 2).length === 1 ? '' : 's'}
+                    in system memory; all marked <code>isSetup: true</code>)
+                  </span>
                 {/if}
-              </div>
-            {/if}
-            <div class="flex gap-2">
-              <button type="button" onclick={saveAiConfig} disabled={aiConfigBusy}
-                class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
-                {aiConfigBusy ? 'Saving…' : 'Save'}
-              </button>
-              <button type="button" onclick={testAiConfig} disabled={aiConfigBusy || (!agent.hasAiApiKey && (aiProviderInput === 'bedrock' ? !bedrockAccessKeyId.trim() || !bedrockSecretAccessKey.trim() : !aiApiKeyInput.trim()))}
-                class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800 disabled:opacity-50"
-                title={(agent.hasAiApiKey || aiApiKeyInput.trim() || bedrockAccessKeyId.trim()) ? 'Round-trip a tiny hello through the configured provider' : 'Enter a key first, then test'}>
-                Test
-              </button>
-              {#if agent.hasAiApiKey}
-                <button type="button" onclick={clearAiConfig} disabled={aiConfigBusy}
-                  class="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950 disabled:opacity-50">
-                  Clear
-                </button>
-              {/if}
-              <button type="button" onclick={() => { editAiConfig = false; aiConfigError = null; aiConfigTestResult = null; }}
-                class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">
-                Cancel
-              </button>
-            </div>
+              </li>
+            </ul>
           </div>
-        {:else}
-          <div class="rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-200 overflow-hidden dark:border-zinc-800 dark:bg-zinc-900 dark:divide-zinc-800">
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Status</span>
-              <span class="text-sm font-medium {agent.hasAiApiKey ? 'text-green-600 dark:text-green-400' : 'text-zinc-500'}">
-                {agent.hasAiApiKey ? '✓ Configured' : 'Not configured'}
-              </span>
-            </div>
-            {#if agent.hasAiApiKey}
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">Provider</span>
-                <span class="text-sm text-zinc-900 dark:text-white">{agent.aiProvider}</span>
-              </div>
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">Model</span>
-                <span class="text-sm text-zinc-900 dark:text-white">{agent.aiModel}</span>
-              </div>
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">API key</span>
-                <span class="text-sm text-zinc-900 dark:text-white font-mono">{'*'.repeat(16)}{agent.aiApiKeyPreview ?? ''}</span>
-              </div>
-            {:else}
-              <div class="px-5 py-3 text-xs text-zinc-500">
-                Configure an LLM provider to enable the <strong>Chat</strong> tab.
-              </div>
-            {/if}
-          </div>
-
-          <!-- Chat tab readiness checklist -->
-          {#if !(hasSystemMemory && hasAiApiKey && hasNonSetupConversations)}
-            <div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/30">
-              <div class="mb-2 font-medium text-amber-800 dark:text-amber-300">Chat tab is hidden. All three must be true:</div>
-              <ul class="space-y-1 text-zinc-700 dark:text-zinc-300">
-                <li>{hasSystemMemory ? '✓' : '✗'} System memory assigned</li>
-                <li>{hasAiApiKey ? '✓' : '✗'} LLM provider configured</li>
-                <li>
-                  {hasNonSetupConversations ? '✓' : '✗'} At least one non-setup conversation
-                  {#if !hasNonSetupConversations}
-                    <span class="text-zinc-500">
-                      (found {systemNodes.filter((n) => n.loc.startsWith('conversations:') && n.loc.split(':').length === 2).length}
-                      conversation node{systemNodes.filter((n) => n.loc.startsWith('conversations:') && n.loc.split(':').length === 2).length === 1 ? '' : 's'}
-                      in system memory; all marked <code>isSetup: true</code>)
-                    </span>
-                  {/if}
-                </li>
-              </ul>
-            </div>
-          {/if}
         {/if}
       </section>
 

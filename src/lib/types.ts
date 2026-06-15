@@ -76,10 +76,9 @@ export interface Agent {
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'ASSISTANT' | 'CHATBOT';
   surfaces?: string[];
-  aiProvider?: string | null;
-  aiModel?: string | null;
+  // 036-ai-service-config: server shim — true when the agent's `default`
+  // config has a key. Used by the Chat-tab readiness gate.
   hasAiApiKey?: boolean;
-  aiApiKeyPreview?: string | null;
   properties: Record<string, unknown> | null;
   memoryItems: AgentMemoryItem[];
   // 008-agent-installation
@@ -146,9 +145,6 @@ export interface App {
   description: string | null;
   systemPrompt: string | null;
   agentTools: string[];
-  aiProvider: string | null;
-  aiModel: string | null;
-  hasAiApiKey: boolean;
   expiresAt: string | null;
   // App-original fields
   createUserPermission: 'DENY' | 'EXPLICIT' | 'IMPLICIT';
@@ -405,6 +401,30 @@ export interface AppAIConfig {
   provider: AIProvider;
   apiKey: string;
   model: string;
+}
+
+// ---------------------------------------------------------------------------
+// 036-ai-service-config: the named AI-config registry. A config is owned by
+// exactly one of HadronServer / Organization / App / Agent and resolved by
+// name (App → Agent → Org → HadronServer). The masked list never carries key
+// material beyond the preview.
+// ---------------------------------------------------------------------------
+
+export type AiConfigOwnerType = 'HADRON_SERVER' | 'ORGANIZATION' | 'APP' | 'AGENT';
+
+export interface AiServiceConfig {
+  id: string;
+  name: string;
+  ownerType: AiConfigOwnerType;
+  ownerId: string;
+  provider: AIProvider;
+  model: string;
+  hasApiKey: boolean;
+  apiKeyPreview: string | null;
+  params: Record<string, unknown> | null;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -30,9 +30,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   if (!agent || !org) throw error(404, 'Agent not found or no longer available');
 
+  // 036-ai-service-config: readiness is whether the agent's `default` config
+  // has a key. `Agent.hasAiApiKey` is the server-computed shim for exactly
+  // that (any member can read it; the registry list itself is admin-gated).
   const llmProviderConfigured = Boolean(
-    (agent as unknown as { aiProvider?: string | null; hasAiApiKey?: boolean }).aiProvider
-    && (agent as unknown as { hasAiApiKey?: boolean }).hasAiApiKey,
+    (agent as unknown as { hasAiApiKey?: boolean }).hasAiApiKey,
   );
 
   // Fixtures live as system-type nodes at `fixtures:*` in the agent's
