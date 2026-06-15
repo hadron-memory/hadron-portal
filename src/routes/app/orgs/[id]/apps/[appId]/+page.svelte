@@ -3,17 +3,15 @@
   import { goto } from '$app/navigation';
   import { env } from '$env/dynamic/public';
   import JSZip from 'jszip';
-  import { onMount } from 'svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
+  import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
-  import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { t } from '$lib/i18n/t.js';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
-  import type { AIProvider } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -99,57 +97,6 @@
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
   const typeIcon: Record<string, string> = { WORKSTATION: '💻', CHATBOT: '💬', CLOUD: '☁️', IOT: '📡', AGENT: '🤖', AUTOMATION: '⚙️' };
-
-  // ── AI Chat config (CHATBOT-only) ────────────────────────────────────
-  let aiProvider = $state<AIProvider>((app.aiProvider as AIProvider) ?? 'openai');
-  let aiApiKey = $state('');
-  let aiModel = $state(app.aiModel ?? DEFAULT_MODELS['openai']);
-  let stBedrockAccessKeyId = $state('');
-  let stBedrockSecretAccessKey = $state('');
-  let stBedrockRegion = $state('us-east-1');
-  let aiEditing = $state(false);
-
-  onMount(async () => {
-    if (app.hasAiApiKey) {
-      try {
-        const res = await fetch(`/api/apps/ai-config?appId=${app.id}`);
-        if (res.ok) {
-          const { provider, apiKey, model } = await res.json();
-          if (provider && apiKey && model) {
-            aiProvider = provider as AIProvider;
-            aiApiKey = apiKey;
-            aiModel = model;
-          }
-        }
-      } catch { /* ignore */ }
-    }
-  });
-
-  function onProviderChange(e: Event) {
-    const val = (e.target as HTMLSelectElement).value;
-    aiProvider = val as AIProvider;
-    aiModel = DEFAULT_MODELS[aiProvider];
-  }
-
-  async function saveAiConfig() {
-    let resolvedKey: string;
-    if (aiProvider === 'bedrock') {
-      if (!stBedrockAccessKeyId.trim() || !stBedrockSecretAccessKey.trim()) return;
-      resolvedKey = JSON.stringify({ accessKeyId: stBedrockAccessKeyId.trim(), secretAccessKey: stBedrockSecretAccessKey.trim(), region: stBedrockRegion });
-    } else {
-      if (!aiApiKey.trim()) return;
-      resolvedKey = aiApiKey;
-    }
-    try {
-      const res = await fetch('/api/apps/ai-config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ appId: app.id, provider: aiProvider, apiKey: resolvedKey, model: aiModel }),
-      });
-      if (!res.ok) return;
-      aiApiKey = resolvedKey;
-    } catch { return; }
-  }
 
   // ── Client tab state ────────────────────────────────────────────────
   const AGENT_TOOL_OPTIONS = [
@@ -816,88 +763,16 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         </section>
       {/if}
 
-      <!-- AI Chat Configuration (visible when App.surfaces includes 'chat') -->
-      {#if hasChatSurface}
-        <section class="max-w-lg">
-          <div class="mb-4 flex items-center justify-between">
-            <h2 class="font-semibold text-zinc-900 dark:text-white">AI Chat</h2>
-            {#if !aiEditing}
-              <button onclick={() => aiEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
-            {/if}
-          </div>
-
-          {#if aiEditing}
-            <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-3">
-              <div>
-                <label for="ai-provider" class="mb-1 block text-xs text-zinc-500">Provider</label>
-                <select id="ai-provider" value={aiProvider} onchange={onProviderChange}
-                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
-                  {#each AI_PROVIDERS as p (p.value)}
-                    <option value={p.value}>{p.label}</option>
-                  {/each}
-                </select>
-              </div>
-              {#if aiProvider === 'bedrock'}
-                <div>
-                  <label for="ai-bedrock-access-key" class="mb-1 block text-xs text-zinc-500">AWS Access Key ID</label>
-                  <input id="ai-bedrock-access-key" type="password" bind:value={stBedrockAccessKeyId} placeholder="AKIA…"
-                    class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
-                </div>
-                <div>
-                  <label for="ai-bedrock-secret-key" class="mb-1 block text-xs text-zinc-500">AWS Secret Access Key</label>
-                  <input id="ai-bedrock-secret-key" type="password" bind:value={stBedrockSecretAccessKey} placeholder=""
-                    class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
-                </div>
-                <div>
-                  <label for="ai-bedrock-region" class="mb-1 block text-xs text-zinc-500">AWS Region</label>
-                  <select id="ai-bedrock-region" bind:value={stBedrockRegion}
-                    class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
-                    <option value="us-east-1">us-east-1 (N. Virginia)</option>
-                    <option value="us-west-2">us-west-2 (Oregon)</option>
-                    <option value="eu-west-1">eu-west-1 (Ireland)</option>
-                    <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
-                  </select>
-                </div>
-                <p class="mt-1 text-[10px] text-zinc-400">Credentials are encrypted and stored on the server for this app.</p>
-              {:else}
-                <div>
-                  <label for="ai-key" class="mb-1 block text-xs text-zinc-500">API Key</label>
-                  <input id="ai-key" type="password" bind:value={aiApiKey} placeholder="sk-..."
-                    class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500" />
-                  <p class="mt-1 text-[10px] text-zinc-400">Encrypted and stored on the server for this app.</p>
-                </div>
-              {/if}
-              <div>
-                <label for="ai-model" class="mb-1 block text-xs text-zinc-500">Model</label>
-                <input id="ai-model" type="text" bind:value={aiModel}
-                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white focus:border-indigo-500 focus:outline-none" />
-              </div>
-              <div class="flex gap-3">
-                <button onclick={() => { saveAiConfig(); aiEditing = false; }} disabled={aiProvider === 'bedrock' ? (!stBedrockAccessKeyId.trim() || !stBedrockSecretAccessKey.trim()) : !aiApiKey.trim()}
-                  class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
-                  Save
-                </button>
-                <button type="button" onclick={() => aiEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
-              </div>
-            </div>
-          {:else}
-            <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">Provider</span>
-                <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.aiProvider ?? '—'}</span>
-              </div>
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">Model</span>
-                <span class="text-sm font-medium text-zinc-900 dark:text-white">{app.aiModel ?? '—'}</span>
-              </div>
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">API Key</span>
-                <span class="text-sm text-zinc-900 dark:text-white">{app.hasAiApiKey ? 'Configured' : 'Not set'}</span>
-              </div>
-            </div>
-          {/if}
-        </section>
-      {/if}
+      <!-- AI providers (registry; consumers resolve a config by name) -->
+      <section class="max-w-2xl">
+        <AiServiceConfigSection
+          ownerType="APP"
+          ownerId={app.id}
+          configs={data.appConfigs ?? []}
+          members={org.members ?? []}
+          currentUserId={data.currentUserId}
+        />
+      </section>
 
       <!-- App Keys (always visible in Settings; richer download flow lives on Client tab for non-CHATBOT apps) -->
       <section class="max-w-2xl">

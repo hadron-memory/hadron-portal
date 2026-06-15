@@ -72,10 +72,10 @@ export const AGENT_FIELDS = /* GraphQL */ `
     type
     surfaces
     properties
-    aiProvider
-    aiModel
+    # 036-ai-service-config: hasAiApiKey is the server shim for "the agent's
+    # 'default' config has a key" — kept for the Chat-tab readiness gate (any
+    # member can read it; the registry list itself is org-ADMIN gated).
     hasAiApiKey
-    aiApiKeyPreview
     memoryItems {
       id
       role
@@ -108,9 +108,6 @@ export const APP_FIELDS = /* GraphQL */ `
     description
     systemPrompt
     agentTools
-    aiProvider
-    aiModel
-    hasAiApiKey
     expiresAt
     # App-original fields
     createUserPermission
@@ -737,69 +734,84 @@ export const REMOVE_AGENT_FROM_APP_MUTATION = /* GraphQL */ `
 `;
 
 // ---------------------------------------------------------------------------
-// App AI Config (uses updateApp mutation)
+// AI Service Config registry (spec 036). Named configs owned by exactly one of
+// HadronServer / Organization / App / Agent, resolved by name walking
+// App → Agent → Org → HadronServer. The masked list never returns key
+// material; resolveAIConfig is privileged and returns the decrypted key
+// (used only server-side for the runtime/test paths).
 // ---------------------------------------------------------------------------
 
-export const UPDATE_APP_AI_CONFIG_MUTATION = /* GraphQL */ `
-  ${APP_FIELDS}
-  mutation UpdateAppAIConfig($id: ID!, $aiProvider: String, $aiModel: String, $aiApiKey: String) {
-    updateApp(id: $id, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
-      ...AppFields
+export const AI_SERVICE_CONFIG_FIELDS = /* GraphQL */ `
+  fragment AiServiceConfigFields on AiServiceConfig {
+    id
+    name
+    ownerType
+    ownerId
+    provider
+    model
+    hasApiKey
+    apiKeyPreview
+    params
+    enabled
+    createdAt
+    updatedAt
+  }
+`;
+
+export const AI_SERVICE_CONFIGS_QUERY = /* GraphQL */ `
+  ${AI_SERVICE_CONFIG_FIELDS}
+  query AiServiceConfigs($ownerType: AiConfigOwnerType!, $ownerId: ID!) {
+    aiServiceConfigs(ownerType: $ownerType, ownerId: $ownerId) {
+      ...AiServiceConfigFields
     }
   }
 `;
 
-export const CLEAR_APP_AI_CONFIG_MUTATION = /* GraphQL */ `
-  ${APP_FIELDS}
-  mutation ClearAppAIConfig($id: ID!, $aiProvider: String, $aiModel: String, $aiApiKey: String) {
-    updateApp(id: $id, aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey) {
-      ...AppFields
+export const CREATE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
+  ${AI_SERVICE_CONFIG_FIELDS}
+  mutation CreateAiServiceConfig(
+    $ownerType: AiConfigOwnerType!, $ownerId: ID!, $name: String!,
+    $provider: String!, $model: String!, $apiKey: String, $params: JSON, $enabled: Boolean
+  ) {
+    createAiServiceConfig(
+      ownerType: $ownerType, ownerId: $ownerId, name: $name,
+      provider: $provider, model: $model, apiKey: $apiKey, params: $params, enabled: $enabled
+    ) {
+      ...AiServiceConfigFields
     }
   }
 `;
 
-export const APP_AI_CONFIG_QUERY = /* GraphQL */ `
-  query AppAIConfig($appId: ID!) {
-    appAIConfig(appId: $appId) {
+export const UPDATE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
+  ${AI_SERVICE_CONFIG_FIELDS}
+  mutation UpdateAiServiceConfig(
+    $id: ID!, $name: String, $provider: String, $model: String,
+    $apiKey: String, $params: JSON, $enabled: Boolean
+  ) {
+    updateAiServiceConfig(
+      id: $id, name: $name, provider: $provider, model: $model,
+      apiKey: $apiKey, params: $params, enabled: $enabled
+    ) {
+      ...AiServiceConfigFields
+    }
+  }
+`;
+
+export const DELETE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
+  mutation DeleteAiServiceConfig($id: ID!) {
+    deleteAiServiceConfig(id: $id)
+  }
+`;
+
+// Privileged — returns the DECRYPTED key. Server gates on org-ADMIN / platform.
+// Used only server-side (runtime chat path + Test); never sent to the browser.
+export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
+  query ResolveAIConfig($name: String, $appId: ID, $agentId: ID) {
+    resolveAIConfig(name: $name, appId: $appId, agentId: $agentId) {
       provider
-      apiKey
       model
-    }
-  }
-`;
-
-// ---------------------------------------------------------------------------
-// Agent chat (portal agent chat Phase 2)
-// ---------------------------------------------------------------------------
-
-export const AGENT_AI_CONFIG_QUERY = /* GraphQL */ `
-  query AgentAIConfig($agentId: ID!) {
-    agentAIConfig(agentId: $agentId) {
-      provider
       apiKey
-      model
-    }
-  }
-`;
-
-export const UPDATE_AGENT_AI_CONFIG_MUTATION = /* GraphQL */ `
-  mutation UpdateAgentAIConfig($agentId: ID!, $provider: String!, $model: String!, $apiKey: String) {
-    updateAgentAIConfig(agentId: $agentId, provider: $provider, model: $model, apiKey: $apiKey) {
-      id
-      aiProvider
-      aiModel
-      hasAiApiKey
-    }
-  }
-`;
-
-export const CLEAR_AGENT_AI_CONFIG_MUTATION = /* GraphQL */ `
-  mutation ClearAgentAIConfig($agentId: ID!) {
-    clearAgentAIConfig(agentId: $agentId) {
-      id
-      aiProvider
-      aiModel
-      hasAiApiKey
+      params
     }
   }
 `;

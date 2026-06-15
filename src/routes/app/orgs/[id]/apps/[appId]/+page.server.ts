@@ -11,8 +11,9 @@ import {
   REVOKE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
   APP_NODES_QUERY,
+  AI_SERVICE_CONFIGS_QUERY,
 } from '$lib/server/queries';
-import type { Organization, App, MemoryNode } from '$lib/types';
+import type { Organization, App, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 function extractGqlError(e: unknown, fallback: string): string {
@@ -26,11 +27,17 @@ function extractGqlError(e: unknown, fallback: string): string {
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
-  const [appData, orgData] = await Promise.all([
+  const [appData, orgData, configsData] = await Promise.all([
     client.request<{ app: App | null }>(APP_QUERY, { id: params.appId })
       .catch(() => ({ app: null })),
     client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id })
       .catch(() => ({ organization: null })),
+    // 036: APP-owned named configs. org-ADMIN gated server-side; a non-admin
+    // member's call errors — coerce to empty (the page hides the manager for
+    // non-admins anyway).
+    client.request<{ aiServiceConfigs: AiServiceConfig[] }>(AI_SERVICE_CONFIGS_QUERY, {
+      ownerType: 'APP', ownerId: params.appId,
+    }).catch(() => ({ aiServiceConfigs: [] as AiServiceConfig[] })),
   ]);
   if (!appData.app) throw error(404, 'App not found');
   if (!orgData.organization) throw error(404, 'Organization not found');
@@ -51,6 +58,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     org: orgData.organization,
     availableAgents,
     appNodes: nodesData.appNodes,
+    appConfigs: configsData.aiServiceConfigs,
+    currentUserId: locals.user?.id ?? null,
   };
 };
 

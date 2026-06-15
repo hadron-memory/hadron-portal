@@ -158,6 +158,15 @@
     {/if}
   </section>
 
+  <!-- AI providers -->
+  <section>
+    <div class="mb-3 flex items-center justify-between">
+      <h2 class="font-semibold text-zinc-900 dark:text-white">AI providers</h2>
+      <a href="/app/orgs/{org.id}/ai-configs" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
+    </div>
+    <p class="text-sm text-zinc-500">Named AI service configurations (provider, model, key) that agents, apps, and other consumers resolve by name.</p>
+  </section>
+
   <!-- Integrations -->
   <section>
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Integrations</h2>

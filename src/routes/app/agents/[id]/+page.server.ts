@@ -9,9 +9,10 @@ import {
   ADD_MEMORY_TO_AGENT_MUTATION,
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
+  AI_SERVICE_CONFIGS_QUERY,
 } from '$lib/server/queries';
 import { requireNonConsumer } from '$lib/server/guards';
-import type { Organization, Memory, MemoryNode } from '$lib/types';
+import type { Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 function extractGqlError(e: unknown, fallback: string): string {
@@ -68,13 +69,19 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   let agentNodes: MemoryNode[] = [];
   let orgSystemMemories: Memory[] = [];
 
-  const [nodesResult, sysMemResult] = await Promise.all([
+  const [nodesResult, sysMemResult, configsResult] = await Promise.all([
     allMemoryIds.length > 0
       ? client.request<{ nodes: MemoryNode[] }>(GRAPH_NODES_QUERY, { limit: 500 }).catch(() => null)
       : Promise.resolve(null),
     client.request<{ orgSystemMemories: Memory[] }>(
       ORG_SYSTEM_MEMORIES_QUERY, { orgId: org.id },
     ).catch(() => ({ orgSystemMemories: [] as Memory[] })),
+    // 036: the AGENT-owned named configs. org-ADMIN gated server-side; a
+    // non-admin member's call errors — coerce to empty (the page hides the
+    // manager for non-admins anyway).
+    client.request<{ aiServiceConfigs: AiServiceConfig[] }>(
+      AI_SERVICE_CONFIGS_QUERY, { ownerType: 'AGENT', ownerId: agent.id },
+    ).catch(() => ({ aiServiceConfigs: [] as AiServiceConfig[] })),
   ]);
 
   if (nodesResult) {
@@ -91,6 +98,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     agentNodes,
     allOrgs: orgsData.myOrganizations,
     orgSystemMemories,
+    agentConfigs: configsResult.aiServiceConfigs,
+    currentUserId: locals.user?.id ?? null,
   };
 };
 
