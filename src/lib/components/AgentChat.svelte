@@ -20,7 +20,15 @@
   // asset uploads. The parent page picks the destination memory (for now,
   // the agent's first writable memory). Multi-writable memory-picker UX
   // is a follow-up; the dominant single-writable case auto-picks.
-  let { agentId, uploadMemoryId }: { agentId: string; uploadMemoryId?: string } = $props();
+  // 036-ai-service-config: the App chat tab passes appId + the picked
+  // configName so turns resolve in app-context against the chosen config.
+  // The agent-builder chat omits both (agent-context, `default`).
+  let {
+    agentId,
+    uploadMemoryId,
+    appId,
+    configName,
+  }: { agentId: string; uploadMemoryId?: string; appId?: string; configName?: string } = $props();
 
   let pendingAttachments = $state<AssetSummary[]>([]);
 
@@ -139,7 +147,7 @@
       const res = await fetch('/api/agent-chat/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, scope: nextChatScope }),
+        body: JSON.stringify({ agentId, scope: nextChatScope, appId, configName }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -265,7 +273,7 @@
       const res = await fetch('/api/agent-chat/turn', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId, chatId, userMessage: text }),
+        body: JSON.stringify({ agentId, chatId, userMessage: text, appId, configName }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? 'Turn failed');

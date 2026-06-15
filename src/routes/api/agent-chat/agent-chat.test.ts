@@ -143,6 +143,23 @@ describe('POST /api/agent-chat/start', () => {
     });
   });
 
+  it('forwards appId + configName to the welcome runChatTurn (App chat picker)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      startChat: { chatId: 'c', systemMessage: 's', tools: null, conversationName: null, stageName: null },
+    });
+    mockRunChatTurn.mockResolvedValueOnce({
+      assistantMessage: 'hi',
+      stageTransitioned: false,
+      newStageName: null,
+      chatEnded: false,
+    });
+    const { POST } = await import('./start/+server');
+    await POST(ev({ body: { agentId: 'a1', appId: 'app-1', configName: 'bedrock-mm' } }));
+    expect(mockRunChatTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'a1', appId: 'app-1', configName: 'bedrock-mm' }),
+    );
+  });
+
   it('defaults conversationName to null when omitted', async () => {
     mockRequest.mockResolvedValueOnce({
       startChat: {
@@ -385,6 +402,17 @@ describe('POST /api/agent-chat/turn', () => {
       chatId: 'chat-9',
       userMessage: 'capital of France?',
     });
+  });
+
+  it('forwards appId + configName to runChatTurn (App chat picker)', async () => {
+    mockRunChatTurn.mockResolvedValueOnce({ assistantMessage: 'hi' });
+    const { POST } = await import('./turn/+server');
+    await POST(
+      ev({ body: { agentId: 'a1', chatId: 'c1', userMessage: 'hi', appId: 'app-1', configName: 'bedrock-mm' } }),
+    );
+    expect(mockRunChatTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: 'a1', chatId: 'c1', appId: 'app-1', configName: 'bedrock-mm' }),
+    );
   });
 
   it('returns 500 with error message on LLM failure', async () => {

@@ -816,6 +816,19 @@ export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
   }
 `;
 
+// Masked, resolution-aware set of configs selectable in a chat context
+// (App -> Agent -> Org -> Host, deduped by name, enabled-only, no key
+// material). Auth: App membership (or platform admin). Powers the App chat
+// tab's config picker + LLM-readiness gate.
+export const RESOLVE_AI_SERVICE_CONFIGS_QUERY = /* GraphQL */ `
+  ${AI_SERVICE_CONFIG_FIELDS}
+  query ResolveAiServiceConfigs($appId: ID, $agentId: ID) {
+    resolveAiServiceConfigs(appId: $appId, agentId: $agentId) {
+      ...AiServiceConfigFields
+    }
+  }
+`;
+
 export const MY_CHATS_QUERY = /* GraphQL */ `
   query MyChats($agentId: ID!, $limit: Int, $offset: Int) {
     myChats(agentId: $agentId, limit: $limit, offset: $offset) {

@@ -16,7 +16,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     });
   }
 
-  let body: { agentId?: string; chatId?: string; userMessage?: string };
+  let body: {
+    agentId?: string;
+    chatId?: string;
+    userMessage?: string;
+    appId?: string;
+    configName?: string;
+  };
   try {
     body = await request.json();
   } catch {
@@ -38,6 +44,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       agentId: body.agentId,
       chatId: body.chatId,
       userMessage: body.userMessage,
+      appId: body.appId,
+      configName: body.configName,
     });
     return new Response(JSON.stringify(turn), {
       status: 200,

@@ -12,6 +12,7 @@ import {
   DELETE_APP_MUTATION,
   APP_NODES_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
+  RESOLVE_AI_SERVICE_CONFIGS_QUERY,
 } from '$lib/server/queries';
 import type { Organization, App, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -45,9 +46,25 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   // Memory tab nodes — only relevant when the App has memory access via its agents,
   // but the query is cheap and lets the Memory tab render uniformly.
-  const nodesData = await client
-    .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appId: params.appId, limit: 500 })
-    .catch(() => ({ appNodes: [] as MemoryNode[] }));
+  // 036: in parallel, the configs RESOLVABLE for the App's chat context
+  // (App→Agent→Org→Host, masked) — powers the chat tab's config picker +
+  // LLM-readiness gate. App-membership gated; coerce errors to null (unknown
+  // ⇒ the page treats readiness as "don't block"). Only meaningful with an
+  // agent linked.
+  const [nodesData, chatConfigs] = await Promise.all([
+    client
+      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appId: params.appId, limit: 500 })
+      .catch(() => ({ appNodes: [] as MemoryNode[] })),
+    appData.app.agentId
+      ? client
+          .request<{ resolveAiServiceConfigs: AiServiceConfig[] }>(RESOLVE_AI_SERVICE_CONFIGS_QUERY, {
+            appId: params.appId,
+            agentId: appData.app.agentId,
+          })
+          .then((r) => r.resolveAiServiceConfigs)
+          .catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
   // 008-agent-installation: an App has at most one Agent (App.agent_id).
   // "Available" = any org agent when none is linked yet; empty otherwise.
@@ -59,6 +76,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     org: orgData.organization,
     availableAgents,
     appNodes: nodesData.appNodes,
+    chatConfigs,
     appConfigs: configsData?.aiServiceConfigs ?? [],
     configsError: configsData === null,
     currentUserId: locals.user?.id ?? null,

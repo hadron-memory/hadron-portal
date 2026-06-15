@@ -23,4 +23,20 @@ describe('chooseAppChatTabRender — spec 016 US4', () => {
     expect(chooseAppChatTabRender({ surfaces: ['chatter'], agentId: 'a' })).toBe('hidden');
     expect(chooseAppChatTabRender({ surfaces: ['chats'], agentId: 'a' })).toBe('hidden');
   });
+
+  // 036-ai-service-config: LLM-readiness gate.
+  it("returns 'no-llm-config' when agent is linked but no usable config resolves", () => {
+    expect(chooseAppChatTabRender({ surfaces: ['chat'], agentId: 'a', llmReady: false })).toBe('no-llm-config');
+  });
+
+  it("treats unknown readiness (null/undefined) as 'do not block' → agent-chat", () => {
+    expect(chooseAppChatTabRender({ surfaces: ['chat'], agentId: 'a', llmReady: true })).toBe('agent-chat');
+    expect(chooseAppChatTabRender({ surfaces: ['chat'], agentId: 'a', llmReady: null })).toBe('agent-chat');
+    expect(chooseAppChatTabRender({ surfaces: ['chat'], agentId: 'a' })).toBe('agent-chat');
+  });
+
+  it("prioritizes no-agent over readiness, and chat-surface-off over both", () => {
+    expect(chooseAppChatTabRender({ surfaces: ['chat'], agentId: null, llmReady: false })).toBe('empty-no-agent');
+    expect(chooseAppChatTabRender({ surfaces: ['mcp'], agentId: 'a', llmReady: false })).toBe('hidden');
+  });
 });
