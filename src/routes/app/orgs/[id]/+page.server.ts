@@ -4,13 +4,14 @@ import { gqlClient } from '$lib/server/api';
 import {
   ORGANIZATION_QUERY,
   APPS_QUERY,
+  AI_SERVICE_CONFIGS_QUERY,
   LINK_GITHUB_APP_MUTATION,
   UPDATE_ORG_GITHUB_APP_MUTATION,
   UNLINK_GITHUB_APP_MUTATION,
   DELETE_EXCHANGE_CONNECTION_MUTATION,
   TEST_EXCHANGE_CONNECTION_MUTATION,
 } from '$lib/server/queries';
-import type { Organization, App } from '$lib/types';
+import type { Organization, App, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 function extractGqlError(e: unknown, fallback: string): string {
@@ -42,6 +43,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const appsPromise = client.request<{ apps: App[] }>(APPS_QUERY, { orgId: params.id });
   appsPromise.catch(() => { /* result inspected below */ });
 
+  // 036: org-level AI configs for the overview preview. The masked list is
+  // org-ADMIN gated, so a non-admin member's request errors — coerce to null
+  // (the section then shows its description instead of a count/list).
+  const aiConfigsPromise = client
+    .request<{ aiServiceConfigs: AiServiceConfig[] }>(AI_SERVICE_CONFIGS_QUERY, {
+      ownerType: 'ORGANIZATION',
+      ownerId: params.id,
+    })
+    .then((r) => r.aiServiceConfigs)
+    .catch(() => null);
+
   let orgResult: { organization: Organization | null };
   try {
     orgResult = await client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id });
@@ -50,14 +62,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   }
   if (!orgResult.organization) throw error(404, 'Organization not found');
 
+  const aiConfigs = await aiConfigsPromise;
+
   try {
     const appsResult = await appsPromise;
-    return { org: orgResult.organization, apps: appsResult.apps, appsError: null };
+    return { org: orgResult.organization, apps: appsResult.apps, appsError: null, aiConfigs };
   } catch (e: unknown) {
     return {
       org: orgResult.organization,
       apps: [] as App[],
       appsError: extractGqlError(e, 'Failed to load apps'),
+      aiConfigs,
     };
   }
 };

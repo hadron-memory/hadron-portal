@@ -16,6 +16,12 @@ export const aiConfigStrings = {
       'ai-config.subheading',
       'Named AI service configurations. Consumers resolve a config by name (e.g. default, fast, frontier).',
     ),
+  /** Fallback blurb on the org overview section when the list isn't shown. */
+  overviewBlurb: (): string =>
+    t(
+      'ai-config.overview-blurb',
+      'Named AI service configurations (provider, model, key) that agents, apps, and other consumers resolve by name.',
+    ),
 
   /** Shown to non-admins on every AI-config surface (gating mirror). */
   adminOnly: (): string =>
