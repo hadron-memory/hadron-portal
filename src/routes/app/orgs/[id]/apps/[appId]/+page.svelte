@@ -40,11 +40,16 @@
   );
   // Picker selection overlaid on the default (`default`, else first usable).
   let selectedConfigName = $state<string | null>(null);
+  // Validate the pick against the (possibly refreshed) usable set: if the
+  // selected config was deleted/disabled — e.g. edited in Settings, then back
+  // to Chat where invalidateAll refetched chatConfigs — fall back to
+  // default → first rather than sending a name that no longer resolves.
   const effectiveConfigName = $derived(
-    selectedConfigName
-      ?? usableChatConfigs.find((c) => c.name === 'default')?.name
-      ?? usableChatConfigs[0]?.name
-      ?? null,
+    selectedConfigName && usableChatConfigs.some((c) => c.name === selectedConfigName)
+      ? selectedConfigName
+      : (usableChatConfigs.find((c) => c.name === 'default')?.name
+          ?? usableChatConfigs[0]?.name
+          ?? null),
   );
   let activeTab = $state<TabId>(hasChatSurface ? 'chat' : 'memory');
   const tabs = $derived<{ id: TabId; label: string }[]>([
