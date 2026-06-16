@@ -70,6 +70,25 @@ export function normalizeUrn(raw: string): string {
   return raw.trim();
 }
 
+/**
+ * Build the absolute `/app/u/<urn>` resolver URL for a URN — the inverse of
+ * {@link normalizeUrn}. Used by the "Copy URL" button on URN chips (#310) to
+ * produce a stable, shareable link that the resolver route (#262) 307-redirects
+ * to the resource's canonical page.
+ *
+ * `baseUrl` is the portal's public origin (e.g. `https://hadronmemory.com`); a
+ * trailing slash is tolerated. The URN is appended **raw** (not percent-encoded):
+ * the grammar only ever produces `:` delimiters plus atoms of `[A-Za-z0-9._-]`
+ * (see {@link validateUserSlug}), every one of which is a legal URL path-segment
+ * character — and the resolver is a single `[urn]` segment that structurally
+ * cannot carry a `/` anyway. So `%3A`-escaping the colons would only make the
+ * link ugly for zero correctness gain. Keep it raw and human-readable.
+ */
+export function buildResolverUrl(baseUrl: string, urn: string): string {
+  const base = baseUrl.replace(/\/+$/, '');
+  return `${base}/app/u/${urn}`;
+}
+
 // ============================================================================
 // Legacy display surface — spec 010
 // ============================================================================

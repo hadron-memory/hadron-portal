@@ -2,7 +2,8 @@
   // Spec 010 display surface (renamed from `parseUrn` in spec 021 to make
   // room for the new canonical-form parser at the `parseUrn` name).
   // Behavior is unchanged here.
-  import { CANONICAL_SCHEME, parseDisplayUrn, type UrnType } from '$lib/urn/parse-urn';
+  import { env } from '$env/dynamic/public';
+  import { CANONICAL_SCHEME, parseDisplayUrn, buildResolverUrl, type UrnType } from '$lib/urn/parse-urn';
 
   let { value, type, size = 12, compact = false }: {
     value: string;
@@ -12,6 +13,7 @@
   } = $props();
 
   let copied = $state(false);
+  let urlCopied = $state(false);
 
   const parsed = $derived(parseDisplayUrn(value, type));
   const displayType = $derived(parsed.type);
@@ -21,10 +23,21 @@
   // Type badge: uniform style across all types (incl. 'unknown' fallback)
   const typeBadgeClass = 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200';
 
+  // Shareable portal link to the URN resolver route (#310). The base URL comes
+  // from the portal's public env var; fall back to the SvelteKit dev origin.
+  const portalBaseUrl = env.PUBLIC_PORTAL_URL ?? 'http://localhost:5173';
+  const shareUrl = $derived(buildResolverUrl(portalBaseUrl, fullUrn));
+
   function copy() {
     navigator.clipboard.writeText(fullUrn);
     copied = true;
     setTimeout(() => (copied = false), 2000);
+  }
+
+  function copyUrl() {
+    navigator.clipboard.writeText(shareUrl);
+    urlCopied = true;
+    setTimeout(() => (urlCopied = false), 2000);
   }
 </script>
 
@@ -38,11 +51,18 @@
       <span class="bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">{bareValue}</span>
     {/if}
   </code>
-  <button onclick={copy} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
+  <button onclick={copy} class="ml-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
     {#if copied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+    {/if}
+  </button>
+  <button onclick={copyUrl} class="ml-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URL">
+    {#if urlCopied}
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+    {:else}
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
     {/if}
   </button>
 </span>

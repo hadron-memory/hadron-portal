@@ -8,6 +8,8 @@ import {
   toParserCanonical,
   isParserCanonical,
   validateUserSlug,
+  buildResolverUrl,
+  normalizeUrn,
   UrnParseError,
   type AliasCategory,
 } from './parse-urn';
@@ -314,5 +316,28 @@ describe('parseCanonicalUrn — node-leaf locs are NOT mangled by cat 4 strip', 
       'hrn:node:micromentor.org::coding-app::coding-agent::system::app:settings',
     );
     expect(r.parserRewrites).toEqual([]);
+  });
+});
+
+describe('buildResolverUrl (#310)', () => {
+  it('appends the URN raw — colons are left unescaped for a readable link', () => {
+    expect(buildResolverUrl('https://hadronmemory.com', 'hrn:node:acme.com::kb::findings:x')).toBe(
+      'https://hadronmemory.com/app/u/hrn:node:acme.com::kb::findings:x',
+    );
+  });
+
+  it('tolerates a trailing slash on the base URL', () => {
+    expect(buildResolverUrl('https://hadronmemory.com/', 'hrn:org:acme.com')).toBe(
+      'https://hadronmemory.com/app/u/hrn:org:acme.com',
+    );
+  });
+
+  it('round-trips through the resolver route: normalizeUrn(segment) === urn', () => {
+    const urn = 'hrn:node:micromentor.org::mmdata::preflight';
+    const url = buildResolverUrl('https://hadronmemory.com', urn);
+    const segment = url.slice(url.lastIndexOf('/app/u/') + '/app/u/'.length);
+    // The raw segment is already a valid single path param; SvelteKit hands it
+    // back verbatim and the route trims it via normalizeUrn.
+    expect(normalizeUrn(segment)).toBe(urn);
   });
 });
