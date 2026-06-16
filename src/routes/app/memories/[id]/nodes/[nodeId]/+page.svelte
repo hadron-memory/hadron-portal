@@ -246,15 +246,30 @@
 
   // Grow the Source editor to fit its content (floored/capped by min-h/max-h
   // CSS; it scrolls past the cap), so a small JSON blob doesn't sit in a
-  // viewport-tall box. Re-runs when the bound value changes (seed on load /
-  // node navigation / post-save) via the action's `update`.
+  // viewport-tall box. Resizes on the bound value changing (seed on load /
+  // node navigation / post-save) via `update`, AND on width changes (window
+  // resize, responsive layout) via a ResizeObserver — the textarea is w-full,
+  // so a width change re-wraps the text and alters scrollHeight. The observer
+  // is guarded on clientWidth so our own height writes don't re-trigger it
+  // (avoids a resize loop), and is disconnected on destroy.
   function autosize(node: HTMLTextAreaElement, _value: string) {
+    let lastWidth = node.clientWidth;
     const resize = () => {
       node.style.height = 'auto';
       node.style.height = `${node.scrollHeight}px`;
     };
+    const observer = new ResizeObserver(() => {
+      if (node.clientWidth !== lastWidth) {
+        lastWidth = node.clientWidth;
+        resize();
+      }
+    });
+    observer.observe(node);
     resize();
-    return { update: (_v: string) => resize() };
+    return {
+      update: (_v: string) => resize(),
+      destroy: () => observer.disconnect(),
+    };
   }
 
   // ── JSON syntax highlighting (Rendered view only) ───────────────────
