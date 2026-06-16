@@ -244,6 +244,19 @@
     } catch { /* no-op */ }
   }
 
+  // Grow the Source editor to fit its content (floored/capped by min-h/max-h
+  // CSS; it scrolls past the cap), so a small JSON blob doesn't sit in a
+  // viewport-tall box. Re-runs when the bound value changes (seed on load /
+  // node navigation / post-save) via the action's `update`.
+  function autosize(node: HTMLTextAreaElement, _value: string) {
+    const resize = () => {
+      node.style.height = 'auto';
+      node.style.height = `${node.scrollHeight}px`;
+    };
+    resize();
+    return { update: (_v: string) => resize() };
+  }
+
   // ── JSON syntax highlighting (Rendered view only) ───────────────────
   // No highlighter dependency in the portal, and one isn't warranted for
   // JSON: a small tokenizer + classed <span>s does it. Tokens render via
@@ -671,11 +684,13 @@
       </div>
       {#if showDataSource}
         <div class="mt-3">
-          <!-- Source editor: monospace, fills the viewport like the Content
-               editor. The border turns red while the JSON is malformed; the
-               status row below shows a green check when it parses. -->
+          <!-- Source editor: monospace, auto-growing to fit its content
+               (min-h floor, max-h cap then scrolls). The border turns red
+               while the JSON is malformed; the status row below shows a green
+               check when it parses. -->
           <textarea
-            class="w-full h-[calc(100vh-20rem)] min-h-[240px] rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {dataValid ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
+            use:autosize={editData}
+            class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {dataValid ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             placeholder={'{\n  "key": "value"\n}'}
             spellcheck="false"
             bind:value={editData}
