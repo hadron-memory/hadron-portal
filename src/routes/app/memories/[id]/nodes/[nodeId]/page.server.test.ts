@@ -596,3 +596,74 @@ describe('node-detail action — updateAbstract (#257)', () => {
     expect(vars.input.abstract).toBe('');
   });
 });
+
+/**
+ * Data tab — updateData inline save. Node.data is a free-form JSON
+ * object/value. The action parses the posted editor text and sends the
+ * parsed value through upsertNode while preserving tags (#235) and deriving
+ * memoryId from the fetched node (#237). Malformed, empty, and top-level
+ * `null` bodies are rejected with a 400 BEFORE any GraphQL call — Node.data
+ * maps to a Prisma `Json?` column that can't be written a bare JS null
+ * through this surface, so clearing isn't supported here.
+ */
+describe('node-detail action — updateData', () => {
+  it('parses the JSON and sends the value through upsertNode (tags + node.memoryId preserved)', async () => {
+    // Stale URL says mem-A; the node lives in mem-B and carries tags.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk', memoryId: 'mem-B', loc: 'cor:api:020:03', name: '03',
+        nodeType: 'info', alias: null, description: null, abstract: null,
+        content: null, tokens: null, tags: ['kept'], seq: null, data: null,
+        ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk' } });
+
+    const actions = await importActions();
+    await actions.updateData(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk',
+      form: { data: '{"version":"0.0.1"}' },
+    }));
+
+    const [, vars] = mockRequest.mock.calls[1]! as [
+      unknown,
+      { input: { data: unknown; tags: unknown; memoryId: string } },
+    ];
+    // The parsed object is sent (not the raw string).
+    expect(vars.input.data).toEqual({ version: '0.0.1' });
+    expect(vars.input.tags).toEqual(['kept']);
+    expect(vars.input.memoryId).toBe('mem-B');
+  });
+
+  it('rejects malformed JSON with a 400 and never calls upsertNode', async () => {
+    const actions = await importActions();
+    const result = await actions.updateData(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk',
+      form: { data: '{ not json ]' },
+    }));
+    expect((result as { status: number }).status).toBe(400);
+    // Parse failure short-circuits before the NODE_BY_ID_QUERY load.
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty body with a 400 (clearing is unsupported through this surface)', async () => {
+    const actions = await importActions();
+    const result = await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'pk', form: { data: '   ' },
+    }));
+    expect((result as { status: number }).status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a top-level JSON null with a 400 (Prisma Json? rejects a bare null here)', async () => {
+    const actions = await importActions();
+    const result = await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'pk', form: { data: 'null' },
+    }));
+    expect((result as { status: number }).status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+});

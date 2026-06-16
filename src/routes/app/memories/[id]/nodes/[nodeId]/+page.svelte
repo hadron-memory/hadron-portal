@@ -156,9 +156,117 @@
     } catch { /* no-op */ }
   }
 
+  // ── Data (structured JSON) ──────────────────────────────────────────
+  // Node.data is a free-form JSON object/value. The Data tab mirrors the
+  // Content / Abstract tabs: a Rendered view (pretty-printed JSON) and a
+  // Source view that edits the raw JSON with a live syntax check.
+  let showDataSource = $state(false);
+  let copiedData = $state(false);
+  let editData = $state('');
+  let savingData = $state(false);
+
+  // Re-seed the editor from the node whenever node.data changes (initial
+  // load, navigation between nodes, and after a save's invalidateAll).
+  // Pretty-printed so the Source view is readable and diffable.
+  $effect(() => {
+    editData = node.data != null ? JSON.stringify(node.data, null, 2) : '';
+  });
+
+  // Live JSON syntax check. Returns an error string (shown in red) or null
+  // (well-formed). A top-level `null` is rejected because Node.data maps to
+  // a Prisma `Json?` column that can't be written a bare null through this
+  // surface — see the updateData action. Empty is handled separately.
+  const dataError = $derived.by(() => {
+    const trimmed = editData.trim();
+    if (trimmed === '') return null;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch (e) {
+      return e instanceof Error ? e.message : 'Invalid JSON';
+    }
+    if (parsed === null) return 'Top-level null is not allowed — enter an object, array, or value.';
+    return null;
+  });
+  const dataEmpty = $derived(editData.trim() === '');
+  const dataValid = $derived(dataError === null);
+  // Pretty-printed saved value — both the Rendered view and the dirty-check
+  // baseline (so the initial seeded text doesn't count as a change).
+  const dataString = $derived(node.data != null ? JSON.stringify(node.data, null, 2) : '');
+  const dataDirty = $derived(editData !== dataString);
+
+  async function saveData() {
+    if (!dataValid || dataEmpty || !dataDirty) return;
+    savingData = true;
+    try {
+      const fd = new FormData();
+      fd.set('data', editData);
+      const res = await fetch('?/updateData', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('Save failed');
+      await invalidateAll();
+      showDataSource = false;
+    } catch (err) {
+      console.error('Save failed:', err);
+    } finally {
+      savingData = false;
+    }
+  }
+
+  async function copyData() {
+    if (node.data == null) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(node.data, null, 2));
+      copiedData = true;
+      setTimeout(() => (copiedData = false), 2000);
+    } catch { /* no-op */ }
+  }
+
+  // ── JSON syntax highlighting (Rendered view only) ───────────────────
+  // No highlighter dependency in the portal, and one isn't warranted for
+  // JSON: a small tokenizer + classed <span>s does it. Tokens render via
+  // Svelte's {#each} (auto-escaped text), NOT {@html}, so there's no
+  // sanitization surface (Invariant P4 doesn't apply). The Source editor
+  // stays a plain textarea — coloring an *editable* field needs a real code
+  // editor (CodeMirror/Monaco), which this intentionally doesn't pull in.
+  type JsonTokenType = 'key' | 'string' | 'number' | 'boolean' | 'null' | 'punct' | 'plain';
+  const jsonTokenClass: Record<JsonTokenType, string> = {
+    key: 'text-indigo-600 dark:text-indigo-400',
+    string: 'text-emerald-600 dark:text-emerald-400',
+    number: 'text-amber-600 dark:text-amber-400',
+    boolean: 'text-purple-600 dark:text-purple-400',
+    null: 'text-zinc-400 dark:text-zinc-500',
+    punct: 'text-zinc-400 dark:text-zinc-500',
+    plain: '',
+  };
+  // Tokenize pretty-printed JSON. Gaps between matches (the indentation /
+  // newlines) are preserved verbatim as 'plain' so the layout round-trips.
+  // A string is a key when the next non-space char is ':'.
+  function highlightJson(src: string): Array<{ text: string; type: JsonTokenType }> {
+    const tokens: Array<{ text: string; type: JsonTokenType }> = [];
+    const re = /"(?:\\.|[^"\\])*"|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null|[{}[\],:]/g;
+    let last = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(src)) !== null) {
+      if (m.index > last) tokens.push({ text: src.slice(last, m.index), type: 'plain' });
+      const t = m[0];
+      let type: JsonTokenType;
+      if (t[0] === '"') type = /^\s*:/.test(src.slice(re.lastIndex)) ? 'key' : 'string';
+      else if (t === 'true' || t === 'false') type = 'boolean';
+      else if (t === 'null') type = 'null';
+      else if (t.length === 1 && '{}[],:'.includes(t)) type = 'punct';
+      else type = 'number';
+      tokens.push({ text: t, type });
+      last = re.lastIndex;
+    }
+    if (src.length > last) tokens.push({ text: src.slice(last), type: 'plain' });
+    return tokens;
+  }
+  const highlightedData = $derived(highlightJson(dataString));
+
   const hasReferences = $derived(node.outgoingEdges.length > 0 || node.incomingEdges.length > 0);
   const hasContent = $derived(!!node.content);
   const hasAbstract = $derived(!!node.abstract);
+  const hasData = $derived(node.data != null);
 
   // ── Edge editing ────────────────────────────────────────────────────
   // Edge editing replaces the full outgoing set via upsertNode(edges: [...]).
@@ -257,15 +365,17 @@
   // URN slug for edit form
   const urnSlug = $derived(node.loc);
 
-  type NodeTab = 'content' | 'abstract' | 'children' | 'references' | 'settings';
+  type NodeTab = 'content' | 'abstract' | 'data' | 'children' | 'references' | 'settings';
 
-  // Content / Abstract / References / Settings are always present; Children
-  // only when the node has children. (#256: Content is no longer gated on
-  // hasContent — an empty node still needs an authoring surface.)
+  // Content / Abstract / Data / References / Settings are always present;
+  // Children only when the node has children. (#256: Content is no longer
+  // gated on hasContent — an empty node still needs an authoring surface;
+  // Data follows the same always-on rationale so there's a portal path to
+  // add structured data to a node that has none.)
   const availableTabs = $derived<NodeTab[]>(
     hasChildren
-      ? ['content', 'abstract', 'children', 'references', 'settings']
-      : ['content', 'abstract', 'references', 'settings'],
+      ? ['content', 'abstract', 'data', 'children', 'references', 'settings']
+      : ['content', 'abstract', 'data', 'references', 'settings'],
   );
 
   function defaultTab(): NodeTab {
@@ -289,6 +399,7 @@
       activeTab = defaultTab();
       showSource = false;
       showAbstractSource = false;
+      showDataSource = false;
       confirmDelete = false;
       editingEdges = false;
       isEditing = false;
@@ -371,6 +482,14 @@
         onclick={() => activeTab = 'abstract'}
       >Abstract
         {#if !hasAbstract}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
+      </button>
+      <!-- Always shown — Node.data is free-form JSON; an empty node still
+           needs an authoring surface, same rationale as Content/Abstract. -->
+      <button
+        class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'data' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+        onclick={() => activeTab = 'data'}
+      >Data
+        {#if !hasData}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
       </button>
       {#if hasChildren}
         <button
@@ -498,6 +617,73 @@
             onclick={() => showAbstractSource = true}
             class="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
           >Write an abstract</button>
+        </div>
+      {/if}
+    {/if}
+
+    <!-- ═══ DATA TAB ═══ -->
+    {#if activeTab === 'data'}
+      <div class="flex items-center justify-between">
+        <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+          <button
+            class="px-2 py-1 text-xs {!showDataSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+            onclick={() => showDataSource = false}
+          >Rendered</button>
+          <button
+            class="px-2 py-1 text-xs {showDataSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+            onclick={() => showDataSource = true}
+          >Source</button>
+        </div>
+        {#if hasData}
+          <button onclick={copyData} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy data">
+            {#if copiedData}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            {:else}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            {/if}
+          </button>
+        {/if}
+      </div>
+      {#if showDataSource}
+        <div class="mt-3">
+          <!-- Source editor: monospace, fills the viewport like the Content
+               editor. The border turns red while the JSON is malformed; the
+               status row below shows a green check when it parses. -->
+          <textarea
+            class="w-full h-[calc(100vh-20rem)] min-h-[240px] rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {dataValid ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
+            placeholder={'{\n  "key": "value"\n}'}
+            spellcheck="false"
+            bind:value={editData}
+          ></textarea>
+          <div class="mt-2 flex items-center justify-between gap-3">
+            <div class="text-xs">
+              {#if dataEmpty}
+                <span class="text-zinc-400">Enter a JSON value to save.</span>
+              {:else if dataValid}
+                <span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  Valid JSON
+                </span>
+              {:else}
+                <span class="text-red-500">{dataError}</span>
+              {/if}
+            </div>
+            <button
+              onclick={saveData}
+              disabled={savingData || !dataValid || dataEmpty || !dataDirty}
+              class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            >{savingData ? 'Saving...' : 'Save'}</button>
+          </div>
+        </div>
+      {:else if hasData}
+        <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedData as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
+      {:else}
+        <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">No structured data. Node.data holds a free-form JSON object.</p>
+          <button
+            onclick={() => showDataSource = true}
+            class="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+          >Add data</button>
         </div>
       {/if}
     {/if}
@@ -740,17 +926,8 @@
           {/if}
         </section>
 
-        <!-- Data -->
-        {#if node.data || isEditing}
-          <section>
-            <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Data</h2>
-            {#if node.data}
-              <pre class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{JSON.stringify(node.data, null, 2)}</pre>
-            {:else}
-              <p class="text-sm text-zinc-500">No structured data.</p>
-            {/if}
-          </section>
-        {/if}
+        <!-- Data now has its own top-level tab (Rendered/Source + editing);
+             the former read-only block here would just duplicate it. -->
 
         <!-- Danger zone -->
         <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
