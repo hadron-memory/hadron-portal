@@ -6,6 +6,14 @@ import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
+// Soft cap on the Node.data payload, mirrored client-side in +page.svelte.
+// Keeps a pathological paste from hitting the adapter-node 512KB body limit
+// (an opaque error) and gives a clean 400 instead. 256KB is far above any
+// realistic data blob. NOTE: a body that already exceeds the framework limit
+// is rejected before this action runs — this guards the sub-limit range and
+// non-browser callers that skip the client-side check.
+const DATA_MAX = 262144; // 256 KB
+
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // parent() and nodeById are independent — fetch in parallel.
   // SvelteKit memoizes parent() across the load, so the guard's later call
@@ -225,6 +233,9 @@ export const actions: Actions = {
     const fd = await request.formData();
     const raw = String(fd.get('data') ?? '').trim();
     if (raw === '') return fail(400, { error: 'No JSON provided' });
+    if (raw.length > DATA_MAX) {
+      return fail(400, { error: `JSON too large (max ${DATA_MAX / 1024} KB)` });
+    }
 
     let data: unknown;
     try {

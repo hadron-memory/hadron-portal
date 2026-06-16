@@ -666,4 +666,42 @@ describe('node-detail action — updateData', () => {
     expect((result as { status: number }).status).toBe(400);
     expect(mockRequest).not.toHaveBeenCalled();
   });
+
+  it('rejects an oversized payload with a 400 before any GraphQL call', async () => {
+    // Well past the 256KB cap — should short-circuit on the size check.
+    const big = JSON.stringify({ blob: 'x'.repeat(300_000) });
+    const actions = await importActions();
+    const result = await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'pk', form: { data: big },
+    }));
+    expect((result as { status: number }).status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 when the node is not found', async () => {
+    mockRequest.mockResolvedValueOnce({ nodeById: null });
+    const actions = await importActions();
+    const result = await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'missing', form: { data: '{"a":1}' },
+    }));
+    expect((result as { status: number }).status).toBe(404);
+  });
+
+  it('returns 500 when the upsert mutation throws', async () => {
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk', memoryId: 'mem-A', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockRejectedValueOnce(new Error('boom'));
+    const actions = await importActions();
+    const result = await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":1}' },
+    }));
+    expect((result as { status: number }).status).toBe(500);
+  });
 });

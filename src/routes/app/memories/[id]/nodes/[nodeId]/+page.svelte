@@ -160,6 +160,13 @@
   // Node.data is a free-form JSON object/value. The Data tab mirrors the
   // Content / Abstract tabs: a Rendered view (pretty-printed JSON) and a
   // Source view that edits the raw JSON with a live syntax check.
+  //
+  // Soft size cap so a pathological paste fails with a clear message rather
+  // than the adapter-node default 512KB body limit's opaque error. 256KB is
+  // ~290x the largest realistic data blob, so it only ever catches abuse,
+  // never legitimate (system-written) data. Mirrored server-side in
+  // updateData. (ABSTRACT_MAX is the same idea at a much smaller scale.)
+  const DATA_MAX = 262144; // 256 KB
   let showDataSource = $state(false);
   let copiedData = $state(false);
   let editData = $state('');
@@ -190,13 +197,29 @@
   });
   const dataEmpty = $derived(editData.trim() === '');
   const dataValid = $derived(dataError === null);
-  // Pretty-printed saved value — both the Rendered view and the dirty-check
-  // baseline (so the initial seeded text doesn't count as a change).
+  const dataTooLarge = $derived(editData.length > DATA_MAX);
+  // Pretty-printed saved value — the dirty-check baseline (so the initial
+  // seeded text doesn't count as a change).
   const dataString = $derived(node.data != null ? JSON.stringify(node.data, null, 2) : '');
   const dataDirty = $derived(editData !== dataString);
 
+  // The JSON the Rendered view shows: the saved data, or — when the node has
+  // no saved data yet — a live preview of a valid, dirty edit, so toggling to
+  // Rendered mid-add doesn't make the typed JSON look lost. Returns null when
+  // there's nothing to show (→ the empty-state CTA).
+  const renderedJson = $derived.by(() => {
+    if (node.data != null) return dataString;
+    const trimmed = editData.trim();
+    if (trimmed === '' || dataError || dataTooLarge) return null;
+    try {
+      return JSON.stringify(JSON.parse(trimmed), null, 2);
+    } catch {
+      return null;
+    }
+  });
+
   async function saveData() {
-    if (!dataValid || dataEmpty || !dataDirty) return;
+    if (!dataValid || dataEmpty || !dataDirty || dataTooLarge) return;
     savingData = true;
     try {
       const fd = new FormData();
@@ -233,8 +256,10 @@
     key: 'text-indigo-600 dark:text-indigo-400',
     string: 'text-emerald-600 dark:text-emerald-400',
     number: 'text-amber-600 dark:text-amber-400',
+    // true / false / null are the three JSON literals — color them together,
+    // distinct from the de-emphasized structural punctuation.
     boolean: 'text-purple-600 dark:text-purple-400',
-    null: 'text-zinc-400 dark:text-zinc-500',
+    null: 'text-purple-600 dark:text-purple-400',
     punct: 'text-zinc-400 dark:text-zinc-500',
     plain: '',
   };
@@ -261,7 +286,7 @@
     if (src.length > last) tokens.push({ text: src.slice(last), type: 'plain' });
     return tokens;
   }
-  const highlightedData = $derived(highlightJson(dataString));
+  const highlightedData = $derived(renderedJson != null ? highlightJson(renderedJson) : []);
 
   const hasReferences = $derived(node.outgoingEdges.length > 0 || node.incomingEdges.length > 0);
   const hasContent = $derived(!!node.content);
@@ -657,7 +682,9 @@
           ></textarea>
           <div class="mt-2 flex items-center justify-between gap-3">
             <div class="text-xs">
-              {#if dataEmpty}
+              {#if dataTooLarge}
+                <span class="text-red-500">Too large to save here ({Math.round(editData.length / 1024)} KB / {DATA_MAX / 1024} KB max).</span>
+              {:else if dataEmpty}
                 <span class="text-zinc-400">Enter a JSON value to save.</span>
               {:else if dataValid}
                 <span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
@@ -670,12 +697,12 @@
             </div>
             <button
               onclick={saveData}
-              disabled={savingData || !dataValid || dataEmpty || !dataDirty}
+              disabled={savingData || !dataValid || dataEmpty || !dataDirty || dataTooLarge}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{savingData ? 'Saving...' : 'Save'}</button>
           </div>
         </div>
-      {:else if hasData}
+      {:else if renderedJson != null}
         <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedData as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
       {:else}
         <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
