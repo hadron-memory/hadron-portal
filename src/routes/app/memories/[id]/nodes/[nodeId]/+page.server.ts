@@ -6,6 +6,14 @@ import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
+// Soft cap on the Node.data payload, mirrored client-side in +page.svelte.
+// Keeps a pathological paste from hitting the adapter-node 512KB body limit
+// (an opaque error) and gives a clean 400 instead. 256KB is far above any
+// realistic data blob. NOTE: a body that already exceeds the framework limit
+// is rejected before this action runs — this guards the sub-limit range and
+// non-browser callers that skip the client-side check.
+const DATA_MAX = 262144; // 256 KB
+
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // parent() and nodeById are independent — fetch in parallel.
   // SvelteKit memoizes parent() across the load, so the guard's later call
@@ -205,6 +213,54 @@ export const actions: Actions = {
           // updateContent for the full rationale.
           tags: node.tags ?? [],
           abstract,
+        },
+      });
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
+    }
+  },
+
+  // Node.data is a free-form JSON object/value surfaced on the Data tab.
+  // The client posts the raw editor text; we parse it here so a malformed
+  // body fails fast with a readable message instead of an opaque
+  // GraphQL/Prisma error. The upsertNode resolver feeds `data` straight
+  // into a Prisma `Json?` column, which rejects a bare JS `null` (it wants
+  // Prisma.DbNull / JsonNull) — so clearing the field isn't supported here:
+  // both an empty body and a top-level JSON `null` are rejected, and we
+  // never send `null` downstream. The client gates Save on the same rules;
+  // these are the server-side backstop.
+  updateData: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const raw = String(fd.get('data') ?? '').trim();
+    if (raw === '') return fail(400, { error: 'No JSON provided' });
+    if (raw.length > DATA_MAX) {
+      return fail(400, { error: `JSON too large (max ${DATA_MAX / 1024} KB)` });
+    }
+
+    let data: unknown;
+    try {
+      data = JSON.parse(raw);
+    } catch (e) {
+      return fail(400, { error: e instanceof Error ? `Invalid JSON: ${e.message}` : 'Invalid JSON' });
+    }
+    if (data === null) return fail(400, { error: 'Top-level JSON null is not allowed' });
+
+    const client = gqlClient(locals.token);
+    try {
+      const { nodeById: node } = await client.request<{ nodeById: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      if (!node) return fail(404, { error: 'Node not found' });
+
+      await client.request(UPSERT_NODE_MUTATION, {
+        input: {
+          // #237: memoryId from the node, not the URL.
+          memoryId: node.memoryId,
+          loc: node.loc,
+          name: node.name,
+          // #235: tags must be passed through explicitly or the upsertNode
+          // resolver's `input.tags ?? []` default clears them. See
+          // updateContent for the full rationale.
+          tags: node.tags ?? [],
+          data,
         },
       });
     } catch (e: unknown) {
