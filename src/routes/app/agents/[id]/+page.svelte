@@ -4,7 +4,6 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
-  import AgentChat from '$lib/components/AgentChat.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
@@ -21,9 +20,8 @@
   // sub-tab system opens per-conversation or per-partial sub-tabs when the
   // user clicks a row, so they can drill down without leaving the page.
   const hasSystemMemory = $derived(!!agent.systemMemoryId);
-  const hasAiApiKey = $derived(!!agent.hasAiApiKey);
 
-  type TabId = 'memory' | 'chatbot' | 'chat' | 'settings';
+  type TabId = 'memory' | 'chatbot' | 'settings';
   let activeTab = $state<TabId>('memory');
 
   // ── Chatbot Control sub-tab state ────────────────────────────────────
@@ -100,28 +98,13 @@
       .map(nodeToRow),
   );
 
-  // Does this agent have at least one "real" (non-setup) conversation?
-  // The Chat tab is only visible when the agent can actually hold a
-  // conversation with the user.
-  const hasNonSetupConversations = $derived(
-    systemNodes.some((n) => {
-      if (!n.loc.startsWith('conversations:')) return false;
-      if (n.loc.split(':').length !== 2) return false;
-      const d = (n.data as Record<string, unknown>) ?? {};
-      return d.isSetup !== true;
-    }),
-  );
-
   // Tabs: Memory is always present. Chatbot Control is shown when the
-  // agent has a system memory. Chat is shown when the agent is fully
-  // configured (system memory + LLM key + at least one conversation).
-  // Settings is always last.
+  // agent has a system memory. Settings is always last. The live chatbot
+  // is exercised from an App (App detail → Chat tab), not from the agent
+  // builder; agent-level testing lives on the /test tester.
   const tabs = $derived<{ id: TabId; label: string }[]>([
     { id: 'memory', label: 'Memory' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
-    ...(hasSystemMemory && hasAiApiKey && hasNonSetupConversations
-      ? [{ id: 'chat' as TabId, label: 'Chat' }]
-      : []),
     { id: 'settings', label: 'Settings' },
   ]);
 
@@ -222,12 +205,7 @@
 
 <svelte:head><title>{agent.name} · Hadron</title></svelte:head>
 
-<!-- When the Chat tab is active, lay out the page as a flex column that
-     fills the viewport height so the chat surface can claim the remaining
-     vertical space. Other tabs keep the default block flow + vertical
-     spacing. -->
-<div class="space-y-4 {activeTab === 'chat' ? 'flex flex-col' : ''}"
-     style={activeTab === 'chat' ? 'min-height: calc(100vh - 4rem);' : ''}>
+<div class="space-y-4">
   <!-- Breadcrumb -->
   <Breadcrumb items={[
     { label: 'Dashboard', href: '/app/dashboard' },
@@ -452,17 +430,6 @@
           </div>
         {/if}
       {/each}
-    </div>
-  {/if}
-
-  <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <!-- CHAT TAB                                                          -->
-  <!-- ═══════════════════════════════════════════════════════════════════ -->
-  {#if activeTab === 'chat' && hasSystemMemory && hasAiApiKey && hasNonSetupConversations}
-    <!-- Full-height chat surface. The parent flex layout gives the chat
-         whatever vertical space remains below the agent header and tabs. -->
-    <div class="chat-surface flex min-h-0 flex-1">
-      <AgentChat agentId={agent.id} uploadMemoryId={writableMemoryIds[0]} />
     </div>
   {/if}
 
@@ -705,7 +672,8 @@
         {/if}
       </section>
 
-      <!-- AI providers (registry; the Chat tab resolves the 'default' config) -->
+      <!-- AI providers (registry). The agent's `default` config is one level
+           of the resolution walk used when the agent runs inside an App. -->
       <section class="max-w-2xl">
         <AiServiceConfigSection
           ownerType="AGENT"
@@ -715,27 +683,6 @@
           currentUserId={data.currentUserId}
           configsError={data.configsError}
         />
-
-        <!-- Chat tab readiness checklist -->
-        {#if !(hasSystemMemory && hasAiApiKey && hasNonSetupConversations)}
-          <div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 text-xs dark:border-amber-900/50 dark:bg-amber-950/30">
-            <div class="mb-2 font-medium text-amber-800 dark:text-amber-300">Chat tab is hidden. All three must be true:</div>
-            <ul class="space-y-1 text-zinc-700 dark:text-zinc-300">
-              <li>{hasSystemMemory ? '✓' : '✗'} System memory assigned</li>
-              <li>{hasAiApiKey ? '✓' : '✗'} LLM provider configured (a “default” config with a key)</li>
-              <li>
-                {hasNonSetupConversations ? '✓' : '✗'} At least one non-setup conversation
-                {#if !hasNonSetupConversations}
-                  <span class="text-zinc-500">
-                    (found {systemNodes.filter((n) => n.loc.startsWith('conversations:') && n.loc.split(':').length === 2).length}
-                    conversation node{systemNodes.filter((n) => n.loc.startsWith('conversations:') && n.loc.split(':').length === 2).length === 1 ? '' : 's'}
-                    in system memory; all marked <code>isSetup: true</code>)
-                  </span>
-                {/if}
-              </li>
-            </ul>
-          </div>
-        {/if}
       </section>
 
       <!-- Danger zone -->
