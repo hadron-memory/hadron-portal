@@ -24,18 +24,24 @@
   const typeBadgeClass = 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200';
 
   // Shareable portal link to the URN resolver route (#310). The base URL comes
-  // from the portal's public env var; fall back to the SvelteKit dev origin.
-  const portalBaseUrl = env.PUBLIC_PORTAL_URL ?? 'http://localhost:5173';
+  // from the portal's public env var; fall back to the SvelteKit dev origin when
+  // it is unset OR blank (|| not ??, so an empty `PUBLIC_PORTAL_URL=` also falls
+  // back instead of yielding a relative link).
+  const portalBaseUrl = env.PUBLIC_PORTAL_URL || 'http://localhost:5173';
   const shareUrl = $derived(buildResolverUrl(portalBaseUrl, fullUrn));
 
   function copy() {
-    navigator.clipboard.writeText(fullUrn);
+    // navigator.clipboard is undefined outside secure contexts (HTTP on a
+    // non-localhost host); bail rather than throw, and swallow async denials.
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(fullUrn).catch((e) => console.error('Failed to copy URN', e));
     copied = true;
     setTimeout(() => (copied = false), 2000);
   }
 
   function copyUrl() {
-    navigator.clipboard.writeText(shareUrl);
+    if (!navigator.clipboard) return;
+    navigator.clipboard.writeText(shareUrl).catch((e) => console.error('Failed to copy URL', e));
     urlCopied = true;
     setTimeout(() => (urlCopied = false), 2000);
   }
@@ -51,14 +57,14 @@
       <span class="bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">{bareValue}</span>
     {/if}
   </code>
-  <button onclick={copy} class="ml-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN">
+  <button onclick={copy} class="ml-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN" aria-label="Copy URN">
     {#if copied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
     {/if}
   </button>
-  <button onclick={copyUrl} class="ml-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URL">
+  <button onclick={copyUrl} class="ml-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URL" aria-label="Copy URL">
     {#if urlCopied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}

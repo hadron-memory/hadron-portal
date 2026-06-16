@@ -57,4 +57,14 @@ describe('Urn.svelte — copy buttons (#310)', () => {
     expect(body).toContain('title="Copy URN"');
     expect(body).toContain('title="Copy URL"');
   });
+
+  // Accessibility: icon-only buttons need an accessible name, not just a title.
+  // See review:icon-button-aria-label in the hadron-portal memory.
+  it('gives each icon button an aria-label as its accessible name', () => {
+    const { body } = render(Urn, {
+      props: { value: 'urn:node:acme.com::kb::findings:flaky-ci', type: 'node' },
+    });
+    expect(body).toContain('aria-label="Copy URN"');
+    expect(body).toContain('aria-label="Copy URL"');
+  });
 });
