@@ -1,5 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { onMount } from 'svelte';
+  import DOMPurify from 'dompurify';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -24,6 +26,21 @@
   function cancelReply() {
     replyingTo = null;
     replyBody = '';
+  }
+
+  // Exchange message bodies are attacker-controlled HTML (any sender), so they
+  // must be DOMPurify-sanitized before `{@html}` to prevent stored XSS (Portal
+  // Invariant P4). DOMPurify needs a DOM, so gate on `isMounted` (set in
+  // onMount) rather than `browser`: that keeps the hydration render identical to
+  // SSR — both empty — and only swaps in sanitized HTML after mount, so a message
+  // ever rendered expanded during SSR can't trigger a hydration mismatch.
+  let isMounted = $state(false);
+  onMount(() => {
+    isMounted = true;
+  });
+
+  function sanitizeEmailHtml(html: string): string {
+    return isMounted ? DOMPurify.sanitize(html) : '';
   }
 
   function formatDate(dateStr: string) {
@@ -126,7 +143,7 @@
               <!-- Full body -->
               <div class="prose prose-sm dark:prose-invert max-w-none text-sm text-zinc-700 dark:text-zinc-300">
                 {#if msg.body}
-                  {@html msg.body}
+                  {@html sanitizeEmailHtml(msg.body)}
                 {:else}
                   <p class="text-zinc-500">{msg.bodyPreview}</p>
                 {/if}
