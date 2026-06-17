@@ -1,5 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render } from 'svelte/server';
+
+// Urn.svelte imports `$env/dynamic/public`; vitest runs without the SvelteKit
+// plugin, so the virtual must be stubbed or the import fails to resolve. See
+// conventions:portal-vitest-mocks-sveltekit-virtuals.
+vi.mock('$env/dynamic/public', () => ({ env: {} }));
+
 import Urn from './Urn.svelte';
 
 // Regression for issue #239: the badge once hardcoded the literal `urn:`
@@ -40,5 +46,25 @@ describe('Urn.svelte — canonical scheme rendering (#239)', () => {
     expect(body).toContain('acme.com:kb:findings:flaky-ci');
     expect(body).not.toMatch(/>\s*urn:\s*</);
     expect(body).not.toMatch(/>\s*hrn:\s*</);
+  });
+});
+
+describe('Urn.svelte — copy buttons (#310)', () => {
+  it('renders both the Copy URN and the Copy URL buttons', () => {
+    const { body } = render(Urn, {
+      props: { value: 'urn:node:acme.com::kb::findings:flaky-ci', type: 'node' },
+    });
+    expect(body).toContain('title="Copy URN"');
+    expect(body).toContain('title="Copy URL"');
+  });
+
+  // Accessibility: icon-only buttons need an accessible name, not just a title.
+  // See review:icon-button-aria-label in the hadron-portal memory.
+  it('gives each icon button an aria-label as its accessible name', () => {
+    const { body } = render(Urn, {
+      props: { value: 'urn:node:acme.com::kb::findings:flaky-ci', type: 'node' },
+    });
+    expect(body).toContain('aria-label="Copy URN"');
+    expect(body).toContain('aria-label="Copy URL"');
   });
 });
