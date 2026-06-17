@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { browser } from '$app/environment';
+  import { onMount } from 'svelte';
   import DOMPurify from 'dompurify';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
@@ -30,11 +30,17 @@
 
   // Exchange message bodies are attacker-controlled HTML (any sender), so they
   // must be DOMPurify-sanitized before `{@html}` to prevent stored XSS (Portal
-  // Invariant P4). DOMPurify needs a DOM, so only run it in the browser — a body
-  // is only revealed once a message is expanded (a client interaction), never
-  // during SSR.
+  // Invariant P4). DOMPurify needs a DOM, so gate on `isMounted` (set in
+  // onMount) rather than `browser`: that keeps the hydration render identical to
+  // SSR — both empty — and only swaps in sanitized HTML after mount, so a message
+  // ever rendered expanded during SSR can't trigger a hydration mismatch.
+  let isMounted = $state(false);
+  onMount(() => {
+    isMounted = true;
+  });
+
   function sanitizeEmailHtml(html: string): string {
-    return browser ? DOMPurify.sanitize(html) : '';
+    return isMounted ? DOMPurify.sanitize(html) : '';
   }
 
   function formatDate(dateStr: string) {
