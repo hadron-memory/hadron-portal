@@ -14,6 +14,7 @@
   const consumerNav = $derived(data.activeOrgId
     ? [
         { href: `/app/orgs/${data.activeOrgId}`,          label: t('app.nav.dashboard', 'Dashboard'), match: 'exact' as const },
+        { href: `/app/search`,                            label: t('app.nav.search', 'Search'),       match: 'prefix' as const },
         { href: `/app/orgs/${data.activeOrgId}/memories`, label: t('app.nav.memories', 'Memories'),   match: 'prefix' as const },
       ]
     : [],
@@ -22,6 +23,7 @@
   const fullNav = $derived(data.activeOrgId
     ? [
         { href: `/app/orgs/${data.activeOrgId}`,          label: t('app.nav.dashboard', 'Dashboard'), match: 'exact' as const },
+        { href: `/app/search`,                            label: t('app.nav.search', 'Search'),       match: 'prefix' as const },
         { href: `/app/orgs/${data.activeOrgId}/memories`, label: t('app.nav.memories', 'Memories'),   match: 'prefix' as const },
         { href: `/app/orgs/${data.activeOrgId}/agents`,   label: t('app.nav.agents', 'Agents'),       match: 'prefix' as const },
         { href: `/app/orgs/${data.activeOrgId}/apps`,     label: t('app.nav.apps', 'Apps'),           match: 'prefix' as const },

@@ -388,6 +388,25 @@ export const SEARCH_USERS_QUERY = /* GraphQL */ `
   }
 `;
 
+export const GLOBAL_SEARCH_QUERY = /* GraphQL */ `
+  query GlobalSearch($query: String!, $entityTypes: [SearchEntityType!], $fields: [SearchField!], $limit: Int) {
+    globalSearch(query: $query, entityTypes: $entityTypes, fields: $fields, limit: $limit) {
+      hits {
+        entityType
+        id
+        urn
+        name
+        description
+        matchedField
+        score
+        memoryId
+        organizationId
+      }
+      degraded
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // Mutations
 // ---------------------------------------------------------------------------
