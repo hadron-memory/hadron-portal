@@ -2,7 +2,6 @@
   // Spec 010 display surface (renamed from `parseUrn` in spec 021 to make
   // room for the new canonical-form parser at the `parseUrn` name).
   // Behavior is unchanged here.
-  import { env } from '$env/dynamic/public';
   import { CANONICAL_SCHEME, parseDisplayUrn, buildResolverUrl, type UrnType } from '$lib/urn/parse-urn';
 
   let { value, type, size = 12, compact = false }: {
@@ -23,13 +22,6 @@
   // Type badge: uniform style across all types (incl. 'unknown' fallback)
   const typeBadgeClass = 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200';
 
-  // Shareable portal link to the URN resolver route (#310). The base URL comes
-  // from the portal's public env var; fall back to the SvelteKit dev origin when
-  // it is unset OR blank (|| not ??, so an empty `PUBLIC_PORTAL_URL=` also falls
-  // back instead of yielding a relative link).
-  const portalBaseUrl = env.PUBLIC_PORTAL_URL || 'http://localhost:5173';
-  const shareUrl = $derived(buildResolverUrl(portalBaseUrl, fullUrn));
-
   function copy() {
     // navigator.clipboard is undefined outside secure contexts (HTTP on a
     // non-localhost host); bail rather than throw, and swallow async denials.
@@ -41,6 +33,13 @@
 
   function copyUrl() {
     if (!navigator.clipboard) return;
+    // Compose the shareable /app/u/<urn> link from the LIVE browser origin (#317)
+    // so the copied URL always points at the host the user is actually on — prod,
+    // preview, or dev — instead of a build-time-baked env value that was wrong in
+    // production. This handler only fires in the browser, so window.location is
+    // always defined; deriving it here (not at render time) also keeps SSR from
+    // ever touching window.
+    const shareUrl = buildResolverUrl(window.location.origin, fullUrn);
     navigator.clipboard.writeText(shareUrl).catch((e) => console.error('Failed to copy URL', e));
     urlCopied = true;
     setTimeout(() => (urlCopied = false), 2000);
