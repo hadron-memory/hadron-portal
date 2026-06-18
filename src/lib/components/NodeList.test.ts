@@ -1,10 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render } from 'svelte/server';
-
-// Urn.svelte (rendered transitively via NodeList) imports `$env/dynamic/public`.
-// vitest here runs without the SvelteKit plugin, so that virtual must be stubbed
-// or the import graph fails to resolve. See conventions:portal-vitest-mocks-sveltekit-virtuals.
-vi.mock('$env/dynamic/public', () => ({ env: {} }));
 
 import NodeList from './NodeList.svelte';
 import { NODE_FIELDS } from '$lib/server/queries';

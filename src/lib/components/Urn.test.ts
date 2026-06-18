@@ -1,10 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { render } from 'svelte/server';
-
-// Urn.svelte imports `$env/dynamic/public`; vitest runs without the SvelteKit
-// plugin, so the virtual must be stubbed or the import fails to resolve. See
-// conventions:portal-vitest-mocks-sveltekit-virtuals.
-vi.mock('$env/dynamic/public', () => ({ env: {} }));
 
 import Urn from './Urn.svelte';
 
