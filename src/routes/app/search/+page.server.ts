@@ -43,12 +43,15 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     );
     return { q, types, fields, result: globalSearch, error: null as string | null };
   } catch (e) {
+    // Log detail server-side; never surface the raw GraphQL error (it can carry
+    // the query, variables, and server response) to the client.
+    console.error('Global search failed:', e);
     return {
       q,
       types,
       fields,
       result: null as SearchResult | null,
-      error: e instanceof Error ? e.message : 'Search failed',
+      error: 'Search failed. Please try again.',
     };
   }
 };

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PageData } from './$types';
   import Urn from '$lib/components/Urn.svelte';
+  import { t } from '$lib/i18n/t';
 
   let { data }: { data: PageData } = $props();
 
@@ -15,8 +16,13 @@
     user: { label: 'User', cls: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200' },
   };
 
-  function typeMeta(t: string) {
-    return TYPE_META[t] ?? { label: t, cls: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200' };
+  function typeMeta(entityType: string) {
+    return (
+      TYPE_META[entityType] ?? {
+        label: entityType,
+        cls: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200',
+      }
+    );
   }
 
   // Build the canonical portal path directly from the ids each hit already
@@ -49,22 +55,29 @@
   }
 </script>
 
-<svelte:head><title>{data.q ? `Search: ${data.q}` : 'Search'} · Hadron</title></svelte:head>
+<svelte:head><title>{data.q ? `${t('app.search.title', 'Search')}: ${data.q}` : t('app.search.title', 'Search')} · Hadron</title></svelte:head>
 
 <div class="space-y-6">
   <div>
-    <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">Search</h1>
+    <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{t('app.search.title', 'Search')}</h1>
     <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-      Find organizations, memories, nodes, agents, apps, AI configs, and users by name, URN, or id.
+      {t('app.search.description', 'Find organizations, memories, nodes, agents, apps, AI configs, and users by name, URN, or id.')}
     </p>
   </div>
 
   <form method="GET" action="/app/search" class="flex gap-2">
+    <!-- Preserve any active type/field filters across a new query submission. -->
+    {#each data.types as type}
+      <input type="hidden" name="type" value={type} />
+    {/each}
+    {#each data.fields as field}
+      <input type="hidden" name="field" value={field} />
+    {/each}
     <input
       type="search"
       name="q"
       value={data.q}
-      placeholder="Search by name, URN, or id…"
+      placeholder={t('app.search.placeholder', 'Search by name, URN, or id…')}
       autocomplete="off"
       class="w-full max-w-xl rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
     />
@@ -72,7 +85,7 @@
       type="submit"
       class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
     >
-      Search
+      {t('app.search.button', 'Search')}
     </button>
   </form>
 
@@ -90,7 +103,7 @@
     {/if}
 
     {#if data.result.hits.length === 0}
-      <p class="text-sm text-zinc-500 dark:text-zinc-400">No results for “{data.q}”.</p>
+      <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.search.no-results', 'No results for')} “{data.q}”.</p>
     {:else}
       <p class="text-xs text-zinc-400">
         {data.result.hits.length} result{data.result.hits.length === 1 ? '' : 's'}
@@ -128,6 +141,6 @@
       </ul>
     {/if}
   {:else}
-    <p class="text-sm text-zinc-500 dark:text-zinc-400">Enter a search term to begin.</p>
+    <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.search.prompt', 'Enter a search term to begin.')}</p>
   {/if}
 </div>
