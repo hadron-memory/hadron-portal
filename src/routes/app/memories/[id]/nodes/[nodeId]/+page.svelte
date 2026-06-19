@@ -414,6 +414,9 @@
   const hasChildren = $derived(children.length > 0);
   const childrenReorderable = $derived(children.some((c) => c.seq !== null));
   let childDragError = $state<string | null>(null);
+  // #309: the children list defaults to the full grid; reordering is a separate
+  // mode because drag order is incompatible with sort/filter/pagination.
+  let reorderMode = $state(false);
 
   // URN slug for edit form
   const urnSlug = $derived(node.loc);
@@ -750,25 +753,45 @@
       {#if childDragError}
         <p class="mb-2 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-300">{childDragError}</p>
       {/if}
-      <NodeList
-        nodes={children}
-        {basePath}
-        memoryUrn={data.graph.urn ?? ''}
-        orderable={childrenReorderable}
-        onreorder={async (orderedLocs) => {
-          const updates = orderedLocs.map((loc, i) => ({ loc, seq: i + 1 }));
-          try {
-            const fd = new FormData();
-            fd.set('updates', JSON.stringify(updates));
-            const res = await fetch('?/reorder', { method: 'POST', body: fd });
-            if (!res.ok) throw new Error('Reorder failed');
-            invalidateAll();
-          } catch (err) {
-            childDragError = err instanceof Error ? err.message : 'Reorder failed';
-            setTimeout(() => { childDragError = null; }, 3000);
-          }
-        }}
-      />
+      {#if childrenReorderable}
+        <!-- #309: default to the grid (saved views, search, sort, columns,
+             pagination); a separate Reorder mode swaps in the drag list, whose
+             stable full-row order can't coexist with sort/filter/pagination. -->
+        <div class="mb-3 flex items-center justify-end gap-3">
+          {#if reorderMode}<span class="text-xs text-zinc-500">Drag rows to reorder</span>{/if}
+          <button
+            type="button"
+            onclick={() => reorderMode = !reorderMode}
+            class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >{reorderMode ? 'Done' : 'Reorder'}</button>
+        </div>
+      {/if}
+      <!-- #309: remount on mode switch — NodeList reads enableSorting/
+           enableColumnResizing (= !orderable) once at table construction. -->
+      {#key reorderMode}
+        <NodeList
+          nodes={children}
+          {basePath}
+          memoryUrn={data.graph.urn ?? ''}
+          orderable={reorderMode}
+          listKey={reorderMode ? undefined : 'node-children'}
+          onreorder={reorderMode
+            ? async (orderedLocs) => {
+                const updates = orderedLocs.map((loc, i) => ({ loc, seq: i + 1 }));
+                try {
+                  const fd = new FormData();
+                  fd.set('updates', JSON.stringify(updates));
+                  const res = await fetch('?/reorder', { method: 'POST', body: fd });
+                  if (!res.ok) throw new Error('Reorder failed');
+                  invalidateAll();
+                } catch (err) {
+                  childDragError = err instanceof Error ? err.message : 'Reorder failed';
+                  setTimeout(() => { childDragError = null; }, 3000);
+                }
+              }
+            : undefined}
+        />
+      {/key}
     {/if}
 
     <!-- ═══ REFERENCES TAB ═══ -->
@@ -919,6 +942,11 @@
               <div>
                 <label for="editTags" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Tags <span class="text-zinc-500">(comma-separated)</span></label>
                 <input id="editTags" name="tags" type="text" value={node.tags.join(', ')} class={inputClass} />
+              </div>
+              <div class="flex items-center gap-2">
+                <input id="editIsRunnable" name="isRunnable" type="checkbox" checked={node.isRunnable ?? false}
+                  class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900" />
+                <label for="editIsRunnable" class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Runnable <span class="text-zinc-500">(can be run as a task by h-run-task)</span></label>
               </div>
               <div class="flex gap-3">
                 <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
