@@ -17,6 +17,15 @@
   let activated = $state(false); // input/select has focus → "white" look
   let busy = $state(false);
   let error = $state('');
+  let inputEl = $state<HTMLInputElement | null>(null);
+
+  const canSubmit = $derived(!busy && value.trim().length > 0);
+
+  function clear() {
+    value = '';
+    error = '';
+    inputEl?.focus();
+  }
 
   const placeholder = $derived(
     COMMAND_MODES.find((m) => m.id === mode)?.placeholder ?? ['', ''],
@@ -106,6 +115,7 @@
     <span class="my-1.5 w-px shrink-0 {dark ? 'bg-zinc-700' : 'bg-zinc-300'}"></span>
 
     <input
+      bind:this={inputEl}
       bind:value
       type="text"
       autocomplete="off"
@@ -116,6 +126,34 @@
       class="min-w-0 flex-1 bg-transparent px-3 py-1.5 text-sm focus:outline-none
         {dark ? 'text-zinc-100 placeholder-zinc-500' : 'text-zinc-900 placeholder-zinc-400'}"
     />
+
+    {#if value}
+      <button
+        type="button"
+        onclick={clear}
+        aria-label={t('app.commandbar.clear', 'Clear')}
+        class="flex shrink-0 items-center px-1.5 transition
+          {dark ? 'text-zinc-500 hover:text-zinc-200' : 'text-zinc-400 hover:text-zinc-700'}"
+      >
+        <svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    {/if}
+
+    <!-- Understated submit: an icon-only enter affordance, not a fat button.
+         Muted at rest, accent on hover, dimmed/disabled while empty or busy. -->
+    <button
+      type="submit"
+      disabled={!canSubmit}
+      aria-label={t('app.commandbar.submit', 'Run')}
+      class="flex shrink-0 items-center pl-1 pr-2 transition disabled:cursor-default disabled:opacity-40
+        {dark ? 'text-zinc-400 hover:text-white' : 'text-zinc-400 hover:text-zinc-900'}"
+    >
+      <svg aria-hidden="true" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" />
+      </svg>
+    </button>
   </div>
 
   {#if error}
