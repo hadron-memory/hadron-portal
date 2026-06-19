@@ -25,7 +25,7 @@
       <p class="mb-1">Invitation created! Share this link:</p>
       <div class="flex items-center gap-2">
         <code class="flex-1 rounded bg-zinc-800 px-3 py-1.5 font-mono text-xs text-green-200 select-all break-all">{form.inviteUrl}</code>
-        <button onclick={() => navigator.clipboard.writeText(form.inviteUrl)} class="shrink-0 rounded-md border border-green-700 px-2 py-1 text-xs text-green-300 hover:bg-green-900">Copy</button>
+        <button onclick={() => navigator.clipboard?.writeText(form.inviteUrl)} class="shrink-0 rounded-md border border-green-700 px-2 py-1 text-xs text-green-300 hover:bg-green-900">Copy</button>
       </div>
       <p class="mt-2 text-xs text-green-400">Valid for 30 days, single use.</p>
     </div>
