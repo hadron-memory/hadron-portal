@@ -30,7 +30,8 @@ interface SessionSummary {
 export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   await requireNonConsumer(parent);
 
-  const pageNum = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10));
+  const parsedPage = parseInt(url.searchParams.get('page') ?? '1', 10);
+  const pageNum = Number.isNaN(parsedPage) ? 1 : Math.max(1, parsedPage);
   const offset = (pageNum - 1) * PAGE_SIZE;
 
   const client = gqlClient(locals.token);
