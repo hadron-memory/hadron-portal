@@ -32,10 +32,12 @@
     </a>
 
     <!-- #320: command/search bar — signed-in users, inside the app shell only.
-         Centered, takes the slack between the logo and the right-side controls. -->
+         Centered, takes the slack between the logo and the right-side controls.
+         #337: widen progressively on larger viewports — there's plenty of slack
+         on wide screens, and flex-1 still lets it shrink on smaller ones. -->
     {#if showCommandBar}
       <div class="relative hidden min-w-0 flex-1 justify-center sm:flex">
-        <div class="w-full max-w-md"><CommandBar {dark} /></div>
+        <div class="w-full max-w-md lg:max-w-xl xl:max-w-2xl 2xl:max-w-3xl"><CommandBar {dark} /></div>
       </div>
     {/if}
 
