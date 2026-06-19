@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import { toSlug } from '$lib/slug';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -6,7 +7,8 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   let name = $state('');
-  let slug = $state('');
+  // #320: seed the slug once when the command bar deep-links here.
+  let slug = $state(untrack(() => data.prefillSlug ?? ''));
   let slugEdited = $state(false);
   let colonWarning = $state(false);
 

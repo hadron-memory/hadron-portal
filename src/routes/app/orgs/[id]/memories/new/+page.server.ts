@@ -5,12 +5,14 @@ import { CREATE_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION, ORGANIZATION_QUERY } fr
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals, parent }) => {
+export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ organization: Organization }>(
     ORGANIZATION_QUERY, { id: params.id },
   );
-  return { org: data.organization };
+  // #320: the header command bar (Create mode) can deep-link here with the
+  // memory slug prefilled (`?slug=<slug>`).
+  return { org: data.organization, prefillSlug: (url.searchParams.get('slug') ?? '').trim() };
 };
 
 export const actions: Actions = {

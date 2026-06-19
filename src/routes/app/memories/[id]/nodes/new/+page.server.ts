@@ -32,6 +32,11 @@ export const load: PageServerLoad = async ({ url, parent }) => {
   // (see FR-006).
   const parentLoc = cleanLocInput(url.searchParams.get('parent') ?? '');
 
+  // #320: the header command bar (Create mode) deep-links a full node loc here
+  // via `?loc=<loc>` (derived from the node URN's last `::` segment). Normalize
+  // it through the same helper the submit path uses.
+  const prefillLoc = cleanLocInput(url.searchParams.get('loc') ?? '');
+
   // Normalize existingLocs through the same helper that runs at submit
   // time, so collision suffixing in deriveDefaultLoc is computed against
   // the canonical loc shape that will actually be submitted (legacy
@@ -40,7 +45,7 @@ export const load: PageServerLoad = async ({ url, parent }) => {
     .map((n) => cleanLocInput(n.loc))
     .filter((s) => s !== '');
 
-  return { parentLoc, existingLocs };
+  return { parentLoc, prefillLoc, existingLocs };
 };
 
 export const actions: Actions = {

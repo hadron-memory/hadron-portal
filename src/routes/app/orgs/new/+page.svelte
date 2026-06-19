@@ -1,11 +1,14 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
-  import type { ActionData } from './$types';
+  import type { ActionData, PageData } from './$types';
 
-  let { form }: { form: ActionData } = $props();
+  let { form, data }: { form: ActionData; data: PageData } = $props();
 
   let name = $state('');
-  let urn = $state('');
+  // #320: seed the URN slug once when the command bar deep-links here. untrack
+  // makes the one-time snapshot explicit (data won't change without a reload).
+  let urn = $state(untrack(() => data.prefillUrn ?? ''));
   $effect(() => { if (form?.name) name = form.name; });
   $effect(() => { if (form?.urn) urn = form.urn; });
 
