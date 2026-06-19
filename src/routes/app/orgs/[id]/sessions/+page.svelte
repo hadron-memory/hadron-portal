@@ -1,7 +1,8 @@
 <script lang="ts">
-  // Migrated off svelte-headless-table to @tanstack/table-core + the Svelte 5
-  // runes adapter (src/lib/table/*). See docs/grid-bakeoff.md. Shared chrome
-  // (tabs/search/table/footer) lives in DataTable.svelte.
+  // #323: relocated from /app/usage/sessions. Same chrome conventions as the
+  // other org grids — @tanstack/table-core + the Svelte 5 runes adapter
+  // (src/lib/table/*), shared chrome in DataTable.svelte. listKey is kept as
+  // 'usage:sessions' so users' saved views carry over from the old route.
   import {
     getCoreRowModel,
     getSortedRowModel,
@@ -16,6 +17,7 @@
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
+  const org = $derived(data.org);
 
   function formatDate(val: string | null): string {
     if (!val) return '—';
@@ -99,11 +101,11 @@
   });
 </script>
 
-<svelte:head><title>Sessions · Hadron</title></svelte:head>
+<svelte:head><title>Sessions · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-4">
   <Breadcrumb items={[
-    { label: 'Dashboard', href: '/app/dashboard' },
+    { label: org.name, href: `/app/orgs/${org.id}` },
     { label: 'Sessions' },
   ]} />
   <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">Sessions</h1>
