@@ -47,7 +47,7 @@
         { label: data.org.name },
       ]} />
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">
-        <span class="font-normal text-zinc-400">Organization:</span> {data.org.name}
+        <span class="font-normal text-zinc-400">{t('org-detail.prefix.organization', 'Organization:')}</span> {data.org.name}
       </h1>
       <Urn value={data.org.urn} type="org" />
     </div>
