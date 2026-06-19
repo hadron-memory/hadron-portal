@@ -148,6 +148,14 @@
 
   <!-- Content -->
   <div class="min-w-0 flex-1">
-    {@render children()}
+    <!-- #339: key the outlet on the route id. Svelte 5 / Kit 2 don't tear down
+         the previous page in this {@render children()} outlet when the child
+         layout DEPTH changes (e.g. /app/orgs/[id]/members — a direct child —
+         navigating to /app/account/*, which adds the account layout): the two
+         pages stack. Keying on route.id forces teardown on each route change
+         while still reusing the page across param-only navs (same route.id). -->
+    {#key $page.route.id}
+      {@render children()}
+    {/key}
   </div>
 </div>

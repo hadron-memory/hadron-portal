@@ -1,7 +1,13 @@
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { INVITE_USER_MUTATION } from '$lib/server/queries';
-import type { Actions } from './$types';
+import type { Actions, PageServerLoad } from './$types';
+
+// #339: the command bar can deep-link `invite <email>` here with the email
+// prefilled, so the user only has to click submit.
+export const load: PageServerLoad = ({ url }) => ({
+  prefillEmail: (url.searchParams.get('email') ?? '').trim(),
+});
 
 export const actions: Actions = {
   // #327 follow-up: moved here from /app/account so "Invite" is its own tab.

@@ -3,52 +3,79 @@
   import { onMount, tick } from 'svelte';
   import { t } from '$lib/i18n/t';
   import {
-    COMMAND_MODES,
-    acceptCompletion,
-    buildCommandRoute,
-    completeCommand,
-    parseCommandInput,
+    COMMANDS,
+    parseCommand,
+    resolveCommandAction,
+    type CommandSpec,
     type CommandTint,
     type UrnResolution,
   } from './command-bar';
 
   // `dark` is threaded from Nav (not read off the html `.dark` class) so the
-  // bar themes correctly during SSR, exactly like the rest of the nav chrome.
-  let { dark = true }: { dark?: boolean } = $props();
+  // bar themes correctly during SSR. `activeOrgId` + `orgs` come from the app
+  // layout via $page.data (threaded through Nav) — needed for the org-relative
+  // routes and the "switch org" picker.
+  let {
+    dark = true,
+    activeOrgId = null,
+    orgs = [],
+  }: {
+    dark?: boolean;
+    activeOrgId?: string | null;
+    orgs?: { id: string; name: string }[];
+  } = $props();
 
   let value = $state('');
-  let activated = $state(false); // input has focus → "white" look
+  let activated = $state(false); // input has focus → dropdown + "white" look
   let busy = $state(false);
   let error = $state('');
   let inputEl = $state<HTMLInputElement | null>(null);
   let mounted = $state(false);
   let isMac = $state(false);
+  let selectedIndex = $state(0); // highlighted dropdown row
+  let showSwitch = $state(false); // org-switch popup mode
 
-  // The commands the user can type, straight from the registry so a new mode
-  // shows up in the placeholder/error copy automatically.
-  const commandList = COMMAND_MODES.map((m) => m.id).join(', ');
   const hotkeyLabel = $derived(isMac ? '⌘K' : 'Ctrl K');
+  const switchCmd = COMMANDS.find((c) => c.id === 'switch') ?? null;
 
-  const parsed = $derived(parseCommandInput(value));
-  const canSubmit = $derived(!busy && !!parsed.mode && parsed.arg.trim().length > 0);
+  const parsed = $derived(parseCommand(value));
 
-  // Theme-aware classes for each command's tint. The command↔color register
-  // itself lives in COMMAND_MODES; this just renders each token per theme.
-  const TINT: Record<CommandTint, { dark: string; light: string; ring: string }> = {
-    blue: { dark: 'border-blue-700/70 bg-blue-950/40', light: 'border-blue-300 bg-blue-50', ring: 'ring-blue-500/40' },
-    violet: { dark: 'border-violet-700/70 bg-violet-950/40', light: 'border-violet-300 bg-violet-50', ring: 'ring-violet-500/40' },
-    emerald: { dark: 'border-emerald-700/70 bg-emerald-950/40', light: 'border-emerald-300 bg-emerald-50', ring: 'ring-emerald-500/40' },
+  // The dropdown shows either the org-switch list or the matching commands.
+  type Row =
+    | { kind: 'command'; command: CommandSpec }
+    | { kind: 'org'; org: { id: string; name: string } };
+  const rows = $derived.by((): Row[] => {
+    if (showSwitch) return orgs.map((o) => ({ kind: 'org', org: o }));
+    if (activated && parsed.phase === 'selecting' && parsed.matches.length) {
+      return parsed.matches.map((c) => ({ kind: 'command', command: c }));
+    }
+    return [];
+  });
+  const clampedIndex = $derived(rows.length ? Math.min(selectedIndex, rows.length - 1) : 0);
+  const dropdownOpen = $derived(showSwitch || (activated && rows.length > 0));
+
+  // The command whose color the bar takes (and that the submit button would run).
+  const activeCommand = $derived.by((): CommandSpec | null => {
+    if (showSwitch) return switchCmd;
+    if (parsed.phase === 'arg') return parsed.command;
+    const row = rows[clampedIndex];
+    return row?.kind === 'command' ? row.command : parsed.command;
+  });
+
+  // Theme-aware classes per tint. The command↔color register lives in COMMANDS.
+  const TINT: Record<CommandTint, { dark: string; light: string; ring: string; dot: string }> = {
+    blue: { dark: 'border-blue-700/70 bg-blue-950/40', light: 'border-blue-300 bg-blue-50', ring: 'ring-blue-500/40', dot: 'bg-blue-500' },
+    violet: { dark: 'border-violet-700/70 bg-violet-950/40', light: 'border-violet-300 bg-violet-50', ring: 'ring-violet-500/40', dot: 'bg-violet-500' },
+    emerald: { dark: 'border-emerald-700/70 bg-emerald-950/40', light: 'border-emerald-300 bg-emerald-50', ring: 'ring-emerald-500/40', dot: 'bg-emerald-500' },
+    amber: { dark: 'border-amber-700/70 bg-amber-950/40', light: 'border-amber-300 bg-amber-50', ring: 'ring-amber-500/40', dot: 'bg-amber-500' },
+    rose: { dark: 'border-rose-700/70 bg-rose-950/40', light: 'border-rose-300 bg-rose-50', ring: 'ring-rose-500/40', dot: 'bg-rose-500' },
   };
 
-  const activeTint = $derived(
-    parsed.mode ? (COMMAND_MODES.find((m) => m.id === parsed.mode)?.tint ?? null) : null,
-  );
-
-  // Recognized command → tint the bar; otherwise the neutral resting/active look.
   const containerClass = $derived.by(() => {
     const base = 'flex items-stretch overflow-hidden rounded-md border transition-colors';
-    if (activeTint) {
-      const c = TINT[activeTint];
+    const tint = activeCommand?.tint ?? null;
+    if (tint) {
+      const c = TINT[tint];
       return `${base} ${dark ? c.dark : c.light}${activated ? ` ring-1 ${c.ring}` : ''}`;
     }
     if (activated) {
@@ -57,73 +84,156 @@
     return `${base} ${dark ? 'border-zinc-700 bg-zinc-800/70' : 'border-zinc-200 bg-zinc-100'}`;
   });
 
-  // Muted overlay text rendered behind the input: the ghost completion while the
-  // command word is still being typed, then the argument hint once a command is
-  // locked in. '' → no overlay (empty field uses the native placeholder).
-  const ghost = $derived.by(() => {
-    if (value === '') return '';
-    const head = value.replace(/^\s+/, '');
-    if (!/\s/.test(head)) return completeCommand(head)?.completion ?? '';
-    if (parsed.mode && parsed.arg.trim() === '') {
-      const m = COMMAND_MODES.find((x) => x.id === parsed.mode);
-      return m ? t(m.argHint[0], m.argHint[1]) : '';
+  // Muted overlay shown once an argument-taking command is locked in and its
+  // argument is still empty (e.g. "open " → "Open by URN…").
+  const argHint = $derived.by(() => {
+    const c = parsed.command;
+    if (parsed.phase === 'arg' && c?.arg && parsed.arg.trim() === '') {
+      return t(`app.commandbar.cmd.${c.id}.arghint`, c.arg.hint);
     }
     return '';
   });
 
-  // ⌘K / Ctrl-K focuses the bar from anywhere in the app shell. onMount only
-  // runs in the browser, so `navigator`/`window` are safe here; the hint badge
-  // also waits for `mounted` so SSR and hydration agree.
-  onMount(() => {
-    isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '');
-    mounted = true;
-    function onWindowKeydown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault();
-        inputEl?.focus();
-        inputEl?.select(); // ready to overtype any leftover command
-      }
+  const canSubmit = $derived.by(() => {
+    if (busy) return false;
+    if (showSwitch) return rows.length > 0;
+    if (parsed.phase === 'arg' && parsed.command) {
+      return !!parsed.command.arg?.optional || parsed.arg.trim().length > 0;
     }
-    window.addEventListener('keydown', onWindowKeydown);
-    return () => window.removeEventListener('keydown', onWindowKeydown);
+    const row = rows[clampedIndex];
+    return row?.kind === 'command' && !row.command.arg; // a no-arg command is ready
   });
+
+  const cmdDesc = (c: CommandSpec) => t(`app.commandbar.cmd.${c.id}.desc`, c.desc);
 
   function clear() {
     value = '';
     error = '';
+    showSwitch = false;
+    selectedIndex = 0;
     inputEl?.focus();
   }
 
-  /** Expand the half-typed command word to `<command> ` and park the caret. */
-  async function accept(): Promise<boolean> {
-    const next = acceptCompletion(value);
-    if (next === null) return false;
-    value = next;
+  // After a valid command's action is initiated, reset the bar to its resting
+  // state (empty + unfocused) so the just-run command text doesn't linger.
+  function reset() {
+    value = '';
     error = '';
-    await tick();
-    inputEl?.setSelectionRange(value.length, value.length);
-    return true;
+    showSwitch = false;
+    selectedIndex = 0;
+    inputEl?.blur();
   }
 
-  function caretAtEnd(): boolean {
-    return (
-      !!inputEl &&
-      inputEl.selectionStart === value.length &&
-      inputEl.selectionEnd === value.length
-    );
+  /** Fill the input with `<command> ` (arg commands) or `<command>` (no-arg). */
+  async function completeTrigger(command: CommandSpec) {
+    value = command.triggers[0] + (command.arg ? ' ' : '');
+    error = '';
+    selectedIndex = 0;
+    await tick();
+    inputEl?.setSelectionRange(value.length, value.length);
+    inputEl?.focus();
+  }
+
+  async function openSwitch() {
+    value = '';
+    showSwitch = true;
+    selectedIndex = 0;
+    // The input is disabled mid-dispatch (busy), which blurs it; await a tick so
+    // the re-enable flushes, then refocus so ↑↓/Enter work in the org popup.
+    await tick();
+    inputEl?.focus();
+  }
+
+  function closeSwitch() {
+    showSwitch = false;
+    selectedIndex = 0;
+  }
+
+  async function runCommand(command: CommandSpec, arg: string) {
+    if (busy) return;
+    busy = true;
+    error = '';
+    try {
+      const action = await resolveCommandAction(command, arg, { activeOrgId, resolve: resolveUrn });
+      switch (action.type) {
+        case 'navigate':
+          reset(); // valid command → clear the input as we navigate
+          await goto(action.path);
+          break;
+        case 'external':
+          reset();
+          window.location.href = action.url;
+          break;
+        case 'switch':
+          openSwitch(); // clears the input itself, then shows the org popup
+          break;
+        case 'error':
+          error = action.message; // keep the input so the user can fix it
+          break;
+      }
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Act on the current selection: run it, or complete an arg command's word. */
+  function commit(index = clampedIndex) {
+    if (busy) return;
+    if (showSwitch) {
+      const row = rows[index];
+      if (row?.kind === 'org') {
+        closeSwitch();
+        goto(`/app/orgs/${row.org.id}/`);
+      }
+      return;
+    }
+    if (parsed.phase === 'arg' && parsed.command) {
+      const c = parsed.command;
+      if (c.arg?.optional || parsed.arg.trim() !== '') runCommand(c, parsed.arg);
+      else error = t('app.commandbar.need-arg', c.arg?.kind === 'email' ? 'Enter an email.' : 'Enter a value.');
+      return;
+    }
+    const row = rows[index];
+    if (row?.kind === 'command') {
+      if (row.command.arg) completeTrigger(row.command);
+      else runCommand(row.command, '');
+      return;
+    }
+    if (value.trim()) error = t('app.commandbar.unknown', 'No matching command.');
   }
 
   function onKeydown(e: KeyboardEvent) {
-    // Autocomplete only fires while the command word is still being typed;
-    // acceptCompletion is null once the separating space exists, so once the
-    // user is in the argument Tab moves focus and Enter submits as usual.
-    if (acceptCompletion(value) === null) return;
-    if (e.key === 'Tab' || e.key === ' ' || e.key === 'Enter') {
+    if (rows.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
       e.preventDefault();
-      accept();
-    } else if (e.key === 'ArrowRight' && caretAtEnd()) {
+      const n = rows.length;
+      selectedIndex = e.key === 'ArrowDown' ? (clampedIndex + 1) % n : (clampedIndex - 1 + n) % n;
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (showSwitch) {
+        e.preventDefault();
+        closeSwitch();
+        inputEl?.focus();
+      } else if (value) {
+        e.preventDefault();
+        clear();
+      } else {
+        inputEl?.blur();
+      }
+      return;
+    }
+    if (e.key === 'Enter') {
       e.preventDefault();
-      accept();
+      commit();
+      return;
+    }
+    // Tab completes the highlighted command's word (without running it).
+    if (e.key === 'Tab' && !showSwitch && parsed.phase === 'selecting' && rows.length) {
+      const row = rows[clampedIndex];
+      if (row?.kind === 'command') {
+        e.preventDefault();
+        completeTrigger(row.command);
+      }
     }
   }
 
@@ -139,54 +249,50 @@
     }
   }
 
-  async function run() {
-    if (busy) return;
-    const { mode, arg } = parseCommandInput(value);
-    if (!mode) {
-      error = t('app.commandbar.unknown', `Unknown command. Try: ${commandList}.`);
-      return;
-    }
-    busy = true;
-    error = '';
-    try {
-      const route = await buildCommandRoute(mode, arg, resolveUrn);
-      if (route.ok) {
-        await goto(route.path);
-      } else {
-        error = route.error;
-      }
-    } finally {
-      busy = false;
-    }
-  }
-
   function onSubmit(e: SubmitEvent) {
     e.preventDefault();
-    run();
+    commit();
   }
+
+  // ⌘K / Ctrl-K focuses the bar from anywhere in the app shell. onMount only
+  // runs in the browser, so `navigator`/`window` are safe here; the hint badge
+  // also waits for `mounted` so SSR and hydration agree.
+  onMount(() => {
+    isMac = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '');
+    mounted = true;
+    function onWindowKeydown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        inputEl?.focus();
+        inputEl?.select();
+      }
+    }
+    window.addEventListener('keydown', onWindowKeydown);
+    return () => window.removeEventListener('keydown', onWindowKeydown);
+  });
 </script>
 
-<form onsubmit={onSubmit} class="relative w-full">
-  <!-- Single command input (no dropdown, per #337). Type a command word — it
-       inline-autocompletes (ghost text + Tab/Space/→/Enter), a space is
-       inserted, then the argument. The bar tints to the recognized command's
-       color (#open=blue / search=violet / create=emerald). -->
-  <div
-    onfocusin={() => (activated = true)}
-    onfocusout={() => (activated = false)}
-    class={containerClass}
-  >
-    <!-- Input + ghost overlay share one box. The overlay sits behind the
-         transparent input; identical font/padding keeps the muted suffix
-         aligned to where the typed text ends (the caret). -->
+<form
+  onsubmit={onSubmit}
+  onfocusin={() => (activated = true)}
+  onfocusout={() => {
+    activated = false;
+    showSwitch = false;
+  }}
+  class="relative w-full"
+>
+  <!-- #339: single input that behaves like a command palette — type to filter
+       the dropdown, ↑↓ to choose, Enter/Tab to run/complete. The bar tints to
+       the highlighted command's color. -->
+  <div class={containerClass}>
     <div class="relative min-w-0 flex-1">
-      {#if ghost}
+      {#if argHint}
         <div
           aria-hidden="true"
           class="pointer-events-none absolute inset-0 flex items-center overflow-hidden whitespace-pre px-3 py-1.5 text-sm"
         >
           <span class="invisible">{value}</span><span
-            class={dark ? 'text-zinc-500' : 'text-zinc-400'}>{ghost}</span
+            class={dark ? 'text-zinc-500' : 'text-zinc-400'}>{argHint}</span
           >
         </div>
       {/if}
@@ -196,26 +302,32 @@
         bind:value
         onkeydown={onKeydown}
         oninput={() => {
-          if (error) error = '';
+          error = '';
+          selectedIndex = 0;
+          showSwitch = false;
         }}
         type="text"
+        role="combobox"
         autocomplete="off"
         autocapitalize="off"
         autocorrect="off"
         spellcheck="false"
-        aria-autocomplete="inline"
+        aria-autocomplete="list"
+        aria-expanded={dropdownOpen}
+        aria-controls="commandbar-listbox"
+        aria-activedescendant={dropdownOpen ? `commandbar-opt-${clampedIndex}` : undefined}
         aria-keyshortcuts="Meta+K Control+K"
         disabled={busy}
         aria-label={t('app.commandbar.label', 'Command')}
-        placeholder={t('app.commandbar.placeholder', `Type a command: ${commandList}…`)}
+        placeholder={showSwitch
+          ? t('app.commandbar.switch-placeholder', 'Switch to which org?')
+          : t('app.commandbar.placeholder', 'Type a command…')}
         class="relative w-full bg-transparent px-3 py-1.5 text-sm focus:outline-none
           {dark ? 'text-zinc-100 placeholder-zinc-500' : 'text-zinc-900 placeholder-zinc-400'}"
       />
     </div>
 
-    {#if mounted && !activated && !value}
-      <!-- Discoverability hint: press ⌘K / Ctrl-K to focus. Hidden once the bar
-           is focused or has content. -->
+    {#if mounted && !activated && !value && !showSwitch}
       <span aria-hidden="true" class="pointer-events-none flex shrink-0 select-none items-center pl-2 pr-2">
         <kbd
           class="rounded border px-1.5 py-0.5 text-[10px] font-medium leading-none
@@ -226,7 +338,7 @@
       </span>
     {/if}
 
-    {#if value}
+    {#if value || showSwitch}
       <button
         type="button"
         onclick={clear}
@@ -240,8 +352,6 @@
       </button>
     {/if}
 
-    <!-- Understated submit: an icon-only enter affordance. Swaps to a spinner
-         while a command is dispatching (busy). -->
     <button
       type="submit"
       disabled={!canSubmit}
@@ -263,8 +373,51 @@
     </button>
   </div>
 
+  {#if dropdownOpen}
+    <!-- Command / org palette. Rows keep input focus on mousedown so a click
+         doesn't blur-close the list before it registers. -->
+    <ul
+      id="commandbar-listbox"
+      role="listbox"
+      class="absolute left-0 right-0 top-full z-20 mt-1 max-h-80 overflow-y-auto rounded-md border py-1 text-sm shadow-lg
+        {dark ? 'border-zinc-700 bg-zinc-900' : 'border-zinc-200 bg-white'}"
+    >
+      {#if showSwitch && rows.length === 0}
+        <li class="px-3 py-2 text-xs {dark ? 'text-zinc-500' : 'text-zinc-400'}">
+          {t('app.commandbar.no-orgs', 'No organizations to switch to.')}
+        </li>
+      {/if}
+      {#each rows as row, i (row.kind === 'command' ? row.command.id : row.org.id)}
+        <li role="presentation">
+          <button
+            type="button"
+            id="commandbar-opt-{i}"
+            role="option"
+            aria-selected={i === clampedIndex}
+            onmousedown={(e) => e.preventDefault()}
+            onmousemove={() => (selectedIndex = i)}
+            onclick={() => commit(i)}
+            class="flex w-full items-center gap-2 px-3 py-1.5 text-left transition
+              {i === clampedIndex ? (dark ? 'bg-zinc-800' : 'bg-zinc-100') : ''}"
+          >
+            {#if row.kind === 'command'}
+              <span class="h-1.5 w-1.5 shrink-0 rounded-full {TINT[row.command.tint].dot}"></span>
+              <span class={dark ? 'text-zinc-300' : 'text-zinc-700'}>{row.command.triggers[0]}</span>
+              <span class="ml-auto truncate pl-3 text-xs {dark ? 'text-zinc-500' : 'text-zinc-400'}">{cmdDesc(row.command)}</span>
+            {:else}
+              <span class="h-1.5 w-1.5 shrink-0 rounded-full {TINT.amber.dot}"></span>
+              <span class="truncate {dark ? 'text-zinc-300' : 'text-zinc-700'}">{row.org.name}</span>
+              {#if row.org.id === activeOrgId}
+                <span class="ml-auto pl-3 text-xs {dark ? 'text-zinc-500' : 'text-zinc-400'}">{t('app.commandbar.current-org', 'current')}</span>
+              {/if}
+            {/if}
+          </button>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+
   {#if error}
-    <!-- Absolutely positioned so the inline error never reflows the nav row. -->
     <p
       class="absolute z-10 mt-1 max-w-md rounded-md border px-2 py-1 text-xs shadow-sm
         {dark
