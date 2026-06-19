@@ -501,7 +501,15 @@
   <!-- Header -->
   <div class="flex items-start justify-between gap-3">
     <div>
-      <h1 class="text-xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Node:</span> {node.name}</h1>
+      <h1 class="flex items-center gap-2 text-xl font-bold text-zinc-900 dark:text-white">
+        {#if node.isRunnable}
+          <svg class="h-5 w-5 shrink-0 text-indigo-500 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+        {/if}
+        <span><span class="text-zinc-400 font-normal">{node.isRunnable ? createNodeStrings.taskNodeCaption() : createNodeStrings.nodeCaption()}</span> {node.name}</span>
+      </h1>
       <Urn value={fullUrn} type="node" />
       {#if node.description}
         <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
@@ -943,10 +951,12 @@
                 <label for="editTags" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Tags <span class="text-zinc-500">(comma-separated)</span></label>
                 <input id="editTags" name="tags" type="text" value={node.tags.join(', ')} class={inputClass} />
               </div>
-              <div class="flex items-center gap-2">
-                <input id="editIsRunnable" name="isRunnable" type="checkbox" checked={node.isRunnable ?? false}
-                  class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900" />
-                <label for="editIsRunnable" class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Runnable <span class="text-zinc-500">(can be run as a task by h-run-task)</span></label>
+              <div>
+                <label class="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  <input id="editIsRunnable" name="isRunnable" type="checkbox" value="true" checked={node.isRunnable ?? false}
+                    class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
+                  Is Runnable <span class="font-normal text-zinc-500">(can be run as a task by h-run-task)</span>
+                </label>
               </div>
               <div class="flex gap-3">
                 <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
@@ -991,12 +1001,14 @@
                   </div>
                 </div>
               {/if}
-              {#if node.isRunnable}
-                <div class="flex items-center justify-between px-5 py-3">
-                  <span class="text-sm text-zinc-500">Runnable</span>
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Runnable</span>
+                {#if node.isRunnable}
                   <span class="text-sm text-green-600 dark:text-green-400">Yes</span>
-                </div>
-              {/if}
+                {:else}
+                  <span class="text-sm text-zinc-900 dark:text-white">No</span>
+                {/if}
+              </div>
               <div class="flex items-center justify-between px-5 py-3">
                 <span class="text-sm text-zinc-500">Created</span>
                 <span class="text-sm text-zinc-900 dark:text-white">{new Date(node.createdAt).toLocaleDateString()}</span>

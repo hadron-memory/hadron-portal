@@ -78,6 +78,10 @@ export const createNodeStrings = {
       "No content yet. Content is the node's primary body, rendered as Markdown.",
     ),
   contentEmptyCta: (): string => t('node-detail.content.empty-cta', 'Write content'),
+
+  /** Node-detail header caption prefix. "Task Node:" marks a runnable node (#322). */
+  nodeCaption: (): string => t('node-detail.caption.node', 'Node:'),
+  taskNodeCaption: (): string => t('node-detail.caption.task-node', 'Task Node:'),
 };
 
 /**

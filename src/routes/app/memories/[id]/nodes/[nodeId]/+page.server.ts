@@ -115,9 +115,9 @@ export const actions: Actions = {
     const seq = seqRaw !== '' ? parseInt(seqRaw, 10) : null;
     const tagsStr = String(fd.get('tags') ?? '').trim();
     const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [];
-    // Checkbox: present ('on') when ticked, absent when not. Send an explicit
-    // boolean so unticking clears the flag (NodeInput.isRunnable omit-to-preserve).
-    const isRunnable = fd.get('isRunnable') === 'on';
+    // Checkbox: present (value "true") when checked, absent when unchecked.
+    // updateMeta is a full upsert, so send an explicit boolean either way.
+    const isRunnable = fd.get('isRunnable') === 'true';
     const newLoc = cleanLocInput(String(fd.get('loc') ?? ''));
 
     if (!name) return fail(400, { error: 'Name is required' });
