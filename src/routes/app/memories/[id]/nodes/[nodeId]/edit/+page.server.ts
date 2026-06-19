@@ -49,6 +49,9 @@ export const actions: Actions = {
     const seq = seqParsed !== null && Number.isNaN(seqParsed) ? null : seqParsed;
     const tagsStr = String(fd.get('tags') ?? '').trim();
     const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [];
+    // Checkbox: present (value "true") when checked, absent when unchecked.
+    // This is a full upsert, so send an explicit boolean either way.
+    const isRunnable = fd.get('isRunnable') === 'true';
     const rawLoc = String(fd.get('loc') ?? '').trim();
     const newLoc = cleanLocInput(rawLoc);
 
@@ -90,6 +93,7 @@ export const actions: Actions = {
           content,
           seq,
           tags,
+          isRunnable,
           edges,
         },
       });
