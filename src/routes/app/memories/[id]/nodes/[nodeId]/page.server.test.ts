@@ -402,6 +402,55 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     expect(varsA.input.tags).toEqual(['a-tag']);
     expect(varsB.input.tags).toEqual(['b-tag1', 'b-tag2']);
   });
+
+  it('updateMeta: a checked isRunnable box sends isRunnable: true (#322)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk-r', memoryId: 'mem-A', loc: 'r', name: 'r',
+        nodeType: 'task', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-r' } });
+
+    const actions = await importActions();
+    await actions.updateMeta(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-r',
+      // Loc unchanged → no MOVE_NODE_MUTATION, so the upsert is call index 1.
+      form: { name: 'r', loc: 'r', isRunnable: 'true' },
+    }));
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { isRunnable?: unknown } }];
+    expect(vars.input.isRunnable).toBe(true);
+  });
+
+  it('updateMeta: an unchecked isRunnable box sends isRunnable: false (#322)', async () => {
+    // An unchecked checkbox submits no field at all. The action must still
+    // send an explicit `false` (it is a full upsert), not omit the field.
+    mockRequest.mockResolvedValueOnce({
+      nodeById: {
+        id: 'pk-r2', memoryId: 'mem-A', loc: 'r2', name: 'r2',
+        nodeType: 'task', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: true, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-r2' } });
+
+    const actions = await importActions();
+    await actions.updateMeta(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-r2',
+      form: { name: 'r2', loc: 'r2' },
+    }));
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { isRunnable?: unknown } }];
+    expect(vars.input.isRunnable).toBe(false);
+  });
 });
 
 /**

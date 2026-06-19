@@ -115,6 +115,9 @@ export const actions: Actions = {
     const seq = seqRaw !== '' ? parseInt(seqRaw, 10) : null;
     const tagsStr = String(fd.get('tags') ?? '').trim();
     const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [];
+    // Checkbox: present (value "true") when checked, absent when unchecked.
+    // updateMeta is a full upsert, so send an explicit boolean either way.
+    const isRunnable = fd.get('isRunnable') === 'true';
     const newLoc = cleanLocInput(String(fd.get('loc') ?? ''));
 
     if (!name) return fail(400, { error: 'Name is required' });
@@ -132,7 +135,7 @@ export const actions: Actions = {
 
     try {
       await client.request(UPSERT_NODE_MUTATION, {
-        input: { memoryId: currentNode.memoryId, loc, name, description, alias, seq: Number.isNaN(seq) ? null : seq, tags },
+        input: { memoryId: currentNode.memoryId, loc, name, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable },
       });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to save' });
