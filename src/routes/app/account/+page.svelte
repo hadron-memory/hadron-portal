@@ -1,6 +1,5 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
 
@@ -15,14 +14,6 @@
 <svelte:head><title>Account · Hadron</title></svelte:head>
 
 <div class="max-w-lg space-y-8">
-  <div>
-    <Breadcrumb items={[
-      { label: 'Dashboard', href: '/app/dashboard' },
-      { label: 'Account' },
-    ]} />
-    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">Account</h1>
-  </div>
-
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}

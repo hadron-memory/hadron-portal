@@ -111,25 +111,19 @@
     aria-haspopup="menu"
     aria-expanded={open}
     aria-label={`${t('app.layout.active-org.switcher.aria-label', 'Switch organization')}: ${activeOrg.name}`}
-    class="mt-0.5 flex w-full min-w-0 items-center gap-1 rounded py-1 text-xs text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+    class="shrink-0 rounded-md border border-zinc-300 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
     data-testid="org-switcher-trigger"
   >
-    <!-- #264: no "Organization" label — the org name sits directly under the
-         user's name. min-w-0 on the button AND the truncating child so a long
-         org name shrinks rather than overflowing the sidebar / pushing the
-         caret out of view (flex children don't shrink below min-content
-         without min-w-0). -->
-    <span class="min-w-0 truncate">{activeOrg.name}</span>
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="ml-auto shrink-0 opacity-60">
-      <polyline points="6 9 12 15 18 9" />
-    </svg>
+    <!-- #327: a plain "Switch" button. The active org name is rendered beside it
+         by the layout now; the mockup's caret was an accidental artifact. -->
+    {t('app.layout.active-org.switch', 'Switch')}
   </button>
 
   {#if open}
     <div
       bind:this={menuEl}
       role="menu"
-      class="absolute bottom-full left-0 mb-1 max-h-64 min-w-[12rem] max-w-[16rem] overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      class="absolute top-full right-0 mt-1 max-h-64 min-w-[12rem] max-w-[16rem] overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
       data-testid="org-switcher-dropdown"
     >
       {#each otherMemberships as o (o.id)}

@@ -2,7 +2,6 @@
   import type { LayoutData } from './$types';
   import { page } from '$app/stores';
   import { t } from '$lib/i18n/t';
-  import { apiKeysStrings } from '$lib/i18n/api-keys-strings';
   import OrgSwitcher from '$lib/components/OrgSwitcher.svelte';
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
@@ -89,16 +88,18 @@
           {item.label}
         </a>
       {/each}
-      <hr class="my-2 border-zinc-200 dark:border-zinc-800" />
-      <a
-        href="/app/account/api-keys"
-        class="rounded-md px-3 py-2 text-sm transition
-          {$page.url.pathname.startsWith('/app/account/api-keys')
-            ? 'bg-zinc-100 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-white'
-            : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white'}"
-      >
-        {apiKeysStrings.navLabel()}
-      </a>
+      <!-- #327: active-org block moved up here (under the nav items). The org
+           name is static; the OrgSwitcher renders a "Switch" button beside it,
+           only when the user belongs to more than one org. -->
+      {#if !data.isConsumerMode && data.activeOrg}
+        <hr class="my-2 border-zinc-200 dark:border-zinc-800" />
+        <div class="flex items-center gap-2 px-3 py-1.5">
+          <span class="min-w-0 flex-1 truncate text-sm font-medium text-zinc-700 dark:text-zinc-300" data-testid="active-org-name">{data.activeOrg.name}</span>
+          {#if data.orgs.length > 1}
+            <OrgSwitcher activeOrg={data.activeOrg} orgs={data.orgs} />
+          {/if}
+        </div>
+      {/if}
     </nav>
       <!-- User avatar + name + active-org pinned to bottom. #264: the org
            name (and switcher, when present) sits directly below the user's
@@ -109,41 +110,24 @@
            The "Signed in as" label sits on its own row ABOVE the avatar/name
            row, so the avatar aligns with the name intrinsically (`items-center`)
            — no magic margin that would misalign if the localized label wraps. -->
+      <!-- #327: bottom block is now just the avatar + user name, linking to the
+           account page. The active-org line moved up under the nav items. -->
       <div class="shrink-0 pt-4">
         <hr class="mb-3 border-zinc-200 dark:border-zinc-800" />
-        <div class="rounded-md px-3 py-2
-          {$page.url.pathname.startsWith('/app/account')
-            ? 'text-zinc-900 dark:text-white'
-            : 'text-zinc-500 dark:text-zinc-400'}">
-          <p class="mb-1 text-[10px] text-zinc-400">{t('app.layout.signed-in-as', 'Signed in as')}</p>
-          <div class="flex items-center gap-3">
-            <a href="/app/account" class="shrink-0 transition hover:opacity-80" aria-label={t('app.layout.account', 'Account')}>
-              {#if data.user.avatarUrl}
-                <img src={data.user.avatarUrl} alt="" class="h-8 w-8 rounded-full" />
-              {:else}
-                <div class="h-8 w-8 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
-              {/if}
-            </a>
-            <div class="min-w-0 flex-1">
-              <a href="/app/account" class="block truncate text-sm transition hover:text-zinc-900 dark:hover:text-white
-                {$page.url.pathname.startsWith('/app/account') ? 'font-medium' : ''}">
-                {data.user.name ?? data.user.githubUsername ?? data.user.email}
-              </a>
-              <!-- Spec 014 FR-004 + US2 / #264: active org directly under the
-                   name. Switcher renders only for multi-membership, non-consumer
-                   users (FR-010 keeps it off for single-personal-org accounts);
-                   each option opens that org in a new tab (R-3). A single-org
-                   user gets a static name line — no dropdown to nowhere. -->
-              {#if !data.isConsumerMode && data.activeOrg && data.orgs.length > 1}
-                <OrgSwitcher activeOrg={data.activeOrg} orgs={data.orgs} />
-              {:else if !data.isConsumerMode && data.activeOrg}
-                <p class="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400" data-testid="active-org-name">
-                  {data.activeOrg.name}
-                </p>
-              {/if}
-            </div>
-          </div>
-        </div>
+        <a href="/app/account" aria-label={t('app.layout.account', 'Account')}
+          class="flex items-center gap-3 rounded-md px-3 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900
+            {$page.url.pathname.startsWith('/app/account')
+              ? 'text-zinc-900 dark:text-white'
+              : 'text-zinc-500 dark:text-zinc-400'}">
+          {#if data.user.avatarUrl}
+            <img src={data.user.avatarUrl} alt="" class="h-8 w-8 shrink-0 rounded-full" />
+          {:else}
+            <div class="h-8 w-8 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
+          {/if}
+          <span class="min-w-0 flex-1 truncate text-sm {$page.url.pathname.startsWith('/app/account') ? 'font-medium' : ''}">
+            {data.user.name ?? data.user.githubUsername ?? data.user.email}
+          </span>
+        </a>
       </div>
   </aside>
   {:else}
