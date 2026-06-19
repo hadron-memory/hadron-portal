@@ -46,24 +46,24 @@
   }
 </script>
 
-<span class="inline-flex items-center gap-1">
-  <code class="inline-flex items-center overflow-hidden rounded font-mono leading-tight" style="font-size: 0.6rem;">
+<span class="inline-flex min-w-0 max-w-full items-center gap-1">
+  <code class="inline-flex min-w-0 items-center overflow-hidden rounded font-mono leading-tight" style="font-size: 0.6rem;">
     {#if compact}
-      <span class="bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={fullUrn}>{bareValue}</span>
+      <span class="min-w-0 truncate bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={fullUrn}>{bareValue}</span>
     {:else}
-      <span class="pl-1.5 pr-0 py-0.5 font-medium {typeBadgeClass}">{CANONICAL_SCHEME}:</span>
-      <span class="pl-0 pr-0.5 py-0.5 font-medium {typeBadgeClass}">{displayType}:</span>
-      <span class="bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">{bareValue}</span>
+      <span class="shrink-0 whitespace-nowrap pl-1.5 pr-0 py-0.5 font-medium {typeBadgeClass}">{CANONICAL_SCHEME}:</span>
+      <span class="shrink-0 whitespace-nowrap pl-0 pr-0.5 py-0.5 font-medium {typeBadgeClass}">{displayType}:</span>
+      <span class="min-w-0 truncate bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200" title={fullUrn}>{bareValue}</span>
     {/if}
   </code>
-  <button onclick={copy} class="ml-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN" aria-label="Copy URN">
+  <button onclick={copy} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN" aria-label="Copy URN">
     {#if copied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
     {/if}
   </button>
-  <button onclick={copyUrl} class="ml-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URL" aria-label="Copy URL">
+  <button onclick={copyUrl} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URL" aria-label="Copy URL">
     {#if urlCopied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
