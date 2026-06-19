@@ -18,7 +18,6 @@
     type ColumnDef,
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
-  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
@@ -160,14 +159,9 @@
 <svelte:head><title>Memories · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-4">
-  <!-- Breadcrumb + header -->
+  <!-- Header -->
   <div class="flex items-center justify-between">
-    <div>
-      <Breadcrumb items={[
-        { label: 'Memories' },
-      ]} />
-      <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{org.name}'s Memories</h1>
-    </div>
+    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Memories</h2>
     <div class="flex items-center gap-3">
       <form method="POST" action="?/syncAll" use:enhance>
         <button type="submit" class="cursor-pointer rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">

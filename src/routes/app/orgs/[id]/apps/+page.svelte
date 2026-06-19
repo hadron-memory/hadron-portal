@@ -17,7 +17,6 @@
     type ColumnDef,
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
-  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
@@ -84,13 +83,8 @@
 
 <div class="space-y-4">
   <div>
-    <Breadcrumb items={[
-      { label: 'Apps' },
-    ]} />
-    <div class="mt-2">
-      <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">Apps</h1>
-      <p class="mt-1 text-sm text-zinc-500">Installed Agents that authenticate clients (Micromentor, websites, mobile apps, the coding-agent CLI). Each App is a deployment of an Agent.</p>
-    </div>
+    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Apps</h2>
+    <p class="mt-1 text-sm text-zinc-500">Installed Agents that authenticate clients (Micromentor, websites, mobile apps, the coding-agent CLI). Each App is a deployment of an Agent.</p>
   </div>
 
   {#if form?.error}

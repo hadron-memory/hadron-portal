@@ -11,7 +11,6 @@
     type ColumnDef,
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
-  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -104,11 +103,8 @@
 <svelte:head><title>Sessions · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-4">
-  <Breadcrumb items={[
-    { label: org.name, href: `/app/orgs/${org.id}` },
-    { label: 'Sessions' },
-  ]} />
-  <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">Sessions</h1>
+  <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Sessions</h2>
+  <p class="text-sm text-zinc-500">Agent and coding-session activity — tokens, turns, duration, and errors.</p>
 
   {#if data.sessions.length === 0}
     <p class="text-sm text-zinc-500">No sessions found.</p>

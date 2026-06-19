@@ -1,40 +1,23 @@
 /**
- * Spec 015-fix-org-apps-count — tests for the org-detail loader.
+ * Tests for the org-detail Profile-tab loader (#336, originally spec
+ * 015-fix-org-apps-count).
  *
- * Strategy mirrors `memories/[gid]/page.server.test.ts`: mock
- * `$lib/server/api`'s `gqlClient`, import `load` from `+page.server.ts`,
- * and call it directly with a hand-rolled event. We do NOT spin up SvelteKit.
+ * The org (incl. 404 handling) is loaded by +layout.server.ts and reached via
+ * parent(); those cases live in `layout.server.test.ts`. This loader only adds
+ * the apps stat (APPS_QUERY) on top of the parent org.
  *
- * Coverage (T001 from spec 015's tasks.md):
- *   - happy path → returns { org, apps, appsError: null }
- *   - APPS_QUERY fails, ORGANIZATION_QUERY succeeds → returns
- *     { org, apps: [], appsError: <message> }; no throw, no 404
- *   - ORGANIZATION_QUERY fails → throws SvelteKit 404 (apps-query
- *     outcome irrelevant; uses Promise.allSettled so apps-query
- *     completion does not change the 404 result)
- *   - ORGANIZATION_QUERY returns { organization: null } → throws 404
- *   - parallel issuance — all three queries (org, apps, ai-configs) are
- *     dispatched (mockRequest called 3x; order doesn't matter)
- *   - ai-configs query fails (admin-gated) → aiConfigs coerced to null
+ * Strategy: mock `$lib/server/api`'s `gqlClient`, import `load` from
+ * `+page.server.ts`, and call it directly with a hand-rolled event. We do NOT
+ * spin up SvelteKit.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ORGANIZATION_QUERY, APPS_QUERY, AI_SERVICE_CONFIGS_QUERY } from '$lib/server/queries';
+import { APPS_QUERY } from '$lib/server/queries';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
-
-// `$env/dynamic/private` is a SvelteKit virtual module; vitest is configured
-// to skip the SvelteKit plugin (see vitest.config.ts). The org-detail
-// +page.server.ts imports `env` for the `connectExchange` action — these
-// load() tests don't exercise that action, so an empty stub is sufficient.
-vi.mock('$env/dynamic/private', () => ({ env: {} }));
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
-}));
-
-vi.mock('$lib/server/guards', () => ({
-  requireNonConsumer: vi.fn().mockResolvedValue(undefined),
 }));
 
 beforeEach(() => {
@@ -42,6 +25,13 @@ beforeEach(() => {
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+const fakeOrg = { id: 'org-id-123', name: 'Acme', urn: 'urn:org:acme', members: [], memories: [], agents: [], subscriptions: [], exchangeConnections: [] };
+// Fixture mirrors the AppFields selection set (post-008 single-agent
+// model) and uses literals from the App type union.
+const fakeApps = [
+  { id: 'app-1', name: 'First App', urn: 'urn:app:first', agent: null, keys: [], identifyUserMethod: 'USER_ID', createUserPermission: 'DENY' },
+];
 
 async function importLoad() {
   const mod = await import('./+page.server');
@@ -52,162 +42,58 @@ function ev(opts: { orgId?: string; token?: string | null } = {}) {
   return {
     params: { id: opts.orgId ?? 'org-id-123' },
     locals: { token: opts.token === undefined ? 'test-token' : opts.token },
-    parent: async () => ({}),
+    parent: async () => ({ org: fakeOrg }),
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
-/**
- * Route mockRequest by query identity. ORGANIZATION_QUERY and APPS_QUERY
- * are imported from the real `queries.ts` so the strings match exactly.
- */
-function routeMock(opts: {
-  org?: { data?: unknown; error?: unknown };
-  apps?: { data?: unknown; error?: unknown };
-  aiConfigs?: { data?: unknown; error?: unknown };
-}) {
+function routeMock(opts: { apps?: { data?: unknown; error?: unknown } }) {
   mockRequest.mockImplementation(async (query: string) => {
-    if (query === ORGANIZATION_QUERY) {
-      if (opts.org?.error !== undefined) throw opts.org.error;
-      return opts.org?.data;
-    }
     if (query === APPS_QUERY) {
       if (opts.apps?.error !== undefined) throw opts.apps.error;
       return opts.apps?.data;
     }
-    if (query === AI_SERVICE_CONFIGS_QUERY) {
-      if (opts.aiConfigs?.error !== undefined) throw opts.aiConfigs.error;
-      // Default to an empty list so tests that don't care about configs
-      // don't have to wire them up.
-      return opts.aiConfigs?.data ?? { aiServiceConfigs: [] };
-    }
-    throw new Error(`Unexpected query passed to mockRequest`);
+    throw new Error('Unexpected query passed to mockRequest');
   });
 }
 
-const fakeOrg = { id: 'org-id-123', name: 'Acme', urn: 'urn:org:acme', members: [], memories: [], agents: [], subscriptions: [], exchangeConnections: [] };
-// Fixture mirrors the AppFields selection set (post-008 single-agent
-// model) and uses literals from the App type union — `agent: null`,
-// `identifyUserMethod: 'USER_ID'`, `createUserPermission: 'DENY'` are
-// all valid per src/lib/types.ts. The legacy `agents` plural is not
-// selected by AppFields and is intentionally omitted; the UI uses
-// `app.agent` directly.
-const fakeApps = [
-  { id: 'app-1', name: 'First App', urn: 'urn:app:first', agent: null, keys: [], identifyUserMethod: 'USER_ID', createUserPermission: 'DENY' },
-];
-// 036: org-owned AiServiceConfig masked-list shape (no key material).
-const fakeAiConfigs = [
-  { id: 'cfg-1', name: 'bedrock-mm', ownerType: 'ORGANIZATION', ownerId: 'org-id-123', provider: 'bedrock', model: 'us.anthropic.claude-sonnet-4-6', hasApiKey: true, apiKeyPreview: '…-1"}', params: { bedrockRegion: 'us-east-1' }, enabled: true, createdAt: '2026-06-15', updatedAt: '2026-06-15' },
-];
+// ── Tests ────────────────────────────────────────────────────────────────────
 
-// ── Tests ──────────────────────────────────────────────────────────────────
-
-describe('org-detail load() (spec 015)', () => {
-  it('happy path — both queries succeed → returns { org, apps, appsError: null }', async () => {
-    routeMock({
-      org: { data: { organization: fakeOrg } },
-      apps: { data: { apps: fakeApps } },
-      aiConfigs: { data: { aiServiceConfigs: fakeAiConfigs } },
-    });
+describe('org-detail Profile load()', () => {
+  it('happy path — apps query succeeds → returns { org, apps, appsError: null }', async () => {
+    routeMock({ apps: { data: { apps: fakeApps } } });
     const load = await importLoad();
     const result = await load(ev({ orgId: 'org-id-123' }));
-    expect(result).toEqual({ org: fakeOrg, apps: fakeApps, appsError: null, aiConfigs: fakeAiConfigs });
+    expect(result).toEqual({ org: fakeOrg, apps: fakeApps, appsError: null });
   });
 
-  it('apps-query fails, org-query succeeds → returns { org, apps: [], appsError } without throwing', async () => {
+  it('apps-query fails → returns { org, apps: [], appsError } without throwing', async () => {
     const gqlError = Object.assign(new Error('outer'), {
       response: { errors: [{ message: 'Internal: apps resolver crashed' }] },
     });
-    routeMock({
-      org: { data: { organization: fakeOrg } },
-      apps: { error: gqlError },
-    });
+    routeMock({ apps: { error: gqlError } });
     const load = await importLoad();
     const result = await load(ev({}));
     expect(result).toEqual({
       org: fakeOrg,
       apps: [],
       appsError: 'Internal: apps resolver crashed',
-      aiConfigs: [],
     });
   });
 
   it('apps-query fails with non-GraphQL error → falls back to the error message', async () => {
-    routeMock({
-      org: { data: { organization: fakeOrg } },
-      apps: { error: new Error('socket hangup') },
-    });
+    routeMock({ apps: { error: new Error('socket hangup') } });
     const load = await importLoad();
     const result = (await load(ev({}))) as { apps: unknown[]; appsError: string };
     expect(result.appsError).toBe('socket hangup');
     expect(result.apps).toEqual([]);
   });
 
-  it('org-query fails → throws SvelteKit 404, regardless of apps-query outcome', async () => {
-    routeMock({
-      org: { error: new Error('boom') },
-      apps: { data: { apps: fakeApps } }, // apps would succeed; must not change the 404
-    });
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev({}));
-    } catch (e) {
-      thrown = e;
-    }
-    expect(thrown).toBeDefined();
-    expect((thrown as { status: number }).status).toBe(404);
-    expect((thrown as { body?: { message?: string } }).body?.message).toBe('Organization not found');
-  });
-
-  it('organization is null (org exists in schema but resolver returned null) → throws 404', async () => {
-    routeMock({
-      org: { data: { organization: null } },
-      apps: { data: { apps: [] } },
-    });
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev({}));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(404);
-  });
-
-  it('parallel issuance — all three queries are dispatched (independent of resolution order)', async () => {
-    routeMock({
-      org: { data: { organization: fakeOrg } },
-      apps: { data: { apps: fakeApps } },
-      aiConfigs: { data: { aiServiceConfigs: fakeAiConfigs } },
-    });
+  it('issues APPS_QUERY only (org comes from parent()), scoped to the org id', async () => {
+    routeMock({ apps: { data: { apps: fakeApps } } });
     const load = await importLoad();
     await load(ev({}));
-
-    expect(mockRequest).toHaveBeenCalledTimes(3);
-    const queries = mockRequest.mock.calls.map((call) => call[0]);
-    expect(queries).toContain(ORGANIZATION_QUERY);
-    expect(queries).toContain(APPS_QUERY);
-    expect(queries).toContain(AI_SERVICE_CONFIGS_QUERY);
-    // Variables matched to the right query
-    const orgCall = mockRequest.mock.calls.find((c) => c[0] === ORGANIZATION_QUERY);
-    const appsCall = mockRequest.mock.calls.find((c) => c[0] === APPS_QUERY);
-    const cfgCall = mockRequest.mock.calls.find((c) => c[0] === AI_SERVICE_CONFIGS_QUERY);
-    expect(orgCall?.[1]).toEqual({ id: 'org-id-123' });
-    expect(appsCall?.[1]).toEqual({ orgId: 'org-id-123' });
-    expect(cfgCall?.[1]).toEqual({ ownerType: 'ORGANIZATION', ownerId: 'org-id-123' });
-  });
-
-  it('ai-configs query fails (admin-gated; non-admin viewer) → aiConfigs null, no throw', async () => {
-    routeMock({
-      org: { data: { organization: fakeOrg } },
-      apps: { data: { apps: fakeApps } },
-      aiConfigs: { error: new Error('Forbidden') },
-    });
-    const load = await importLoad();
-    const result = (await load(ev({}))) as { aiConfigs: unknown; appsError: unknown };
-    // A failed config list is coerced to null (the section shows its
-    // description instead of a count/list); apps still load fine.
-    expect(result.aiConfigs).toBeNull();
-    expect(result.appsError).toBeNull();
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest.mock.calls[0][0]).toBe(APPS_QUERY);
+    expect(mockRequest.mock.calls[0][1]).toEqual({ orgId: 'org-id-123' });
   });
 });

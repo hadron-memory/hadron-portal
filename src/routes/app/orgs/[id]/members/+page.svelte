@@ -22,10 +22,7 @@
 <svelte:head><title>Members · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-8">
-  <div>
-    <a href="/app/orgs/{org.id}" class="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">← {org.name}</a>
-    <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">Members</h1>
-  </div>
+  <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Team</h2>
 
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
