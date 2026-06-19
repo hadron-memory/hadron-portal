@@ -110,6 +110,7 @@ describe('parseCommand — selecting phase (dropdown)', () => {
     expect(parseCommand('dashboard').command?.id).toBe('org'); // alias of org
     expect(parseCommand('switch organization').command?.id).toBe('switch');
     expect(parseCommand('logout').command?.id).toBe('sign-out');
+    expect(parseCommand('find').command?.id).toBe('search'); // alias of search
   });
 
   it('is case-insensitive and tolerates surrounding whitespace', () => {
@@ -144,6 +145,12 @@ describe('parseCommand — arg phase', () => {
     const p = parseCommand('invite alice@acme.com');
     expect(p.command?.id).toBe('invite');
     expect(p.arg).toBe('alice@acme.com');
+  });
+
+  it('the "find" alias enters search arg phase', () => {
+    const p = parseCommand('find hello world');
+    expect(p.command?.id).toBe('search');
+    expect(p.arg).toBe('hello world');
   });
 
   it('a no-arg command does NOT enter arg phase (trailing junk → no match)', () => {

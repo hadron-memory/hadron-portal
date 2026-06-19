@@ -81,7 +81,7 @@ export const COMMANDS: CommandSpec[] = [
   {
     id: 'search',
     title: 'Search',
-    triggers: ['search'],
+    triggers: ['search', 'find'],
     desc: 'Global search',
     tint: 'violet',
     arg: { kind: 'query', hint: 'Search by name, URN, or id…' },
