@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { page } from '$app/stores';
   import CommandBar from './CommandBar.svelte';
 
   interface Props {
@@ -8,6 +9,13 @@
   }
 
   let { user, dark = true, onToggleTheme }: Props = $props();
+
+  // #320: the command bar only makes sense for a signed-in user inside the app
+  // shell — every action targets an /app/* route. Hide it on the public
+  // marketing pages (even when signed in) and whenever signed out. Match the
+  // '/app/' prefix (with trailing slash) so sibling routes like /apps or
+  // /approve don't match — every real app page lives under /app/.
+  const showCommandBar = $derived(!!user && $page.url.pathname.startsWith('/app/'));
 </script>
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
@@ -17,9 +25,9 @@
       <img src={dark ? '/img/hadron-logo-v2-dark.png' : '/img/hadron-logo-v2.png'} alt="Hadron" class="h-9 w-auto" />
     </a>
 
-    <!-- #320: always-visible command/search bar (signed-in only). Centered,
-         takes the slack between the logo and the right-side controls. -->
-    {#if user}
+    <!-- #320: command/search bar — signed-in users, inside the app shell only.
+         Centered, takes the slack between the logo and the right-side controls. -->
+    {#if showCommandBar}
       <div class="relative hidden min-w-0 flex-1 justify-center sm:flex">
         <div class="w-full max-w-md"><CommandBar {dark} /></div>
       </div>
