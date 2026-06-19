@@ -47,7 +47,7 @@
       case 'app':
         return h.organizationId ? `/app/orgs/${h.organizationId}/apps/${h.id}` : null;
       case 'aiServiceConfig':
-        return h.organizationId ? `/app/orgs/${h.organizationId}/ai-configs` : null;
+        return h.organizationId ? `/app/orgs/${h.organizationId}/integrations` : null;
       default:
         // user (no detail page) + any future kind: resolver fallback if URN'd.
         return h.urn ? `/app/u/${encodeURIComponent(h.urn)}` : null;

@@ -16,7 +16,6 @@
     type ColumnDef,
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
-  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
@@ -74,10 +73,7 @@
 <div class="space-y-4">
   <div class="flex items-start justify-between">
     <div>
-      <Breadcrumb items={[
-        { label: 'Agents' },
-      ]} />
-      <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">{org.name}'s Agents</h1>
+      <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Agents</h2>
       <p class="text-sm text-zinc-500">Group memories into agents for app subscriptions.</p>
     </div>
     <div class="flex items-center gap-2">

@@ -28,5 +28,6 @@ export const load: PageServerLoad = async ({ url, locals }) => {
     throw error(500, e instanceof Error ? e.message : 'Failed to link GitHub App installation');
   }
 
-  redirect(303, `/app/orgs/${orgId}?githubInstalled=1`);
+  // #336: GitHub config + success banner live on the Integrations tab.
+  redirect(303, `/app/orgs/${orgId}/integrations?githubInstalled=1`);
 };
