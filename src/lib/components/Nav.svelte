@@ -19,6 +19,10 @@
     <div class="flex items-center gap-2">
       <div class="hidden items-center gap-1 text-sm sm:flex">
         <a href="/" class="rounded-md px-3 py-1.5 transition {dark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'}">Home</a>
+        <a href="https://docs.hadronmemory.com" target="_blank" rel="noopener" class="inline-flex items-center gap-1 rounded-md px-3 py-1.5 transition {dark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'}">
+          Docs
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="opacity-50"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>
         <a href="/contact" class="rounded-md px-3 py-1.5 transition {dark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'}">Contact</a>
         <a href="/about" class="rounded-md px-3 py-1.5 transition {dark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'}">About</a>
       </div>

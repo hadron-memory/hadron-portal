@@ -31,11 +31,6 @@
     : [],
   );
 
-  const usageNav = [
-    { href: '/app/usage/sessions', label: t('app.nav.usage.sessions', 'Sessions') },
-    { href: '/app/usage/memory',   label: t('app.nav.usage.memory', 'Memory') },
-  ];
-
   const navItems = $derived(data.isConsumerMode ? consumerNav : fullNav);
 
   // Spec 014: ORGANIZATIONS section removed (FR-003). The active org now
@@ -94,21 +89,6 @@
           {item.label}
         </a>
       {/each}
-      {#if !data.isConsumerMode}
-        <hr class="my-2 border-zinc-200 dark:border-zinc-800" />
-        <span class="px-3 py-1 text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-600">{t('app.nav.usage.section', 'Usage')}</span>
-        {#each usageNav as item}
-          <a
-            href={item.href}
-            class="rounded-md px-3 py-2 text-sm transition
-              {$page.url.pathname.startsWith(item.href)
-                ? 'bg-zinc-100 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-white'
-                : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white'}"
-          >
-            {item.label}
-          </a>
-        {/each}
-      {/if}
       <hr class="my-2 border-zinc-200 dark:border-zinc-800" />
       <a
         href="/app/account/api-keys"
@@ -118,15 +98,6 @@
             : 'text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white'}"
       >
         {apiKeysStrings.navLabel()}
-      </a>
-      <a
-        href="https://docs.hadronmemory.com"
-        target="_blank"
-        rel="noopener"
-        class="rounded-md px-3 py-2 text-sm transition text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-white flex items-center gap-1.5"
-      >
-        {t('app.nav.docs', 'Docs')}
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="opacity-50"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
       </a>
     </nav>
       <!-- User avatar + name + active-org pinned to bottom. #264: the org

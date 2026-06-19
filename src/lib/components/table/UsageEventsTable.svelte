@@ -1,8 +1,7 @@
 <script lang="ts">
   // Shared usage-events grid (@tanstack/table-core + the Svelte 5 runes adapter,
-  // src/lib/table/*). Used by the global /app/usage/memory page and the
-  // per-memory Usage tab (#266). The `listKey` keeps each list's saved views
-  // distinct (e.g. 'usage:memory' vs 'memory:<id>:usage').
+  // src/lib/table/*). Used by the per-memory Usage tab (#266). The `listKey`
+  // keeps each list's saved views distinct (e.g. 'memory:<id>:usage').
   import {
     getCoreRowModel,
     getSortedRowModel,

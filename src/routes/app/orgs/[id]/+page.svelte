@@ -161,6 +161,15 @@
     {/if}
   </section>
 
+  <!-- Sessions -->
+  <section>
+    <div class="mb-3 flex items-center justify-between">
+      <h2 class="font-semibold text-zinc-900 dark:text-white">Sessions</h2>
+      <a href="/app/orgs/{org.id}/sessions" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">View →</a>
+    </div>
+    <p class="text-sm text-zinc-500">Agent and coding-session activity — tokens, turns, duration, and errors.</p>
+  </section>
+
   <!-- AI providers -->
   <section>
     <div class="mb-3 flex items-center justify-between">
