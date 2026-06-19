@@ -93,10 +93,16 @@
            only when the user belongs to more than one org. -->
       {#if !data.isConsumerMode && data.activeOrg}
         <hr class="my-2 border-zinc-200 dark:border-zinc-800" />
-        <div class="flex items-center gap-2 px-3 py-1.5">
-          <span class="min-w-0 flex-1 truncate text-sm font-medium text-zinc-700 dark:text-zinc-300" data-testid="active-org-name">{data.activeOrg.name}</span>
+        <div class="px-3 py-1.5">
+          <a
+            href={`/app/orgs/${data.activeOrg.id}`}
+            class="block truncate text-sm font-medium text-zinc-700 transition hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
+            data-testid="active-org-name"
+          >{data.activeOrg.name}</a>
           {#if data.orgs.length > 1}
-            <OrgSwitcher activeOrg={data.activeOrg} orgs={data.orgs} />
+            <div class="mt-1.5">
+              <OrgSwitcher activeOrg={data.activeOrg} orgs={data.orgs} />
+            </div>
           {/if}
         </div>
       {/if}
