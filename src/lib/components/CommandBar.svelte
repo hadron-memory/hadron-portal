@@ -403,11 +403,11 @@
           >
             {#if row.kind === 'command'}
               <span class="h-1.5 w-1.5 shrink-0 rounded-full {TINT[row.command.tint].dot}"></span>
-              <span class={dark ? 'text-zinc-300' : 'text-zinc-700'}>{row.command.triggers[0]}</span>
+              <span class={dark ? 'text-zinc-400' : 'text-zinc-600'}>{row.command.triggers[0]}</span>
               <span class="ml-auto truncate pl-3 text-xs {dark ? 'text-zinc-500' : 'text-zinc-400'}">{cmdDesc(row.command)}</span>
             {:else}
               <span class="h-1.5 w-1.5 shrink-0 rounded-full {TINT.amber.dot}"></span>
-              <span class="truncate {dark ? 'text-zinc-300' : 'text-zinc-700'}">{row.org.name}</span>
+              <span class="truncate {dark ? 'text-zinc-400' : 'text-zinc-600'}">{row.org.name}</span>
               {#if row.org.id === activeOrgId}
                 <span class="ml-auto pl-3 text-xs {dark ? 'text-zinc-500' : 'text-zinc-400'}">{t('app.commandbar.current-org', 'current')}</span>
               {/if}
