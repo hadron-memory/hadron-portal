@@ -26,7 +26,6 @@
     type ColumnDef,
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
-  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
   import type { UserApiKey } from '$lib/types';
@@ -166,15 +165,7 @@
 <svelte:head><title>API keys · Hadron</title></svelte:head>
 
 <div class="space-y-8">
-  <div>
-    <Breadcrumb items={[
-      { label: 'Dashboard', href: '/app/dashboard' },
-      { label: 'Account', href: '/app/account' },
-      { label: i18n.pageHeading() },
-    ]} />
-    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">{i18n.pageHeading()}</h1>
-    <p class="mt-2 max-w-3xl text-sm text-zinc-500 dark:text-zinc-400">{i18n.pageLead()}</p>
-  </div>
+  <p class="max-w-3xl text-sm text-zinc-500 dark:text-zinc-400">{i18n.pageLead()}</p>
 
   <!-- Surface load errors as a non-blocking inline banner. -->
   {#if loadError}
