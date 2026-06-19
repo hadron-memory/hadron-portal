@@ -177,7 +177,7 @@
   {#if subTab === 'org'}
     {#if rows.length === 0}
       <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-        No memories yet. <a href="/app/orgs/{org.id}/memories/new" class="text-indigo-600 hover:underline dark:text-indigo-400">Add one →</a>
+        {t('org-memories.empty', 'No memories yet.')} <a href="/app/orgs/{org.id}/memories/new" class="text-indigo-600 hover:underline dark:text-indigo-400">{t('org-memories.add-one', 'Add one →')}</a>
       </div>
     {:else}
       <!-- 26rem offset tuned to this page's chrome height (sub-tabs above,
@@ -232,7 +232,7 @@
     <!-- #342: Subscriptions sub-tab — table of subscribed memories + the
          subscribe form. -->
     {#if subscriptions.length === 0}
-      <p class="text-sm text-zinc-500">Not subscribed to any memories yet.</p>
+      <p class="text-sm text-zinc-500">{t('org-memories.subscriptions.empty', 'Not subscribed to any memories yet.')}</p>
     {:else}
       <div class="overflow-hidden rounded-xl border border-zinc-200 dark:border-zinc-800">
         <table class="w-full text-sm">
@@ -246,7 +246,7 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
-            {#each subscriptions as s (s.id)}
+            {#each subscriptions as s (s.memory.id)}
               <tr class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900">
                 <td class="px-4 py-2.5">
                   <a href="/app/memories/{s.memory.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{s.memory.name}</a>
@@ -255,7 +255,7 @@
                 <td class="px-4 py-2.5">
                   <span class="inline-block rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300">{s.role}</span>
                 </td>
-                <td class="px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{s.memory.organization?.name ?? 'unknown'}</td>
+                <td class="px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{s.memory.organization?.name ?? t('org-memories.unknown', 'unknown')}</td>
                 <td class="px-4 py-2.5 text-right">
                   <form method="POST" action="?/unsubscribe" use:enhance onsubmit={(e) => { if (!confirm(`Unsubscribe from "${s.memory.name}"?`)) e.preventDefault(); }}>
                     <input type="hidden" name="memoryId" value={s.memory.id} />
