@@ -5,13 +5,15 @@ import { ORGANIZATION_QUERY, CREATE_AGENT_MUTATION, UPDATE_AGENT_MUTATION } from
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals, parent }) => {
+export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ organization: Organization | null }>(
     ORGANIZATION_QUERY, { id: params.id },
   ).catch(() => { throw error(404, 'Organization not found'); });
   if (!data.organization) throw error(404, 'Organization not found');
-  return { org: data.organization };
+  // #320: the header command bar (Create mode) can deep-link here with the
+  // agent slug prefilled (`?slug=<slug>`).
+  return { org: data.organization, prefillSlug: (url.searchParams.get('slug') ?? '').trim() };
 };
 
 export const actions: Actions = {

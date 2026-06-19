@@ -1,16 +1,23 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
-  import type { ActionData } from './$types';
+  import type { ActionData, PageData } from './$types';
 
-  let { form }: { form: ActionData } = $props();
+  let { form, data }: { form: ActionData; data: PageData } = $props();
 
   let name = $state('');
-  let urn = $state('');
+  // #320: seed the URN slug once when the command bar deep-links here. untrack
+  // makes the one-time snapshot explicit (data won't change without a reload).
+  let urn = $state(untrack(() => data.prefillUrn ?? ''));
+  // #320: a prefilled (or manually-edited) URN must not be clobbered by
+  // name-driven auto-generation.
+  let urnEdited = $state(untrack(() => !!data.prefillUrn));
   $effect(() => { if (form?.name) name = form.name; });
   $effect(() => { if (form?.urn) urn = form.urn; });
 
-  // Auto-generate URN from name
+  // Auto-generate URN from name until the user (or a prefill) owns the field.
   function onNameInput() {
+    if (urnEdited) return;
     urn = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   }
 </script>
@@ -46,6 +53,7 @@
         <input
           id="urn" name="urn" type="text" required
           bind:value={urn}
+          oninput={() => (urnEdited = true)}
           pattern="[a-z0-9-]+"
           placeholder="acme-corp"
           class="flex-1 bg-transparent font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none dark:text-white dark:placeholder-zinc-500"

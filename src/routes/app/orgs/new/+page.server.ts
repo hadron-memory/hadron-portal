@@ -4,8 +4,11 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { CREATE_ORGANIZATION_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ parent }) => {
+export const load: PageServerLoad = async ({ parent, url }) => {
   await requireNonConsumer(parent);
+  // #320: the header command bar (Create mode) can deep-link here with the URN
+  // slug prefilled (`?urn=<slug>`).
+  return { prefillUrn: (url.searchParams.get('urn') ?? '').trim() };
 };
 
 export const actions: Actions = {

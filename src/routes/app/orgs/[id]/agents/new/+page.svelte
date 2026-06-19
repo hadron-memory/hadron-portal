@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import { toSlug } from '$lib/slug';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -6,8 +7,10 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   let name = $state('');
-  let slug = $state('');
-  let slugEdited = $state(false);
+  // #320: seed the slug once when the command bar deep-links here.
+  let slug = $state(untrack(() => data.prefillSlug ?? ''));
+  // #320: a prefilled slug counts as "edited" so name-derivation won't clobber it.
+  let slugEdited = $state(untrack(() => !!data.prefillSlug));
   let colonWarning = $state(false);
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";

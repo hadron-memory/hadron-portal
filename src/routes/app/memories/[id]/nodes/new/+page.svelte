@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -30,8 +31,11 @@
   ]);
 
   let name = $state('');
-  let loc = $state('');
-  let locManuallyEdited = $state(false);
+  // #320: a command-bar deep-link prefills the full loc; treat it as
+  // manually-edited so name-derivation doesn't clobber it. untrack snapshots
+  // the seed once (data won't change without a reload).
+  let loc = $state(untrack(() => data.prefillLoc ?? ''));
+  let locManuallyEdited = $state(untrack(() => !!data.prefillLoc));
   let nodeType = $state<'info' | 'record' | 'system' | 'reference'>('info');
   let description = $state('');
   let abstract = $state('');

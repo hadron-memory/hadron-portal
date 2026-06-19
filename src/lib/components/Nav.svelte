@@ -1,4 +1,6 @@
 <script lang="ts">
+  import CommandBar from './CommandBar.svelte';
+
   interface Props {
     user?: { githubUsername: string | null; email: string | null; name: string | null; avatarUrl: string | null } | null;
     dark?: boolean;
@@ -9,11 +11,19 @@
 </script>
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
-  <div class="flex items-center justify-between px-4 py-3">
+  <div class="flex items-center justify-between gap-4 px-4 py-3">
     <!-- Logo -->
-    <a href="/">
+    <a href="/" class="shrink-0">
       <img src={dark ? '/img/hadron-logo-v2-dark.png' : '/img/hadron-logo-v2.png'} alt="Hadron" class="h-9 w-auto" />
     </a>
+
+    <!-- #320: always-visible command/search bar (signed-in only). Centered,
+         takes the slack between the logo and the right-side controls. -->
+    {#if user}
+      <div class="relative hidden min-w-0 flex-1 justify-center sm:flex">
+        <div class="w-full max-w-md"><CommandBar {dark} /></div>
+      </div>
+    {/if}
 
     <!-- Right side: nav links + auth + theme -->
     <div class="flex items-center gap-2">
