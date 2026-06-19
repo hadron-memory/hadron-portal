@@ -16,6 +16,11 @@
   // '/app/' prefix (with trailing slash) so sibling routes like /apps or
   // /approve don't match — every real app page lives under /app/.
   const showCommandBar = $derived(!!user && $page.url.pathname.startsWith('/app/'));
+
+  // #340: the "Dashboard" button is only needed to get INTO the app shell. On
+  // /app routes the sidebar already carries a Dashboard link, so hide the header
+  // button there (same '/app/' prefix guard as the command bar).
+  const onAppRoute = $derived($page.url.pathname.startsWith('/app/'));
 </script>
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
@@ -45,7 +50,7 @@
         <a href="/about" class="rounded-md px-3 py-1.5 transition {dark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'}">About</a>
       </div>
 
-      {#if user}
+      {#if user && !onAppRoute}
         <a
           href="/app/dashboard"
           class="ml-2 rounded-md px-4 py-1.5 text-sm font-medium transition"
@@ -53,7 +58,7 @@
         >
           Dashboard
         </a>
-      {:else}
+      {:else if !user}
         <a
           href="/signin"
           class="ml-2 rounded-md px-4 py-1.5 text-sm font-medium transition"
