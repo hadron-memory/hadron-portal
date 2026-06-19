@@ -16,6 +16,12 @@
   // '/app/' prefix (with trailing slash) so sibling routes like /apps or
   // /approve don't match — every real app page lives under /app/.
   const showCommandBar = $derived(!!user && $page.url.pathname.startsWith('/app/'));
+
+  // #340: the "Dashboard" button only serves to get INTO the app shell. On /app
+  // routes the sidebar already carries a Dashboard link, so it's redundant
+  // there. `showCommandBar` is already true exactly when the user is signed in
+  // AND on an /app/ route, so `user && !showCommandBar` means "signed in and not
+  // in the app shell" — no separate derived needed.
 </script>
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
@@ -45,7 +51,7 @@
         <a href="/about" class="rounded-md px-3 py-1.5 transition {dark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'}">About</a>
       </div>
 
-      {#if user}
+      {#if user && !showCommandBar}
         <a
           href="/app/dashboard"
           class="ml-2 rounded-md px-4 py-1.5 text-sm font-medium transition"
@@ -53,7 +59,7 @@
         >
           Dashboard
         </a>
-      {:else}
+      {:else if !user}
         <a
           href="/signin"
           class="ml-2 rounded-md px-4 py-1.5 text-sm font-medium transition"
