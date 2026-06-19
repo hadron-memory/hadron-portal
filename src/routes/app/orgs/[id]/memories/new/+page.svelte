@@ -9,7 +9,8 @@
   let name = $state('');
   // #320: seed the slug once when the command bar deep-links here.
   let slug = $state(untrack(() => data.prefillSlug ?? ''));
-  let slugManuallyEdited = $state(false);
+  // #320: a prefilled slug counts as "edited" so name-derivation won't clobber it.
+  let slugManuallyEdited = $state(untrack(() => !!data.prefillSlug));
   let githubOpen = $state(false);
   let colonWarning = $state(false);
   // Spec 034: knowledge = org-shared (visibility-governed); personal/private =
