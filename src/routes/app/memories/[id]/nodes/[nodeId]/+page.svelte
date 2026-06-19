@@ -414,6 +414,12 @@
   const hasChildren = $derived(children.length > 0);
   const childrenReorderable = $derived(children.some((c) => c.seq !== null));
   let childDragError = $state<string | null>(null);
+  // #309: the children list defaults to the full grid; reordering is a separate
+  // mode because drag order is incompatible with sort/filter/pagination.
+  let reorderMode = $state(false);
+  // Guard overlapping reorder POSTs from rapid successive drags — each sends a
+  // full seq rewrite, so a race could land a stale order.
+  let reordering = $state(false);
 
   // URN slug for edit form
   const urnSlug = $derived(node.loc);
@@ -456,6 +462,7 @@
       confirmDelete = false;
       editingEdges = false;
       isEditing = false;
+      reorderMode = false;
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -758,25 +765,49 @@
       {#if childDragError}
         <p class="mb-2 rounded-md border border-red-800 bg-red-950 px-3 py-2 text-xs text-red-300">{childDragError}</p>
       {/if}
-      <NodeList
-        nodes={children}
-        {basePath}
-        memoryUrn={data.graph.urn ?? ''}
-        orderable={childrenReorderable}
-        onreorder={async (orderedLocs) => {
-          const updates = orderedLocs.map((loc, i) => ({ loc, seq: i + 1 }));
-          try {
-            const fd = new FormData();
-            fd.set('updates', JSON.stringify(updates));
-            const res = await fetch('?/reorder', { method: 'POST', body: fd });
-            if (!res.ok) throw new Error('Reorder failed');
-            invalidateAll();
-          } catch (err) {
-            childDragError = err instanceof Error ? err.message : 'Reorder failed';
-            setTimeout(() => { childDragError = null; }, 3000);
-          }
-        }}
-      />
+      {#if childrenReorderable}
+        <!-- #309: default to the grid (saved views, search, sort, columns,
+             pagination); a separate Reorder mode swaps in the drag list, whose
+             stable full-row order can't coexist with sort/filter/pagination. -->
+        <div class="mb-3 flex items-center justify-end gap-3">
+          {#if reorderMode}<span class="text-xs text-zinc-500">Drag rows to reorder</span>{/if}
+          <button
+            type="button"
+            onclick={() => reorderMode = !reorderMode}
+            class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >{reorderMode ? 'Done' : 'Reorder'}</button>
+        </div>
+      {/if}
+      <!-- #309: remount on mode switch — NodeList reads enableSorting/
+           enableColumnResizing (= !orderable) once at table construction. -->
+      {#key reorderMode}
+        <NodeList
+          nodes={children}
+          {basePath}
+          memoryUrn={data.graph.urn ?? ''}
+          orderable={reorderMode}
+          listKey={reorderMode ? undefined : 'node-children'}
+          onreorder={reorderMode
+            ? async (orderedLocs) => {
+                if (reordering) return;
+                reordering = true;
+                const updates = orderedLocs.map((loc, i) => ({ loc, seq: i + 1 }));
+                try {
+                  const fd = new FormData();
+                  fd.set('updates', JSON.stringify(updates));
+                  const res = await fetch('?/reorder', { method: 'POST', body: fd });
+                  if (!res.ok) throw new Error('Reorder failed');
+                  await invalidateAll();
+                } catch (err) {
+                  childDragError = err instanceof Error ? err.message : 'Reorder failed';
+                  setTimeout(() => { childDragError = null; }, 3000);
+                } finally {
+                  reordering = false;
+                }
+              }
+            : undefined}
+        />
+      {/key}
     {/if}
 
     <!-- ═══ REFERENCES TAB ═══ -->
