@@ -417,6 +417,9 @@
   // #309: the children list defaults to the full grid; reordering is a separate
   // mode because drag order is incompatible with sort/filter/pagination.
   let reorderMode = $state(false);
+  // Guard overlapping reorder POSTs from rapid successive drags — each sends a
+  // full seq rewrite, so a race could land a stale order.
+  let reordering = $state(false);
 
   // URN slug for edit form
   const urnSlug = $derived(node.loc);
@@ -459,6 +462,7 @@
       confirmDelete = false;
       editingEdges = false;
       isEditing = false;
+      reorderMode = false;
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -785,16 +789,20 @@
           listKey={reorderMode ? undefined : 'node-children'}
           onreorder={reorderMode
             ? async (orderedLocs) => {
+                if (reordering) return;
+                reordering = true;
                 const updates = orderedLocs.map((loc, i) => ({ loc, seq: i + 1 }));
                 try {
                   const fd = new FormData();
                   fd.set('updates', JSON.stringify(updates));
                   const res = await fetch('?/reorder', { method: 'POST', body: fd });
                   if (!res.ok) throw new Error('Reorder failed');
-                  invalidateAll();
+                  await invalidateAll();
                 } catch (err) {
                   childDragError = err instanceof Error ? err.message : 'Reorder failed';
                   setTimeout(() => { childDragError = null; }, 3000);
+                } finally {
+                  reordering = false;
                 }
               }
             : undefined}
