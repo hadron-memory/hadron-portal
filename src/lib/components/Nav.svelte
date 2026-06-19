@@ -12,8 +12,11 @@
 
   // #320: the command bar only makes sense for a signed-in user inside the app
   // shell — every action targets an /app/* route. Hide it on the public
-  // marketing pages (even when signed in) and whenever signed out.
-  const showCommandBar = $derived(!!user && $page.url.pathname.startsWith('/app'));
+  // marketing pages (even when signed in) and whenever signed out. Use a
+  // '/'-boundary check so sibling routes like /apps or /approve don't match.
+  const showCommandBar = $derived(
+    !!user && ($page.url.pathname === '/app' || $page.url.pathname.startsWith('/app/')),
+  );
 </script>
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
