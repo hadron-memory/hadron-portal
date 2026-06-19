@@ -7,6 +7,7 @@
 /*
  * Hadron brand color palette
  * Overrides Tailwind's indigo scale so all indigo-* classes use brand colors.
+ * Spec: cor:brd:010:01 (hadronmemory.com::specs) — color families & their roles.
  *
  * Sky Blue:       #8ecae6
  * Blue Green:     #219ebc

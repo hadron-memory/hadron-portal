@@ -1,97 +1,127 @@
 import { CANONICAL_SCHEME, parseUrn, UrnParseError } from '$lib/urn/parse-urn';
 
 /**
- * #337 — header command bar logic. The bar is a single input: the user types a
- * command word (`open`, `search`, `create`) which inline-autocompletes, then a
- * space, then the argument — e.g. `open hrn:node:acme::docs::intro`. Submitting
- * splits the text into (command, argument) via {@link parseCommandInput} and
- * dispatches {@link buildCommandRoute}, which navigates to the returned path.
- * (Replaces the #320 mode dropdown.)
+ * #337/#339 — header command bar logic. The bar is a single input that behaves
+ * like a command palette: as the user types, a dropdown lists matching commands
+ * ({@link parseCommand}); choosing one either runs it (no-argument commands) or
+ * completes to `"<command> "` so the user can type its argument. Submitting
+ * dispatches {@link resolveCommandAction}, which returns a navigation, an
+ * external redirect, an org-switch popup, or an inline error.
  *
- * Modes are a REGISTRY, not a hardcoded switch — adding "invite", "clone", …
- * later is a new {@link COMMAND_MODES} entry plus a case in
- * {@link buildCommandRoute}; the component doesn't change. The `id` IS the typed
- * command word. The input parsing/completion logic lives here (a pure module)
- * so it's unit-testable; the component owns only focus state + caret juggling +
- * the fetch wiring (vitest here has no DOM — see the svelte-component-test-gap
- * convention).
+ * Commands are a REGISTRY ({@link COMMANDS}); each carries its trigger phrases
+ * (incl. aliases + multi-word names), a color tint, and an optional argument
+ * spec. The URN trio (open/search/create) still routes through the pure,
+ * unit-tested {@link buildCommandRoute}; everything else resolves here. All
+ * parsing/dispatch is pure so it's testable without a DOM (see the
+ * svelte-component-test-gap convention) — the component owns focus, the
+ * dropdown, caret juggling, and the resolve fetch.
  */
-export type CommandModeId = 'open' | 'search' | 'create';
 
-/**
- * Semantic activation color per command — the "command ↔ color" register. Once
- * a command word is recognized the bar tints to its color so the user can see
- * at a glance what they're about to do (blue = just viewing, green = creating,
- * …). Only the token lives here; the component maps it to theme-aware Tailwind
- * classes, so this module stays pure and styling-free.
- */
-export type CommandTint = 'blue' | 'violet' | 'emerald';
+/** Activation color per command — the "command ↔ color" register (semantic:
+ *  blue = view/open, violet = search, emerald = add, amber = switch, rose =
+ *  leave). The component maps each token to theme-aware Tailwind classes. */
+export type CommandTint = 'blue' | 'violet' | 'emerald' | 'amber' | 'rose';
 
-export interface CommandMode {
-  /** The command word the user types; also the canonical completion target. */
-  id: CommandModeId;
-  /** Activation color (see {@link CommandTint}); tints the bar once recognized. */
+/** The argument a command takes after its trigger word. */
+export interface CommandArg {
+  kind: 'urn' | 'query' | 'email';
+  /** Muted hint shown once the command is locked in and the argument is empty. */
+  hint: string;
+  /** When true the command may run with an empty argument (invite → open form). */
+  optional?: boolean;
+}
+
+export interface CommandSpec {
+  /** Stable unique id (kebab-case). */
+  id: string;
+  /** Human title for the dropdown row. */
+  title: string;
+  /** Lowercase phrases the user can type; `triggers[0]` is canonical (the
+   *  completion target). Later entries are aliases, including multi-word ones. */
+  triggers: string[];
+  /** One-line description for the dropdown row. */
+  desc: string;
   tint: CommandTint;
-  /** [i18n key, English default] hint for the argument, shown once the command
-   *  word is locked in (a trailing space exists) and the argument is empty. */
-  argHint: [string, string];
+  /** Argument spec, or null for a no-argument command. */
+  arg: CommandArg | null;
 }
 
-export const COMMAND_MODES: CommandMode[] = [
-  { id: 'open', tint: 'blue', argHint: ['app.commandbar.arghint.open', 'Open by URN…'] },
-  { id: 'search', tint: 'violet', argHint: ['app.commandbar.arghint.search', 'Search by name, URN, or id…'] },
-  { id: 'create', tint: 'emerald', argHint: ['app.commandbar.arghint.create', 'Create from a new URN…'] },
+export const COMMANDS: CommandSpec[] = [
+  // — view / open (blue) —
+  {
+    id: 'open',
+    title: 'Open',
+    triggers: ['open'],
+    desc: 'Open a resource by URN',
+    tint: 'blue',
+    arg: { kind: 'urn', hint: 'Open by URN…' },
+  },
+  {
+    id: 'org',
+    title: 'Organization',
+    triggers: ['org', 'organization', 'dashboard'],
+    desc: 'Go to the active organization',
+    tint: 'blue',
+    arg: null,
+  },
+  { id: 'team', title: 'Team', triggers: ['team'], desc: 'Members of the active org', tint: 'blue', arg: null },
+  { id: 'memories', title: 'Memories', triggers: ['memories'], desc: 'Memories in the active org', tint: 'blue', arg: null },
+  { id: 'agents', title: 'Agents', triggers: ['agents'], desc: 'Agents in the active org', tint: 'blue', arg: null },
+  { id: 'apps', title: 'Apps', triggers: ['apps'], desc: 'Apps in the active org', tint: 'blue', arg: null },
+  { id: 'account', title: 'Account', triggers: ['account'], desc: 'Your account settings', tint: 'blue', arg: null },
+  {
+    id: 'app-keys',
+    title: 'App keys',
+    triggers: ['app keys', 'keys'],
+    desc: 'Your API / app keys',
+    tint: 'blue',
+    arg: null,
+  },
+  // — search (violet) —
+  {
+    id: 'search',
+    title: 'Search',
+    triggers: ['search'],
+    desc: 'Global search',
+    tint: 'violet',
+    arg: { kind: 'query', hint: 'Search by name, URN, or id…' },
+  },
+  // — add / create (emerald) —
+  {
+    id: 'create',
+    title: 'Create',
+    triggers: ['create'],
+    desc: 'Create a resource from a URN',
+    tint: 'emerald',
+    arg: { kind: 'urn', hint: 'Create from a new URN…' },
+  },
+  {
+    id: 'invite',
+    title: 'Invite',
+    triggers: ['invite'],
+    desc: 'Invite someone by email',
+    tint: 'emerald',
+    arg: { kind: 'email', hint: 'Email to invite…', optional: true },
+  },
+  // — switch (amber) —
+  {
+    id: 'switch',
+    title: 'Switch org',
+    triggers: ['switch', 'switch org', 'switch organization'],
+    desc: 'Switch the active organization',
+    tint: 'amber',
+    arg: null,
+  },
+  // — leave (rose) —
+  {
+    id: 'sign-out',
+    title: 'Sign out',
+    triggers: ['sign out', 'signout', 'logout', 'log out'],
+    desc: 'Sign out of Hadron',
+    tint: 'rose',
+    arg: null,
+  },
 ];
-
-/**
- * The command word currently being typed → its unique completion. Returns the
- * matched mode `id` + the remaining suffix (the inline "ghost" text);
- * `completion` is '' when `token` already equals an id. null when the token is
- * empty, matches nothing, or is an ambiguous prefix of more than one command.
- * Case-insensitive; an exact id match always wins over a longer prefix sibling.
- */
-export function completeCommand(token: string): { id: CommandModeId; completion: string } | null {
-  const t = token.trim().toLowerCase();
-  if (!t) return null;
-  const exact = COMMAND_MODES.find((m) => m.id === t);
-  if (exact) return { id: exact.id, completion: '' };
-  const matches = COMMAND_MODES.filter((m) => m.id.startsWith(t));
-  if (matches.length !== 1) return null;
-  return { id: matches[0].id, completion: matches[0].id.slice(t.length) };
-}
-
-/**
- * Accept the inline completion for the command word being typed: returns
- * `"<command> "` (canonical id + one trailing space, ready for the argument), or
- * null when there's nothing to accept — the input already contains a space (the
- * command word is locked in) or the token doesn't uniquely complete.
- */
-export function acceptCompletion(raw: string): string | null {
-  const s = raw.replace(/^\s+/, '');
-  if (/\s/.test(s)) return null; // a separator space exists → command word locked
-  const c = completeCommand(s);
-  return c ? `${c.id} ` : null;
-}
-
-/**
- * Split raw input into command word + argument. The command is the first
- * whitespace-delimited token; the argument is everything after the first run of
- * whitespace, with its own internal spaces preserved (e.g. a search phrase).
- * `mode` is null when the token isn't exactly a command id — i.e. the
- * still-typing / unknown-command state.
- */
-export function parseCommandInput(raw: string): {
-  mode: CommandModeId | null;
-  token: string;
-  arg: string;
-} {
-  const s = raw.replace(/^\s+/, '');
-  const sep = /\s/.exec(s);
-  const token = sep ? s.slice(0, sep.index) : s;
-  const arg = sep ? s.slice(sep.index).replace(/^\s+/, '') : '';
-  const mode = COMMAND_MODES.find((m) => m.id === token.toLowerCase())?.id ?? null;
-  return { mode, token, arg };
-}
 
 /** Shape returned by `resolveUrn` (mirrors the GraphQL query + #262 route). */
 export interface UrnResolution {
@@ -107,6 +137,123 @@ export interface UrnResolution {
  * a fn that GETs `/app/u/resolve`.
  */
 export type ResolveFn = (urn: string) => Promise<UrnResolution | null>;
+
+// ── Palette parsing ─────────────────────────────────────────────────────────
+
+export interface ParsedCommand {
+  /** 'selecting' = still choosing the command word (dropdown showing);
+   *  'arg' = a command that takes an argument is locked in, typing the arg. */
+  phase: 'selecting' | 'arg';
+  /** The command: exact match in 'selecting', or the locked command in 'arg'. */
+  command: CommandSpec | null;
+  /** The argument text (arg phase only; inner spaces preserved). */
+  arg: string;
+  /** Dropdown candidates whose trigger has the typed text as a prefix
+   *  (selecting phase; the full list when input is empty). */
+  matches: CommandSpec[];
+}
+
+/**
+ * Parse raw input into the current palette state. A command "locks in" (arg
+ * phase) when the input continues past one of an argument-taking command's
+ * triggers with a space — e.g. `open hrn:…`, `search a b`, `invite x@y`; the
+ * longest such trigger wins (so multi-word triggers beat their prefixes).
+ * Otherwise we're still selecting: `matches` are the commands whose trigger
+ * starts with the typed text (the whole input, spaces and all, so multi-word
+ * triggers like "app keys" filter correctly).
+ */
+export function parseCommand(raw: string): ParsedCommand {
+  const s = raw.replace(/^\s+/, '');
+  const lower = s.toLowerCase();
+
+  let best: { command: CommandSpec; trig: string } | null = null;
+  for (const c of COMMANDS) {
+    if (!c.arg) continue;
+    for (const trig of c.triggers) {
+      if (lower.startsWith(`${trig} `) && (!best || trig.length > best.trig.length)) {
+        best = { command: c, trig };
+      }
+    }
+  }
+  if (best) {
+    return {
+      phase: 'arg',
+      command: best.command,
+      arg: s.slice(best.trig.length).replace(/^\s+/, ''),
+      matches: [],
+    };
+  }
+
+  const q = lower.trim();
+  const matches = q === '' ? COMMANDS.slice() : COMMANDS.filter((c) => c.triggers.some((t) => t.startsWith(q)));
+  const command = COMMANDS.find((c) => c.triggers.includes(q)) ?? null;
+  return { phase: 'selecting', command, arg: '', matches };
+}
+
+// ── Dispatch ────────────────────────────────────────────────────────────────
+
+export type CommandAction =
+  | { type: 'navigate'; path: string } // client-side goto
+  | { type: 'external'; url: string } // full-page navigation (e.g. sign out)
+  | { type: 'switch' } // open the org-switch popup
+  | { type: 'error'; message: string };
+
+export interface CommandContext {
+  /** PK of the active org, for `/app/orgs/<pk>/…` routes (null → personal/none). */
+  activeOrgId: string | null;
+  resolve: ResolveFn;
+}
+
+/** Map a chosen command + argument to the action the component should perform. */
+export async function resolveCommandAction(
+  command: CommandSpec,
+  arg: string,
+  ctx: CommandContext,
+): Promise<CommandAction> {
+  const org = (suffix: string): CommandAction => {
+    if (ctx.activeOrgId) return { type: 'navigate', path: `/app/orgs/${ctx.activeOrgId}${suffix}` };
+    // No active org PK: the bare org page has a redirector; sub-pages don't.
+    if (suffix === '') return { type: 'navigate', path: '/app/dashboard' };
+    return { type: 'error', message: 'No active organization yet.' };
+  };
+
+  switch (command.id) {
+    case 'open':
+    case 'search':
+    case 'create': {
+      const r = await buildCommandRoute(command.id, arg, ctx.resolve);
+      return r.ok ? { type: 'navigate', path: r.path } : { type: 'error', message: r.error };
+    }
+    case 'org':
+      return org('');
+    case 'team':
+      return org('/members');
+    case 'memories':
+      return org('/memories');
+    case 'agents':
+      return org('/agents');
+    case 'apps':
+      return org('/apps');
+    case 'account':
+      return { type: 'navigate', path: '/app/account' };
+    case 'app-keys':
+      return { type: 'navigate', path: '/app/account/api-keys' };
+    case 'invite': {
+      const email = arg.trim();
+      return { type: 'navigate', path: `/app/account/invite${email ? `?email=${encodeURIComponent(email)}` : ''}` };
+    }
+    case 'switch':
+      return { type: 'switch' };
+    case 'sign-out':
+      return { type: 'external', url: '/auth/signout' };
+    default:
+      return { type: 'error', message: `Don't know how to run "${command.title}".` };
+  }
+}
+
+// ── URN routing (open / search / create) — pure + unit-tested ────────────────
+
+export type CommandModeId = 'open' | 'search' | 'create';
 
 export type CommandRoute = { ok: true; path: string } | { ok: false; error: string };
 
@@ -128,10 +275,10 @@ export async function buildCommandRoute(
       return { ok: true, path: `/app/search?q=${encodeURIComponent(value)}` };
 
     case 'open':
-      // URN-only (per #320 decision): hand the raw URN to the `/app/u/[urn]`
-      // resolver, which 307-redirects to the canonical page and 404s on bad or
-      // no-access input. The URN grammar yields only `:` + path-safe atoms, so
-      // it rides one path segment un-encoded (see resource-share-links).
+      // URN-only: hand the raw URN to the `/app/u/[urn]` resolver, which
+      // 307-redirects to the canonical page and 404s on bad or no-access input.
+      // The URN grammar yields only `:` + path-safe atoms, so it rides one path
+      // segment un-encoded (see resource-share-links).
       return { ok: true, path: `/app/u/${value}` };
 
     case 'create':
@@ -153,20 +300,18 @@ async function buildCreateRoute(value: string, resolve: ResolveFn): Promise<Comm
 
   switch (parsed.type) {
     case 'org':
-      // Org create takes a bare slug in its `urn` field; the org URN is a
-      // single atom (`hrn:org:<slug>`). No parent to resolve.
       return { ok: true, path: `/app/orgs/new?urn=${encodeURIComponent(segments[0])}` };
 
     case 'memory': {
-      const org = await resolveParentOrg(segments, resolve);
-      if (!org.ok) return org;
-      return { ok: true, path: `/app/orgs/${org.id}/memories/new?slug=${encodeURIComponent(ownSlug)}` };
+      const orgRes = await resolveParentOrg(segments, resolve);
+      if (!orgRes.ok) return orgRes;
+      return { ok: true, path: `/app/orgs/${orgRes.id}/memories/new?slug=${encodeURIComponent(ownSlug)}` };
     }
 
     case 'agent': {
-      const org = await resolveParentOrg(segments, resolve);
-      if (!org.ok) return org;
-      return { ok: true, path: `/app/orgs/${org.id}/agents/new?slug=${encodeURIComponent(ownSlug)}` };
+      const orgRes = await resolveParentOrg(segments, resolve);
+      if (!orgRes.ok) return orgRes;
+      return { ok: true, path: `/app/orgs/${orgRes.id}/agents/new?slug=${encodeURIComponent(ownSlug)}` };
     }
 
     case 'node': {

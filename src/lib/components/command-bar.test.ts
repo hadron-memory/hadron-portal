@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
-  COMMAND_MODES,
-  acceptCompletion,
+  COMMANDS,
   buildCommandRoute,
-  completeCommand,
-  parseCommandInput,
+  parseCommand,
+  resolveCommandAction,
+  type CommandSpec,
   type UrnResolution,
 } from './command-bar';
 
@@ -14,6 +14,12 @@ const resolve = vi.fn(async (urn: string): Promise<UrnResolution | null> => {
   if (urn === 'hrn:memory:acme::docs') return { kind: 'memory', id: 'mem-1', memoryId: 'mem-1', organizationId: 'org-1' };
   return null;
 });
+
+const cmd = (id: string): CommandSpec => {
+  const c = COMMANDS.find((x) => x.id === id);
+  if (!c) throw new Error(`no command ${id}`);
+  return c;
+};
 
 describe('buildCommandRoute', () => {
   it('rejects empty input for any mode', async () => {
@@ -49,13 +55,6 @@ describe('buildCommandRoute', () => {
     });
   });
 
-  it('create agent → resolves the owning org, lands on agent-new with slug', async () => {
-    expect(await buildCommandRoute('create', 'hrn:agent:acme::bot', resolve)).toEqual({
-      ok: true,
-      path: '/app/orgs/org-1/agents/new?slug=bot',
-    });
-  });
-
   it('create node → resolves the memory (path minus last segment), loc = last segment', async () => {
     expect(await buildCommandRoute('create', 'hrn:node:acme::docs::intro:welcome', resolve)).toEqual({
       ok: true,
@@ -63,145 +62,157 @@ describe('buildCommandRoute', () => {
     });
   });
 
-  it('create app → org list (apps are created by installing an agent, spec 009)', async () => {
-    expect(await buildCommandRoute('create', 'hrn:app:acme::myapp', resolve)).toEqual({
-      ok: true,
-      path: '/app/orgs',
-    });
-  });
-
   it('create with an unresolvable parent org → inline error, no navigation', async () => {
-    const r = await buildCommandRoute('create', 'hrn:memory:ghost::docs', resolve);
-    expect(r.ok).toBe(false);
+    expect((await buildCommandRoute('create', 'hrn:memory:ghost::docs', resolve)).ok).toBe(false);
   });
 
   it('create with a malformed URN → inline parse error', async () => {
-    const r = await buildCommandRoute('create', 'not-a-urn', resolve);
-    expect(r.ok).toBe(false);
+    expect((await buildCommandRoute('create', 'not-a-urn', resolve)).ok).toBe(false);
   });
 });
 
-describe('COMMAND_MODES registry', () => {
-  it('every command carries a tint (the command↔color register)', () => {
-    for (const m of COMMAND_MODES) expect(m.tint).toBeTruthy();
+describe('COMMANDS registry', () => {
+  it('each command has triggers + a tint, and arg commands carry a hint', () => {
+    for (const c of COMMANDS) {
+      expect(c.triggers.length).toBeGreaterThan(0);
+      expect(c.tint).toBeTruthy();
+      if (c.arg) expect(c.arg.hint).toBeTruthy();
+    }
   });
 
-  it('tints are distinct so each command reads as a different color', () => {
-    const tints = COMMAND_MODES.map((m) => m.tint);
-    expect(new Set(tints).size).toBe(tints.length);
-  });
-});
-
-describe('completeCommand', () => {
-  it('returns null for an empty / whitespace-only token', () => {
-    expect(completeCommand('')).toBeNull();
-    expect(completeCommand('   ')).toBeNull();
-  });
-
-  it('completes a unique prefix, suffix = the remaining letters', () => {
-    expect(completeCommand('o')).toEqual({ id: 'open', completion: 'pen' });
-    expect(completeCommand('op')).toEqual({ id: 'open', completion: 'en' });
-    expect(completeCommand('s')).toEqual({ id: 'search', completion: 'earch' });
-    expect(completeCommand('c')).toEqual({ id: 'create', completion: 'reate' });
-  });
-
-  it('an exact id returns an empty completion (still a match)', () => {
-    expect(completeCommand('open')).toEqual({ id: 'open', completion: '' });
-  });
-
-  it('is case-insensitive and trims', () => {
-    expect(completeCommand('  OP ')).toEqual({ id: 'open', completion: 'en' });
-  });
-
-  it('returns null for a token that matches no command', () => {
-    expect(completeCommand('x')).toBeNull();
-    expect(completeCommand('zzz')).toBeNull();
+  it('triggers are globally unique (no phrase maps to two commands)', () => {
+    const all = COMMANDS.flatMap((c) => c.triggers);
+    expect(new Set(all).size).toBe(all.length);
   });
 });
 
-describe('acceptCompletion', () => {
-  it('expands a partial command to the canonical word + a trailing space', () => {
-    expect(acceptCompletion('o')).toBe('open ');
-    expect(acceptCompletion('op')).toBe('open ');
-    expect(acceptCompletion('s')).toBe('search ');
-    expect(acceptCompletion('OPEN')).toBe('open '); // canonicalizes case
+describe('parseCommand — selecting phase (dropdown)', () => {
+  it('empty input → the full palette, no exact command', () => {
+    const p = parseCommand('');
+    expect(p.phase).toBe('selecting');
+    expect(p.command).toBeNull();
+    expect(p.matches).toEqual(COMMANDS);
   });
 
-  it('a full command word still gains its trailing space', () => {
-    expect(acceptCompletion('create')).toBe('create ');
+  it('prefix filters the matches (a → account/agents/apps/app-keys)', () => {
+    const ids = parseCommand('a').matches.map((c) => c.id);
+    expect(ids).toEqual(expect.arrayContaining(['account', 'agents', 'apps', 'app-keys']));
+    expect(ids).not.toContain('open');
   });
 
-  it('returns null once a separating space exists (command word locked)', () => {
-    expect(acceptCompletion('open ')).toBeNull();
-    expect(acceptCompletion('open hrn:node:acme::docs::intro')).toBeNull();
+  it('narrows multi-word triggers as you type ("app" → apps + app-keys, "app k" → app-keys)', () => {
+    expect(parseCommand('app').matches.map((c) => c.id).sort()).toEqual(['app-keys', 'apps']);
+    expect(parseCommand('app k').matches.map((c) => c.id)).toEqual(['app-keys']);
   });
 
-  it('returns null for an unknown or empty token', () => {
-    expect(acceptCompletion('x')).toBeNull();
-    expect(acceptCompletion('')).toBeNull();
-    expect(acceptCompletion('   ')).toBeNull();
+  it('an exact trigger sets command (incl. aliases)', () => {
+    expect(parseCommand('account').command?.id).toBe('account');
+    expect(parseCommand('dashboard').command?.id).toBe('org'); // alias of org
+    expect(parseCommand('switch organization').command?.id).toBe('switch');
+    expect(parseCommand('logout').command?.id).toBe('sign-out');
+  });
+
+  it('is case-insensitive and tolerates surrounding whitespace', () => {
+    expect(parseCommand('  ACCOUNT  ').command?.id).toBe('account');
+  });
+
+  it('unknown text → no command, no matches', () => {
+    const p = parseCommand('zzzz');
+    expect(p.command).toBeNull();
+    expect(p.matches).toEqual([]);
   });
 });
 
-describe('parseCommandInput', () => {
-  it('no separator yet → token is the whole (left-trimmed) value, no arg', () => {
-    expect(parseCommandInput('op')).toEqual({ mode: null, token: 'op', arg: '' });
-    expect(parseCommandInput('open')).toEqual({ mode: 'open', token: 'open', arg: '' });
-  });
-
-  it('splits command word from argument on the first whitespace run', () => {
-    expect(parseCommandInput('open hrn:node:acme::docs::intro')).toEqual({
-      mode: 'open',
-      token: 'open',
+describe('parseCommand — arg phase', () => {
+  it('"open <urn>" → arg phase with the URN preserved', () => {
+    expect(parseCommand('open hrn:node:acme::docs::intro')).toMatchObject({
+      phase: 'arg',
       arg: 'hrn:node:acme::docs::intro',
     });
+    expect(parseCommand('open hrn:node:acme::docs::intro').command?.id).toBe('open');
   });
 
-  it('preserves the argument’s own internal spaces (search phrase)', () => {
-    expect(parseCommandInput('search hello world')).toEqual({
-      mode: 'search',
-      token: 'search',
-      arg: 'hello world',
-    });
+  it('preserves inner spaces in the argument (search phrase)', () => {
+    expect(parseCommand('search hello world')).toMatchObject({ phase: 'arg', arg: 'hello world' });
   });
 
-  it('collapses leading/separator whitespace but keeps the arg intact', () => {
-    expect(parseCommandInput('  create   hrn:org:acme')).toEqual({
-      mode: 'create',
-      token: 'create',
-      arg: 'hrn:org:acme',
-    });
+  it('collapses the separator whitespace but keeps the arg', () => {
+    expect(parseCommand('create   hrn:org:acme')).toMatchObject({ phase: 'arg', arg: 'hrn:org:acme' });
   });
 
-  it('matches the command word case-insensitively', () => {
-    expect(parseCommandInput('OPEN hrn:org:acme')).toMatchObject({ mode: 'open', arg: 'hrn:org:acme' });
+  it('invite takes an email argument', () => {
+    const p = parseCommand('invite alice@acme.com');
+    expect(p.command?.id).toBe('invite');
+    expect(p.arg).toBe('alice@acme.com');
   });
 
-  it('an unrecognized first token → mode null (unknown command)', () => {
-    expect(parseCommandInput('nope hrn:org:acme')).toEqual({
-      mode: null,
-      token: 'nope',
-      arg: 'hrn:org:acme',
-    });
-    expect(parseCommandInput('')).toEqual({ mode: null, token: '', arg: '' });
+  it('a no-arg command does NOT enter arg phase (trailing junk → no match)', () => {
+    const p = parseCommand('team foo');
+    expect(p.phase).toBe('selecting');
+    expect(p.command).toBeNull();
+    expect(p.matches).toEqual([]);
+  });
+
+  it('"open " (trailing space, empty arg) is already arg phase', () => {
+    expect(parseCommand('open ')).toMatchObject({ phase: 'arg', arg: '' });
   });
 });
 
-describe('typed input → parse → route (the path the component drives)', () => {
-  it('"open <urn>" → the /app/u resolver route', async () => {
-    const { mode, arg } = parseCommandInput('open hrn:node:acme::docs::intro');
-    expect(mode).toBe('open');
-    expect(await buildCommandRoute(mode!, arg, resolve)).toEqual({
-      ok: true,
+describe('resolveCommandAction', () => {
+  const ctx = { activeOrgId: 'org-7', resolve };
+
+  it('org / dashboard → the active org page', async () => {
+    expect(await resolveCommandAction(cmd('org'), '', ctx)).toEqual({ type: 'navigate', path: '/app/orgs/org-7' });
+  });
+
+  it('active-org list routes → /app/orgs/<pk>/<list>', async () => {
+    expect(await resolveCommandAction(cmd('team'), '', ctx)).toEqual({ type: 'navigate', path: '/app/orgs/org-7/members' });
+    expect(await resolveCommandAction(cmd('memories'), '', ctx)).toEqual({ type: 'navigate', path: '/app/orgs/org-7/memories' });
+    expect(await resolveCommandAction(cmd('agents'), '', ctx)).toEqual({ type: 'navigate', path: '/app/orgs/org-7/agents' });
+    expect(await resolveCommandAction(cmd('apps'), '', ctx)).toEqual({ type: 'navigate', path: '/app/orgs/org-7/apps' });
+  });
+
+  it('falls back gracefully when there is no active org PK', async () => {
+    const noOrg = { activeOrgId: null, resolve };
+    expect(await resolveCommandAction(cmd('org'), '', noOrg)).toEqual({ type: 'navigate', path: '/app/dashboard' });
+    expect((await resolveCommandAction(cmd('team'), '', noOrg)).type).toBe('error');
+  });
+
+  it('account / app keys → fixed account routes', async () => {
+    expect(await resolveCommandAction(cmd('account'), '', ctx)).toEqual({ type: 'navigate', path: '/app/account' });
+    expect(await resolveCommandAction(cmd('app-keys'), '', ctx)).toEqual({ type: 'navigate', path: '/app/account/api-keys' });
+  });
+
+  it('invite → the invite page, with the email prefilled when given', async () => {
+    expect(await resolveCommandAction(cmd('invite'), 'a@b.com', ctx)).toEqual({
+      type: 'navigate',
+      path: '/app/account/invite?email=a%40b.com',
+    });
+    expect(await resolveCommandAction(cmd('invite'), '', ctx)).toEqual({ type: 'navigate', path: '/app/account/invite' });
+  });
+
+  it('switch → opens the org popup; sign out → external redirect', async () => {
+    expect(await resolveCommandAction(cmd('switch'), '', ctx)).toEqual({ type: 'switch' });
+    expect(await resolveCommandAction(cmd('sign-out'), '', ctx)).toEqual({ type: 'external', url: '/auth/signout' });
+  });
+
+  it('open / search / create delegate to buildCommandRoute', async () => {
+    expect(await resolveCommandAction(cmd('open'), 'hrn:node:acme::docs::intro', ctx)).toEqual({
+      type: 'navigate',
       path: '/app/u/hrn:node:acme::docs::intro',
+    });
+    expect(await resolveCommandAction(cmd('search'), 'hello world', ctx)).toEqual({
+      type: 'navigate',
+      path: '/app/search?q=hello%20world',
+    });
+    expect(await resolveCommandAction(cmd('create'), 'hrn:org:acme', ctx)).toEqual({
+      type: 'navigate',
+      path: '/app/orgs/new?urn=acme',
     });
   });
 
-  it('"search hello world" → the global search page', async () => {
-    const { mode, arg } = parseCommandInput('search hello world');
-    expect(await buildCommandRoute(mode!, arg, resolve)).toEqual({
-      ok: true,
-      path: '/app/search?q=hello%20world',
-    });
+  it('a URN command with an empty/invalid argument → inline error', async () => {
+    expect((await resolveCommandAction(cmd('open'), '', ctx)).type).toBe('error');
+    expect((await resolveCommandAction(cmd('create'), 'not-a-urn', ctx)).type).toBe('error');
   });
 });

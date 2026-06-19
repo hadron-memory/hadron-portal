@@ -4,9 +4,18 @@
   // ActionData is a union (success vs fail); narrow with `'prop' in form`
   // before reading branch-specific fields, same pattern as the api-keys page.
   import { enhance } from '$app/forms';
-  import type { ActionData } from './$types';
+  import type { ActionData, PageData } from './$types';
 
-  let { form }: { form: ActionData } = $props();
+  let { form, data }: { form: ActionData; data: PageData } = $props();
+
+  // Seed + keep the email in sync with ?email= (command-bar deep link, #339).
+  // A one-time $state init wouldn't update on query-only navigations (e.g.
+  // `invite a@b` → `invite c@d`), where SvelteKit reuses this component and the
+  // layout's {#key route.id} doesn't change — so sync via $effect on data.
+  let inviteEmail = $state('');
+  $effect(() => {
+    inviteEmail = data.prefillEmail ?? '';
+  });
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 </script>
@@ -38,7 +47,7 @@
     </div>
     <div>
       <label for="inviteEmail" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Email <span class="text-zinc-500">(optional)</span></label>
-      <input id="inviteEmail" name="inviteEmail" type="email" placeholder="them@example.com" class={inputClass} />
+      <input id="inviteEmail" name="inviteEmail" type="email" bind:value={inviteEmail} placeholder="them@example.com" class={inputClass} />
       <p class="mt-1 text-xs text-zinc-500">If provided, only this email can accept the invite.</p>
     </div>
     <div>

@@ -22,6 +22,15 @@
   // there. `showCommandBar` is already true exactly when the user is signed in
   // AND on an /app/ route, so `user && !showCommandBar` means "signed in and not
   // in the app shell" — no separate derived needed.
+
+  // #339: the command bar needs the active org PK (for /app/orgs/<pk>/… routes)
+  // and the user's orgs (for the "switch" picker). Both ride $page.data from the
+  // /app/ layout; Nav lives in the root layout, so read them off the page store.
+  const pageData = $derived(
+    $page.data as unknown as { activeOrgId?: string | null; orgs?: { id: string; name: string }[] },
+  );
+  const activeOrgId = $derived(pageData.activeOrgId ?? null);
+  const orgs = $derived(pageData.orgs ?? []);
 </script>
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
@@ -37,7 +46,7 @@
          on wide screens, and flex-1 still lets it shrink on smaller ones. -->
     {#if showCommandBar}
       <div class="relative hidden min-w-0 flex-1 justify-center sm:flex">
-        <div class="w-full max-w-md lg:max-w-xl xl:max-w-2xl 2xl:max-w-3xl"><CommandBar {dark} /></div>
+        <div class="w-full max-w-md lg:max-w-xl xl:max-w-2xl 2xl:max-w-3xl"><CommandBar {dark} {activeOrgId} {orgs} /></div>
       </div>
     {/if}
 
