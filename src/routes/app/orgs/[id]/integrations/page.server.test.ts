@@ -4,7 +4,7 @@
  * to be covered on the org-detail loader lives here now.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ORGANIZATION_QUERY, AI_SERVICE_CONFIGS_QUERY } from '$lib/server/queries';
+import { AI_SERVICE_CONFIGS_QUERY } from '$lib/server/queries';
 
 // `$env/dynamic/private` is a SvelteKit virtual module; vitest skips the
 // SvelteKit plugin. The integrations +page.server.ts imports `env` for the
@@ -29,23 +29,23 @@ async function importLoad() {
   return mod.load;
 }
 
+const fakeOrg = { id: 'org-id-123', name: 'Acme', urn: 'urn:org:acme', members: [] };
+const fakeAiConfigs = [
+  { id: 'cfg-1', name: 'bedrock-mm', ownerType: 'ORGANIZATION', ownerId: 'org-id-123', provider: 'bedrock', model: 'us.anthropic.claude-sonnet-4-6', hasApiKey: true, apiKeyPreview: '…', params: {}, enabled: true, createdAt: '2026-06-15', updatedAt: '2026-06-15' },
+];
+
+// The org comes from parent() (loaded by +layout.server.ts), so only
+// AI_SERVICE_CONFIGS_QUERY reaches the client here.
 function ev(opts: { orgId?: string; userId?: string } = {}) {
   return {
     params: { id: opts.orgId ?? 'org-id-123' },
     locals: { token: 'test-token', user: { id: opts.userId ?? 'user-1' } },
-    parent: async () => ({}),
+    parent: async () => ({ org: fakeOrg }),
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
-function routeMock(opts: {
-  org?: { data?: unknown; error?: unknown };
-  aiConfigs?: { data?: unknown; error?: unknown };
-}) {
+function routeMock(opts: { aiConfigs?: { data?: unknown; error?: unknown } }) {
   mockRequest.mockImplementation(async (query: string) => {
-    if (query === ORGANIZATION_QUERY) {
-      if (opts.org?.error !== undefined) throw opts.org.error;
-      return opts.org?.data;
-    }
     if (query === AI_SERVICE_CONFIGS_QUERY) {
       if (opts.aiConfigs?.error !== undefined) throw opts.aiConfigs.error;
       return opts.aiConfigs?.data ?? { aiServiceConfigs: [] };
@@ -54,17 +54,9 @@ function routeMock(opts: {
   });
 }
 
-const fakeOrg = { id: 'org-id-123', name: 'Acme', urn: 'urn:org:acme', members: [] };
-const fakeAiConfigs = [
-  { id: 'cfg-1', name: 'bedrock-mm', ownerType: 'ORGANIZATION', ownerId: 'org-id-123', provider: 'bedrock', model: 'us.anthropic.claude-sonnet-4-6', hasApiKey: true, apiKeyPreview: '…', params: {}, enabled: true, createdAt: '2026-06-15', updatedAt: '2026-06-15' },
-];
-
 describe('Integrations load()', () => {
   it('happy path → returns { org, configs, configsError: false, currentUserId }', async () => {
-    routeMock({
-      org: { data: { organization: fakeOrg } },
-      aiConfigs: { data: { aiServiceConfigs: fakeAiConfigs } },
-    });
+    routeMock({ aiConfigs: { data: { aiServiceConfigs: fakeAiConfigs } } });
     const load = await importLoad();
     const result = await load(ev({}));
     expect(result).toEqual({
@@ -76,10 +68,7 @@ describe('Integrations load()', () => {
   });
 
   it('ai-configs query fails (admin-gated; non-admin viewer) → empty configs + configsError', async () => {
-    routeMock({
-      org: { data: { organization: fakeOrg } },
-      aiConfigs: { error: new Error('Forbidden') },
-    });
+    routeMock({ aiConfigs: { error: new Error('Forbidden') } });
     const load = await importLoad();
     const result = (await load(ev({}))) as { configs: unknown[]; configsError: boolean };
     expect(result.configs).toEqual([]);

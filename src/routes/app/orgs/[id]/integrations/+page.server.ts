@@ -3,7 +3,6 @@ import { env } from '$env/dynamic/private';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
-  ORGANIZATION_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
   LINK_GITHUB_APP_MUTATION,
   UPDATE_ORG_GITHUB_APP_MUTATION,
@@ -11,7 +10,7 @@ import {
   DELETE_EXCHANGE_CONNECTION_MUTATION,
   TEST_EXCHANGE_CONNECTION_MUTATION,
 } from '$lib/server/queries';
-import type { Organization, AiServiceConfig } from '$lib/types';
+import type { AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 function extractGqlError(e: unknown, fallback: string): string {
@@ -27,20 +26,19 @@ function extractGqlError(e: unknown, fallback: string): string {
 // /ai-configs route (which now redirects here).
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
-  const client = gqlClient(locals.token);
-  const [orgData, configsData] = await Promise.all([
-    client.request<{ organization: Organization }>(ORGANIZATION_QUERY, { id: params.id }),
-    // The registry list is org-ADMIN gated server-side; non-admin members get a
-    // GraphQL error here — surface it as an empty/error state, not a 500.
-    client
-      .request<{ aiServiceConfigs: AiServiceConfig[] }>(AI_SERVICE_CONFIGS_QUERY, {
-        ownerType: 'ORGANIZATION',
-        ownerId: params.id,
-      })
-      .catch(() => null),
-  ]);
+  // The org (incl. 404 handling) is already loaded by +layout.server.ts; pull
+  // it from parent() instead of re-issuing ORGANIZATION_QUERY.
+  const { org } = await parent();
+  // The registry list is org-ADMIN gated server-side; non-admin members get a
+  // GraphQL error here — surface it as an empty/error state, not a 500.
+  const configsData = await gqlClient(locals.token)
+    .request<{ aiServiceConfigs: AiServiceConfig[] }>(AI_SERVICE_CONFIGS_QUERY, {
+      ownerType: 'ORGANIZATION',
+      ownerId: params.id,
+    })
+    .catch(() => null);
   return {
-    org: orgData.organization,
+    org,
     configs: configsData?.aiServiceConfigs ?? [],
     configsError: configsData === null,
     currentUserId: locals.user?.id ?? null,
