@@ -1,45 +1,97 @@
 import { CANONICAL_SCHEME, parseUrn, UrnParseError } from '$lib/urn/parse-urn';
 
 /**
- * #320 — header command bar logic. The bar is one fused control: a mode
- * dropdown on the left + an input on the right. Picking a mode swaps the
- * placeholder; hitting Enter dispatches `buildCommandRoute` for the mode and
- * navigates to the returned path.
+ * #337 — header command bar logic. The bar is a single input: the user types a
+ * command word (`open`, `search`, `create`) which inline-autocompletes, then a
+ * space, then the argument — e.g. `open hrn:node:acme::docs::intro`. Submitting
+ * splits the text into (command, argument) via {@link parseCommandInput} and
+ * dispatches {@link buildCommandRoute}, which navigates to the returned path.
+ * (Replaces the #320 mode dropdown.)
  *
- * Modes are a REGISTRY, not a hardcoded switch — adding "Invite user",
- * "Clone memory", … later is a new {@link COMMAND_MODES} entry plus a case in
- * {@link buildCommandRoute}, nothing in the component changes. The routing
- * logic lives here (a pure module) so it's unit-testable; the component owns
- * only focus state + the fetch wiring (vitest here has no DOM — see the
- * svelte-component-test-gap convention).
+ * Modes are a REGISTRY, not a hardcoded switch — adding "invite", "clone", …
+ * later is a new {@link COMMAND_MODES} entry plus a case in
+ * {@link buildCommandRoute}; the component doesn't change. The `id` IS the typed
+ * command word. The input parsing/completion logic lives here (a pure module)
+ * so it's unit-testable; the component owns only focus state + caret juggling +
+ * the fetch wiring (vitest here has no DOM — see the svelte-component-test-gap
+ * convention).
  */
 export type CommandModeId = 'open' | 'search' | 'create';
 
+/**
+ * Semantic activation color per command — the "command ↔ color" register. Once
+ * a command word is recognized the bar tints to its color so the user can see
+ * at a glance what they're about to do (blue = just viewing, green = creating,
+ * …). Only the token lives here; the component maps it to theme-aware Tailwind
+ * classes, so this module stays pure and styling-free.
+ */
+export type CommandTint = 'blue' | 'violet' | 'emerald';
+
 export interface CommandMode {
+  /** The command word the user types; also the canonical completion target. */
   id: CommandModeId;
-  /** [i18n key, English default] for the dropdown label. */
-  label: [string, string];
-  /** [i18n key, English default] for the input placeholder. */
-  placeholder: [string, string];
+  /** Activation color (see {@link CommandTint}); tints the bar once recognized. */
+  tint: CommandTint;
+  /** [i18n key, English default] hint for the argument, shown once the command
+   *  word is locked in (a trailing space exists) and the argument is empty. */
+  argHint: [string, string];
 }
 
 export const COMMAND_MODES: CommandMode[] = [
-  {
-    id: 'open',
-    label: ['app.commandbar.mode.open', 'Open'],
-    placeholder: ['app.commandbar.placeholder.open', 'Open by URN…'],
-  },
-  {
-    id: 'search',
-    label: ['app.commandbar.mode.search', 'Search'],
-    placeholder: ['app.commandbar.placeholder.search', 'Search by name, URN, or id…'],
-  },
-  {
-    id: 'create',
-    label: ['app.commandbar.mode.create', 'Create'],
-    placeholder: ['app.commandbar.placeholder.create', 'Create from a new URN…'],
-  },
+  { id: 'open', tint: 'blue', argHint: ['app.commandbar.arghint.open', 'Open by URN…'] },
+  { id: 'search', tint: 'violet', argHint: ['app.commandbar.arghint.search', 'Search by name, URN, or id…'] },
+  { id: 'create', tint: 'emerald', argHint: ['app.commandbar.arghint.create', 'Create from a new URN…'] },
 ];
+
+/**
+ * The command word currently being typed → its unique completion. Returns the
+ * matched mode `id` + the remaining suffix (the inline "ghost" text);
+ * `completion` is '' when `token` already equals an id. null when the token is
+ * empty, matches nothing, or is an ambiguous prefix of more than one command.
+ * Case-insensitive; an exact id match always wins over a longer prefix sibling.
+ */
+export function completeCommand(token: string): { id: CommandModeId; completion: string } | null {
+  const t = token.trim().toLowerCase();
+  if (!t) return null;
+  const exact = COMMAND_MODES.find((m) => m.id === t);
+  if (exact) return { id: exact.id, completion: '' };
+  const matches = COMMAND_MODES.filter((m) => m.id.startsWith(t));
+  if (matches.length !== 1) return null;
+  return { id: matches[0].id, completion: matches[0].id.slice(t.length) };
+}
+
+/**
+ * Accept the inline completion for the command word being typed: returns
+ * `"<command> "` (canonical id + one trailing space, ready for the argument), or
+ * null when there's nothing to accept — the input already contains a space (the
+ * command word is locked in) or the token doesn't uniquely complete.
+ */
+export function acceptCompletion(raw: string): string | null {
+  const s = raw.replace(/^\s+/, '');
+  if (/\s/.test(s)) return null; // a separator space exists → command word locked
+  const c = completeCommand(s);
+  return c ? `${c.id} ` : null;
+}
+
+/**
+ * Split raw input into command word + argument. The command is the first
+ * whitespace-delimited token; the argument is everything after the first run of
+ * whitespace, with its own internal spaces preserved (e.g. a search phrase).
+ * `mode` is null when the token isn't exactly a command id — i.e. the
+ * still-typing / unknown-command state.
+ */
+export function parseCommandInput(raw: string): {
+  mode: CommandModeId | null;
+  token: string;
+  arg: string;
+} {
+  const s = raw.replace(/^\s+/, '');
+  const sep = /\s/.exec(s);
+  const token = sep ? s.slice(0, sep.index) : s;
+  const arg = sep ? s.slice(sep.index).replace(/^\s+/, '') : '';
+  const mode = COMMAND_MODES.find((m) => m.id === token.toLowerCase())?.id ?? null;
+  return { mode, token, arg };
+}
 
 /** Shape returned by `resolveUrn` (mirrors the GraphQL query + #262 route). */
 export interface UrnResolution {
