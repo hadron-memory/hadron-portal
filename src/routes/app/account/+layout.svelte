@@ -1,8 +1,10 @@
 <script lang="ts">
-  // #327: Account is a tab layout. The breadcrumb + heading + tab bar live here;
-  // each tab is a sub-route rendered via {@render children()}:
-  //   Account  → /app/account            (profile, invite, orgs, sign out)
-  //   App Keys → /app/account/api-keys    (API keys — moved off the left menu)
+  // #327 + follow-up: Account is a tab layout. The breadcrumb + heading + tab bar
+  // live here; each tab is a sub-route rendered via {@render children()}:
+  //   Account      → /app/account               (profile, sign out)
+  //   Organization → /app/account/organizations  (memberships / create org)
+  //   Invite       → /app/account/invite         (invite a user)
+  //   App Keys     → /app/account/api-keys        (API keys)
   import { page } from '$app/stores';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { t } from '$lib/i18n/t';
@@ -11,10 +13,18 @@
 
   const tabs = [
     { id: 'account', label: t('app.account.tab.account', 'Account'), href: '/app/account' },
+    { id: 'organization', label: t('app.account.tab.organization', 'Organization'), href: '/app/account/organizations' },
+    { id: 'invite', label: t('app.account.tab.invite', 'Invite'), href: '/app/account/invite' },
     { id: 'api-keys', label: t('app.account.tab.api-keys', 'App Keys'), href: '/app/account/api-keys' },
   ];
   const activeTab = $derived(
-    $page.url.pathname.startsWith('/app/account/api-keys') ? 'api-keys' : 'account',
+    $page.url.pathname.startsWith('/app/account/api-keys')
+      ? 'api-keys'
+      : $page.url.pathname.startsWith('/app/account/organizations')
+        ? 'organization'
+        : $page.url.pathname.startsWith('/app/account/invite')
+          ? 'invite'
+          : 'account',
   );
 </script>
 

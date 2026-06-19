@@ -123,7 +123,7 @@
     <div
       bind:this={menuEl}
       role="menu"
-      class="absolute top-full right-0 mt-1 max-h-64 min-w-[12rem] max-w-[16rem] overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+      class="absolute top-full left-0 right-0 mt-1 max-h-64 overflow-y-auto rounded-md border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
       data-testid="org-switcher-dropdown"
     >
       {#each otherMemberships as o (o.id)}
