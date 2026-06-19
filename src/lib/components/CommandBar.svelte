@@ -227,8 +227,9 @@
       commit();
       return;
     }
-    // Tab completes the highlighted command's word (without running it).
-    if (e.key === 'Tab' && !showSwitch && parsed.phase === 'selecting' && rows.length) {
+    // Tab completes the highlighted command's word (without running it). Let
+    // Shift+Tab through so it still moves focus backward (a11y).
+    if (e.key === 'Tab' && !e.shiftKey && !showSwitch && parsed.phase === 'selecting' && rows.length) {
       const row = rows[clampedIndex];
       if (row?.kind === 'command') {
         e.preventDefault();

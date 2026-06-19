@@ -3,15 +3,19 @@
   // "Invite" tab (shown directly — no collapse). Posts to the local ?/invite.
   // ActionData is a union (success vs fail); narrow with `'prop' in form`
   // before reading branch-specific fields, same pattern as the api-keys page.
-  import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import type { ActionData, PageData } from './$types';
 
   let { form, data }: { form: ActionData; data: PageData } = $props();
 
-  // Seed the email from ?email= (command-bar deep link, #339); untrack so the
-  // initial read doesn't register a reactive dependency on data.
-  let inviteEmail = $state(untrack(() => data.prefillEmail ?? ''));
+  // Seed + keep the email in sync with ?email= (command-bar deep link, #339).
+  // A one-time $state init wouldn't update on query-only navigations (e.g.
+  // `invite a@b` → `invite c@d`), where SvelteKit reuses this component and the
+  // layout's {#key route.id} doesn't change — so sync via $effect on data.
+  let inviteEmail = $state('');
+  $effect(() => {
+    inviteEmail = data.prefillEmail ?? '';
+  });
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 </script>
