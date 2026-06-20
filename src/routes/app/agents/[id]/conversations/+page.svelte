@@ -16,12 +16,12 @@
 
   // Extract edges from outgoingEdges on system nodes for the graph
   const graphEdges = $derived.by(() => {
-    const edges: Array<{ id: string; sourceId: string; targetId: string; label: string; data: Record<string, unknown> }> = [];
+    const edges: Array<{ id: string; sourceId: string; targetId: string; name: string | null; data: Record<string, unknown> }> = [];
     for (const n of data.systemNodes) {
-      const outgoing = (n as any).outgoingEdges as Array<{ id: string; label: string; target: { id: string; loc: string } }> | undefined;
+      const outgoing = (n as any).outgoingEdges as Array<{ id: string; name: string | null; target: { id: string; loc: string } }> | undefined;
       if (outgoing) {
         for (const e of outgoing) {
-          edges.push({ id: e.id, sourceId: n.id, targetId: e.target.id, label: e.label, data: {} });
+          edges.push({ id: e.id, sourceId: n.id, targetId: e.target.id, name: e.name, data: {} });
         }
       }
     }
@@ -177,7 +177,7 @@
   // ── Edge editor state ──
   let addingEdgeFrom = $state<string | null>(null);  // node ID we're adding an edge FROM
   let edgeSelectorOpen = $state(false);
-  let newEdgeLabel = $state('');
+  let newEdgeName = $state('');
   let newEdgeTiming = $state('on_complete');
   let newEdgeBehavior = $state('transition');
   let newEdgeCondition = $state<UiCondition>(null);
@@ -201,12 +201,12 @@
   );
 
   // Get outgoing edges for a given node
-  function edgesFrom(nodeId: string): Array<{ id: string; label: string; targetLoc: string; data: Record<string, unknown> }> {
+  function edgesFrom(nodeId: string): Array<{ id: string; name: string | null; targetLoc: string; data: Record<string, unknown> }> {
     const node = data.systemNodes.find((n) => n.id === nodeId);
     if (!node) return [];
-    const outgoing = (node as any).outgoingEdges as Array<{ id: string; label: string; target: { id: string; loc: string; name: string }; data?: Record<string, unknown> }> | undefined;
+    const outgoing = (node as any).outgoingEdges as Array<{ id: string; name: string | null; target: { id: string; loc: string; name: string }; data?: Record<string, unknown> }> | undefined;
     if (!outgoing) return [];
-    return outgoing.map((e) => ({ id: e.id, label: e.label, targetLoc: e.target.loc, data: (e as any).data ?? {} }));
+    return outgoing.map((e) => ({ id: e.id, name: e.name, targetLoc: e.target.loc, data: (e as any).data ?? {} }));
   }
 
   function applyEdgePreset(preset: string) {
@@ -529,7 +529,7 @@
                   <div class="mt-1 flex items-center gap-2 text-xs">
                     <span class="text-zinc-500">&rarr;</span>
                     <span class="text-zinc-700 dark:text-zinc-300">{edge.targetLoc}</span>
-                    <span class="text-zinc-400">({edge.label})</span>
+                    <span class="text-zinc-400">({edge.name ?? edge.targetLoc})</span>
                     {#if edge.data.timing}<span class="rounded bg-zinc-100 px-1 text-[10px] text-zinc-500 dark:bg-zinc-800">{edge.data.timing}</span>{/if}
                     {#if edge.data.behavior === 'detour'}<span class="rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">detour</span>{/if}
                     <form method="POST" action="?/deleteEdge" use:enhance class="inline">
@@ -557,14 +557,14 @@
                       <label class="text-[10px] text-zinc-500">Target</label>
                       <button type="button" onclick={() => { edgeSelectorOpen = true; }}
                         class="block w-full rounded border border-zinc-300 bg-white px-2 py-1 text-left text-xs text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
-                        {newEdgeLabel ? `→ ${newEdgeLabel}` : 'Select target...'}
+                        {newEdgeName ? `→ ${newEdgeName}` : 'Select target...'}
                       </button>
                       <input type="hidden" name="targetNodeId" id="edgeTargetNodeId-{stage.id}" value="" />
                     </div>
                     <div class="flex gap-2">
                       <div class="flex-1">
                         <label class="text-[10px] text-zinc-500">Label</label>
-                        <input type="text" name="label" bind:value={newEdgeLabel} placeholder="Edge label" class="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+                        <input type="text" name="name" bind:value={newEdgeName} placeholder="Edge name" class="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
                       </div>
                       <div>
                         <label class="text-[10px] text-zinc-500">Timing</label>
@@ -607,7 +607,7 @@
                 </form>
               </div>
             {:else}
-              <button type="button" onclick={() => { addingEdgeFrom = stage.id; newEdgeLabel = ''; newEdgePriority = 0; applyEdgePreset('next'); }}
+              <button type="button" onclick={() => { addingEdgeFrom = stage.id; newEdgeName = ''; newEdgePriority = 0; applyEdgePreset('next'); }}
                 class="mt-1 pl-7 text-[10px] text-indigo-500 hover:underline">
                 + Add edge
               </button>
@@ -706,7 +706,7 @@
     if (addingEdgeFrom) {
       const input = document.getElementById(`edgeTargetNodeId-${addingEdgeFrom}`);
       if (input) (input as HTMLInputElement).value = el.id;
-      newEdgeLabel = newEdgeLabel || `→ ${el.name}`;
+      newEdgeName = newEdgeName || `→ ${el.name}`;
     }
   }}
 />

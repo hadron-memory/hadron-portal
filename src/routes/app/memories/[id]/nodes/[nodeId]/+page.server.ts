@@ -273,11 +273,11 @@ export const actions: Actions = {
 
   updateEdges: async ({ request, params, locals }) => {
     // Replaces the full set of outgoing edges on this node. The client sends
-    // a JSON-encoded array of { targetId, label } — we pass it through the
+    // a JSON-encoded array of { targetId, name } — we pass it through the
     // upsertNode mutation, which replaces all outgoing edges atomically.
     const fd = await request.formData();
     const edgesJson = String(fd.get('edges') ?? '[]');
-    let edges: Array<{ targetId: string; label?: string }>;
+    let edges: Array<{ targetId: string; name?: string | null }>;
     try {
       edges = JSON.parse(edgesJson);
     } catch {
@@ -302,7 +302,7 @@ export const actions: Actions = {
           tags: node.tags ?? [],
           edges: edges.map((e) => ({
             targetId: e.targetId,
-            label: e.label ?? null,
+            name: e.name ?? null,
           })),
         },
       });

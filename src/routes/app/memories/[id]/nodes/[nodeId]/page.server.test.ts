@@ -340,12 +340,12 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     await actions.updateEdges(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-3',
-      form: { edges: JSON.stringify([{ targetId: 'pk-target', label: 'uses' }]) },
+      form: { edges: JSON.stringify([{ targetId: 'pk-target', name: 'uses' }]) },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown; edges?: unknown } }];
     expect(vars.input.tags).toEqual(['kept']);
-    expect(vars.input.edges).toEqual([{ targetId: 'pk-target', label: 'uses' }]);
+    expect(vars.input.edges).toEqual([{ targetId: 'pk-target', name: 'uses' }]);
   });
 
   it("reorder: each per-loc upsert preserves the matching node's tags", async () => {

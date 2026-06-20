@@ -20,15 +20,15 @@
   const ABSTRACT_MAX = 2000;
 
   // Edge management
-  let edges: Array<{ targetId: string; label: string }> = $state(
-    node.outgoingEdges.map((e) => ({ targetId: e.target.id, label: e.label }))
+  let edges: Array<{ targetId: string; name: string }> = $state(
+    node.outgoingEdges.map((e) => ({ targetId: e.target.id, name: e.name ?? '' }))
   );
   let newTargetLoc = $state('');
   let newLabel = $state('');
 
   function addEdge() {
     if (newTargetLoc.trim()) {
-      edges = [...edges, { targetId: newTargetLoc.trim(), label: newLabel.trim() }];
+      edges = [...edges, { targetId: newTargetLoc.trim(), name: newLabel.trim() }];
       newTargetLoc = '';
       newLabel = '';
     }
@@ -110,7 +110,7 @@
           {#each edges as edge, i}
             <div class="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
               <span class="font-mono text-indigo-400">{edge.targetId}</span>
-              <span class="text-zinc-500">{edge.label}</span>
+              <span class="text-zinc-500">{edge.name}</span>
               <button type="button" class="ml-auto text-red-400 hover:text-red-300" onclick={() => removeEdge(i)}>&times;</button>
             </div>
           {/each}

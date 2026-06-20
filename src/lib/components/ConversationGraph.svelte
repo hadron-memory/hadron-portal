@@ -16,7 +16,7 @@
     id: string;
     sourceId: string;
     targetId: string;
-    label: string;
+    name: string | null;
     data: Record<string, unknown>;
   };
 
@@ -27,7 +27,7 @@
     onselect,
   }: {
     nodes: MemoryNode[];
-    edges?: Array<{ id: string; sourceId: string; targetId: string; label: string; data?: Record<string, unknown> }>;
+    edges?: Array<{ id: string; sourceId: string; targetId: string; name: string | null; data?: Record<string, unknown> }>;
     selectedNodeId?: string | null;
     onselect?: (node: GraphNode) => void;
   } = $props();
@@ -222,12 +222,12 @@
         stroke-dasharray={edgeIsDashed(edge.data) ? '6,3' : 'none'}
         marker-end={edgeIsDashed(edge.data) ? 'url(#arrowhead-detour)' : 'url(#arrowhead)'}
       />
-      <!-- Edge label -->
-      {#if edge.label}
+      <!-- Edge name -->
+      {#if edge.name}
         {@const midX = (edge.source.x + nodeWidth(edge.source.type) + edge.target.x) / 2}
         {@const midY = (edge.source.y + nodeHeight(edge.source.type) / 2 + edge.target.y + nodeHeight(edge.target.type) / 2) / 2}
         <text x={midX} y={midY - 6} text-anchor="middle" class="fill-zinc-400 text-[9px]">
-          {edge.label.length > 30 ? edge.label.slice(0, 28) + '...' : edge.label}
+          {edge.name.length > 30 ? edge.name.slice(0, 28) + '...' : edge.name}
         </text>
       {/if}
     {/each}

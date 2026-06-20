@@ -56,7 +56,7 @@ export const actions: Actions = {
     const newLoc = cleanLocInput(rawLoc);
 
     // Parse edges from JSON
-    let edges: { targetId: string; label: string }[] | undefined;
+    let edges: { targetId: string; name: string }[] | undefined;
     const edgesJson = String(fd.get('edges') ?? '');
     if (edgesJson) {
       try { edges = JSON.parse(edgesJson); } catch { /* ignore */ }

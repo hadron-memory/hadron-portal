@@ -271,7 +271,12 @@ export interface NodeSummary {
 
 export interface NodeEdge {
   id: string;
-  label: string;
+  // Spec 037: edges are first-class. `name` (was `label`) is now nullable;
+  // `loc` is the edge's identity + URN suffix.
+  name: string | null;
+  loc: string;
+  description?: string | null;
+  isRunnable?: boolean | null;
   source: NodeSummary;
   target: NodeSummary;
 }

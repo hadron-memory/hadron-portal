@@ -329,23 +329,23 @@
     targetId: string;
     targetName: string;
     targetLoc: string;
-    label: string;
+    name: string;
   }
 
   let editingEdges = $state(false);
   let editableEdges = $state<EditableEdge[]>([]);
   let newEdgeTargetQuery = $state('');
-  let newEdgeLabel = $state('');
+  let newEdgeName = $state('');
 
   function startEditEdges() {
     editableEdges = node.outgoingEdges.map((e) => ({
       targetId: e.target.id,
       targetName: e.target.name ?? e.target.loc,
       targetLoc: e.target.loc,
-      label: e.label ?? '',
+      name: e.name ?? '',
     }));
     newEdgeTargetQuery = '';
-    newEdgeLabel = '';
+    newEdgeName = '';
     editingEdges = true;
   }
 
@@ -372,7 +372,7 @@
       addEdgeError = `No node found matching "${newEdgeTargetQuery}"`;
       return;
     }
-    if (editableEdges.some((e) => e.targetId === target.id && e.label === newEdgeLabel.trim())) {
+    if (editableEdges.some((e) => e.targetId === target.id && e.name === newEdgeName.trim())) {
       addEdgeError = 'That edge already exists';
       return;
     }
@@ -382,17 +382,17 @@
         targetId: target.id,
         targetName: target.name ?? target.loc,
         targetLoc: target.loc,
-        label: newEdgeLabel.trim(),
+        name: newEdgeName.trim(),
       },
     ];
     newEdgeTargetQuery = '';
-    newEdgeLabel = '';
+    newEdgeName = '';
     addEdgeError = null;
   }
 
   let addEdgeError = $state<string | null>(null);
   const editableEdgesJson = $derived(JSON.stringify(
-    editableEdges.map((e) => ({ targetId: e.targetId, label: e.label || null })),
+    editableEdges.map((e) => ({ targetId: e.targetId, name: e.name || null })),
   ));
 
   // Children: direct children of this node's loc
@@ -829,7 +829,7 @@
             {#each node.outgoingEdges as edge}
               <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
                 <a href="{basePath}/nodes/{edge.target.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.target.name || edge.target.loc}</a>
-                {#if edge.label}<span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{edge.label}</span>{/if}
+                {#if edge.name}<span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{edge.name}</span>{/if}
               </div>
             {/each}
           </div>
@@ -849,7 +849,7 @@
                 <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
                   <span class="font-mono text-indigo-600 dark:text-indigo-300">{edge.targetName}</span>
                   <span class="text-xs text-zinc-400">{edge.targetLoc}</span>
-                  {#if edge.label}<span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{edge.label}</span>{/if}
+                  {#if edge.name}<span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{edge.name}</span>{/if}
                   <div class="flex-1"></div>
                   <button type="button" onclick={() => removeEditableEdge(idx)}
                     class="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
@@ -873,8 +873,8 @@
                   class="{inputClass} font-mono text-xs" />
               </div>
               <div class="w-40">
-                <label for="newEdgeLabel" class="mb-1 block text-xs text-zinc-500">Label (optional)</label>
-                <input id="newEdgeLabel" type="text" bind:value={newEdgeLabel}
+                <label for="newEdgeName" class="mb-1 block text-xs text-zinc-500">Name (optional)</label>
+                <input id="newEdgeName" type="text" bind:value={newEdgeName}
                   placeholder="e.g. cites"
                   class="{inputClass} text-xs" />
               </div>
@@ -907,7 +907,7 @@
           {#each node.incomingEdges as edge}
             <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
               <a href="{basePath}/nodes/{edge.source.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.source.name || edge.source.loc}</a>
-              {#if edge.label}<span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{edge.label}</span>{/if}
+              {#if edge.name}<span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{edge.name}</span>{/if}
             </div>
           {/each}
         </div>
