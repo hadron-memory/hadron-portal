@@ -21,8 +21,11 @@
   // user clicks a row, so they can drill down without leaving the page.
   const hasSystemMemory = $derived(!!agent.systemMemoryId);
 
-  type TabId = 'memory' | 'chatbot' | 'settings';
-  let activeTab = $state<TabId>('memory');
+  // #352 tab reorg: Profile (agent info) is the landing tab; Memories and
+  // AI Providers were split out of the old Settings tab; the old "Memory"
+  // node browser is now "Nodes"; Settings keeps the danger zone.
+  type TabId = 'profile' | 'memories' | 'nodes' | 'chatbot' | 'ai' | 'settings';
+  let activeTab = $state<TabId>('profile');
 
   // ── Chatbot Control sub-tab state ────────────────────────────────────
   // The Chatbot Control tab has an "index" view (lists conversations +
@@ -98,13 +101,18 @@
       .map(nodeToRow),
   );
 
-  // Tabs: Memory is always present. Chatbot Control is shown when the
-  // agent has a system memory. Settings is always last. The live chatbot
-  // is exercised from an App (App detail → Chat tab), not from the agent
-  // builder; agent-level testing lives on the /test tester.
+  // Tabs (#352): Profile · Memories · Nodes · [Chatbot Control] · AI Providers
+  // · Settings. Chatbot Control is shown only when the agent has a system
+  // memory; it sits next to Nodes because it drills into the system memory's
+  // conversation nodes. The live chatbot is exercised from an App (App
+  // detail → Chat tab), not the agent builder; agent-level testing lives on
+  // the /test tester.
   const tabs = $derived<{ id: TabId; label: string }[]>([
-    { id: 'memory', label: 'Memory' },
+    { id: 'profile', label: 'Profile' },
+    { id: 'memories', label: 'Memories' },
+    { id: 'nodes', label: 'Nodes' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
+    { id: 'ai', label: 'AI Providers' },
     { id: 'settings', label: 'Settings' },
   ]);
 
@@ -261,10 +269,205 @@
     {/each}
   </div>
 
+  <!-- Action feedback lives at page level so it stays visible no matter which
+       tab's form produced it (#352 split the agent / memory / delete forms
+       across the Profile, Memories, and Settings tabs). -->
+  {#if form?.error}
+    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {/if}
+  {#if form?.success}
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
+  {/if}
+
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <!-- MEMORY TAB                                                        -->
+  <!-- PROFILE TAB — info of this agent (#352)                             -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  {#if activeTab === 'memory'}
+  {#if activeTab === 'profile'}
+    <div class="space-y-8">
+
+      <!-- Agent info (read-only). #352 follow-up: Profile is an info-only tab;
+           the editable agent form lives on the Settings tab. -->
+      <section class="max-w-lg">
+        <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Agent</h2>
+        <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+          <div class="flex items-center justify-between px-5 py-3">
+            <span class="text-sm text-zinc-500">Visibility</span>
+            <span class="text-sm font-medium text-zinc-900 dark:text-white">{visibilityLabel[agent.visibility]}</span>
+          </div>
+          {#if agent.description}
+            <div class="px-5 py-3">
+              <span class="text-sm text-zinc-500">Description</span>
+              <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
+            </div>
+          {/if}
+          {#if agent.systemPrompt}
+            <div class="px-5 py-3">
+              <span class="text-sm text-zinc-500">System Prompt</span>
+              <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
+            </div>
+          {/if}
+          {#if agent.systemMemoryId}
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">System Memory</span>
+              <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
+            </div>
+          {/if}
+          <div class="flex items-center justify-between px-5 py-3">
+            <span class="text-sm text-zinc-500">Organization</span>
+            <span class="text-sm text-zinc-900 dark:text-white">{org.name}</span>
+          </div>
+          <div class="flex items-center justify-between px-5 py-3">
+            <span class="text-sm text-zinc-500">Created</span>
+            <span class="text-sm text-zinc-900 dark:text-white">{new Date(agent.createdAt).toLocaleDateString()}</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Capabilities — removed per FR-013 (spec 006-asset-upload-redesign).
+           The v1 per-agent asset-upload toggle is being replaced by a per-
+           memory acceptsUploads gate on the memory settings page (US3,
+           landing in a follow-up PR). -->
+
+      <!-- Properties -->
+      {#if agent.properties}
+        <section class="max-w-lg">
+          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Properties</h2>
+          <pre class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{JSON.stringify(agent.properties, null, 2)}</pre>
+        </section>
+      {/if}
+
+      <!-- Installation (008-agent-installation T068) -->
+      {#if agent.memoryProvisioning || agent.installationPolicy || (agent.imports?.length ?? 0) > 0 || agent.appCount !== undefined}
+        <section class="max-w-lg">
+          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Installation</h2>
+          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+            {#if agent.memoryProvisioning}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">App memory</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.memoryProvisioning.appMemory}</span>
+              </div>
+            {/if}
+            {#if agent.installationPolicy}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Max members</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.installationPolicy.maxMembers}</span>
+              </div>
+              <div class="px-5 py-3">
+                <span class="text-sm text-zinc-500">Member roles</span>
+                <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.installationPolicy.memberRoles.join(', ') || '—'}</p>
+              </div>
+            {/if}
+            {#if agent.appCount !== undefined}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Installed in</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.appCount} {agent.appCount === 1 ? 'App' : 'Apps'}</span>
+              </div>
+            {/if}
+            {#if (agent.imports?.length ?? 0) > 0}
+              <div class="px-5 py-3">
+                <span class="text-sm text-zinc-500">Imports</span>
+                <ul class="mt-2 space-y-1">
+                  {#each agent.imports ?? [] as imp (imp.importedAgentId)}
+                    <li class="text-sm text-zinc-900 dark:text-white">
+                      <span class="text-zinc-400">{imp.position}.</span>
+                      <a href="/app/agents/{imp.importedAgentId}" class="text-indigo-500 hover:underline dark:text-indigo-400">{imp.importedAgent.name}</a>
+                      {#if imp.required}
+                        <span class="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300">required</span>
+                      {:else}
+                        <span class="ml-2 rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">optional</span>
+                      {/if}
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
+          </div>
+        </section>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- MEMORIES TAB — memories attached to this agent (#352)               -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'memories'}
+    <section>
+      <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Memories
+        <span class="ml-1 text-sm font-normal text-zinc-500">({(agent.memoryItems ?? []).length})</span>
+      </h2>
+      {#if (agent.memoryItems ?? []).length > 0}
+        <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
+          {#each agent.memoryItems ?? [] as item (item.id)}
+            <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
+              <span class="w-3.5 shrink-0">
+                {#if item.role !== 'read-write'}
+                  <span title="Read only"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
+                {/if}
+              </span>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium">
+                  <a href="/app/memories/{item.memory.id}" class="text-indigo-600 hover:underline dark:text-indigo-300">{item.memory.name}</a>
+                  {#if memVisRank(item.memory.visibility) < visibilityRank[agent.visibility]}
+                    <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="More restrictive than agent">{memVisLabel(item.memory.visibility)}</span>
+                  {/if}
+                </p>
+                <Urn value={item.memory.urn} type="memory" size={10} />
+              </div>
+              <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
+                <input type="hidden" name="memoryId" value={item.memory.id} />
+                <select name="role" value={item.role} onchange={(e) => e.currentTarget.form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs font-medium {item.role === 'read-write' ? '[border-color:rgb(134,239,172)] [background-color:rgb(240,253,244)] [color:rgb(21,128,61)] dark:[border-color:rgb(22,101,52)] dark:[background-color:rgb(20,83,45)] dark:[color:rgb(134,239,172)]' : '[border-color:rgb(252,211,77)] [background-color:rgb(255,251,235)] [color:rgb(180,83,9)] dark:[border-color:rgb(120,53,15)] dark:[background-color:rgb(69,26,3)] dark:[color:rgb(252,211,77)]'}">
+                  <option value="read">read</option>
+                  <option value="read-write">read-write</option>
+                </select>
+              </form>
+              <form method="POST" action="?/removeMemory" use:enhance>
+                <input type="hidden" name="memoryId" value={item.memory.id} />
+                <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+              </form>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <p class="mb-4 text-sm text-zinc-500">No memories in this agent.</p>
+      {/if}
+
+      {#if availableMemories.length > 0}
+        <form method="POST" action="?/addMemory" use:enhance class="space-y-2">
+          <div class="flex items-end gap-3">
+          <div class="flex-1 max-w-md">
+            <label for="addMemory" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
+            <select id="addMemory" name="memoryId" bind:value={selectedAddMemoryId} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <option value="" disabled>— Select a memory —</option>
+              {#each availableMemories as m (m.id)}
+                <option value={m.id}>{m.name} ({m.urn}){#if m.orgName && m.orgName !== org.name} — {m.orgName}{/if}</option>
+              {/each}
+            </select>
+          </div>
+          <div>
+            <label for="memRole" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
+            <select id="memRole" name="role" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <option value="read">Read</option>
+              <option value="read-write">Read/Write</option>
+            </select>
+          </div>
+          <button type="submit" disabled={!selectedAddMemoryId} class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50">Add</button>
+          </div>
+          {#if addMemoryWarning}
+            <p class="text-xs text-amber-600 dark:text-amber-400">{addMemoryWarning}</p>
+          {/if}
+        </form>
+      {:else if allMemories.length === 0}
+        <p class="text-xs text-zinc-500">No memories available. Create a memory first.</p>
+      {:else}
+        <p class="text-xs text-zinc-500">All available memories are already in this agent.</p>
+      {/if}
+    </section>
+  {/if}
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- NODES TAB — browse the agent's memory nodes (was "Memory") (#352)   -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'nodes'}
     <MemoryBrowser nodes={data.agentNodes ?? []} multiMemory={(agent.memoryItems ?? []).length > 1} {writableMemoryIds} />
   {/if}
 
@@ -434,19 +637,30 @@
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <!-- SETTINGS TAB                                                      -->
+  <!-- AI PROVIDERS TAB — agent-owned AI service configs (#352)            -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'ai'}
+    <!-- The agent's `default` config is one level of the resolution walk used
+         when the agent runs inside an App. -->
+    <section class="max-w-2xl">
+      <AiServiceConfigSection
+        ownerType="AGENT"
+        ownerId={agent.id}
+        configs={data.agentConfigs ?? []}
+        members={org.members ?? []}
+        currentUserId={data.currentUserId}
+        configsError={data.configsError}
+      />
+    </section>
+  {/if}
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- SETTINGS TAB — the rest (#352)                                      -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
     <div class="space-y-8">
-
-      {#if form?.error}
-        <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
-      {/if}
-      {#if form?.success}
-        <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
-      {/if}
-
-      <!-- Agent settings -->
+      <!-- Agent settings (editable). #352 follow-up: the editable agent form
+           lives here; the Profile tab shows the same info read-only. -->
       <section class="max-w-lg">
         <div class="mb-4 flex items-center justify-between">
           <h2 class="font-semibold text-zinc-900 dark:text-white">Agent</h2>
@@ -481,18 +695,18 @@
             </div>
             <div>
               <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
-              <select id="editVisibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="PERSONAL" selected={agent.visibility === 'PERSONAL'}>Personal</option>
-                <option value="ORGANIZATION" selected={agent.visibility === 'ORGANIZATION'}>Organization</option>
-                <option value="PUBLIC" selected={agent.visibility === 'PUBLIC'}>Public</option>
+              <select id="editVisibility" name="visibility" value={agent.visibility} class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="PERSONAL">Personal</option>
+                <option value="ORGANIZATION">Organization</option>
+                <option value="PUBLIC">Public</option>
               </select>
             </div>
             <div>
               <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Memory <span class="text-zinc-500">(for chatbot conversations)</span></label>
-              <select id="editSystemMemoryId" name="systemMemoryId" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <select id="editSystemMemoryId" name="systemMemoryId" value={agent.systemMemoryId ?? ''} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                 <option value="">— None —</option>
                 {#each orgSystemMemories as sm}
-                  <option value={sm.id} selected={agent.systemMemoryId === sm.id}>{sm.name} ({sm.urn})</option>
+                  <option value={sm.id}>{sm.name} ({sm.urn})</option>
                 {/each}
               </select>
               <p class="mt-1 text-xs text-zinc-400">Memory containing conversation designs, stages, and prompt templates.</p>
@@ -538,155 +752,8 @@
         {/if}
       </section>
 
-      <!-- Capabilities — removed per FR-013 (spec 006-asset-upload-redesign).
-           The v1 per-agent asset-upload toggle is being replaced by a per-
-           memory acceptsUploads gate on the memory settings page (US3,
-           landing in a follow-up PR). -->
-
-      <!-- Properties -->
-      {#if agent.properties}
-        <section class="max-w-lg">
-          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Properties</h2>
-          <pre class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{JSON.stringify(agent.properties, null, 2)}</pre>
-        </section>
-      {/if}
-
-      <!-- Installation (008-agent-installation T068) -->
-      {#if agent.memoryProvisioning || agent.installationPolicy || (agent.imports?.length ?? 0) > 0 || agent.appCount !== undefined}
-        <section class="max-w-lg">
-          <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Installation</h2>
-          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
-            {#if agent.memoryProvisioning}
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">App memory</span>
-                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.memoryProvisioning.appMemory}</span>
-              </div>
-            {/if}
-            {#if agent.installationPolicy}
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">Max members</span>
-                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.installationPolicy.maxMembers}</span>
-              </div>
-              <div class="px-5 py-3">
-                <span class="text-sm text-zinc-500">Member roles</span>
-                <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.installationPolicy.memberRoles.join(', ') || '—'}</p>
-              </div>
-            {/if}
-            {#if agent.appCount !== undefined}
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">Installed in</span>
-                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.appCount} {agent.appCount === 1 ? 'App' : 'Apps'}</span>
-              </div>
-            {/if}
-            {#if (agent.imports?.length ?? 0) > 0}
-              <div class="px-5 py-3">
-                <span class="text-sm text-zinc-500">Imports</span>
-                <ul class="mt-2 space-y-1">
-                  {#each agent.imports ?? [] as imp (imp.importedAgentId)}
-                    <li class="text-sm text-zinc-900 dark:text-white">
-                      <span class="text-zinc-400">{imp.position}.</span>
-                      <a href="/app/agents/{imp.importedAgentId}" class="text-indigo-500 hover:underline dark:text-indigo-400">{imp.importedAgent.name}</a>
-                      {#if imp.required}
-                        <span class="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300">required</span>
-                      {:else}
-                        <span class="ml-2 rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">optional</span>
-                      {/if}
-                    </li>
-                  {/each}
-                </ul>
-              </div>
-            {/if}
-          </div>
-        </section>
-      {/if}
-
-      <!-- Memories -->
-      <section>
-        <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Memories
-          <span class="ml-1 text-sm font-normal text-zinc-500">({(agent.memoryItems ?? []).length})</span>
-        </h2>
-        {#if (agent.memoryItems ?? []).length > 0}
-          <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-            {#each agent.memoryItems ?? [] as item (item.id)}
-              <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
-                <span class="w-3.5 shrink-0">
-                  {#if item.role !== 'read-write'}
-                    <span title="Read only"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
-                  {/if}
-                </span>
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium">
-                    <a href="/app/memories/{item.memory.id}" class="text-indigo-600 hover:underline dark:text-indigo-300">{item.memory.name}</a>
-                    {#if memVisRank(item.memory.visibility) < visibilityRank[agent.visibility]}
-                      <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="More restrictive than agent">{memVisLabel(item.memory.visibility)}</span>
-                    {/if}
-                  </p>
-                  <Urn value={item.memory.urn} type="memory" size={10} />
-                </div>
-                <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
-                  <input type="hidden" name="memoryId" value={item.memory.id} />
-                  <select name="role" onchange={(e) => (e.target as HTMLSelectElement).form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs font-medium {item.role === 'read-write' ? '[border-color:rgb(134,239,172)] [background-color:rgb(240,253,244)] [color:rgb(21,128,61)] dark:[border-color:rgb(22,101,52)] dark:[background-color:rgb(20,83,45)] dark:[color:rgb(134,239,172)]' : '[border-color:rgb(252,211,77)] [background-color:rgb(255,251,235)] [color:rgb(180,83,9)] dark:[border-color:rgb(120,53,15)] dark:[background-color:rgb(69,26,3)] dark:[color:rgb(252,211,77)]'}">
-                    <option value="read" selected={item.role === 'read'}>read</option>
-                    <option value="read-write" selected={item.role === 'read-write'}>read-write</option>
-                  </select>
-                </form>
-                <form method="POST" action="?/removeMemory" use:enhance>
-                  <input type="hidden" name="memoryId" value={item.memory.id} />
-                  <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
-                </form>
-              </div>
-            {/each}
-          </div>
-        {:else}
-          <p class="mb-4 text-sm text-zinc-500">No memories in this agent.</p>
-        {/if}
-
-        {#if availableMemories.length > 0}
-          <form method="POST" action="?/addMemory" use:enhance class="space-y-2">
-            <div class="flex items-end gap-3">
-            <div class="flex-1 max-w-md">
-              <label for="addMemory" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
-              <select id="addMemory" name="memoryId" bind:value={selectedAddMemoryId} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                {#each availableMemories as m (m.id)}
-                  <option value={m.id}>{m.name} ({m.urn}){#if m.orgName && m.orgName !== org.name} — {m.orgName}{/if}</option>
-                {/each}
-              </select>
-            </div>
-            <div>
-              <label for="memRole" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
-              <select id="memRole" name="role" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="read">Read</option>
-                <option value="read-write">Read/Write</option>
-              </select>
-            </div>
-            <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">Add</button>
-            </div>
-            {#if addMemoryWarning}
-              <p class="text-xs text-amber-600 dark:text-amber-400">{addMemoryWarning}</p>
-            {/if}
-          </form>
-        {:else if allMemories.length === 0}
-          <p class="text-xs text-zinc-500">No memories available. Create a memory first.</p>
-        {:else}
-          <p class="text-xs text-zinc-500">All available memories are already in this agent.</p>
-        {/if}
-      </section>
-
-      <!-- AI providers (registry). The agent's `default` config is one level
-           of the resolution walk used when the agent runs inside an App. -->
-      <section class="max-w-2xl">
-        <AiServiceConfigSection
-          ownerType="AGENT"
-          ownerId={agent.id}
-          configs={data.agentConfigs ?? []}
-          members={org.members ?? []}
-          currentUserId={data.currentUserId}
-          configsError={data.configsError}
-        />
-      </section>
-
       <!-- Danger zone -->
-      <section class="max-w-lg border-t border-zinc-200 pt-6 dark:border-zinc-800">
+      <section class="max-w-lg">
         <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
         {#if !confirmDelete}
           <button onclick={() => confirmDelete = true} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
