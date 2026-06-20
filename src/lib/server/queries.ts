@@ -952,7 +952,7 @@ export const CREATE_EDGE_MUTATION = /* GraphQL */ `
   mutation CreateEdge(
     $sourceNodeId: ID!
     $targetNodeId: ID!
-    $label: String!
+    $name: String
     $condition: JSON
     $priority: Int
     $data: JSON
@@ -960,12 +960,12 @@ export const CREATE_EDGE_MUTATION = /* GraphQL */ `
     createEdge(
       sourceNodeId: $sourceNodeId
       targetNodeId: $targetNodeId
-      label: $label
+      name: $name
       condition: $condition
       priority: $priority
       data: $data
     ) {
-      id label condition priority data source { id loc name } target { id loc name }
+      id name loc isRunnable condition priority data source { id loc name } target { id loc name }
     }
   }
 `;
@@ -973,19 +973,19 @@ export const CREATE_EDGE_MUTATION = /* GraphQL */ `
 export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
   mutation UpdateEdge(
     $edgeId: ID!
-    $label: String
+    $name: String
     $condition: JSON
     $priority: Int
     $data: JSON
   ) {
     updateEdge(
       edgeId: $edgeId
-      label: $label
+      name: $name
       condition: $condition
       priority: $priority
       data: $data
     ) {
-      id label condition priority data source { id loc name } target { id loc name }
+      id name loc isRunnable condition priority data source { id loc name } target { id loc name }
     }
   }
 `;
@@ -1053,12 +1053,16 @@ export const APP_NODES_QUERY = /* GraphQL */ `
       memory { id urn name organizationId }
       outgoingEdges {
         id
-        label
+        name
+        loc
+        isRunnable
         target { id loc name }
       }
       incomingEdges {
         id
-        label
+        name
+        loc
+        isRunnable
         source { id loc name }
       }
     }
@@ -1156,12 +1160,16 @@ export const NODE_FIELDS = /* GraphQL */ `
     updatedAt
     outgoingEdges {
       id
-      label
+      name
+      loc
+      isRunnable
       target { id loc name description tags }
     }
     incomingEdges {
       id
-      label
+      name
+      loc
+      isRunnable
       source { id loc name description tags }
     }
   }

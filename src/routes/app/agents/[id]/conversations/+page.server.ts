@@ -10,7 +10,7 @@ const GRAPH_NODES_QUERY = `
   query Nodes($limit: Int) {
     nodes(limit: $limit) {
       id memoryId nodeType loc name description content tags seq data
-      outgoingEdges { id label target { id loc name } }
+      outgoingEdges { id name loc isRunnable target { id loc name } }
     }
   }
 `;
@@ -206,7 +206,7 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
     const sourceNodeId = String(fd.get('sourceNodeId') ?? '');
     const targetNodeId = String(fd.get('targetNodeId') ?? '');
-    const label = String(fd.get('label') ?? '');
+    const name = String(fd.get('name') ?? '');
     const dataJson = String(fd.get('data') ?? '{}');
     const conditionJson = String(fd.get('condition') ?? 'null');
     const priorityRaw = fd.get('priority');
@@ -223,7 +223,7 @@ export const actions: Actions = {
       await client.request(CREATE_EDGE_MUTATION, {
         sourceNodeId,
         targetNodeId,
-        label: label || 'edge',
+        name: name || 'edge',
         condition,
         priority,
         data,
@@ -237,7 +237,7 @@ export const actions: Actions = {
     const fd = await request.formData();
     const client = gqlClient(locals.token);
     const edgeId = String(fd.get('edgeId') ?? '');
-    const label = String(fd.get('label') ?? '');
+    const name = String(fd.get('name') ?? '');
     const dataJson = String(fd.get('data') ?? '{}');
 
     if (!edgeId) return fail(400, { error: 'edgeId is required' });
@@ -246,7 +246,7 @@ export const actions: Actions = {
     try { data = JSON.parse(dataJson); } catch { return fail(400, { error: 'Invalid JSON' }); }
 
     try {
-      await client.request(UPDATE_EDGE_MUTATION, { edgeId, label: label || undefined, data });
+      await client.request(UPDATE_EDGE_MUTATION, { edgeId, name: name || undefined, data });
     } catch (e: unknown) {
       return fail(400, { error: userFacingErrorMessage(e, 'Failed to update edge') });
     }

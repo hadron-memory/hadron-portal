@@ -99,7 +99,7 @@ export function buildGraphViewData(nodes: MemoryNode[], memoryUrn?: string): Gra
       .filter((e) => idSet.has(e.target.id))
       .map((e) => ({
         id: e.id,
-        rel: e.label,
+        rel: e.name ?? e.loc, // edge name (spec 037, was label); fall back to loc when unnamed
         loc: e.target.id, // use target's node.id as the graph reference
         name: e.target.name,
       }));
