@@ -277,6 +277,16 @@
     return nodeIdToHref.get(entry.nodeId) ?? null;
   }
 
+  // Graph view: a tree-row click selects the node in the graph (opening its
+  // popup) rather than navigating to its detail page, mirroring a click on the
+  // node itself (#349). Setting graphState.selectedNodeId is exactly what a
+  // graph click does; TopicGraph reacts by focusing the node and showing the
+  // popup. Only the graph-view tree gets this — the nodes-view tree navigates.
+  function handleTreeSelect(entry: TreeEntry) {
+    if (!entry.nodeId) return; // virtual folder — no graph node to select
+    graphState.selectedNodeId = entry.nodeId;
+  }
+
   // ── Derived views ─────────────────────────────────────────────────────
   // Derive single memory URN for loc normalization (only when all nodes share one memory)
   const singleMemoryUrn = $derived.by(() => {
@@ -522,7 +532,7 @@
             <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
             <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
           </div>
-          <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
+          <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onselect={handleTreeSelect} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
         </aside>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div

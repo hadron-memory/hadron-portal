@@ -14,6 +14,7 @@
     basePath,
     hideSearch = false,
     nodeHrefFn,
+    onselect,
     onmove,
     onreorder,
     showHidden = $bindable(false),
@@ -22,6 +23,10 @@
     basePath: string;
     hideSearch?: boolean;
     nodeHrefFn?: (entry: TreeEntry) => string | null;
+    /** When set (the graph-view sidebar), a plain click on a real-node row
+     *  calls this instead of navigating — so the click selects the node in
+     *  the graph rather than opening its detail page (#349). */
+    onselect?: (entry: TreeEntry) => void;
     onmove?: (fromLoc: string, newParentLoc: string) => void;
     onreorder?: (parentLoc: string, orderedLocs: string[]) => void;
     /** When true, include record and system nodes in the tree. Bindable
@@ -121,9 +126,13 @@
 
   // Auto-expand ancestors when active node changes
   $effect(() => {
-    const id = activeNodeId;
-    if (!id) return;
-    const parts = id.split(":");
+    const sel = activeNodeId;
+    if (!sel) return;
+    // activeNodeId is a node PK (URL /nodes/<pk> or a graph selection); resolve
+    // it to a loc — entries key loc as `id` and PK as `nodeId` — so we expand
+    // the right loc-ancestors and the data-node-id (loc) scroll target matches.
+    const loc = entries.find((e) => e.nodeId === sel)?.id ?? sel;
+    const parts = loc.split(":");
     for (let i = 1; i < parts.length; i++) {
       const ancestorId = parts.slice(0, i).join(":");
       if (!isExpanded(ancestorId)) {
@@ -131,7 +140,7 @@
       }
     }
     tick().then(() => {
-      const el = document.querySelector(`.tree-row[data-node-id="${id}"]`);
+      const el = document.querySelector(`.tree-row[data-node-id="${loc}"]`);
       if (el) {
         el.scrollIntoView({ block: "nearest", behavior: "smooth" });
       }
@@ -146,7 +155,24 @@
   }
 
   function isActive(entry: TreeEntry): boolean {
-    return activeNodeId === entry.id;
+    const sel = activeNodeId;
+    if (sel == null) return false;
+    // activeNodeId is a node PK (URL /nodes/<pk> or a graph selection), while a
+    // TreeEntry keys its loc as `id` and its PK as `nodeId`. Match on either so
+    // the row lights up for graph/URL selections, not only loc-equal ids (#349).
+    return sel === entry.nodeId || sel === entry.id;
+  }
+
+  // In the graph sidebar a plain click selects the node in the graph (opens its
+  // popup) instead of navigating, mirroring a click on the node itself (#349).
+  // Modifier / middle clicks fall through to the href so "open in new tab"
+  // still works. With no onselect handler (the nodes-view tree, agent/app
+  // pages) the link navigates as before.
+  function handleRowActivate(e: MouseEvent, entry: TreeEntry) {
+    if (!onselect) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    onselect(entry);
   }
 
   function isMatch(entry: TreeEntry): boolean {
@@ -310,7 +336,8 @@
     </button>
 
     {#if href}
-      <a {href} class="node-link" class:active class:match={isMatch(node.entry)}>
+      <a {href} class="node-link" class:active class:match={isMatch(node.entry)}
+        onclick={(e) => handleRowActivate(e, node.entry)}>
         <span class="dot" class:action-dot={node.entry.hasActions}></span>
         {node.entry.name}
       </a>

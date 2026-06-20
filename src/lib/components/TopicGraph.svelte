@@ -52,9 +52,22 @@
     return data.topics.flatMap((t) =>
       t.nodes
         .filter((n) => n.loc === topic.id)
-        .map((n) => ({ from: t.id, fromName: t.name, rel: n.rel }))
+        .map((n) => ({ id: n.id, from: t.id, fromName: t.name, rel: n.rel }))
     );
   }
+
+  // Merged edge list for the popup "Edges" section: the selected node's
+  // outgoing + incoming edges, each carrying the edge id (for the
+  // hrn:edge:<id> URN), its label, direction, and the connected node's id
+  // (used to focus it in the graph and to build the "Open" link).
+  type PopupEdge = { edgeId: string; label: string; dir: 'out' | 'in'; nodeId: string };
+  const popupEdges = $derived.by<PopupEdge[]>(() => {
+    const t = selectedTopic;
+    if (!t) return [];
+    const out: PopupEdge[] = t.nodes.map((n) => ({ edgeId: n.id, label: n.rel, dir: 'out', nodeId: n.loc }));
+    const inc: PopupEdge[] = incomingEdges(t).map((e) => ({ edgeId: e.id, label: e.rel, dir: 'in', nodeId: e.from }));
+    return [...out, ...inc];
+  });
 
   function focusNode(nodeId: string) {
     const topic = data.topics.find((t) => t.id === nodeId);
@@ -199,15 +212,18 @@
       }
     });
 
-    if (focusId) {
-      network.once("stabilizationIterationsDone", () => {
+    network.once("stabilizationIterationsDone", () => {
+      // Freeze the layout once it has settled. forceAtlas2 keeps nudging nodes
+      // after stabilization, so without this a focused node (from a graph or
+      // tree click) drifts back out of view moments after centering (#349).
+      network.setOptions({ physics: { enabled: false } });
+      physicsEnabled = false;
+      if (focusId) {
         focusNode(focusId);
-      });
-    } else {
-      network.once("stabilizationIterationsDone", () => {
+      } else {
         network.fit({ animation: { duration: 300 } });
-      });
-    }
+      }
+    });
 
     // Store all node IDs for search filtering
     allTopicIds = data.topics.map((t) => t.id);
@@ -263,6 +279,24 @@
     }, 300);
   });
 
+  // Drive selection from the shared graphState so a click on a row in the tree
+  // sidebar (which sets graphState.selectedNodeId) focuses the node and opens
+  // its popup — making a tree click equivalent to clicking the node in the
+  // graph (#349). A direct graph click sets selectedTopic itself, so its id
+  // already matches here and we skip re-focusing (graph clicks don't recenter).
+  $effect(() => {
+    const id = graphState.selectedNodeId;
+    if (!graphReady || !network) return;
+    if (id === (selectedTopic?.id ?? null)) return;
+    if (id == null) {
+      selectedTopic = null;
+      try { network.unselectAll(); } catch { /* network torn down */ }
+      return;
+    }
+    // focusNode centers, selects, and sets selectedTopic + graphState.
+    focusNode(id);
+  });
+
 </script>
 
 <div class="graph-wrapper">
@@ -277,7 +311,7 @@
 
     {#if selectedTopic}
       <div class="detail-panel">
-        <button class="close-btn" onclick={() => (selectedTopic = null)}>&times;</button>
+        <button class="close-btn" onclick={() => { selectedTopic = null; graphState.selectedNodeId = null; }}>&times;</button>
         <div class="detail-title-row">
           <h2>{selectedTopic.name}</h2>
           {#if basePath}
@@ -296,27 +330,21 @@
             {/each}
           </div>
         {/if}
-        {#if selectedTopic.nodes.length > 0}
-          <div class="section-label">References</div>
-          {#each selectedTopic.nodes as node}
-            <div class="edge-row">
-              <button class="edge-item" onclick={() => focusNode(node.loc)}>
-                <div class="edge-loc">{node.loc}</div>
-                <div class="edge-rel">{node.rel}</div>
+        {#if popupEdges.length > 0}
+          <div class="section-label">Edges</div>
+          {#each popupEdges as edge (edge.dir + ':' + edge.edgeId)}
+            <div class="edge-card">
+              <button class="edge-main" onclick={() => focusNode(edge.nodeId)} title="Focus the connected node in the graph">
+                {#if edge.label}
+                  <div class="edge-label">{edge.label}</div>
+                {/if}
+                <div class="edge-urn" title={`hrn:edge:${edge.edgeId}`}>
+                  <span class="edge-dir" title={edge.dir === 'out' ? 'outgoing edge' : 'incoming edge'}>{edge.dir === 'out' ? '→' : '←'}</span>hrn:edge:{edge.edgeId}
+                </div>
               </button>
-              <a href="{basePath}/nodes/{node.id}" class="edge-open" title="Open node page">&#8599;</a>
-            </div>
-          {/each}
-        {/if}
-        {#if incomingEdges(selectedTopic).length > 0}
-          <div class="section-label">Referenced By</div>
-          {#each incomingEdges(selectedTopic) as edge}
-            <div class="edge-row">
-              <button class="edge-item" onclick={() => focusNode(edge.from)}>
-                <div class="edge-loc">{edge.from}</div>
-                <div class="edge-rel">{edge.rel}</div>
-              </button>
-              <a href="{basePath}/nodes/{edge.from}" class="edge-open" title="Open node page">&#8599;</a>
+              {#if basePath}
+                <a href="{basePath}/nodes/{edge.nodeId}" class="open-link">Open</a>
+              {/if}
             </div>
           {/each}
         {/if}
@@ -345,13 +373,12 @@
   .section-label { font-size: 12px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 12px; margin-bottom: 6px; }
   .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
   .tag { padding: 2px 8px; background: #21262d; border-radius: 12px; font-size: 11px; color: #8b949e; }
-  .edge-row { display: flex; align-items: center; gap: 4px; margin-bottom: 6px; }
-  .edge-item { display: block; flex: 1; min-width: 0; padding: 8px; background: #0d1117; border: none; border-radius: 6px; cursor: pointer; text-align: left; color: inherit; }
-  .edge-item:hover { background: #1c2128; }
-  .edge-open { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; color: #8b949e; text-decoration: none; border-radius: 4px; font-size: 14px; }
-  .edge-open:hover { color: #58a6ff; background: #21262d; }
-  .edge-loc { font-size: 12px; font-family: monospace; color: #58a6ff; }
-  .edge-rel { font-size: 13px; color: #8b949e; margin-top: 2px; }
+  .edge-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px; margin-bottom: 6px; background: #0d1117; border-radius: 6px; }
+  .edge-main { display: block; width: 100%; min-width: 0; padding: 0; background: none; border: none; cursor: pointer; text-align: left; color: inherit; }
+  .edge-label { font-size: 13px; color: #c9d1d9; margin-bottom: 2px; }
+  .edge-urn { font-size: 12px; font-family: monospace; color: #8b949e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .edge-main:hover .edge-urn { color: #58a6ff; }
+  .edge-dir { color: #58a6ff; margin-right: 4px; }
   .close-btn { position: absolute; top: 12px; right: 12px; background: none; border: none; color: #8b949e; cursor: pointer; font-size: 18px; padding: 4px; }
   .close-btn:hover { color: #f0f6fc; }
 </style>
