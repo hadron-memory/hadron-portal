@@ -1184,6 +1184,34 @@ export const GRAPH_NODES_QUERY = /* GraphQL */ `
   }
 `;
 
+// Node CONTENT search (issue #355) — exact/substring over name+description+content,
+// scoped to a SET of memories (server `memoryIds`, hadron-server#308). Backs the
+// "Exact" toggle of the MemoryBrowser search box; powers /api/nodes/search.
+export const NODE_CONTENT_SEARCH_QUERY = /* GraphQL */ `
+  ${NODE_FIELDS}
+  query NodeContentSearch($memoryIds: [ID!], $search: String, $limit: Int) {
+    nodes(memoryIds: $memoryIds, search: $search, limit: $limit) {
+      ...NodeFields
+    }
+  }
+`;
+
+// Node SEMANTIC search (issue #355) — vector/hybrid over embedded content, scoped
+// to the same memory set. Backs the "Fuzzy" toggle. `reason`/`degraded` surface
+// no-vector-index / embedding-unavailable so the UI can nudge the user to Exact.
+export const NODE_SEMANTIC_SEARCH_QUERY = /* GraphQL */ `
+  ${NODE_FIELDS}
+  query NodeSemanticSearch($query: String!, $memoryIds: [ID!], $mode: SearchMode, $limit: Int) {
+    nodeSearch(query: $query, memoryIds: $memoryIds, mode: $mode, limit: $limit) {
+      nodes {
+        ...NodeFields
+      }
+      reason
+      degraded
+    }
+  }
+`;
+
 export const NODE_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query Node($loc: String!) {

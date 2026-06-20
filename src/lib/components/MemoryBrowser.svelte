@@ -172,10 +172,88 @@
     } catch { /* ignore */ }
   }
 
-  // Keyword search — shared with TreeView and TopicGraph via graphState
+  // ── Search (issue #355) ────────────────────────────────────────────────
+  // ONE search box, server-backed: it searches node CONTENT (+ name +
+  // description) across this page's memory set — not just the loaded rows.
+  // `keyword` is still mirrored to graphState so TreeView/TopicGraph can
+  // highlight matches. `searchMode` is the exact↔fuzzy toggle (the CLI's
+  // matchExactly): exact = substring (nodes), fuzzy = semantic (nodeSearch).
   let keyword = $state('');
+  let searchMode = $state<'exact' | 'fuzzy'>('exact');
   $effect(() => { graphState.searchFilter = keyword; });
   onDestroy(() => { graphState.searchFilter = ''; });
+
+  // The memory set to search = the distinct memories in the loaded nodes
+  // (memory page → one; agent/app → several). Empty ⇒ nothing to search.
+  // Derive a STABLE string key, not an array: `nodes` gets a new identity on
+  // every reorder/invalidate, and a fresh array reference would re-run the
+  // search effect each time even when the id set is unchanged (PR #358 review).
+  const searchMemoryIdsStr = $derived(
+    [...new Set(nodes.map((n) => n.memoryId))].sort().join(','),
+  );
+
+  // Server search results: null = not searching (show the normal browse set).
+  let serverResults = $state<MemoryNode[] | null>(null);
+  let searching = $state(false);
+  let searchError = $state<string | null>(null);
+  let searchNote = $state<string | null>(null);
+  let searchSeq = 0; // monotonic — drops out-of-order responses
+
+  async function runSearch(
+    q: string,
+    mode: 'exact' | 'fuzzy',
+    memoryIds: string[],
+    signal?: AbortSignal,
+  ) {
+    if (memoryIds.length === 0) { serverResults = []; searching = false; return; }
+    const seq = ++searchSeq;
+    searching = true;
+    searchError = null;
+    searchNote = null;
+    try {
+      const res = await fetch('/api/nodes/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q, mode, memoryIds }),
+        signal,
+      });
+      const data = await res.json();
+      if (seq !== searchSeq) return; // a newer query superseded this one
+      if (!res.ok) { searchError = data.error ?? 'Search failed'; serverResults = []; return; }
+      serverResults = data.nodes ?? [];
+      searchNote = data.note ?? null;
+    } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return; // superseded / destroyed
+      if (seq !== searchSeq) return;
+      searchError = e instanceof Error ? e.message : 'Search failed';
+      serverResults = [];
+    } finally {
+      if (seq === searchSeq) searching = false;
+    }
+  }
+
+  // Debounce typing / toggle changes into a server search; clear immediately
+  // (and cancel any in-flight response) when the box is emptied.
+  $effect(() => {
+    const q = keyword.trim();
+    const mode = searchMode;
+    const idsStr = searchMemoryIdsStr;
+    if (!q) {
+      searchSeq++;
+      serverResults = null;
+      searching = false;
+      searchError = null;
+      searchNote = null;
+      return;
+    }
+    const ids = idsStr ? idsStr.split(',') : [];
+    const controller = new AbortController();
+    const timer = setTimeout(() => runSearch(q, mode, ids, controller.signal), 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort(); // cancel an in-flight fetch on new keystroke / destroy
+    };
+  });
 
   // ── Filters ───────────────────────────────────────────────────────────
   const availableMemoryUrns = $derived([...new Set(nodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean).sort());
@@ -233,8 +311,11 @@
   // toggle); the filter is applied in searchedNodes below, which feeds
   // NodeList.
   const HIDDEN_TYPES = new Set(['record', 'system']);
+  // When a server search is active, its results ARE the working set; otherwise
+  // the loaded nodes. The memory/type/tag dropdowns refine whichever is shown.
+  const displayNodes = $derived(serverResults ?? nodes);
   const filteredNodes = $derived(
-    nodes.filter((n) => {
+    displayNodes.filter((n) => {
       if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(n.memory?.urn ?? '')) return false;
       if (activeNodeTypes.size > 0 && !activeNodeTypes.has(n.nodeType ?? 'info')) return false;
       if (activeTags.size > 0 && !(n.tags ?? []).some((t) => activeTags.has(t))) return false;
@@ -252,11 +333,12 @@
 
   const searchedNodes = $derived(
     filteredNodes.filter((n) => {
-      // Hide record + system nodes unless the user toggled them on.
+      // Hide record + system nodes unless the user toggled them on. The text
+      // match itself is now done server-side (issue #355), so there's no
+      // client-side keyword filter here — `filteredNodes` already reflects
+      // either the loaded set or the server search results.
       if (!showHidden && HIDDEN_TYPES.has(n.nodeType ?? 'info')) return false;
-      if (!keyword) return true;
-      const q = keyword.toLowerCase();
-      return n.name.toLowerCase().includes(q) || n.loc.toLowerCase().includes(q) || (n.description ?? '').toLowerCase().includes(q) || n.tags.some((t) => t.toLowerCase().includes(q));
+      return true;
     })
   );
 
@@ -468,9 +550,23 @@
       </div>
     {/if}
 
-    <!-- Search -->
-    <input type="text" placeholder="Search..." bind:value={keyword}
-      class="w-40 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+    <!-- Search (issue #355): one box, server-backed node-content search -->
+    <input type="text" placeholder="Search content…" bind:value={keyword}
+      class="w-48 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+
+    <!-- Exact ↔ Fuzzy (the CLI's matchExactly): exact = substring over
+         name/description/content; fuzzy = semantic vector/hybrid. -->
+    <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
+      title="Exact: substring match. Fuzzy: semantic search (needs a vector index).">
+      <button type="button" onclick={() => searchMode = 'exact'}
+        class="px-2.5 py-1 text-xs {searchMode === 'exact' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}">Exact</button>
+      <button type="button" onclick={() => searchMode = 'fuzzy'}
+        class="px-2.5 py-1 text-xs {searchMode === 'fuzzy' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}">Fuzzy</button>
+    </div>
+
+    {#if searching}
+      <span class="text-xs text-zinc-400">Searching…</span>
+    {/if}
 
     {#if hasActiveFilters}
       <button onclick={clearAllFilters} class="text-xs text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Clear all</button>
@@ -511,9 +607,19 @@
           >Table</button>
         </div>
       {/if}
-      <span class="text-xs text-zinc-400">{searchedNodes.length}{searchedNodes.length !== nodes.length ? ` / ${nodes.length}` : ''}</span>
+      <span class="text-xs text-zinc-400">
+        {#if serverResults !== null}{searchedNodes.length} result{searchedNodes.length === 1 ? '' : 's'}{:else}{searchedNodes.length}{searchedNodes.length !== nodes.length ? ` / ${nodes.length}` : ''}{/if}
+      </span>
     </div>
   </div>
+
+  <!-- Search status: server error (red) or a degrade note (amber, e.g. fuzzy
+       with no vector index → "try Exact"). -->
+  {#if serverResults !== null && (searchError || searchNote)}
+    <div class="text-xs {searchError ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}">
+      {searchError ?? searchNote}
+    </div>
+  {/if}
 
   <!-- Main area. Shared height is a CSS variable so the scrolling panes inherit
        one value (NodeList reads --memory-browser-h to bound its own scroll).
@@ -571,7 +677,10 @@
         </div>
       {:else}
         <div class="p-4">
-          <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} />
+          <!-- hideSearch: the single search box lives in MemoryBrowser now
+               (issue #355 — was two boxes); NodeList's own box would be the
+               redundant second field. -->
+          <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} />
         </div>
       {/if}
     </div>
