@@ -205,6 +205,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(ADD_MEMORY_TO_AGENT_MUTATION, {
         agentId: params.id, memoryId, role,
       });
+      return { success: true };
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to add memory') });
     }
@@ -218,6 +219,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(UPDATE_AGENT_MEMORY_ROLE_MUTATION, {
         agentId: params.id, memoryId, role,
       });
+      return { success: true };
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to update memory role') });
     }
@@ -230,6 +232,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(REMOVE_MEMORY_FROM_AGENT_MUTATION, {
         agentId: params.id, memoryId,
       });
+      return { success: true };
     } catch (e: unknown) {
       return fail(500, { error: extractGqlError(e, 'Failed to remove memory') });
     }

@@ -415,9 +415,9 @@
               </div>
               <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
                 <input type="hidden" name="memoryId" value={item.memory.id} />
-                <select name="role" onchange={(e) => (e.target as HTMLSelectElement).form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs font-medium {item.role === 'read-write' ? '[border-color:rgb(134,239,172)] [background-color:rgb(240,253,244)] [color:rgb(21,128,61)] dark:[border-color:rgb(22,101,52)] dark:[background-color:rgb(20,83,45)] dark:[color:rgb(134,239,172)]' : '[border-color:rgb(252,211,77)] [background-color:rgb(255,251,235)] [color:rgb(180,83,9)] dark:[border-color:rgb(120,53,15)] dark:[background-color:rgb(69,26,3)] dark:[color:rgb(252,211,77)]'}">
-                  <option value="read" selected={item.role === 'read'}>read</option>
-                  <option value="read-write" selected={item.role === 'read-write'}>read-write</option>
+                <select name="role" value={item.role} onchange={(e) => e.currentTarget.form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs font-medium {item.role === 'read-write' ? '[border-color:rgb(134,239,172)] [background-color:rgb(240,253,244)] [color:rgb(21,128,61)] dark:[border-color:rgb(22,101,52)] dark:[background-color:rgb(20,83,45)] dark:[color:rgb(134,239,172)]' : '[border-color:rgb(252,211,77)] [background-color:rgb(255,251,235)] [color:rgb(180,83,9)] dark:[border-color:rgb(120,53,15)] dark:[background-color:rgb(69,26,3)] dark:[color:rgb(252,211,77)]'}">
+                  <option value="read">read</option>
+                  <option value="read-write">read-write</option>
                 </select>
               </form>
               <form method="POST" action="?/removeMemory" use:enhance>
@@ -437,6 +437,7 @@
           <div class="flex-1 max-w-md">
             <label for="addMemory" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
             <select id="addMemory" name="memoryId" bind:value={selectedAddMemoryId} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <option value="" disabled>— Select a memory —</option>
               {#each availableMemories as m (m.id)}
                 <option value={m.id}>{m.name} ({m.urn}){#if m.orgName && m.orgName !== org.name} — {m.orgName}{/if}</option>
               {/each}
@@ -449,7 +450,7 @@
               <option value="read-write">Read/Write</option>
             </select>
           </div>
-          <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">Add</button>
+          <button type="submit" disabled={!selectedAddMemoryId} class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50">Add</button>
           </div>
           {#if addMemoryWarning}
             <p class="text-xs text-amber-600 dark:text-amber-400">{addMemoryWarning}</p>
@@ -694,18 +695,18 @@
             </div>
             <div>
               <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
-              <select id="editVisibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="PERSONAL" selected={agent.visibility === 'PERSONAL'}>Personal</option>
-                <option value="ORGANIZATION" selected={agent.visibility === 'ORGANIZATION'}>Organization</option>
-                <option value="PUBLIC" selected={agent.visibility === 'PUBLIC'}>Public</option>
+              <select id="editVisibility" name="visibility" value={agent.visibility} class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="PERSONAL">Personal</option>
+                <option value="ORGANIZATION">Organization</option>
+                <option value="PUBLIC">Public</option>
               </select>
             </div>
             <div>
               <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Memory <span class="text-zinc-500">(for chatbot conversations)</span></label>
-              <select id="editSystemMemoryId" name="systemMemoryId" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <select id="editSystemMemoryId" name="systemMemoryId" value={agent.systemMemoryId ?? ''} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                 <option value="">— None —</option>
                 {#each orgSystemMemories as sm}
-                  <option value={sm.id} selected={agent.systemMemoryId === sm.id}>{sm.name} ({sm.urn})</option>
+                  <option value={sm.id}>{sm.name} ({sm.urn})</option>
                 {/each}
               </select>
               <p class="mt-1 text-xs text-zinc-400">Memory containing conversation designs, stages, and prompt templates.</p>
