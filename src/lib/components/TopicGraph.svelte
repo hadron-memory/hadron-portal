@@ -287,7 +287,13 @@
   $effect(() => {
     const id = graphState.selectedNodeId;
     if (!graphReady || !network) return;
-    if (id === (selectedTopic?.id ?? null)) return;
+    // Skip only when an actually-selected node already matches (a direct graph
+    // click sets selectedTopic itself, so we don't recenter it). The `id !==
+    // null` guard is load-bearing: when id is null we must fall through to
+    // clear + unselectAll — closing via × sets both id and selectedTopic null,
+    // and coercing the undefined `selectedTopic?.id` to null would wrongly
+    // short-circuit, leaving the node highlighted on the canvas (#351 review).
+    if (id !== null && id === selectedTopic?.id) return;
     if (id == null) {
       selectedTopic = null;
       try { network.unselectAll(); } catch { /* network torn down */ }
