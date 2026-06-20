@@ -25,6 +25,7 @@
     orderable = false,
     onreorder,
     listKey,
+    hideSearch = false,
   }: {
     nodes: MemoryNode[];
     basePath?: string;
@@ -33,6 +34,8 @@
     onreorder?: (orderedLocs: string[]) => void;
     /** When set (and not orderable), renders the saved-views picker. */
     listKey?: string;
+    /** Hide the built-in search box (the owner provides search — issue #355). */
+    hideSearch?: boolean;
   } = $props();
 
   function nodeHref(node: MemoryNode): string {
@@ -184,14 +187,16 @@
     <ViewTabs {table} {listKey} />
   {/if}
   <div class="flex items-center gap-4">
-    <input
-      type="text"
-      placeholder="Search nodes..."
-      bind:value={globalFilter}
-      class="max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
-    />
+    {#if !hideSearch}
+      <input
+        type="text"
+        placeholder="Search nodes..."
+        bind:value={globalFilter}
+        class="max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+      />
+    {/if}
     {#if !orderable}
-      <ColumnToggle {table} />
+      <div class={hideSearch ? 'ml-auto' : ''}><ColumnToggle {table} /></div>
     {/if}
   </div>
 
