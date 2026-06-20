@@ -183,9 +183,14 @@
   $effect(() => { graphState.searchFilter = keyword; });
   onDestroy(() => { graphState.searchFilter = ''; });
 
-  // The memory set to search = the distinct memories present in the loaded
-  // nodes (memory page → one; agent/app → several). Empty ⇒ nothing to search.
-  const searchMemoryIds = $derived([...new Set(nodes.map((n) => n.memoryId))]);
+  // The memory set to search = the distinct memories in the loaded nodes
+  // (memory page → one; agent/app → several). Empty ⇒ nothing to search.
+  // Derive a STABLE string key, not an array: `nodes` gets a new identity on
+  // every reorder/invalidate, and a fresh array reference would re-run the
+  // search effect each time even when the id set is unchanged (PR #358 review).
+  const searchMemoryIdsStr = $derived(
+    [...new Set(nodes.map((n) => n.memoryId))].sort().join(','),
+  );
 
   // Server search results: null = not searching (show the normal browse set).
   let serverResults = $state<MemoryNode[] | null>(null);
@@ -194,7 +199,12 @@
   let searchNote = $state<string | null>(null);
   let searchSeq = 0; // monotonic — drops out-of-order responses
 
-  async function runSearch(q: string, mode: 'exact' | 'fuzzy', memoryIds: string[]) {
+  async function runSearch(
+    q: string,
+    mode: 'exact' | 'fuzzy',
+    memoryIds: string[],
+    signal?: AbortSignal,
+  ) {
     if (memoryIds.length === 0) { serverResults = []; searching = false; return; }
     const seq = ++searchSeq;
     searching = true;
@@ -205,6 +215,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: q, mode, memoryIds }),
+        signal,
       });
       const data = await res.json();
       if (seq !== searchSeq) return; // a newer query superseded this one
@@ -212,6 +223,7 @@
       serverResults = data.nodes ?? [];
       searchNote = data.note ?? null;
     } catch (e) {
+      if (e instanceof Error && e.name === 'AbortError') return; // superseded / destroyed
       if (seq !== searchSeq) return;
       searchError = e instanceof Error ? e.message : 'Search failed';
       serverResults = [];
@@ -225,7 +237,7 @@
   $effect(() => {
     const q = keyword.trim();
     const mode = searchMode;
-    const ids = searchMemoryIds;
+    const idsStr = searchMemoryIdsStr;
     if (!q) {
       searchSeq++;
       serverResults = null;
@@ -234,8 +246,13 @@
       searchNote = null;
       return;
     }
-    const timer = setTimeout(() => runSearch(q, mode, ids), 300);
-    return () => clearTimeout(timer);
+    const ids = idsStr ? idsStr.split(',') : [];
+    const controller = new AbortController();
+    const timer = setTimeout(() => runSearch(q, mode, ids, controller.signal), 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort(); // cancel an in-flight fetch on new keystroke / destroy
+    };
   });
 
   // ── Filters ───────────────────────────────────────────────────────────

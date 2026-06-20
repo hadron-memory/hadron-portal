@@ -43,7 +43,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     });
     return json({ nodes: data.nodes ?? [] });
   } catch (e: unknown) {
-    return json({ error: e instanceof Error ? e.message : 'Search failed' }, { status: 500 });
+    // Log detail server-side; return a generic message so GraphQL/DB internals
+    // (query shapes, schema, server state) aren't leaked to the client (PR #358
+    // review — security).
+    console.error('[/api/nodes/search] failed:', e);
+    return json({ error: 'Search failed' }, { status: 500 });
   }
 };
 
