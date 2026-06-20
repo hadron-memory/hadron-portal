@@ -285,96 +285,42 @@
   {#if activeTab === 'profile'}
     <div class="space-y-8">
 
-      <!-- Agent settings -->
+      <!-- Agent info (read-only). #352 follow-up: Profile is an info-only tab;
+           the editable agent form lives on the Settings tab. -->
       <section class="max-w-lg">
-        <div class="mb-4 flex items-center justify-between">
-          <h2 class="font-semibold text-zinc-900 dark:text-white">Agent</h2>
-          {#if !isEditing}
-            <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
-          {/if}
-        </div>
-
-        {#if isEditing}
-          <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
-            class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
-            <div>
-              <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-              <input id="editName" name="name" type="text" required value={agent.name} class={inputClass} />
-            </div>
-            <div>
-              <label for="editUrn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
-              <div class="flex items-stretch">
-                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
-                <input id="editUrn" name="urnSlug" type="text" required value={urnSlug(agent.urn)}
-                  class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-              </div>
-            </div>
-            <div>
-              <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-              <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" class={inputClass}>{agent.description ?? ''}</textarea>
-            </div>
-            <div>
-              <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent" class={inputClass}>{agent.systemPrompt ?? ''}</textarea>
-              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
-            </div>
-            <div>
-              <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
-              <select id="editVisibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="PERSONAL" selected={agent.visibility === 'PERSONAL'}>Personal</option>
-                <option value="ORGANIZATION" selected={agent.visibility === 'ORGANIZATION'}>Organization</option>
-                <option value="PUBLIC" selected={agent.visibility === 'PUBLIC'}>Public</option>
-              </select>
-            </div>
-            <div>
-              <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Memory <span class="text-zinc-500">(for chatbot conversations)</span></label>
-              <select id="editSystemMemoryId" name="systemMemoryId" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="">— None —</option>
-                {#each orgSystemMemories as sm}
-                  <option value={sm.id} selected={agent.systemMemoryId === sm.id}>{sm.name} ({sm.urn})</option>
-                {/each}
-              </select>
-              <p class="mt-1 text-xs text-zinc-400">Memory containing conversation designs, stages, and prompt templates.</p>
-            </div>
-            <div class="flex gap-3">
-              <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
-              <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
-            </div>
-          </form>
-        {:else}
-          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Visibility</span>
-              <span class="text-sm font-medium text-zinc-900 dark:text-white">{visibilityLabel[agent.visibility]}</span>
-            </div>
-            {#if agent.description}
-              <div class="px-5 py-3">
-                <span class="text-sm text-zinc-500">Description</span>
-                <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
-              </div>
-            {/if}
-            {#if agent.systemPrompt}
-              <div class="px-5 py-3">
-                <span class="text-sm text-zinc-500">System Prompt</span>
-                <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
-              </div>
-            {/if}
-            {#if agent.systemMemoryId}
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">System Memory</span>
-                <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
-              </div>
-            {/if}
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Organization</span>
-              <span class="text-sm text-zinc-900 dark:text-white">{org.name}</span>
-            </div>
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Created</span>
-              <span class="text-sm text-zinc-900 dark:text-white">{new Date(agent.createdAt).toLocaleDateString()}</span>
-            </div>
+        <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Agent</h2>
+        <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+          <div class="flex items-center justify-between px-5 py-3">
+            <span class="text-sm text-zinc-500">Visibility</span>
+            <span class="text-sm font-medium text-zinc-900 dark:text-white">{visibilityLabel[agent.visibility]}</span>
           </div>
-        {/if}
+          {#if agent.description}
+            <div class="px-5 py-3">
+              <span class="text-sm text-zinc-500">Description</span>
+              <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
+            </div>
+          {/if}
+          {#if agent.systemPrompt}
+            <div class="px-5 py-3">
+              <span class="text-sm text-zinc-500">System Prompt</span>
+              <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
+            </div>
+          {/if}
+          {#if agent.systemMemoryId}
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">System Memory</span>
+              <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
+            </div>
+          {/if}
+          <div class="flex items-center justify-between px-5 py-3">
+            <span class="text-sm text-zinc-500">Organization</span>
+            <span class="text-sm text-zinc-900 dark:text-white">{org.name}</span>
+          </div>
+          <div class="flex items-center justify-between px-5 py-3">
+            <span class="text-sm text-zinc-500">Created</span>
+            <span class="text-sm text-zinc-900 dark:text-white">{new Date(agent.createdAt).toLocaleDateString()}</span>
+          </div>
+        </div>
       </section>
 
       <!-- Capabilities — removed per FR-013 (spec 006-asset-upload-redesign).
@@ -712,6 +658,99 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
     <div class="space-y-8">
+      <!-- Agent settings (editable). #352 follow-up: the editable agent form
+           lives here; the Profile tab shows the same info read-only. -->
+      <section class="max-w-lg">
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="font-semibold text-zinc-900 dark:text-white">Agent</h2>
+          {#if !isEditing}
+            <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+          {/if}
+        </div>
+
+        {#if isEditing}
+          <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
+            class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+            <div>
+              <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
+              <input id="editName" name="name" type="text" required value={agent.name} class={inputClass} />
+            </div>
+            <div>
+              <label for="editUrn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
+              <div class="flex items-stretch">
+                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+                <input id="editUrn" name="urnSlug" type="text" required value={urnSlug(agent.urn)}
+                  class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+              </div>
+            </div>
+            <div>
+              <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
+              <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" class={inputClass}>{agent.description ?? ''}</textarea>
+            </div>
+            <div>
+              <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
+              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent" class={inputClass}>{agent.systemPrompt ?? ''}</textarea>
+              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
+            </div>
+            <div>
+              <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
+              <select id="editVisibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="PERSONAL" selected={agent.visibility === 'PERSONAL'}>Personal</option>
+                <option value="ORGANIZATION" selected={agent.visibility === 'ORGANIZATION'}>Organization</option>
+                <option value="PUBLIC" selected={agent.visibility === 'PUBLIC'}>Public</option>
+              </select>
+            </div>
+            <div>
+              <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Memory <span class="text-zinc-500">(for chatbot conversations)</span></label>
+              <select id="editSystemMemoryId" name="systemMemoryId" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="">— None —</option>
+                {#each orgSystemMemories as sm}
+                  <option value={sm.id} selected={agent.systemMemoryId === sm.id}>{sm.name} ({sm.urn})</option>
+                {/each}
+              </select>
+              <p class="mt-1 text-xs text-zinc-400">Memory containing conversation designs, stages, and prompt templates.</p>
+            </div>
+            <div class="flex gap-3">
+              <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
+              <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
+            </div>
+          </form>
+        {:else}
+          <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Visibility</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{visibilityLabel[agent.visibility]}</span>
+            </div>
+            {#if agent.description}
+              <div class="px-5 py-3">
+                <span class="text-sm text-zinc-500">Description</span>
+                <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
+              </div>
+            {/if}
+            {#if agent.systemPrompt}
+              <div class="px-5 py-3">
+                <span class="text-sm text-zinc-500">System Prompt</span>
+                <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
+              </div>
+            {/if}
+            {#if agent.systemMemoryId}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">System Memory</span>
+                <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
+              </div>
+            {/if}
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Organization</span>
+              <span class="text-sm text-zinc-900 dark:text-white">{org.name}</span>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Created</span>
+              <span class="text-sm text-zinc-900 dark:text-white">{new Date(agent.createdAt).toLocaleDateString()}</span>
+            </div>
+          </div>
+        {/if}
+      </section>
+
       <!-- Danger zone -->
       <section class="max-w-lg">
         <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
