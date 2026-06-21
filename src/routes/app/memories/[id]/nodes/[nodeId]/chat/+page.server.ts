@@ -57,7 +57,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     messages: children.map((msg) => ({
       id: msg.id,
       name: msg.name || 'Unknown',
-      content: msg.content || '',
+      // Message content can be in node.content or in node.data.body
+      content: msg.content || (msg.data as Record<string, unknown>)?.body || '',
       createdAt: msg.createdAt,
     })),
   };
@@ -96,8 +97,8 @@ export const actions: Actions = {
           memoryId: params.id,
           loc: messageLoc,
           name: user.email || 'Anonymous',
-          content,
-          nodeType: 'info',
+          nodeType: 'message',
+          data: { body: content },
         },
       });
 
