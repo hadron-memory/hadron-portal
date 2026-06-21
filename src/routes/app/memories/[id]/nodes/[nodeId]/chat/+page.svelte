@@ -53,6 +53,7 @@
   let sending = $state(false);
   let messagesEl: HTMLDivElement | null = $state(null);
   let error = $state<string | null>(null);
+  let hoveredMessageId = $state<string | null>(null);
 
   function renderMarkdown(text: string): string {
     const raw = marked.parse(text, { async: false }) as string;
@@ -161,7 +162,12 @@
     {:else}
       {#each messages as msg, idx (msg.id)}
         {@const color = getSenderColorClass(msg.author ?? 'Unknown')}
-        <div class="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+        {@const msgUrn = `${data.graph?.urn}::${msg.nodeData?.loc || ''}`}
+        <div
+          class="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300 group"
+          onmouseenter={() => hoveredMessageId = msg.id}
+          onmouseleave={() => hoveredMessageId = null}
+        >
           <!-- Avatar -->
           <div class="flex-shrink-0 w-8 h-8 rounded-full {color.avatar} flex items-center justify-center flex-shrink-0 mt-1">
             <span class="text-xs font-semibold {color.avatar_text}">
@@ -171,33 +177,31 @@
 
           <!-- Message column -->
           <div class="flex-1">
+            <!-- URN on hover, above bubble, right-aligned -->
+            {#if hoveredMessageId === msg.id && msgUrn}
+              <div class="flex justify-end mb-2 animate-in fade-in duration-200">
+                <div class="max-w-xs">
+                  <Urn value={msgUrn} type="node" />
+                </div>
+              </div>
+            {/if}
+
             <!-- Author and bubble -->
             <div>
               <div class="text-sm font-semibold text-zinc-900 dark:text-white mb-1">
                 {msg.author || 'Unknown'}
               </div>
-              <div class="rounded-lg bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 px-4 py-3 text-zinc-900 dark:text-zinc-100 shadow-sm">
+              <div class="rounded-lg bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 px-4 py-3 text-zinc-900 dark:text-zinc-100 shadow-md">
                 <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>blockquote]:my-2">
                   {@html renderMarkdown(msg.content)}
                 </div>
               </div>
             </div>
 
-            <!-- URN and timestamp below bubble, right-aligned -->
-            <div class="flex justify-end gap-3 mt-2">
-              <div class="text-right">
-                <div class="text-xs text-zinc-500">
-                  {new Date(msg.createdAt).toLocaleTimeString()}
-                </div>
-                {#if msg.nodeData?.loc}
-                  <a
-                    href="{basePath}/nodes/{msg.id}"
-                    class="text-xs text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline inline-block mt-1"
-                    title="Go to message node"
-                  >
-                    <span class="font-mono text-[10px]">{msg.nodeData.loc.split(':').pop()}</span>
-                  </a>
-                {/if}
+            <!-- Timestamp below bubble, right-aligned -->
+            <div class="flex justify-end mt-2">
+              <div class="text-xs text-zinc-500">
+                {new Date(msg.createdAt).toLocaleTimeString()}
               </div>
             </div>
           </div>
@@ -230,7 +234,7 @@
           placeholder="Type your message... (Ctrl+Enter to send)"
           rows="3"
           disabled={sending}
-          on:keydown={handleKeydown}
+          onkeydown={handleKeydown}
           class="flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         ></textarea>
         <button
