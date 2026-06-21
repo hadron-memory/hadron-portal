@@ -54,14 +54,17 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   return {
     node,
     fullUrn,
-    messages: children.map((msg) => ({
-      id: msg.id,
-      name: msg.name || 'Unknown',
-      // Message content can be in node.content or in node.data.body
-      content: msg.content || (msg.data as Record<string, unknown>)?.body || '',
-      createdAt: msg.createdAt,
-      nodeData: { loc: msg.loc },
-    })),
+    messages: children.map((msg) => {
+      const msgData = msg.data as Record<string, unknown> | null;
+      return {
+        id: msg.id,
+        name: msg.name || 'Unknown',
+        author: (msgData?.author as string) || msg.name || 'Unknown',
+        content: msg.content || (msgData?.body as string) || '',
+        createdAt: msg.createdAt,
+        nodeData: { loc: msg.loc },
+      };
+    }),
   };
 };
 

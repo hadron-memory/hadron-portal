@@ -149,7 +149,7 @@
   <!-- Messages area -->
   <div
     bind:this={messagesEl}
-    class="flex-1 overflow-y-auto px-6 py-4 space-y-4 bg-gray-50 dark:bg-zinc-900"
+    class="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-gray-50 dark:bg-zinc-900"
   >
     {#if messages.length === 0}
       <div class="flex items-center justify-center h-full text-center">
@@ -160,34 +160,44 @@
       </div>
     {:else}
       {#each messages as msg, idx (msg.id)}
-        {@const color = getSenderColorClass(msg.name ?? 'Unknown')}
+        {@const color = getSenderColorClass(msg.author ?? 'Unknown')}
         <div class="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <!-- Avatar -->
           <div class="flex-shrink-0 w-8 h-8 rounded-full {color.avatar} flex items-center justify-center flex-shrink-0 mt-1">
             <span class="text-xs font-semibold {color.avatar_text}">
-              {msg.name.charAt(0).toUpperCase()}
+              {(msg.author ?? 'A').charAt(0).toUpperCase()}
             </span>
           </div>
 
-          <!-- Message bubble -->
-          <div class="flex-1 max-w-2xl">
-            <div class="mb-2">
-              <a
-                href="{basePath}/nodes/{msg.id}"
-                class="font-semibold text-sm text-zinc-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline"
-              >
-                {msg.name}
-              </a>
-              <div class="text-xs text-zinc-500 font-mono mt-0.5">
-                {msg.nodeData?.loc || msg.id}
+          <!-- Message column -->
+          <div class="flex-1">
+            <!-- Author and bubble -->
+            <div>
+              <div class="text-sm font-semibold text-zinc-900 dark:text-white mb-1">
+                {msg.author || 'Unknown'}
               </div>
-              <div class="text-xs text-zinc-400 mt-1">
-                {new Date(msg.createdAt).toLocaleString()}
+              <div class="rounded-lg bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 px-4 py-3 text-zinc-900 dark:text-zinc-100 shadow-sm">
+                <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>blockquote]:my-2">
+                  {@html renderMarkdown(msg.content)}
+                </div>
               </div>
             </div>
-            <div class="rounded-lg bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 px-4 py-3 text-zinc-900 dark:text-zinc-100">
-              <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>blockquote]:my-2">
-                {@html renderMarkdown(msg.content)}
+
+            <!-- URN and timestamp below bubble, right-aligned -->
+            <div class="flex justify-end gap-3 mt-2">
+              <div class="text-right">
+                <div class="text-xs text-zinc-500">
+                  {new Date(msg.createdAt).toLocaleTimeString()}
+                </div>
+                {#if msg.nodeData?.loc}
+                  <a
+                    href="{basePath}/nodes/{msg.id}"
+                    class="text-xs text-zinc-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline inline-block mt-1"
+                    title="Go to message node"
+                  >
+                    <span class="font-mono text-[10px]">{msg.nodeData.loc.split(':').pop()}</span>
+                  </a>
+                {/if}
               </div>
             </div>
           </div>
