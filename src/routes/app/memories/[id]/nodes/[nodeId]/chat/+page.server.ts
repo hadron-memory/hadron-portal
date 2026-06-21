@@ -25,8 +25,10 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
   }
 
-  // Load children as messages (should be ordered by seq or createdAt)
-  const children = (parentData.graphNodes ?? [])
+  // Load children as messages — filter from graphNodes which should have all nodes in this memory.
+  // If graphNodes is missing/empty, fall back to empty array (happens if the parent layout
+  // hasn't loaded the full graph yet, or on network issues).
+  let children = (parentData.graphNodes ?? [])
     .filter((n) => {
       if (n.loc === node.loc) return false;
       if (!n.loc.startsWith(node.loc + ':')) return false;
@@ -38,6 +40,14 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       const timeB = new Date(b.createdAt).getTime();
       return timeA - timeB;
     });
+
+  // Debug: if no children found, log to understand the issue
+  if (children.length === 0 && (parentData.graphNodes ?? []).length > 0) {
+    console.log(`[chat] No children found for ${node.loc}`, {
+      graphNodesCount: (parentData.graphNodes ?? []).length,
+      sampleLocs: (parentData.graphNodes ?? []).slice(0, 3).map(n => n.loc),
+    });
+  }
 
   // Compute fullUrn like the node detail page does
   let fullUrn = node.loc;
