@@ -14,6 +14,39 @@
   const basePath = $derived(`/app/memories/${data.graph.id}`);
   const memoriesHref = $derived(data.org ? `/app/orgs/${data.org.id}/memories` : undefined);
 
+  // Build breadcrumb from node loc segments
+  const breadcrumbItems = $derived.by(() => {
+    const items = [
+      { label: 'Memories', href: memoriesHref },
+      { label: data.graph.name, href: basePath },
+      { label: 'Nodes', href: `${basePath}/nodes` },
+    ];
+
+    // Add clickable parent nodes from the loc hierarchy
+    const parts = node.loc.split(':');
+    for (let i = 1; i < parts.length; i++) {
+      const parentLoc = parts.slice(0, i).join(':');
+      const parentNode = (data.graphNodes ?? []).find((n) => n.loc === parentLoc);
+      if (parentNode) {
+        items.push({
+          label: parentNode.name,
+          href: `${basePath}/nodes/${parentNode.id}`,
+        });
+      }
+    }
+
+    // Add the chat node itself (clickable to detail page)
+    items.push({
+      label: node.name,
+      href: `${basePath}/nodes/${node.id}`,
+    });
+
+    // Add the chat view (not clickable)
+    items.push({ label: 'Chat' });
+
+    return items;
+  });
+
   let input = $state('');
   let sending = $state(false);
   let messagesEl: HTMLDivElement | null = $state(null);
@@ -76,13 +109,7 @@
 <div class="flex flex-col h-screen bg-white dark:bg-zinc-950">
   <!-- Header -->
   <div class="border-b border-zinc-200 dark:border-zinc-800 px-6 py-4">
-    <Breadcrumb items={[
-      { label: 'Memories', href: memoriesHref },
-      { label: data.graph.name, href: basePath },
-      { label: 'Nodes', href: `${basePath}/nodes` },
-      { label: node.name },
-      { label: 'Chat' },
-    ]} />
+    <Breadcrumb items={breadcrumbItems} />
     <div class="mt-4 flex items-start justify-between">
       <div>
         <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{node.name}</h1>
