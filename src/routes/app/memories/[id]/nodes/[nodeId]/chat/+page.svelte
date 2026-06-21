@@ -182,11 +182,13 @@
               <div class="text-sm font-semibold text-zinc-900 dark:text-white">
                 {msg.author || 'Unknown'}
               </div>
-              {#if hoveredMessageId === msg.id && msgUrn}
-                <div class="animate-in fade-in duration-200 flex-shrink-0">
-                  <Urn value={msgUrn} type="node" />
-                </div>
-              {/if}
+              <a
+                href="{basePath}/nodes/{msg.id}"
+                class="flex-shrink-0 transition-opacity duration-300 {hoveredMessageId === msg.id ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}"
+                title="Go to message node"
+              >
+                <Urn value={msgUrn} type="node" />
+              </a>
             </div>
 
             <!-- Bubble -->
