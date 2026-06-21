@@ -25,28 +25,22 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
   }
 
-  // Find the `messages` child node under the chat node
-  const messagesNode = (parentData.graphNodes ?? []).find(
-    (n) => n.loc === `${node.loc}:messages`
-  );
+  // Load children as messages. Messages are stored at: {chat.loc}:messages:{id}
+  // This allows other content (attachments, etc) under the chat without collision.
+  const messagesPrefix = `${node.loc}:messages:`;
 
-  // Load children as messages — get direct children of the messages node.
-  // Messages are stored under a dedicated `messages` parent for organization
-  // (allows other content like attachments under the chat node).
-  let children = messagesNode
-    ? (parentData.graphNodes ?? [])
-        .filter((n) => {
-          if (n.loc === messagesNode.loc) return false;
-          if (!n.loc.startsWith(messagesNode.loc + ':')) return false;
-          const rest = n.loc.slice(messagesNode.loc.length + 1);
-          return !rest.includes(':');
-        })
-        .sort((a, b) => {
-          const timeA = new Date(a.createdAt).getTime();
-          const timeB = new Date(b.createdAt).getTime();
-          return timeA - timeB;
-        })
-    : [];
+  let children = (parentData.graphNodes ?? [])
+    .filter((n) => {
+      if (!n.loc.startsWith(messagesPrefix)) return false;
+      // Only include direct message children (no further nesting)
+      const rest = n.loc.slice(messagesPrefix.length);
+      return !rest.includes(':');
+    })
+    .sort((a, b) => {
+      const timeA = new Date(a.createdAt).getTime();
+      const timeB = new Date(b.createdAt).getTime();
+      return timeA - timeB;
+    });
 
   // Compute fullUrn like the node detail page does
   let fullUrn = node.loc;
@@ -87,26 +81,13 @@ export const actions: Actions = {
       const user = locals.user;
       if (!user) return fail(401, { error: 'Not authenticated' });
 
-      // Ensure the messages parent node exists
-      const messagesLoc = `${nodeById.loc}:messages`;
-      await gqlClient(locals.token).request<{
-        upsertNode: MemoryNode;
-      }>(UPSERT_NODE_MUTATION, {
-        input: {
-          memoryId: params.id,
-          loc: messagesLoc,
-          name: 'messages',
-          nodeType: 'info',
-        },
-      });
-
-      // Create a new message node under the messages parent
+      // Create a new message node at: {chat.loc}:messages:{timestamp}-{sender}
       // Use ISO timestamp for consistent, sortable message IDs
       const now = new Date();
-      const timestamp = now.toISOString().replace(/[:.]/g, '').slice(0, -1); // e.g., 20260621T223100Z
+      const timestamp = now.toISOString().replace(/[:.]/g, '').slice(0, -1); // e.g., 2026-06-21T223100Z
       const senderInitial = user.email?.split('@')[0] || 'anon';
       const messageId = `${timestamp}-${senderInitial}`;
-      const messageLoc = `${messagesLoc}:${messageId}`;
+      const messageLoc = `${nodeById.loc}:messages:${messageId}`;
 
       const { upsertNode } = await gqlClient(locals.token).request<{
         upsertNode: MemoryNode;
