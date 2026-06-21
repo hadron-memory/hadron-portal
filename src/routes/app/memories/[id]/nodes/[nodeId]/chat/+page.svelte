@@ -101,22 +101,13 @@
     }
   }
 
-  // Color rotation for different senders
-  const senderColors: Record<string, { bg: string; border: string; text: string }> = {
-    default: {
-      bg: 'bg-indigo-50 dark:bg-indigo-950',
-      border: 'border-indigo-200 dark:border-indigo-800',
-      text: 'text-indigo-900 dark:text-indigo-100',
-    },
-  };
-
+  // Professional avatar colors for different senders
   function getSenderColor(index: number) {
     const colors = [
-      { bg: 'bg-blue-50 dark:bg-blue-950', border: 'border-blue-200 dark:border-blue-800', text: 'text-blue-900 dark:text-blue-100' },
-      { bg: 'bg-purple-50 dark:bg-purple-950', border: 'border-purple-200 dark:border-purple-800', text: 'text-purple-900 dark:text-purple-100' },
-      { bg: 'bg-emerald-50 dark:bg-emerald-950', border: 'border-emerald-200 dark:border-emerald-800', text: 'text-emerald-900 dark:text-emerald-100' },
-      { bg: 'bg-amber-50 dark:bg-amber-950', border: 'border-amber-200 dark:border-amber-800', text: 'text-amber-900 dark:text-amber-100' },
-      { bg: 'bg-rose-50 dark:bg-rose-950', border: 'border-rose-200 dark:border-rose-800', text: 'text-rose-900 dark:text-rose-100' },
+      { avatar: 'bg-slate-400 dark:bg-slate-500', avatar_text: 'text-white dark:text-white' },
+      { avatar: 'bg-slate-500 dark:bg-slate-600', avatar_text: 'text-white dark:text-white' },
+      { avatar: 'bg-slate-600 dark:bg-slate-700', avatar_text: 'text-white dark:text-white' },
+      { avatar: 'bg-slate-700 dark:bg-slate-800', avatar_text: 'text-white dark:text-white' },
     ];
     return colors[index % colors.length];
   }
@@ -156,7 +147,7 @@
   <!-- Messages area -->
   <div
     bind:this={messagesEl}
-    class="flex-1 overflow-y-auto px-6 py-4 space-y-4"
+    class="flex-1 overflow-y-auto px-6 py-4 space-y-4 bg-gray-50 dark:bg-zinc-900"
   >
     {#if messages.length === 0}
       <div class="flex items-center justify-center h-full text-center">
@@ -168,24 +159,33 @@
     {:else}
       {#each messages as msg, idx (msg.id)}
         {@const color = getSenderColorClass(msg.name)}
+        {@const msgUrn = `${data.graph.urn}::${msg.nodeData?.loc || ''}`}
         <div class="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <!-- Avatar -->
-          <div class="flex-shrink-0 w-8 h-8 rounded-full {color.bg} {color.border} border flex items-center justify-center">
-            <span class="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+          <div class="flex-shrink-0 w-8 h-8 rounded-full {color.avatar} flex items-center justify-center flex-shrink-0 mt-1">
+            <span class="text-xs font-semibold {color.avatar_text}">
               {msg.name.charAt(0).toUpperCase()}
             </span>
           </div>
 
           <!-- Message bubble -->
           <div class="flex-1 max-w-2xl">
-            <div class="flex items-baseline gap-2 mb-1">
-              <span class="font-semibold text-sm text-zinc-900 dark:text-white">{msg.name}</span>
-              <span class="text-xs text-zinc-500">
-                {new Date(msg.createdAt).toLocaleTimeString()}
-              </span>
+            <div class="mb-2">
+              <a
+                href="{basePath}/nodes/{msg.id}"
+                class="font-semibold text-sm text-zinc-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline"
+              >
+                {msg.name}
+              </a>
+              <div class="text-xs text-zinc-500 font-mono mt-0.5">
+                {msg.nodeData?.loc || msg.id}
+              </div>
+              <div class="text-xs text-zinc-400 mt-1">
+                {new Date(msg.createdAt).toLocaleString()}
+              </div>
             </div>
-            <div class="rounded-lg {color.bg} {color.border} border px-4 py-3 {color.text}">
-              <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1">
+            <div class="rounded-lg bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 px-4 py-3 text-zinc-900 dark:text-zinc-100">
+              <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>blockquote]:my-2">
                 {@html renderMarkdown(msg.content)}
               </div>
             </div>

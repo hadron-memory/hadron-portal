@@ -60,6 +60,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       // Message content can be in node.content or in node.data.body
       content: msg.content || (msg.data as Record<string, unknown>)?.body || '',
       createdAt: msg.createdAt,
+      nodeData: { loc: msg.loc },
     })),
   };
 };
