@@ -100,6 +100,35 @@
       handleSubmit();
     }
   }
+
+  // Color rotation for different senders
+  const senderColors: Record<string, { bg: string; border: string; text: string }> = {
+    default: {
+      bg: 'bg-indigo-50 dark:bg-indigo-950',
+      border: 'border-indigo-200 dark:border-indigo-800',
+      text: 'text-indigo-900 dark:text-indigo-100',
+    },
+  };
+
+  function getSenderColor(index: number) {
+    const colors = [
+      { bg: 'bg-blue-50 dark:bg-blue-950', border: 'border-blue-200 dark:border-blue-800', text: 'text-blue-900 dark:text-blue-100' },
+      { bg: 'bg-purple-50 dark:bg-purple-950', border: 'border-purple-200 dark:border-purple-800', text: 'text-purple-900 dark:text-purple-100' },
+      { bg: 'bg-emerald-50 dark:bg-emerald-950', border: 'border-emerald-200 dark:border-emerald-800', text: 'text-emerald-900 dark:text-emerald-100' },
+      { bg: 'bg-amber-50 dark:bg-amber-950', border: 'border-amber-200 dark:border-amber-800', text: 'text-amber-900 dark:text-amber-100' },
+      { bg: 'bg-rose-50 dark:bg-rose-950', border: 'border-rose-200 dark:border-rose-800', text: 'text-rose-900 dark:text-rose-100' },
+    ];
+    return colors[index % colors.length];
+  }
+
+  // Track unique senders for consistent coloring
+  const senderIndex: Record<string, number> = {};
+  function getSenderColorClass(name: string) {
+    if (!(name in senderIndex)) {
+      senderIndex[name] = Object.keys(senderIndex).length;
+    }
+    return getSenderColor(senderIndex[name]);
+  }
 </script>
 
 <svelte:head>
@@ -137,17 +166,28 @@
         </div>
       </div>
     {:else}
-      {#each messages as msg (msg.id)}
+      {#each messages as msg, idx (msg.id)}
+        {@const color = getSenderColorClass(msg.name)}
         <div class="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <div class="flex-1">
-            <div class="flex items-baseline gap-2">
-              <span class="font-medium text-zinc-900 dark:text-white">{msg.name}</span>
+          <!-- Avatar -->
+          <div class="flex-shrink-0 w-8 h-8 rounded-full {color.bg} {color.border} border flex items-center justify-center">
+            <span class="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
+              {msg.name.charAt(0).toUpperCase()}
+            </span>
+          </div>
+
+          <!-- Message bubble -->
+          <div class="flex-1 max-w-2xl">
+            <div class="flex items-baseline gap-2 mb-1">
+              <span class="font-semibold text-sm text-zinc-900 dark:text-white">{msg.name}</span>
               <span class="text-xs text-zinc-500">
                 {new Date(msg.createdAt).toLocaleTimeString()}
               </span>
             </div>
-            <div class="mt-1 prose prose-sm prose-zinc max-w-none dark:prose-invert text-zinc-800 dark:text-zinc-200">
-              {@html renderMarkdown(msg.content)}
+            <div class="rounded-lg {color.bg} {color.border} border px-4 py-3 {color.text}">
+              <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1">
+                {@html renderMarkdown(msg.content)}
+              </div>
             </div>
           </div>
         </div>
