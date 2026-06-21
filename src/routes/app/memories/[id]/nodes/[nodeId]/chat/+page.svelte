@@ -54,6 +54,18 @@
   let messagesEl: HTMLDivElement | null = $state(null);
   let error = $state<string | null>(null);
   let hoveredMessageId = $state<string | null>(null);
+  let reloading = $state(false);
+
+  async function reloadChat() {
+    reloading = true;
+    try {
+      await invalidateAll();
+    } catch (err) {
+      console.error('Failed to reload chat:', err);
+    } finally {
+      reloading = false;
+    }
+  }
 
   function renderMarkdown(text: string): string {
     const raw = marked.parse(text, { async: false }) as string;
@@ -138,12 +150,31 @@
         <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{node.name}</h1>
         <Urn value={data.fullUrn} type="node" />
       </div>
-      <a
-        href="{basePath}/nodes/{node.id}"
-        class="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
-      >
-        View node details →
-      </a>
+      <div class="flex gap-2">
+        <button
+          onclick={reloadChat}
+          disabled={reloading}
+          class="rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300 disabled:opacity-50 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+          title="Reload messages"
+        >
+          {#if reloading}
+            <svg class="inline w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 4v6h-6"></path>
+              <path d="M1 20v-6h6"></path>
+              <path d="M3.51 9a9 9 0 0114.85-3.36M20.49 15a9 9 0 01-14.85 3.36"></path>
+            </svg>
+            Reloading...
+          {:else}
+            ↻ Reload
+          {/if}
+        </button>
+        <a
+          href="{basePath}/nodes/{node.id}"
+          class="rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+        >
+          View node details →
+        </a>
+      </div>
     </div>
   </div>
 
