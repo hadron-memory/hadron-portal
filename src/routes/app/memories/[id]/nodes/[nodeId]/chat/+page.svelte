@@ -177,24 +177,22 @@
 
           <!-- Message column -->
           <div class="flex-1">
-            <!-- URN on hover, above bubble, right-aligned -->
-            {#if hoveredMessageId === msg.id && msgUrn}
-              <div class="flex justify-end mb-2 animate-in fade-in duration-200">
-                <div class="max-w-xs">
-                  <Urn value={msgUrn} type="node" />
-                </div>
-              </div>
-            {/if}
-
-            <!-- Author and bubble -->
-            <div>
-              <div class="text-sm font-semibold text-zinc-900 dark:text-white mb-1">
+            <!-- Author and URN on same row, top-aligned -->
+            <div class="flex justify-between items-start gap-2 mb-1">
+              <div class="text-sm font-semibold text-zinc-900 dark:text-white">
                 {msg.author || 'Unknown'}
               </div>
-              <div class="rounded-lg bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 px-4 py-3 text-zinc-900 dark:text-zinc-100 shadow-md">
-                <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>blockquote]:my-2">
-                  {@html renderMarkdown(msg.content)}
+              {#if hoveredMessageId === msg.id && msgUrn}
+                <div class="animate-in fade-in duration-200 flex-shrink-0">
+                  <Urn value={msgUrn} type="node" />
                 </div>
+              {/if}
+            </div>
+
+            <!-- Bubble -->
+            <div class="rounded-lg bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 px-4 py-3 text-zinc-900 dark:text-zinc-100 shadow-md">
+              <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>blockquote]:my-2">
+                {@html renderMarkdown(msg.content)}
               </div>
             </div>
 

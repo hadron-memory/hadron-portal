@@ -90,8 +90,8 @@ export const actions: Actions = {
       // Use ISO timestamp for consistent, sortable message IDs
       const now = new Date();
       const timestamp = now.toISOString().replace(/[:.]/g, '').slice(0, -1); // e.g., 2026-06-21T223100Z
-      const senderInitial = user.email?.split('@')[0] || 'anon';
-      const messageId = `${timestamp}-${senderInitial}`;
+      const username = (user as any).handle || user.email?.split('@')[0] || 'anon';
+      const messageId = `${timestamp}-${username}`;
       const messageLoc = `${nodeById.loc}:messages:${messageId}`;
 
       const { upsertNode } = await gqlClient(locals.token).request<{
@@ -100,9 +100,9 @@ export const actions: Actions = {
         input: {
           memoryId: params.id,
           loc: messageLoc,
-          name: user.email || 'Anonymous',
+          name: username,
           nodeType: 'message',
-          data: { body: content },
+          data: { body: content, author: username },
         },
       });
 
