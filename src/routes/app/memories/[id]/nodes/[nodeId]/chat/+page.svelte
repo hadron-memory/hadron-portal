@@ -9,13 +9,15 @@
 
   let { data, form }: { data: any; form: any } = $props();
 
-  const node = $derived(data.node);
-  const messages = $derived(data.messages);
-  const basePath = $derived(`/app/memories/${data.graph.id}`);
-  const memoriesHref = $derived(data.org ? `/app/orgs/${data.org.id}/memories` : undefined);
+  const node = $derived(data?.node);
+  const messages = $derived(data?.messages ?? []);
+  const basePath = $derived(data?.graph?.id ? `/app/memories/${data.graph.id}` : '');
+  const memoriesHref = $derived(data?.org?.id ? `/app/orgs/${data.org.id}/memories` : undefined);
 
   // Build breadcrumb from node loc segments
   const breadcrumbItems = $derived.by(() => {
+    if (!data?.graph?.name || !node?.name || !basePath) return [];
+
     const items = [
       { label: 'Memories', href: memoriesHref },
       { label: data.graph.name, href: basePath },
@@ -23,7 +25,7 @@
     ];
 
     // Add clickable parent nodes from the loc hierarchy
-    const parts = node.loc.split(':');
+    const parts = node.loc?.split(':') ?? [];
     for (let i = 1; i < parts.length; i++) {
       const parentLoc = parts.slice(0, i).join(':');
       const parentNode = (data.graphNodes ?? []).find((n) => n.loc === parentLoc);
@@ -158,8 +160,7 @@
       </div>
     {:else}
       {#each messages as msg, idx (msg.id)}
-        {@const color = getSenderColorClass(msg.name)}
-        {@const msgUrn = `${data.graph.urn}::${msg.nodeData?.loc || ''}`}
+        {@const color = getSenderColorClass(msg.name ?? 'Unknown')}
         <div class="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <!-- Avatar -->
           <div class="flex-shrink-0 w-8 h-8 rounded-full {color.avatar} flex items-center justify-center flex-shrink-0 mt-1">
