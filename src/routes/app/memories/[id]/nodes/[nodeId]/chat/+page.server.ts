@@ -90,7 +90,12 @@ export const actions: Actions = {
       // Use ISO timestamp for consistent, sortable message IDs
       const now = new Date();
       const timestamp = now.toISOString().replace(/[:.]/g, '').slice(0, -1); // e.g., 2026-06-21T223100Z
-      const username = (user as any).handle || user.email?.split('@')[0] || 'anon';
+      const username =
+        (user as any).handle ||
+        (user as any).githubUsername ||
+        (user as any).name ||
+        user.email?.split('@')[0] ||
+        'anon';
       const messageId = `${timestamp}-${username}`;
       const messageLoc = `${nodeById.loc}:messages:${messageId}`;
 
