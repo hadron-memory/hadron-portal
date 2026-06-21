@@ -1,0 +1,168 @@
+<script lang="ts">
+  import { enhance } from '$app/forms';
+  import { invalidateAll } from '$app/navigation';
+  import { onMount, tick } from 'svelte';
+  import { marked } from 'marked';
+  import DOMPurify from 'dompurify';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import Urn from '$lib/components/Urn.svelte';
+
+  let { data, form }: { data: any; form: any } = $props();
+
+  const node = $derived(data.node);
+  const messages = $derived(data.messages);
+  const basePath = $derived(`/app/memories/${data.graph.id}`);
+  const memoriesHref = $derived(data.org ? `/app/orgs/${data.org.id}/memories` : undefined);
+
+  let input = $state('');
+  let sending = $state(false);
+  let messagesEl: HTMLDivElement | null = $state(null);
+  let error = $state<string | null>(null);
+
+  function renderMarkdown(text: string): string {
+    const raw = marked.parse(text, { async: false }) as string;
+    return DOMPurify.sanitize(raw);
+  }
+
+  onMount(async () => {
+    await tick();
+    if (messagesEl) {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+  });
+
+  // Scroll to bottom after new messages arrive
+  $effect(() => {
+    if (messages) {
+      setTimeout(() => {
+        if (messagesEl) {
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+      }, 0);
+    }
+  });
+
+  // Handle form errors
+  $effect(() => {
+    if (form?.error) {
+      error = form.error;
+      setTimeout(() => {
+        error = null;
+      }, 3000);
+    }
+  });
+
+  async function handleSubmit() {
+    if (!input.trim() || sending) return;
+
+    // Clear input immediately for responsiveness
+    const message = input;
+    input = '';
+  }
+
+  // Handle keyboard submit (Ctrl+Enter or Cmd+Enter)
+  function handleKeydown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSubmit();
+    }
+  }
+</script>
+
+<svelte:head>
+  <title>{node.name} · Team Chat · Hadron</title>
+</svelte:head>
+
+<div class="flex flex-col h-screen bg-white dark:bg-zinc-950">
+  <!-- Header -->
+  <div class="border-b border-zinc-200 dark:border-zinc-800 px-6 py-4">
+    <Breadcrumb items={[
+      { label: 'Memories', href: memoriesHref },
+      { label: data.graph.name, href: basePath },
+      { label: 'Nodes', href: `${basePath}/nodes` },
+      { label: node.name },
+      { label: 'Chat' },
+    ]} />
+    <div class="mt-4 flex items-start justify-between">
+      <div>
+        <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{node.name}</h1>
+        <Urn value={data.fullUrn} type="node" />
+      </div>
+      <a
+        href="{basePath}/nodes/{node.id}"
+        class="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white"
+      >
+        View node details →
+      </a>
+    </div>
+  </div>
+
+  <!-- Messages area -->
+  <div
+    bind:this={messagesEl}
+    class="flex-1 overflow-y-auto px-6 py-4 space-y-4"
+  >
+    {#if messages.length === 0}
+      <div class="flex items-center justify-center h-full text-center">
+        <div>
+          <p class="text-zinc-500 dark:text-zinc-400">No messages yet</p>
+          <p class="text-sm text-zinc-400 dark:text-zinc-500">Start the conversation!</p>
+        </div>
+      </div>
+    {:else}
+      {#each messages as msg (msg.id)}
+        <div class="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div class="flex-1">
+            <div class="flex items-baseline gap-2">
+              <span class="font-medium text-zinc-900 dark:text-white">{msg.name}</span>
+              <span class="text-xs text-zinc-500">
+                {new Date(msg.createdAt).toLocaleTimeString()}
+              </span>
+            </div>
+            <div class="mt-1 prose prose-sm prose-zinc max-w-none dark:prose-invert text-zinc-800 dark:text-zinc-200">
+              {@html renderMarkdown(msg.content)}
+            </div>
+          </div>
+        </div>
+      {/each}
+    {/if}
+  </div>
+
+  <!-- Error banner -->
+  {#if error}
+    <div class="mx-6 mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+      {error}
+    </div>
+  {/if}
+
+  <!-- Input area -->
+  <div class="border-t border-zinc-200 dark:border-zinc-800 px-6 py-4 bg-zinc-50 dark:bg-zinc-900">
+    <form method="POST" action="?/sendMessage" use:enhance={() => {
+      sending = true;
+      return async ({ update }) => {
+        sending = false;
+        await invalidateAll();
+        input = '';
+      };
+    }}>
+      <div class="flex gap-3">
+        <textarea
+          name="content"
+          bind:value={input}
+          placeholder="Type your message... (Ctrl+Enter to send)"
+          rows="3"
+          disabled={sending}
+          on:keydown={handleKeydown}
+          class="flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
+        ></textarea>
+        <button
+          type="submit"
+          disabled={!input.trim() || sending}
+          class="self-end rounded-lg bg-indigo-600 px-4 py-3 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-indigo-500 dark:hover:bg-indigo-600"
+        >
+          {sending ? 'Sending...' : 'Send'}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

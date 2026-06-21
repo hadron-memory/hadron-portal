@@ -320,6 +320,7 @@
   const hasContent = $derived(!!node.content);
   const hasAbstract = $derived(!!node.abstract);
   const hasData = $derived(node.data != null);
+  const isTeamChat = $derived(node.tags.includes('team-chat'));
 
   // ── Edge editing ────────────────────────────────────────────────────
   // Edge editing replaces the full outgoing set via upsertNode(edges: [...]).
@@ -519,12 +520,22 @@
         <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
       {/if}
     </div>
-    <a
-      href="{basePath}/nodes/new?parent={encodeURIComponent(cleanLocInput(node.loc))}"
-      class="shrink-0 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-    >
-      {createNodeStrings.addChildButton()}
-    </a>
+    <div class="shrink-0 flex gap-2">
+      {#if isTeamChat}
+        <a
+          href="{basePath}/nodes/{node.id}/chat"
+          class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
+        >
+          Open chat
+        </a>
+      {/if}
+      <a
+        href="{basePath}/nodes/new?parent={encodeURIComponent(cleanLocInput(node.loc))}"
+        class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+      >
+        {createNodeStrings.addChildButton()}
+      </a>
+    </div>
   </div>
 
   {#if form?.error}
