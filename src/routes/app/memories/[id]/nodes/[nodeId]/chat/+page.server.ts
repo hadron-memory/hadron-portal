@@ -6,40 +6,28 @@ import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  try {
-    const [parentData, data] = await Promise.all([
-      parent().catch((err) => {
-        console.error('[chat] Parent layout load failed:', err);
-        throw error(500, 'Failed to load memory data. Please try reloading.');
-      }),
-      gqlClient(locals.token)
-        .request<{ nodeById: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId })
-        .catch((err) => {
-          console.error('[chat] Node load failed:', err);
-          throw error(500, 'Failed to load chat node. Please try reloading.');
-        }),
-    ]);
+  const [parentData, data] = await Promise.all([
+    parent(),
+    gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
+      NODE_BY_ID_QUERY, { id: params.nodeId },
+    ),
+  ]);
 
-    await requireNonConsumer(async () => parentData);
+  await requireNonConsumer(async () => parentData);
 
-    if (!data.nodeById) {
-      throw error(404, `Chat node not found: ${params.nodeId}`);
-    }
+  if (!data.nodeById) {
+    throw error(404, `Chat node not found: ${params.nodeId}`);
+  }
 
-    const node = data.nodeById;
+  const node = data.nodeById;
 
-    if (node.memoryId !== params.id) {
-      redirect(303, `/app/memories/${node.memoryId}/nodes/${params.nodeId}/chat`);
-    }
+  if (node.memoryId !== params.id) {
+    redirect(303, `/app/memories/${node.memoryId}/nodes/${params.nodeId}/chat`);
+  }
 
-    // Detect team-chat tag
-    if (!node.tags.includes('team-chat')) {
-      redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
-    }
-  } catch (err) {
-    console.error('[chat] Load error:', err);
-    if (err instanceof Response) throw err; // Re-throw redirects/errors
-    throw error(500, 'Failed to load chat. Please try reloading or contact support.');
+  // Detect team-chat tag
+  if (!node.tags.includes('team-chat')) {
+    redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
   }
 
   // Load children as messages. Messages are stored at: {chat.loc}:messages:{id}
