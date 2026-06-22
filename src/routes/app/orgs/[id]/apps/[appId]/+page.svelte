@@ -246,18 +246,18 @@ You are helping the user get started with Hadron, a knowledge memory platform fo
 This project is connected to Hadron app "${app.name}".
 
 Available MCP tools:
-- **h-start-session** / **h-end-session** — Track work sessions
-- **h-find-node** — Search nodes by name, tags, or description
-- **h-read-node** — Read a node's full content and edges
-- **h-read-next-node** — Navigate to the next sibling node
-- **h-create-node** — Create or update a node
-- **h-update-node** — Partially update a node
-- **h-move-node** — Rename or move a node
-- **h-validate** — Validate graph structure
-- **h-sync-graph** — Trigger a sync from the git source
+- **hadron_start_session** / **hadron_end_session** — Track work sessions
+- **hadron_find_nodes** — Search nodes by name, tags, or description
+- **hadron_get_node** — Read a node's full content and edges
+- **hadron_get_next_node** — Navigate to the next sibling node
+- **hadron_create_node** — Create or update a node
+- **hadron_update_node** — Partially update a node
+- **hadron_move_node** — Rename or move a node
+- **hadron_validate** — Validate graph structure
+- **hadron_sync_graph** — Trigger a sync from the git source
 
-Start by calling h-start-session, then use h-find-node to explore what knowledge is available.
-When you learn something new, save it with h-create-node or h-update-node.
+Start by calling hadron_start_session, then use hadron_find_nodes to explore what knowledge is available.
+When you learn something new, save it with hadron_create_node or hadron_update_node.
 `);
       zip.file('.hadron/plugin/plugins/hadron/skills/search/SKILL.md',
 `---
@@ -266,7 +266,7 @@ description: Search the Hadron knowledge graph
 ---
 
 Search the Hadron knowledge graph for relevant information.
-Use h-find-node with the user's query to find matching nodes, then read the most relevant ones with h-read-node.
+Use hadron_find_nodes with the user's query to find matching nodes, then read the most relevant ones with hadron_get_node.
 Present the results concisely.
 `);
     }
@@ -304,7 +304,7 @@ Present the results concisely.
       '# directory at the project root and persists across sessions.',
       '',
       '# The default Hadron memory URN for this project.',
-      '# Set as the active memory at session start via h-set-active-memory.',
+      '# Set as the active memory at session start via hadron_set_active_memory.',
       'default_memory:',
       '',
       '# Engineer identity. Used for attribution, script selection, and lookups.',

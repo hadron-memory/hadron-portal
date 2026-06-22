@@ -21,14 +21,14 @@ a diff and **before** capture / commit.
 
    1. If the project has documented a specific `loc` for the review node
       (e.g. in the spec's plan or in a project-level config), use that.
-   2. Otherwise call `h-find-nodes` with `query: "review criteria"` (and
+   2. Otherwise call `hadron_find_nodes` with `query: "review criteria"` (and
       project-specific terms if available) and pick the highest-quality hit
       whose tags include `review` or `review-criteria`.
 
    If no review-criteria node is found, report that to the human and stop —
    do not invent criteria.
 
-2. **Read the criteria.** Call `h-read-node` on the resolved `loc`. Treat the
+2. **Read the criteria.** Call `hadron_get_node` on the resolved `loc`. Treat the
    content as the canonical checklist for this project.
 
 3. **Apply each criterion to the diff.** For each criterion:
@@ -60,7 +60,7 @@ a diff and **before** capture / commit.
 ## Rules
 
 - Read-only with respect to Hadron memory and `.specify/`. This command does
-  not call `h-add-node` / `h-update-node` and does not modify any files in
+  not call `hadron_create_node` / `hadron_update_node` and does not modify any files in
   `.specify/`.
 - Apply *only* the criteria from the review node. If you think a different
   criterion should apply, propose it to the human as a candidate for the

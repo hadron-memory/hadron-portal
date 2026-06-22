@@ -119,7 +119,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // NOTE: `personaName` is **metadata-only** in US1 single-message
     // mode. The chat-platform's `runChatTurn` does not accept a
     // per-turn persona override — personas are driven by
-    // `h-chat-run-persona` (the scripted-persona path, US4) and by
+    // `hadron_chat_run_persona` (the scripted-persona path, US4) and by
     // server-side state machinery, not by a single-turn HTTP call.
     // We surface the user's input here so the UI can show what they
     // asked for, but the bot's actual routing is its default. To

@@ -25,10 +25,10 @@ Under `after_implement`, `review` runs before `capture` so capture reflects what
 The agent running Spec Kit must have the Hadron MCP server configured and
 connected, exposing at minimum:
 
-- `h-find-nodes`
-- `h-read-node`
-- `h-add-node`   (capture only)
-- `h-update-node` (capture only)
+- `hadron_find_nodes`
+- `hadron_get_node`
+- `hadron_create_node`   (capture only)
+- `hadron_update_node` (capture only)
 
 If Hadron MCP isn't connected, each command surfaces the gap to the human and
 stops cleanly — Spec Kit's pipeline continues without Hadron-side actions.

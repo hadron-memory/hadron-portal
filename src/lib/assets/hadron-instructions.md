@@ -27,51 +27,51 @@ You have access to these tools via the Hadron MCP server:
 
 | Tool | Description |
 |------|-------------|
-| `h-start-session` | Start a new session (level: basic/guided/learn) |
-| `h-resume-session` | Resume an open session from a previous conversation |
-| `h-save-session-task` | Save the current task definition |
-| `h-end-session` | End session with summary and outcome |
+| `hadron_start_session` | Start a new session (level: basic/guided/learn) |
+| `hadron_resume_session` | Resume an open session from a previous conversation |
+| `hadron_save_session_task` | Save the current task definition |
+| `hadron_end_session` | End session with summary and outcome |
 
 ### Reading & Searching
 
-| Tool                  | Description                                                                  |
-|-----------------------|------------------------------------------------------------------------------|
-| `h-read-node`         | Read a node by its rel path                                                  |
-| `h-read-next-node`    | If a node is an item in an ordered list of nodes (`Node.seq`), read the next |
-| `h-find-nodes`        | Search nodes by name, tags, or description                                   |
-| `h-list-nodes`        | Browse the tree structure of a memory                                        |
-| `h-set-active-memory` | Set which memory you're working in                                           |
+| Tool                      | Description                                                                  |
+|---------------------------|------------------------------------------------------------------------------|
+| `hadron_get_node`         | Read a node by its rel path                                                  |
+| `hadron_get_next_node`    | If a node is an item in an ordered list of nodes (`Node.seq`), read the next |
+| `hadron_find_nodes`       | Search nodes by name, tags, or description                                   |
+| `hadron_list_nodes`       | Browse the tree structure of a memory                                        |
+| `hadron_set_active_memory`| Set which memory you're working in                                           |
 
-When setting the active memory with `h-set-active-memory`, set the URN of that memory
+When setting the active memory with `hadron_set_active_memory`, set the URN of that memory
 also in the local config file at `.hadron/config.yml`.
 
 ### Writing & Editing
 
 | Tool | Description |
 |------|-------------|
-| `h-add-node` | Add a new content node |
-| `h-add-parent-node` | Create a section/category node for organizing children |
-| `h-update-node` | Update an existing node (upsert) |
-| `h-move-node` | Move a node and its children to a new location |
+| `hadron_create_node` | Add a new content node |
+| `hadron_create_parent_node` | Create a section/category node for organizing children |
+| `hadron_update_node` | Update an existing node (upsert) |
+| `hadron_move_node` | Move a node and its children to a new location |
 
 ### Planning & PRs
 
 | Tool | Description |
 |------|-------------|
-| `h-save-plan` | Save an implementation plan for the current task |
-| `h-create-pr` | Create a GitHub PR with context |
+| `hadron_save_plan` | Save an implementation plan for the current task |
+| `hadron_create_pr` | Create a GitHub PR with context |
 
 ## Workflow
 
-1. **Start a session** with `h-start-session` at the beginning of each task.
-2. **Set active memory** with `h-set-active-memory` if you're working with a
+1. **Start a session** with `hadron_start_session` at the beginning of each task.
+2. **Set active memory** with `hadron_set_active_memory` if you're working with a
    specific memory. This scopes subsequent tool calls.
-3. **Read before writing.** Use `h-find-nodes` and `h-read-node` to check what
+3. **Read before writing.** Use `hadron_find_nodes` and `hadron_get_node` to check what
    context already exists before making changes. Pay special attention to `specs`
    nodes — these are authoritative references for how things should work.
 4. **Update the graph** when you learn something new, make a decision, or notice
-   outdated information. Use `h-add-node` or `h-update-node`.
-5. **End the session** with `h-end-session` when the task is done. Include a
+   outdated information. Use `hadron_create_node` or `hadron_update_node`.
+5. **End the session** with `hadron_end_session` when the task is done. Include a
    summary and outcome.
 
 ## Specs
@@ -97,7 +97,7 @@ When using tools, you can pass either:
 - **Full URNs** (e.g. `hadronmemory.com:dev:specs:auth-flow`) — used for writes
   and when the active memory isn't set
 
-If you've set an active memory with `h-set-active-memory`, the tools handle
+If you've set an active memory with `hadron_set_active_memory`, the tools handle
 the conversion automatically.
 
 ## Review

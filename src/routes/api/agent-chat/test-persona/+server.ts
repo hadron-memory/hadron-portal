@@ -19,7 +19,7 @@ import type { RequestHandler } from './$types';
  *         conversationName?, expectedConversations[] }
  *
  * This is the "costs money" version. For free dry-run testing, use
- * h-chat-run-persona in Claude Code.
+ * hadron_chat_run_persona in Claude Code.
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {

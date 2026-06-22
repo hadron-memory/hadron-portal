@@ -96,7 +96,7 @@
         <label class="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
           <input name="isRunnable" type="checkbox" value="true" bind:checked={isRunnable}
             class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
-          Is Runnable <span class="text-zinc-500">(can be run as a task by h-run-task)</span>
+          Is Runnable <span class="text-zinc-500">(can be run as a task by hadron_run_task)</span>
         </label>
       </div>
     </section>

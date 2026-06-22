@@ -974,7 +974,7 @@
                 <label class="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
                   <input id="editIsRunnable" name="isRunnable" type="checkbox" value="true" checked={node.isRunnable ?? false}
                     class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
-                  Is Runnable <span class="font-normal text-zinc-500">(can be run as a task by h-run-task)</span>
+                  Is Runnable <span class="font-normal text-zinc-500">(can be run as a task by hadron_run_task)</span>
                 </label>
               </div>
               <div class="flex gap-3">

@@ -65,14 +65,14 @@ pass that has to remember everything from earlier in the session.
    ```
 
    Wait for the human to confirm which proposals to apply. Do not call
-   `h-add-node` / `h-update-node` until they explicitly say to.
+   `hadron_create_node` / `hadron_update_node` until they explicitly say to.
 
 3. **Apply approved changes.**
 
-   - For each approved new node, call `h-add-node` with `parentRel`, `name`,
+   - For each approved new node, call `hadron_create_node` with `parentRel`, `name`,
      `description`, `content`, and tags appropriate to the project's tagging
      conventions.
-   - For each approved update, call `h-update-node` with the existing `rel`
+   - For each approved update, call `hadron_update_node` with the existing `rel`
      and the corrected `content` and/or `description`. Set `reason` to a
      short reference to this spec (e.g. `"learned during specs/003-foo"`).
 

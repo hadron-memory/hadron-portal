@@ -6,7 +6,7 @@
 # Copy this file to config.yml and fill in your values.
 
 # The default Hadron memory URN for this project.
-# Set as the active memory at session start via h-set-active-memory.
+# Set as the active memory at session start via hadron_set_active_memory.
 default_memory: baragaun.com:bg-code-gen
 
 # Engineer identity. Used for attribution, script selection, and lookups.
