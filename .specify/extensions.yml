@@ -118,7 +118,7 @@ hooks:
       enabled: true
       optional: false
       prompt: Capture research findings from this plan into Hadron memory?
-      description: Save research-phase learnings (codebase recon, decisions, conventions) via h-add-node / h-update-node
+      description: Save research-phase learnings (codebase recon, decisions, conventions) via hadron_create_node / hadron_update_node
       condition: null
   after_tasks:
     - extension: git
@@ -148,7 +148,7 @@ hooks:
       enabled: true
       optional: false
       prompt: Capture implementation learnings into Hadron memory?
-      description: Save implementation-phase learnings (gotchas, plan-vs-reality mismatches) via h-add-node / h-update-node — runs after review
+      description: Save implementation-phase learnings (gotchas, plan-vs-reality mismatches) via hadron_create_node / hadron_update_node — runs after review
       condition: null
   after_checklist:
     - extension: git

@@ -23,12 +23,12 @@ from the user's `/speckit-specify` arguments.
    request is too vague to extract topics from, ask the user one clarifying
    question before proceeding.
 
-2. **Query Hadron memory for relevant nodes.** Call `h-find-nodes` with each
+2. **Query Hadron memory for relevant nodes.** Call `hadron_find_nodes` with each
    topic / entity / decision area as the `query`. Cast a wide net but keep
    each query specific (e.g. "auth middleware", not "auth"). Aim for the
    top-N most relevant results per query.
 
-3. **Read the candidates.** For each promising hit, call `h-read-node` to
+3. **Read the candidates.** For each promising hit, call `hadron_get_node` to
    get the full node content. Note its `loc` so it can be cited later.
 
 4. **Summarize for the human.** Produce a short bulleted brief:
@@ -53,7 +53,7 @@ from the user's `/speckit-specify` arguments.
 
 ## Rules
 
-- Read-only. Do not call `h-add-node` or `h-update-node` from this command.
+- Read-only. Do not call `hadron_create_node` or `hadron_update_node` from this command.
 - Do not write into `.specify/`. The recall output goes to the human via the
   chat, not to disk.
 - If Hadron MCP is not connected, abort with a clear message and let the

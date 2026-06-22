@@ -14,7 +14,7 @@ requires:
   tools:
     - name: hadron-mcp
       required: true
-      description: "Hadron MCP server (h-find-nodes, h-read-node, h-add-node, h-update-node) must be configured for the agent."
+      description: "Hadron MCP server (hadron_find_nodes, hadron_get_node, hadron_create_node, hadron_update_node) must be configured for the agent."
 
 provides:
   commands:
@@ -57,7 +57,7 @@ hooks:
     command: speckit.hadron.capture
     optional: false
     prompt: "Capture research findings from this plan into Hadron memory?"
-    description: "Save research-phase learnings (codebase recon, decisions, conventions) via h-add-node / h-update-node"
+    description: "Save research-phase learnings (codebase recon, decisions, conventions) via hadron_create_node / hadron_update_node"
   after_implement:
     command: speckit.hadron.review
     optional: true
