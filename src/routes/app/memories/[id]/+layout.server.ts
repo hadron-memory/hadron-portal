@@ -16,7 +16,11 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     ),
     client.request<{ nodes: MemoryNode[] }>(
       GRAPH_NODES_QUERY, { limit: 5000 },
-    ),
+    ).catch((err) => {
+      console.error('[memory-layout] GRAPH_NODES_QUERY failed:', err);
+      // Return empty nodes list on failure so layout doesn't cascade crash
+      return { nodes: [] as MemoryNode[] };
+    }),
     client.request<{ memoryUsageSummary: UsageSummaryEntry[] }>(
       MEMORY_USAGE_SUMMARY_QUERY, { memoryId: params.id },
     ).catch(() => ({ memoryUsageSummary: [] as UsageSummaryEntry[] })),
