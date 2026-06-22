@@ -88,8 +88,6 @@
     if (!DOMPurify) {
       const module = await import('dompurify');
       DOMPurify = module.default;
-      // Re-render to apply sanitization
-      messages = messages; // trigger reactivity
     }
 
     await tick();
