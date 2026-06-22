@@ -43,10 +43,17 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     : { organization: null };
 
   // Filter nodes to this memory
-  const memoryNodes = nodesData.nodes.filter((n) => n.memoryId === params.id);
+  const memoryNodes = (nodesData?.nodes ?? []).filter((n) => n?.memoryId === params.id);
 
-  const treeEntries = buildTreeEntries(memoryNodes, memory.urn);
-  const graphViewData = buildGraphViewData(memoryNodes, memory.urn);
+  let treeEntries = [];
+  let graphViewData = null;
+  try {
+    treeEntries = buildTreeEntries(memoryNodes, memory.urn);
+    graphViewData = buildGraphViewData(memoryNodes, memory.urn);
+  } catch (err) {
+    console.error('[memory-layout] Error building tree/graph data:', err);
+    // Continue with empty data rather than crashing
+  }
 
   // Build usage map: nodeLoc → { type → count }
   const usageByNode: Record<string, Record<string, number>> = {};
