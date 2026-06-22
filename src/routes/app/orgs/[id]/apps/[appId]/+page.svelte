@@ -250,7 +250,7 @@ Available MCP tools:
 - **hadron_find_nodes** — Search nodes by name, tags, or description
 - **hadron_get_node** — Read a node's full content and edges
 - **hadron_get_next_node** — Navigate to the next sibling node
-- **hadron_create_node** — Create or update a node
+- **hadron_create_node** — Create a new node
 - **hadron_update_node** — Partially update a node
 - **hadron_move_node** — Rename or move a node
 - **hadron_validate** — Validate graph structure
