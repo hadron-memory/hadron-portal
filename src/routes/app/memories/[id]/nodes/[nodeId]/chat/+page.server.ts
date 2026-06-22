@@ -6,14 +6,35 @@ import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  const [parentData, data] = await Promise.all([
-    parent(),
-    gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
-      NODE_BY_ID_QUERY, { id: params.nodeId },
-    ),
-  ]);
+  let parentData: any = {};
+  let data: any = {};
 
-  await requireNonConsumer(async () => parentData);
+  try {
+    [parentData, data] = await Promise.all([
+      parent().catch((err) => {
+        console.error('[chat-page] parent() failed:', err);
+        // Return minimal safe structure if parent fails
+        return { graphNodes: [], graph: null, org: null, treeEntries: [], graphViewData: null, usageByNode: {} };
+      }),
+      gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
+        NODE_BY_ID_QUERY, { id: params.nodeId },
+      ).catch((err) => {
+        console.error('[chat-page] NODE_BY_ID_QUERY failed:', err);
+        // Rethrow node query errors as they're critical
+        throw err;
+      }),
+    ]);
+  } catch (err) {
+    console.error('[chat-page] load failed:', err);
+    throw err;
+  }
+
+  try {
+    await requireNonConsumer(async () => parentData);
+  } catch (err) {
+    console.error('[chat-page] requireNonConsumer failed:', err);
+    throw err;
+  }
 
   if (!data.nodeById) {
     throw error(404, `Chat node not found: ${params.nodeId}`);
