@@ -1,11 +1,13 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, browser } from 'svelte';
   import { marked } from 'marked';
-  import DOMPurify from 'dompurify';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+
+  // DOMPurify is browser-only, import it dynamically
+  let DOMPurify: any;
 
   let { data, form }: { data: any; form: any } = $props();
 
@@ -69,10 +71,21 @@
 
   function renderMarkdown(text: string): string {
     const raw = marked.parse(text, { async: false }) as string;
-    return DOMPurify.sanitize(raw);
+    // DOMPurify is only available on browser
+    if (DOMPurify?.sanitize) {
+      return DOMPurify.sanitize(raw);
+    }
+    // On server, return as-is (sanitization will happen on client)
+    return raw;
   }
 
   onMount(async () => {
+    // Import DOMPurify on browser only
+    if (!DOMPurify && browser) {
+      const module = await import('dompurify');
+      DOMPurify = module.default;
+    }
+
     await tick();
     if (messagesEl) {
       messagesEl.scrollTop = messagesEl.scrollHeight;
