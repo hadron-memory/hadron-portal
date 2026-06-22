@@ -34,7 +34,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // This allows other content (attachments, etc) under the chat without collision.
   const messagesPrefix = `${node.loc}:messages:`;
 
-  let children = ((parentData && parentData.graphNodes) || [])
+  let children = (parentData?.graphNodes ?? [])
     .filter((n) => {
       if (!n?.loc?.startsWith(messagesPrefix)) return false;
       // Only include direct message children (no further nesting)
