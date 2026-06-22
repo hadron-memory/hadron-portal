@@ -57,6 +57,7 @@
   let error = $state<string | null>(null);
   let hoveredMessageId = $state<string | null>(null);
   let reloading = $state(false);
+  let isBrowser = $state(false);
 
   async function reloadChat() {
     reloading = true;
@@ -71,19 +72,24 @@
 
   function renderMarkdown(text: string): string {
     const raw = marked.parse(text, { async: false }) as string;
-    // DOMPurify is only available on browser
-    if (DOMPurify?.sanitize) {
+    // Sanitize only if DOMPurify is loaded (browser-only)
+    if (typeof DOMPurify !== 'undefined' && DOMPurify?.sanitize) {
       return DOMPurify.sanitize(raw);
     }
-    // On server, return as-is (sanitization will happen on client)
+    // On server or before DOMPurify loads, return raw markdown HTML
+    // (it will be sanitized when DOMPurify loads on client)
     return raw;
   }
 
   onMount(async () => {
+    isBrowser = true;
+
     // Import DOMPurify on browser only
-    if (!DOMPurify && browser) {
+    if (!DOMPurify) {
       const module = await import('dompurify');
       DOMPurify = module.default;
+      // Re-render to apply sanitization
+      messages = messages; // trigger reactivity
     }
 
     await tick();
