@@ -1,4 +1,13 @@
 <script lang="ts">
+  import {
+    getCoreRowModel,
+    getPaginationRowModel,
+    getFilteredRowModel,
+    type ColumnDef,
+  } from '@tanstack/table-core';
+  import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import Urn from './Urn.svelte';
+
   interface Memory {
     id: string;
     name: string;
@@ -21,18 +30,45 @@
 
   let query = $state('');
 
-  const filtered = $derived.by(() => {
-    if (!Array.isArray(memories)) return [];
-    if (query.trim()) {
-      const q = query.trim().toLowerCase();
-      return memories.filter(
-        (m) =>
-          m?.name?.toLowerCase().includes(q) ||
-          m?.urn?.toLowerCase().includes(q),
+  const columns: ColumnDef<Memory>[] = [
+    { accessorKey: 'name', header: 'Name', enableHiding: false, size: 200 },
+    { accessorKey: 'urn', header: 'URN', size: 250 },
+    { accessorKey: 'orgName', header: 'Organization', size: 150 },
+  ];
+
+  const table = createSvelteTable<Memory>({
+    get data() {
+      return Array.isArray(memories) ? memories : [];
+    },
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    state: {
+      get globalFilter() {
+        return query;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      query = typeof u === 'function' ? u(query) : u;
+    },
+    globalFilterFn: (row, id, value) => {
+      const searchValue = String(value).toLowerCase();
+      return (
+        String(row.getValue('name')).toLowerCase().includes(searchValue) ||
+        String(row.getValue('urn')).toLowerCase().includes(searchValue)
       );
-    }
-    return memories;
+    },
+    initialState: {
+      pagination: {
+        pageSize: 5,
+      },
+    },
   });
+
+  const rows = $derived(table.getRowModel().rows);
+  const pageIndex = $derived(table.getState().pagination.pageIndex);
+  const pageCount = $derived(table.getPageCount());
 
   function select(memory: Memory) {
     onselect(memory);
@@ -49,6 +85,7 @@
   $effect(() => {
     if (!open) {
       query = '';
+      table.resetPageIndex();
     }
   });
 </script>
@@ -58,14 +95,16 @@
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" onclick={() => { open = false; }}>
+  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]" onclick={() => { open = false; }}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="w-full max-w-md rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+      class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
+      style="max-height: 70vh;"
     >
-      <div class="border-b border-zinc-200 p-3 dark:border-zinc-700">
+      <!-- Header with search -->
+      <div class="border-b border-zinc-200 p-4 dark:border-zinc-700">
         <input
           type="text"
           bind:value={query}
@@ -74,29 +113,76 @@
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
       </div>
-      <div class="max-h-64 overflow-y-auto">
-        {#if filtered.length === 0}
-          <div class="px-4 py-6 text-center text-sm text-zinc-500">No memories found.</div>
+
+      <!-- Table -->
+      <div class="flex-1 overflow-auto">
+        {#if rows.length === 0}
+          <div class="px-4 py-8 text-center text-sm text-zinc-500">No memories found.</div>
         {:else}
-          {#each filtered as memory (memory.id)}
-            <button
-              type="button"
-              class="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800"
-              onclick={() => select(memory)}
-            >
-              <div class="min-w-0 flex-1">
-                <p class="truncate text-sm font-medium text-zinc-900 dark:text-white">{memory.name}</p>
-                <p class="truncate text-xs text-zinc-400">{memory.urn}</p>
-                {#if memory.orgName}
-                  <p class="truncate text-xs text-zinc-400">{memory.orgName}</p>
-                {/if}
-              </div>
-            </button>
-          {/each}
+          <table class="w-full text-sm border-collapse">
+            <thead>
+              <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                {#each table.getHeaderGroups()[0]?.headers ?? [] as header (header.id)}
+                  <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-left dark:border-zinc-800 dark:bg-zinc-800" style="width: {header.getSize()}px;">
+                    {header.column.columnDef.header}
+                  </th>
+                {/each}
+                <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-800 w-20"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each rows as row (row.id)}
+                <tr class="border-b border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
+                  <td class="px-4 py-2 text-sm font-medium text-zinc-900 dark:text-white">{row.original.name}</td>
+                  <td class="px-4 py-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    <a href="/app/memories/{row.original.id}" target="_blank" rel="noopener noreferrer" class="hover:underline inline-flex items-center gap-1">
+                      <Urn value={row.original.urn} type="memory" size={10} compact />
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="flex-shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                    </a>
+                  </td>
+                  <td class="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400">{row.original.orgName || '—'}</td>
+                  <td class="px-4 py-2 text-right">
+                    <button
+                      type="button"
+                      onclick={() => select(row.original)}
+                      class="rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                    >
+                      Select
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
         {/if}
       </div>
-      <div class="border-t border-zinc-200 px-4 py-2 text-xs text-zinc-400 dark:border-zinc-700">
-        {filtered.length} result{filtered.length !== 1 ? 's' : ''} · Esc to close
+
+      <!-- Footer with pagination -->
+      <div class="border-t border-zinc-200 flex items-center justify-between px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+        <div>
+          {rows.length > 0 && pageIndex >= 0 && pageCount > 0
+            ? `Page ${pageIndex + 1} of ${pageCount}`
+            : 'No results'}
+        </div>
+        <div class="flex gap-2">
+          <button
+            type="button"
+            onclick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+            class="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            ← Previous
+          </button>
+          <button
+            type="button"
+            onclick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+            class="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            Next →
+          </button>
+        </div>
+        <div>Esc to close</div>
       </div>
     </div>
   </div>
