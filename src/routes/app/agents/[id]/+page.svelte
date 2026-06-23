@@ -5,6 +5,7 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
+  import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
@@ -168,6 +169,7 @@
 
   // Track selected add-memory id for warning
   let selectedAddMemoryId = $state('');
+  let selectMemoryOpen = $state(false);
 
   const memoryIdsInAgent = $derived(new Set((agent.memoryItems ?? []).map((item) => item.memory.id)));
   const allMemories = $derived.by(() => {
@@ -432,16 +434,29 @@
       {/if}
 
       {#if availableMemories.length > 0}
-        <form method="POST" action="?/addMemory" use:enhance class="space-y-2">
+        <form method="POST" action="?/addMemory" use:enhance={() => {
+          return async ({ update }) => {
+            await update();
+            selectedAddMemoryId = '';
+          };
+        }} class="space-y-2">
           <div class="flex items-end gap-3">
           <div class="flex-1 max-w-md">
-            <label for="addMemory" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
-            <select id="addMemory" name="memoryId" bind:value={selectedAddMemoryId} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-              <option value="" disabled>— Select a memory —</option>
-              {#each availableMemories as m (m.id)}
-                <option value={m.id}>{m.name} ({m.urn}){#if m.orgName && m.orgName !== org.name} — {m.orgName}{/if}</option>
-              {/each}
-            </select>
+            <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                onclick={() => selectMemoryOpen = true}
+                class="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800"
+              >
+                {#if selectedAddMemoryId}
+                  {selectedAddMemory?.name ?? 'Select a memory'}
+                {:else}
+                  Select a memory
+                {/if}
+              </button>
+              <input type="hidden" name="memoryId" value={selectedAddMemoryId} />
+            </div>
           </div>
           <div>
             <label for="memRole" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
@@ -463,6 +478,15 @@
       {/if}
     </section>
   {/if}
+
+  <!-- SelectMemory modal -->
+  <SelectMemory
+    memories={availableMemories}
+    bind:open={selectMemoryOpen}
+    onselect={(memory) => {
+      selectedAddMemoryId = memory.id;
+    }}
+  />
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- NODES TAB — browse the agent's memory nodes (was "Memory") (#352)   -->
