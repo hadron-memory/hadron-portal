@@ -344,13 +344,12 @@
 
   // #372: a server search matches across ALL node types, but the hidden-types
   // filter then drops record/system matches — so a query that only hit record
-  // nodes shows an empty/short list with no clue the matches exist. Count the
-  // hidden matches (only while searching, and only when they're not already
-  // revealed) so the UI can offer a one-click "Show hidden".
+  // nodes shows an empty/short list with no clue the matches exist. The dropped
+  // matches are exactly what searchedNodes removed from filteredNodes, so the
+  // count is their length difference (naturally 0 once "Show hidden" is on,
+  // since searchedNodes === filteredNodes then). Search-scoped via serverResults.
   const hiddenSearchMatchCount = $derived(
-    serverResults !== null && !showHidden
-      ? filteredNodes.filter((n) => HIDDEN_TYPES.has(n.nodeType ?? 'info')).length
-      : 0
+    serverResults !== null ? filteredNodes.length - searchedNodes.length : 0
   );
 
   // ── Tree node href callback (for when basePath is empty) ──────────────
