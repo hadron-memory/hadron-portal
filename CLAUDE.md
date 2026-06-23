@@ -52,6 +52,15 @@ Before diving into the codebase, query Hadron:
 
 Hadron is the project's institutional memory — assume it covers things that aren't obvious from code alone: past incidents, decisions whose rationale isn't documented, conventions baked into multiple places.
 
+### Finding nodes (search modes — don't trust a single keyword miss)
+
+`hadron_find_nodes` defaults to **keyword** mode: a literal substring match over **name, loc, description, and tags only — NOT node body content**, and **every** whitespace-separated term must appear. So a multi-word natural-language query (`"database access psql production"`) often returns zero even when a node clearly covers it — the terms just don't all appear literally in the indexed fields. A zero-hit keyword search is **not** proof the knowledge is absent. When the first try misses:
+
+- **Use fewer, more discriminating keywords** — single distinctive tokens (`komodo`, `psql`, `breadcrumb`) beat phrases.
+- **Search body content semantically** with `mode:"vector"` (requires the memory's vector index) or `mode:"hybrid"` (keyword + vector via RRF; degrades to keyword with a `[degraded:no_vector_index]` note on a non-indexed memory). Add `granularity:"chunk"` (with `mode:"vector"`) to get the matching passages, not just the node.
+- **Survey / browse the tree** instead of searching: `hadron_find_nodes "*"` lists every node in scope (great for seeing what a branch contains), and `hadron_list_nodes` walks the structure. Narrow with `parentRel:"<branch-loc>"` (e.g. `ops`) and `memoryUrn`.
+- **Check the obvious branch directly** — ops/runbooks live under `::dev::ops:*`, findings under `findings:*`, conventions under `conventions:*`. Reading the branch parent often beats guessing search terms.
+
 ## Capturing findings as they emerge
 
 When a non-obvious finding emerges — a convention you discovered, a gotcha you hit, a node that turned out to be wrong — capture it immediately via `hadron_create_node` or `hadron_update_node`. Don't batch to end-of-session; context decays and findings get lost.
