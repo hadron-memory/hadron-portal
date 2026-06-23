@@ -47,7 +47,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
 
   // Filter nodes to this memory
   const memoryNodes = (nodesData?.nodes ?? []).filter((n) => n?.memoryId === params.id);
-  const nodesFailed = 'failed' in nodesData && nodesData.failed === true;
+  const nodesFailed = !!nodesData && 'failed' in nodesData && nodesData.failed === true;
 
   let treeEntries: ReturnType<typeof buildTreeEntries> = [];
   let graphViewData = null;

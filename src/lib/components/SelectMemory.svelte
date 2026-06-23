@@ -57,8 +57,8 @@
       const searchValue = String(value ?? '').toLowerCase().trim();
       if (!searchValue) return true;
       return (
-        String(row.getValue('name') ?? '').toLowerCase().includes(searchValue) ||
-        String(row.getValue('urn') ?? '').toLowerCase().includes(searchValue)
+        (row.original.name ?? '').toLowerCase().includes(searchValue) ||
+        (row.original.urn ?? '').toLowerCase().includes(searchValue)
       );
     },
     initialState: {
