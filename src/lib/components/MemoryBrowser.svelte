@@ -342,6 +342,17 @@
     })
   );
 
+  // #372: a server search matches across ALL node types, but the hidden-types
+  // filter then drops record/system matches — so a query that only hit record
+  // nodes shows an empty/short list with no clue the matches exist. Count the
+  // hidden matches (only while searching, and only when they're not already
+  // revealed) so the UI can offer a one-click "Show hidden".
+  const hiddenSearchMatchCount = $derived(
+    serverResults !== null && !showHidden
+      ? filteredNodes.filter((n) => HIDDEN_TYPES.has(n.nodeType ?? 'info')).length
+      : 0
+  );
+
   // ── Tree node href callback (for when basePath is empty) ──────────────
   // Build a map from nodeId → href so TreeView can link nodes without basePath
   const nodeIdToHref = $derived.by(() => {
@@ -618,6 +629,18 @@
   {#if serverResults !== null && (searchError || searchNote)}
     <div class="text-xs {searchError ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}">
       {searchError ?? searchNote}
+    </div>
+  {/if}
+
+  <!-- #372: don't let the hidden-types filter swallow search matches silently.
+       When a search hit record/system nodes that are currently hidden, say so
+       and offer to reveal them — otherwise the result reads as a false empty. -->
+  {#if hiddenSearchMatchCount > 0}
+    <div class="text-xs text-amber-600 dark:text-amber-400">
+      {hiddenSearchMatchCount}
+      {hiddenSearchMatchCount === 1 ? 'match is a record/system node' : 'matches are record/system nodes'}
+      hidden by default.
+      <button type="button" onclick={() => (showHidden = true)} class="font-medium underline hover:no-underline">Show hidden</button>
     </div>
   {/if}
 
