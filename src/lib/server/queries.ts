@@ -1175,10 +1175,15 @@ export const NODE_FIELDS = /* GraphQL */ `
   }
 `;
 
+// `memoryIds` is optional: callers that omit it (agents page, fixtures) get the
+// historical global behavior (server treats null as "no memory filter"); the
+// memory-detail layout passes a single id so it only fetches that memory's
+// nodes instead of pulling a global window and filtering client-side — the
+// latter silently dropped a memory's nodes once total nodes exceeded the limit.
 export const GRAPH_NODES_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query GraphNodes($limit: Int) {
-    nodes(limit: $limit) {
+  query GraphNodes($limit: Int, $memoryIds: [ID!]) {
+    nodes(limit: $limit, memoryIds: $memoryIds) {
       ...NodeFields
     }
   }

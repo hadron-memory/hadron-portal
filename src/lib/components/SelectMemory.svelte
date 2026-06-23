@@ -5,6 +5,7 @@
     getFilteredRowModel,
     type ColumnDef,
   } from '@tanstack/table-core';
+  import { untrack } from 'svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
 
@@ -84,11 +85,17 @@
     }
   }
 
+  // Reset search + pagination whenever the modal closes. `open` is the only
+  // tracked dependency; the reset itself runs untracked because
+  // table.resetPageIndex() reads *and* writes the table's reactive state via
+  // the adapter's onStateChange — tracking that here would make the effect
+  // self-invalidating and blow the update depth (effect_update_depth_exceeded).
   $effect(() => {
-    if (!open) {
+    if (open) return;
+    untrack(() => {
       query = '';
       table.resetPageIndex();
-    }
+    });
   });
 </script>
 
