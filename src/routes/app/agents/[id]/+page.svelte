@@ -434,7 +434,12 @@
       {/if}
 
       {#if availableMemories.length > 0}
-        <form method="POST" action="?/addMemory" use:enhance class="space-y-2">
+        <form method="POST" action="?/addMemory" use:enhance={() => {
+          return async ({ update }) => {
+            await update();
+            selectedAddMemoryId = '';
+          };
+        }} class="space-y-2">
           <div class="flex items-end gap-3">
           <div class="flex-1 max-w-md">
             <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>

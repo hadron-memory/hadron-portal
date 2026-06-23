@@ -22,12 +22,13 @@
   let query = $state('');
 
   const filtered = $derived.by(() => {
+    if (!Array.isArray(memories)) return [];
     if (query.trim()) {
       const q = query.trim().toLowerCase();
       return memories.filter(
         (m) =>
-          m.name.toLowerCase().includes(q) ||
-          m.urn.toLowerCase().includes(q),
+          m?.name?.toLowerCase().includes(q) ||
+          m?.urn?.toLowerCase().includes(q),
       );
     }
     return memories;
@@ -40,10 +41,16 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
+    if (open && e.key === 'Escape') {
       open = false;
     }
   }
+
+  $effect(() => {
+    if (!open) {
+      query = '';
+    }
+  });
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
