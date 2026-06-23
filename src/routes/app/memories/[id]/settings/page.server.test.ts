@@ -326,4 +326,39 @@ describe('memory-detail `update` action — visibility (spec 034)', () => {
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars.visibility).toBeUndefined();
   });
+
+  // The settings form prefills the URN slug from the canonical `hrn:memory:…`
+  // urn, which doesn't round-trip through the server's legacy URN composition.
+  // Resubmitting it unchanged (e.g. a visibility-only edit) used to fail
+  // server-side FR-020 validation — so the action must omit `urn` unless the
+  // slug actually changed.
+  it('omits urn when the slug is unchanged (visibility-only edit)', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.update(updateEv({
+      displayName: 'Experiments',
+      visibility: 'PUBLIC',
+      urnSlug: 'memory:hadronmemory.com::experiments',
+      originalUrnSlug: 'memory:hadronmemory.com::experiments',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.urn).toBeUndefined();
+    expect(vars.visibility).toBe('PUBLIC');
+  });
+
+  it('forwards urn only when the user actually edited the slug', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.update(updateEv({
+      displayName: 'Experiments',
+      urnSlug: 'renamed',
+      originalUrnSlug: 'experiments',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.urn).toBe('renamed');
+  });
 });

@@ -63,6 +63,15 @@ export const actions: Actions = {
     const fd = await request.formData();
     const displayName = String(fd.get('displayName') ?? '').trim() || undefined;
     const urnSlug = String(fd.get('urnSlug') ?? '').trim() || undefined;
+    // Only forward `urn` when the user actually edited the slug. The server's
+    // updateMemory rebuilds the whole URN from this value (newUrn =
+    // `${org.urn}:${slug}`) whenever urn !== undefined, so sending the
+    // unchanged slug on a visibility-only edit would re-derive — and corrupt —
+    // the URN. The form prefills the slug from the canonical `hrn:memory:…`
+    // urn, which doesn't round-trip through that legacy composition, so an
+    // unchanged resubmit was failing FR-020 validation server-side.
+    const originalUrnSlug = String(fd.get('originalUrnSlug') ?? '').trim() || undefined;
+    const urnChanged = urnSlug !== undefined && urnSlug !== originalUrnSlug;
     const newOrgId = String(fd.get('organizationId') ?? '').trim() || undefined;
     // #260: the org is no longer in the URL, so the no-op-transfer guard
     // compares against the memory's current org id submitted as a hidden field.
@@ -73,7 +82,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
         id: params.id,
         name: displayName,
-        urn: urnSlug,
+        urn: urnChanged ? urnSlug : undefined,
         organizationId: newOrgId && newOrgId !== currentOrgId ? newOrgId : undefined,
         shortDescription: String(fd.get('shortDescription') ?? '').trim() || null,
         description: String(fd.get('description') ?? '').trim() || null,
