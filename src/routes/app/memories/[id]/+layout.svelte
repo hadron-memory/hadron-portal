@@ -84,6 +84,11 @@
        switching between the two tabs (the page components would remount). The
        page components only set the <title>. -->
   {#if !isNodeDetail && (activeTab === 'nodes' || activeTab === 'graph')}
+    {#if data.nodesFailed}
+      <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+        {t('memory-detail.nodes-load-error', "Couldn't load this memory's nodes — the node service returned an error. This is not the same as an empty memory; try refreshing, and if it persists check the hadron-server logs.")}
+      </div>
+    {/if}
     <MemoryBrowser nodes={data.graphNodes ?? []} {basePath} forcedView={activeTab} />
   {/if}
   {@render children()}

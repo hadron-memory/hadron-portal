@@ -71,7 +71,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   const [nodesResult, sysMemResult, configsResult] = await Promise.all([
     allMemoryIds.length > 0
-      ? client.request<{ nodes: MemoryNode[] }>(GRAPH_NODES_QUERY, { limit: 500 }).catch(() => null)
+      ? client.request<{ nodes: MemoryNode[] }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds }).catch(() => null)
       : Promise.resolve(null),
     client.request<{ orgSystemMemories: Memory[] }>(
       ORG_SYSTEM_MEMORIES_QUERY, { orgId: org.id },

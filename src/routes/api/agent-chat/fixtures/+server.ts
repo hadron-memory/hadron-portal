@@ -64,9 +64,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
 
   const client = gqlClient(locals.token);
-  // No memoryId/prefix filter is honored by GRAPH_NODES_QUERY today —
-  // we fetch and filter client-side. Per-agent fixture counts are in
-  // the low tens (spec 019 Scale/Scope), so this is acceptable.
+  // GRAPH_NODES_QUERY now accepts an optional memoryIds filter; this caller
+  // still fetches globally and filters client-side (per-agent fixture counts
+  // are in the low tens per spec 019 Scale/Scope, so it's acceptable). Scope
+  // to the system memory with memoryIds here if this ever needs to scale.
   const result = await client.request<{ nodes: Array<{
     id: string; loc: string; memoryId: string; data: unknown;
   }> }>(GRAPH_NODES_QUERY, { limit: 500 });
