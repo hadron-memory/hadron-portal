@@ -53,10 +53,11 @@
       query = typeof u === 'function' ? u(query) : u;
     },
     globalFilterFn: (row, id, value) => {
-      const searchValue = String(value).toLowerCase();
+      const searchValue = String(value ?? '').toLowerCase().trim();
+      if (!searchValue) return true;
       return (
-        String(row.getValue('name')).toLowerCase().includes(searchValue) ||
-        String(row.getValue('urn')).toLowerCase().includes(searchValue)
+        String(row.getValue('name') ?? '').toLowerCase().includes(searchValue) ||
+        String(row.getValue('urn') ?? '').toLowerCase().includes(searchValue)
       );
     },
     initialState: {
@@ -69,6 +70,7 @@
   const rows = $derived(table.getRowModel().rows);
   const pageIndex = $derived(table.getState().pagination.pageIndex);
   const pageCount = $derived(table.getPageCount());
+  const filteredRowCount = $derived(table.getFilteredRowModel().rows.length);
 
   function select(memory: Memory) {
     onselect(memory);
@@ -134,11 +136,15 @@
               {#each rows as row (row.id)}
                 <tr class="border-b border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
                   <td class="px-4 py-2 text-sm font-medium text-zinc-900 dark:text-white">{row.original.name}</td>
-                  <td class="px-4 py-2 text-xs text-zinc-500 dark:text-zinc-400">
-                    <a href="/app/memories/{row.original.id}" target="_blank" rel="noopener noreferrer" class="hover:underline inline-flex items-center gap-1">
-                      <Urn value={row.original.urn} type="memory" size={10} compact />
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="flex-shrink-0"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
-                    </a>
+                  <td class="px-4 py-2 text-xs">
+                    <div class="flex items-center gap-2">
+                      <div class="min-w-0 flex-1">
+                        <Urn value={row.original.urn} type="memory" size={10} compact />
+                      </div>
+                      <a href="/app/memories/{row.original.id}" target="_blank" rel="noopener noreferrer" title="Open memory" class="shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                      </a>
+                    </div>
                   </td>
                   <td class="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400">{row.original.orgName || '—'}</td>
                   <td class="px-4 py-2 text-right">
@@ -161,8 +167,8 @@
       <div class="border-t border-zinc-200 flex items-center justify-between px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
         <div>
           {rows.length > 0 && pageIndex >= 0 && pageCount > 0
-            ? `Page ${pageIndex + 1} of ${pageCount}`
-            : 'No results'}
+            ? `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''} · Page ${pageIndex + 1} of ${pageCount}`
+            : `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''}`}
         </div>
         <div class="flex gap-2">
           <button
