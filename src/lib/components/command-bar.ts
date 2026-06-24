@@ -77,6 +77,16 @@ export const COMMANDS: CommandSpec[] = [
     tint: 'blue',
     arg: null,
   },
+  {
+    // #375 — opens the "Check access" command page (a form, since the check
+    // takes two arguments the inline bar can't express).
+    id: 'access-check',
+    title: 'Check access',
+    triggers: ['access check', 'check access'],
+    desc: "Check a user's access to a resource",
+    tint: 'blue',
+    arg: null,
+  },
   // — search (violet) —
   {
     id: 'search',
@@ -238,6 +248,8 @@ export async function resolveCommandAction(
       return { type: 'navigate', path: '/app/account' };
     case 'app-keys':
       return { type: 'navigate', path: '/app/account/api-keys' };
+    case 'access-check':
+      return { type: 'navigate', path: '/app/commands/access-check' };
     case 'invite': {
       const email = arg.trim();
       return { type: 'navigate', path: `/app/account/invite${email ? `?email=${encodeURIComponent(email)}` : ''}` };

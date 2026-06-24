@@ -190,6 +190,13 @@ describe('resolveCommandAction', () => {
     expect(await resolveCommandAction(cmd('app-keys'), '', ctx)).toEqual({ type: 'navigate', path: '/app/account/api-keys' });
   });
 
+  it('access check → the command page (#375)', async () => {
+    expect(await resolveCommandAction(cmd('access-check'), '', ctx)).toEqual({
+      type: 'navigate',
+      path: '/app/commands/access-check',
+    });
+  });
+
   it('invite → the invite page, with the email prefilled when given', async () => {
     expect(await resolveCommandAction(cmd('invite'), 'a@b.com', ctx)).toEqual({
       type: 'navigate',

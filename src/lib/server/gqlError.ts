@@ -11,3 +11,14 @@ export function extractGqlError(e: unknown, fallback: string): string {
   }
   return e instanceof Error ? e.message : fallback;
 }
+
+// The server tags GraphQL errors with `extensions.code` (FORBIDDEN, NOT_FOUND,
+// URN_NOT_QUALIFIED, …). Pull the first one out so callers can branch on it.
+// Returns null on transport errors / non-GraphQL errors (no response payload).
+export function extractGqlErrorCode(e: unknown): string | null {
+  if (e && typeof e === 'object' && 'response' in e) {
+    const resp = (e as { response?: { errors?: { extensions?: { code?: string } }[] } }).response;
+    return resp?.errors?.[0]?.extensions?.code ?? null;
+  }
+  return null;
+}

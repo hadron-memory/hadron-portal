@@ -1424,3 +1424,33 @@ export const REVOKE_USER_API_KEY_MUTATION = /* GraphQL */ `
     }
   }
 `;
+
+// ---------------------------------------------------------------------------
+// Access check (#375) — backs the "Check access" command page. Mirrors the CLI
+// `hadron access check <user> <resource>`; see hadron-server effectiveAccess.
+// ---------------------------------------------------------------------------
+
+export const EFFECTIVE_ACCESS_QUERY = /* GraphQL */ `
+  query EffectiveAccess($user: ID!, $resource: ID!) {
+    effectiveAccess(user: $user, resource: $resource) {
+      user {
+        id
+        handle
+        name
+        email
+      }
+      resourceUrn
+      resourceKind
+      canRead
+      canWrite
+      canManage
+      canDelete
+      role
+      grants {
+        source
+        role
+        via
+      }
+    }
+  }
+`;
