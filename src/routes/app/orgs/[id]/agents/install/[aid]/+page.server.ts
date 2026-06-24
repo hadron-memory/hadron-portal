@@ -16,6 +16,7 @@
 
 import { error, fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   MY_ORGANIZATIONS_QUERY,
@@ -26,14 +27,6 @@ import { deriveDefaultName } from '$lib/install/derive-default-name';
 import { installStrings } from '$lib/i18n/install-strings';
 import type { Organization, Agent, App } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-
-function extractGqlError(e: unknown, fallback: string): string {
-  if (e && typeof e === 'object' && 'response' in e) {
-    const resp = (e as { response: { errors?: { message: string }[] } }).response;
-    if (resp.errors?.[0]?.message) return resp.errors[0].message;
-  }
-  return e instanceof Error ? e.message : fallback;
-}
 
 function agentSlugFromUrn(agentUrn: string): string {
   const colon = agentUrn.indexOf(':');
