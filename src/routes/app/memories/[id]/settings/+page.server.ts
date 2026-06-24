@@ -6,6 +6,7 @@ import {
   UPDATE_MEMORY_MUTATION,
   DELETE_MEMORY_MUTATION,
   MY_ORGANIZATIONS_QUERY,
+  RESOLVE_URN_QUERY,
 } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -31,6 +32,27 @@ function isEncryptedAckError(e: unknown): boolean {
   return false;
 }
 
+// Reduce a URN field value to the BARE memory slug the server's updateMemory
+// expects (e.g. "mm-holger-personal"). The field is meant to hold just the
+// slug, but a user may paste a full or partial URN — `hrn:memory:<org>::<slug>`,
+// the legacy `urn:` scheme, a `memory:<org>::<slug>` prefix, or a bare
+// `<org>::<slug>` path. Strip an optional scheme prefix, then an optional type
+// marker, then — if a `::` hierarchy remains — take the segment right after the
+// org (a memory path is `<org>::<slug>[::<role-marker>]`, so the slug is index
+// 1, never the org or a trailing role marker). A value that's already a bare
+// slug passes through untouched. This mirrors the server's bare-slug guard,
+// which rejects anything matching /^(hrn|urn|memory|agent|app|node|org):|::/.
+function toBareSlug(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const withoutScheme = trimmed.replace(/^(?:hrn|urn):/, '');
+  const withoutType = withoutScheme.replace(/^(?:memory|agent|app|node|org):/, '');
+  if (withoutType.includes('::')) {
+    return withoutType.split('::')[1] ?? '';
+  }
+  return withoutType;
+}
+
 // Parse an optional non-negative integer dial. Only a run of digits is
 // accepted — '', negatives, decimals, and partials like "12abc" all → undefined
 // (omit from the mutation so the server keeps its current value rather than
@@ -53,7 +75,9 @@ export const actions: Actions = {
   update: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const displayName = String(fd.get('displayName') ?? '').trim() || undefined;
-    const urnSlug = String(fd.get('urnSlug') ?? '').trim() || undefined;
+    // Normalize to a bare slug — the field should hold just the slug, but
+    // tolerate a user pasting a full/prefixed URN by cutting the slug out of it.
+    const urnSlug = toBareSlug(String(fd.get('urnSlug') ?? '')) || undefined;
     // Only forward `urn` when the user actually edited the slug. The server's
     // updateMemory rebuilds the whole URN from this value (newUrn =
     // `${org.urn}:${slug}`) whenever urn !== undefined, so sending the
@@ -61,14 +85,50 @@ export const actions: Actions = {
     // the URN. The form prefills the slug from the canonical `hrn:memory:…`
     // urn, which doesn't round-trip through that legacy composition, so an
     // unchanged resubmit was failing FR-020 validation server-side.
-    const originalUrnSlug = String(fd.get('originalUrnSlug') ?? '').trim() || undefined;
+    const originalUrnSlug = toBareSlug(String(fd.get('originalUrnSlug') ?? '')) || undefined;
     const urnChanged = urnSlug !== undefined && urnSlug !== originalUrnSlug;
     const newOrgId = String(fd.get('organizationId') ?? '').trim() || undefined;
     // #260: the org is no longer in the URL, so the no-op-transfer guard
     // compares against the memory's current org id submitted as a hidden field.
     const currentOrgId = String(fd.get('currentOrganizationId') ?? '').trim() || undefined;
+    const orgChanged = !!newOrgId && newOrgId !== currentOrgId;
     const tagsRaw = String(fd.get('tags') ?? '').trim();
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : [];
+
+    // Pre-flight URN-collision check: when the slug changed within the same org,
+    // compose the candidate URN (current `hrn:memory:<org>::` head + new slug)
+    // and verify no OTHER memory already owns it, so the user gets a friendly
+    // message instead of the server's raw unique-constraint error. The check is
+    // a UX nicety; the server's uniqueness enforcement is still the trust
+    // boundary (and backstops the org-transfer case we skip here, where the
+    // candidate URN's org head would differ from the current one).
+    //
+    // TODO(#390, hadron-server#355): once the server ships `resourceExists(urn, type)`,
+    // swap `resolveUrn` for it here. It's a direct DB existence boolean (not
+    // authz-scoped like resolveUrn), so it would also catch a collision with a
+    // memory in an org the user can't see — letting us drop the `!orgChanged`
+    // skip and check the org-transfer case too.
+    const currentUrn = String(fd.get('currentUrn') ?? '').trim();
+    if (urnChanged && !orgChanged && currentUrn.includes('::')) {
+      const candidateUrn = `${currentUrn.split('::')[0]}::${urnSlug}`;
+      try {
+        const { resolveUrn } = await gqlClient(locals.token).request<{
+          resolveUrn: { id: string } | null;
+        }>(RESOLVE_URN_QUERY, { urn: candidateUrn });
+        // A hit on a DIFFERENT memory id is a real collision (resolving to this
+        // same memory can't happen once the slug differs, but guard anyway).
+        if (resolveUrn && resolveUrn.id !== params.id) {
+          return fail(409, {
+            error: `A memory with the URN "${candidateUrn}" already exists. Choose a different slug.`,
+          });
+        }
+      } catch {
+        // resolveUrn failed (transport error or an un-resolvable candidate) —
+        // don't block the save on a best-effort pre-check; the server's unique
+        // constraint will reject a true collision and that error is surfaced.
+      }
+    }
+
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
         id: params.id,
