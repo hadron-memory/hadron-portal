@@ -37,19 +37,26 @@
   const path = $derived($page.url.pathname);
   const activeTab = $derived(tabs.find((tb) => path === tb.href));
   const showChrome = $derived(!!activeTab);
+  // #364: the "Organization: <name>" caption + URN belong to the Profile tab
+  // only. On every other tab the sub-route renders its own section heading
+  // (Memories / Agents / Apps / …) as the page caption.
+  const isProfile = $derived(activeTab?.id === 'profile');
 </script>
 
 <div class="space-y-4">
   {#if showChrome}
     <div class="mb-4">
+      <!-- On sub-tabs the org H1 is gone, so link the org crumb back to Profile. -->
       <Breadcrumb items={[
         { label: 'Organizations', href: '/app/orgs' },
-        { label: data.org.name },
+        isProfile ? { label: data.org.name } : { label: data.org.name, href: basePath },
       ]} />
-      <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">
-        <span class="font-normal text-zinc-400">{t('org-detail.prefix.organization', 'Organization:')}</span> {data.org.name}
-      </h1>
-      <Urn value={data.org.urn} type="org" />
+      {#if isProfile}
+        <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">
+          <span class="font-normal text-zinc-400">{t('org-detail.prefix.organization', 'Organization:')}</span> {data.org.name}
+        </h1>
+        <Urn value={data.org.urn} type="org" />
+      {/if}
     </div>
 
     <div class="mb-4 flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">

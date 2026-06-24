@@ -1,46 +1,21 @@
 <script lang="ts">
   // #336: Profile tab of the org-detail tab layout. The org name + URN live in
-  // the layout header; this page is the overview — quick stats (each linking to
-  // its tab), a members preview, and subscribed memories. Memories / Agents /
-  // Apps / Team / Integrations / Usage each have their own tab now.
+  // the layout header; this page is the overview — a members preview and
+  // subscribed memories. Memories / Agents / Apps / Team / Integrations / Usage
+  // each have their own tab now.
+  // #364: the Memories/Agents/Apps quick-stat cards were removed — those
+  // sections own their tabs (and the count surfaced apps via an overfetch).
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
   const org = $derived(data.org);
-  const apps = $derived(data.apps);
-  const appsError = $derived(data.appsError);
-
-  const stats = $derived([
-    { label: t('org-detail.tab.memories', 'Memories'), count: org.memories?.length ?? 0, href: `/app/orgs/${org.id}/memories` },
-    { label: t('org-detail.tab.agents', 'Agents'), count: org.agents?.length ?? 0, href: `/app/orgs/${org.id}/agents` },
-    { label: t('org-detail.tab.apps', 'Apps'), count: appsError === null ? apps.length : null, href: `/app/orgs/${org.id}/apps` },
-    { label: t('org-detail.tab.team', 'Team'), count: org.members?.length ?? 0, href: `/app/orgs/${org.id}/members` },
-  ]);
 </script>
 
 <svelte:head><title>{org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-8">
-  <!-- Quick stats -->
-  <section>
-    <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {#each stats as s (s.label)}
-        <a
-          href={s.href}
-          class="rounded-xl border border-zinc-200 bg-white p-4 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600"
-        >
-          <p class="text-2xl font-bold text-zinc-900 dark:text-white">{s.count ?? '—'}</p>
-          <p class="mt-0.5 text-sm text-zinc-500">{s.label}</p>
-        </a>
-      {/each}
-    </div>
-    {#if appsError !== null}
-      <p class="mt-2 text-sm text-red-600 dark:text-red-400">{t('org.detail.apps.load-error', "Couldn't load apps — try again")}</p>
-    {/if}
-  </section>
-
   <!-- Members preview -->
   <section>
     <div class="mb-3 flex items-center justify-between">

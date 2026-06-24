@@ -153,6 +153,12 @@
 <svelte:head><title>Memories · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-4">
+  <!-- #364: section caption — the org H1 now lives on the Profile tab only. -->
+  <div>
+    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">{t('org-detail.tab.memories', 'Memories')}</h2>
+    <p class="mt-1 text-sm text-zinc-500">Memories owned by this organization and the ones it subscribes to.</p>
+  </div>
+
   <!-- #342: secondary tab row (Org Memories / Subscriptions) -->
   <div class="flex gap-1 border-b border-zinc-200 dark:border-zinc-800">
     <button type="button" onclick={() => (subTab = 'org')} class="{subTabBase} {subTab === 'org' ? subTabActive : subTabInactive}">
