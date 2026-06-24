@@ -36,6 +36,14 @@
 
   let query = $state('');
 
+  // Focus the search box when the modal opens. A Svelte action runs on mount,
+  // and the input is (re)created each time the {#if open} block renders, so it
+  // fires on every open. Cleaner than the `autofocus` attribute, which is
+  // unreliable inside {#if} and trips Svelte's a11y_autofocus warning.
+  function focusOnMount(node: HTMLInputElement) {
+    node.focus();
+  }
+
   // Best-available display name + secondary identifier, matching the members page.
   function displayName(u: User): string {
     return u.name || u.githubUsername || u.handle || u.email || u.id;
@@ -68,7 +76,7 @@
 
   const table = createSvelteTable<User>({
     get data() {
-      return Array.isArray(users) ? users : [];
+      return Array.isArray(users) ? users.filter(Boolean) : [];
     },
     columns,
     getCoreRowModel: getCoreRowModel(),
@@ -108,7 +116,6 @@
   function select(user: User) {
     onselect(user);
     open = false;
-    query = '';
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -152,7 +159,7 @@
           bind:value={query}
           {placeholder}
           aria-label={placeholder}
-          autofocus
+          use:focusOnMount
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
       </div>
