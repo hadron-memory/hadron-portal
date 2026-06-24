@@ -96,6 +96,15 @@ export const COMMANDS: CommandSpec[] = [
     tint: 'emerald',
     arg: null,
   },
+  {
+    // #396 — opens the "Merge memory" command page (empties one memory into another).
+    id: 'merge-memory',
+    title: 'Merge memory',
+    triggers: ['merge memory'],
+    desc: 'Empty one memory into another',
+    tint: 'emerald',
+    arg: null,
+  },
   // — search (violet) —
   {
     id: 'search',
@@ -261,6 +270,8 @@ export async function resolveCommandAction(
       return { type: 'navigate', path: '/app/commands/access-check' };
     case 'merge-node':
       return { type: 'navigate', path: '/app/commands/merge-node' };
+    case 'merge-memory':
+      return { type: 'navigate', path: '/app/commands/merge-memory' };
     case 'invite': {
       const email = arg.trim();
       return { type: 'navigate', path: `/app/account/invite${email ? `?email=${encodeURIComponent(email)}` : ''}` };

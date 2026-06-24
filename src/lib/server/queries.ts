@@ -1471,3 +1471,19 @@ export const MERGE_NODES_MUTATION = /* GraphQL */ `
     }
   }
 `;
+
+// ---------------------------------------------------------------------------
+// Merge memory (#396) — backs the "Merge memory" command page. Mirrors the CLI
+// `hadron memory merge`; empties a source memory into a target. See
+// hadron-server mergeMemories / MergeMemoriesInput.
+// ---------------------------------------------------------------------------
+
+export const MERGE_MEMORIES_MUTATION = /* GraphQL */ `
+  mutation MergeMemories($input: MergeMemoriesInput!) {
+    mergeMemories(input: $input) {
+      id
+      urn
+      name
+    }
+  }
+`;
