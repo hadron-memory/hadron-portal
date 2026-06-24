@@ -203,12 +203,19 @@
   {#if nodes.length === 0}
     <p class="text-sm text-zinc-500">No nodes.</p>
   {:else}
-    <!-- Browse list scrolls inside a bounded container (height derived from the
-         MemoryBrowser area var minus this list's own controls/footer chrome — tune
-         the `7rem`); the orderable children list keeps its natural height. -->
+    <!-- Browse list scrolls inside a bounded container; the orderable children
+         list keeps its natural height. Height = the area available to NodeList
+         minus this list's own controls/footer chrome (the `10rem`).
+         - In MemoryBrowser, that area is `--memory-browser-h`.
+         - Standalone (e.g. the node-detail Children tab), there's no var, so the
+           fallback IS the area available to NodeList: `100vh - 14rem` (page
+           chrome above the ViewTabs/search rows). The shared `- 10rem` then
+           reserves NodeList's own chrome, landing the table at ~`100vh - 24rem`.
+           Subtracting the full 24rem here would double-count that chrome and
+           leave the table ~10rem short of the viewport (#371). -->
     <div
       class="rounded-lg border border-zinc-200 dark:border-zinc-800 {orderable ? 'overflow-x-auto' : 'overflow-auto'}"
-      style={orderable ? '' : 'max-height: calc(var(--memory-browser-h, calc(100vh - 24rem)) - 10rem);'}
+      style={orderable ? '' : 'max-height: calc(var(--memory-browser-h, calc(100vh - 14rem)) - 10rem);'}
     >
       <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize() + (orderable ? 32 : 0)}px);">
         <thead>
