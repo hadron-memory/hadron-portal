@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import SelectUser from '$lib/components/SelectUser.svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -13,6 +14,19 @@
 
   const memberIds = $derived(new Set((org.members ?? []).map((m: { user: { id: string } }) => m.user.id)));
   const nonMembers = $derived((data.allUsers ?? []).filter((u: { id: string }) => !memberIds.has(u.id)));
+
+  // "Add existing user": the plain <select> didn't scale, so it's replaced by
+  // the SelectUser modal picker (searchable, paginated) — same pattern as the
+  // SelectMemory picker on the org memories subscribe form.
+  let selectUserOpen = $state(false);
+  let selectedUserId = $state('');
+  const selectedUser = $derived(nonMembers.find((u: { id: string }) => u.id === selectedUserId));
+  // Mirror SelectUser's displayName: `||` (skip empty strings) and include handle.
+  const selectedUserLabel = $derived(
+    selectedUser
+      ? (selectedUser.name || selectedUser.githubUsername || selectedUser.handle || selectedUser.email || selectedUser.id)
+      : '',
+  );
 
   function submitOnChange(e: Event) {
     (e.currentTarget as HTMLSelectElement).form?.requestSubmit();
@@ -76,14 +90,26 @@
   {#if nonMembers.length > 0}
     <section>
       <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Add existing user</h2>
-      <form method="POST" action="?/add" use:enhance class="flex items-end gap-3">
+      <form method="POST" action="?/add" use:enhance={() => {
+        return async ({ result, update }) => {
+          await update();
+          // Clear the picked user only on success so a failed add keeps the selection.
+          if (result.type === 'success') selectedUserId = '';
+        };
+      }} class="flex items-end gap-3">
         <div class="flex-1">
-          <label for="userId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">User</label>
-          <select id="userId" name="userId" class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
-            {#each nonMembers as u (u.id)}
-              <option value={u.id}>{u.name ?? u.githubUsername ?? u.email}{u.githubUsername ? ` (@${u.githubUsername})` : ''}</option>
-            {/each}
-          </select>
+          <label for="add-user-button" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">User</label>
+          <button
+            id="add-user-button"
+            type="button"
+            onclick={() => (selectUserOpen = true)}
+            aria-haspopup="dialog"
+            aria-expanded={selectUserOpen}
+            class="w-full truncate rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-left text-sm text-white hover:bg-zinc-800"
+          >
+            {selectedUser ? selectedUserLabel : 'Select a user...'}
+          </button>
+          <input type="hidden" name="userId" value={selectedUserId} />
         </div>
         <div>
           <label for="role" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
@@ -94,8 +120,14 @@
             <option value="OWNER">Owner</option>
           </select>
         </div>
-        <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Add</button>
+        <button type="submit" disabled={!selectedUser} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">Add</button>
       </form>
+
+      <SelectUser
+        users={nonMembers}
+        bind:open={selectUserOpen}
+        onselect={(user) => (selectedUserId = user.id)}
+      />
     </section>
   {/if}
 
