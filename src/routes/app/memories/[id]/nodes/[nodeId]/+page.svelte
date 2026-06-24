@@ -3,12 +3,22 @@
   import { invalidateAll } from '$app/navigation';
   import { onMount } from 'svelte';
   import DOMPurify from 'dompurify';
+  import {
+    getCoreRowModel,
+    getSortedRowModel,
+    getFilteredRowModel,
+    getPaginationRowModel,
+    type ColumnDef,
+  } from '@tanstack/table-core';
+  import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NodeList from '$lib/components/NodeList.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
+  import type { NodeEdge } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -395,6 +405,93 @@
   const editableEdgesJson = $derived(JSON.stringify(
     editableEdges.map((e) => ({ targetId: e.targetId, name: e.name || null })),
   ));
+
+  // ── References tab grid (#350) ────────────────────────────────────────
+  // One TanStack table for both directions. Each edge is owned by its source
+  // node; the "endpoint" column shows the OTHER node (target for outgoing,
+  // source for incoming). "Open" links to the edge detail page, which lives
+  // under the edge's source node: /nodes/<source.id>/edges/<edge.id>.
+  interface EdgeRow {
+    edgeId: string;
+    direction: 'Outgoing' | 'Incoming';
+    name: string; // relationship name ('—' when unnamed) — also the sort/search key
+    endpointId: string;
+    endpointName: string;
+    endpointUrn: string;
+    /** Memory id that owns the edge (= source node's memory) — for the detail href. */
+    sourceMemoryId: string;
+    sourceId: string;
+  }
+
+  function endpointUrnOf(n: NodeEdge['source']): string {
+    // Endpoints carry their memory urn (#350); compose the full node URN the
+    // same way the Nodes list does, falling back to bare loc if absent.
+    const memUrn = n.memory?.urn;
+    return memUrn && n.loc ? composeNodeUrn(memUrn, n.loc) : n.loc;
+  }
+
+  const edgeRows = $derived<EdgeRow[]>([
+    ...node.outgoingEdges.map((e) => ({
+      edgeId: e.id,
+      direction: 'Outgoing' as const,
+      name: e.name || '—',
+      endpointId: e.target.id,
+      endpointName: e.target.name || e.target.loc,
+      endpointUrn: endpointUrnOf(e.target),
+      // Outgoing: this node is the source.
+      sourceMemoryId: node.memoryId,
+      sourceId: node.id,
+    })),
+    ...node.incomingEdges.map((e) => ({
+      edgeId: e.id,
+      direction: 'Incoming' as const,
+      name: e.name || '—',
+      endpointId: e.source.id,
+      endpointName: e.source.name || e.source.loc,
+      endpointUrn: endpointUrnOf(e.source),
+      // Incoming: the OTHER node is the source that owns the edge.
+      sourceMemoryId: e.source.memory?.id ?? node.memoryId,
+      sourceId: e.source.id,
+    })),
+  ]);
+
+  let edgeFilter = $state('');
+
+  const edgeColumns: ColumnDef<EdgeRow>[] = [
+    { accessorKey: 'direction', header: 'Direction', size: 110 },
+    { accessorKey: 'name', id: 'relationship', header: 'Relationship', size: 150 },
+    { accessorKey: 'endpointName', id: 'node', header: 'Node', enableHiding: false, size: 200 },
+    { accessorKey: 'endpointUrn', id: 'urn', header: 'URN', size: 320 },
+    { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 90 },
+  ];
+
+  const edgeTable = createSvelteTable<EdgeRow>({
+    get data() {
+      return edgeRows;
+    },
+    columns: edgeColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return edgeFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      edgeFilter = typeof u === 'function' ? u(edgeFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
+  function edgeDetailHref(r: EdgeRow): string {
+    return `/app/memories/${r.sourceMemoryId}/nodes/${r.sourceId}/edges/${r.edgeId}`;
+  }
 
   // Children: direct children of this node's loc
   const children = $derived(
@@ -823,9 +920,13 @@
 
     <!-- ═══ REFERENCES TAB ═══ -->
     {#if activeTab === 'references'}
-      <!-- Outgoing edges — editable -->
+      <!-- #350: both directions in one TanStack table (Direction · Relationship ·
+           Node · URN · Open). "Edit edges" still opens the inline add/remove
+           editor for this node's OUTGOING edges; per-edge property editing
+           (name, condition, priority, etc.) lives on the edge detail page,
+           reached via the row's "Open" link. -->
       <div class="mb-4 flex items-center justify-between">
-        <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Outgoing</h3>
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">References</h3>
         {#if !editingEdges}
           <button type="button" onclick={startEditEdges}
             class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
@@ -835,17 +936,33 @@
       </div>
 
       {#if !editingEdges}
-        {#if node.outgoingEdges.length > 0}
-          <div class="space-y-1">
-            {#each node.outgoingEdges as edge}
-              <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-                <a href="{basePath}/nodes/{edge.target.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.target.name || edge.target.loc}</a>
-                {#if edge.name}<span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{edge.name}</span>{/if}
-              </div>
-            {/each}
-          </div>
+        {#if edgeRows.length > 0}
+          <DataTable
+            table={edgeTable}
+            listKey="node:references"
+            searchPlaceholder="Search references..."
+            searchAriaLabel="Search references"
+            bind:globalFilter={edgeFilter}
+            maxHeight="max(200px, calc(100vh - 22rem))"
+          >
+            {#snippet cell(cell, r)}
+              {#if cell.column.id === 'direction'}
+                <span class="inline-block rounded px-1.5 py-0.5 text-xs font-medium {r.direction === 'Outgoing' ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300' : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{r.direction}</span>
+              {:else if cell.column.id === 'relationship'}
+                <span class="text-zinc-600 dark:text-zinc-400">{r.name}</span>
+              {:else if cell.column.id === 'node'}
+                <div class="truncate">
+                  <a href="{basePath}/nodes/{r.endpointId}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{r.endpointName}</a>
+                </div>
+              {:else if cell.column.id === 'urn'}
+                <Urn value={r.endpointUrn} type="node" size={10} />
+              {:else if cell.column.id === 'actions'}
+                <a href={edgeDetailHref(r)} class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Open →</a>
+              {/if}
+            {/snippet}
+          </DataTable>
         {:else}
-          <p class="text-sm text-zinc-400">No outgoing edges.</p>
+          <p class="text-sm text-zinc-400">No references.</p>
         {/if}
       {:else}
         <!-- Edit mode: list with remove buttons, add form, save/cancel -->
@@ -909,19 +1026,6 @@
             </button>
           </div>
         </form>
-      {/if}
-
-      <!-- Incoming edges — read-only (owned by other nodes) -->
-      {#if node.incomingEdges.length > 0}
-        <h3 class="mb-2 mt-6 text-xs font-semibold uppercase tracking-wide text-zinc-500">Incoming <span class="ml-1 font-normal normal-case text-zinc-400">(edit on the source node)</span></h3>
-        <div class="space-y-1">
-          {#each node.incomingEdges as edge}
-            <div class="flex items-center gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-              <a href="{basePath}/nodes/{edge.source.id}" class="font-mono text-indigo-500 hover:underline dark:text-indigo-400">{edge.source.name || edge.source.loc}</a>
-              {#if edge.name}<span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{edge.name}</span>{/if}
-            </div>
-          {/each}
-        </div>
       {/if}
     {/if}
 
