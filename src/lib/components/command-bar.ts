@@ -88,6 +88,15 @@ export const COMMANDS: CommandSpec[] = [
     arg: null,
   },
   {
+    // #392 — opens the "List tasks" command page (every runnable node).
+    id: 'list-tasks',
+    title: 'List tasks',
+    triggers: ['list tasks', 'tasks'],
+    desc: 'Every runnable node you can access',
+    tint: 'blue',
+    arg: null,
+  },
+  {
     // #395 — opens the "Merge node" command page (folds one node into another).
     id: 'merge-node',
     title: 'Merge node',
@@ -266,6 +275,8 @@ export async function resolveCommandAction(
       return { type: 'navigate', path: '/app/account' };
     case 'app-keys':
       return { type: 'navigate', path: '/app/account/api-keys' };
+    case 'list-tasks':
+      return { type: 'navigate', path: '/app/commands/list-tasks' };
     case 'access-check':
       return { type: 'navigate', path: '/app/commands/access-check' };
     case 'merge-node':
