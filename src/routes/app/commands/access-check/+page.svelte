@@ -10,11 +10,17 @@
 
   let { form, data }: { form: ActionData; data: PageData } = $props();
 
-  // Seed once from a deep link; bind:value in CommandForm keeps the typed values
-  // across submits (enhance uses reset:false), so we intentionally do NOT re-sync
-  // from `data` on re-render — untrack documents the read-initial-value-only.
+  // Seed once at mount. Prefer the action's echoed values (`form`) so a NO-JS
+  // POST repopulates the form after submit; otherwise fall back to the deep-link
+  // prefill. Seeding once is intentional: on an enhanced submit the component
+  // persists and bind:value (enhance reset:false) keeps the typed values, so we
+  // must NOT re-sync from `form`/`data` on re-render. untrack marks the
+  // read-initial-value-only (the Svelte-documented fix for state_referenced_locally).
   let values = $state<Record<string, string>>(
-    untrack(() => ({ user: data.prefill.user, resource: data.prefill.resource })),
+    untrack(() => ({
+      user: form?.user ?? data.prefill.user,
+      resource: form?.resource ?? data.prefill.resource,
+    })),
   );
 
   const fields: CommandField[] = [

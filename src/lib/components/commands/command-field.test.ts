@@ -6,7 +6,7 @@ describe('normalizeUserRef', () => {
     expect(normalizeUserRef('@harneet')).toBe('hrn:user:harneet');
   });
 
-  it('passes a already-qualified hrn:user URN through unchanged', () => {
+  it('passes an already-qualified hrn:user URN through unchanged', () => {
     expect(normalizeUserRef('hrn:user:harneet')).toBe('hrn:user:harneet');
   });
 

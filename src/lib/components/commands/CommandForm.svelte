@@ -5,6 +5,7 @@
   // result renders alongside, owned by the page). The field VALUES are bindable
   // so a page can prefill from a deep link (?user=…&resource=…) and so the
   // submit button can disable until required fields are filled.
+  import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import { missingRequired, type CommandField } from './command-field';
 
@@ -22,9 +23,11 @@
     busy?: boolean;
   } = $props();
 
-  // Seed any field not present in `values` so the bound inputs are controlled
-  // from first render (avoids undefined → '' warnings on the first keystroke).
-  $effect(() => {
+  // Seed any field not present in `values` at init (NOT in an $effect, which
+  // runs after the first render — that would flash an uncontrolled input).
+  // Runs once on mount; `fields` is a static schema per command page. untrack
+  // marks the intentional read-initial-value-only (silences state_referenced_locally).
+  untrack(() => {
     for (const f of fields) if (values[f.name] === undefined) values[f.name] = '';
   });
 
@@ -40,9 +43,14 @@
   use:enhance={() => {
     busy = true;
     // Keep the typed values on screen while the result renders (don't reset).
+    // try/finally so a thrown update() (network error, abort) still clears busy
+    // — otherwise the submit button would stay disabled forever.
     return async ({ update }) => {
-      await update({ reset: false });
-      busy = false;
+      try {
+        await update({ reset: false });
+      } finally {
+        busy = false;
+      }
     };
   }}
   class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
