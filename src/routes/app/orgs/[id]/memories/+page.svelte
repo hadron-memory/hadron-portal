@@ -155,7 +155,7 @@
 <div class="space-y-4">
   <!-- #364: section caption — the org H1 now lives on the Profile tab only. -->
   <div>
-    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">{t('org-detail.tab.memories', 'Memories')}</h2>
+    <h1 class="text-lg font-semibold text-zinc-900 dark:text-white">Memories</h1>
     <p class="mt-1 text-sm text-zinc-500">Memories owned by this organization and the ones it subscribes to.</p>
   </div>
 

@@ -73,7 +73,7 @@
 <div class="space-y-4">
   <div class="flex items-start justify-between">
     <div>
-      <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Agents</h2>
+      <h1 class="text-lg font-semibold text-zinc-900 dark:text-white">Agents</h1>
       <p class="text-sm text-zinc-500">Group memories into agents for app subscriptions.</p>
     </div>
     <div class="flex items-center gap-2">

@@ -50,7 +50,7 @@
 <div class="space-y-8">
   <!-- Integrations -->
   <section>
-    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Integrations</h2>
+    <h1 class="mb-3 font-semibold text-zinc-900 dark:text-white">Integrations</h1>
 
     {#if form?.error}
       <div class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>

@@ -103,7 +103,7 @@
 <svelte:head><title>Sessions · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-4">
-  <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Sessions</h2>
+  <h1 class="text-lg font-semibold text-zinc-900 dark:text-white">Sessions</h1>
   <p class="text-sm text-zinc-500">Agent and coding-session activity — tokens, turns, duration, and errors.</p>
 
   {#if data.sessions.length === 0}

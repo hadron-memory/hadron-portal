@@ -83,7 +83,7 @@
 
 <div class="space-y-4">
   <div>
-    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Apps</h2>
+    <h1 class="text-lg font-semibold text-zinc-900 dark:text-white">Apps</h1>
     <p class="mt-1 text-sm text-zinc-500">Installed Agents that authenticate clients (Micromentor, websites, mobile apps, the coding-agent CLI). Each App is a deployment of an Agent.</p>
   </div>
 

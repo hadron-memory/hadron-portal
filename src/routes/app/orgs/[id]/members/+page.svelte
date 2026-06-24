@@ -22,7 +22,7 @@
 <svelte:head><title>Members · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-8">
-  <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">Team</h2>
+  <h1 class="text-lg font-semibold text-zinc-900 dark:text-white">Team</h1>
 
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
