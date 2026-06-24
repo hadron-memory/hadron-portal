@@ -21,6 +21,7 @@
 
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import {
   MY_USER_API_KEYS_QUERY,
   CREATE_USER_API_KEY_MUTATION,
@@ -28,14 +29,6 @@ import {
 } from '$lib/server/queries';
 import type { UserApiKey, UserApiKeyCreateResult } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-
-function extractGqlError(e: unknown, fallback: string): string {
-  if (e && typeof e === 'object' && 'response' in e) {
-    const resp = (e as { response: { errors?: { message: string }[] } }).response;
-    if (resp.errors?.[0]?.message) return resp.errors[0].message;
-  }
-  return e instanceof Error ? e.message : fallback;
-}
 
 export const load: PageServerLoad = async ({ locals }) => {
   // Auth gate: locals.token is set by the +layout.server.ts auth flow;

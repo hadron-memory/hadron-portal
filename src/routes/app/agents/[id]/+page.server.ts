@@ -1,5 +1,6 @@
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import {
   MY_ORGANIZATIONS_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
@@ -14,14 +15,6 @@ import {
 import { requireNonConsumer } from '$lib/server/guards';
 import type { Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-
-function extractGqlError(e: unknown, fallback: string): string {
-  if (e && typeof e === 'object' && 'response' in e) {
-    const resp = (e as { response: { errors?: { message: string }[] } }).response;
-    if (resp.errors?.[0]?.message) return resp.errors[0].message;
-  }
-  return e instanceof Error ? e.message : fallback;
-}
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);

@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   AI_SERVICE_CONFIGS_QUERY,
@@ -12,14 +13,6 @@ import {
 } from '$lib/server/queries';
 import type { AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-
-function extractGqlError(e: unknown, fallback: string): string {
-  if (e && typeof e === 'object' && 'response' in e) {
-    const resp = (e as { response: { errors?: { message: string }[] } }).response;
-    if (resp.errors?.[0]?.message) return resp.errors[0].message;
-  }
-  return e instanceof Error ? e.message : fallback;
-}
 
 // #336: Integrations tab — GitHub App + Microsoft Exchange + AI service configs,
 // previously split across the org dashboard (GitHub/Exchange) and the
