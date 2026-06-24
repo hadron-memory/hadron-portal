@@ -467,3 +467,33 @@ export interface UserApiKeyCreateResult {
   userApiKey: UserApiKey;
   rawKey: string;
 }
+
+// ---------------------------------------------------------------------------
+// Access check (#375) — effectiveAccess result shape (hadron-server #323).
+// ---------------------------------------------------------------------------
+
+export interface AccessGrant {
+  /** AccessSource enum: PLATFORM_ROLE, ORG_ROLE, PUBLIC_VISIBILITY, … */
+  source: string;
+  /** The role/level this particular grant confers. */
+  role: string;
+  /** Human label for the grant's origin (owning org URN, etc.); may be null. */
+  via: string | null;
+}
+
+export interface EffectiveAccess {
+  /** Subject — only the fields EFFECTIVE_ACCESS_QUERY selects. */
+  user: Pick<UserSummary, 'id' | 'handle' | 'name' | 'email'>;
+  /** Canonical URN of the resolved resource (or AiServiceConfig id). */
+  resourceUrn: string;
+  /** memory | node | app | agent | aiServiceConfig. */
+  resourceKind: string;
+  canRead: boolean;
+  canWrite: boolean;
+  canManage: boolean;
+  canDelete: boolean;
+  /** Highest single clean role label, or null when capability-based/absent. */
+  role: string | null;
+  /** Reasons access is granted; empty = no access. Ordered strongest-first. */
+  grants: AccessGrant[];
+}
