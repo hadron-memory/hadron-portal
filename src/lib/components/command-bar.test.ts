@@ -204,6 +204,13 @@ describe('resolveCommandAction', () => {
     });
   });
 
+  it('merge memory → the command page (#396)', async () => {
+    expect(await resolveCommandAction(cmd('merge-memory'), '', ctx)).toEqual({
+      type: 'navigate',
+      path: '/app/commands/merge-memory',
+    });
+  });
+
   it('invite → the invite page, with the email prefilled when given', async () => {
     expect(await resolveCommandAction(cmd('invite'), 'a@b.com', ctx)).toEqual({
       type: 'navigate',
