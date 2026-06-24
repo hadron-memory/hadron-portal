@@ -50,8 +50,9 @@
     return '';
   }
   function initials(u: User): string {
-    const source = u.name || u.githubUsername || u.handle || u.email || '?';
-    const parts = source.trim().split(/\s+/);
+    // Trim each field so a whitespace-only value falls through to the next.
+    const source = u.name?.trim() || u.githubUsername?.trim() || u.handle?.trim() || u.email?.trim() || '?';
+    const parts = source.split(/\s+/);
     const letters = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : source.slice(0, 2);
     return letters.toUpperCase();
   }
@@ -150,6 +151,7 @@
           type="text"
           bind:value={query}
           {placeholder}
+          aria-label={placeholder}
           autofocus
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />

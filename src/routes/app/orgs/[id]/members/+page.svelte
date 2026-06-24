@@ -21,9 +21,10 @@
   let selectUserOpen = $state(false);
   let selectedUserId = $state('');
   const selectedUser = $derived(nonMembers.find((u: { id: string }) => u.id === selectedUserId));
+  // Mirror SelectUser's displayName: `||` (skip empty strings) and include handle.
   const selectedUserLabel = $derived(
     selectedUser
-      ? (selectedUser.name ?? selectedUser.githubUsername ?? selectedUser.email ?? selectedUser.id)
+      ? (selectedUser.name || selectedUser.githubUsername || selectedUser.handle || selectedUser.email || selectedUser.id)
       : '',
   );
 
@@ -119,7 +120,7 @@
             <option value="OWNER">Owner</option>
           </select>
         </div>
-        <button type="submit" disabled={!selectedUserId} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">Add</button>
+        <button type="submit" disabled={!selectedUser} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">Add</button>
       </form>
 
       <SelectUser
