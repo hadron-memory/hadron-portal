@@ -53,6 +53,34 @@
     storage: string | null; // git-backed / DB-only (org rows only)
     branch: string | null;
     lastSyncedAt: string | null;
+    // #397: spec-033 vector-index status, surfaced as a column. embeddingSource
+    // is only meaningful while the index is enabled.
+    vectorIndexEnabled: boolean;
+    embeddingSource: string | null;
+    /** Sortable/filterable summary of the two fields above. */
+    vectorIndex: string;
+  }
+
+  // #397: human label for the spec-033 EmbeddingSource enum.
+  function embeddingSourceLabel(source: string | null): string {
+    switch (source) {
+      case 'abstract':
+        return t('org-memories.vector-index.source.abstract', 'Abstract');
+      case 'contentChunks':
+        return t('org-memories.vector-index.source.content-chunks', 'Content chunks');
+      case 'both':
+        return t('org-memories.vector-index.source.both', 'Abstract + content');
+      default:
+        return source ?? '';
+    }
+  }
+
+  // #397: summary string for sorting/global filtering on the vector-index column.
+  function vectorIndexSummary(enabled?: boolean, source?: string | null): string {
+    if (!enabled) return t('org-memories.vector-index.off', 'Off');
+    const label = embeddingSourceLabel(source ?? null);
+    const on = t('org-memories.vector-index.on', 'Enabled');
+    return label ? `${on} · ${label}` : on;
   }
 
   // #342: subscribed memories moved to their own sub-tab, so the grid carries
@@ -67,6 +95,9 @@
       storage: g.source ? 'git-backed' : 'DB-only',
       branch: g.readBranch,
       lastSyncedAt: g.lastSyncedAt,
+      vectorIndexEnabled: g.vectorIndexEnabled ?? false,
+      embeddingSource: g.embeddingSource ?? null,
+      vectorIndex: vectorIndexSummary(g.vectorIndexEnabled, g.embeddingSource),
     })),
     ...(data.privateMemories ?? []).map((g) => ({
       id: g.id,
@@ -77,6 +108,9 @@
       storage: null,
       branch: null,
       lastSyncedAt: null,
+      vectorIndexEnabled: g.vectorIndexEnabled ?? false,
+      embeddingSource: g.embeddingSource ?? null,
+      vectorIndex: vectorIndexSummary(g.vectorIndexEnabled, g.embeddingSource),
     })),
     ...(data.systemMemories ?? []).map((g) => ({
       id: g.id,
@@ -87,6 +121,9 @@
       storage: null,
       branch: null,
       lastSyncedAt: null,
+      vectorIndexEnabled: g.vectorIndexEnabled ?? false,
+      embeddingSource: g.embeddingSource ?? null,
+      vectorIndex: vectorIndexSummary(g.vectorIndexEnabled, g.embeddingSource),
     })),
   ]);
 
@@ -113,6 +150,7 @@
     { accessorKey: 'name', header: t('org-memories.column.name', 'Name'), enableHiding: false, size: 200 }, // identity column
     { accessorKey: 'urn', header: t('org-memories.column.urn', 'URN'), size: 280 },
     { accessorKey: 'badge', id: 'type', header: t('org-memories.column.type', 'Type'), size: 110 },
+    { accessorKey: 'vectorIndex', header: t('org-memories.column.vector-index', 'Vector index'), size: 150 },
     { accessorKey: 'storage', header: t('org-memories.column.storage', 'Storage'), size: 100 },
     { accessorKey: 'branch', header: t('org-memories.column.branch', 'Branch'), size: 100 },
     { accessorKey: 'lastSyncedAt', header: t('org-memories.column.last-synced', 'Last synced'), size: 120 },
@@ -214,6 +252,17 @@
             <Urn value={m.urn} type="memory" size={10} />
           {:else if cell.column.id === 'type'}
             <span class="inline-block rounded px-1.5 py-0.5 text-xs {badgeClass(m)}">{m.badge}</span>
+          {:else if cell.column.id === 'vectorIndex'}
+            {#if m.vectorIndexEnabled}
+              <div class="flex flex-col gap-0.5">
+                <span class="inline-block w-fit rounded px-1.5 py-0.5 text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">{t('org-memories.vector-index.on', 'Enabled')}</span>
+                {#if m.embeddingSource}
+                  <span class="text-xs text-zinc-500 dark:text-zinc-400">{embeddingSourceLabel(m.embeddingSource)}</span>
+                {/if}
+              </div>
+            {:else}
+              <span class="inline-block rounded px-1.5 py-0.5 text-xs bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t('org-memories.vector-index.off', 'Off')}</span>
+            {/if}
           {:else if cell.column.id === 'actions'}
             <div class="flex items-center gap-3">
               <a href="/app/memories/{m.id}" class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Edit</a>
