@@ -15,6 +15,12 @@ const GRAPH_NODES_QUERY = `
   }
 `;
 
+// #335: read a node's `data` scoped to a memory. `$memory` is required (ID!)
+// so an unscoped call can't compile/run — node(loc:) without a scope now
+// errors on a cross-memory loc collision (AMBIGUOUS_NODE_LOC). Shared by the
+// stageOrder reads in addStage / updateExtractionSpec / updateGoals.
+const NODE_DATA_BY_LOC_QUERY = `query N($loc: String!, $memory: ID!) { node(loc: $loc, memory: $memory) { data } }`;
+
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
@@ -111,8 +117,8 @@ export const actions: Actions = {
 
       // Update conversation's stageOrder
       const convNode = await client.request<{ node: { data: unknown } | null }>(
-        `query N($loc: String!) { node(loc: $loc) { data } }`,
-        { loc: conversationLoc },
+        NODE_DATA_BY_LOC_QUERY,
+        { loc: conversationLoc, memory: systemMemoryId },
       );
       const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
       const stageOrder = [...((convData.stageOrder as string[]) ?? []), slug];
@@ -155,8 +161,8 @@ export const actions: Actions = {
     const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
     try {
       const stageNode = await client.request<{ node: { data: unknown } | null }>(
-        `query N($loc: String!) { node(loc: $loc) { data } }`,
-        { loc: stageLoc },
+        NODE_DATA_BY_LOC_QUERY,
+        { loc: stageLoc, memory: systemMemoryId },
       );
       const stageData = (stageNode.node?.data as Record<string, unknown>) ?? {};
       await client.request(UPSERT, { input: {
@@ -188,8 +194,8 @@ export const actions: Actions = {
     const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
     try {
       const convNode = await client.request<{ node: { data: unknown } | null }>(
-        `query N($loc: String!) { node(loc: $loc) { data } }`,
-        { loc: convLoc },
+        NODE_DATA_BY_LOC_QUERY,
+        { loc: convLoc, memory: systemMemoryId },
       );
       const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
       await client.request(UPSERT, { input: {

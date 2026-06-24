@@ -122,12 +122,15 @@ export const actions: Actions = {
       // If a system memory was selected, ensure it has the chatbot scaffold
       if (systemMemoryId) {
         const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
-        const NODE_Q = `query N($loc: String!) { node(loc: $loc) { id } }`;
+        // #335: scope by the agent's system memory. `conversations` exists in
+        // every agent's system memory, so an unscoped node(loc:) now errors
+        // (AMBIGUOUS_NODE_LOC) instead of silently resolving the wrong one.
+        const NODE_Q = `query N($loc: String!, $memory: ID!) { node(loc: $loc, memory: $memory) { id } }`;
         const client = gqlClient(locals.token);
         const agentDisplayName = name ?? 'Agent';
 
         // Check if conversations parent exists; create scaffold if missing
-        const hasConversations = await client.request<{ node: { id: string } | null }>(NODE_Q, { loc: 'conversations' }).catch(() => ({ node: null }));
+        const hasConversations = await client.request<{ node: { id: string } | null }>(NODE_Q, { loc: 'conversations', memory: systemMemoryId }).catch(() => ({ node: null }));
 
         if (!hasConversations.node) {
           // conversations parent

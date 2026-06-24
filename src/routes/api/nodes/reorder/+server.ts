@@ -17,7 +17,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const client = gqlClient(locals.token);
   try {
     for (const u of updates) {
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc });
+      // #335: scope the read to the target memory — node(loc:) is otherwise
+      // memory-blind and now errors on a cross-memory loc collision.
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc, memory: memoryId });
       if (!node) continue;
       // #235: tags must be passed through. The upsertNode resolver
       // defaults `input.tags ?? []`, so omitting tags clears them. See
