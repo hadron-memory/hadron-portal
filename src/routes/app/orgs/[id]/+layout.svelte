@@ -62,11 +62,12 @@
     </div>
 
     {#if tabs.length > 1}
-      <div class="mb-4 flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">
+      <nav aria-label={t('org-detail.nav.aria-label', 'Organization sections')} class="mb-4 flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">
         <div class="flex gap-0">
           {#each tabs as tab (tab.id)}
             <a
               href={tab.href}
+              aria-current={activeTab?.id === tab.id ? 'page' : undefined}
               class="border-b-2 px-4 py-2 text-sm font-medium transition
                 {activeTab?.id === tab.id
                   ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
@@ -74,7 +75,7 @@
             >{tab.label}</a>
           {/each}
         </div>
-      </div>
+      </nav>
     {/if}
   {/if}
 
