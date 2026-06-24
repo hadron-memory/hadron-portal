@@ -111,8 +111,8 @@ export const actions: Actions = {
 
       // Update conversation's stageOrder
       const convNode = await client.request<{ node: { data: unknown } | null }>(
-        `query N($loc: String!) { node(loc: $loc) { data } }`,
-        { loc: conversationLoc },
+        `query N($loc: String!, $memory: ID) { node(loc: $loc, memory: $memory) { data } }`,
+        { loc: conversationLoc, memory: systemMemoryId },
       );
       const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
       const stageOrder = [...((convData.stageOrder as string[]) ?? []), slug];
@@ -155,8 +155,8 @@ export const actions: Actions = {
     const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
     try {
       const stageNode = await client.request<{ node: { data: unknown } | null }>(
-        `query N($loc: String!) { node(loc: $loc) { data } }`,
-        { loc: stageLoc },
+        `query N($loc: String!, $memory: ID) { node(loc: $loc, memory: $memory) { data } }`,
+        { loc: stageLoc, memory: systemMemoryId },
       );
       const stageData = (stageNode.node?.data as Record<string, unknown>) ?? {};
       await client.request(UPSERT, { input: {
@@ -188,8 +188,8 @@ export const actions: Actions = {
     const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
     try {
       const convNode = await client.request<{ node: { data: unknown } | null }>(
-        `query N($loc: String!) { node(loc: $loc) { data } }`,
-        { loc: convLoc },
+        `query N($loc: String!, $memory: ID) { node(loc: $loc, memory: $memory) { data } }`,
+        { loc: convLoc, memory: systemMemoryId },
       );
       const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
       await client.request(UPSERT, { input: {

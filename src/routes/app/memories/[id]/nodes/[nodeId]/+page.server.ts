@@ -331,15 +331,11 @@ export const actions: Actions = {
     if (!anchorNode) return fail(404, { error: 'Anchor node not found' });
     try {
       for (const u of updates) {
-        // NODE_QUERY(loc:) is still memory-blind here (#234 left this
-        // call site as a noted follow-up). Worst case on collision: the
-        // siblings being reordered are within `anchorNode.memoryId`'s
-        // tree (the user is drag-reordering that tree), so `name` comes
-        // from the right place in practice. If a foreign memory shares
-        // the same loc and wins the resolver's first-match, the upsert
-        // below still targets anchorNode.memoryId, so the wrong-name
-        // value goes into the right memory's row — visible-but-fixable.
-        const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc });
+        // #335 (closes the #234 follow-up): scope the read to the anchor's
+        // memory. Previously NODE_QUERY(loc:) was memory-blind, so a foreign
+        // memory sharing the loc could win the resolver's first-match and feed
+        // a wrong `name` into anchorNode.memoryId's row. Now it's pinned.
+        const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc, memory: anchorNode.memoryId });
         if (!node) continue;
         await client.request(UPSERT_NODE_MUTATION, {
           input: {
