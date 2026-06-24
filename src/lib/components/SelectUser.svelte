@@ -41,9 +41,13 @@
     return u.name || u.githubUsername || u.handle || u.email || u.id;
   }
   function secondary(u: User): string {
-    if (u.githubUsername) return `@${u.githubUsername}`;
-    if (u.handle) return `@${u.handle}`;
-    return u.email ?? '';
+    // Skip an identifier already shown as the primary line — otherwise a user
+    // with no `name` renders e.g. "octocat" over "@octocat" (same value twice).
+    const primary = displayName(u);
+    if (u.githubUsername && u.githubUsername !== primary) return `@${u.githubUsername}`;
+    if (u.handle && u.handle !== primary) return `@${u.handle}`;
+    if (u.email && u.email !== primary) return u.email;
+    return '';
   }
   function initials(u: User): string {
     const source = u.name || u.githubUsername || u.handle || u.email || '?';
@@ -52,6 +56,9 @@
     return letters.toUpperCase();
   }
 
+  // Headers render dynamically from this list, but the <td> cells in <tbody>
+  // are hardcoded (custom avatar/name markup) — same approach as SelectMemory.
+  // Keep this column order in sync with the cells below, or they misalign.
   const columns: ColumnDef<User>[] = [
     { accessorKey: 'name', header: 'User', enableHiding: false, size: 240 },
     { accessorKey: 'githubUsername', header: 'Handle', size: 150 },
