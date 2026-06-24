@@ -1454,3 +1454,20 @@ export const EFFECTIVE_ACCESS_QUERY = /* GraphQL */ `
     }
   }
 `;
+
+// ---------------------------------------------------------------------------
+// Merge node (#395) — backs the "Merge node" command page. Mirrors the CLI
+// `hadron node merge`; folds a source node into a target. See hadron-server
+// mergeNodes / MergeNodesInput / NodeMergeField.
+// ---------------------------------------------------------------------------
+
+export const MERGE_NODES_MUTATION = /* GraphQL */ `
+  mutation MergeNodes($input: MergeNodesInput!) {
+    mergeNodes(input: $input) {
+      id
+      memoryId
+      loc
+      name
+    }
+  }
+`;

@@ -4,7 +4,7 @@
   // `hadron access check` output. Form chrome + submit live in CommandForm.
   import { untrack } from 'svelte';
   import CommandForm from '$lib/components/commands/CommandForm.svelte';
-  import type { CommandField } from '$lib/components/commands/command-field';
+  import type { CommandField, CommandFieldValue } from '$lib/components/commands/command-field';
   import Urn from '$lib/components/Urn.svelte';
   import type { ActionData, PageData } from './$types';
 
@@ -16,7 +16,7 @@
   // persists and bind:value (enhance reset:false) keeps the typed values, so we
   // must NOT re-sync from `form`/`data` on re-render. untrack marks the
   // read-initial-value-only (the Svelte-documented fix for state_referenced_locally).
-  let values = $state<Record<string, string>>(
+  let values = $state<Record<string, CommandFieldValue>>(
     untrack(() => ({
       user: form?.user ?? data.prefill.user,
       resource: form?.resource ?? data.prefill.resource,

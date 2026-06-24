@@ -87,6 +87,15 @@ export const COMMANDS: CommandSpec[] = [
     tint: 'blue',
     arg: null,
   },
+  {
+    // #395 — opens the "Merge node" command page (folds one node into another).
+    id: 'merge-node',
+    title: 'Merge node',
+    triggers: ['merge node', 'merge'],
+    desc: 'Fold one node into another',
+    tint: 'emerald',
+    arg: null,
+  },
   // — search (violet) —
   {
     id: 'search',
@@ -250,6 +259,8 @@ export async function resolveCommandAction(
       return { type: 'navigate', path: '/app/account/api-keys' };
     case 'access-check':
       return { type: 'navigate', path: '/app/commands/access-check' };
+    case 'merge-node':
+      return { type: 'navigate', path: '/app/commands/merge-node' };
     case 'invite': {
       const email = arg.trim();
       return { type: 'navigate', path: `/app/account/invite${email ? `?email=${encodeURIComponent(email)}` : ''}` };
