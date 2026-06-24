@@ -21,6 +21,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
 
@@ -30,6 +31,14 @@
   // #342: secondary tab — Org Memories vs Subscriptions.
   let subTab = $state<'org' | 'subscriptions'>('org');
   const subscriptions = $derived(org.subscriptions ?? []);
+
+  // Subscribe form: the memory <select> is replaced by the SelectMemory modal
+  // picker (searchable, paginated) — same pattern as the agent detail page.
+  let subscribeMemoryOpen = $state(false);
+  let selectedSubscribeMemoryId = $state('');
+  const selectedSubscribeMemory = $derived(
+    data.availableMemories.find((m) => m.id === selectedSubscribeMemoryId),
+  );
 
   type Section = 'org' | 'private' | 'system';
 
@@ -281,15 +290,22 @@
       {#if data.availableMemories.length === 0}
         <p class="text-sm text-zinc-500">No public memories available to subscribe to.</p>
       {:else}
-        <form method="POST" action="?/subscribe" use:enhance class="flex items-end gap-3 max-w-lg">
+        <form method="POST" action="?/subscribe" use:enhance={() => {
+          return async ({ update }) => {
+            await update();
+            selectedSubscribeMemoryId = '';
+          };
+        }} class="flex items-end gap-3 max-w-lg">
           <div class="flex-1">
-            <label for="memoryId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Public memory</label>
-            <select id="memoryId" name="memoryId" required class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-              <option value="">Select a memory...</option>
-              {#each data.availableMemories as m (m.id)}
-                <option value={m.id}>{m.name} ({m.urn})</option>
-              {/each}
-            </select>
+            <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Public memory</span>
+            <button
+              type="button"
+              onclick={() => (subscribeMemoryOpen = true)}
+              class="w-full truncate rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800"
+            >
+              {selectedSubscribeMemory ? selectedSubscribeMemory.name : 'Select a memory...'}
+            </button>
+            <input type="hidden" name="memoryId" value={selectedSubscribeMemoryId} />
           </div>
           <div>
             <label for="subRole" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
@@ -298,8 +314,14 @@
               <option value="CONTRIBUTOR">Contributor</option>
             </select>
           </div>
-          <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Subscribe</button>
+          <button type="submit" disabled={!selectedSubscribeMemoryId} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">Subscribe</button>
         </form>
+
+        <SelectMemory
+          memories={data.availableMemories}
+          bind:open={subscribeMemoryOpen}
+          onselect={(memory) => (selectedSubscribeMemoryId = memory.id)}
+        />
       {/if}
     </div>
   {/if}
