@@ -1,5 +1,14 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import {
+    getCoreRowModel,
+    getSortedRowModel,
+    getFilteredRowModel,
+    getPaginationRowModel,
+    type ColumnDef,
+  } from '@tanstack/table-core';
+  import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
@@ -211,6 +220,74 @@
     if (memVisRank(memVis) >= visibilityRank[agent.visibility]) return '';
     return `This memory is ${memVisLabel(memVis)} but the agent is ${visibilityLabel[agent.visibility]}. The effective access will be ${memVisLabel(memVis)}.`;
   });
+
+  // ── Memories tab grid (#371 follow-up) ────────────────────────────────
+  // The attached-memories list migrated from a hand-rolled card list to the
+  // shared TanStack DataTable. Rows carry only what the cells render; the
+  // role dropdown (?/updateMemoryRole) and Remove form (?/removeMemory) stay
+  // inline in their cells, same pattern as the org memories grid.
+  interface AgentMemoryRow {
+    memoryId: string;
+    name: string;
+    urn: string;
+    role: string;
+    visibility: string | null;
+    /** Memory is more restrictive than the agent — show the amber badge. */
+    restrictive: boolean;
+  }
+
+  const memoryRows = $derived<AgentMemoryRow[]>(
+    (agent.memoryItems ?? []).map((item) => ({
+      memoryId: item.memory.id,
+      name: item.memory.name,
+      urn: item.memory.urn,
+      role: item.role,
+      visibility: item.memory.visibility,
+      restrictive: memVisRank(item.memory.visibility) < visibilityRank[agent.visibility],
+    })),
+  );
+
+  // Role chip palette — preserves the green (read-write) / amber (read) chip
+  // from the old card list.
+  function roleChipClass(role: string): string {
+    return role === 'read-write'
+      ? '[border-color:rgb(134,239,172)] [background-color:rgb(240,253,244)] [color:rgb(21,128,61)] dark:[border-color:rgb(22,101,52)] dark:[background-color:rgb(20,83,45)] dark:[color:rgb(134,239,172)]'
+      : '[border-color:rgb(252,211,77)] [background-color:rgb(255,251,235)] [color:rgb(180,83,9)] dark:[border-color:rgb(120,53,15)] dark:[background-color:rgb(69,26,3)] dark:[color:rgb(252,211,77)]';
+  }
+
+  let memoryFilter = $state('');
+
+  const memoryColumns: ColumnDef<AgentMemoryRow>[] = [
+    { accessorKey: 'name', header: 'Name', enableHiding: false, size: 240 }, // identity column
+    { accessorKey: 'urn', header: 'URN', size: 340 },
+    { accessorKey: 'role', id: 'access', header: 'Access', size: 150 },
+    // Removing the only Remove affordance via the column menu is a trap.
+    { id: 'actions', header: 'Actions', enableSorting: false, enableHiding: false, size: 100 },
+  ];
+
+  const memoryTable = createSvelteTable<AgentMemoryRow>({
+    get data() {
+      return memoryRows;
+    },
+    columns: memoryColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return memoryFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      memoryFilter = typeof u === 'function' ? u(memoryFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
 </script>
 
 <svelte:head><title>{agent.name} · Hadron</title></svelte:head>
@@ -397,37 +474,47 @@
       <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Memories
         <span class="ml-1 text-sm font-normal text-zinc-500">({(agent.memoryItems ?? []).length})</span>
       </h2>
-      {#if (agent.memoryItems ?? []).length > 0}
-        <div class="mb-4 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-          {#each agent.memoryItems ?? [] as item (item.id)}
-            <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
-              <span class="w-3.5 shrink-0">
-                {#if item.role !== 'read-write'}
-                  <span title="Read only"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
-                {/if}
-              </span>
-              <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium">
-                  <a href="/app/memories/{item.memory.id}" class="text-indigo-600 hover:underline dark:text-indigo-300">{item.memory.name}</a>
-                  {#if memVisRank(item.memory.visibility) < visibilityRank[agent.visibility]}
-                    <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="More restrictive than agent">{memVisLabel(item.memory.visibility)}</span>
+      {#if memoryRows.length > 0}
+        <!-- 24rem offset tuned to this page's chrome (breadcrumb + header +
+             tab bar above, Add-memory form below) — per-page convention. -->
+        <div class="mb-4">
+          <DataTable
+            table={memoryTable}
+            listKey="agent:memories"
+            searchPlaceholder="Search memories..."
+            searchAriaLabel="Search memories"
+            bind:globalFilter={memoryFilter}
+            maxHeight="max(200px, calc(100vh - 24rem))"
+          >
+            {#snippet cell(cell, m)}
+              {#if cell.column.id === 'name'}
+                <div class="flex min-w-0 items-center gap-1.5">
+                  {#if m.role !== 'read-write'}
+                    <span title="Read only" class="shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
                   {/if}
-                </p>
-                <Urn value={item.memory.urn} type="memory" size={10} />
-              </div>
-              <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
-                <input type="hidden" name="memoryId" value={item.memory.id} />
-                <select name="role" value={item.role} onchange={(e) => e.currentTarget.form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs font-medium {item.role === 'read-write' ? '[border-color:rgb(134,239,172)] [background-color:rgb(240,253,244)] [color:rgb(21,128,61)] dark:[border-color:rgb(22,101,52)] dark:[background-color:rgb(20,83,45)] dark:[color:rgb(134,239,172)]' : '[border-color:rgb(252,211,77)] [background-color:rgb(255,251,235)] [color:rgb(180,83,9)] dark:[border-color:rgb(120,53,15)] dark:[background-color:rgb(69,26,3)] dark:[color:rgb(252,211,77)]'}">
-                  <option value="read">read</option>
-                  <option value="read-write">read-write</option>
-                </select>
-              </form>
-              <form method="POST" action="?/removeMemory" use:enhance>
-                <input type="hidden" name="memoryId" value={item.memory.id} />
-                <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
-              </form>
-            </div>
-          {/each}
+                  <a href="/app/memories/{m.memoryId}" class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{m.name}</a>
+                  {#if m.restrictive}
+                    <span class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="More restrictive than agent">{memVisLabel(m.visibility)}</span>
+                  {/if}
+                </div>
+              {:else if cell.column.id === 'urn'}
+                <Urn value={m.urn} type="memory" size={10} />
+              {:else if cell.column.id === 'access'}
+                <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
+                  <input type="hidden" name="memoryId" value={m.memoryId} />
+                  <select name="role" value={m.role} onchange={(e) => e.currentTarget.form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs font-medium {roleChipClass(m.role)}">
+                    <option value="read">read</option>
+                    <option value="read-write">read-write</option>
+                  </select>
+                </form>
+              {:else if cell.column.id === 'actions'}
+                <form method="POST" action="?/removeMemory" use:enhance>
+                  <input type="hidden" name="memoryId" value={m.memoryId} />
+                  <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+                </form>
+              {/if}
+            {/snippet}
+          </DataTable>
         </div>
       {:else}
         <p class="mb-4 text-sm text-zinc-500">No memories in this agent.</p>
