@@ -11,12 +11,11 @@
   import { untrack } from 'svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
+  import type { OrgSummary } from '$lib/types';
 
-  interface Org {
-    id: string;
-    name: string;
-    urn: string;
-  }
+  // OrgSummary is exactly { id; name; urn }, so reuse it rather than redeclaring
+  // — keeps this picker's contract in sync if org fields ever change.
+  type Org = OrgSummary;
 
   let {
     orgs,
@@ -154,8 +153,8 @@
                       <div class="min-w-0 flex-1">
                         <Urn value={row.original.urn} type="org" size={10} compact />
                       </div>
-                      <a href="/app/orgs/{row.original.id}" target="_blank" rel="noopener noreferrer" title="Open organization" class="shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                      <a href="/app/orgs/{row.original.id}" target="_blank" rel="noopener noreferrer" title="Open organization" aria-label="Open organization" class="shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
                       </a>
                     </div>
                   </td>
