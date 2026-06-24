@@ -492,7 +492,7 @@
                   {#if m.role !== 'read-write'}
                     <span title="Read only" class="shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
                   {/if}
-                  <a href="/app/memories/{m.memoryId}" class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{m.name}</a>
+                  <a href="/app/memories/{m.memoryId}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{m.name}</a>
                   {#if m.restrictive}
                     <span class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="More restrictive than agent">{memVisLabel(m.visibility)}</span>
                   {/if}
