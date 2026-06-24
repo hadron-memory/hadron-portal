@@ -1251,11 +1251,12 @@ export const NODE_SEMANTIC_SEARCH_QUERY = /* GraphQL */ `
 `;
 
 // #335: node(loc:) is memory-blind — the same loc can exist in many memories
-// and the server now REJECTS an unscoped collision (AMBIGUOUS_NODE_LOC). Always
-// pass `memory` (the memory id) so the lookup is pinned to the intended memory.
+// and the server now REJECTS an unscoped collision (AMBIGUOUS_NODE_LOC).
+// `$memory` is required (ID!) so this query can never run unscoped; both
+// callers (reorder API + memory node page) always have the memory id.
 export const NODE_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query Node($loc: String!, $memory: ID) {
+  query Node($loc: String!, $memory: ID!) {
     node(loc: $loc, memory: $memory) {
       ...NodeFields
     }
