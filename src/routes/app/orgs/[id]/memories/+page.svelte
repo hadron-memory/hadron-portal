@@ -76,9 +76,11 @@
   }
 
   // #397: summary string for sorting/global filtering on the vector-index column.
-  function vectorIndexSummary(enabled?: boolean, source?: string | null): string {
+  // Mirror the settings page: a null embeddingSource means the 'abstract' default
+  // while the index is enabled, so it gets a source label rather than rendering bare.
+  function vectorIndexSummary(enabled?: boolean | null, source?: string | null): string {
     if (!enabled) return t('org-memories.vector-index.off', 'Off');
-    const label = embeddingSourceLabel(source ?? null);
+    const label = embeddingSourceLabel(source ?? 'abstract');
     const on = t('org-memories.vector-index.on', 'Enabled');
     return label ? `${on} · ${label}` : on;
   }
@@ -256,9 +258,8 @@
             {#if m.vectorIndexEnabled}
               <div class="flex flex-col gap-0.5">
                 <span class="inline-block w-fit rounded px-1.5 py-0.5 text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">{t('org-memories.vector-index.on', 'Enabled')}</span>
-                {#if m.embeddingSource}
-                  <span class="text-xs text-zinc-500 dark:text-zinc-400">{embeddingSourceLabel(m.embeddingSource)}</span>
-                {/if}
+                <!-- null source falls back to the 'abstract' default, matching the settings page. -->
+                <span class="text-xs text-zinc-500 dark:text-zinc-400">{embeddingSourceLabel(m.embeddingSource ?? 'abstract')}</span>
               </div>
             {:else}
               <span class="inline-block rounded px-1.5 py-0.5 text-xs bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t('org-memories.vector-index.off', 'Off')}</span>
