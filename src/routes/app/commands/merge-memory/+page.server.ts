@@ -36,8 +36,8 @@ export const actions: Actions = {
     const target = String(fd.get('target') ?? '').trim();
     // Dedupe before the length check so duplicate/tampered entries can't inflate
     // the count past MERGE_FIELDS.length and flip the "all selected" test.
-    const include = [...new Set(fd.getAll('include').map(String))].filter((f) =>
-      MERGE_FIELDS.includes(f as never),
+    const include = [...new Set(fd.getAll('include').map(String))].filter(
+      (f): f is (typeof MERGE_FIELDS)[number] => (MERGE_FIELDS as readonly string[]).includes(f),
     );
     const deleteSourceMem = fd.get('deleteSourceMem') === 'true';
 
@@ -46,13 +46,21 @@ export const actions: Actions = {
     if (!source || !target) {
       return fail(400, { ...submitted, error: 'Enter both a source and a target memory.' });
     }
+    // Fast-path the obvious identical-ref case — saves a round-trip. The server
+    // still catches two *different* refs that resolve to the same memory
+    // (MERGE_SOURCE_EQUALS_TARGET), which this string check can't see.
+    if (source === target) {
+      return fail(400, { ...submitted, error: 'Source and target are the same memory — pick two different memories.' });
+    }
 
     // Only omit `include` when EVERY field is selected (server's "omitted = all").
     // Otherwise send the explicit selection, empty array included.
     const includeArg = include.length === MERGE_FIELDS.length ? undefined : include;
 
     try {
-      const { mergeMemories } = await gqlClient(locals.token).request<{ mergeMemories: Memory }>(
+      const { mergeMemories } = await gqlClient(locals.token).request<{
+        mergeMemories: Pick<Memory, 'id' | 'urn' | 'name'>;
+      }>(
         MERGE_MEMORIES_MUTATION,
         { input: { source, target, include: includeArg, deleteSourceMem } },
       );
