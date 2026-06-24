@@ -291,16 +291,20 @@
         <p class="text-sm text-zinc-500">No public memories available to subscribe to.</p>
       {:else}
         <form method="POST" action="?/subscribe" use:enhance={() => {
-          return async ({ update }) => {
+          return async ({ result, update }) => {
             await update();
-            selectedSubscribeMemoryId = '';
+            // Keep the selection on failure so the user can retry without re-picking.
+            if (result.type === 'success') selectedSubscribeMemoryId = '';
           };
         }} class="flex items-end gap-3 max-w-lg">
           <div class="flex-1">
-            <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Public memory</span>
+            <label for="subscribe-memory-button" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Public memory</label>
             <button
+              id="subscribe-memory-button"
               type="button"
               onclick={() => (subscribeMemoryOpen = true)}
+              aria-haspopup="dialog"
+              aria-expanded={subscribeMemoryOpen}
               class="w-full truncate rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800"
             >
               {selectedSubscribeMemory ? selectedSubscribeMemory.name : 'Select a memory...'}
