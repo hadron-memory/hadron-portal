@@ -55,14 +55,14 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // This allows other content (attachments, etc) under the chat without collision.
   const messagesPrefix = `${node.loc}:messages:`;
 
-  let children = (parentData?.graphNodes ?? [])
-    .filter((n) => {
+  let children = ((parentData?.graphNodes ?? []) as MemoryNode[])
+    .filter((n: MemoryNode) => {
       if (!n?.loc?.startsWith(messagesPrefix)) return false;
       // Only include direct message children (no further nesting)
       const rest = n.loc.slice(messagesPrefix.length);
       return !rest.includes(':');
     })
-    .sort((a, b) => {
+    .sort((a: MemoryNode, b: MemoryNode) => {
       const timeA = new Date(a.createdAt).getTime();
       const timeB = new Date(b.createdAt).getTime();
       return timeA - timeB;
@@ -80,7 +80,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   return {
     node,
     fullUrn,
-    messages: children.map((msg) => {
+    messages: children.map((msg: MemoryNode) => {
       const msgData = msg.data as Record<string, unknown> | null;
       return {
         id: msg.id,

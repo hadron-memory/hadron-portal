@@ -1,10 +1,11 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
-  import { onMount, tick, browser } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { marked } from 'marked';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import type { MemoryNode } from '$lib/types';
 
   // DOMPurify is browser-only, import it dynamically
   let DOMPurify: any;
@@ -20,7 +21,7 @@
   const breadcrumbItems = $derived.by(() => {
     if (!data?.graph?.name || !node?.name || !basePath) return [];
 
-    const items = [
+    const items: { label: string; href?: string }[] = [
       { label: 'Memories', href: memoriesHref },
       { label: data.graph.name, href: basePath },
       { label: 'Nodes', href: `${basePath}/nodes` },
@@ -30,7 +31,7 @@
     const parts = node.loc?.split(':') ?? [];
     for (let i = 1; i < parts.length; i++) {
       const parentLoc = parts.slice(0, i).join(':');
-      const parentNode = (data.graphNodes ?? []).find((n) => n.loc === parentLoc);
+      const parentNode = ((data.graphNodes ?? []) as MemoryNode[]).find((n: MemoryNode) => n.loc === parentLoc);
       if (parentNode) {
         items.push({
           label: parentNode.name,
