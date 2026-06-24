@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import { EDGE_HOST_NODE_QUERY, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
@@ -32,9 +32,9 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(async () => parentData);
 
   const host = data.nodeById;
-  if (!host) throw new Error(`Node not found: ${params.nodeId}`);
+  if (!host) error(404, `Node not found: ${params.nodeId}`);
   const edge = host.outgoingEdges.find((e) => e.id === params.edgeId);
-  if (!edge) throw new Error(`Edge not found: ${params.edgeId}`);
+  if (!edge) error(404, `Edge not found: ${params.edgeId}`);
 
   // #237-style URL correction: the route is scoped by memory id, but the host
   // node resolves by PK alone. Redirect a stale/mismatched URL to the canonical
@@ -57,9 +57,11 @@ export const actions: Actions = {
     const description = String(fd.get('description') ?? '').trim() || null;
     const isRunnable = fd.get('isRunnable') === 'true';
 
+    // Number() + isInteger (not parseInt): parseInt('1e2') === 1 and '1.5' → 1
+    // both silently mis-parse; we want to reject non-integers outright.
     const priorityRaw = String(fd.get('priority') ?? '').trim();
-    const priority = priorityRaw === '' ? 0 : parseInt(priorityRaw, 10);
-    if (Number.isNaN(priority)) return fail(400, { error: 'Priority must be a whole number' });
+    const priority = priorityRaw === '' ? 0 : Number(priorityRaw);
+    if (!Number.isInteger(priority)) return fail(400, { error: 'Priority must be a whole number' });
 
     // Hidden field carries the ConditionBuilder's serialized JSONLogic, or the
     // literal "null" when the condition is empty (always-fires → CLEAR).

@@ -1016,7 +1016,8 @@ export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
         condition
         priority
         data
-        target { id loc name memory { id urn } }
+        source { id loc name description tags memory { id urn } }
+        target { id loc name description tags memory { id urn } }
       }
     }
   }

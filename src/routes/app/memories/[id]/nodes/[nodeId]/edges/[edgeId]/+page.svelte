@@ -27,26 +27,34 @@
   const targetUrn = $derived(nodeUrn(edge.target.memory?.urn ?? data.graph.urn, edge.target.loc));
 
   // ── Editable state (seeded from the loaded edge) ─────────────────────────
-  function initialCondition(e: typeof edge): UiCondition {
+  // deserialize() can fail for JSONLogic shapes the structured ConditionBuilder
+  // can't represent. On failure we keep the raw value, show it read-only, and
+  // preserve it verbatim on save — letting the empty builder serialize over it
+  // would silently clear the condition (#350 review).
+  function seedCondition(e: typeof edge): { ui: UiCondition; error: string | null } {
     const r = deserialize(e.condition);
-    return r.ok ? r.ui : null;
+    return r.ok ? { ui: r.ui, error: null } : { ui: null, error: r.reason };
   }
 
   // Seed once from the loaded edge (untrack — these are initial values; the
   // effect below reseeds when the edge changes). untrack also silences the
   // state_referenced_locally warning for reading the `edge` derived here.
+  const seeded = untrack(() => seedCondition(edge));
   let name = $state(untrack(() => edge.name ?? ''));
   let description = $state(untrack(() => edge.description ?? ''));
   let isRunnable = $state(untrack(() => !!edge.isRunnable));
   let priority = $state(untrack(() => String(edge.priority ?? 0)));
-  let condition = $state<UiCondition>(untrack(() => initialCondition(edge)));
+  let condition = $state<UiCondition>(seeded.ui);
+  let conditionError = $state<string | null>(seeded.error);
   let dataText = $state(untrack(() => (edge.data != null ? JSON.stringify(edge.data, null, 2) : '')));
   let confirmDelete = $state(false);
 
   // The page component is reused across sibling edge URLs (same route id), so
   // reseed the form when the loaded edge changes — otherwise edits to one edge
-  // would bleed into the next. Tracks edge.id only; the reseed runs the rest.
-  let seededFor = $state(untrack(() => edge.id));
+  // would bleed into the next. Plain `let` (not $state): reading+writing a $state
+  // tracker inside the effect would make it a dependency and double-run (#350
+  // review). The effect's only reactive dep is edge.id.
+  let seededFor = untrack(() => edge.id);
   $effect(() => {
     if (edge.id === seededFor) return;
     seededFor = edge.id;
@@ -54,14 +62,19 @@
     description = edge.description ?? '';
     isRunnable = !!edge.isRunnable;
     priority = String(edge.priority ?? 0);
-    condition = initialCondition(edge);
+    const s = seedCondition(edge);
+    condition = s.ui;
+    conditionError = s.error;
     dataText = edge.data != null ? JSON.stringify(edge.data, null, 2) : '';
     confirmDelete = false;
   });
 
-  // Serialize the structured condition to JSONLogic for the hidden form field
-  // (mirrors the conversation editor). null = always fires → CLEAR on save.
-  const conditionJson = $derived(JSON.stringify(serialize(condition)));
+  // Hidden form field. When the condition couldn't be parsed into the builder,
+  // submit the ORIGINAL JSONLogic unchanged (preserve); otherwise serialize the
+  // builder. null = always fires → CLEAR on save. (Mirrors the conv. editor.)
+  const conditionJson = $derived(
+    conditionError ? JSON.stringify(edge.condition ?? null) : JSON.stringify(serialize(condition)),
+  );
 
   // Client-side JSON validity hint for the data field (server re-validates).
   const dataTrimmed = $derived(dataText.trim());
@@ -145,7 +158,17 @@
     <div>
       <span class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Condition</span>
       <p class="mb-2 text-xs text-zinc-400">JSONLogic gate — when it evaluates false the edge doesn't fire. Empty = always fires.</p>
-      <ConditionBuilder bind:value={condition} />
+      {#if conditionError}
+        <!-- The stored condition uses a shape the visual builder can't represent.
+             Show it read-only and preserve it verbatim on save (conditionJson
+             submits the original) so it can't be silently overwritten. -->
+        <div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+          This condition uses an expression the visual builder can't edit ({conditionError}). It's shown read-only and will be preserved unchanged when you save.
+        </div>
+        <pre class="mt-2 overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">{JSON.stringify(edge.condition, null, 2)}</pre>
+      {:else}
+        <ConditionBuilder bind:value={condition} />
+      {/if}
       <input type="hidden" name="condition" value={conditionJson} />
     </div>
 

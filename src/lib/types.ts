@@ -269,8 +269,9 @@ export interface NodeSummary {
   tags: string[];
   // #350: edge endpoints carry their memory's URN so the References table can
   // render the endpoint node's full URN (memory urn + loc), and so the edge
-  // detail page can route under the endpoint's owning memory.
-  memory?: { id: string; urn: string };
+  // detail page can route under the endpoint's owning memory. Nullable: GraphQL
+  // may return null (node with no memory object), not just omit the field.
+  memory?: { id: string; urn: string } | null;
 }
 
 export interface NodeEdge {
