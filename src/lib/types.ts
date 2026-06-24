@@ -267,6 +267,11 @@ export interface NodeSummary {
   name: string;
   description: string | null;
   tags: string[];
+  // #350: edge endpoints carry their memory's URN so the References table can
+  // render the endpoint node's full URN (memory urn + loc), and so the edge
+  // detail page can route under the endpoint's owning memory. Nullable: GraphQL
+  // may return null (node with no memory object), not just omit the field.
+  memory?: { id: string; urn: string } | null;
 }
 
 export interface NodeEdge {
@@ -277,6 +282,11 @@ export interface NodeEdge {
   loc: string;
   description?: string | null;
   isRunnable?: boolean | null;
+  // #350: populated only by EDGE_HOST_NODE_QUERY (the edge detail page); the
+  // lean NODE_FIELDS fragment omits them to keep graph/browse payloads small.
+  condition?: unknown;
+  priority?: number | null;
+  data?: unknown;
   source: NodeSummary;
   target: NodeSummary;
 }

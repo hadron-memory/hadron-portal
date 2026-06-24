@@ -974,6 +974,8 @@ export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
   mutation UpdateEdge(
     $edgeId: ID!
     $name: String
+    $description: String
+    $isRunnable: Boolean
     $condition: JSON
     $priority: Int
     $data: JSON
@@ -981,11 +983,42 @@ export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
     updateEdge(
       edgeId: $edgeId
       name: $name
+      description: $description
+      isRunnable: $isRunnable
       condition: $condition
       priority: $priority
       data: $data
     ) {
-      id name loc isRunnable condition priority data source { id loc name } target { id loc name }
+      id name loc isRunnable description condition priority data source { id loc name } target { id loc name }
+    }
+  }
+`;
+
+// Loads the edge's HOST (source) node by id with the full edge field set —
+// condition / priority / data / description aren't in the lean NODE_FIELDS
+// fragment (they'd bloat every graph/browse payload). The edge detail page
+// (#350) loads its source node and picks the edge out of outgoingEdges, since
+// the server has no single-edge query (resolveUrn doesn't dispatch edges).
+export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
+  query EdgeHostNode($id: ID!) {
+    nodeById(id: $id) {
+      id
+      memoryId
+      loc
+      name
+      memory { id urn name }
+      outgoingEdges {
+        id
+        name
+        loc
+        description
+        isRunnable
+        condition
+        priority
+        data
+        source { id loc name description tags memory { id urn } }
+        target { id loc name description tags memory { id urn } }
+      }
     }
   }
 `;
@@ -1163,14 +1196,14 @@ export const NODE_FIELDS = /* GraphQL */ `
       name
       loc
       isRunnable
-      target { id loc name description tags }
+      target { id loc name description tags memory { id urn } }
     }
     incomingEdges {
       id
       name
       loc
       isRunnable
-      source { id loc name description tags }
+      source { id loc name description tags memory { id urn } }
     }
   }
 `;
