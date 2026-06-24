@@ -78,6 +78,13 @@ export const actions: Actions = {
     // Normalize to a bare slug — the field should hold just the slug, but
     // tolerate a user pasting a full/prefixed URN by cutting the slug out of it.
     const urnSlug = toBareSlug(String(fd.get('urnSlug') ?? '')) || undefined;
+    // A submitted-but-empty slug (the user cleared the field, or pasted
+    // something with no extractable slug) would otherwise fall through as
+    // `undefined` → urnChanged=false → the old URN silently kept. Reject it so
+    // the user gets an actionable error instead of a no-op save.
+    if (fd.has('urnSlug') && !urnSlug) {
+      return fail(400, { error: 'URN slug cannot be empty.' });
+    }
     // Only forward `urn` when the user actually edited the slug. The server's
     // updateMemory rebuilds the whole URN from this value (newUrn =
     // `${org.urn}:${slug}`) whenever urn !== undefined, so sending the
@@ -110,7 +117,13 @@ export const actions: Actions = {
     // skip and check the org-transfer case too.
     const currentUrn = String(fd.get('currentUrn') ?? '').trim();
     if (urnChanged && !orgChanged && currentUrn.includes('::')) {
-      const candidateUrn = `${currentUrn.split('::')[0]}::${urnSlug}`;
+      // Replace ONLY the slug segment, keeping the `hrn:memory:<org>` head and
+      // any trailing role-marker segment (e.g. `…::<slug>::system`) intact — so
+      // the pre-check queries the exact URN the rename would produce, not a
+      // role-marker-stripped variant that could miss a real collision.
+      const candidateParts = currentUrn.split('::');
+      candidateParts[1] = urnSlug;
+      const candidateUrn = candidateParts.join('::');
       try {
         const { resolveUrn } = await gqlClient(locals.token).request<{
           resolveUrn: { id: string } | null;

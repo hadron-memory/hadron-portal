@@ -385,6 +385,27 @@ describe('memory-detail `update` action — visibility (spec 034)', () => {
     expect(vars.urn).toBe('renamed');
   });
 
+  // Clearing the field (or pasting something with no extractable slug) must be
+  // a hard error, not a silent no-op that keeps the old URN.
+  it.each([
+    ['', 'empty string'],
+    ['   ', 'whitespace only'],
+    ['memory:', 'prefix with no slug'],
+  ])('rejects a submitted-but-empty slug with a 400 (%s — %s)', async (cleared) => {
+    const actions = await importActions();
+
+    const result = (await actions.update(updateEv({
+      displayName: 'Experiments',
+      urnSlug: cleared,
+      originalUrnSlug: 'experiments',
+    }))) as { status: number; data: { error: string } } | undefined;
+
+    expect(result!.status).toBe(400);
+    expect(result!.data.error).toContain('cannot be empty');
+    // Rejected before any network call.
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('treats a pasted full URN whose slug is unchanged as a no-op (omits urn)', async () => {
     mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
     const actions = await importActions();
@@ -424,6 +445,23 @@ describe('memory-detail `update` action — URN collision pre-check', () => {
     expect(mockRequest).toHaveBeenCalledTimes(1);
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars).toEqual({ urn: 'hrn:memory:hadronmemory.com::taken' });
+  });
+
+  it('preserves a trailing role marker when composing the candidate URN', async () => {
+    // currentUrn carries a `::system` role marker — the candidate must keep it
+    // (replace only the slug segment), or the pre-check queries the wrong URN.
+    mockRequest.mockResolvedValueOnce({ resolveUrn: { id: 'some-other-memory' } });
+    const actions = await importActions();
+
+    const result = (await actions.update(updateEv({
+      urnSlug: 'taken',
+      originalUrnSlug: 'experiments',
+      currentUrn: 'hrn:memory:hadronmemory.com::experiments::system',
+    }))) as { status: number; data: { error: string } } | undefined;
+
+    expect(result!.status).toBe(409);
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars).toEqual({ urn: 'hrn:memory:hadronmemory.com::taken::system' });
   });
 
   it('proceeds with the save when the composed URN is free (resolveUrn → null)', async () => {

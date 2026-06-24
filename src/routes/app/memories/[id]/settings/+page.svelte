@@ -45,7 +45,12 @@
   // `split(':').slice(1).join(':')` leaked the full `memory:<org>::<slug>` into
   // the field; editing + saving that then failed the server's bare-slug guard
   // in updateMemory (and once corrupted prod URNs — see that guard's comment).
-  const urnSlug = $derived(g.urn ? (g.urn.split('::')[1] ?? '') : '');
+  // A legacy URN without `::` (e.g. `hrn:memory:org:slug`) has no org/slug
+  // separator, so fall back to the last `:`-segment rather than rendering an
+  // empty field.
+  const urnSlug = $derived(
+    g.urn ? (g.urn.includes('::') ? (g.urn.split('::')[1] ?? '') : (g.urn.split(':').pop() ?? '')) : '',
+  );
 
   // The read-only head rendered before the slug input. Reconstruct it from the
   // memory's OWN canonical URN so it matches exactly — including the `::`
