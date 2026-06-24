@@ -40,6 +40,10 @@ export interface CommandField {
 export function defaultValue(field: CommandField): CommandFieldValue {
   if (field.kind === 'checkbox') return false;
   if (field.kind === 'multiselect') return [];
+  // A controlled <select> with no matching option would display its first
+  // option while the model stays '' — seed to that first option so the value
+  // matches what's shown (and a required select isn't falsely "missing").
+  if (field.kind === 'select') return field.options?.[0]?.value ?? '';
   return '';
 }
 

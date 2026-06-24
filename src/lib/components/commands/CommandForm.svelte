@@ -50,6 +50,8 @@
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 </script>
 
+{#snippet labelText(f: CommandField)}{f.label}{#if !f.required}<span class="text-zinc-500"> (optional)</span>{/if}{/snippet}
+
 <form
   method="POST"
   {action}
@@ -84,10 +86,13 @@
         </label>
         {#if field.help}<p class="mt-1 ml-6 text-xs text-zinc-500">{field.help}</p>{/if}
       {:else}
-        <span class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          {field.label}
-          {#if !field.required}<span class="text-zinc-500">(optional)</span>{/if}
-        </span>
+        <!-- multiselect has no single input to point at → a group <span>;
+             every other kind gets a real <label for> for a11y association. -->
+        {#if field.kind === 'multiselect'}
+          <span class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{@render labelText(field)}</span>
+        {:else}
+          <label for={`cmd-${field.name}`} class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{@render labelText(field)}</label>
+        {/if}
 
         {#if field.kind === 'select'}
           <select id={`cmd-${field.name}`} name={field.name} value={asText(values[field.name])} onchange={(e) => (values[field.name] = e.currentTarget.value)} class={inputClass}>

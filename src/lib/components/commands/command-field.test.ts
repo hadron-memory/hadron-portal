@@ -80,4 +80,16 @@ describe('defaultValue', () => {
     expect(defaultValue({ name: 'c', label: 'C', kind: 'urn' })).toBe('');
     expect(defaultValue({ name: 'd', label: 'D', kind: 'text' })).toBe('');
   });
+
+  it('seeds a select to its first option value (or "" when no options)', () => {
+    expect(
+      defaultValue({
+        name: 's',
+        label: 'S',
+        kind: 'select',
+        options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }],
+      }),
+    ).toBe('a');
+    expect(defaultValue({ name: 's2', label: 'S2', kind: 'select' })).toBe('');
+  });
 });

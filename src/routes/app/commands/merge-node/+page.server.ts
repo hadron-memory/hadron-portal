@@ -35,7 +35,11 @@ export const actions: Actions = {
     const fd = await request.formData();
     const source = String(fd.get('source') ?? '').trim();
     const target = String(fd.get('target') ?? '').trim();
-    const include = fd.getAll('include').map(String).filter((f) => MERGE_FIELDS.includes(f as never));
+    // Dedupe before the length check below — duplicate/tampered entries must not
+    // inflate the count past MERGE_FIELDS.length and flip the "all selected" test.
+    const include = [...new Set(fd.getAll('include').map(String))].filter((f) =>
+      MERGE_FIELDS.includes(f as never),
+    );
     const deleteSource = fd.get('deleteSource') === 'true';
 
     // Echo the inputs back so the form stays populated on re-render.
@@ -45,10 +49,10 @@ export const actions: Actions = {
       return fail(400, { ...submitted, error: 'Enter both a source and a target node.' });
     }
 
-    // Partial selection → send that subset; full or empty selection → omit so
-    // the server merges every field (its documented "include omitted = all").
-    const includeArg =
-      include.length > 0 && include.length < MERGE_FIELDS.length ? include : undefined;
+    // Only omit `include` when EVERY field is selected (server's "omitted =
+    // all"). Otherwise pass the explicit selection — including an empty array,
+    // so unchecking everything merges nothing rather than surprisingly all.
+    const includeArg = include.length === MERGE_FIELDS.length ? undefined : include;
 
     try {
       const { mergeNodes } = await gqlClient(locals.token).request<{ mergeNodes: MemoryNode }>(
