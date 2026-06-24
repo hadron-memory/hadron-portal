@@ -197,6 +197,13 @@ describe('resolveCommandAction', () => {
     });
   });
 
+  it('merge node → the command page (#395)', async () => {
+    expect(await resolveCommandAction(cmd('merge-node'), '', ctx)).toEqual({
+      type: 'navigate',
+      path: '/app/commands/merge-node',
+    });
+  });
+
   it('invite → the invite page, with the email prefilled when given', async () => {
     expect(await resolveCommandAction(cmd('invite'), 'a@b.com', ctx)).toEqual({
       type: 'navigate',
