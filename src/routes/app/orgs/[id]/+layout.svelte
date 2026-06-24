@@ -1,7 +1,12 @@
 <script lang="ts">
-  // #336: org-detail is a tab layout (mirrors /app/memories/[id]). The layout
-  // renders the breadcrumb + header + tab bar; each tab is a sub-route rendered
-  // via {@render children()}.
+  // #336: org-detail is a tab layout. The layout renders the breadcrumb +
+  // header + tab bar; each tab is a sub-route rendered via {@render children()}.
+  //
+  // The tabs cover the org's OWN sections — Profile (overview), Team,
+  // Integrations, Usage. Memories / Agents / Apps are top-level destinations
+  // (sidebar nav in app/+layout.svelte), NOT org sub-pages: they live under
+  // this route for org-scoped data loading but are absent from `tabs`, so they
+  // render via {@render children()} WITHOUT the breadcrumb/tab-bar chrome.
   import { page } from '$app/stores';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -12,19 +17,16 @@
 
   const basePath = $derived(`/app/orgs/${data.org.id}`);
 
-  // Consumer-mode users only get the dashboard + memories (matches the sidebar
-  // nav in app/+layout.svelte); the admin sub-routes redirect them away anyway.
+  // Consumer-mode users only get the dashboard (Profile); their other sections
+  // (Memories) live in the sidebar nav and the admin sub-routes redirect them
+  // away anyway. Full-mode org sections: Profile, Team, Integrations, Usage.
   const tabs = $derived(
     data.isConsumerMode
       ? [
           { id: 'profile', label: t('org-detail.tab.profile', 'Profile'), href: basePath },
-          { id: 'memories', label: t('org-detail.tab.memories', 'Memories'), href: `${basePath}/memories` },
         ]
       : [
           { id: 'profile', label: t('org-detail.tab.profile', 'Profile'), href: basePath },
-          { id: 'memories', label: t('org-detail.tab.memories', 'Memories'), href: `${basePath}/memories` },
-          { id: 'agents', label: t('org-detail.tab.agents', 'Agents'), href: `${basePath}/agents` },
-          { id: 'apps', label: t('org-detail.tab.apps', 'Apps'), href: `${basePath}/apps` },
           { id: 'team', label: t('org-detail.tab.team', 'Team'), href: `${basePath}/members` },
           { id: 'integrations', label: t('org-detail.tab.integrations', 'Integrations'), href: `${basePath}/integrations` },
           { id: 'usage', label: t('org-detail.tab.usage', 'Usage'), href: `${basePath}/sessions` },
@@ -59,19 +61,21 @@
       {/if}
     </div>
 
-    <div class="mb-4 flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">
-      <div class="flex gap-0">
-        {#each tabs as tab (tab.id)}
-          <a
-            href={tab.href}
-            class="border-b-2 px-4 py-2 text-sm font-medium transition
-              {activeTab?.id === tab.id
-                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-          >{tab.label}</a>
-        {/each}
+    {#if tabs.length > 1}
+      <div class="mb-4 flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">
+        <div class="flex gap-0">
+          {#each tabs as tab (tab.id)}
+            <a
+              href={tab.href}
+              class="border-b-2 px-4 py-2 text-sm font-medium transition
+                {activeTab?.id === tab.id
+                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
+            >{tab.label}</a>
+          {/each}
+        </div>
       </div>
-    </div>
+    {/if}
   {/if}
 
   {@render children()}
