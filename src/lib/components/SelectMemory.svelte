@@ -30,6 +30,14 @@
   } = $props();
 
   let query = $state('');
+  let inputEl = $state<HTMLInputElement>();
+
+  // Focus the search box when the modal opens. Replaces the `autofocus`
+  // attribute, which is unreliable inside an {#if} block and trips Svelte's
+  // a11y_autofocus warning.
+  $effect(() => {
+    if (open && inputEl) inputEl.focus();
+  });
 
   const columns: ColumnDef<Memory>[] = [
     { accessorKey: 'name', header: 'Name', enableHiding: false, size: 200 },
@@ -39,7 +47,7 @@
 
   const table = createSvelteTable<Memory>({
     get data() {
-      return Array.isArray(memories) ? memories : [];
+      return Array.isArray(memories) ? memories.filter(Boolean) : [];
     },
     columns,
     getCoreRowModel: getCoreRowModel(),
@@ -76,7 +84,6 @@
   function select(memory: Memory) {
     onselect(memory);
     open = false;
-    query = '';
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -118,7 +125,8 @@
           type="text"
           bind:value={query}
           {placeholder}
-          autofocus
+          aria-label={placeholder}
+          bind:this={inputEl}
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
       </div>

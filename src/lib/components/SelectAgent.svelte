@@ -32,6 +32,14 @@
   } = $props();
 
   let query = $state('');
+  let inputEl = $state<HTMLInputElement>();
+
+  // Focus the search box when the modal opens. Replaces the `autofocus`
+  // attribute, which is unreliable inside an {#if} block and trips Svelte's
+  // a11y_autofocus warning.
+  $effect(() => {
+    if (open && inputEl) inputEl.focus();
+  });
 
   // NOTE: Headers render from this list, but the <td> cells in <tbody> are
   // hardcoded (custom URN/link markup) — same approach as SelectMemory. Keep
@@ -44,7 +52,7 @@
 
   const table = createSvelteTable<Agent>({
     get data() {
-      return Array.isArray(agents) ? agents : [];
+      return Array.isArray(agents) ? agents.filter(Boolean) : [];
     },
     columns,
     getCoreRowModel: getCoreRowModel(),
@@ -83,7 +91,6 @@
   function select(agent: Agent) {
     onselect(agent);
     open = false;
-    query = '';
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -127,7 +134,7 @@
           bind:value={query}
           {placeholder}
           aria-label={placeholder}
-          autofocus
+          bind:this={inputEl}
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
       </div>
