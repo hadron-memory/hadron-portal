@@ -105,7 +105,7 @@
             onclick={() => (selectUserOpen = true)}
             aria-haspopup="dialog"
             aria-expanded={selectUserOpen}
-            class="w-full truncate rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800"
+            class="w-full truncate rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800 {selectedUser ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-zinc-500'}"
           >
             {selectedUser ? selectedUserLabel : 'Select a user...'}
           </button>
@@ -113,7 +113,7 @@
         </div>
         <div>
           <label for="role" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
-          <select id="role" name="role" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+          <select id="role" name="role" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
             <option value="READER">Reader</option>
             <option value="CONTRIBUTOR">Contributor</option>
             <option value="ADMIN">Admin</option>
