@@ -361,4 +361,190 @@ describe('memory-detail `update` action — visibility (spec 034)', () => {
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars.urn).toBe('renamed');
   });
+
+  // A user may paste a full/prefixed URN into the slug field; the action must
+  // cut the bare slug out of it and send only that (never a prefixed value,
+  // which the server's bare-slug guard rejects).
+  it.each([
+    ['hrn:memory:hadronmemory.com::renamed', 'canonical hrn scheme'],
+    ['urn:memory:hadronmemory.com::renamed', 'legacy urn scheme'],
+    ['memory:hadronmemory.com::renamed', 'type marker, no scheme'],
+    ['hadronmemory.com::renamed', 'bare org::slug path'],
+    ['hrn:memory:hadronmemory.com::renamed::priv', 'trailing role marker'],
+  ])('extracts the bare slug from a pasted full URN (%s — %s)', async (pasted) => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.update(updateEv({
+      displayName: 'Experiments',
+      urnSlug: pasted,
+      originalUrnSlug: 'experiments',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.urn).toBe('renamed');
+  });
+
+  // Clearing the field (or pasting something with no extractable slug) must be
+  // a hard error, not a silent no-op that keeps the old URN.
+  it.each([
+    ['', 'empty string'],
+    ['   ', 'whitespace only'],
+    ['memory:', 'prefix with no slug'],
+  ])('rejects a submitted-but-empty slug with a 400 (%s — %s)', async (cleared) => {
+    const actions = await importActions();
+
+    const result = (await actions.update(updateEv({
+      displayName: 'Experiments',
+      urnSlug: cleared,
+      originalUrnSlug: 'experiments',
+    }))) as { status: number; data: { error: string } } | undefined;
+
+    expect(result!.status).toBe(400);
+    expect(result!.data.error).toContain('cannot be empty');
+    // Rejected before any network call.
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('treats a pasted full URN whose slug is unchanged as a no-op (omits urn)', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    // Field holds the full canonical URN; the original was the bare slug. Same
+    // slug → no recomposition.
+    await actions.update(updateEv({
+      displayName: 'Experiments',
+      urnSlug: 'hrn:memory:hadronmemory.com::experiments',
+      originalUrnSlug: 'experiments',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.urn).toBeUndefined();
+  });
+});
+
+// ── Tests for the `update` action — URN-collision pre-check ──────────────
+
+describe('memory-detail `update` action — URN collision pre-check', () => {
+  it('blocks the save with a 409 when the composed URN already belongs to another memory', async () => {
+    // First request is resolveUrn — return a hit on a DIFFERENT memory id.
+    mockRequest.mockResolvedValueOnce({ resolveUrn: { id: 'some-other-memory' } });
+    const actions = await importActions();
+
+    const result = (await actions.update(updateEv({
+      displayName: 'Experiments',
+      urnSlug: 'taken',
+      originalUrnSlug: 'experiments',
+      currentUrn: 'hrn:memory:hadronmemory.com::experiments',
+    }))) as { status: number; data: { error: string } } | undefined;
+
+    expect(result!.status).toBe(409);
+    expect(result!.data.error).toContain('hrn:memory:hadronmemory.com::taken');
+    // The collision short-circuits BEFORE updateMemory — only resolveUrn ran,
+    // and it was asked about the composed candidate URN.
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars).toEqual({ urn: 'hrn:memory:hadronmemory.com::taken' });
+  });
+
+  it('preserves a trailing role marker when composing the candidate URN', async () => {
+    // currentUrn carries a `::system` role marker — the candidate must keep it
+    // (replace only the slug segment), or the pre-check queries the wrong URN.
+    mockRequest.mockResolvedValueOnce({ resolveUrn: { id: 'some-other-memory' } });
+    const actions = await importActions();
+
+    const result = (await actions.update(updateEv({
+      urnSlug: 'taken',
+      originalUrnSlug: 'experiments',
+      currentUrn: 'hrn:memory:hadronmemory.com::experiments::system',
+    }))) as { status: number; data: { error: string } } | undefined;
+
+    expect(result!.status).toBe(409);
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars).toEqual({ urn: 'hrn:memory:hadronmemory.com::taken::system' });
+  });
+
+  it('proceeds with the save when the composed URN is free (resolveUrn → null)', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ resolveUrn: null }) // free
+      .mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    const result = (await actions.update(updateEv({
+      displayName: 'Experiments',
+      urnSlug: 'fresh',
+      originalUrnSlug: 'experiments',
+      currentUrn: 'hrn:memory:hadronmemory.com::experiments',
+    }))) as { success?: boolean } | undefined;
+
+    expect(result).toEqual({ success: true });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    const [, updateVars] = mockRequest.mock.calls[1]! as [unknown, Record<string, unknown>];
+    expect(updateVars.urn).toBe('fresh');
+  });
+
+  it('does not treat the memory resolving to itself as a collision', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ resolveUrn: { id: 'mem-id-abc' } }) // same id as params.id
+      .mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    const result = await actions.update(updateEv({
+      urnSlug: 'renamed',
+      originalUrnSlug: 'experiments',
+      currentUrn: 'hrn:memory:hadronmemory.com::experiments',
+    }));
+
+    expect(result).toEqual({ success: true });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('saves anyway when the pre-check itself errors (best-effort, server backstops)', async () => {
+    mockRequest
+      .mockRejectedValueOnce(new Error('resolveUrn transport error'))
+      .mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    const result = await actions.update(updateEv({
+      urnSlug: 'renamed',
+      originalUrnSlug: 'experiments',
+      currentUrn: 'hrn:memory:hadronmemory.com::experiments',
+    }));
+
+    expect(result).toEqual({ success: true });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips the pre-check when the org is also changing (candidate head would differ)', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.update(updateEv({
+      urnSlug: 'renamed',
+      originalUrnSlug: 'experiments',
+      currentUrn: 'hrn:memory:hadronmemory.com::experiments',
+      organizationId: 'new-org',
+      currentOrganizationId: 'old-org',
+    }));
+
+    // Only updateMemory ran — no resolveUrn pre-check.
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.urn).toBe('renamed');
+    expect(vars.organizationId).toBe('new-org');
+  });
+
+  it('skips the pre-check when the slug is unchanged', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.update(updateEv({
+      urnSlug: 'experiments',
+      originalUrnSlug: 'experiments',
+      currentUrn: 'hrn:memory:hadronmemory.com::experiments',
+    }));
+
+    // No slug change → no resolveUrn call, just the metadata update.
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
 });

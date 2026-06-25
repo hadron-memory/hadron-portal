@@ -37,7 +37,27 @@
   let saving = $state(false);
   let confirmDelete = $state(false);
 
-  const urnSlug = $derived(g.urn ? g.urn.split(':').slice(1).join(':') : '');
+  // The URN field edits only the bare memory slug (e.g. "mm-holger-personal"),
+  // matching the create form (which posts a bare `slug` under the `<org-urn>:`
+  // prefix). A memory URN is `hrn:memory:<org>::<slug>[::<role-marker>]`, so the
+  // slug is the segment after the first `::` — the org lives in the
+  // `hrn:memory:<org>` head and any role marker trails it. The old
+  // `split(':').slice(1).join(':')` leaked the full `memory:<org>::<slug>` into
+  // the field; editing + saving that then failed the server's bare-slug guard
+  // in updateMemory (and once corrupted prod URNs — see that guard's comment).
+  // A legacy URN without `::` (e.g. `hrn:memory:org:slug`) has no org/slug
+  // separator, so fall back to the last `:`-segment rather than rendering an
+  // empty field.
+  const urnSlug = $derived(
+    g.urn ? (g.urn.includes('::') ? (g.urn.split('::')[1] ?? '') : (g.urn.split(':').pop() ?? '')) : '',
+  );
+
+  // The read-only head rendered before the slug input. Reconstruct it from the
+  // memory's OWN canonical URN so it matches exactly — including the `::`
+  // org/slug separator and the `memory` type. The old prefix used the org's
+  // `urn` (an `hrn:org:<org>` value), which rendered the wrong type and a single
+  // trailing colon instead of `hrn:memory:<org>::`.
+  const urnPrefix = $derived(g.urn && g.urn.includes('::') ? `${g.urn.split('::')[0]}::` : '');
   const visibilityLabel: Record<string, string> = { ORGANIZATION: 'Organization', PUBLIC: 'Public', GROUP: 'Group' };
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
@@ -45,7 +65,14 @@
   function savingEnhance(formEl: HTMLFormElement) {
     return enhance(formEl, () => {
       saving = true;
-      return async ({ update }) => { saving = false; isEditing = false; await update(); };
+      // Only leave edit mode on success — on a failure (e.g. the URN-collision
+      // 409) keep the form open so the error banner is actionable and the user
+      // can correct the slug and resubmit.
+      return async ({ result, update }) => {
+        saving = false;
+        if (result.type === 'success') isEditing = false;
+        await update();
+      };
     });
   }
 
@@ -181,17 +208,21 @@
           <div>
             <label for="urnSlugInput" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
             <div class="flex items-stretch">
-              <!-- #260: org may be null (non-member viewing an org-owned
-                   memory). Only render the `<org-urn>:` prefix when we have it,
-                   so it never shows a bare ":". -->
-              {#if data.org?.urn}
-                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.org.urn}:</span>
+              <!-- The head is the memory's canonical `hrn:memory:<org>::` prefix
+                   (see urnPrefix). It's empty for a non-canonical URN that lacks
+                   a `::`, so the input just renders fully-rounded on its own. -->
+              {#if urnPrefix}
+                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 font-mono text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{urnPrefix}</span>
               {/if}
               <!-- Lets the server skip URN recomposition unless the slug
                    actually changed (see the update action). -->
               <input type="hidden" name="originalUrnSlug" value={urnSlug} />
+              <!-- The current full URN — the update action composes the
+                   candidate URN from its `hrn:memory:<org>::` head to pre-check
+                   for a collision before saving. -->
+              <input type="hidden" name="currentUrn" value={g.urn} />
               <input id="urnSlugInput" name="urnSlug" type="text" value={urnSlug}
-                class="w-full border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {data.org?.urn ? 'rounded-r-lg' : 'rounded-lg'}" />
+                class="w-full border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {urnPrefix ? 'rounded-r-lg' : 'rounded-lg'}" />
             </div>
           </div>
         {/if}
