@@ -1487,3 +1487,27 @@ export const MERGE_MEMORIES_MUTATION = /* GraphQL */ `
     }
   }
 `;
+
+// ---------------------------------------------------------------------------
+// List tasks (#392) — backs the "List tasks" command page. Runnable nodes
+// (Node.isRunnable=true) across every memory the caller can access (the server
+// nodes() query applies the access filter when no memory scope is given).
+// ---------------------------------------------------------------------------
+
+export const RUNNABLE_NODES_QUERY = /* GraphQL */ `
+  query RunnableNodes($limit: Int) {
+    nodes(isRunnable: true, limit: $limit) {
+      id
+      memoryId
+      loc
+      name
+      description
+      nodeType
+      memory {
+        id
+        urn
+        name
+      }
+    }
+  }
+`;
