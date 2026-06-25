@@ -141,10 +141,10 @@
             <form method="POST" action="?/update" use:enhance>
               <input type="hidden" name="userId" value={m.user.id} />
               <label class="sr-only" for="role-{m.id}">Role for {memberName(m)}</label>
-              <select id="role-{m.id}" name="role" onchange={submitOnChange}
+              <select id="role-{m.id}" name="role" value={m.role} onchange={submitOnChange}
                 class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
                 {#each ROLES as role}
-                  <option value={role} selected={m.role === role}>{role}</option>
+                  <option value={role}>{role}</option>
                 {/each}
               </select>
             </form>
