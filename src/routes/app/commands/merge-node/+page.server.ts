@@ -11,13 +11,20 @@ import type { Actions, PageServerLoad } from './$types';
 // The second consumer of the command-page framework — and the first MUTATION
 // (vs. the read-only access check), exercising the checkbox + multiselect kinds.
 
+// Getters (not eager `t()` values): re-evaluate per request when `command` is
+// serialized in load(), so a future locale-aware t() isn't frozen to the
+// module's startup locale.
 const COMMAND = {
   id: 'merge-node',
-  title: t('commands.merge-node.title', 'Merge node'),
-  description: t(
-    'commands.merge-node.description',
-    'Fold a source node into a target node. The target survives; selected fields are merged in (text concatenated, tags unioned, data/properties shallow-merged, edges re-pointed).',
-  ),
+  get title() {
+    return t('commands.merge-node.title', 'Merge node');
+  },
+  get description() {
+    return t(
+      'commands.merge-node.description',
+      'Fold a source node into a target node. The target survives; selected fields are merged in (text concatenated, tags unioned, data/properties shallow-merged, edges re-pointed).',
+    );
+  },
 };
 
 // NodeMergeField enum (hadron-server) — the foldable fields. Local (not

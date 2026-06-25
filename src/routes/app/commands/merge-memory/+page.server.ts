@@ -10,13 +10,20 @@ import type { Actions, PageServerLoad } from './$types';
 // merge`: empties a source memory into a target, backed by mergeMemories. Sibling
 // of merge-node (#395) — same framework, the memory-level merge.
 
+// Getters (not eager `t()` values): re-evaluate per request when `command` is
+// serialized in load(), so a future locale-aware t() isn't frozen to the
+// module's startup locale.
 const COMMAND = {
   id: 'merge-memory',
-  title: t('commands.merge-memory.title', 'Merge memory'),
-  description: t(
-    'commands.merge-memory.description',
-    'Empty a source memory into a target. Source nodes whose loc collides with a target node are folded in (per the field strategy below); the rest move over unchanged. The source ends up empty.',
-  ),
+  get title() {
+    return t('commands.merge-memory.title', 'Merge memory');
+  },
+  get description() {
+    return t(
+      'commands.merge-memory.description',
+      'Empty a source memory into a target. Source nodes whose loc collides with a target node are folded in (per the field strategy below); the rest move over unchanged. The source ends up empty.',
+    );
+  },
 };
 
 // NodeMergeField enum (hadron-server) — the per-field fold strategy for nodes

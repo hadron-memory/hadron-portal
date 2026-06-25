@@ -20,6 +20,20 @@
       urn: task.urn,
     })),
   );
+
+  // Whole-phrase strings with a {count} placeholder rather than concatenated
+  // fragments — word order / pluralization vary by language (table-strings.ts
+  // pattern). t() doesn't interpolate, so substitute after lookup.
+  const countLabel = $derived(
+    data.tasks.length === 1
+      ? t('commands.list-tasks.count.one', '1 task')
+      : t('commands.list-tasks.count.other', '{count} tasks').replace('{count}', String(data.tasks.length)),
+  );
+  const truncatedLabel = $derived(
+    data.truncated
+      ? ' ' + t('commands.list-tasks.truncated', '(showing the first {count})').replace('{count}', String(data.tasks.length))
+      : '',
+  );
 </script>
 
 {#if data.failed}
@@ -27,10 +41,7 @@
     {t('commands.list-tasks.failed', 'Couldn’t load tasks — the node query failed. Try again shortly.')}
   </div>
 {:else}
-  <p class="text-sm text-zinc-500">
-    {data.tasks.length}
-    {data.tasks.length === 1 ? t('commands.list-tasks.count.one', 'task') : t('commands.list-tasks.count.other', 'tasks')}{data.truncated ? ` (${t('commands.list-tasks.showing-first', 'showing the first')} ${data.tasks.length})` : ''}.
-  </p>
+  <p class="text-sm text-zinc-500">{countLabel}{truncatedLabel}.</p>
 
   <NodeTable
     nodes={rows}

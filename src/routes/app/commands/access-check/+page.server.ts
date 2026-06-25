@@ -11,13 +11,20 @@ import type { Actions, PageServerLoad } from './$types';
 // `hadron access check <user> <resource>`, backed by the effectiveAccess query.
 // The shared /app/commands layout renders `command.title` + `.description`.
 
+// Getters (not eager `t()` values): the module is initialized once on the
+// server, so eager calls would freeze the copy to the startup locale. Getters
+// re-evaluate t() when `command` is serialized in load() — i.e. per request.
 const COMMAND = {
   id: 'access-check',
-  title: t('commands.access-check.title', 'Check access'),
-  description: t(
-    'commands.access-check.description',
-    "Show a user's effective access to a resource — the read/write/manage/delete capabilities and the grants that confer them.",
-  ),
+  get title() {
+    return t('commands.access-check.title', 'Check access');
+  },
+  get description() {
+    return t(
+      'commands.access-check.description',
+      "Show a user's effective access to a resource — the read/write/manage/delete capabilities and the grants that confer them.",
+    );
+  },
 };
 
 export const load: PageServerLoad = async ({ url, parent }) => {

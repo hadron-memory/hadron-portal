@@ -10,10 +10,17 @@ import type { PageServerLoad } from './$types';
 // (Node.isRunnable=true) the caller can access. No action — the shared
 // /app/commands layout still provides the title/description chrome.
 
+// Getters (not eager `t()` values): re-evaluate per request when `command` is
+// serialized in load(), so a future locale-aware t() isn't frozen to the
+// module's startup locale.
 const COMMAND = {
   id: 'list-tasks',
-  title: t('commands.list-tasks.title', 'List tasks'),
-  description: t('commands.list-tasks.description', 'Every runnable node (a task) across the memories you can access.'),
+  get title() {
+    return t('commands.list-tasks.title', 'List tasks');
+  },
+  get description() {
+    return t('commands.list-tasks.description', 'Every runnable node (a task) across the memories you can access.');
+  },
 };
 
 // Cap the listing; flagged in the UI if we hit it (a paginated view can come later).
