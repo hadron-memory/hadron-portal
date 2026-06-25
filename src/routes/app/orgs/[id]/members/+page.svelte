@@ -38,8 +38,8 @@
   let globalFilter = $state('');
 
   const columns: ColumnDef<OrgMember>[] = [
-    { accessorFn: memberName, id: 'name', header: t('org-members.column.name', 'Member'), enableHiding: false, size: 240 }, // identity column
-    { accessorFn: memberUrn, id: 'urn', header: t('org-members.column.urn', 'URN'), size: 260 },
+    { accessorFn: memberName, id: 'name', header: t('org-members.column.name', 'Member'), enableHiding: false, size: 280 }, // identity column (name + URN)
+    { accessorFn: (m) => m.user.email ?? '', id: 'email', header: t('org-members.column.email', 'Email'), size: 240 },
     { accessorKey: 'role', header: t('org-members.column.role', 'Role'), size: 150 },
     { id: 'actions', header: t('org-members.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 120 },
   ];
@@ -125,14 +125,14 @@
                   <span class="shrink-0 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Owner</span>
                 {/if}
               </div>
-              {#if m.user.email}
-                <p class="truncate text-xs text-zinc-500">{m.user.email}</p>
+              {#if m.user.handle}
+                <div class="mt-0.5 truncate"><Urn value={memberUrn(m)} type="user" size={8} /></div>
               {/if}
             </div>
           </div>
-        {:else if cell.column.id === 'urn'}
-          {#if m.user.handle}
-            <Urn value={memberUrn(m)} type="user" size={8} />
+        {:else if cell.column.id === 'email'}
+          {#if m.user.email}
+            <div class="truncate text-zinc-600 dark:text-zinc-400">{m.user.email}</div>
           {:else}
             <span class="text-xs text-zinc-500">—</span>
           {/if}
