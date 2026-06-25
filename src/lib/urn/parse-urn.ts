@@ -93,8 +93,9 @@ export function buildResolverUrl(baseUrl: string, urn: string): string {
 // Legacy display surface — spec 010
 // ============================================================================
 
-/** Type union used by the display parser. Limited to the small spec-010 set. */
-export type DisplayUrnType = 'org' | 'memory' | 'agent' | 'app' | 'node';
+/** Type union used by the display parser. Limited to the small spec-010 set
+ *  (plus `user`, added so member lists can render `hrn:user:<handle>` chips). */
+export type DisplayUrnType = 'org' | 'memory' | 'agent' | 'app' | 'node' | 'user';
 
 /** Backward-compat alias preserved so existing call sites can import `UrnType`. */
 export type UrnType = DisplayUrnType;
@@ -122,7 +123,7 @@ export type ParsedUrn = DisplayParsedUrn;
 // 'unknown' here — that's intentional, so pages that render new URN types
 // pick up a generic look while still surfacing the literal `<type>:` prefix
 // to users. fullUrn is always reconstructed in canonical `hrn:` form.
-const DISPLAY_URN_REGEX = /^(?:hrn|urn):(org|memory|agent|app|node):(.+)$/;
+const DISPLAY_URN_REGEX = /^(?:hrn|urn):(org|memory|agent|app|node|user):(.+)$/;
 
 /**
  * Auto-detect the type from a scheme prefix (`hrn:<type>:` or legacy
