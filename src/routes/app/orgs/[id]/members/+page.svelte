@@ -126,7 +126,7 @@
                 {/if}
               </div>
               {#if m.user.handle}
-                <div class="mt-0.5 truncate"><Urn value={memberUrn(m)} type="user" size={8} /></div>
+                <div class="mt-0.5 flex min-w-0"><Urn value={memberUrn(m)} type="user" size={8} /></div>
               {/if}
             </div>
           </div>
