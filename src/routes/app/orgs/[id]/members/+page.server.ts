@@ -3,25 +3,25 @@ import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATION_QUERY,
-  USERS_QUERY,
   ADD_MEMBER_MUTATION,
   UPDATE_MEMBER_MUTATION,
   REMOVE_MEMBER_MUTATION,
   CREATE_USER_INVITATION_MUTATION,
 } from '$lib/server/queries';
-import type { Organization, UserSummary } from '$lib/types';
+import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
-  const [orgData, usersData] = await Promise.all([
-    client.request<{ organization: Organization }>(ORGANIZATION_QUERY, { id: params.id }),
-    client.request<{ users: UserSummary[] }>(USERS_QUERY).catch(() => ({ users: [] as UserSummary[] })),
-  ]);
+  // The "Add existing user" picker searches on demand via /api/users/search —
+  // we deliberately no longer bulk-load every user (with their emails) into the
+  // page just to populate a dropdown (#414 privacy).
+  const orgData = await client.request<{ organization: Organization }>(ORGANIZATION_QUERY, {
+    id: params.id,
+  });
   return {
     org: orgData.organization,
-    allUsers: usersData.users,
     currentUserId: locals.user?.id ?? null,
   };
 };
@@ -78,7 +78,9 @@ export const actions: Actions = {
         expiresInDays: 30,
       });
       const inviteUrl = `${url.origin}/invite/${data.createUserInvitation.slug}`;
-      return { inviteUrl };
+      // Surface who the link is for so the success message can name them
+      // (name preferred, email as fallback, null when neither was given).
+      return { inviteUrl, inviteName: name ?? email };
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to create invitation' });
     }

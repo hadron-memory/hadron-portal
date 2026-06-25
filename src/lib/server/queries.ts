@@ -384,7 +384,7 @@ export const USERS_QUERY = /* GraphQL */ `
 
 export const SEARCH_USERS_QUERY = /* GraphQL */ `
   query SearchUsers($query: String!) {
-    searchUsers(query: $query) { id handle githubUsername name avatarUrl email }
+    searchUsers(query: $query) { id handle urn githubUsername name avatarUrl email }
   }
 `;
 
