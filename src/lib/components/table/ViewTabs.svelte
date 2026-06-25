@@ -15,7 +15,18 @@
     table,
     listKey,
     store = localStorageViewStore,
-  }: { table: Table<any>; listKey: string; store?: ViewStore } = $props();
+    bordered = true,
+    class: klass = '',
+  }: {
+    table: Table<any>;
+    listKey: string;
+    store?: ViewStore;
+    /** Draw the bottom rule under the strip. Off when the strip shares a row
+     *  with other toolbar controls (e.g. NodeList merges it with Columns). */
+    bordered?: boolean;
+    /** Extra classes for the root strip (e.g. `min-w-0 flex-1` to share a row). */
+    class?: string;
+  } = $props();
 
   const ctrl = createViewController({ table, listKey, store });
 
@@ -107,7 +118,7 @@
     'border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200';
 </script>
 
-<div class="flex items-center gap-2 border-b border-zinc-200 dark:border-zinc-800">
+<div class="flex items-center gap-2 {bordered ? 'border-b border-zinc-200 dark:border-zinc-800' : ''} {klass}">
   <!-- Scrollable tab strip -->
   <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
     {#each sortedViews as v (v.id)}

@@ -71,13 +71,14 @@
   }
 </script>
 
-<!-- Saved-views tab strip -->
-<ViewTabs {table} {listKey} />
-
-<!-- Filter + columns -->
+<!-- Saved-views strip, search and Columns share one row to save vertical
+     space. Search stays far-left; ViewTabs takes the remaining width (flex-1)
+     so its "+ New view" button lands next to Columns, and drops its bottom rule
+     (bordered=false) since it no longer sits on its own line. -->
 <div class="flex items-center gap-4">
   <input type="text" placeholder={searchPlaceholder} aria-label={searchAriaLabel} bind:value={globalFilter}
     class="max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+  <ViewTabs {table} {listKey} bordered={false} class="min-w-0 flex-1" />
   <ColumnToggle {table} />
 </div>
 
