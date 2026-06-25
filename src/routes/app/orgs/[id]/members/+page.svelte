@@ -119,12 +119,7 @@
               <img src={m.user.avatarUrl} alt="" class="h-8 w-8 shrink-0 rounded-full" />
             {/if}
             <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="truncate font-medium text-zinc-900 dark:text-white">{memberName(m)}</span>
-                {#if m.role === 'OWNER'}
-                  <span class="shrink-0 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Owner</span>
-                {/if}
-              </div>
+              <span class="block truncate font-medium text-zinc-900 dark:text-white">{memberName(m)}</span>
               {#if m.user.handle}
                 <div class="mt-0.5 flex min-w-0"><Urn value={memberUrn(m)} type="user" size={8} /></div>
               {/if}
