@@ -28,31 +28,87 @@ beforeEach(() => {
 
 const fakeOrg = { id: 'org-id-123', name: 'Acme', urn: 'urn:org:acme', members: [], memories: [], agents: [], subscriptions: [], exchangeConnections: [] };
 
-async function importLoad() {
-  const mod = await import('./+page.server');
-  return mod.load;
+async function importMod() {
+  return import('./+page.server');
 }
 
-function ev(opts: { orgId?: string; token?: string | null } = {}) {
+function ev(opts: { orgId?: string; token?: string | null; userId?: string | null } = {}) {
   return {
     params: { id: opts.orgId ?? 'org-id-123' },
-    locals: { token: opts.token === undefined ? 'test-token' : opts.token },
+    locals: {
+      token: opts.token === undefined ? 'test-token' : opts.token,
+      user: { id: opts.userId === undefined ? 'user-1' : opts.userId },
+    },
     parent: async () => ({ org: fakeOrg }),
-  } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+  } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['load']>[0];
+}
+
+// Minimal form-action event: params + locals + a request whose formData()
+// returns the supplied fields.
+function actionEv(fields: Record<string, string>, opts: { orgId?: string } = {}) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+  return {
+    params: { id: opts.orgId ?? 'org-id-123' },
+    locals: { token: 'test-token' },
+    request: { formData: async () => fd },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['actions']['update']>[0];
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('org-detail Profile load()', () => {
-  it('forwards the parent org as { org }', async () => {
-    const load = await importLoad();
-    const result = await load(ev({ orgId: 'org-id-123' }));
-    expect(result).toEqual({ org: fakeOrg });
+  it('forwards the parent org and the current user id', async () => {
+    const { load } = await importMod();
+    const result = await load(ev({ orgId: 'org-id-123', userId: 'user-1' }));
+    expect(result).toEqual({ org: fakeOrg, currentUserId: 'user-1' });
+  });
+
+  it('null currentUserId when there is no logged-in user', async () => {
+    const { load } = await importMod();
+    const result = await load(ev({ userId: null }));
+    expect(result).toEqual({ org: fakeOrg, currentUserId: null });
   });
 
   it('issues no GraphQL request of its own (org comes from parent())', async () => {
-    const load = await importLoad();
+    const { load } = await importMod();
     await load(ev({}));
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('org-detail Profile update action (#394)', () => {
+  it('forwards name, urn and isVisible=true (checkbox present) to updateOrganization', async () => {
+    mockRequest.mockResolvedValueOnce({ updateOrganization: { id: 'org-id-123' } });
+    const { actions } = await importMod();
+    const result = await actions.update(actionEv({ name: 'Renamed', urn: 'renamed', isVisible: 'on' }));
+    expect(result).toEqual({ success: true });
+    const [, vars] = mockRequest.mock.calls[0];
+    expect(vars).toMatchObject({ id: 'org-id-123', name: 'Renamed', urn: 'renamed', isVisible: true });
+  });
+
+  it('strips a scheme/type prefix to the bare slug (guards the #394 cascade corruption)', async () => {
+    mockRequest.mockResolvedValueOnce({ updateOrganization: { id: 'org-id-123' } });
+    const { actions } = await importMod();
+    // A stale/prefixed urn must never reach updateOrganization verbatim — that
+    // would store `hrn:org:acme` as the org urn and corrupt every child urn.
+    await actions.update(actionEv({ name: 'Acme', urn: 'hrn:org:acme' }));
+    const [, vars] = mockRequest.mock.calls[0];
+    expect(vars.urn).toBe('acme');
+  });
+
+  it('isVisible=false when the checkbox field is absent', async () => {
+    mockRequest.mockResolvedValueOnce({ updateOrganization: { id: 'org-id-123' } });
+    const { actions } = await importMod();
+    await actions.update(actionEv({ name: 'Renamed', urn: 'renamed' }));
+    const [, vars] = mockRequest.mock.calls[0];
+    expect(vars.isVisible).toBe(false);
+  });
+
+  it('returns a 500 fail with an error message when the mutation throws', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('boom'));
+    const { actions } = await importMod();
+    const result = await actions.update(actionEv({ name: 'x', urn: 'y' }));
+    expect(result).toMatchObject({ status: 500, data: { error: expect.any(String) } });
   });
 });
