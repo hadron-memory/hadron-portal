@@ -10,6 +10,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import SelectUser from '$lib/components/SelectUser.svelte';
+  import { type SearchUser, userLabel } from '$lib/users/search-user';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import type { OrgMember } from '$lib/types';
@@ -70,24 +71,55 @@
     getPaginationRowModel: getPaginationRowModel(),
   });
 
-  const memberIds = $derived(new Set((org.members ?? []).map((m: { user: { id: string } }) => m.user.id)));
-  const nonMembers = $derived((data.allUsers ?? []).filter((u: { id: string }) => !memberIds.has(u.id)));
-
-  // "Add existing user": the plain <select> didn't scale, so it's replaced by
-  // the SelectUser modal picker (searchable, paginated) — same pattern as the
-  // SelectMemory picker on the org memories subscribe form.
+  // "Add existing user": the SelectUser modal searches the server on demand
+  // (#414) — it no longer receives a preloaded user list. We give it a `search`
+  // callback that hits /api/users/search and drops anyone already in this org.
   let selectUserOpen = $state(false);
-  let selectedUserId = $state('');
-  const selectedUser = $derived(nonMembers.find((u: { id: string }) => u.id === selectedUserId));
-  // Mirror SelectUser's displayName: `||` (skip empty strings) and include handle.
-  const selectedUserLabel = $derived(
-    selectedUser
-      ? (selectedUser.name || selectedUser.githubUsername || selectedUser.handle || selectedUser.email || selectedUser.id)
-      : '',
-  );
+  let selectedUser = $state<SearchUser | null>(null);
+  const selectedUserLabel = $derived(selectedUser ? userLabel(selectedUser) : '');
+
+  const memberIdSet = $derived(new Set(members.map((m) => m.user.id)));
+
+  async function searchUsers(query: string): Promise<SearchUser[]> {
+    const res = await fetch('/api/users/search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    if (!res.ok) throw new Error('Search failed');
+    const data = (await res.json()) as { users?: SearchUser[] };
+    // Hide users already in this org — they can't be added again.
+    return (data.users ?? []).filter((u) => !memberIdSet.has(u.id));
+  }
 
   function submitOnChange(e: Event) {
     (e.currentTarget as HTMLSelectElement).form?.requestSubmit();
+  }
+
+  // Invite form: enable "Create invite link" only once there's something to
+  // identify the recipient — at least a name or email — and, when an email is
+  // given, that it's well-formed. Mirrors the "Add" button's disabled-until-valid.
+  let inviteName = $state('');
+  let inviteEmail = $state('');
+  const inviteEmailValid = $derived(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail.trim()));
+  const inviteValid = $derived(
+    (inviteName.trim() !== '' || inviteEmail.trim() !== '') &&
+      (inviteEmail.trim() === '' || inviteEmailValid),
+  );
+
+  // Brief "Copied!" confirmation on the invite-link copy button.
+  let inviteCopied = $state(false);
+  let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
+  async function copyInviteLink(link: string) {
+    try {
+      await navigator.clipboard?.writeText(link);
+      inviteCopied = true;
+      clearTimeout(copyResetTimer);
+      copyResetTimer = setTimeout(() => (inviteCopied = false), 2000);
+    } catch {
+      // Clipboard unavailable (insecure context / denied) — the link stays
+      // select-all so the user can still copy it manually.
+    }
   }
 </script>
 
@@ -163,31 +195,30 @@
   {/if}
 
   <!-- Add existing user -->
-  {#if nonMembers.length > 0}
-    <section>
-      <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Add existing user</h2>
-      <form method="POST" action="?/add" use:enhance={() => {
-        return async ({ result, update }) => {
-          await update();
-          // Clear the picked user only on success so a failed add keeps the selection.
-          if (result.type === 'success') selectedUserId = '';
-        };
-      }} class="flex items-end gap-3">
-        <div class="flex-1">
-          <label for="add-user-button" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">User</label>
-          <button
-            id="add-user-button"
-            type="button"
-            onclick={() => (selectUserOpen = true)}
-            aria-haspopup="dialog"
-            aria-expanded={selectUserOpen}
-            class="w-full truncate rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800 {selectedUser ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-zinc-500'}"
-          >
-            {selectedUser ? selectedUserLabel : 'Select a user...'}
-          </button>
-          <input type="hidden" name="userId" value={selectedUserId} />
-        </div>
-        <div>
+  <section class="max-w-2xl">
+    <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Add existing user</h2>
+    <form method="POST" action="?/add" use:enhance={() => {
+      return async ({ result, update }) => {
+        await update();
+        // Clear the picked user only on success so a failed add keeps the selection.
+        if (result.type === 'success') selectedUser = null;
+      };
+    }} class="flex items-end gap-3">
+      <div class="flex-1">
+        <label for="add-user-button" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">User</label>
+        <button
+          id="add-user-button"
+          type="button"
+          onclick={() => (selectUserOpen = true)}
+          aria-haspopup="dialog"
+          aria-expanded={selectUserOpen}
+          class="w-full truncate rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800 {selectedUser ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-zinc-500'}"
+        >
+          {selectedUser ? selectedUserLabel : 'Find a user...'}
+        </button>
+        <input type="hidden" name="userId" value={selectedUser?.id ?? ''} />
+      </div>
+      <div>
           <label for="role" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
           <select id="role" name="role" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
             <option value="READER">Reader</option>
@@ -200,32 +231,45 @@
       </form>
 
       <SelectUser
-        users={nonMembers}
+        search={searchUsers}
         bind:open={selectUserOpen}
-        onselect={(user) => (selectedUserId = user.id)}
+        onselect={(user) => (selectedUser = user)}
       />
-    </section>
-  {/if}
+  </section>
 
   <!-- Invite new user -->
-  <section>
+  <section class="max-w-2xl">
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Invite someone new</h2>
 
     {#if form?.inviteUrl}
-      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-        <p class="mb-2">Invitation created! Share this link:</p>
-        <code class="block rounded bg-zinc-900 px-3 py-2 text-xs text-white select-all">{form.inviteUrl}</code>
+      <div class="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">
+        <p class="mb-1">
+          {form.inviteName
+            ? `This is the unique invite link for ${form.inviteName}`
+            : 'This is the unique invite link for the new member'}
+        </p>
+        <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+          It was created for this recipient only — please don't forward it to anyone else.
+        </p>
+        <div class="flex items-center gap-2">
+          <code class="flex-1 rounded bg-zinc-100 px-3 py-2 text-xs text-zinc-900 select-all break-all dark:bg-zinc-800 dark:text-white">{form.inviteUrl}</code>
+          <button
+            type="button"
+            onclick={() => copyInviteLink(form.inviteUrl)}
+            class="shrink-0 rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >{inviteCopied ? 'Copied!' : 'Copy'}</button>
+        </div>
       </div>
     {:else}
       <form method="POST" action="?/invite" use:enhance class="flex flex-wrap items-end gap-3">
         <div class="flex-1 min-w-[200px]">
           <label for="inviteName" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Name <span class="text-zinc-600">(optional)</span></label>
-          <input id="inviteName" name="name" type="text" placeholder="Their name"
+          <input id="inviteName" name="name" type="text" placeholder="Their name" bind:value={inviteName}
             class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
         </div>
         <div class="flex-1 min-w-[200px]">
           <label for="inviteEmail" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Email <span class="text-zinc-600">(optional)</span></label>
-          <input id="inviteEmail" name="email" type="email" placeholder="email@example.com"
+          <input id="inviteEmail" name="email" type="email" placeholder="email@example.com" bind:value={inviteEmail}
             class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
         </div>
         <div>
@@ -237,7 +281,7 @@
             <option value="OWNER">Owner</option>
           </select>
         </div>
-        <button type="submit" class="rounded-lg bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-600">Create invite link</button>
+        <button type="submit" disabled={!inviteValid} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">Create invite link</button>
       </form>
     {/if}
   </section>

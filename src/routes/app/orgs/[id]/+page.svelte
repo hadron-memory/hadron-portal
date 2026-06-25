@@ -1,12 +1,14 @@
 <script lang="ts">
   // #336: Profile tab of the org-detail tab layout. The org name + URN live in
-  // the layout header; this page is the overview — a members preview and
+  // the layout header; this page is the overview — the org properties box and
   // subscribed memories. Memories / Agents / Apps / Team / Integrations / Usage
   // each have their own tab now.
   // #364: the Memories/Agents/Apps quick-stat cards were removed — those
   // sections own their tabs (and the count surfaced apps via an overfetch).
   // #394: the Profile tab now also shows the org's core properties and lets an
   // org ADMIN/OWNER edit them inline (name, URN slug, visibility).
+  // The Team members preview was dropped — the member count is now a field in
+  // the properties box (linking to the Team tab); Team owns the full list.
   import { enhance } from '$app/forms';
   import Urn from '$lib/components/Urn.svelte';
   import { parseDisplayUrn } from '$lib/urn/parse-urn';
@@ -95,35 +97,13 @@
           <span class="text-sm font-medium text-zinc-900 dark:text-white">{org.isVisible ? t('org-detail.profile.visible-public', 'Public') : t('org-detail.profile.visible-private', 'Private')}</span>
         </div>
         <div class="flex items-center justify-between px-5 py-3">
+          <span class="text-sm text-zinc-500">{t('org-detail.profile.members', 'Members')}</span>
+          <a href="/app/orgs/{org.id}/members" class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400">{org.members?.length ?? 0}</a>
+        </div>
+        <div class="flex items-center justify-between px-5 py-3">
           <span class="text-sm text-zinc-500">{t('org-detail.profile.created', 'Created')}</span>
           <span class="text-sm text-zinc-900 dark:text-white">{new Date(org.createdAt).toLocaleDateString()}</span>
         </div>
-      </div>
-    {/if}
-  </section>
-  <!-- Members preview -->
-  <section>
-    <div class="mb-3 flex items-center justify-between">
-      <h2 class="font-semibold text-zinc-900 dark:text-white">{t('org-detail.tab.team', 'Team')} <span class="ml-1 text-sm font-normal text-zinc-500">({org.members?.length ?? 0})</span></h2>
-      <a href="/app/orgs/{org.id}/members" class="text-sm text-indigo-600 hover:underline dark:text-indigo-400">Manage →</a>
-    </div>
-    {#if !org.members?.length}
-      <p class="text-sm text-zinc-500">No members yet.</p>
-    {:else}
-      <div class="flex flex-wrap gap-2">
-        {#each org.members.slice(0, 8) as m (m.id)}
-          <div class="flex items-center gap-2 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-            {#if m.user.avatarUrl}
-              <img src={m.user.avatarUrl} alt={m.user.name ?? m.user.githubUsername ?? m.user.email ?? ''} class="h-5 w-5 rounded-full" />
-            {/if}
-            <span class="text-zinc-700 dark:text-zinc-300">{m.user.name ?? m.user.githubUsername ?? m.user.email}</span>
-            {#if m.role === 'OWNER'}
-              <span class="rounded-full bg-indigo-100 px-1.5 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Owner</span>
-            {:else}
-              <span class="text-xs text-zinc-500">{m.role}</span>
-            {/if}
-          </div>
-        {/each}
       </div>
     {/if}
   </section>

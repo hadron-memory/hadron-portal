@@ -1,142 +1,88 @@
 <script lang="ts">
-  // Modal picker for choosing a single user — searchable + paginated. Mirrors
-  // SelectMemory.svelte (same TanStack adapter, modal chrome, untrack reset).
-  // Users have no display URN, so rows render avatar + name + handle/email
-  // (the convention from the org members page) instead of the Urn component.
-  import {
-    getCoreRowModel,
-    getPaginationRowModel,
-    getFilteredRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
-  import { untrack } from 'svelte';
-  import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  // Search-driven user picker for "Add existing user" (#414). Unlike
+  // SelectMemory (which filters a preloaded list), this exposes NO users until
+  // the operator types a query and clicks Find — the results come from the
+  // server (/api/users/search), which matches email by full address and handle
+  // by substring, and returns only a handle, optional github username, avatar,
+  // and a *masked* email. We never display a name or a raw email here; that's a
+  // deliberate privacy stance (minimise what a bad actor can enumerate).
 
-  // Subset of UserSummary so callers can pass an OrgMember's `.user` directly.
-  interface User {
-    id: string;
-    name?: string | null;
-    handle?: string | null;
-    githubUsername?: string | null;
-    avatarUrl?: string | null;
-    email?: string | null;
-  }
+  import Urn from '$lib/components/Urn.svelte';
+  import { type SearchUser, userLabel } from '$lib/users/search-user';
+
+  export type { SearchUser };
 
   let {
-    users,
-    placeholder = 'Search users by name, handle, or email...',
+    search,
+    placeholder = 'Search by full email or handle…',
     onselect,
     open = $bindable(false),
   }: {
-    users: User[];
+    search: (query: string) => Promise<SearchUser[]>;
     placeholder?: string;
-    onselect: (user: User) => void;
+    onselect: (user: SearchUser) => void;
     open?: boolean;
   } = $props();
 
   let query = $state('');
+  let results = $state<SearchUser[]>([]);
+  let loading = $state(false);
+  let searched = $state(false);
+  let error = $state<string | null>(null);
 
-  // Focus the search box when the modal opens. A Svelte action runs on mount,
-  // and the input is (re)created each time the {#if open} block renders, so it
-  // fires on every open. Cleaner than the `autofocus` attribute, which is
-  // unreliable inside {#if} and trips Svelte's a11y_autofocus warning.
+  // Focus the search box when the modal opens. The input is (re)created each
+  // time {#if open} renders, so this fires on every open.
   function focusOnMount(node: HTMLInputElement) {
     node.focus();
   }
 
-  // Best-available display name + secondary identifier, matching the members page.
-  function displayName(u: User): string {
-    return u.name || u.githubUsername || u.handle || u.email || u.id;
-  }
-  function secondary(u: User): string {
-    // Skip an identifier already shown as the primary line — otherwise a user
-    // with no `name` renders e.g. "octocat" over "@octocat" (same value twice).
-    const primary = displayName(u);
-    if (u.githubUsername && u.githubUsername !== primary) return `@${u.githubUsername}`;
-    if (u.handle && u.handle !== primary) return `@${u.handle}`;
-    if (u.email && u.email !== primary) return u.email;
-    return '';
-  }
-  function initials(u: User): string {
-    // Trim each field so a whitespace-only value falls through to the next.
-    const source = u.name?.trim() || u.githubUsername?.trim() || u.handle?.trim() || u.email?.trim() || '?';
-    const parts = source.split(/\s+/);
-    const letters = parts.length > 1 ? parts[0][0] + parts[parts.length - 1][0] : source.slice(0, 2);
-    return letters.toUpperCase();
+  // Avatar fallback: first two letters/digits of the best identifier. Strip
+  // non-alphanumerics first so a masked email ("j•••@x.com") yields "J", not "J•".
+  function initials(u: SearchUser): string {
+    const source = u.handle || u.githubUsername || u.emailMasked || '';
+    const alnum = source.replace(/[^a-zA-Z0-9]/g, '');
+    return (alnum.slice(0, 2) || '?').toUpperCase();
   }
 
-  // Headers render dynamically from this list, but the <td> cells in <tbody>
-  // are hardcoded (custom avatar/name markup) — same approach as SelectMemory.
-  // Keep this column order in sync with the cells below, or they misalign.
-  const columns: ColumnDef<User>[] = [
-    { accessorKey: 'name', header: 'User', enableHiding: false, size: 240 },
-    { accessorKey: 'githubUsername', header: 'Handle', size: 150 },
-    { accessorKey: 'email', header: 'Email', size: 220 },
-  ];
+  // Require 3+ chars before searching — shorter queries match too broadly.
+  const MIN_QUERY = 3;
+  const canSearch = $derived(query.trim().length >= MIN_QUERY);
 
-  const table = createSvelteTable<User>({
-    get data() {
-      return Array.isArray(users) ? users.filter(Boolean) : [];
-    },
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    state: {
-      get globalFilter() {
-        return query;
-      },
-    },
-    onGlobalFilterChange: (u) => {
-      query = typeof u === 'function' ? u(query) : u;
-    },
-    globalFilterFn: (row, id, value) => {
-      const searchValue = String(value ?? '').toLowerCase().trim();
-      if (!searchValue) return true;
-      const u = row.original;
-      return (
-        (u.name ?? '').toLowerCase().includes(searchValue) ||
-        (u.handle ?? '').toLowerCase().includes(searchValue) ||
-        (u.githubUsername ?? '').toLowerCase().includes(searchValue) ||
-        (u.email ?? '').toLowerCase().includes(searchValue)
-      );
-    },
-    initialState: {
-      pagination: {
-        pageSize: 5,
-      },
-    },
-  });
-
-  const rows = $derived(table.getRowModel().rows);
-  const pageIndex = $derived(table.getState().pagination.pageIndex);
-  const pageCount = $derived(table.getPageCount());
-  const filteredRowCount = $derived(table.getFilteredRowModel().rows.length);
-
-  function select(user: User) {
-    onselect(user);
-    open = false;
-  }
-
-  function handleKeydown(e: KeyboardEvent) {
-    if (open && e.key === 'Escape') {
-      open = false;
+  async function runSearch() {
+    const q = query.trim();
+    if (q.length < MIN_QUERY || loading) return;
+    loading = true;
+    error = null;
+    try {
+      results = await search(q);
+      searched = true;
+    } catch {
+      error = 'Search failed. Please try again.';
+      results = [];
+      searched = true;
+    } finally {
+      loading = false;
     }
   }
 
-  // Reset search + pagination whenever the modal closes. `open` is the only
-  // tracked dependency; the reset itself runs untracked because
-  // table.resetPageIndex() reads *and* writes the table's reactive state via
-  // the adapter's onStateChange — tracking that here would make the effect
-  // self-invalidating and blow the update depth (effect_update_depth_exceeded).
-  // See SelectMemory.svelte / PR #369.
-  $effect(() => {
-    if (open) return;
-    untrack(() => {
-      query = '';
-      table.resetPageIndex();
-    });
-  });
+  function close() {
+    open = false;
+    // Reset so the next open starts blank — no users lingering on screen.
+    query = '';
+    results = [];
+    searched = false;
+    error = null;
+    loading = false;
+  }
+
+  function select(user: SearchUser) {
+    onselect(user);
+    close();
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (open && e.key === 'Escape') close();
+  }
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
@@ -144,103 +90,80 @@
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]" onclick={() => { open = false; }}>
+  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]" onclick={() => close()}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Find a user"
+      tabindex="-1"
+      class="w-full max-w-lg rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
       style="max-height: 70vh;"
     >
-      <!-- Header with search -->
-      <div class="border-b border-zinc-200 p-4 dark:border-zinc-700">
+      <!-- Header: search + Find. Submitting (Enter or the button) runs the search. -->
+      <form
+        class="flex gap-2 border-b border-zinc-200 p-4 dark:border-zinc-700"
+        onsubmit={(e) => { e.preventDefault(); runSearch(); }}
+      >
         <input
           type="text"
           bind:value={query}
           {placeholder}
           aria-label={placeholder}
           use:focusOnMount
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
+          class="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
-      </div>
+        <button
+          type="submit"
+          disabled={!canSearch || loading}
+          class="shrink-0 rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+        >{loading ? 'Finding…' : 'Find'}</button>
+      </form>
 
-      <!-- Table -->
-      <div class="flex-1 overflow-auto">
-        {#if rows.length === 0}
-          <div class="px-4 py-8 text-center text-sm text-zinc-500">No users found.</div>
+      <!-- Body -->
+      <div class="flex-1 overflow-auto p-2">
+        {#if loading}
+          <div class="px-4 py-8 text-center text-sm text-zinc-500">Searching…</div>
+        {:else if error}
+          <div class="px-4 py-8 text-center text-sm text-red-500">{error}</div>
+        {:else if !searched}
+          <div class="px-4 py-8 text-center text-sm text-zinc-500">
+            Enter a full email address or a handle (at least 3 characters), then click Find.
+          </div>
+        {:else if results.length === 0}
+          <div class="px-4 py-8 text-center text-sm text-zinc-500">No matching users found.</div>
         {:else}
-          <table class="w-full text-sm border-collapse">
-            <thead>
-              <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                {#each table.getHeaderGroups()[0]?.headers ?? [] as header (header.id)}
-                  <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-left dark:border-zinc-800 dark:bg-zinc-800" style="width: {header.getSize()}px;">
-                    {header.column.columnDef.header}
-                  </th>
-                {/each}
-                <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-800 w-20"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each rows as row (row.id)}
-                <tr class="border-b border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
-                  <td class="px-4 py-2">
-                    <div class="flex items-center gap-2">
-                      {#if row.original.avatarUrl}
-                        <img src={row.original.avatarUrl} alt="" class="h-8 w-8 shrink-0 rounded-full" />
-                      {:else}
-                        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">{initials(row.original)}</span>
-                      {/if}
-                      <div class="min-w-0">
-                        <p class="truncate text-sm font-medium text-zinc-900 dark:text-white">{displayName(row.original)}</p>
-                        {#if secondary(row.original)}
-                          <p class="truncate text-xs text-zinc-500">{secondary(row.original)}</p>
-                        {/if}
-                      </div>
-                    </div>
-                  </td>
-                  <td class="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400">{row.original.githubUsername ? `@${row.original.githubUsername}` : '—'}</td>
-                  <td class="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400">{row.original.email || '—'}</td>
-                  <td class="px-4 py-2 text-right">
-                    <button
-                      type="button"
-                      onclick={() => select(row.original)}
-                      class="rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
-                    >
-                      Select
-                    </button>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
+          <ul class="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {#each results as user (user.id)}
+              <li class="flex items-center gap-3 px-2 py-2">
+                {#if user.avatarUrl}
+                  <img src={user.avatarUrl} alt="" class="h-8 w-8 shrink-0 rounded-full" />
+                {:else}
+                  <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-xs font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">{initials(user)}</span>
+                {/if}
+                <div class="min-w-0 flex-1">
+                  {#if user.urn}
+                    <Urn value={user.urn} type="user" size={10} />
+                  {:else}
+                    <span class="truncate text-sm font-medium text-zinc-900 dark:text-white">{userLabel(user)}</span>
+                  {/if}
+                </div>
+                <button
+                  type="button"
+                  onclick={() => select(user)}
+                  class="shrink-0 rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                >Select</button>
+              </li>
+            {/each}
+          </ul>
         {/if}
       </div>
 
-      <!-- Footer with pagination -->
-      <div class="border-t border-zinc-200 flex items-center justify-between px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-        <div>
-          {rows.length > 0 && pageIndex >= 0 && pageCount > 0
-            ? `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''} · Page ${pageIndex + 1} of ${pageCount}`
-            : `${filteredRowCount} result${filteredRowCount !== 1 ? 's' : ''}`}
-        </div>
-        <div class="flex gap-2">
-          <button
-            type="button"
-            onclick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-            class="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-          >
-            ← Previous
-          </button>
-          <button
-            type="button"
-            onclick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-            class="rounded border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-          >
-            Next →
-          </button>
-        </div>
+      <!-- Footer -->
+      <div class="flex items-center justify-between border-t border-zinc-200 px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
+        <div>{searched && !loading ? `${results.length} result${results.length !== 1 ? 's' : ''}` : ''}</div>
         <div>Esc to close</div>
       </div>
     </div>

@@ -45,9 +45,17 @@
     { accessorKey: 'orgName', header: 'Organization', size: 150 },
   ];
 
+  // Stable row-data identity — see SelectUser.svelte (#414). TanStack's
+  // autoResetPageIndex resets pagination whenever the `data` *reference*
+  // changes; returning a fresh `memories.filter(Boolean)` array on every read
+  // re-fires onStateChange in a render→reset→render loop that can freeze the
+  // page. A $derived memoizes the array so its identity only changes when
+  // `memories` actually changes.
+  const rowData = $derived(Array.isArray(memories) ? memories.filter(Boolean) : []);
+
   const table = createSvelteTable<Memory>({
     get data() {
-      return Array.isArray(memories) ? memories.filter(Boolean) : [];
+      return rowData;
     },
     columns,
     getCoreRowModel: getCoreRowModel(),
