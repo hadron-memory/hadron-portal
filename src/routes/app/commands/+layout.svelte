@@ -5,6 +5,7 @@
   // only render their form + result. One layout, every command.
   import { page } from '$app/stores';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import { t } from '$lib/i18n/t';
 
   let { children }: { children: import('svelte').Snippet } = $props();
 
@@ -13,13 +14,13 @@
   );
 </script>
 
-<svelte:head><title>{command?.title ?? 'Command'} · Hadron</title></svelte:head>
+<svelte:head><title>{command?.title ?? t('commands.fallback-title', 'Command')} · Hadron</title></svelte:head>
 
 <div class="max-w-3xl space-y-6">
-  <Breadcrumb items={[{ label: 'Commands' }, { label: command?.title ?? 'Command' }]} />
+  <Breadcrumb items={[{ label: t('commands.breadcrumb', 'Commands') }, { label: command?.title ?? t('commands.fallback-title', 'Command') }]} />
 
   <header class="space-y-1">
-    <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">{command?.title ?? 'Command'}</h1>
+    <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">{command?.title ?? t('commands.fallback-title', 'Command')}</h1>
     {#if command?.description}
       <p class="text-sm text-zinc-500">{command.description}</p>
     {/if}

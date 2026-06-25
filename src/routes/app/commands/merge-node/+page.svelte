@@ -5,19 +5,20 @@
   import { untrack } from 'svelte';
   import CommandForm from '$lib/components/commands/CommandForm.svelte';
   import type { CommandField, CommandFieldValue } from '$lib/components/commands/command-field';
+  import { t } from '$lib/i18n/t';
   import type { ActionData, PageData } from './$types';
 
   let { form, data }: { form: ActionData; data: PageData } = $props();
 
   // The foldable fields (hadron-server NodeMergeField), with friendly labels.
   const MERGE_FIELD_OPTIONS = [
-    { value: 'CONTENT', label: 'Content' },
-    { value: 'ABSTRACT', label: 'Abstract' },
-    { value: 'DESCRIPTION', label: 'Description' },
-    { value: 'TAGS', label: 'Tags' },
-    { value: 'DATA', label: 'Data' },
-    { value: 'PROPERTIES', label: 'Properties' },
-    { value: 'EDGES', label: 'Edges' },
+    { value: 'CONTENT', label: t('commands.merge.field.content', 'Content') },
+    { value: 'ABSTRACT', label: t('commands.merge.field.abstract', 'Abstract') },
+    { value: 'DESCRIPTION', label: t('commands.merge.field.description', 'Description') },
+    { value: 'TAGS', label: t('commands.merge.field.tags', 'Tags') },
+    { value: 'DATA', label: t('commands.merge.field.data', 'Data') },
+    { value: 'PROPERTIES', label: t('commands.merge.field.properties', 'Properties') },
+    { value: 'EDGES', label: t('commands.merge.field.edges', 'Edges') },
   ];
 
   // Seed once at mount (see access-check for the untrack rationale). `include`
@@ -35,32 +36,32 @@
   const fields: CommandField[] = [
     {
       name: 'source',
-      label: 'Source node',
+      label: t('commands.merge-node.field.source', 'Source node'),
       kind: 'urn',
       required: true,
-      placeholder: 'hrn:node:org::memory::loc  or a node id',
-      help: 'The node to fold in. Its selected fields are merged into the target.',
+      placeholder: t('commands.merge-node.field.source.placeholder', 'hrn:node:org::memory::loc  or a node id'),
+      help: t('commands.merge-node.field.source.help', 'The node to fold in. Its selected fields are merged into the target.'),
     },
     {
       name: 'target',
-      label: 'Target node',
+      label: t('commands.merge-node.field.target', 'Target node'),
       kind: 'urn',
       required: true,
-      placeholder: 'hrn:node:org::memory::loc  or a node id',
-      help: 'The surviving node. Text is concatenated target-first; data/properties keep the target on key collisions.',
+      placeholder: t('commands.merge-node.field.target.placeholder', 'hrn:node:org::memory::loc  or a node id'),
+      help: t('commands.merge-node.field.target.help', 'The surviving node. Text is concatenated target-first; data/properties keep the target on key collisions.'),
     },
     {
       name: 'include',
-      label: 'Fields to merge',
+      label: t('commands.merge.fields-to-merge', 'Fields to merge'),
       kind: 'multiselect',
       options: MERGE_FIELD_OPTIONS,
-      help: 'Leave all selected to merge everything.',
+      help: t('commands.merge.fields-to-merge.help', 'Leave all selected to merge everything.'),
     },
     {
       name: 'deleteSource',
-      label: 'Delete the source node after merging',
+      label: t('commands.merge-node.field.delete-source', 'Delete the source node after merging'),
       kind: 'checkbox',
-      help: 'Hard-deletes the source once its fields are folded into the target.',
+      help: t('commands.merge-node.field.delete-source.help', 'Hard-deletes the source once its fields are folded into the target.'),
     },
   ];
 
@@ -68,7 +69,7 @@
   const error = $derived(form && 'error' in form ? form.error : null);
 </script>
 
-<CommandForm {fields} bind:values action="?/run" submitLabel="Merge node" />
+<CommandForm {fields} bind:values action="?/run" submitLabel={t('commands.merge-node.submit', 'Merge node')} />
 
 {#if error}
   <div class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
@@ -79,14 +80,14 @@
 {#if result}
   <section class="space-y-2 rounded-xl border border-green-300 bg-green-50 p-5 dark:border-green-800 dark:bg-green-950">
     <p class="text-sm text-green-800 dark:text-green-300">
-      Merged into <span class="font-medium">{result.name || result.loc}</span>.
+      {t('commands.merge-node.result.merged-into', 'Merged into')} <span class="font-medium">{result.name || result.loc}</span>.
     </p>
     <p class="font-mono text-xs text-green-700 dark:text-green-400">{result.loc}</p>
     <a
       href={`/app/memories/${result.memoryId}/nodes/${result.id}`}
       class="inline-block text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
     >
-      View the merged node →
+      {t('commands.merge-node.result.view', 'View the merged node →')}
     </a>
   </section>
 {/if}

@@ -2,6 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { MERGE_NODES_MUTATION } from '$lib/server/queries';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { t } from '$lib/i18n/t';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -10,11 +11,20 @@ import type { Actions, PageServerLoad } from './$types';
 // The second consumer of the command-page framework — and the first MUTATION
 // (vs. the read-only access check), exercising the checkbox + multiselect kinds.
 
+// Getters (not eager `t()` values): re-evaluate per request when `command` is
+// serialized in load(), so a future locale-aware t() isn't frozen to the
+// module's startup locale.
 const COMMAND = {
   id: 'merge-node',
-  title: 'Merge node',
-  description:
-    'Fold a source node into a target node. The target survives; selected fields are merged in (text concatenated, tags unioned, data/properties shallow-merged, edges re-pointed).',
+  get title() {
+    return t('commands.merge-node.title', 'Merge node');
+  },
+  get description() {
+    return t(
+      'commands.merge-node.description',
+      'Fold a source node into a target node. The target survives; selected fields are merged in (text concatenated, tags unioned, data/properties shallow-merged, edges re-pointed).',
+    );
+  },
 };
 
 // NodeMergeField enum (hadron-server) — the foldable fields. Local (not
@@ -46,13 +56,19 @@ export const actions: Actions = {
     const submitted = { source, target, include, deleteSource };
 
     if (!source || !target) {
-      return fail(400, { ...submitted, error: 'Enter both a source and a target node.' });
+      return fail(400, {
+        ...submitted,
+        error: t('commands.merge-node.error.missing', 'Enter both a source and a target node.'),
+      });
     }
     // Fast-path the obvious identical-ref case — saves a round-trip. The server
     // still catches two *different* refs that resolve to the same node
     // (MERGE_SOURCE_EQUALS_TARGET), which this string check can't see.
     if (source === target) {
-      return fail(400, { ...submitted, error: 'Source and target are the same node — pick two different nodes.' });
+      return fail(400, {
+        ...submitted,
+        error: t('commands.merge-node.error.same', 'Source and target are the same node — pick two different nodes.'),
+      });
     }
 
     // Only omit `include` when EVERY field is selected (server's "omitted =
@@ -73,23 +89,26 @@ export const actions: Actions = {
       if (code === 'FORBIDDEN') {
         return fail(403, {
           ...submitted,
-          error: 'You need write access to the target node (and the source, when deleting it or moving edges) to merge.',
+          error: t('commands.merge-node.error.forbidden', 'You need write access to the target node (and the source, when deleting it or moving edges) to merge.'),
         });
       }
       if (code === 'MERGE_SOURCE_EQUALS_TARGET') {
-        return fail(400, { ...submitted, error: 'Source and target are the same node — pick two different nodes.' });
+        return fail(400, {
+          ...submitted,
+          error: t('commands.merge-node.error.same', 'Source and target are the same node — pick two different nodes.'),
+        });
       }
       if (code === 'URN_NOT_QUALIFIED') {
         return fail(400, {
           ...submitted,
-          error: 'That doesn’t look like a fully-qualified node reference. Use a node id or a hrn:node:… URN (copy it from the node’s page).',
+          error: t('commands.merge-node.error.unqualified', 'That doesn’t look like a fully-qualified node reference. Use a node id or a hrn:node:… URN (copy it from the node’s page).'),
         });
       }
       if (code === 'NODE_NOT_FOUND') {
         // The server says which one ("Source node not found" / "Target node not found").
-        return fail(404, { ...submitted, error: `${extractGqlError(e, 'Node not found')}.` });
+        return fail(404, { ...submitted, error: `${extractGqlError(e, t('commands.merge-node.error.not-found', 'Node not found'))}.` });
       }
-      return fail(500, { ...submitted, error: extractGqlError(e, 'Merge failed.') });
+      return fail(500, { ...submitted, error: extractGqlError(e, t('commands.merge-node.error.failed', 'Merge failed.')) });
     }
   },
 };

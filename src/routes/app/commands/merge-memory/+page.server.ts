@@ -2,6 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { MERGE_MEMORIES_MUTATION } from '$lib/server/queries';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { t } from '$lib/i18n/t';
 import type { Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -9,11 +10,20 @@ import type { Actions, PageServerLoad } from './$types';
 // merge`: empties a source memory into a target, backed by mergeMemories. Sibling
 // of merge-node (#395) — same framework, the memory-level merge.
 
+// Getters (not eager `t()` values): re-evaluate per request when `command` is
+// serialized in load(), so a future locale-aware t() isn't frozen to the
+// module's startup locale.
 const COMMAND = {
   id: 'merge-memory',
-  title: 'Merge memory',
-  description:
-    'Empty a source memory into a target. Source nodes whose loc collides with a target node are folded in (per the field strategy below); the rest move over unchanged. The source ends up empty.',
+  get title() {
+    return t('commands.merge-memory.title', 'Merge memory');
+  },
+  get description() {
+    return t(
+      'commands.merge-memory.description',
+      'Empty a source memory into a target. Source nodes whose loc collides with a target node are folded in (per the field strategy below); the rest move over unchanged. The source ends up empty.',
+    );
+  },
 };
 
 // NodeMergeField enum (hadron-server) — the per-field fold strategy for nodes
@@ -44,13 +54,19 @@ export const actions: Actions = {
     const submitted = { source, target, include, deleteSourceMem };
 
     if (!source || !target) {
-      return fail(400, { ...submitted, error: 'Enter both a source and a target memory.' });
+      return fail(400, {
+        ...submitted,
+        error: t('commands.merge-memory.error.missing', 'Enter both a source and a target memory.'),
+      });
     }
     // Fast-path the obvious identical-ref case — saves a round-trip. The server
     // still catches two *different* refs that resolve to the same memory
     // (MERGE_SOURCE_EQUALS_TARGET), which this string check can't see.
     if (source === target) {
-      return fail(400, { ...submitted, error: 'Source and target are the same memory — pick two different memories.' });
+      return fail(400, {
+        ...submitted,
+        error: t('commands.merge-memory.error.same', 'Source and target are the same memory — pick two different memories.'),
+      });
     }
 
     // Only omit `include` when EVERY field is selected (server's "omitted = all").
@@ -67,32 +83,41 @@ export const actions: Actions = {
       return { ...submitted, result: mergeMemories };
     } catch (e) {
       const code = extractGqlErrorCode(e);
-      const message = extractGqlError(e, 'Merge failed.');
+      const message = extractGqlError(e, t('commands.merge-memory.error.failed', 'Merge failed.'));
       if (code === 'FORBIDDEN') {
         return fail(403, {
           ...submitted,
-          error: 'You need write access to both memories (and, to delete the source, you must be its owner or an org admin).',
+          error: t('commands.merge-memory.error.forbidden', 'You need write access to both memories (and, to delete the source, you must be its owner or an org admin).'),
         });
       }
       if (code === 'MERGE_SOURCE_EQUALS_TARGET') {
-        return fail(400, { ...submitted, error: 'Source and target are the same memory — pick two different memories.' });
+        return fail(400, {
+          ...submitted,
+          error: t('commands.merge-memory.error.same', 'Source and target are the same memory — pick two different memories.'),
+        });
       }
       if (code === 'UNSUPPORTED_MEMORY_CLASS') {
-        return fail(400, { ...submitted, error: `${message} (system and app memories can’t be merged.)` });
+        return fail(400, { ...submitted, error: `${message} ${t('commands.merge-memory.error.unsupported-class', '(system and app memories can’t be merged.)')}` });
       }
       if (code === 'ENCRYPTED_MEMORY_MERGE_UNSUPPORTED') {
-        return fail(400, { ...submitted, error: 'Encrypted memories can’t be merged yet.' });
+        return fail(400, {
+          ...submitted,
+          error: t('commands.merge-memory.error.encrypted', 'Encrypted memories can’t be merged yet.'),
+        });
       }
       if (code === 'URN_NOT_QUALIFIED') {
         return fail(400, {
           ...submitted,
-          error: 'That doesn’t look like a fully-qualified memory reference. Use a memory id or a hrn:memory:… URN (copy it from the memory’s page).',
+          error: t('commands.merge-memory.error.unqualified', 'That doesn’t look like a fully-qualified memory reference. Use a memory id or a hrn:memory:… URN (copy it from the memory’s page).'),
         });
       }
       // mergeMemories doesn't map a missing memory to a clean code (unlike
       // mergeNodes); resolveMemoryRef throws a bare "MEMORY_NOT_FOUND: <id>".
       if (/MEMORY_NOT_FOUND/.test(message)) {
-        return fail(404, { ...submitted, error: 'Source or target memory not found — check the URN.' });
+        return fail(404, {
+          ...submitted,
+          error: t('commands.merge-memory.error.not-found', 'Source or target memory not found — check the URN.'),
+        });
       }
       return fail(500, { ...submitted, error: message });
     }
