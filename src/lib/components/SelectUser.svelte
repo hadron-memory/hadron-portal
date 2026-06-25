@@ -2,10 +2,11 @@
   // Search-driven user picker for "Add existing user" (#414). Unlike
   // SelectMemory (which filters a preloaded list), this exposes NO users until
   // the operator types a query and clicks Find — the results come from the
-  // server (/api/users/search), which matches email by full address and handle
-  // by substring, and returns only a handle, optional github username, avatar,
-  // and a *masked* email. We never display a name or a raw email here; that's a
-  // deliberate privacy stance (minimise what a bad actor can enumerate).
+  // server (/api/users/search), which returns only a handle, optional github
+  // username, avatar, and a *masked* email. We never display a name or a raw
+  // email here; that's a deliberate privacy stance (minimise what a bad actor
+  // can enumerate). The exact server match semantics (email-exact + handle
+  // substring) are being tightened separately — see hadron-server#384.
 
   import Urn from '$lib/components/Urn.svelte';
   import { type SearchUser, userLabel } from '$lib/users/search-user';
@@ -48,31 +49,34 @@
   const MIN_QUERY = 3;
   const canSearch = $derived(query.trim().length >= MIN_QUERY);
 
+  // Monotonic token: a search only writes state if it's still the latest one.
+  // Guards against a slow in-flight search resolving after the modal was closed
+  // (or closed + reopened) and repopulating results without a fresh Find.
+  let searchSeq = 0;
+
   async function runSearch() {
     const q = query.trim();
     if (q.length < MIN_QUERY || loading) return;
+    const seq = ++searchSeq;
     loading = true;
     error = null;
     try {
-      results = await search(q);
+      const r = await search(q);
+      if (seq !== searchSeq) return; // superseded by a newer search or a reset
+      results = r;
       searched = true;
     } catch {
+      if (seq !== searchSeq) return;
       error = 'Search failed. Please try again.';
       results = [];
       searched = true;
     } finally {
-      loading = false;
+      if (seq === searchSeq) loading = false;
     }
   }
 
   function close() {
     open = false;
-    // Reset so the next open starts blank — no users lingering on screen.
-    query = '';
-    results = [];
-    searched = false;
-    error = null;
-    loading = false;
   }
 
   function select(user: SearchUser) {
@@ -83,6 +87,22 @@
   function handleKeydown(e: KeyboardEvent) {
     if (open && e.key === 'Escape') close();
   }
+
+  // Reset search state whenever the modal is closed — including a close driven
+  // externally by the parent (navigation, parent state reset), which close()
+  // alone wouldn't catch — so the next open always starts blank. Bumping
+  // searchSeq invalidates any in-flight search. Safe from the freeze that hit
+  // the old table-based picker: this resets plain $state, not TanStack row data
+  // (#414), so it can't re-enter autoResetPageIndex.
+  $effect(() => {
+    if (open) return;
+    searchSeq++;
+    query = '';
+    results = [];
+    searched = false;
+    error = null;
+    loading = false;
+  });
 </script>
 
 <svelte:window onkeydown={handleKeydown} />

@@ -111,14 +111,17 @@
   let inviteCopied = $state(false);
   let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
   async function copyInviteLink(link: string) {
+    // Bail before showing "Copied!" if the Clipboard API isn't available
+    // (insecure context / old browser) — the link stays select-all so the user
+    // can still copy it manually, and we don't claim a copy that didn't happen.
+    if (typeof navigator.clipboard?.writeText !== 'function') return;
     try {
-      await navigator.clipboard?.writeText(link);
+      await navigator.clipboard.writeText(link);
       inviteCopied = true;
       clearTimeout(copyResetTimer);
       copyResetTimer = setTimeout(() => (inviteCopied = false), 2000);
     } catch {
-      // Clipboard unavailable (insecure context / denied) — the link stays
-      // select-all so the user can still copy it manually.
+      // Write rejected (e.g. permission denied) — leave the UI unchanged.
     }
   }
 </script>
