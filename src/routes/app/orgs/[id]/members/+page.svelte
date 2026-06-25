@@ -94,7 +94,10 @@
 <svelte:head><title>Members · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-8">
-  <h1 class="text-lg font-semibold text-zinc-900 dark:text-white">Team</h1>
+  <!-- Visually redundant with the active "Team" tab, but kept as an sr-only H1
+       so the route still has exactly one top-level heading for the a11y tree /
+       document outline (per the caption-ownership convention; PR #378). -->
+  <h1 class="sr-only">Team</h1>
 
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
