@@ -999,6 +999,14 @@ export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
 // fragment (they'd bloat every graph/browse payload). The edge detail page
 // (#350) loads its source node and picks the edge out of outgoingEdges, since
 // the server has no single-edge query (resolveUrn doesn't dispatch edges).
+//
+// We DON'T select `source` on the outgoing edges: the host node IS the source
+// (the page renders it from `host`), and — crucially — `nodeById` only Prisma-
+// includes `target` for outgoingEdges (`include: { target: true }`) with no
+// Edge.source field resolver to load it lazily. Selecting `source { … }` here
+// resolves to null against the non-null `Edge.source: Node!` schema field,
+// which errors the whole query (null bubbles up the non-null chain) → the
+// loader throws → 500 on every edge detail page.
 export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
   query EdgeHostNode($id: ID!) {
     nodeById(id: $id) {
@@ -1016,7 +1024,6 @@ export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
         condition
         priority
         data
-        source { id loc name description tags memory { id urn } }
         target { id loc name description tags memory { id urn } }
       }
     }
