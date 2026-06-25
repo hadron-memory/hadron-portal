@@ -183,9 +183,11 @@
 </script>
 
 <div class="space-y-3">
-  {#if !orderable && listKey}
-    <ViewTabs {table} {listKey} />
-  {/if}
+  <!-- Saved-views strip, search and Columns share one row to save vertical
+       space. Search stays far-left; ViewTabs takes the remaining width
+       (flex-1) so its "+ New view" button lands next to Columns, and drops its
+       bottom rule (bordered=false) since it no longer sits on its own line —
+       the table border below provides the separation. -->
   <div class="flex items-center gap-4">
     {#if !hideSearch}
       <input
@@ -195,8 +197,13 @@
         class="max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
       />
     {/if}
+    {#if !orderable && listKey}
+      <ViewTabs {table} {listKey} bordered={false} class="min-w-0 flex-1" />
+    {/if}
     {#if !orderable}
-      <div class={hideSearch ? 'ml-auto' : ''}><ColumnToggle {table} /></div>
+      <!-- Right-align Columns only when nothing to its left (no ViewTabs and no
+           search) already pushes it there. -->
+      <div class={!listKey && hideSearch ? 'ml-auto' : ''}><ColumnToggle {table} /></div>
     {/if}
   </div>
 
