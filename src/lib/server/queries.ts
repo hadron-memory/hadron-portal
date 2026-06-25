@@ -420,8 +420,8 @@ export const CREATE_ORGANIZATION_MUTATION = /* GraphQL */ `
 
 export const UPDATE_ORGANIZATION_MUTATION = /* GraphQL */ `
   ${ORG_FIELDS}
-  mutation UpdateOrganization($id: ID!, $name: String, $urn: String) {
-    updateOrganization(id: $id, name: $name, urn: $urn) { ...OrgFields }
+  mutation UpdateOrganization($id: ID!, $name: String, $urn: String, $isVisible: Boolean) {
+    updateOrganization(id: $id, name: $name, urn: $urn, isVisible: $isVisible) { ...OrgFields }
   }
 `;
 
