@@ -2,7 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { UPDATE_ORGANIZATION_MUTATION } from '$lib/server/queries';
-import { parseDisplayUrn } from '$lib/urn/parse-urn';
+import { parseDisplayUrn, validateUserSlug, UrnParseError } from '$lib/urn/parse-urn';
 import type { Actions, PageServerLoad } from './$types';
 
 // #336: this page is the Profile tab of the org-detail tab layout (the
@@ -39,9 +39,22 @@ export const actions: Actions = {
     // prefix on child memory/agent/app urns is rebuilt from it on rename. If a
     // scheme-prefixed urn (e.g. `hrn:org:acme`) were stored as the org urn, the
     // cascade would corrupt every child (#394). Strip any scheme/type prefix to
-    // the bare slug before sending — parseDisplayUrn is idempotent on a bare value.
+    // the bare slug — parseDisplayUrn is idempotent on a bare value — then
+    // VALIDATE it's a single slug atom. parseDisplayUrn alone is not enough: a
+    // crafted input can still leave a `:`-bearing value (`hrn:org:acme::dev` →
+    // `acme::dev`, or a bare `hrn:org:` that doesn't match the scheme regex),
+    // which would again break the cascade. validateUserSlug rejects any `:`,
+    // bad charset, over-length, or reserved word, so we 400 instead of 500.
     const urnRaw = String(fd.get('urn') ?? '').trim();
-    const urn = urnRaw ? parseDisplayUrn(urnRaw, 'org').bareValue : undefined;
+    let urn: string | undefined;
+    if (urnRaw) {
+      urn = parseDisplayUrn(urnRaw, 'org').bareValue;
+      try {
+        validateUserSlug(urn);
+      } catch (e: unknown) {
+        return fail(400, { error: e instanceof UrnParseError ? e.message : 'Invalid organization URN' });
+      }
+    }
     const isVisible = fd.get('isVisible') != null;
     try {
       await gqlClient(locals.token).request(UPDATE_ORGANIZATION_MUTATION, {
