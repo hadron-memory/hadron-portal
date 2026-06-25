@@ -18,35 +18,47 @@ const COMMAND = {
 // Cap the listing; flagged in the UI if we hit it (a paginated view can come later).
 const LIMIT = 500;
 
-type RunnableNode = MemoryNode & { memory?: { id: string; urn: string; name: string } | null };
+// Only the fields RUNNABLE_NODES_QUERY actually selects (not the full MemoryNode).
+type RunnableNode = Pick<MemoryNode, 'id' | 'memoryId' | 'loc' | 'name' | 'description' | 'nodeType'> & {
+  memory?: { id: string; urn: string; name: string } | null;
+};
 
 export const load: PageServerLoad = async ({ locals }) => {
-  const data = await gqlClient(locals.token)
-    .request<{ nodes: RunnableNode[] }>(RUNNABLE_NODES_QUERY, { limit: LIMIT })
-    .catch((err) => {
-      console.error('[list-tasks] RUNNABLE_NODES_QUERY failed:', err);
-      return { nodes: [] as RunnableNode[], failed: true };
-    });
+  let nodes: RunnableNode[] = [];
+  let failed = false;
+  try {
+    const data = await gqlClient(locals.token).request<{ nodes: RunnableNode[] }>(
+      RUNNABLE_NODES_QUERY,
+      { limit: LIMIT },
+    );
+    nodes = data?.nodes ?? [];
+  } catch (err) {
+    console.error('[list-tasks] RUNNABLE_NODES_QUERY failed:', err);
+    failed = true;
+  }
 
-  const nodes = data?.nodes ?? [];
-  const failed = !!data && 'failed' in data && data.failed === true;
+  // Truncation reflects the server cap — computed from the RAW count, before the
+  // resolvable-URN filter below (so dropped rows can't mask it).
+  const truncated = nodes.length >= LIMIT;
 
-  const tasks = nodes.map((n) => ({
-    id: n.id,
-    loc: n.loc,
-    name: n.name,
-    description: n.description ?? null,
-    nodeType: n.nodeType,
-    memoryName: n.memory?.name ?? null,
-    // Full node URN for the <Urn> chip + the /app/u resolver link. composeNodeUrn
-    // throws on an empty memory URN — fall back to the bare loc then.
-    urn: n.memory?.urn && n.loc ? composeNodeUrn(n.memory.urn, n.loc) : n.loc,
-  }));
+  const tasks = nodes
+    // Drop any node we can't build a real node URN for: a bare loc would
+    // mis-render the <Urn type="node"/> chip and 404 the /app/u resolver link.
+    // (Node.memory is nullable in the shared types; Memory.urn is not.)
+    .filter((n) => !!n.memory?.urn && !!n.loc)
+    .map((n) => ({
+      id: n.id,
+      loc: n.loc,
+      name: n.name,
+      description: n.description ?? null,
+      nodeType: n.nodeType,
+      urn: composeNodeUrn(n.memory!.urn, n.loc),
+    }));
 
   return {
     command: COMMAND,
     tasks,
     failed,
-    truncated: tasks.length >= LIMIT,
+    truncated,
   };
 };
