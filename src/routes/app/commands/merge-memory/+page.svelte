@@ -6,19 +6,20 @@
   import CommandForm from '$lib/components/commands/CommandForm.svelte';
   import type { CommandField, CommandFieldValue } from '$lib/components/commands/command-field';
   import Urn from '$lib/components/Urn.svelte';
+  import { t } from '$lib/i18n/t';
   import type { ActionData, PageData } from './$types';
 
   let { form, data }: { form: ActionData; data: PageData } = $props();
 
   // Per-field fold strategy for colliding-loc nodes (hadron-server NodeMergeField).
   const MERGE_FIELD_OPTIONS = [
-    { value: 'CONTENT', label: 'Content' },
-    { value: 'ABSTRACT', label: 'Abstract' },
-    { value: 'DESCRIPTION', label: 'Description' },
-    { value: 'TAGS', label: 'Tags' },
-    { value: 'DATA', label: 'Data' },
-    { value: 'PROPERTIES', label: 'Properties' },
-    { value: 'EDGES', label: 'Edges' },
+    { value: 'CONTENT', label: t('commands.merge.field.content', 'Content') },
+    { value: 'ABSTRACT', label: t('commands.merge.field.abstract', 'Abstract') },
+    { value: 'DESCRIPTION', label: t('commands.merge.field.description', 'Description') },
+    { value: 'TAGS', label: t('commands.merge.field.tags', 'Tags') },
+    { value: 'DATA', label: t('commands.merge.field.data', 'Data') },
+    { value: 'PROPERTIES', label: t('commands.merge.field.properties', 'Properties') },
+    { value: 'EDGES', label: t('commands.merge.field.edges', 'Edges') },
   ];
 
   // Seed once at mount (see access-check for the untrack rationale).
@@ -34,32 +35,32 @@
   const fields: CommandField[] = [
     {
       name: 'source',
-      label: 'Source memory',
+      label: t('commands.merge-memory.field.source', 'Source memory'),
       kind: 'urn',
       required: true,
-      placeholder: 'hrn:memory:org::slug  or a memory id',
-      help: 'The memory to empty. Its nodes move into the target.',
+      placeholder: t('commands.merge-memory.field.source.placeholder', 'hrn:memory:org::slug  or a memory id'),
+      help: t('commands.merge-memory.field.source.help', 'The memory to empty. Its nodes move into the target.'),
     },
     {
       name: 'target',
-      label: 'Target memory',
+      label: t('commands.merge-memory.field.target', 'Target memory'),
       kind: 'urn',
       required: true,
-      placeholder: 'hrn:memory:org::slug  or a memory id',
-      help: 'The surviving memory. Nodes with no loc collision move over unchanged.',
+      placeholder: t('commands.merge-memory.field.target.placeholder', 'hrn:memory:org::slug  or a memory id'),
+      help: t('commands.merge-memory.field.target.help', 'The surviving memory. Nodes with no loc collision move over unchanged.'),
     },
     {
       name: 'include',
-      label: 'Collision fold strategy',
+      label: t('commands.merge-memory.field.strategy', 'Collision fold strategy'),
       kind: 'multiselect',
       options: MERGE_FIELD_OPTIONS,
-      help: 'For source nodes whose loc already exists in the target — which fields to fold in. Leave all selected to fold everything.',
+      help: t('commands.merge-memory.field.strategy.help', 'For source nodes whose loc already exists in the target — which fields to fold in. Leave all selected to fold everything.'),
     },
     {
       name: 'deleteSourceMem',
-      label: 'Delete the source memory after merging',
+      label: t('commands.merge-memory.field.delete-source', 'Delete the source memory after merging'),
       kind: 'checkbox',
-      help: 'Removes the (now-empty) source memory once its nodes have moved.',
+      help: t('commands.merge-memory.field.delete-source.help', 'Removes the (now-empty) source memory once its nodes have moved.'),
     },
   ];
 
@@ -67,7 +68,7 @@
   const error = $derived(form && 'error' in form ? form.error : null);
 </script>
 
-<CommandForm {fields} bind:values action="?/run" submitLabel="Merge memory" />
+<CommandForm {fields} bind:values action="?/run" submitLabel={t('commands.merge-memory.submit', 'Merge memory')} />
 
 {#if error}
   <div class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
@@ -78,14 +79,14 @@
 {#if result}
   <section class="space-y-2 rounded-xl border border-green-300 bg-green-50 p-5 dark:border-green-800 dark:bg-green-950">
     <p class="text-sm text-green-800 dark:text-green-300">
-      Merged into <span class="font-medium">{result.name}</span>.
+      {t('commands.merge-memory.result.merged-into', 'Merged into')} <span class="font-medium">{result.name}</span>.
     </p>
     {#if result.urn}<Urn value={result.urn} type="memory" />{/if}
     <a
       href={`/app/memories/${result.id}`}
       class="block text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
     >
-      View the merged memory →
+      {t('commands.merge-memory.result.view', 'View the merged memory →')}
     </a>
   </section>
 {/if}

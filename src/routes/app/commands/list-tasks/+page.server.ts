@@ -1,6 +1,7 @@
 import { gqlClient } from '$lib/server/api';
 import { RUNNABLE_NODES_QUERY } from '$lib/server/queries';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+import { t } from '$lib/i18n/t';
 import type { MemoryNode } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -11,8 +12,8 @@ import type { PageServerLoad } from './$types';
 
 const COMMAND = {
   id: 'list-tasks',
-  title: 'List tasks',
-  description: 'Every runnable node (a task) across the memories you can access.',
+  title: t('commands.list-tasks.title', 'List tasks'),
+  description: t('commands.list-tasks.description', 'Every runnable node (a task) across the memories you can access.'),
 };
 
 // Cap the listing; flagged in the UI if we hit it (a paginated view can come later).

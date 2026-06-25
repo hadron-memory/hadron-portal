@@ -4,36 +4,38 @@
   // node through the /app/u resolver. No form — the layout owns the chrome.
   import { goto } from '$app/navigation';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
+  import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
 
+  // NB: map param is `task`, not `t` — `t` is the i18n helper imported above.
   const rows = $derived<NodeRow[]>(
-    data.tasks.map((t) => ({
-      id: t.id,
-      loc: t.loc,
-      name: t.name,
-      description: t.description,
-      nodeType: t.nodeType,
-      urn: t.urn,
+    data.tasks.map((task) => ({
+      id: task.id,
+      loc: task.loc,
+      name: task.name,
+      description: task.description,
+      nodeType: task.nodeType,
+      urn: task.urn,
     })),
   );
 </script>
 
 {#if data.failed}
   <div class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-    Couldn’t load tasks — the node query failed. Try again shortly.
+    {t('commands.list-tasks.failed', 'Couldn’t load tasks — the node query failed. Try again shortly.')}
   </div>
 {:else}
   <p class="text-sm text-zinc-500">
     {data.tasks.length}
-    {data.tasks.length === 1 ? 'task' : 'tasks'}{data.truncated ? ` (showing the first ${data.tasks.length})` : ''}.
+    {data.tasks.length === 1 ? t('commands.list-tasks.count.one', 'task') : t('commands.list-tasks.count.other', 'tasks')}{data.truncated ? ` (${t('commands.list-tasks.showing-first', 'showing the first')} ${data.tasks.length})` : ''}.
   </p>
 
   <NodeTable
     nodes={rows}
     onselect={(node) => goto(`/app/u/${node.urn}`)}
-    searchPlaceholder="Search tasks by name or description…"
-    emptyLabel="No runnable nodes in the memories you can access."
+    searchPlaceholder={t('commands.list-tasks.search-placeholder', 'Search tasks by name or description…')}
+    emptyLabel={t('commands.list-tasks.empty', 'No runnable nodes in the memories you can access.')}
   />
 {/if}

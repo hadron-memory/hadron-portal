@@ -9,13 +9,14 @@
   // (string | string[] | boolean) that a single `bind:` can't satisfy.
   import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
+  import { t } from '$lib/i18n/t';
   import { missingRequired, defaultValue, type CommandField, type CommandFieldValue } from './command-field';
 
   let {
     fields,
     values = $bindable({}),
     action = '?/run',
-    submitLabel = 'Run',
+    submitLabel = t('commands.form.run', 'Run'),
     busy = $bindable(false),
   }: {
     fields: CommandField[];
@@ -50,7 +51,7 @@
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 </script>
 
-{#snippet labelText(f: CommandField)}{f.label}{#if !f.required}<span class="text-zinc-500"> (optional)</span>{/if}{/snippet}
+{#snippet labelText(f: CommandField)}{f.label}{#if !f.required}<span class="text-zinc-500"> {t('commands.form.optional', '(optional)')}</span>{/if}{/snippet}
 
 <form
   method="POST"
@@ -142,6 +143,6 @@
     disabled={!canSubmit}
     class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
   >
-    {busy ? 'Running…' : submitLabel}
+    {busy ? t('commands.form.running', 'Running…') : submitLabel}
   </button>
 </form>
