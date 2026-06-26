@@ -8,12 +8,12 @@ For orientation, see:
 - [package.json](package.json) — dependencies and dev scripts (`pnpm dev` to start)
 - [vite.config.ts](vite.config.ts) — Vite/SvelteKit configuration
 - [svelte.config.js](svelte.config.js) — SvelteKit adapter and hooks
-- [`urn:node:hadronmemory.com::dev::instructions`](https://hadronmemory.com) — what Hadron is, repo layout, where the source of truth lives
+- [`hrn:node:hadronmemory.com::dev::instructions`](https://hadronmemory.com/app/u/hrn:node:hadronmemory.com::dev::instructions) — what Hadron is, repo layout, where the source of truth lives
 
 ## Before every change: consult Hadron memory
 
 At the start of **every change** — before drafting a plan — call `hadron_get_node`
-with `urn: "urn:node:hadronmemory.com::dev::preflight"`. It's a
+with `urn: "hrn:node:hadronmemory.com::dev::preflight"`. It's a
 symptom-to-pattern routing index for hadron-server and shared concerns that apply across the Hadron ecosystem.
 
 Then consult **portal-specific** findings, conventions, and review criteria in the `hadronmemory.com::hadron-portal` memory:
@@ -26,7 +26,7 @@ hadron_set_active_memory hadronmemory.com::hadron-portal
 hadron_find_nodes "*"
 ```
 
-For a one-time orientation, read `urn:node:hadronmemory.com::hadron-portal::hadron-portal` (overview).
+For a one-time orientation, read `hrn:node:hadronmemory.com::hadron-portal::hadron-portal` (overview).
 
 ## Hadron memory organization
 
