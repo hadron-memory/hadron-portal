@@ -15,6 +15,9 @@ import type { PageServerLoad } from './$types';
 // module's startup locale.
 const COMMAND = {
   id: 'list-tasks',
+  // Full content width — this is a table/list page, not a form (commands
+  // layout defaults to a narrow column; `wide` opts into the full width).
+  wide: true,
   get title() {
     return t('commands.list-tasks.title', 'List tasks');
   },

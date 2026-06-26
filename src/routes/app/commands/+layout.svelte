@@ -10,13 +10,17 @@
   let { children }: { children: import('svelte').Snippet } = $props();
 
   const command = $derived(
-    $page.data.command as { title?: string; description?: string } | undefined,
+    $page.data.command as { title?: string; description?: string; wide?: boolean } | undefined,
   );
+
+  // Most command pages are forms and read best in a narrow column; list/table
+  // pages (e.g. list-tasks) opt into full content width via `command.wide`.
+  const containerClass = $derived(command?.wide ? 'space-y-6' : 'max-w-3xl space-y-6');
 </script>
 
 <svelte:head><title>{command?.title ?? t('commands.fallback-title', 'Command')} · Hadron</title></svelte:head>
 
-<div class="max-w-3xl space-y-6">
+<div class={containerClass}>
   <Breadcrumb items={[{ label: t('commands.breadcrumb', 'Commands') }, { label: command?.title ?? t('commands.fallback-title', 'Command') }]} />
 
   <header class="space-y-1">
