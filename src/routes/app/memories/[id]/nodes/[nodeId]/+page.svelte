@@ -254,6 +254,85 @@
     } catch { /* no-op */ }
   }
 
+  // ── Download / export ───────────────────────────────────────────────
+  // Server-rendered single-node export (#421 / hadron-server #386). The server's
+  // `nodeExport` field owns the format — `full: true` is the canonical,
+  // round-trippable file (byte-identical to `hadron node export`); `full: false`
+  // renders a chosen set of presentation sections. We never re-implement the
+  // codec here: POST to /api/nodes/export and serve the returned bytes as a file.
+  let downloadOpen = $state(false);
+  let dlFormat = $state<'MD' | 'JSON'>('MD');
+  let dlFull = $state(true); // canonical full file vs. custom section pick
+  // Format/scope/section choices are export *preferences* (not per-node state),
+  // so they persist across node navigation; only `downloadOpen` + `dlError`
+  // reset in the per-node effect.
+  let dlSections = $state({ METADATA: true, CONTENT: true, ABSTRACT: true, DATA: true, PROPERTIES: true, EDGES: true });
+  let dlBusy = $state(false);
+  let dlError = $state<string | null>(null);
+  const dlSelectedSections = $derived(
+    (Object.keys(dlSections) as (keyof typeof dlSections)[]).filter((k) => dlSections[k]),
+  );
+  // A full export is always valid; a custom one needs at least one section.
+  const dlCanDownload = $derived(dlFull || dlSelectedSections.length > 0);
+
+  // Decode a base64 string to raw bytes for a binary (encoding: BASE64)
+  // export, so the downloaded file is the bytes — not the base64 text.
+  function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
+    const bin = atob(b64);
+    // Back the view with a concrete ArrayBuffer so the result is a valid
+    // BlobPart (a SharedArrayBuffer-backed view is not).
+    const buf = new ArrayBuffer(bin.length);
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  async function runDownload() {
+    if (!dlCanDownload || dlBusy) return;
+    dlBusy = true;
+    dlError = null;
+    try {
+      const res = await fetch('/api/nodes/export', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          id: node.id,
+          format: dlFormat,
+          full: dlFull,
+          ...(dlFull ? {} : { sections: dlSelectedSections }),
+        }),
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const r = (await res.json()) as {
+        filename?: string;
+        mimeType?: string;
+        data?: string;
+        encoding?: string;
+      };
+      // Guard against a null/!=string `data` (e.g. nodeExport resolving to
+      // null) so we never blob the literal string "undefined".
+      if (!r || typeof r.data !== 'string') throw new Error('Invalid export data');
+      // Honor `encoding`: the API is already forward-compatible with BASE64
+      // (binary) payloads, so decode those to bytes rather than blobbing the
+      // base64 text. TEXT (the current default) passes through unchanged.
+      const part: BlobPart = r.encoding === 'BASE64' ? base64ToBytes(r.data) : r.data;
+      const blob = new Blob([part], { type: r.mimeType || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = r.filename || `export.${dlFormat.toLowerCase()}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      downloadOpen = false;
+    } catch {
+      dlError = 'Export failed. Please try again.';
+    } finally {
+      dlBusy = false;
+    }
+  }
+
   // Grow the Source editor to fit its content (floored/capped by min-h/max-h
   // CSS; it scrolls past the cap), so a small JSON blob doesn't sit in a
   // viewport-tall box. Resizes on the bound value changing (seed on load /
@@ -561,6 +640,8 @@
       editingEdges = false;
       isEditing = false;
       reorderMode = false;
+      downloadOpen = false;
+      dlError = null;
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -571,6 +652,8 @@
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 </script>
+
+<svelte:window onkeydown={(e) => { if (downloadOpen && e.key === 'Escape') downloadOpen = false; }} />
 
 <svelte:head><title>{node.name} &middot; Hadron</title></svelte:head>
 
@@ -626,6 +709,95 @@
           Open chat
         </a>
       {/if}
+      <!-- Download / export — the file is rendered server-side by hadron-server
+           `nodeExport` (via /api/nodes/export); the browser just serves the
+           returned bytes. The portal never re-implements the export codec. -->
+      <div class="relative">
+        <button
+          type="button"
+          onclick={() => (downloadOpen = !downloadOpen)}
+          aria-haspopup="true"
+          aria-expanded={downloadOpen}
+          class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Download
+        </button>
+        {#if downloadOpen}
+          <!-- Outside-click backdrop. A real <button> (not a click-only div) so
+               it's focusable and dismissible via keyboard/screen reader without
+               a11y-ignore comments. Escape also closes — see svelte:window. -->
+          <button
+            type="button"
+            class="fixed inset-0 z-30 cursor-default"
+            aria-label="Close download menu"
+            onclick={() => (downloadOpen = false)}
+          ></button>
+          <div class="absolute right-0 z-40 mt-2 w-64 rounded-lg border border-zinc-200 bg-white p-3 text-left shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <fieldset class="mb-3">
+              <legend class="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">Format</legend>
+              <div class="flex gap-4">
+                <label class="flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input type="radio" name="dlFormat" value="MD" bind:group={dlFormat} class="text-indigo-600 focus:ring-indigo-500" />
+                  Markdown
+                </label>
+                <label class="flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input type="radio" name="dlFormat" value="JSON" bind:group={dlFormat} class="text-indigo-600 focus:ring-indigo-500" />
+                  JSON
+                </label>
+              </div>
+            </fieldset>
+            <fieldset class="mb-3">
+              <legend class="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">Scope</legend>
+              <div class="space-y-1.5">
+                <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input type="radio" name="dlScope" value={true} bind:group={dlFull} class="mt-0.5 text-indigo-600 focus:ring-indigo-500" />
+                  <span>Full node file <span class="block text-xs text-zinc-500">Canonical, re-importable</span></span>
+                </label>
+                <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input type="radio" name="dlScope" value={false} bind:group={dlFull} class="mt-0.5 text-indigo-600 focus:ring-indigo-500" />
+                  <span>Custom sections</span>
+                </label>
+              </div>
+            </fieldset>
+            {#if !dlFull}
+              <fieldset class="mb-3">
+                <legend class="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">Sections</legend>
+                <div class="space-y-1.5">
+                  <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                    <input type="checkbox" bind:checked={dlSections.METADATA} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> Metadata
+                  </label>
+                  <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                    <input type="checkbox" bind:checked={dlSections.CONTENT} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> Content
+                  </label>
+                  <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                    <input type="checkbox" bind:checked={dlSections.ABSTRACT} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> Abstract
+                  </label>
+                  <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                    <input type="checkbox" bind:checked={dlSections.DATA} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> Data
+                  </label>
+                  <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                    <input type="checkbox" bind:checked={dlSections.PROPERTIES} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> Properties
+                  </label>
+                  <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                    <input type="checkbox" bind:checked={dlSections.EDGES} class="rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" /> Edges
+                  </label>
+                </div>
+              </fieldset>
+            {/if}
+            {#if dlError}
+              <p class="mb-2 text-xs text-red-500">{dlError}</p>
+            {/if}
+            <button
+              type="button"
+              onclick={runDownload}
+              disabled={!dlCanDownload || dlBusy}
+              class="w-full rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {dlBusy ? 'Exporting…' : `Download .${dlFormat.toLowerCase()}`}
+            </button>
+          </div>
+        {/if}
+      </div>
       <a
         href="{basePath}/nodes/new?parent={encodeURIComponent(cleanLocInput(node.loc))}"
         class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
