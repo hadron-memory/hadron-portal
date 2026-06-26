@@ -1287,6 +1287,22 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
   }
 `;
 
+// Server-rendered single-node export (#421 / hadron-server #386). The server
+// owns the format — full:true is the canonical file (byte-identical to
+// `hadron node export`), full:false renders the selected presentation sections.
+export const NODE_EXPORT_QUERY = /* GraphQL */ `
+  query NodeExport($id: ID!, $format: NodeExportFormat, $full: Boolean, $sections: [NodeExportSection!]) {
+    nodeExport(id: $id, format: $format, full: $full, sections: $sections) {
+      format
+      mimeType
+      filename
+      encoding
+      data
+      bytes
+    }
+  }
+`;
+
 export const UPSERT_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
   mutation UpsertNode($input: NodeInput!) {
