@@ -651,6 +651,12 @@
   });
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
+
+  // Node-type options for the Settings dropdown. nodeType is free-form
+  // server-side; these are the canonical values. A node already set to a value
+  // outside this list keeps it (rendered as an extra option) so editing other
+  // fields never silently changes the type.
+  const NODE_TYPES = ['info', 'record', 'reference', 'system', 'prompt', 'data', 'chat', 'abstract'];
 </script>
 
 <svelte:window onkeydown={(e) => { if (downloadOpen && e.key === 'Escape') downloadOpen = false; }} />
@@ -1221,6 +1227,17 @@
               <div>
                 <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
                 <input id="editName" name="name" type="text" required value={node.name} class={inputClass} />
+              </div>
+              <div>
+                <label for="editNodeType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+                <select id="editNodeType" name="nodeType" value={node.nodeType} class={inputClass}>
+                  {#if !NODE_TYPES.includes(node.nodeType)}
+                    <option value={node.nodeType}>{node.nodeType}</option>
+                  {/if}
+                  {#each NODE_TYPES as nt}
+                    <option value={nt}>{nt}</option>
+                  {/each}
+                </select>
               </div>
               <div>
                 <label for="editLoc" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN <span class="text-zinc-500">(changing this moves the node)</span></label>

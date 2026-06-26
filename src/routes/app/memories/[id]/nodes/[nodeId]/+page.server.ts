@@ -109,6 +109,9 @@ export const actions: Actions = {
     if (!currentNode) return fail(404, { error: 'Node not found' });
 
     const name = String(fd.get('name') ?? '').trim();
+    // Fall back to the current type if the field is somehow absent, so a save
+    // can never blank the nodeType.
+    const nodeType = String(fd.get('nodeType') ?? '').trim() || currentNode.nodeType;
     const description = String(fd.get('description') ?? '').trim() || null;
     const alias = String(fd.get('alias') ?? '').trim() || null;
     const seqRaw = String(fd.get('seq') ?? '').trim();
@@ -135,7 +138,7 @@ export const actions: Actions = {
 
     try {
       await client.request(UPSERT_NODE_MUTATION, {
-        input: { memoryId: currentNode.memoryId, loc, name, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable },
+        input: { memoryId: currentNode.memoryId, loc, name, nodeType, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable },
       });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to save' });
