@@ -5,8 +5,10 @@
     getCoreRowModel,
     getSortedRowModel,
     getFilteredRowModel,
+    getPaginationRowModel,
     type ColumnDef,
   } from '@tanstack/table-core';
+  import { untrack } from 'svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { t } from '$lib/i18n/t';
   import Urn from './Urn.svelte';
@@ -31,6 +33,8 @@
     searchPlaceholder = 'Search…',
     emptyLabel = 'No entries.',
     listKey,
+    pageSize,
+    maxHeight = '60vh',
   }: {
     nodes: NodeRow[];
     /** Called when a row is clicked. If not provided, rows are not clickable. */
@@ -39,9 +43,17 @@
     emptyLabel?: string;
     /** When set, renders the saved-views picker. */
     listKey?: string;
+    /** When set, paginate client-side at this page size and show page controls. */
+    pageSize?: number;
+    /** Scroll-area max height (any CSS length, e.g. a viewport-fill calc). */
+    maxHeight?: string;
   } = $props();
 
   let globalFilter = $state('');
+
+  // Read once at construction — `pageSize` is a static config prop, not state to
+  // react to (untrack documents that intent and silences state_referenced_locally).
+  const initialPageSize = untrack(() => pageSize);
 
   const columns: ColumnDef<NodeRow>[] = [
     { accessorKey: 'name', header: t('common.name', 'Name'), enableHiding: false, size: 300 }, // identity column
@@ -68,7 +80,21 @@
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    // Pagination is opt-in: without `pageSize` the row model is unpaginated
+    // (every row renders), preserving the behavior of non-paginated callers.
+    ...(initialPageSize != null
+      ? {
+          getPaginationRowModel: getPaginationRowModel(),
+          initialState: { pagination: { pageIndex: 0, pageSize: initialPageSize } },
+        }
+      : {}),
   });
+
+  // Page controls show only when paginating AND there's more than one page.
+  const showPagination = $derived(initialPageSize != null && table.getPageCount() > 1);
+  const pageIndex = $derived(table.getState().pagination.pageIndex);
+  const pageCount = $derived(table.getPageCount());
+  const filteredCount = $derived(table.getFilteredRowModel().rows.length);
 
   function sortIndicator(state: false | 'asc' | 'desc'): string {
     return state === 'asc' ? '▲' : state === 'desc' ? '▼' : '⇅';
@@ -88,7 +114,7 @@
   {#if nodes.length === 0}
     <p class="text-sm text-zinc-500">{emptyLabel}</p>
   {:else}
-    <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: 60vh;">
+    <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {maxHeight};">
       <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize()}px);">
         <thead>
           {#each table.getHeaderGroups() as headerGroup (headerGroup.id)}
@@ -127,7 +153,7 @@
             >
               {#each row.getVisibleCells() as cell (cell.id)}
                 {#if cell.column.id === 'name'}
-                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800 align-top">
                     <div class="flex min-w-0 items-center gap-2">
                       <span class="min-w-0 truncate font-medium {onselect ? 'text-indigo-600 dark:text-indigo-300' : 'text-zinc-900 dark:text-white'}">{n.name}</span>
                       {#if n.nodeType}
@@ -137,8 +163,8 @@
                     <div class="mt-0.5 truncate"><Urn value={n.urn} type="node" size={8} /></div>
                   </td>
                 {:else if cell.column.id === 'description'}
-                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-500 dark:border-zinc-800">
-                    <div class="truncate">{n.description ?? '—'}</div>
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-500 dark:border-zinc-800 align-top">
+                    <div class="line-clamp-2">{n.description ?? '—'}</div>
                   </td>
                 {/if}
               {/each}
@@ -147,5 +173,33 @@
         </tbody>
       </table>
     </div>
+
+    {#if showPagination}
+      <div class="flex items-center justify-between gap-3 text-xs text-zinc-600 dark:text-zinc-400">
+        <div>
+          {filteredCount}
+          {filteredCount === 1 ? t('common.result.one', 'result') : t('common.result.other', 'results')}
+          · {t('common.page', 'Page')} {pageIndex + 1} {t('common.of', 'of')} {pageCount}
+        </div>
+        <div class="flex gap-2">
+          <button
+            type="button"
+            onclick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+            class="rounded border border-zinc-300 px-2 py-1 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            ← {t('common.previous', 'Previous')}
+          </button>
+          <button
+            type="button"
+            onclick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+            class="rounded border border-zinc-300 px-2 py-1 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            {t('common.next', 'Next')} →
+          </button>
+        </div>
+      </div>
+    {/if}
   {/if}
 </div>

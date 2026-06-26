@@ -10,13 +10,14 @@
   let { data }: { data: PageData } = $props();
 
   // NB: map param is `task`, not `t` — `t` is the i18n helper imported above.
+  // `nodeType` is intentionally omitted: every row here is a task, so the type
+  // chip would be redundant noise (the NodeTable only renders it when present).
   const rows = $derived<NodeRow[]>(
     data.tasks.map((task) => ({
       id: task.id,
       loc: task.loc,
       name: task.name,
       description: task.description,
-      nodeType: task.nodeType,
       urn: task.urn,
     })),
   );
@@ -46,6 +47,9 @@
   <NodeTable
     nodes={rows}
     onselect={(node) => goto(`/app/u/${node.urn}`)}
+    listKey="commands:list-tasks"
+    pageSize={25}
+    maxHeight="max(240px, calc(100vh - 22rem))"
     searchPlaceholder={t('commands.list-tasks.search-placeholder', 'Search tasks by name or description…')}
     emptyLabel={t('commands.list-tasks.empty', 'No runnable nodes in the memories you can access.')}
   />

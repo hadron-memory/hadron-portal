@@ -21,7 +21,7 @@
 <svelte:head><title>{command?.title ?? t('commands.fallback-title', 'Command')} · Hadron</title></svelte:head>
 
 <div class={containerClass}>
-  <Breadcrumb items={[{ label: t('commands.breadcrumb', 'Commands') }, { label: command?.title ?? t('commands.fallback-title', 'Command') }]} />
+  <Breadcrumb items={[{ label: command?.title ?? t('commands.fallback-title', 'Command') }]} />
 
   <header class="space-y-1">
     <h1 class="text-xl font-semibold text-zinc-900 dark:text-white">{command?.title ?? t('commands.fallback-title', 'Command')}</h1>
