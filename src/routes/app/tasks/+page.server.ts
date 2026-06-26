@@ -1,32 +1,16 @@
 import { gqlClient } from '$lib/server/api';
 import { RUNNABLE_NODES_QUERY } from '$lib/server/queries';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
-import { t } from '$lib/i18n/t';
 import type { MemoryNode } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
-// #392 — "List tasks" command page. Unlike the other command pages (which
-// submit a form), this is a READ/LIST page: it lists every runnable node
-// (Node.isRunnable=true) the caller can access. No action — the shared
-// /app/commands layout still provides the title/description chrome.
+// "Task Nodes" — a top-level page listing every runnable node
+// (Node.isRunnable=true) the caller can access. Promoted out of
+// /app/commands/list-tasks: it's its own nav entry now, not a command-bar
+// command, so it owns its chrome (no commands layout) and renders the table
+// directly.
 
-// Getters (not eager `t()` values): re-evaluate per request when `command` is
-// serialized in load(), so a future locale-aware t() isn't frozen to the
-// module's startup locale.
-const COMMAND = {
-  id: 'list-tasks',
-  // Full content width — this is a table/list page, not a form (commands
-  // layout defaults to a narrow column; `wide` opts into the full width).
-  wide: true,
-  get title() {
-    return t('commands.list-tasks.title', 'List tasks');
-  },
-  get description() {
-    return t('commands.list-tasks.description', 'Every runnable node (a task) across the memories you can access.');
-  },
-};
-
-// Cap the listing; flagged in the UI if we hit it (a paginated view can come later).
+// Cap the listing; flagged in the UI if we hit it.
 const LIMIT = 500;
 
 // Only the fields RUNNABLE_NODES_QUERY actually selects (not the full MemoryNode).
@@ -44,7 +28,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     );
     nodes = data?.nodes ?? [];
   } catch (err) {
-    console.error('[list-tasks] RUNNABLE_NODES_QUERY failed:', err);
+    console.error('[tasks] RUNNABLE_NODES_QUERY failed:', err);
     failed = true;
   }
 
@@ -55,7 +39,6 @@ export const load: PageServerLoad = async ({ locals }) => {
   const tasks = nodes
     // Drop any node we can't build a real node URN for: a bare loc would
     // mis-render the <Urn type="node"/> chip and 404 the /app/u resolver link.
-    // (Node.memory is nullable in the shared types; Memory.urn is not.)
     .filter((n) => !!n.memory?.urn && !!n.loc)
     .map((n) => ({
       id: n.id,
@@ -66,10 +49,5 @@ export const load: PageServerLoad = async ({ locals }) => {
       urn: composeNodeUrn(n.memory!.urn, n.loc),
     }));
 
-  return {
-    command: COMMAND,
-    tasks,
-    failed,
-    truncated,
-  };
+  return { tasks, failed, truncated };
 };
