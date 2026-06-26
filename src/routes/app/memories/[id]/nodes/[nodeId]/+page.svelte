@@ -262,7 +262,7 @@
   // renders a chosen set of presentation sections. We never re-implement the
   // codec here: POST to /api/nodes/export and serve the returned bytes as a file.
   let downloadOpen = $state(false);
-  let dlFormat = $state<'MD' | 'JSON'>('MD');
+  let dlFormat = $state<'MD' | 'JSON' | 'PDF'>('MD');
   let dlFull = $state(true); // canonical full file vs. custom section pick
   // Format/scope/section choices are export *preferences* (not per-node state),
   // so they persist across node navigation; only `downloadOpen` + `dlError`
@@ -274,7 +274,8 @@
     (Object.keys(dlSections) as (keyof typeof dlSections)[]).filter((k) => dlSections[k]),
   );
   // A full export is always valid; a custom one needs at least one section.
-  const dlCanDownload = $derived(dlFull || dlSelectedSections.length > 0);
+  // PDF is a presentation render (no scope/sections), so it's always valid.
+  const dlCanDownload = $derived(dlFormat === 'PDF' || dlFull || dlSelectedSections.length > 0);
 
   // Decode a base64 string to raw bytes for a binary (encoding: BASE64)
   // export, so the downloaded file is the bytes — not the base64 text.
@@ -299,8 +300,9 @@
         body: JSON.stringify({
           id: node.id,
           format: dlFormat,
-          full: dlFull,
-          ...(dlFull ? {} : { sections: dlSelectedSections }),
+          // PDF is a presentation render; scope/sections don't apply.
+          full: dlFormat === 'PDF' ? true : dlFull,
+          ...(dlFormat === 'PDF' || dlFull ? {} : { sections: dlSelectedSections }),
         }),
       });
       if (!res.ok) throw new Error('Export failed');
@@ -745,8 +747,15 @@
                   <input type="radio" name="dlFormat" value="JSON" bind:group={dlFormat} class="text-indigo-600 focus:ring-indigo-500" />
                   JSON
                 </label>
+                <label class="flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input type="radio" name="dlFormat" value="PDF" bind:group={dlFormat} class="text-indigo-600 focus:ring-indigo-500" />
+                  PDF
+                </label>
               </div>
             </fieldset>
+            <!-- Scope/sections apply to the canonical MD/JSON file only. PDF is a
+                 presentation render of the node content, so hide them for PDF. -->
+            {#if dlFormat !== 'PDF'}
             <fieldset class="mb-3">
               <legend class="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">Scope</legend>
               <div class="space-y-1.5">
@@ -784,6 +793,7 @@
                   </label>
                 </div>
               </fieldset>
+            {/if}
             {/if}
             {#if dlError}
               <p class="mb-2 text-xs text-red-500">{dlError}</p>

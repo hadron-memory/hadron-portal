@@ -18,7 +18,7 @@ interface NodeExportResult {
   bytes: number;
 }
 
-const FORMATS = new Set(['MD', 'JSON']);
+const FORMATS = new Set(['MD', 'JSON', 'PDF']);
 const SECTIONS = new Set(['METADATA', 'CONTENT', 'ABSTRACT', 'DATA', 'PROPERTIES', 'EDGES']);
 
 export const POST: RequestHandler = async ({ request, locals }) => {
