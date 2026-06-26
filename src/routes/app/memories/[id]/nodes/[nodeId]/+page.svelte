@@ -18,6 +18,7 @@
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
+  import { NODE_TYPES, isCanonicalNodeType } from '$lib/node-types';
   import type { NodeEdge } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
@@ -1221,6 +1222,17 @@
               <div>
                 <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
                 <input id="editName" name="name" type="text" required value={node.name} class={inputClass} />
+              </div>
+              <div>
+                <label for="editNodeType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
+                <select id="editNodeType" name="nodeType" value={node.nodeType} class={inputClass}>
+                  {#if !isCanonicalNodeType(node.nodeType)}
+                    <option value={node.nodeType}>{node.nodeType}</option>
+                  {/if}
+                  {#each NODE_TYPES as nt}
+                    <option value={nt}>{nt}</option>
+                  {/each}
+                </select>
               </div>
               <div>
                 <label for="editLoc" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN <span class="text-zinc-500">(changing this moves the node)</span></label>

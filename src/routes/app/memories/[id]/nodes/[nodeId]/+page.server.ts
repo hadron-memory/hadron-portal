@@ -3,6 +3,7 @@ import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, UPSERT_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
+import { isCanonicalNodeType } from '$lib/node-types';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -109,6 +110,15 @@ export const actions: Actions = {
     if (!currentNode) return fail(404, { error: 'Node not found' });
 
     const name = String(fd.get('name') ?? '').trim();
+    // Accept only a canonical type or the node's existing one — otherwise keep
+    // the current type. Guards against a crafted POST writing an arbitrary
+    // nodeType (the dropdown only offers canonical values), and a blank field
+    // never clears it.
+    const submittedType = String(fd.get('nodeType') ?? '').trim();
+    const nodeType =
+      isCanonicalNodeType(submittedType) || submittedType === currentNode.nodeType
+        ? submittedType
+        : currentNode.nodeType;
     const description = String(fd.get('description') ?? '').trim() || null;
     const alias = String(fd.get('alias') ?? '').trim() || null;
     const seqRaw = String(fd.get('seq') ?? '').trim();
@@ -135,7 +145,7 @@ export const actions: Actions = {
 
     try {
       await client.request(UPSERT_NODE_MUTATION, {
-        input: { memoryId: currentNode.memoryId, loc, name, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable },
+        input: { memoryId: currentNode.memoryId, loc, name, nodeType, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable },
       });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to save' });
