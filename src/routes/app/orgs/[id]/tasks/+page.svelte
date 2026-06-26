@@ -72,7 +72,7 @@
   });
 </script>
 
-<svelte:head><title>Task Nodes · {org.name} · Hadron</title></svelte:head>
+<svelte:head><title>Task Nodes · {org?.name ?? ''} · Hadron</title></svelte:head>
 
 <div class="space-y-4">
   <div>
