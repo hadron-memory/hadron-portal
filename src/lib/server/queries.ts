@@ -1518,8 +1518,8 @@ export const MERGE_MEMORIES_MUTATION = /* GraphQL */ `
 // ---------------------------------------------------------------------------
 
 export const RUNNABLE_NODES_QUERY = /* GraphQL */ `
-  query RunnableNodes($limit: Int) {
-    nodes(isRunnable: true, limit: $limit) {
+  query RunnableNodes($limit: Int, $memoryIds: [ID!]) {
+    nodes(isRunnable: true, limit: $limit, memoryIds: $memoryIds) {
       id
       memoryId
       loc
