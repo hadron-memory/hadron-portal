@@ -18,6 +18,7 @@
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
+  import { NODE_TYPES, isCanonicalNodeType } from '$lib/node-types';
   import type { NodeEdge } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
@@ -651,12 +652,6 @@
   });
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
-
-  // Node-type options for the Settings dropdown. nodeType is free-form
-  // server-side; these are the canonical values. A node already set to a value
-  // outside this list keeps it (rendered as an extra option) so editing other
-  // fields never silently changes the type.
-  const NODE_TYPES = ['info', 'record', 'reference', 'system', 'prompt', 'data', 'chat', 'abstract'];
 </script>
 
 <svelte:window onkeydown={(e) => { if (downloadOpen && e.key === 'Escape') downloadOpen = false; }} />
@@ -1231,7 +1226,7 @@
               <div>
                 <label for="editNodeType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
                 <select id="editNodeType" name="nodeType" value={node.nodeType} class={inputClass}>
-                  {#if !NODE_TYPES.includes(node.nodeType)}
+                  {#if !isCanonicalNodeType(node.nodeType)}
                     <option value={node.nodeType}>{node.nodeType}</option>
                   {/if}
                   {#each NODE_TYPES as nt}
