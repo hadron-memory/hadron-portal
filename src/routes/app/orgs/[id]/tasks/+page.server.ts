@@ -1,32 +1,16 @@
 import { gqlClient } from '$lib/server/api';
 import { RUNNABLE_NODES_QUERY } from '$lib/server/queries';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
-import { t } from '$lib/i18n/t';
 import type { MemoryNode } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
-// #392 — "List tasks" command page. Unlike the other command pages (which
-// submit a form), this is a READ/LIST page: it lists every runnable node
-// (Node.isRunnable=true) the caller can access. No action — the shared
-// /app/commands layout still provides the title/description chrome.
+// "Task Nodes" — runnable nodes (Node.isRunnable=true) scoped to the ACTIVE
+// org's memories, mirroring the other org-scoped sections (memories/agents/
+// apps under /app/orgs/[id]/). The org (with its memories) is loaded by the
+// org [id] layout, so we read it from `parent()` and scope the query to its
+// memory ids rather than listing every accessible task.
 
-// Getters (not eager `t()` values): re-evaluate per request when `command` is
-// serialized in load(), so a future locale-aware t() isn't frozen to the
-// module's startup locale.
-const COMMAND = {
-  id: 'list-tasks',
-  // Full content width — this is a table/list page, not a form (commands
-  // layout defaults to a narrow column; `wide` opts into the full width).
-  wide: true,
-  get title() {
-    return t('commands.list-tasks.title', 'List tasks');
-  },
-  get description() {
-    return t('commands.list-tasks.description', 'Every runnable node (a task) across the memories you can access.');
-  },
-};
-
-// Cap the listing; flagged in the UI if we hit it (a paginated view can come later).
+// Cap the listing; flagged in the UI if we hit it.
 const LIMIT = 500;
 
 // Only the fields RUNNABLE_NODES_QUERY actually selects (not the full MemoryNode).
@@ -34,17 +18,25 @@ type RunnableNode = Pick<MemoryNode, 'id' | 'memoryId' | 'loc' | 'name' | 'descr
   memory?: { id: string; urn: string; name: string } | null;
 };
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, parent }) => {
+  const { org } = await parent();
+  const memoryIds = (org?.memories ?? []).map((m) => m.id);
+
+  // No org memories → no tasks. Critically, do NOT call nodes() with an empty
+  // memoryIds set: the server treats "omit memoryIds" as "every accessible
+  // memory", so an empty org would otherwise leak the global task list.
+  if (memoryIds.length === 0) return { tasks: [], failed: false, truncated: false };
+
   let nodes: RunnableNode[] = [];
   let failed = false;
   try {
     const data = await gqlClient(locals.token).request<{ nodes: RunnableNode[] }>(
       RUNNABLE_NODES_QUERY,
-      { limit: LIMIT },
+      { limit: LIMIT, memoryIds },
     );
     nodes = data?.nodes ?? [];
   } catch (err) {
-    console.error('[list-tasks] RUNNABLE_NODES_QUERY failed:', err);
+    console.error('[org tasks] RUNNABLE_NODES_QUERY failed:', err);
     failed = true;
   }
 
@@ -55,21 +47,14 @@ export const load: PageServerLoad = async ({ locals }) => {
   const tasks = nodes
     // Drop any node we can't build a real node URN for: a bare loc would
     // mis-render the <Urn type="node"/> chip and 404 the /app/u resolver link.
-    // (Node.memory is nullable in the shared types; Memory.urn is not.)
     .filter((n) => !!n.memory?.urn && !!n.loc)
     .map((n) => ({
       id: n.id,
       loc: n.loc,
       name: n.name,
       description: n.description ?? null,
-      nodeType: n.nodeType,
       urn: composeNodeUrn(n.memory!.urn, n.loc),
     }));
 
-  return {
-    command: COMMAND,
-    tasks,
-    failed,
-    truncated,
-  };
+  return { tasks, failed, truncated };
 };

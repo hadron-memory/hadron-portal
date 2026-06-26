@@ -13,8 +13,8 @@
     $page.data.command as { title?: string; description?: string; wide?: boolean } | undefined,
   );
 
-  // Most command pages are forms and read best in a narrow column; list/table
-  // pages (e.g. list-tasks) opt into full content width via `command.wide`.
+  // Most command pages are forms and read best in a narrow column; a list/table
+  // command can opt into full content width via `command.wide`.
   const containerClass = $derived(command?.wide ? 'space-y-6' : 'max-w-3xl space-y-6');
 </script>
 

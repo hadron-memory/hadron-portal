@@ -190,13 +190,6 @@ describe('resolveCommandAction', () => {
     expect(await resolveCommandAction(cmd('app-keys'), '', ctx)).toEqual({ type: 'navigate', path: '/app/account/api-keys' });
   });
 
-  it('list tasks → the command page (#392)', async () => {
-    expect(await resolveCommandAction(cmd('list-tasks'), '', ctx)).toEqual({
-      type: 'navigate',
-      path: '/app/commands/list-tasks',
-    });
-  });
-
   it('access check → the command page (#375)', async () => {
     expect(await resolveCommandAction(cmd('access-check'), '', ctx)).toEqual({
       type: 'navigate',
