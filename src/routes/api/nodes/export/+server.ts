@@ -26,17 +26,28 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const body = await request.json();
-  const id = typeof body.id === 'string' ? body.id : '';
+  // Guard the parse: an empty / malformed JSON payload would otherwise throw
+  // and surface as a generic 500. Treat it as a client error (400).
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+  if (!body || typeof body !== 'object') {
+    return json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+  const payload = body as Record<string, unknown>;
+  const id = typeof payload.id === 'string' ? payload.id : '';
   if (!id) return json({ error: 'Missing node id' }, { status: 400 });
-  const format = FORMATS.has(body.format) ? body.format : 'MD';
-  const full = body.full !== false; // default true (canonical)
+  const format = typeof payload.format === 'string' && FORMATS.has(payload.format) ? payload.format : 'MD';
+  const full = payload.full !== false; // default true (canonical)
   // `sections` only applies to a presentation (full:false) export; the server
   // ignores it otherwise. Filter to known enum values so a bad client can't
   // push an invalid enum into the query.
   const sections =
-    !full && Array.isArray(body.sections)
-      ? body.sections.filter((s: unknown) => typeof s === 'string' && SECTIONS.has(s))
+    !full && Array.isArray(payload.sections)
+      ? payload.sections.filter((s: unknown): s is string => typeof s === 'string' && SECTIONS.has(s))
       : undefined;
 
   try {

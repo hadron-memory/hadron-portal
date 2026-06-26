@@ -275,6 +275,18 @@
   // A full export is always valid; a custom one needs at least one section.
   const dlCanDownload = $derived(dlFull || dlSelectedSections.length > 0);
 
+  // Decode a base64 string to raw bytes for a binary (encoding: BASE64)
+  // export, so the downloaded file is the bytes — not the base64 text.
+  function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
+    const bin = atob(b64);
+    // Back the view with a concrete ArrayBuffer so the result is a valid
+    // BlobPart (a SharedArrayBuffer-backed view is not).
+    const buf = new ArrayBuffer(bin.length);
+    const bytes = new Uint8Array(buf);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
   async function runDownload() {
     if (!dlCanDownload || dlBusy) return;
     dlBusy = true;
@@ -291,12 +303,24 @@
         }),
       });
       if (!res.ok) throw new Error('Export failed');
-      const r = (await res.json()) as { filename: string; mimeType: string; data: string };
-      const blob = new Blob([r.data], { type: r.mimeType });
+      const r = (await res.json()) as {
+        filename?: string;
+        mimeType?: string;
+        data?: string;
+        encoding?: string;
+      };
+      // Guard against a null/!=string `data` (e.g. nodeExport resolving to
+      // null) so we never blob the literal string "undefined".
+      if (!r || typeof r.data !== 'string') throw new Error('Invalid export data');
+      // Honor `encoding`: the API is already forward-compatible with BASE64
+      // (binary) payloads, so decode those to bytes rather than blobbing the
+      // base64 text. TEXT (the current default) passes through unchanged.
+      const part: BlobPart = r.encoding === 'BASE64' ? base64ToBytes(r.data) : r.data;
+      const blob = new Blob([part], { type: r.mimeType || 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = r.filename;
+      a.download = r.filename || `export.${dlFormat.toLowerCase()}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -685,7 +709,9 @@
           Open chat
         </a>
       {/if}
-      <!-- Download / export — builds the file client-side from the loaded node. -->
+      <!-- Download / export — the file is rendered server-side by hadron-server
+           `nodeExport` (via /api/nodes/export); the browser just serves the
+           returned bytes. The portal never re-implements the export codec. -->
       <div class="relative">
         <button
           type="button"
@@ -697,10 +723,15 @@
           Download
         </button>
         {#if downloadOpen}
-          <!-- Outside-click backdrop (Escape also closes — see svelte:window). -->
-          <!-- svelte-ignore a11y_click_events_have_key_events -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class="fixed inset-0 z-30" onclick={() => (downloadOpen = false)}></div>
+          <!-- Outside-click backdrop. A real <button> (not a click-only div) so
+               it's focusable and dismissible via keyboard/screen reader without
+               a11y-ignore comments. Escape also closes — see svelte:window. -->
+          <button
+            type="button"
+            class="fixed inset-0 z-30 cursor-default"
+            aria-label="Close download menu"
+            onclick={() => (downloadOpen = false)}
+          ></button>
           <div class="absolute right-0 z-40 mt-2 w-64 rounded-lg border border-zinc-200 bg-white p-3 text-left shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
             <fieldset class="mb-3">
               <legend class="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-500">Format</legend>
