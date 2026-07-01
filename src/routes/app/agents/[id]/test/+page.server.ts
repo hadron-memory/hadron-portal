@@ -52,7 +52,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       id: string; loc: string; memoryId: string; data: unknown;
     } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] }).catch(() => null);
     if (nodesResult) {
-      for (const h of nodesResult.findNodes.hits) {
+      for (const h of nodesResult.findNodes?.hits ?? []) {
         const n = h.node;
         if (n.memoryId !== systemMemoryId) continue;
         if (!n.loc.startsWith('fixtures:')) continue;

@@ -82,7 +82,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   if (nodesResult) {
     const memoryMap = new Map((agent.memoryItems ?? []).map((m) => [m.memory.id, m.memory]));
-    agentNodes = nodesResult.findNodes.hits
+    agentNodes = (nodesResult.findNodes?.hits ?? [])
       .map((h) => h.node)
       .filter((n) => allMemoryIds.includes(n.memoryId))
       .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));

@@ -52,7 +52,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const nodesData = await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
     GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] },
   );
-  const systemNodes = nodesData.findNodes.hits
+  const systemNodes = (nodesData.findNodes?.hits ?? [])
     .map((h) => h.node)
     .filter((n) => n.memoryId === systemMemoryId);
 

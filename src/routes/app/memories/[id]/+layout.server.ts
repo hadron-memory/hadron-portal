@@ -47,7 +47,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
 
   // Filter nodes to this memory
   const nodesFailed = 'failed' in nodesData && nodesData.failed === true;
-  const allNodes = 'findNodes' in nodesData ? nodesData.findNodes.hits.map((h) => h.node) : [];
+  const allNodes = 'findNodes' in nodesData ? (nodesData.findNodes?.hits ?? []).map((h) => h.node) : [];
   const memoryNodes = allNodes.filter((n) => n?.memoryId === params.id);
 
   let treeEntries: ReturnType<typeof buildTreeEntries> = [];

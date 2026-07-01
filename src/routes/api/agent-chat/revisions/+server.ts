@@ -1,12 +1,31 @@
 import { gqlClient } from '$lib/server/api';
 import {
+  MY_ORGANIZATIONS_QUERY,
   CREATE_REVISION_MUTATION,
   PUBLISH_REVISION_MUTATION,
   RESTORE_REVISION_MUTATION,
   ACQUIRE_EDITOR_LOCK_MUTATION,
   RELEASE_EDITOR_LOCK_MUTATION,
 } from '$lib/server/queries';
+import type { Organization } from '$lib/types';
 import type { RequestHandler } from './$types';
+
+// Resolve the agent's system-memory id server-side from agentId, gated by the
+// caller's org memberships (MY_ORGANIZATIONS_QUERY only returns the caller's
+// orgs). Mirrors the fixtures endpoint's resolveAgent: never trust a
+// client-supplied memory id for scoping. Returns null when the agent is not
+// visible to the caller or has no system memory (caller then 404s — no leak).
+async function resolveAgentSystemMemory(token: string, agentId: string): Promise<string | null> {
+  const client = gqlClient(token);
+  const data = await client.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY);
+  for (const o of data.myOrganizations) {
+    const found = (o.agents ?? []).find((a) => a.id === agentId);
+    if (found) {
+      return (found as unknown as { systemMemoryId?: string | null }).systemMemoryId ?? null;
+    }
+  }
+  return null;
+}
 
 /**
  * POST /api/agent-chat/revisions
@@ -17,7 +36,7 @@ import type { RequestHandler } from './$types';
  *   restore: { agentId, revisionLoc }
  *   lock:    { agentId }
  *   unlock:  { agentId }
- *   list:    { agentId, systemMemoryId }
+ *   list:    { agentId }  (systemMemoryId resolved server-side)
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
@@ -114,10 +133,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
 
     if (action === 'list') {
-      const systemMemoryId = body.systemMemoryId as string | undefined;
+      // Resolve the agent's system memory server-side (membership-gated); never
+      // trust a client-supplied memory id. 404 (no leak) if the agent isn't
+      // visible to the caller or has no system memory.
+      const systemMemoryId = await resolveAgentSystemMemory(locals.token, agentId);
       if (!systemMemoryId) {
-        return new Response(JSON.stringify({ error: 'systemMemoryId is required' }), {
-          status: 400,
+        return new Response(JSON.stringify({ error: 'Agent not found or no longer available' }), {
+          status: 404,
           headers: { 'Content-Type': 'application/json' },
         });
       }
@@ -136,7 +158,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         REVISIONS_QUERY,
         { limit: 100, memoryIds: [systemMemoryId] },
       );
-      const revisions = result.findNodes.hits
+      const revisions = (result.findNodes?.hits ?? [])
         .map((h) => h.node)
         .filter((n) => n.loc.startsWith('revisions:') && n.loc !== 'revisions')
         .map((n) => {

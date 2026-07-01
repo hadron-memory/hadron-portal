@@ -72,7 +72,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [resolved.systemMemoryId] });
 
   const fixtures: FixtureSummary[] = [];
-  for (const h of result.findNodes.hits) {
+  for (const h of result.findNodes?.hits ?? []) {
     const n = h.node;
     if (n.memoryId !== resolved.systemMemoryId) continue;
     if (!n.loc.startsWith('fixtures:')) continue;

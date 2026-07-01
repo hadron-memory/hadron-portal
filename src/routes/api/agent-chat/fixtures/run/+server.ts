@@ -187,7 +187,7 @@ async function loadFixtures(
     id: string; loc: string; memoryId: string; data: unknown;
   } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] });
   const out: LoadedFixture[] = [];
-  for (const h of result.findNodes.hits) {
+  for (const h of result.findNodes?.hits ?? []) {
     const n = h.node;
     if (n.memoryId !== systemMemoryId) continue;
     if (!n.loc.startsWith('fixtures:')) continue;
