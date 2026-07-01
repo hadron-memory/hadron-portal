@@ -14,7 +14,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     client.request<{ memory: Memory | null }>(
       MEMORY_BY_ID_QUERY, { id: params.id },
     ),
-    client.request<{ nodes: MemoryNode[] }>(
+    client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
       GRAPH_NODES_QUERY, { limit: 5000, memoryIds: [params.id] },
     ).catch((err) => {
       console.error('[memory-layout] GRAPH_NODES_QUERY failed:', err);
@@ -22,7 +22,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
       // but flag it so the UI can distinguish "this memory has no nodes" from
       // "the node query (hadron-server) errored" — the latter otherwise reads as
       // a silent empty state (this masked the spec-037 edges migration drift).
-      return { nodes: [] as MemoryNode[], failed: true };
+      return { failed: true as const };
     }),
     client.request<{ memoryUsageSummary: UsageSummaryEntry[] }>(
       MEMORY_USAGE_SUMMARY_QUERY, { memoryId: params.id },
@@ -46,8 +46,9 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     : { organization: null };
 
   // Filter nodes to this memory
-  const memoryNodes = (nodesData?.nodes ?? []).filter((n) => n?.memoryId === params.id);
-  const nodesFailed = !!nodesData && 'failed' in nodesData && nodesData.failed === true;
+  const nodesFailed = 'failed' in nodesData && nodesData.failed === true;
+  const allNodes = 'findNodes' in nodesData ? nodesData.findNodes.hits.map((h) => h.node) : [];
+  const memoryNodes = allNodes.filter((n) => n?.memoryId === params.id);
 
   let treeEntries: ReturnType<typeof buildTreeEntries> = [];
   let graphViewData = null;

@@ -114,19 +114,30 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
 
     if (action === 'list') {
-      // Fetch revision nodes from the system memory
+      const systemMemoryId = body.systemMemoryId as string | undefined;
+      if (!systemMemoryId) {
+        return new Response(JSON.stringify({ error: 'systemMemoryId is required' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      // Fetch revision nodes from the agent's system memory. cor:api:090 —
+      // findNodes hides class:'system' memories on a broad call, so we scope to
+      // the system memory (which also overrides the exclusion) and use
+      // filter.locPrefix for the `revisions:` prefix. Results are hits[].node.
       const REVISIONS_QUERY = `
-        query Nodes($limit: Int) {
-          nodes(prefix: "revisions:", limit: $limit) {
-            id loc name description data
+        query Revisions($limit: Int, $memoryIds: [ID!]) {
+          findNodes(filter: { memoryIds: $memoryIds, locPrefix: "revisions:" }, limit: $limit) {
+            hits { node { id loc name description data } }
           }
         }
       `;
-      const result = await client.request<{ nodes: Array<{ id: string; loc: string; name: string; description: string | null; data: unknown }> }>(
+      const result = await client.request<{ findNodes: { hits: Array<{ node: { id: string; loc: string; name: string; description: string | null; data: unknown } }> } }>(
         REVISIONS_QUERY,
-        { limit: 100 },
+        { limit: 100, memoryIds: [systemMemoryId] },
       );
-      const revisions = result.nodes
+      const revisions = result.findNodes.hits
+        .map((h) => h.node)
         .filter((n) => n.loc.startsWith('revisions:') && n.loc !== 'revisions')
         .map((n) => {
           const d = (n.data as Record<string, unknown>) ?? {};

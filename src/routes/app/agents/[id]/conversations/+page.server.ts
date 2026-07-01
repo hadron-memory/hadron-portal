@@ -6,11 +6,19 @@ import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
 import type { Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
+// cor:api:090 — scope to the agent's system memory. findNodes hides
+// class:'system' memories on a broad (no-memoryIds) call, so the system-memory
+// nodes only come back when we name the memory in the filter (which also
+// overrides the exclusion). Results are under `hits[].node`.
 const GRAPH_NODES_QUERY = `
-  query Nodes($limit: Int) {
-    nodes(limit: $limit) {
-      id memoryId nodeType loc name description content tags seq data
-      outgoingEdges { id name loc isRunnable target { id loc name } }
+  query Nodes($limit: Int, $memoryIds: [ID!]) {
+    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit) {
+      hits {
+        node {
+          id memoryId nodeType loc name description content tags seq data
+          outgoingEdges { id name loc isRunnable target { id loc name } }
+        }
+      }
     }
   }
 `;
@@ -40,9 +48,13 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const systemMemoryId = (agent as any).systemMemoryId as string | null;
   if (!systemMemoryId) throw error(400, 'Agent has no system memory');
 
-  // Load system memory nodes
-  const nodesData = await client.request<{ nodes: MemoryNode[] }>(GRAPH_NODES_QUERY, { limit: 500 });
-  const systemNodes = nodesData.nodes.filter((n) => n.memoryId === systemMemoryId);
+  // Load system memory nodes (scoped to the agent's system memory).
+  const nodesData = await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
+    GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] },
+  );
+  const systemNodes = nodesData.findNodes.hits
+    .map((h) => h.node)
+    .filter((n) => n.memoryId === systemMemoryId);
 
   // Parse conversation structure
   const conversations = systemNodes

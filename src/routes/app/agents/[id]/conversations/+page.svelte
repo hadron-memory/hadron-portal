@@ -50,7 +50,7 @@
       const res = await fetch('/api/agent-chat/revisions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'list', agentId: agent.id }),
+        body: JSON.stringify({ action: 'list', agentId: agent.id, systemMemoryId: data.systemMemoryId }),
       });
       const body = await res.json();
       revisions = body.revisions ?? [];

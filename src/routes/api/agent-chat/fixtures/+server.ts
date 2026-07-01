@@ -64,16 +64,16 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
 
   const client = gqlClient(locals.token);
-  // GRAPH_NODES_QUERY now accepts an optional memoryIds filter; this caller
-  // still fetches globally and filters client-side (per-agent fixture counts
-  // are in the low tens per spec 019 Scale/Scope, so it's acceptable). Scope
-  // to the system memory with memoryIds here if this ever needs to scale.
-  const result = await client.request<{ nodes: Array<{
+  // Scope to the agent's system memory. findNodes hides class:'system' memories
+  // on a broad (no-memoryIds) call, so naming the system memory is what makes
+  // its fixture nodes visible (and it also overrides the exclusion).
+  const result = await client.request<{ findNodes: { hits: Array<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;
-  }> }>(GRAPH_NODES_QUERY, { limit: 500 });
+  } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [resolved.systemMemoryId] });
 
   const fixtures: FixtureSummary[] = [];
-  for (const n of result.nodes) {
+  for (const h of result.findNodes.hits) {
+    const n = h.node;
     if (n.memoryId !== resolved.systemMemoryId) continue;
     if (!n.loc.startsWith('fixtures:')) continue;
     const record = decodeFixture(n.data);

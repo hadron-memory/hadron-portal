@@ -71,7 +71,7 @@ function routeMock(opts: {
     }
     if (query === GRAPH_NODES_QUERY) {
       if (opts.nodes?.error !== undefined) throw opts.nodes.error;
-      return opts.nodes?.data ?? { nodes: [] };
+      return opts.nodes?.data ?? { findNodes: { hits: [] } };
     }
     throw new Error(`Unexpected query passed to mockRequest`);
   });

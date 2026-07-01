@@ -1215,28 +1215,46 @@ export const NODE_FIELDS = /* GraphQL */ `
   }
 `;
 
-// `memoryIds` is optional: callers that omit it (agents page, fixtures) get the
-// historical global behavior (server treats null as "no memory filter"); the
-// memory-detail layout passes a single id so it only fetches that memory's
-// nodes instead of pulling a global window and filtering client-side — the
-// latter silently dropped a memory's nodes once total nodes exceeded the limit.
+// Unified node search (cor:api:090). `findNodes` supersedes `nodes` + `nodeSearch`;
+// results come back under `hits[].node` (envelope shape). Omitting `query` yields a
+// filtered list (subsumes the old `nodes`).
+//
+// `memoryIds` is optional. When callers pass a scope, `findNodes` intersects it with
+// the caller's access; naming a system-class memory in the set OVERRIDES the default
+// system-class exclusion (a broad, no-memoryIds call hides `class:'system'` memories,
+// which the old `nodes` did not — so callers that want an agent's system-memory nodes
+// MUST pass its id, e.g. `memoryIds: [systemMemoryId]`). The memory-detail layout
+// passes a single id so it only fetches that memory's nodes instead of pulling a
+// global window and filtering client-side — the latter silently dropped a memory's
+// nodes once total nodes exceeded the limit.
 export const GRAPH_NODES_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query GraphNodes($limit: Int, $memoryIds: [ID!]) {
-    nodes(limit: $limit, memoryIds: $memoryIds) {
-      ...NodeFields
+    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit) {
+      hits {
+        node {
+          ...NodeFields
+        }
+      }
     }
   }
 `;
 
-// Node CONTENT search (issue #355) — exact/substring over name+description+content,
-// scoped to a SET of memories (server `memoryIds`, hadron-server#308). Backs the
-// "Exact" toggle of the MemoryBrowser search box; powers /api/nodes/search.
+// Node CONTENT search (issue #355) — keyword/FTS over name+description+content,
+// scoped to a SET of memories (`filter.memoryIds`). Backs the "Exact" toggle of the
+// MemoryBrowser search box; powers /api/nodes/search. NOTE: `mode:keyword` is now
+// FTS-ranked (whole-token match, name hits above buried body hits) rather than raw
+// substring — the old "Exact" substring behaviour changes slightly, but keyword is
+// injection-safe (unlike `mode:regex`) for arbitrary search-box input.
 export const NODE_CONTENT_SEARCH_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodeContentSearch($memoryIds: [ID!], $search: String, $limit: Int) {
-    nodes(memoryIds: $memoryIds, search: $search, limit: $limit) {
-      ...NodeFields
+    findNodes(query: $search, mode: keyword, filter: { memoryIds: $memoryIds }, limit: $limit) {
+      hits {
+        node {
+          ...NodeFields
+        }
+      }
     }
   }
 `;
@@ -1246,10 +1264,12 @@ export const NODE_CONTENT_SEARCH_QUERY = /* GraphQL */ `
 // no-vector-index / embedding-unavailable so the UI can nudge the user to Exact.
 export const NODE_SEMANTIC_SEARCH_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query NodeSemanticSearch($query: String!, $memoryIds: [ID!], $mode: SearchMode, $limit: Int) {
-    nodeSearch(query: $query, memoryIds: $memoryIds, mode: $mode, limit: $limit) {
-      nodes {
-        ...NodeFields
+  query NodeSemanticSearch($query: String, $memoryIds: [ID!], $mode: FindNodesMode, $limit: Int) {
+    findNodes(query: $query, mode: $mode, filter: { memoryIds: $memoryIds }, limit: $limit) {
+      hits {
+        node {
+          ...NodeFields
+        }
       }
       reason
       degraded
@@ -1513,23 +1533,28 @@ export const MERGE_MEMORIES_MUTATION = /* GraphQL */ `
 
 // ---------------------------------------------------------------------------
 // List tasks (#392) — backs the "List tasks" command page. Runnable nodes
-// (Node.isRunnable=true) across every memory the caller can access (the server
-// nodes() query applies the access filter when no memory scope is given).
+// (Node.isRunnable=true) across every memory the caller can access (findNodes
+// applies the access filter when no memory scope is given). Results come back
+// under `hits[].node`.
 // ---------------------------------------------------------------------------
 
 export const RUNNABLE_NODES_QUERY = /* GraphQL */ `
   query RunnableNodes($limit: Int, $memoryIds: [ID!]) {
-    nodes(isRunnable: true, limit: $limit, memoryIds: $memoryIds) {
-      id
-      memoryId
-      loc
-      name
-      description
-      nodeType
-      memory {
-        id
-        urn
-        name
+    findNodes(filter: { memoryIds: $memoryIds, isRunnable: true }, limit: $limit) {
+      hits {
+        node {
+          id
+          memoryId
+          loc
+          name
+          description
+          nodeType
+          memory {
+            id
+            urn
+            name
+          }
+        }
       }
     }
   }

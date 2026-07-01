@@ -30,11 +30,10 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
   let nodes: RunnableNode[] = [];
   let failed = false;
   try {
-    const data = await gqlClient(locals.token).request<{ nodes: RunnableNode[] }>(
-      RUNNABLE_NODES_QUERY,
-      { limit: LIMIT, memoryIds },
-    );
-    nodes = data?.nodes ?? [];
+    const data = await gqlClient(locals.token).request<{
+      findNodes: { hits: Array<{ node: RunnableNode }> };
+    }>(RUNNABLE_NODES_QUERY, { limit: LIMIT, memoryIds });
+    nodes = (data?.findNodes?.hits ?? []).map((h) => h.node);
   } catch (err) {
     console.error('[org tasks] RUNNABLE_NODES_QUERY failed:', err);
     failed = true;
