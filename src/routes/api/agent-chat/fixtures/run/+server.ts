@@ -180,11 +180,15 @@ async function loadFixtures(
   filterLoc: string | null,
 ): Promise<LoadedFixture[]> {
   const client = gqlClient(token);
-  const result = await client.request<{ nodes: Array<{
+  // Scope to the agent's system memory — findNodes hides class:'system'
+  // memories on a broad (no-memoryIds) call, so naming it is what surfaces the
+  // fixture nodes (and overrides the exclusion).
+  const result = await client.request<{ findNodes: { hits: Array<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;
-  }> }>(GRAPH_NODES_QUERY, { limit: 500 });
+  } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] });
   const out: LoadedFixture[] = [];
-  for (const n of result.nodes) {
+  for (const h of result.findNodes?.hits ?? []) {
+    const n = h.node;
     if (n.memoryId !== systemMemoryId) continue;
     if (!n.loc.startsWith('fixtures:')) continue;
     if (filterLoc && n.loc !== filterLoc) continue;

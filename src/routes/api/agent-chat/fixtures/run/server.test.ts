@@ -99,7 +99,7 @@ function setupChat(opts: {
         ] },
       ] };
     }
-    if (query === GRAPH_NODES_QUERY) return { nodes: opts.nodes };
+    if (query === GRAPH_NODES_QUERY) return { findNodes: { hits: opts.nodes.map((node) => ({ node })) } };
     if (query === START_CHAT_MUTATION) {
       return { startChat: {
         chatId: 'c1', systemMessage: 'sys', tools: null,

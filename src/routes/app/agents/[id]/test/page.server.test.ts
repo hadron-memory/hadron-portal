@@ -40,7 +40,7 @@ function ev(opts: { agentId?: string; token?: string | null } = {}) {
 function routeMyOrgs(data: unknown) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === MY_ORGANIZATIONS_QUERY) return data;
-    return { nodes: [] };
+    return { findNodes: { hits: [] } };
   });
 }
 

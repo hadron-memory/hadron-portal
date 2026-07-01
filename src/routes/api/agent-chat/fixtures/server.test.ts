@@ -49,9 +49,9 @@ function mockResolveAgent() {
       };
     }
     if (query === GRAPH_NODES_QUERY) {
-      return { nodes: [
+      return { findNodes: { hits: [
         // Fixture in our agent's memory
-        {
+        { node: {
           id: 'node-1', loc: 'fixtures:abc', memoryId: 'sys-mem-a',
           data: {
             version: 1, label: 'one',
@@ -59,20 +59,20 @@ function mockResolveAgent() {
               capturedReply: 'Hi!', capturedRoute: null, capturedVerdict: 'pass', capturedAt: '2026-05-14T00:00:00.000Z' }],
             createdAt: '2026-05-14T00:00:00.000Z', updatedAt: '2026-05-14T00:00:00.000Z',
           },
-        },
+        } },
         // Fixture in a DIFFERENT memory — must be filtered out
-        {
+        { node: {
           id: 'node-other', loc: 'fixtures:other', memoryId: 'sys-mem-other',
           data: { version: 1, label: 'other-org', turns: [{ user: 'x', persona: null, assertion: null,
             capturedReply: null, capturedRoute: null, capturedVerdict: null, capturedAt: null }],
             createdAt: 'x', updatedAt: 'x' },
-        },
+        } },
         // Non-fixture node in our memory — must be filtered out
-        {
+        { node: {
           id: 'node-conv', loc: 'conversations:setup', memoryId: 'sys-mem-a',
           data: {},
-        },
-      ] };
+        } },
+      ] } };
     }
     if (query === UPSERT_NODE_MUTATION) {
       return { upsertNode: { id: 'node-new', loc: (vars as { input: { loc: string } }).input.loc } };

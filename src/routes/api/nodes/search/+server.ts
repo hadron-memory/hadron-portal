@@ -30,18 +30,24 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   try {
     if (mode === 'fuzzy') {
       const data = await client.request<{
-        nodeSearch: { nodes: MemoryNode[]; reason: string | null; degraded: string | null };
+        findNodes: {
+          hits: Array<{ node: MemoryNode }>;
+          reason: string | null;
+          degraded: string | null;
+        };
       }>(NODE_SEMANTIC_SEARCH_QUERY, { query: q, memoryIds, mode: 'hybrid', limit: SEARCH_LIMIT });
-      const r = data.nodeSearch;
-      return json({ nodes: r?.nodes ?? [], note: degradeNote(r?.reason, r?.degraded) });
+      const r = data.findNodes;
+      return json({
+        nodes: (r?.hits ?? []).map((h) => h.node),
+        note: degradeNote(r?.reason, r?.degraded),
+      });
     }
-    // default: exact / substring (name + description + content)
-    const data = await client.request<{ nodes: MemoryNode[] }>(NODE_CONTENT_SEARCH_QUERY, {
-      memoryIds,
-      search: q,
-      limit: SEARCH_LIMIT,
-    });
-    return json({ nodes: data.nodes ?? [] });
+    // default: exact / keyword (FTS over name + description + content)
+    const data = await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
+      NODE_CONTENT_SEARCH_QUERY,
+      { memoryIds, search: q, limit: SEARCH_LIMIT },
+    );
+    return json({ nodes: (data.findNodes?.hits ?? []).map((h) => h.node) });
   } catch (e: unknown) {
     // Log detail server-side; return a generic message so GraphQL/DB internals
     // (query shapes, schema, server state) aren't leaked to the client (PR #358

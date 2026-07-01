@@ -44,11 +44,16 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const systemMemoryId = (agent as unknown as { systemMemoryId?: string | null }).systemMemoryId ?? null;
   let fixtures: FixtureSummary[] = [];
   if (systemMemoryId) {
-    const nodesResult = await client.request<{ nodes: Array<{
+    // Scope to the agent's system memory. findNodes hides class:'system'
+    // memories on a broad (no-memoryIds) call, so we MUST name the system
+    // memory to see its fixture nodes — naming it also overrides the
+    // exclusion (cor:api:090:02).
+    const nodesResult = await client.request<{ findNodes: { hits: Array<{ node: {
       id: string; loc: string; memoryId: string; data: unknown;
-    }> }>(GRAPH_NODES_QUERY, { limit: 500 }).catch(() => null);
+    } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] }).catch(() => null);
     if (nodesResult) {
-      for (const n of nodesResult.nodes) {
+      for (const h of nodesResult.findNodes?.hits ?? []) {
+        const n = h.node;
         if (n.memoryId !== systemMemoryId) continue;
         if (!n.loc.startsWith('fixtures:')) continue;
         const record = decodeFixture(n.data);
