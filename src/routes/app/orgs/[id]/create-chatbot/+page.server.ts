@@ -118,24 +118,26 @@ export const actions: Actions = {
         });
       }
 
-      // 6. Create initial conversation scaffold in system memory
-      const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
+      // 6. Create initial conversation scaffold in system memory.
+      // hadron-server#460: pure creates — the system memory was created
+      // fresh in this same action, so no loc can already exist.
+      const CREATE = `mutation C($input: CreateNodeInput!) { createNode(input: $input) { id } }`;
 
       // conversations parent
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'conversations', name: 'conversations', nodeType: 'system',
         description: 'Conversation designs',
       }});
 
       // setup conversation
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'conversations:setup', name: 'setup', nodeType: 'system',
         description: 'First-time user setup',
         data: { isSetup: true, stageOrder: ['onboard'] },
       }});
 
       // onboard stage
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'conversations:setup:onboard', name: 'onboard', nodeType: 'system',
         description: 'Onboarding stage',
         data: {
@@ -147,34 +149,34 @@ export const actions: Actions = {
       }});
 
       // prompts parent
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'prompts', name: 'prompts', nodeType: 'system',
         description: 'Prompt templates',
       }});
 
       // setup prompts
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'prompts:setup', name: 'setup', nodeType: 'system',
       }});
 
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
         content: `You are ${agentName}.${systemPrompt ? ' ' + systemPrompt : ''}\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
       }});
 
       // partials
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'prompts:partials', name: 'partials', nodeType: 'system',
         description: 'Shared prompt fragments',
       }});
 
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'prompts:partials:metadata-spec', name: 'metadata-spec', nodeType: 'system',
         content: "Always respond using the 'respond' tool. Include:\n- message: your response to the user\n- data: any new information you learned\n- next_stage: null to stay, or the next stage name to transition\n- onTrack: true if the conversation is still on track, false if the user's question doesn't fit this stage",
       }});
 
       // fallback conversation — used when routing can't match any conversation
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'conversations:fallback', name: 'fallback', nodeType: 'system',
         description: 'Fallback when no conversation matches the user\'s request',
         data: {
@@ -183,14 +185,14 @@ export const actions: Actions = {
           goalDescriptions: ['The user is asking about something this agent cannot help with'],
         },
       }});
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'conversations:fallback:no-match', name: 'no-match', nodeType: 'system',
         data: { promptRef: 'prompts:fallback:no-match' },
       }});
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'prompts:fallback', name: 'fallback', nodeType: 'system',
       }});
-      await client.request(UPSERT, { input: {
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'prompts:fallback:no-match', name: 'no-match', nodeType: 'system',
         content: `You are ${agentName}. The user asked about something outside your current capabilities.\n\nApologize honestly and briefly explain what you can help with. If appropriate, suggest they try rephrasing their question or offer to connect them with a person who can help.\n\nRespond using the 'respond' tool. Set onTrack to true.`,
       }});

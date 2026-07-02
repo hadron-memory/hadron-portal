@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, UPSERT_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, CREATE_NODE_MUTATION } from '$lib/server/queries';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -125,9 +125,12 @@ export const actions: Actions = {
       const messageId = `${timestamp}-${username}`;
       const messageLoc = `${nodeById.loc}:messages:${messageId}`;
 
-      const { upsertNode } = await gqlClient(locals.token).request<{
-        upsertNode: MemoryNode;
-      }>(UPSERT_NODE_MUTATION, {
+      // Message locs embed a timestamp + username, so each send targets a
+      // fresh loc — pure create (a same-second double submit surfaces as a
+      // loud conflict error rather than silently merging).
+      const { createNode } = await gqlClient(locals.token).request<{
+        createNode: MemoryNode;
+      }>(CREATE_NODE_MUTATION, {
         input: {
           memoryId: params.id,
           loc: messageLoc,
@@ -137,7 +140,7 @@ export const actions: Actions = {
         },
       });
 
-      return { success: true, message: upsertNode };
+      return { success: true, message: createNode };
     } catch (error) {
       console.error('Failed to send message:', error);
       return fail(500, { error: 'Failed to send message' });

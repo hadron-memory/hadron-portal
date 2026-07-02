@@ -5,7 +5,7 @@ import { parseDisplayUrn as parseUrn } from './parse-urn';
 
 /**
  * Normalize a user-supplied loc input into a bare loc string suitable for
- * the moveNode / upsertNode / deleteNode mutation `loc` argument.
+ * the moveNode / createNode / updateNode / deleteNode mutation `loc` argument.
  *
  * The rename/move UI lets users edit the loc field, and the field has been
  * pre-populated in different shapes across the portal's history:

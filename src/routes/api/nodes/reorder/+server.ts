@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { NODE_QUERY, UPSERT_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
 import type { MemoryNode } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -21,13 +21,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       // memory-blind and now errors on a cross-memory loc collision.
       const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc, memory: memoryId });
       if (!node) continue;
-      // #235: tags must be passed through. The upsertNode resolver
-      // defaults `input.tags ?? []`, so omitting tags clears them. See
-      // routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts
-      // updateContent for the long-form rationale (including why we
-      // coalesce a null `node.tags` to []).
-      await client.request(UPSERT_NODE_MUTATION, {
-        input: { memoryId, loc: u.loc, name: node.name, tags: node.tags ?? [], seq: u.seq },
+      // #235: explicit tags pass-through. updateNode preserves omitted
+      // tags (unlike the old upsertNode resolver's `input.tags ?? []`
+      // default), so this is no longer load-bearing — kept deliberately;
+      // see routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts
+      // updateContent for the rationale.
+      await client.request(UPDATE_NODE_MUTATION, {
+        input: { memoryId, loc: u.loc, tags: node.tags ?? [], seq: u.seq },
       });
     }
     return json({ ok: true });

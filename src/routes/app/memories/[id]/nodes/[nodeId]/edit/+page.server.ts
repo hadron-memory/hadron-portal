@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, UPSERT_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -50,7 +50,9 @@ export const actions: Actions = {
     const tagsStr = String(fd.get('tags') ?? '').trim();
     const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [];
     // Checkbox: present (value "true") when checked, absent when unchecked.
-    // This is a full upsert, so send an explicit boolean either way.
+    // This form rewrites the full field set, so send an explicit boolean
+    // either way (updateNode preserves omitted fields — an absent checkbox
+    // would otherwise never uncheck).
     const isRunnable = fd.get('isRunnable') === 'true';
     const rawLoc = String(fd.get('loc') ?? '').trim();
     const newLoc = cleanLocInput(rawLoc);
@@ -82,7 +84,7 @@ export const actions: Actions = {
     }
 
     try {
-      await client.request(UPSERT_NODE_MUTATION, {
+      await client.request(UPDATE_NODE_MUTATION, {
         input: {
           memoryId: currentNode.memoryId,
           loc,

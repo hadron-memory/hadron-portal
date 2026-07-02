@@ -117,7 +117,12 @@ export const actions: Actions = {
 
       // If a system memory was selected, ensure it has the chatbot scaffold
       if (systemMemoryId) {
-        const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
+        // hadron-server#460: create-only scaffold. The whole block is gated
+        // on `conversations` being absent, and every call swallows errors —
+        // so on a partially-scaffolded memory a NodeLocConflictError just
+        // means "already there" and the existing node is left intact
+        // (the old upsert would have overwritten it with scaffold defaults).
+        const CREATE = `mutation C($input: CreateNodeInput!) { createNode(input: $input) { id } }`;
         // #335: scope by the agent's system memory. `conversations` exists in
         // every agent's system memory, so an unscoped node(loc:) now errors
         // (AMBIGUOUS_NODE_LOC) instead of silently resolving the wrong one.
@@ -130,20 +135,20 @@ export const actions: Actions = {
 
         if (!hasConversations.node) {
           // conversations parent
-          await client.request(UPSERT, { input: {
+          await client.request(CREATE, { input: {
             memoryId: systemMemoryId, loc: 'conversations', name: 'conversations', nodeType: 'system',
             description: 'Conversation designs',
           }}).catch(() => {});
 
           // setup conversation
-          await client.request(UPSERT, { input: {
+          await client.request(CREATE, { input: {
             memoryId: systemMemoryId, loc: 'conversations:setup', name: 'setup', nodeType: 'system',
             description: 'First-time user setup',
             data: { isSetup: true, stageOrder: ['onboard'] },
           }}).catch(() => {});
 
           // onboard stage
-          await client.request(UPSERT, { input: {
+          await client.request(CREATE, { input: {
             memoryId: systemMemoryId, loc: 'conversations:setup:onboard', name: 'onboard', nodeType: 'system',
             description: 'Onboarding stage',
             data: {
@@ -153,27 +158,27 @@ export const actions: Actions = {
           }}).catch(() => {});
 
           // prompts parent
-          await client.request(UPSERT, { input: {
+          await client.request(CREATE, { input: {
             memoryId: systemMemoryId, loc: 'prompts', name: 'prompts', nodeType: 'system',
             description: 'Prompt templates',
           }}).catch(() => {});
 
-          await client.request(UPSERT, { input: {
+          await client.request(CREATE, { input: {
             memoryId: systemMemoryId, loc: 'prompts:setup', name: 'setup', nodeType: 'system',
           }}).catch(() => {});
 
-          await client.request(UPSERT, { input: {
+          await client.request(CREATE, { input: {
             memoryId: systemMemoryId, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
             content: `You are ${agentDisplayName}.${systemPrompt ? ' ' + systemPrompt : ''}\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
           }}).catch(() => {});
 
           // partials
-          await client.request(UPSERT, { input: {
+          await client.request(CREATE, { input: {
             memoryId: systemMemoryId, loc: 'prompts:partials', name: 'partials', nodeType: 'system',
             description: 'Shared prompt fragments',
           }}).catch(() => {});
 
-          await client.request(UPSERT, { input: {
+          await client.request(CREATE, { input: {
             memoryId: systemMemoryId, loc: 'prompts:partials:metadata-spec', name: 'metadata-spec', nodeType: 'system',
             content: "Always respond using the 'respond' tool. Include:\n- message: your response to the user\n- data: any new information you learned\n- next_stage: null to stay, or the next stage name to transition",
           }}).catch(() => {});

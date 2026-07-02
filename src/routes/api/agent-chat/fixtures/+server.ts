@@ -1,7 +1,8 @@
 import { gqlClient } from '$lib/server/api';
 import {
   MY_ORGANIZATIONS_QUERY,
-  UPSERT_NODE_MUTATION,
+  CREATE_NODE_MUTATION,
+  UPDATE_NODE_MUTATION,
   DELETE_NODE_MUTATION,
   GRAPH_NODES_QUERY,
 } from '$lib/server/queries';
@@ -15,6 +16,7 @@ import {
   type FixtureSummary,
   type RouteTrace,
 } from '$lib/server/agent-tester/fixture-codec';
+import { createNodeErrorCode } from '$lib/i18n/create-node-strings';
 import type { Organization } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -128,28 +130,56 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     throw e;
   }
 
-  // Generate a fixture loc if creating new. UUIDs are minted server-side
-  // for the node id; the loc is the user-facing handle.
-  const loc = body.fixtureLoc ?? `fixtures:${randomId()}`;
-
+  // hadron-server#460: the POST contract is explicit about which case it is
+  // (fixtureLoc null = create, non-null = update by loc), so the two paths
+  // map 1:1 onto createNode / updateNode. Fresh fixtures get a random loc;
+  // updating a fixture that was deleted meanwhile now 404s instead of
+  // silently recreating it at the stale loc (old upsert behavior).
   const client = gqlClient(locals.token);
-  const result = await client.request<{ upsertNode: { id: string; loc: string } }>(
-    UPSERT_NODE_MUTATION,
-    {
-      input: {
-        memoryId: resolved.systemMemoryId,
-        loc,
-        name: record.label,
-        nodeType: 'system',
-        description: `Tester fixture (${record.turns[0].assertion?.mode ?? 'probe-only'})`,
-        data: encodeFixture(record),
+  const description = `Tester fixture (${record.turns[0].assertion?.mode ?? 'probe-only'})`;
+
+  let node: { id: string; loc: string };
+  if (body.fixtureLoc) {
+    try {
+      const result = await client.request<{ updateNode: { id: string; loc: string } }>(
+        UPDATE_NODE_MUTATION,
+        {
+          input: {
+            memoryId: resolved.systemMemoryId,
+            loc: body.fixtureLoc,
+            name: record.label,
+            description,
+            data: encodeFixture(record),
+          },
+        },
+      );
+      node = result.updateNode;
+    } catch (e: unknown) {
+      if (createNodeErrorCode(e) === 'NODE_NOT_FOUND') {
+        return json({ error: 'Fixture not found or no longer available' }, 404);
+      }
+      throw e;
+    }
+  } else {
+    const result = await client.request<{ createNode: { id: string; loc: string } }>(
+      CREATE_NODE_MUTATION,
+      {
+        input: {
+          memoryId: resolved.systemMemoryId,
+          loc: `fixtures:${randomId()}`,
+          name: record.label,
+          nodeType: 'system',
+          description,
+          data: encodeFixture(record),
+        },
       },
-    },
-  );
+    );
+    node = result.createNode;
+  }
 
   return json({
-    fixtureId: result.upsertNode.id,
-    fixtureLoc: result.upsertNode.loc,
+    fixtureId: node.id,
+    fixtureLoc: node.loc,
   }, 200);
 };
 

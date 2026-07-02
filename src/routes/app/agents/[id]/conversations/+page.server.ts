@@ -3,6 +3,7 @@ import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import { MY_ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
+import { createNodeErrorCode } from '$lib/i18n/create-node-strings';
 import type { Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -28,6 +29,13 @@ const GRAPH_NODES_QUERY = `
 // errors on a cross-memory loc collision (AMBIGUOUS_NODE_LOC). Shared by the
 // stageOrder reads in addStage / updateExtractionSpec / updateGoals.
 const NODE_DATA_BY_LOC_QUERY = `query N($loc: String!, $memory: ID!) { node(loc: $loc, memory: $memory) { data } }`;
+
+// hadron-server#460: upsertNode is split into createNode (create-only,
+// NodeLocConflictError on a live (memoryId, loc)) and updateNode (never
+// creates — NODE_NOT_FOUND on miss; omitted fields are preserved, so the
+// data-merge writes below no longer need to re-assert name/nodeType).
+const CREATE = `mutation C($input: CreateNodeInput!) { createNode(input: $input) { id } }`;
+const UPDATE = `mutation U($input: UpdateNodeInput!) { updateNode(input: $input) { id } }`;
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
@@ -88,10 +96,11 @@ export const actions: Actions = {
     if (!name) return fail(400, { error: 'Name is required' });
 
     const slug = name.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').toLowerCase();
-    const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
 
     try {
-      await client.request(UPSERT, { input: {
+      // Create-only: a duplicate slug now fails loudly (the old upsert
+      // silently reset the existing conversation's stageOrder to []).
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: `conversations:${slug}`, name: slug, nodeType: 'system',
         description: name, data: { stageOrder: [] },
       }});
@@ -109,23 +118,30 @@ export const actions: Actions = {
     if (!stageName) return fail(400, { error: 'Stage name is required' });
 
     const slug = stageName.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').toLowerCase();
-    const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
 
     try {
-      // Create stage node
-      await client.request(UPSERT, { input: {
+      // Create stage node — create-only. A duplicate stage slug now fails
+      // loudly (the old upsert silently reset the stage's extractionSpec
+      // and appended a duplicate entry to stageOrder).
+      await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: `${conversationLoc}:${slug}`, name: slug, nodeType: 'system',
         description: stageName,
         data: { promptRef: `prompts:${conversationLoc.replace('conversations:', '')}:${slug}`, extractionSpec: [] },
       }});
 
-      // Create prompt node
-      await client.request(UPSERT, { input: {
-        memoryId: systemMemoryId,
-        loc: `prompts:${conversationLoc.replace('conversations:', '')}:${slug}`,
-        name: slug, nodeType: 'system',
-        content: `Stage: ${stageName}\n\n[Edit this prompt]`,
-      }});
+      // Create prompt node. An orphaned prompt may already live at this loc
+      // (e.g. from an earlier stage) — keep it rather than clobbering the
+      // user's prompt text with the placeholder (the old upsert overwrote).
+      try {
+        await client.request(CREATE, { input: {
+          memoryId: systemMemoryId,
+          loc: `prompts:${conversationLoc.replace('conversations:', '')}:${slug}`,
+          name: slug, nodeType: 'system',
+          content: `Stage: ${stageName}\n\n[Edit this prompt]`,
+        }});
+      } catch (e: unknown) {
+        if (createNodeErrorCode(e) !== 'NodeLocConflictError') throw e;
+      }
 
       // Update conversation's stageOrder
       const convNode = await client.request<{ node: { data: unknown } | null }>(
@@ -134,9 +150,8 @@ export const actions: Actions = {
       );
       const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
       const stageOrder = [...((convData.stageOrder as string[]) ?? []), slug];
-      await client.request(UPSERT, { input: {
-        memoryId: systemMemoryId, loc: conversationLoc, name: conversationLoc.split(':').pop()!,
-        nodeType: 'system', data: { ...convData, stageOrder },
+      await client.request(UPDATE, { input: {
+        memoryId: systemMemoryId, loc: conversationLoc, data: { ...convData, stageOrder },
       }});
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
@@ -150,11 +165,20 @@ export const actions: Actions = {
     const loc = String(fd.get('loc') ?? '');
     const content = String(fd.get('content') ?? '');
 
-    const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
     try {
-      await client.request(UPSERT, { input: {
-        memoryId: systemMemoryId, loc, name: loc.split(':').pop()!, nodeType: 'system', content,
-      }});
+      // A stage's promptRef can dangle (the editor opens with empty content
+      // for a prompt node that doesn't exist yet), so this flow relied on
+      // upsert's create-on-miss: update first, create on NODE_NOT_FOUND.
+      try {
+        await client.request(UPDATE, { input: {
+          memoryId: systemMemoryId, loc, content,
+        }});
+      } catch (e: unknown) {
+        if (createNodeErrorCode(e) !== 'NODE_NOT_FOUND') throw e;
+        await client.request(CREATE, { input: {
+          memoryId: systemMemoryId, loc, name: loc.split(':').pop()!, nodeType: 'system', content,
+        }});
+      }
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
     }
@@ -170,16 +194,14 @@ export const actions: Actions = {
     let spec: unknown[];
     try { spec = JSON.parse(specJson); } catch { return fail(400, { error: 'Invalid JSON' }); }
 
-    const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
     try {
       const stageNode = await client.request<{ node: { data: unknown } | null }>(
         NODE_DATA_BY_LOC_QUERY,
         { loc: stageLoc, memory: systemMemoryId },
       );
       const stageData = (stageNode.node?.data as Record<string, unknown>) ?? {};
-      await client.request(UPSERT, { input: {
-        memoryId: systemMemoryId, loc: stageLoc, name: stageLoc.split(':').pop()!,
-        nodeType: 'system', data: { ...stageData, extractionSpec: spec },
+      await client.request(UPDATE, { input: {
+        memoryId: systemMemoryId, loc: stageLoc, data: { ...stageData, extractionSpec: spec },
       }});
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
@@ -203,16 +225,14 @@ export const actions: Actions = {
       return fail(400, { error: 'Invalid JSON' });
     }
 
-    const UPSERT = `mutation U($input: NodeInput!) { upsertNode(input: $input) { id } }`;
     try {
       const convNode = await client.request<{ node: { data: unknown } | null }>(
         NODE_DATA_BY_LOC_QUERY,
         { loc: convLoc, memory: systemMemoryId },
       );
       const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
-      await client.request(UPSERT, { input: {
-        memoryId: systemMemoryId, loc: convLoc, name: convLoc.split(':').pop()!,
-        nodeType: 'system', data: { ...convData, goalDescriptions, goalSignals },
+      await client.request(UPDATE, { input: {
+        memoryId: systemMemoryId, loc: convLoc, data: { ...convData, goalDescriptions, goalSignals },
       }});
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed' });

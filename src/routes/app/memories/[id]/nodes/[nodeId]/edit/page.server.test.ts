@@ -109,8 +109,8 @@ function actionEvent(opts: {
 }
 
 describe('edit-node default action — derives memoryId from fetched node (#237)', () => {
-  it("upsert input.memoryId is the node's actual memoryId, not params.gid", async () => {
-    // Stale URL says mem-A; the node lives in mem-B. The upsert must
+  it("update input.memoryId is the node's actual memoryId, not params.gid", async () => {
+    // Stale URL says mem-A; the node lives in mem-B. The update must
     // commit into mem-B so the user's edit lands on the right row.
     mockRequest.mockResolvedValueOnce({
       nodeById: {
@@ -121,7 +121,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
 
     const actions = await importActions();
     let thrown: unknown;
@@ -136,7 +136,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     }
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string; abstract: unknown } }];
     expect(vars.input.memoryId).toBe('mem-B');
-    // #257: the edit form persists the abstract through the same upsert.
+    // #257: the edit form persists the abstract through the same update.
     expect(vars.input.abstract).toBe('a summary');
     // Post-action redirect URL should point at mem-B too.
     expect((thrown as { status: number }).status).toBe(303);
@@ -156,7 +156,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
       },
     });
     mockRequest.mockResolvedValueOnce({ moveNode: true });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
 
     const actions = await importActions();
     try {

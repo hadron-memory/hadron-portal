@@ -205,11 +205,12 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
 /**
  * #235 — content/edges/reorder saves must NOT clear the node's tags.
  *
- * Server-side root cause: `upsertNode` resolver at hadron-server
- * resolvers.ts:2678 defaults `serializeTags(input.tags ?? [])` — when the
- * portal omits `tags`, the server writes `[]`. Other "missing" fields are
- * safe because Prisma treats undefined as no-op, but tags has the
- * explicit empty-array default.
+ * Historical server-side root cause: the (now removed) `upsertNode`
+ * resolver defaulted `serializeTags(input.tags ?? [])` — when the portal
+ * omitted `tags`, the server wrote `[]`. Its updateNode replacement
+ * (hadron-server#460) preserves omitted tags, so the pass-through is no
+ * longer load-bearing — but it is still the correct round-trip and these
+ * tests pin it so the input shape stays deliberate.
  *
  * Portal-side fix: every save action that already loads the current node
  * passes the existing `tags` through the mutation input. These tests pin
@@ -240,7 +241,7 @@ function actionEvent(opts: {
 describe('node-detail actions — preserve tags on save (#235)', () => {
   it('updateContent: tags are explicitly passed through so the server doesn`t default-clear them', async () => {
     // NODE_BY_ID_QUERY load returns a node with tags. The action must
-    // include those same tags in the UPSERT_NODE_MUTATION input.
+    // include those same tags in the UPDATE_NODE_MUTATION input.
     mockRequest.mockResolvedValueOnce({
       nodeById: {
         id: 'pk-1', memoryId: 'mem-A', loc: 'instructions', name: 'instructions',
@@ -250,7 +251,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-1' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-1' } });
 
     const actions = await importActions();
     await actions.updateContent(actionEvent({
@@ -259,10 +260,10 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
       form: { content: 'new content' },
     }));
 
-    // Second call is the UPSERT_NODE_MUTATION. Its input must carry the
+    // Second call is the UPDATE_NODE_MUTATION. Its input must carry the
     // existing tags array verbatim.
-    const upsertCall = mockRequest.mock.calls[1]!;
-    const [, vars] = upsertCall as [unknown, { input: { tags?: unknown } }];
+    const updateCall = mockRequest.mock.calls[1]!;
+    const [, vars] = updateCall as [unknown, { input: { tags?: unknown } }];
     expect(vars.input.tags).toEqual(['meta', 'onboarding']);
   });
 
@@ -283,7 +284,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
         updatedAt: '', outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-null' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-null' } });
 
     const actions = await importActions();
     await actions.updateContent(actionEvent({
@@ -311,7 +312,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-2' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-2' } });
 
     const actions = await importActions();
     await actions.updateContent(actionEvent({
@@ -334,7 +335,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-3' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-3' } });
 
     const actions = await importActions();
     await actions.updateEdges(actionEvent({
@@ -348,8 +349,8 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     expect(vars.input.edges).toEqual([{ targetId: 'pk-target', name: 'uses' }]);
   });
 
-  it("reorder: each per-loc upsert preserves the matching node's tags", async () => {
-    // reorder iterates updates and upserts each one. Each upsert must
+  it("reorder: each per-loc update preserves the matching node's tags", async () => {
+    // reorder iterates updates and updates each one. Each updateNode must
     // carry its own node's tags (NOT a shared blob, NOT empty).
     // First mocked call is the #237 anchor-node fetch; per-loc reads
     // start at index 1.
@@ -371,7 +372,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-a' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-a' } });
     mockRequest.mockResolvedValueOnce({
       node: {
         id: 'pk-b', memoryId: 'mem-A', loc: 'b', name: 'b',
@@ -381,7 +382,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-b' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-b' } });
 
     const actions = await importActions();
     await actions.reorder(actionEvent({
@@ -396,7 +397,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     }));
 
     // Call index map: [0] anchor fetch, [1] NODE_QUERY for 'a', [2]
-    // upsert 'a', [3] NODE_QUERY for 'b', [4] upsert 'b'.
+    // update 'a', [3] NODE_QUERY for 'b', [4] update 'b'.
     const [, varsA] = mockRequest.mock.calls[2]! as [unknown, { input: { tags?: unknown } }];
     const [, varsB] = mockRequest.mock.calls[4]! as [unknown, { input: { tags?: unknown } }];
     expect(varsA.input.tags).toEqual(['a-tag']);
@@ -413,13 +414,13 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-r' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-r' } });
 
     const actions = await importActions();
     await actions.updateMeta(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-r',
-      // Loc unchanged → no MOVE_NODE_MUTATION, so the upsert is call index 1.
+      // Loc unchanged → no MOVE_NODE_MUTATION, so the update is call index 1.
       form: { name: 'r', loc: 'r', isRunnable: 'true' },
     }));
 
@@ -429,7 +430,8 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
 
   it('updateMeta: an unchecked isRunnable box sends isRunnable: false (#322)', async () => {
     // An unchecked checkbox submits no field at all. The action must still
-    // send an explicit `false` (it is a full upsert), not omit the field.
+    // send an explicit `false`, not omit the field — updateNode preserves
+    // omitted fields, so omission would never uncheck the box.
     mockRequest.mockResolvedValueOnce({
       nodeById: {
         id: 'pk-r2', memoryId: 'mem-A', loc: 'r2', name: 'r2',
@@ -439,7 +441,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-r2' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-r2' } });
 
     const actions = await importActions();
     await actions.updateMeta(actionEvent({
@@ -468,7 +470,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
  */
 describe('node-detail actions — derive memoryId from fetched node (#237)', () => {
   it('updateContent: mutation uses node.memoryId, not params.gid', async () => {
-    // Stale URL says mem-A; node actually lives in mem-B. The upsert
+    // Stale URL says mem-A; node actually lives in mem-B. The update
     // input must carry mem-B, so the user's edit lands on the right row.
     mockRequest.mockResolvedValueOnce({
       nodeById: {
@@ -479,7 +481,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
 
     const actions = await importActions();
     await actions.updateContent(actionEvent({
@@ -519,8 +521,8 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes');
   });
 
-  it('createParent: upsert uses anchorNode.memoryId, not params.gid', async () => {
-    // The form supplies a loc + name; the upsert's memoryId must match
+  it('createParent: create uses anchorNode.memoryId, not params.gid', async () => {
+    // The form supplies a loc + name; the createNode input's memoryId must match
     // the anchor node's actual memory (so a stale URL gid doesn't
     // create the new parent in the wrong memory).
     mockRequest.mockResolvedValueOnce({
@@ -532,7 +534,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'new-parent-pk' } });
+    mockRequest.mockResolvedValueOnce({ createNode: { id: 'new-parent-pk' } });
 
     const actions = await importActions();
     await actions.createParent(actionEvent({
@@ -545,8 +547,8 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     expect(vars.input.memoryId).toBe('mem-B');
   });
 
-  it('reorder: every per-loc upsert uses anchorNode.memoryId, not params.gid', async () => {
-    // Anchor fetch up front, then a NODE_QUERY + UPSERT per loc.
+  it('reorder: every per-loc update uses anchorNode.memoryId, not params.gid', async () => {
+    // Anchor fetch up front, then a NODE_QUERY + UPDATE per loc.
     mockRequest.mockResolvedValueOnce({
       nodeById: {
         id: 'pk-anchor', memoryId: 'mem-B', loc: 'foo:a', name: 'a',
@@ -565,7 +567,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-a' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-a' } });
 
     const actions = await importActions();
     await actions.reorder(actionEvent({
@@ -574,7 +576,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
       form: { updates: JSON.stringify([{ loc: 'foo:a', seq: 1 }]) },
     }));
 
-    // Calls: [0] anchor fetch, [1] NODE_QUERY for loc 'foo:a', [2] upsert.
+    // Calls: [0] anchor fetch, [1] NODE_QUERY for loc 'foo:a', [2] update.
     const [, vars] = mockRequest.mock.calls[2]! as [unknown, { input: { memoryId: string } }];
     expect(vars.input.memoryId).toBe('mem-B');
   });
@@ -583,13 +585,13 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
 /**
  * #257 slice 1 — updateAbstract inline save. The abstract is the default
  * vector-index source (spec 031/033), edited inline on the detail page just
- * like content. The action must (a) send the abstract through upsertNode,
+ * like content. The action must (a) send the abstract through updateNode,
  * (b) preserve tags (#235 guard), and (c) derive memoryId from the fetched
  * node (#237 guard). The raw string is sent verbatim — the server
  * normalizes empty/whitespace-only to null and caps length.
  */
 describe('node-detail action — updateAbstract (#257)', () => {
-  it('sends the abstract through upsertNode while preserving tags and node.memoryId', async () => {
+  it('sends the abstract through updateNode while preserving tags and node.memoryId', async () => {
     // Stale URL says mem-A; the node lives in mem-B and carries tags.
     mockRequest.mockResolvedValueOnce({
       nodeById: {
@@ -600,7 +602,7 @@ describe('node-detail action — updateAbstract (#257)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
 
     const actions = await importActions();
     await actions.updateAbstract(actionEvent({
@@ -632,7 +634,7 @@ describe('node-detail action — updateAbstract (#257)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
 
     const actions = await importActions();
     await actions.updateAbstract(actionEvent({
@@ -649,14 +651,14 @@ describe('node-detail action — updateAbstract (#257)', () => {
 /**
  * Data tab — updateData inline save. Node.data is a free-form JSON
  * object/value. The action parses the posted editor text and sends the
- * parsed value through upsertNode while preserving tags (#235) and deriving
+ * parsed value through updateNode while preserving tags (#235) and deriving
  * memoryId from the fetched node (#237). Malformed, empty, and top-level
  * `null` bodies are rejected with a 400 BEFORE any GraphQL call — Node.data
  * maps to a Prisma `Json?` column that can't be written a bare JS null
  * through this surface, so clearing isn't supported here.
  */
 describe('node-detail action — updateData', () => {
-  it('parses the JSON and sends the value through upsertNode (tags + node.memoryId preserved)', async () => {
+  it('parses the JSON and sends the value through updateNode (tags + node.memoryId preserved)', async () => {
     // Stale URL says mem-A; the node lives in mem-B and carries tags.
     mockRequest.mockResolvedValueOnce({
       nodeById: {
@@ -667,7 +669,7 @@ describe('node-detail action — updateData', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
 
     const actions = await importActions();
     await actions.updateData(actionEvent({
@@ -686,7 +688,7 @@ describe('node-detail action — updateData', () => {
     expect(vars.input.memoryId).toBe('mem-B');
   });
 
-  it('rejects malformed JSON with a 400 and never calls upsertNode', async () => {
+  it('rejects malformed JSON with a 400 and never calls updateNode', async () => {
     const actions = await importActions();
     const result = await actions.updateData(actionEvent({
       gid: 'mem-A',
@@ -736,7 +738,7 @@ describe('node-detail action — updateData', () => {
     expect((result as { status: number }).status).toBe(404);
   });
 
-  it('returns 500 when the upsert mutation throws', async () => {
+  it('returns 500 when the update mutation throws', async () => {
     mockRequest.mockResolvedValueOnce({
       nodeById: {
         id: 'pk', memoryId: 'mem-A', loc: 'a', name: 'a',

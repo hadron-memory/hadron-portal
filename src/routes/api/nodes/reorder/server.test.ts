@@ -1,8 +1,10 @@
 /**
  * #235 regression test — the api/nodes/reorder endpoint must preserve the
- * affected nodes' tags through the per-loc upsert loop. The upsertNode
- * resolver in hadron-server defaults `input.tags ?? []`, so omitting tags
- * clears them. This endpoint is the JSON sibling of the form-action
+ * affected nodes' tags through the per-loc update loop. (Historically the
+ * upsertNode resolver defaulted `input.tags ?? []`, so omitting tags cleared
+ * them; its updateNode replacement (hadron-server#460) preserves omitted
+ * tags, but the explicit pass-through is still the correct round-trip and
+ * stays pinned.) This endpoint is the JSON sibling of the form-action
  * `reorder` in /memories/[gid]/nodes/[nodeId]/+page.server.ts; both
  * carry the same fix and the same pin.
  */
@@ -29,8 +31,8 @@ function postEvent(body: unknown, opts: { authed?: boolean } = { authed: true })
   } as unknown as Parameters<Awaited<ReturnType<typeof importPOST>>>[0];
 }
 
-describe('POST /api/nodes/reorder — preserve tags per upsert (#235)', () => {
-  it('carries each node`s tags into the matching UPSERT_NODE_MUTATION input', async () => {
+describe('POST /api/nodes/reorder — preserve tags per update (#235)', () => {
+  it('carries each node`s tags into the matching UPDATE_NODE_MUTATION input', async () => {
     mockRequest.mockResolvedValueOnce({
       node: {
         id: 'pk-a', memoryId: 'mem-A', loc: 'a', name: 'a',
@@ -40,7 +42,7 @@ describe('POST /api/nodes/reorder — preserve tags per upsert (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-a' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-a' } });
     mockRequest.mockResolvedValueOnce({
       node: {
         id: 'pk-b', memoryId: 'mem-A', loc: 'b', name: 'b',
@@ -50,7 +52,7 @@ describe('POST /api/nodes/reorder — preserve tags per upsert (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-b' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-b' } });
 
     const POST = await importPOST();
     await POST(postEvent({
@@ -61,7 +63,7 @@ describe('POST /api/nodes/reorder — preserve tags per upsert (#235)', () => {
       ],
     }));
 
-    // Calls 0 + 2 are NODE_QUERY reads; calls 1 + 3 are the upserts.
+    // Calls 0 + 2 are NODE_QUERY reads; calls 1 + 3 are the updates.
     const [, varsA] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown } }];
     const [, varsB] = mockRequest.mock.calls[3]! as [unknown, { input: { tags?: unknown } }];
     expect(varsA.input.tags).toEqual(['a-tag']);
@@ -78,7 +80,7 @@ describe('POST /api/nodes/reorder — preserve tags per upsert (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ upsertNode: { id: 'pk-x' } });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-x' } });
 
     const POST = await importPOST();
     await POST(postEvent({

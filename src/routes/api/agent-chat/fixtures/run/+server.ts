@@ -3,7 +3,7 @@ import {
   MY_ORGANIZATIONS_QUERY,
   GRAPH_NODES_QUERY,
   START_CHAT_MUTATION,
-  UPSERT_NODE_MUTATION,
+  UPDATE_NODE_MUTATION,
   NODE_BY_ID_QUERY,
 } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
@@ -332,13 +332,14 @@ async function persistNewBaseline(
   record: FixtureRecord,
   result: { reply: string; route: RouteTrace; verdict: 'pass' | 'fail' },
 ): Promise<void> {
+  // hadron-server#460: the fixture node was just read to run it, so this is
+  // a pure update (updateNode preserves the omitted nodeType/description).
   const updated = applyRunResult(record, result);
-  await gqlClient(token).request(UPSERT_NODE_MUTATION, {
+  await gqlClient(token).request(UPDATE_NODE_MUTATION, {
     input: {
       memoryId: systemMemoryId,
       loc,
       name: updated.label,
-      nodeType: 'system',
       data: encodeFixture(updated),
     },
   });
