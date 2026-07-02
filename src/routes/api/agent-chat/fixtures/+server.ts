@@ -139,7 +139,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const description = `Tester fixture (${record.turns[0].assertion?.mode ?? 'probe-only'})`;
 
   let node: { id: string; loc: string };
-  if (body.fixtureLoc) {
+  if (body.fixtureLoc != null) {
+    // Match the DELETE handler's validation: only fixture nodes are
+    // addressable through this endpoint — without this, an update could
+    // target an arbitrary system-memory node (e.g. conversations:setup).
+    // Also rejects the empty string, which would otherwise be truthy-false
+    // and silently fall through to the create branch.
+    if (!body.fixtureLoc.startsWith('fixtures:')) {
+      return json({ error: 'fixtureLoc must start with "fixtures:"' }, 400);
+    }
     try {
       const result = await client.request<{ updateNode: { id: string; loc: string } }>(
         UPDATE_NODE_MUTATION,

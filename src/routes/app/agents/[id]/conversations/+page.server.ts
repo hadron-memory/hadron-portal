@@ -98,13 +98,16 @@ export const actions: Actions = {
     const slug = name.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').toLowerCase();
 
     try {
-      // Create-only: a duplicate slug now fails loudly (the old upsert
-      // silently reset the existing conversation's stageOrder to []).
+      // Create-only: a duplicate slug now fails (the old upsert silently
+      // reset the existing conversation's stageOrder to []).
       await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: `conversations:${slug}`, name: slug, nodeType: 'system',
         description: name, data: { stageOrder: [] },
       }});
     } catch (e: unknown) {
+      if (createNodeErrorCode(e) === 'NodeLocConflictError') {
+        return fail(400, { error: 'A conversation with this name already exists' });
+      }
       return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
     }
   },
@@ -121,13 +124,20 @@ export const actions: Actions = {
 
     try {
       // Create stage node — create-only. A duplicate stage slug now fails
-      // loudly (the old upsert silently reset the stage's extractionSpec
-      // and appended a duplicate entry to stageOrder).
-      await client.request(CREATE, { input: {
-        memoryId: systemMemoryId, loc: `${conversationLoc}:${slug}`, name: slug, nodeType: 'system',
-        description: stageName,
-        data: { promptRef: `prompts:${conversationLoc.replace('conversations:', '')}:${slug}`, extractionSpec: [] },
-      }});
+      // with a friendly 400 (the old upsert silently reset the stage's
+      // extractionSpec and appended a duplicate entry to stageOrder).
+      try {
+        await client.request(CREATE, { input: {
+          memoryId: systemMemoryId, loc: `${conversationLoc}:${slug}`, name: slug, nodeType: 'system',
+          description: stageName,
+          data: { promptRef: `prompts:${conversationLoc.replace('conversations:', '')}:${slug}`, extractionSpec: [] },
+        }});
+      } catch (e: unknown) {
+        if (createNodeErrorCode(e) === 'NodeLocConflictError') {
+          return fail(400, { error: 'A stage with this name already exists in this conversation' });
+        }
+        throw e;
+      }
 
       // Create prompt node. An orphaned prompt may already live at this loc
       // (e.g. from an earlier stage) — keep it rather than clobbering the
@@ -149,7 +159,10 @@ export const actions: Actions = {
         { loc: conversationLoc, memory: systemMemoryId },
       );
       const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
-      const stageOrder = [...((convData.stageOrder as string[]) ?? []), slug];
+      // Append idempotently — a stale stageOrder that already lists the slug
+      // (e.g. a leftover from a deleted stage) must not gain a duplicate.
+      const existingOrder = (convData.stageOrder as string[]) ?? [];
+      const stageOrder = existingOrder.includes(slug) ? existingOrder : [...existingOrder, slug];
       await client.request(UPDATE, { input: {
         memoryId: systemMemoryId, loc: conversationLoc, data: { ...convData, stageOrder },
       }});
@@ -175,9 +188,19 @@ export const actions: Actions = {
         }});
       } catch (e: unknown) {
         if (createNodeErrorCode(e) !== 'NODE_NOT_FOUND') throw e;
-        await client.request(CREATE, { input: {
-          memoryId: systemMemoryId, loc, name: loc.split(':').pop()!, nodeType: 'system', content,
-        }});
+        try {
+          await client.request(CREATE, { input: {
+            memoryId: systemMemoryId, loc, name: loc.split(':').pop()!, nodeType: 'system', content,
+          }});
+        } catch (e2: unknown) {
+          // Lost the create race — a concurrent request created the prompt
+          // between our failed update and this create. The desired end state
+          // is "prompt exists with this content", so retry the update once.
+          if (createNodeErrorCode(e2) !== 'NodeLocConflictError') throw e2;
+          await client.request(UPDATE, { input: {
+            memoryId: systemMemoryId, loc, content,
+          }});
+        }
       }
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
