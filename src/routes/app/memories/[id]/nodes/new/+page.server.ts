@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { UPSERT_NODE_MUTATION } from '$lib/server/queries';
+import { CREATE_NODE_MUTATION } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import {
   createNodeStrings,
@@ -28,7 +28,7 @@ export const load: PageServerLoad = async ({ url, parent }) => {
   // memory + nodes, with read-access enforcement: if the memory isn't
   // accessible, MEMORY_BY_ID_QUERY returns null and the layout throws
   // before we get here. So if we're rendering, the user can read this
-  // memory. Write access is the canonical gate at upsertNode time
+  // memory. Write access is the canonical gate at createNode time
   // (see FR-006).
   const parentLoc = cleanLocInput(url.searchParams.get('parent') ?? '');
 
@@ -70,9 +70,14 @@ export const actions: Actions = {
 
     let newId: string | undefined;
     try {
+      // hadron-server#460: createNode IS create-only — it rejects with
+      // NodeLocConflictError if (loc, memoryId) already exists, rather
+      // than silently updating the existing node (the old NodeInput
+      // createOnly flag is gone; the semantics are baked in). The portal's
+      // typed-error mapper recognizes the code and shows friendly copy.
       const result = await gqlClient(locals.token).request<{
-        upsertNode: { id: string };
-      }>(UPSERT_NODE_MUTATION, {
+        createNode: { id: string };
+      }>(CREATE_NODE_MUTATION, {
         input: {
           memoryId: params.id,
           loc,
@@ -82,15 +87,9 @@ export const actions: Actions = {
           abstract,
           content,
           tags: [],
-          // Spec 011 + hadron-server#104: this is a CREATE form, not an
-          // upsert. createOnly tells the server to reject with
-          // NodeLocConflictError if (loc, memoryId) already exists,
-          // rather than silently updating the existing node. The portal's
-          // typed-error mapper recognizes the code and shows friendly copy.
-          createOnly: true,
         },
       });
-      newId = result.upsertNode.id;
+      newId = result.createNode.id;
     } catch (e: unknown) {
       return fail(createNodeErrorStatus(e), {
         error: translateCreateNodeError(e),

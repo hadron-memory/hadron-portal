@@ -415,7 +415,7 @@
   const isTeamChat = $derived(node.tags.includes('team-chat'));
 
   // ── Edge editing ────────────────────────────────────────────────────
-  // Edge editing replaces the full outgoing set via upsertNode(edges: [...]).
+  // Edge editing replaces the full outgoing set via updateNode(edges: [...]).
   // We keep a local editable copy and commit via the updateEdges action.
 
   interface EditableEdge {

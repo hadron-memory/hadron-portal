@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, UPSERT_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { isCanonicalNodeType } from '$lib/node-types';
 import type { MemoryNode } from '$lib/types';
@@ -91,10 +91,10 @@ export const actions: Actions = {
     );
     if (!anchorNode) return fail(404, { error: 'Node not found' });
     try {
-      const res = await client.request<{ upsertNode: { id: string } }>(UPSERT_NODE_MUTATION, {
+      const res = await client.request<{ createNode: { id: string } }>(CREATE_NODE_MUTATION, {
         input: { memoryId: anchorNode.memoryId, loc, name, nodeType: 'info' },
       });
-      return { createdParentId: res.upsertNode.id };
+      return { createdParentId: res.createNode.id };
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to create parent node' });
     }
@@ -126,7 +126,9 @@ export const actions: Actions = {
     const tagsStr = String(fd.get('tags') ?? '').trim();
     const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [];
     // Checkbox: present (value "true") when checked, absent when unchecked.
-    // updateMeta is a full upsert, so send an explicit boolean either way.
+    // updateMeta rewrites the full meta set, so send an explicit boolean
+    // either way (updateNode preserves omitted fields — an absent checkbox
+    // would otherwise never uncheck).
     const isRunnable = fd.get('isRunnable') === 'true';
     const newLoc = cleanLocInput(String(fd.get('loc') ?? ''));
 
@@ -144,7 +146,7 @@ export const actions: Actions = {
     }
 
     try {
-      await client.request(UPSERT_NODE_MUTATION, {
+      await client.request(UPDATE_NODE_MUTATION, {
         input: { memoryId: currentNode.memoryId, loc, name, nodeType, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable },
       });
     } catch (e: unknown) {
@@ -178,21 +180,19 @@ export const actions: Actions = {
       const { nodeById: node } = await client.request<{ nodeById: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
-      await client.request(UPSERT_NODE_MUTATION, {
+      await client.request(UPDATE_NODE_MUTATION, {
         input: {
-          // #237: memoryId from the node, not the URL.
+          // #237: memoryId from the node, not the URL. Selects the target
+          // together with loc; omitted fields (name, description, …) are
+          // preserved by updateNode.
           memoryId: node.memoryId,
           loc: node.loc,
-          name: node.name,
-          // #235: tags must be passed through explicitly. The upsertNode
-          // resolver defaults `input.tags ?? []`, so omitting tags clears
-          // them on save. Other "missing" fields (description, alias,
-          // seq, data) are safe because Prisma treats undefined as
-          // "don't update" — but tags has an explicit empty-array
-          // default that bypasses that semantic. The `?? []` guards
-          // against the runtime case where node.tags arrives as null
-          // (e.g. via a future schema-shape regression): explicit []
-          // matches what the user already has, so it round-trips safely.
+          // #235 history: the old upsertNode resolver cleared omitted tags
+          // (`input.tags ?? []`). updateNode preserves omitted tags, so
+          // this explicit pass-through is no longer load-bearing — but it
+          // is still correct (it round-trips the user's tags verbatim), so
+          // it stays. The `?? []` guards a null-tags schema-shape
+          // regression at runtime.
           tags: node.tags ?? [],
           content,
         },
@@ -215,15 +215,13 @@ export const actions: Actions = {
       const { nodeById: node } = await client.request<{ nodeById: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
-      await client.request(UPSERT_NODE_MUTATION, {
+      await client.request(UPDATE_NODE_MUTATION, {
         input: {
           // #237: memoryId from the node, not the URL.
           memoryId: node.memoryId,
           loc: node.loc,
-          name: node.name,
-          // #235: tags must be passed through explicitly or the upsertNode
-          // resolver's `input.tags ?? []` default clears them. See
-          // updateContent for the full rationale.
+          // #235: explicit tags pass-through — no longer load-bearing
+          // under updateNode, kept deliberately. See updateContent.
           tags: node.tags ?? [],
           abstract,
         },
@@ -236,7 +234,7 @@ export const actions: Actions = {
   // Node.data is a free-form JSON object/value surfaced on the Data tab.
   // The client posts the raw editor text; we parse it here so a malformed
   // body fails fast with a readable message instead of an opaque
-  // GraphQL/Prisma error. The upsertNode resolver feeds `data` straight
+  // GraphQL/Prisma error. The updateNode resolver feeds `data` straight
   // into a Prisma `Json?` column, which rejects a bare JS `null` (it wants
   // Prisma.DbNull / JsonNull) — so clearing the field isn't supported here:
   // both an empty body and a top-level JSON `null` are rejected, and we
@@ -263,15 +261,13 @@ export const actions: Actions = {
       const { nodeById: node } = await client.request<{ nodeById: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
-      await client.request(UPSERT_NODE_MUTATION, {
+      await client.request(UPDATE_NODE_MUTATION, {
         input: {
           // #237: memoryId from the node, not the URL.
           memoryId: node.memoryId,
           loc: node.loc,
-          name: node.name,
-          // #235: tags must be passed through explicitly or the upsertNode
-          // resolver's `input.tags ?? []` default clears them. See
-          // updateContent for the full rationale.
+          // #235: explicit tags pass-through — no longer load-bearing
+          // under updateNode, kept deliberately. See updateContent.
           tags: node.tags ?? [],
           data,
         },
@@ -284,7 +280,7 @@ export const actions: Actions = {
   updateEdges: async ({ request, params, locals }) => {
     // Replaces the full set of outgoing edges on this node. The client sends
     // a JSON-encoded array of { targetId, name } — we pass it through the
-    // upsertNode mutation, which replaces all outgoing edges atomically.
+    // updateNode mutation, which replaces all outgoing edges atomically.
     const fd = await request.formData();
     const edgesJson = String(fd.get('edges') ?? '[]');
     let edges: Array<{ targetId: string; name?: string | null }>;
@@ -301,14 +297,13 @@ export const actions: Actions = {
         NODE_BY_ID_QUERY, { id: params.nodeId },
       );
       if (!node) return fail(404, { error: 'Node not found' });
-      await client.request(UPSERT_NODE_MUTATION, {
+      await client.request(UPDATE_NODE_MUTATION, {
         input: {
           // #237: memoryId from the node, not the URL.
           memoryId: node.memoryId,
           loc: node.loc,
-          name: node.name,
-          // #235: preserve tags — see updateContent for the rationale
-          // (including why we coalesce a null `node.tags` to []).
+          // #235: explicit tags pass-through — no longer load-bearing
+          // under updateNode, kept deliberately. See updateContent.
           tags: node.tags ?? [],
           edges: edges.map((e) => ({
             targetId: e.targetId,
@@ -347,13 +342,12 @@ export const actions: Actions = {
         // a wrong `name` into anchorNode.memoryId's row. Now it's pinned.
         const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc, memory: anchorNode.memoryId });
         if (!node) continue;
-        await client.request(UPSERT_NODE_MUTATION, {
+        await client.request(UPDATE_NODE_MUTATION, {
           input: {
             memoryId: anchorNode.memoryId,
             loc: u.loc,
-            name: node.name,
-            // #235: preserve tags — see updateContent for the rationale
-            // (including why we coalesce a null `node.tags` to []).
+            // #235: explicit tags pass-through — no longer load-bearing
+            // under updateNode, kept deliberately. See updateContent.
             tags: node.tags ?? [],
             seq: u.seq,
           },

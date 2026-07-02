@@ -9,7 +9,7 @@ import {
   MY_ORGANIZATIONS_QUERY,
   GRAPH_NODES_QUERY,
   START_CHAT_MUTATION,
-  UPSERT_NODE_MUTATION,
+  UPDATE_NODE_MUTATION,
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -106,7 +106,7 @@ function setupChat(opts: {
         conversationName: 'c', stageName: 's',
       } };
     }
-    if (query === UPSERT_NODE_MUTATION) return { upsertNode: { id: 'n', loc: 'fixtures:abc' } };
+    if (query === UPDATE_NODE_MUTATION) return { updateNode: { id: 'n', loc: 'fixtures:abc' } };
     throw new Error(`Unexpected query: ${query.slice(0, 40)}`);
   });
   // Welcome + user turn.

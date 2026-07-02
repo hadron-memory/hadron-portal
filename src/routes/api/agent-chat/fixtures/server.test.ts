@@ -4,7 +4,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MY_ORGANIZATIONS_QUERY,
-  UPSERT_NODE_MUTATION,
+  CREATE_NODE_MUTATION,
+  UPDATE_NODE_MUTATION,
   DELETE_NODE_MUTATION,
   GRAPH_NODES_QUERY,
 } from '$lib/server/queries';
@@ -74,8 +75,11 @@ function mockResolveAgent() {
         } },
       ] } };
     }
-    if (query === UPSERT_NODE_MUTATION) {
-      return { upsertNode: { id: 'node-new', loc: (vars as { input: { loc: string } }).input.loc } };
+    if (query === CREATE_NODE_MUTATION) {
+      return { createNode: { id: 'node-new', loc: (vars as { input: { loc: string } }).input.loc } };
+    }
+    if (query === UPDATE_NODE_MUTATION) {
+      return { updateNode: { id: 'node-upd', loc: (vars as { input: { loc: string } }).input.loc } };
     }
     if (query === DELETE_NODE_MUTATION) {
       return { deleteNode: true };

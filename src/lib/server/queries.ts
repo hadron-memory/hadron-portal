@@ -1330,10 +1330,23 @@ export const NODE_EXPORT_QUERY = /* GraphQL */ `
   }
 `;
 
-export const UPSERT_NODE_MUTATION = /* GraphQL */ `
+// hadron-server#460 (spec 039 Phase 0): upsertNode is split into
+// createNode (create-only; a live node at (memoryId, loc) rejects with
+// extensions.code 'NodeLocConflictError') and updateNode (never creates —
+// 'NODE_NOT_FOUND' on miss; every content field optional, omitted =
+// preserved). updateNode selects its target by `id` (PK or node URN) XOR
+// (`memoryId` + `loc`).
+export const CREATE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
-  mutation UpsertNode($input: NodeInput!) {
-    upsertNode(input: $input) { ...NodeFields }
+  mutation CreateNode($input: CreateNodeInput!) {
+    createNode(input: $input) { ...NodeFields }
+  }
+`;
+
+export const UPDATE_NODE_MUTATION = /* GraphQL */ `
+  ${NODE_FIELDS}
+  mutation UpdateNode($input: UpdateNodeInput!) {
+    updateNode(input: $input) { ...NodeFields }
   }
 `;
 
