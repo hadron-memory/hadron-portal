@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveActiveOrg } from './active-org';
+import { filterToMemberOrgs, resolveActiveOrg } from './active-org';
 import type { Organization } from '$lib/types';
 
 function makeOrg(overrides: Partial<Organization>): Organization {
@@ -143,5 +143,46 @@ describe('resolveActiveOrg — spec 014 R-1/R-2/R-9', () => {
     expect(r.activeOrgId).toBe('org-a');
     expect(r.personalOrgId).toBe('org-personal-false');
     expect(r.source).toBe('url');
+  });
+});
+
+describe('filterToMemberOrgs — hadron-server#473 admin unscoped reach', () => {
+  const member = (userId: string, orgId: string) => ({
+    id: `member-${orgId}-${userId}`,
+    role: 'MEMBER',
+    canInvite: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    user: { id: userId, handle: null, githubUsername: null, name: null, avatarUrl: null, email: null },
+  });
+
+  it('keeps only orgs carrying a membership row for the user', () => {
+    const mine = makeOrg({ id: 'org-mine', members: [member('u1', 'org-mine')] });
+    const foreign = makeOrg({ id: 'org-foreign', members: [member('u2', 'org-foreign')] });
+    const shared = makeOrg({ id: 'org-shared', members: [member('u2', 'org-shared'), member('u1', 'org-shared')] });
+    expect(filterToMemberOrgs([foreign, mine, shared], 'u1').map((o) => o.id))
+      .toEqual(['org-mine', 'org-shared']);
+  });
+
+  it('drops orgs with no members selection (defensive) and returns [] without a user id', () => {
+    const noMembers = makeOrg({ id: 'org-no-members', members: undefined });
+    expect(filterToMemberOrgs([noMembers], 'u1')).toEqual([]);
+    expect(filterToMemberOrgs([noMembers], null)).toEqual([]);
+    expect(filterToMemberOrgs([noMembers], undefined)).toEqual([]);
+  });
+
+  it("admin regression (PR #451 P2): another user's personal org sorting first no longer wins the personal fallback", () => {
+    // organizations() gives an admin EVERY org — including other users'
+    // personal orgs (isVisible !== true). Unfiltered, the first of those
+    // would win resolveActiveOrg's personal-org step.
+    const foreignPersonal = makeOrg({ id: 'org-aaa-foreign', isVisible: null, members: [member('u2', 'org-aaa-foreign')] });
+    const ownPersonal = makeOrg({ id: 'org-zzz-own', isVisible: null, members: [member('u1', 'org-zzz-own')] });
+    const r = resolveActiveOrg({
+      paramsId: undefined,
+      lastActiveOrgId: null,
+      myOrganizations: filterToMemberOrgs([foreignPersonal, ownPersonal], 'u1'),
+    });
+    expect(r.source).toBe('personal');
+    expect(r.activeOrgId).toBe('org-zzz-own');
+    expect(r.personalOrgId).toBe('org-zzz-own');
   });
 });

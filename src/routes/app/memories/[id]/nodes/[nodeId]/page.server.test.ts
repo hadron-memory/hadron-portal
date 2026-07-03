@@ -63,7 +63,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     const memA = 'mem-A';
     const memB = 'mem-B';
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'A-chats-setup-pk', memoryId: memA, loc: 'chats:setup', name: 'setup',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -93,7 +93,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
   it('returns null for ancestors that do not exist in this memory (even if they exist in another)', async () => {
     const memA = 'mem-A';
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'A-chats-setup-pk', memoryId: memA, loc: 'chats:setup', name: 'setup',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -122,7 +122,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
   it('does NOT issue a NODE_QUERY for ancestor lookup — the parent layout already has the data', async () => {
     const memA = 'mem-A';
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'leaf-pk', memoryId: memA, loc: 'foo:bar:baz', name: 'baz',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -146,12 +146,12 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
   });
 
   it('#237 — redirects when node.memoryId does not match params.gid (PK-mismatch guard)', async () => {
-    // The route is scoped by [gid] but nodeById resolves by PK alone.
+    // The route is scoped by [gid] but node(ref:) resolves the PK alone.
     // A URL combining memory A's gid with memory B's nodeId was
     // silently rendering memory B's node under memory A's layout.
     // The guard redirects to the correct memory URL.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         // Node lives in mem-B, but the URL says mem-A. The guard
         // should redirect to mem-B's URL with the same nodeId.
         id: 'leaf-pk', memoryId: 'mem-B', loc: 'foo', name: 'foo',
@@ -182,7 +182,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     // internally consistent. If this regresses, every node-detail
     // page load starts throwing 303s in a redirect loop.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -243,7 +243,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     // NODE_BY_ID_QUERY load returns a node with tags. The action must
     // include those same tags in the UPDATE_NODE_MUTATION input.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk-1', memoryId: 'mem-A', loc: 'instructions', name: 'instructions',
         nodeType: 'info', alias: null, description: null, content: 'old content',
         tokens: null, tags: ['meta', 'onboarding'], seq: null, data: null,
@@ -274,7 +274,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     // deserializer bug. This test pins that defensive behavior — if
     // someone removes the `?? []` thinking it`s redundant, this fails.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk-null', memoryId: 'mem-A', loc: 'a', name: 'a',
         nodeType: 'info', alias: null, description: null, content: null,
         // Cast: TS says non-null but we`re testing the belt-and-
@@ -304,7 +304,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     // up" the explicit pass-through later, thinking it's redundant for
     // empty arrays.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk-2', memoryId: 'mem-A', loc: 'a', name: 'a',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -327,7 +327,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
 
   it('updateEdges: tags are passed through alongside the new edges', async () => {
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk-3', memoryId: 'mem-A', loc: 'src', name: 'src',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: ['kept'], seq: null, data: null, ownerRepo: null,
@@ -355,7 +355,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     // First mocked call is the #237 anchor-node fetch; per-loc reads
     // start at index 1.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk-anchor', memoryId: 'mem-A', loc: 'a', name: 'anchor',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -406,7 +406,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
 
   it('updateMeta: a checked isRunnable box sends isRunnable: true (#322)', async () => {
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk-r', memoryId: 'mem-A', loc: 'r', name: 'r',
         nodeType: 'task', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -433,7 +433,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     // send an explicit `false`, not omit the field — updateNode preserves
     // omitted fields, so omission would never uncheck the box.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk-r2', memoryId: 'mem-A', loc: 'r2', name: 'r2',
         nodeType: 'task', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -473,7 +473,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     // Stale URL says mem-A; node actually lives in mem-B. The update
     // input must carry mem-B, so the user's edit lands on the right row.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
         nodeType: 'info', alias: null, description: null, content: 'old',
         tokens: null, tags: ['x'], seq: null, data: null, ownerRepo: null,
@@ -497,7 +497,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
 
   it('delete: DELETE_NODE_MUTATION targets node.memoryId, and redirect URL points at it too', async () => {
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -526,7 +526,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     // the anchor node's actual memory (so a stale URL gid doesn't
     // create the new parent in the wrong memory).
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk-anchor', memoryId: 'mem-B', loc: 'foo:bar', name: 'bar',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -550,7 +550,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
   it('reorder: every per-loc update uses anchorNode.memoryId, not params.gid', async () => {
     // Anchor fetch up front, then a NODE_QUERY + UPDATE per loc.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk-anchor', memoryId: 'mem-B', loc: 'foo:a', name: 'a',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -594,7 +594,7 @@ describe('node-detail action — updateAbstract (#257)', () => {
   it('sends the abstract through updateNode while preserving tags and node.memoryId', async () => {
     // Stale URL says mem-A; the node lives in mem-B and carries tags.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
         nodeType: 'info', alias: null, description: null, abstract: 'old summary',
         content: 'body', tokens: null, tags: ['kept'], seq: null, data: null,
@@ -626,7 +626,7 @@ describe('node-detail action — updateAbstract (#257)', () => {
 
   it('sends an empty string when the abstract is cleared (server normalizes to null)', async () => {
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk', memoryId: 'mem-A', loc: 'a', name: 'a',
         nodeType: 'info', alias: null, description: null, abstract: 'something',
         content: null, tokens: null, tags: [], seq: null, data: null,
@@ -661,7 +661,7 @@ describe('node-detail action — updateData', () => {
   it('parses the JSON and sends the value through updateNode (tags + node.memoryId preserved)', async () => {
     // Stale URL says mem-A; the node lives in mem-B and carries tags.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk', memoryId: 'mem-B', loc: 'cor:api:020:03', name: '03',
         nodeType: 'info', alias: null, description: null, abstract: null,
         content: null, tokens: null, tags: ['kept'], seq: null, data: null,
@@ -730,7 +730,7 @@ describe('node-detail action — updateData', () => {
   });
 
   it('returns 404 when the node is not found', async () => {
-    mockRequest.mockResolvedValueOnce({ nodeById: null });
+    mockRequest.mockResolvedValueOnce({ node: null });
     const actions = await importActions();
     const result = await actions.updateData(actionEvent({
       gid: 'mem-A', nodeId: 'missing', form: { data: '{"a":1}' },
@@ -740,7 +740,7 @@ describe('node-detail action — updateData', () => {
 
   it('returns 500 when the update mutation throws', async () => {
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk', memoryId: 'mem-A', loc: 'a', name: 'a',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,

@@ -192,10 +192,13 @@ export const SEND_CONTACT_MESSAGE_MUTATION = /* GraphQL */ `
   }
 `;
 
+// hadron-server#473: uniform read surface — find-one queries take \`ref\`
+// (PK or URN) instead of \`id\`. Variable names stay \`$id\` so call sites
+// keep passing \`{ id: ... }\`.
 export const MEMORY_BY_ID_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
   query MemoryById($id: ID!) {
-    memory(id: $id) {
+    memory(ref: $id) {
       ...MemoryFields
       subscriptions {
         id
@@ -206,20 +209,33 @@ export const MEMORY_BY_ID_QUERY = /* GraphQL */ `
   }
 `;
 
+// hadron-server#473: orgSystemMemories(orgId:) is now the uniform
+// memories(orgId:, filter: { memoryClasses: [system] }) list. NOTE: the new
+// query is membership-gated with NO platform-admin bypass — an admin who is
+// not a member of the org gets an empty page instead of the org's system
+// memories.
 export const ORG_SYSTEM_MEMORIES_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
-  query OrgSystemMemories($orgId: ID!) {
-    orgSystemMemories(orgId: $orgId) {
-      ...MemoryFields
+  query OrgSystemMemories($orgId: ID!, $limit: Int, $offset: Int) {
+    memories(orgId: $orgId, filter: { memoryClasses: [system] }, limit: $limit, offset: $offset) {
+      items {
+        ...MemoryFields
+      }
+      total
     }
   }
 `;
 
+// hadron-server#473: publicMemories is now the uniform memories() list with
+// the PUBLIC marketplace slice selected via filter.visibility.
 export const PUBLIC_MEMORIES_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
-  query PublicMemories {
-    publicMemories {
-      ...MemoryFields
+  query PublicMemories($limit: Int, $offset: Int) {
+    memories(filter: { visibility: PUBLIC }, limit: $limit, offset: $offset) {
+      items {
+        ...MemoryFields
+      }
+      total
     }
   }
 `;
@@ -230,28 +246,34 @@ export const ADD_TO_MY_MEMORIES_MUTATION = /* GraphQL */ `
   }
 `;
 
-export const MY_ORGANIZATIONS_QUERY = /* GraphQL */ `
+// hadron-server#473: myOrganizations is now the uniform organizations() list
+// (the caller's memberships). NOTE: a platform ADMIN/OWNER now receives EVERY
+// live org, not just their memberships — the admin unscoped reach.
+export const ORGANIZATIONS_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}
   ${AGENT_FIELDS}
   ${APP_FIELDS}
-  query MyOrganizations {
-    myOrganizations {
-      ...OrgFields
-      members {
-        id
-        role
-        user { id handle githubUsername name avatarUrl email }
+  query Organizations($limit: Int, $offset: Int) {
+    organizations(limit: $limit, offset: $offset) {
+      items {
+        ...OrgFields
+        members {
+          id
+          role
+          user { id handle githubUsername name avatarUrl email }
+        }
+        memories {
+          ...MemoryFields
+        }
+        agents {
+          ...AgentFields
+        }
+        apps {
+          ...AppFields
+        }
       }
-      memories {
-        ...MemoryFields
-      }
-      agents {
-        ...AgentFields
-      }
-      apps {
-        ...AppFields
-      }
+      total
     }
   }
 `;
@@ -278,7 +300,7 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
   ${AGENT_FIELDS}
   ${EXCHANGE_CONNECTION_FIELDS}
   query Organization($id: ID!) {
-    organization(id: $id) {
+    organization(ref: $id) {
       ...OrgFields
       members {
         id
@@ -312,19 +334,14 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
   }
 `;
 
-export const MY_APPS_QUERY = /* GraphQL */ `
-  ${APP_FIELDS}
-  query MyApps {
-    myApps {
-      ...AppFields
-    }
-  }
-`;
+// hadron-server#473: MY_APPS_QUERY (myApps) was removed — it had no callers
+// and the server folded myApps + apps(orgId!) into the uniform apps() list
+// (see APPS_QUERY below).
 
 export const APP_QUERY = /* GraphQL */ `
   ${APP_FIELDS}
   query App($id: ID!) {
-    app(id: $id) {
+    app(ref: $id) {
       ...AppFields
       # Spec 021 US1: canonical R2 install URN combining App + Agent
       # identities. Scoped to this query (rather than baked into
@@ -343,7 +360,7 @@ export const APP_QUERY = /* GraphQL */ `
 export const APP_WITH_MEMBERS_QUERY = /* GraphQL */ `
   ${APP_FIELDS}
   query AppWithMembers($id: ID!) {
-    app(id: $id) {
+    app(ref: $id) {
       ...AppFields
       members {
         appId
@@ -376,15 +393,24 @@ export const REMOVE_APP_MEMBER_MUTATION = /* GraphQL */ `
   }
 `;
 
+// hadron-server#473: the admin users list and searchUsers are both the
+// uniform users() list now. Admin may omit filter.query for the full list;
+// a non-admin caller with no query gets an empty page.
 export const USERS_QUERY = /* GraphQL */ `
-  query Users {
-    users { id handle githubUsername name avatarUrl email roles maxReferrals }
+  query Users($limit: Int, $offset: Int) {
+    users(limit: $limit, offset: $offset) {
+      items { id handle githubUsername name avatarUrl email roles maxReferrals }
+      total
+    }
   }
 `;
 
 export const SEARCH_USERS_QUERY = /* GraphQL */ `
-  query SearchUsers($query: String!) {
-    searchUsers(query: $query) { id handle urn githubUsername name avatarUrl email }
+  query SearchUsers($query: String!, $limit: Int) {
+    users(filter: { query: $query }, limit: $limit) {
+      items { id handle urn githubUsername name avatarUrl email }
+      total
+    }
   }
 `;
 
@@ -777,11 +803,16 @@ export const AI_SERVICE_CONFIG_FIELDS = /* GraphQL */ `
   }
 `;
 
+// hadron-server#473: owner args moved into filter; result is the uniform
+// { items, total } page.
 export const AI_SERVICE_CONFIGS_QUERY = /* GraphQL */ `
   ${AI_SERVICE_CONFIG_FIELDS}
-  query AiServiceConfigs($ownerType: AiConfigOwnerType!, $ownerId: ID!) {
-    aiServiceConfigs(ownerType: $ownerType, ownerId: $ownerId) {
-      ...AiServiceConfigFields
+  query AiServiceConfigs($ownerType: AiConfigOwnerType!, $ownerId: ID!, $limit: Int, $offset: Int) {
+    aiServiceConfigs(filter: { ownerType: $ownerType, ownerId: $ownerId }, limit: $limit, offset: $offset) {
+      items {
+        ...AiServiceConfigFields
+      }
+      total
     }
   }
 `;
@@ -1001,15 +1032,15 @@ export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
 // the server has no single-edge query (resolveUrn doesn't dispatch edges).
 //
 // We DON'T select `source` on the outgoing edges: the host node IS the source
-// (the page renders it from `host`), and — crucially — `nodeById` only Prisma-
-// includes `target` for outgoingEdges (`include: { target: true }`) with no
-// Edge.source field resolver to load it lazily. Selecting `source { … }` here
-// resolves to null against the non-null `Edge.source: Node!` schema field,
+// (the page renders it from `host`), and — crucially — the node read only
+// Prisma-includes `target` for outgoingEdges (`include: { target: true }`)
+// with no Edge.source field resolver to load it lazily. Selecting `source { … }`
+// here resolves to null against the non-null `Edge.source: Node!` schema field,
 // which errors the whole query (null bubbles up the non-null chain) → the
 // loader throws → 500 on every edge detail page.
 export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
   query EdgeHostNode($id: ID!) {
-    nodeById(id: $id) {
+    node(ref: $id) {
       id
       memoryId
       loc
@@ -1277,14 +1308,16 @@ export const NODE_SEMANTIC_SEARCH_QUERY = /* GraphQL */ `
   }
 `;
 
-// #335: node(loc:) is memory-blind — the same loc can exist in many memories
-// and the server now REJECTS an unscoped collision (AMBIGUOUS_NODE_LOC).
+// #335: a bare-loc ref is memory-blind — the same loc can exist in many
+// memories and the server REJECTS an unscoped collision (AMBIGUOUS_NODE_LOC).
 // `$memory` is required (ID!) so this query can never run unscoped; both
 // callers (reorder API + memory node page) always have the memory id.
+// hadron-server#473: node(loc:, memory:) is now node(ref:, memory:) — ref
+// accepts a bare loc, still scoped by memory.
 export const NODE_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query Node($loc: String!, $memory: ID!) {
-    node(loc: $loc, memory: $memory) {
+  query Node($loc: ID!, $memory: ID!) {
+    node(ref: $loc, memory: $memory) {
       ...NodeFields
     }
   }
@@ -1305,10 +1338,12 @@ export const RESOLVE_URN_QUERY = /* GraphQL */ `
   }
 `;
 
+// hadron-server#473: nodeById(id:) is now the uniform node(ref:) — ref
+// accepts a PK. Result key is \`node\`.
 export const NODE_BY_ID_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodeById($id: ID!) {
-    nodeById(id: $id) {
+    node(ref: $id) {
       ...NodeFields
     }
   }
@@ -1382,19 +1417,21 @@ export const NODE_USAGE_QUERY = /* GraphQL */ `
   }
 `;
 
-// hadron-server#468 (BREAKING): `myMemories` dropped `includeAgentSystem` in
-// favour of `memoryClasses: [MemoryClass!]`. The portal's only caller wants the
-// server default (which hides `system`; it surfaces personal/private memories),
-// so we omit the argument entirely — a literally-absent argument unambiguously
-// takes the server default, with no dependency on GraphQL's absent-variable-vs-
-// null coercion. Class filtering (e.g. a "show system memories" toggle,
-// #444/#447) will need a separate query constant that declares and passes
-// `memoryClasses`.
-export const MY_MEMORIES_QUERY = /* GraphQL */ `
+// hadron-server#473: myMemories is now the uniform memories() list — same
+// default union semantics (own personal/private + member-org owned +
+// subscribed; the noisy agent system class stays hidden unless
+// filter.memoryClasses names it, unchanged from #468). The portal's only
+// caller wants the server default, so no filter is passed. Class filtering
+// (e.g. a "show system memories" toggle, #444/#447) will need a separate
+// query constant that declares and passes `memoryClasses`.
+export const MEMORIES_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
-  query MyMemories {
-    myMemories {
-      ...MemoryFields
+  query Memories($limit: Int, $offset: Int) {
+    memories(limit: $limit, offset: $offset) {
+      items {
+        ...MemoryFields
+      }
+      total
     }
   }
 `;
@@ -1426,10 +1463,16 @@ export const TEST_EXCHANGE_CONNECTION_MUTATION = /* GraphQL */ `
 // Apps (multi-user agent callers)
 // ---------------------------------------------------------------------------
 
+// hadron-server#473: apps(orgId!) is now the uniform paginated apps() list
+// (orgId optional; member-gated — the myApps exposure bar, relaxed from
+// org-ADMIN).
 export const APPS_QUERY = /* GraphQL */ `
   ${APP_FIELDS}
-  query Apps($orgId: ID!) {
-    apps(orgId: $orgId) { ...AppFields }
+  query Apps($orgId: ID, $limit: Int, $offset: Int) {
+    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+      items { ...AppFields }
+      total
+    }
   }
 `;
 

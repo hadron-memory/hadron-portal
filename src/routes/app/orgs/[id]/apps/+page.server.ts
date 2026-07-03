@@ -3,6 +3,7 @@
 // install route /app/orgs/[id]/agents/install/[aid]/ — see FR-004.
 import { fail, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
@@ -19,11 +20,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const [orgData, appsData] = await Promise.all([
     client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id })
       .catch(() => { throw error(404, 'Organization not found'); }),
-    client.request<{ apps: App[] }>(APPS_QUERY, { orgId: params.id })
-      .catch(() => ({ apps: [] as App[] })),
+    fetchAllItems<App>(client, APPS_QUERY, 'apps', { orgId: params.id })
+      .catch(() => [] as App[]),
   ]);
   if (!orgData.organization) throw error(404, 'Organization not found');
-  return { org: orgData.organization, apps: appsData.apps };
+  return { org: orgData.organization, apps: appsData };
 };
 
 export const actions: Actions = {

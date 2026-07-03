@@ -3,7 +3,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  MY_ORGANIZATIONS_QUERY,
+  ORGANIZATIONS_QUERY,
   CREATE_NODE_MUTATION,
   UPDATE_NODE_MUTATION,
   DELETE_NODE_MUTATION,
@@ -40,13 +40,13 @@ function ev(opts: { url?: string; method?: string; body?: unknown; token?: strin
 // Common fixture: a one-org user with one agent that has a system memory.
 function mockResolveAgent() {
   mockRequest.mockImplementation(async (query: string, vars?: unknown) => {
-    if (query === MY_ORGANIZATIONS_QUERY) {
+    if (query === ORGANIZATIONS_QUERY) {
       return {
-        myOrganizations: [
+        organizations: { items: [
           { id: 'org-a', name: 'A', urn: 'u', agents: [
             { id: 'agent-aaa', organizationId: 'org-a', systemMemoryId: 'sys-mem-a' },
           ] },
-        ],
+        ], total: 1 },
       };
     }
     if (query === GRAPH_NODES_QUERY) {
@@ -105,7 +105,7 @@ describe('GET /api/agent-chat/fixtures', () => {
 
   it('404 (no leak) when agent is not in the caller\'s orgs', async () => {
     mockRequest.mockImplementation(async (query: string) => {
-      if (query === MY_ORGANIZATIONS_QUERY) return { myOrganizations: [] };
+      if (query === ORGANIZATIONS_QUERY) return { organizations: { items: [], total: 0 } };
       throw new Error('unexpected');
     });
     const { GET } = await importHandlers();

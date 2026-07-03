@@ -1,6 +1,7 @@
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import {
-  MY_ORGANIZATIONS_QUERY,
+  ORGANIZATIONS_QUERY,
   CREATE_NODE_MUTATION,
   UPDATE_NODE_MUTATION,
   DELETE_NODE_MUTATION,
@@ -43,8 +44,8 @@ async function resolveAgent(token: string, agentId: string): Promise<{
   systemMemoryId: string;
 } | null> {
   const client = gqlClient(token);
-  const data = await client.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY);
-  for (const o of data.myOrganizations) {
+  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
+  for (const o of orgs) {
     const found = (o.agents ?? []).find((a) => a.id === agentId);
     if (found) {
       const systemMemoryId = (found as unknown as { systemMemoryId?: string | null }).systemMemoryId ?? null;

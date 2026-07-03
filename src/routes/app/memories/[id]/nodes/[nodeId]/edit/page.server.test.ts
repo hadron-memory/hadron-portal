@@ -41,7 +41,7 @@ function loadEvent(opts: { gid: string; nodeId: string }) {
 describe('edit-node load — #237 PK-mismatch guard', () => {
   it("redirects to the correct memory's edit URL when node.memoryId does not match params.gid", async () => {
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'leaf-pk', memoryId: 'mem-B', loc: 'foo', name: 'foo',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -63,7 +63,7 @@ describe('edit-node load — #237 PK-mismatch guard', () => {
 
   it('does NOT redirect when node.memoryId matches params.gid (happy path)', async () => {
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
@@ -113,7 +113,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     // Stale URL says mem-A; the node lives in mem-B. The update must
     // commit into mem-B so the user's edit lands on the right row.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
         nodeType: 'info', alias: null, description: null, content: 'old',
         tokens: null, tags: ['x'], seq: null, data: null, ownerRepo: null,
@@ -147,7 +147,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     // When the user edits the loc, the move runs first. It also must
     // target the node's actual memory, not the URL's.
     mockRequest.mockResolvedValueOnce({
-      nodeById: {
+      node: {
         id: 'pk', memoryId: 'mem-B', loc: 'old-loc', name: 'a',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,

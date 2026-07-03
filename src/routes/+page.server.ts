@@ -6,8 +6,10 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async () => {
   try {
-    const data = await gqlClient().request<{ publicMemories: Memory[] }>(PUBLIC_MEMORIES_QUERY);
-    return { publicMemories: data.publicMemories.slice(0, 6) };
+    const data = await gqlClient().request<{ memories: { items: Memory[] } }>(
+      PUBLIC_MEMORIES_QUERY, { limit: 6 },
+    );
+    return { publicMemories: data.memories.items };
   } catch {
     return { publicMemories: [] as Memory[] };
   }

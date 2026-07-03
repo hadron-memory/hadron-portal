@@ -1,11 +1,12 @@
 import { fail, redirect, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   UPDATE_MEMORY_MUTATION,
   DELETE_MEMORY_MUTATION,
-  MY_ORGANIZATIONS_QUERY,
+  ORGANIZATIONS_QUERY,
   RESOLVE_URN_QUERY,
 } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
@@ -65,10 +66,9 @@ function intDial(raw: FormDataEntryValue | null): number | undefined {
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
   await requireNonConsumer(parent);
-  const data = await gqlClient(locals.token)
-    .request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
-    .catch(() => ({ myOrganizations: [] as Organization[] }));
-  return { allOrgs: data.myOrganizations };
+  const allOrgs = await fetchAllItems<Organization>(gqlClient(locals.token), ORGANIZATIONS_QUERY, 'organizations')
+    .catch(() => [] as Organization[]);
+  return { allOrgs };
 };
 
 export const actions: Actions = {

@@ -25,13 +25,13 @@ const DATA_MAX = 262144; // 256 KB
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const [parentData, data] = await Promise.all([
     parent(),
-    gqlClient(locals.token).request<{ nodeById: HostNode | null }>(
+    gqlClient(locals.token).request<{ node: HostNode | null }>(
       EDGE_HOST_NODE_QUERY, { id: params.nodeId },
     ),
   ]);
   await requireNonConsumer(async () => parentData);
 
-  const host = data.nodeById;
+  const host = data.node;
   if (!host) error(404, `Node not found: ${params.nodeId}`);
   const edge = host.outgoingEdges.find((e) => e.id === params.edgeId);
   if (!edge) error(404, `Edge not found: ${params.edgeId}`);

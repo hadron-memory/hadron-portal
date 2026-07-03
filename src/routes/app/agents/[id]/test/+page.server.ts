@@ -1,13 +1,14 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { MY_ORGANIZATIONS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
+import { fetchAllItems } from '$lib/server/paginate';
+import { ORGANIZATIONS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
 import { requireNonConsumer } from '$lib/server/guards';
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
 import type { Agent, Organization } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 // Spec 019 — Agent Chat Tester. The loader resolves the agent through
-// the same `myOrganizations[*].agents` scan the spec-018-fixed detail
+// the same organizations[*].agents scan the spec-018-fixed detail
 // loader uses; failure modes are inherited (404 no-leak, no silent
 // catch on the orgs query). Fixtures list is empty in US1 — US3
 // will populate it from `fixtures:*` system-memory nodes.
@@ -15,11 +16,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
 
-  const orgsData = await client.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY);
+  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
 
   let agent: Agent | null = null;
   let org: Organization | null = null;
-  for (const o of orgsData.myOrganizations) {
+  for (const o of orgs) {
     const found = (o.agents ?? []).find((a) => a.id === params.id);
     if (found) {
       agent = found;

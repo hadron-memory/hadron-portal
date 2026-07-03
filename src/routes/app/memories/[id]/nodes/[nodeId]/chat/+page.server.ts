@@ -16,7 +16,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
         // Return minimal safe structure if parent fails
         return { graphNodes: [], graph: null, org: null, treeEntries: [], graphViewData: null, usageByNode: {} };
       }),
-      gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
+      gqlClient(locals.token).request<{ node: MemoryNode | null }>(
         NODE_BY_ID_QUERY, { id: params.nodeId },
       ).catch((err) => {
         console.error('[chat-page] NODE_BY_ID_QUERY failed:', err);
@@ -36,11 +36,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     throw err;
   }
 
-  if (!data.nodeById) {
+  if (!data.node) {
     throw error(404, `Chat node not found: ${params.nodeId}`);
   }
 
-  const node = data.nodeById;
+  const node = data.node;
 
   if (node.memoryId !== params.id) {
     redirect(303, `/app/memories/${node.memoryId}/nodes/${params.nodeId}/chat`);
@@ -103,10 +103,10 @@ export const actions: Actions = {
 
     try {
       // Fetch the parent node to get its loc
-      const { nodeById } = await gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
+      const { node } = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
         NODE_BY_ID_QUERY, { id: params.nodeId },
       );
-      if (!nodeById) return fail(404, { error: 'Chat node not found' });
+      if (!node) return fail(404, { error: 'Chat node not found' });
 
       // Get current user from JWT (available in locals)
       const user = locals.user;
@@ -123,7 +123,7 @@ export const actions: Actions = {
         user.email?.split('@')[0] ||
         'anon';
       const messageId = `${timestamp}-${username}`;
-      const messageLoc = `${nodeById.loc}:messages:${messageId}`;
+      const messageLoc = `${node.loc}:messages:${messageId}`;
 
       // Message locs embed a timestamp + username, so each send targets a
       // fresh loc — pure create (a same-second double submit surfaces as a

@@ -16,10 +16,11 @@
 
 import { error, fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
-  MY_ORGANIZATIONS_QUERY,
+  ORGANIZATIONS_QUERY,
   CREATE_APP_MUTATION,
 } from '$lib/server/queries';
 import { deriveDefaultUrn } from '$lib/install/derive-default-urn';
@@ -47,10 +48,8 @@ async function resolveInstallTarget(
   | { ok: true; org: Organization; agent: Agent; otherApps: App[] }
   | { ok: false; reason: 'org-not-found' | 'agent-not-found' | 'cross-org' }
 > {
-  const data = await client
-    .request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
-    .catch(() => ({ myOrganizations: [] as Organization[] }));
-  const orgs = data.myOrganizations ?? [];
+  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations')
+    .catch(() => [] as Organization[]);
 
   const targetOrg = orgs.find((o) => o.id === orgIdParam);
   if (!targetOrg) return { ok: false, reason: 'org-not-found' };

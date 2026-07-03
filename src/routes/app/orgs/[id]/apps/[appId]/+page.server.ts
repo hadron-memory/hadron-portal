@@ -1,5 +1,6 @@
 import { fail, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
@@ -30,7 +31,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     // member's call errors (the page hides the manager for them anyway).
     // Coerce to null so a transient failure surfaces as a load error to admins
     // instead of a misleading empty list.
-    client.request<{ aiServiceConfigs: AiServiceConfig[] }>(AI_SERVICE_CONFIGS_QUERY, {
+    fetchAllItems<AiServiceConfig>(client, AI_SERVICE_CONFIGS_QUERY, 'aiServiceConfigs', {
       ownerType: 'APP', ownerId: params.appId,
     }).catch(() => null),
   ]);
@@ -70,7 +71,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     availableAgents,
     appNodes: nodesData.appNodes,
     chatConfigs,
-    appConfigs: configsData?.aiServiceConfigs ?? [],
+    appConfigs: configsData ?? [],
     configsError: configsData === null,
     currentUserId: locals.user?.id ?? null,
   };

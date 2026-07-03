@@ -21,10 +21,14 @@ const mockMeRequest = vi.fn();
 
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({
-    request: (query: string) => {
-      // The portal calls MY_ORGANIZATIONS_QUERY and ME_QUERY in parallel.
-      // Dispatch by query string heuristic.
-      if (query.includes('myOrganizations')) return mockMyOrgsRequest(query);
+    request: async (query: string) => {
+      // The portal calls ORGANIZATIONS_QUERY and ME_QUERY in parallel.
+      // Dispatch by query string heuristic. Wrap the org fixtures in the
+      // uniform { items, total } page envelope (hadron-server#473).
+      if (query.includes('organizations(')) {
+        const res = (await mockMyOrgsRequest(query)) as { organizations: unknown[] };
+        return { organizations: { items: res.organizations, total: res.organizations.length } };
+      }
       return mockMeRequest(query);
     },
   }),
@@ -35,7 +39,15 @@ beforeEach(() => {
   mockMeRequest.mockReset();
 });
 
-function makeOrg(overrides: { id: string; isVisible: boolean | null; name?: string }) {
+function makeOrg(overrides: {
+  id: string;
+  isVisible: boolean | null;
+  name?: string;
+  /** Whose membership rows the org carries. Defaults to the test user —
+   *  pass another id to model an org the test user is NOT a member of
+   *  (visible to platform admins via organizations(), hadron-server#473). */
+  memberUserId?: string;
+}) {
   return {
     id: overrides.id,
     name: overrides.name ?? `Org ${overrides.id}`,
@@ -46,6 +58,9 @@ function makeOrg(overrides: { id: string; isVisible: boolean | null; name?: stri
     hasGithubAppPrivateKey: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+    members: [
+      { id: `member-${overrides.id}`, role: 'MEMBER', user: { id: overrides.memberUserId ?? 'user-1' } },
+    ],
   };
 }
 
@@ -121,7 +136,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
   it('populates activeOrgId from params.id when on /app/orgs/[id]/...', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
     mockMeRequest.mockResolvedValueOnce({
       me: { id: 'user-1', handle: 'h', githubUsername: 'gh-user', name: 'U', avatarUrl: null, email: 'a@b', roles: ['user'] },
     });
@@ -136,7 +151,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
   it('falls through to personal org when no URL hint and no lastActiveOrgId', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
@@ -149,7 +164,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
   it('302-redirects with the resolved id substituted when paramsId is a non-member org (FR-009 / R-9 path preservation)', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const load = await importLoad();
@@ -165,7 +180,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
 
   it('preserves a deeper trailing path on inaccessible-deep-link redirect (org-scoped sub-route)', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const load = await importLoad();
@@ -185,7 +200,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
     // — but the segment-3 rewrite gate is scoped to /app/orgs/ and must NOT fire
     // here, or every shared-memory deep link would bounce to the active org.
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const data = await loadAuthed(ev({ paramsId: 'mem-xyz', pathname: '/app/memories/mem-xyz' }));
@@ -196,7 +211,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
   it('does NOT redirect when paramsId IS a member org (resolution.source === url)', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const data = await loadAuthed(ev({ paramsId: 'org-a', pathname: '/app/orgs/org-a/agents' }));
@@ -205,7 +220,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
 
   it('preserves the existing isConsumerMode derivation', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
@@ -217,7 +232,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
   it('does NOT set isConsumerMode when user has a visible org alongside the personal one', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
@@ -227,7 +242,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
 
   it('returns activeOrgId=null when the user has no personal org (defensive — should not occur)', async () => {
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [orgA] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
@@ -247,7 +262,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
   // for. The rewrite MUST remain a no-op on non-/app/orgs/ paths.
   it('Spec 018: does NOT rewrite segment 3 on /app/agents/[id] when params.id is the agent id', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const data = await loadAuthed(ev({
@@ -265,7 +280,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
   // surface depend on this.
   it('Spec 018: does NOT rewrite segment 3 on a hypothetical /app/foo/[id] surface either', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const data = await loadAuthed(ev({
@@ -278,7 +293,7 @@ describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
 
   it('sets isConsumerMode=true when the sole org has isVisible=false (server provisioning shape)', async () => {
     const personalFalse = makeOrg({ id: 'org-personal-false', isVisible: false });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personalFalse] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personalFalse] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
@@ -299,7 +314,7 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
   it('writes the cookie when the URL drives org selection (source=url)', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const event = ev({ paramsId: 'org-a', pathname: '/app/orgs/org-a/agents' });
@@ -317,7 +332,7 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
     // the personal org. With the cookie present, it should keep org-a.
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true, name: 'Hadron Memory' });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const data = await loadAuthed(ev({
@@ -333,7 +348,7 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
   it('refreshes the cookie on every successful read so the 30-day TTL extends with usage', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const event = ev({
@@ -355,7 +370,7 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
     // and prevent the cookie from ever capturing a real selection.
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const event = ev({ pathname: '/app/dashboard' });
@@ -372,7 +387,7 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
     // (personal-source rule above) — it'll expire naturally, or be replaced
     // the next time the user visits an /app/orgs/<id>/ URL.
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const data = await loadAuthed(ev({
@@ -386,7 +401,7 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
   it('sets the cookie with HttpOnly, SameSite=Lax, Path=/, and a 30-day MaxAge', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const event = ev({ paramsId: 'org-a', pathname: '/app/orgs/org-a/agents' });
@@ -415,7 +430,7 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
     // through to the personal-org default cleanly.
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
-    mockMyOrgsRequest.mockResolvedValueOnce({ myOrganizations: [personal, orgA] });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
     mockMeRequest.mockResolvedValueOnce({ me: null });
 
     const event = ev({ paramsId: 'org-a', pathname: '/app/orgs/org-a/agents' });
@@ -425,5 +440,45 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
     const names = cookieWrites.map((c) => c.name);
     expect(names).toContain(`hadron_active_org_${TEST_USER_ID}`);
     expect(names).not.toContain('hadron_active_org');
+  });
+});
+
+describe('+layout.server.ts — hadron-server#473 admin sees all orgs', () => {
+  it("resolves the admin's OWN personal org even when another user's personal org sorts first", async () => {
+    // organizations() returns EVERY live org for a platform ADMIN/OWNER —
+    // including other users' personal orgs (isVisible !== true). The
+    // personal-org fallback must only consider actual memberships, or the
+    // admin lands in someone else's personal org (PR #451 review P2).
+    const foreignPersonal = makeOrg({ id: 'org-aaa-foreign-personal', isVisible: null, memberUserId: 'user-OTHER' });
+    const ownPersonal = makeOrg({ id: 'org-zzz-own-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [foreignPersonal, ownPersonal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
+
+    expect(data.personalOrgId).toBe('org-zzz-own-personal');
+    expect(data.activeOrgId).toBe('org-zzz-own-personal');
+    // The nav list itself still carries the full (admin-visible) set.
+    expect(data.orgs).toHaveLength(3);
+  });
+
+  it('non-member orgs never satisfy the URL hint (falls through to own personal org)', async () => {
+    const foreignOrg = makeOrg({ id: 'org-foreign', isVisible: true, memberUserId: 'user-OTHER' });
+    const ownPersonal = makeOrg({ id: 'org-personal', isVisible: null });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [foreignOrg, ownPersonal] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    // URL names the non-member org → resolution must NOT activate it.
+    let redirected: { status: number; location: string } | null = null;
+    try {
+      await loadAuthed(ev({ paramsId: 'org-foreign', pathname: '/app/orgs/org-foreign/agents' }));
+    } catch (e) {
+      redirected = e as { status: number; location: string };
+    }
+    // Spec 014 FR-009 fall-through: the layout rewrites the org segment to
+    // the resolved (member) org and redirects.
+    expect(redirected?.status).toBe(302);
+    expect(redirected?.location).toBe('/app/orgs/org-personal/agents');
   });
 });
