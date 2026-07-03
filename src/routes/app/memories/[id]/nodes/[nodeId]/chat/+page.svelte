@@ -3,12 +3,10 @@
   import { invalidateAll } from '$app/navigation';
   import { onMount, tick } from 'svelte';
   import { marked } from 'marked';
+  import DOMPurify from 'dompurify';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import type { MemoryNode } from '$lib/types';
-
-  // DOMPurify is browser-only, import it dynamically
-  let DOMPurify: any;
 
   let { data, form }: { data: any; form: any } = $props();
 
@@ -72,24 +70,16 @@
   }
 
   function renderMarkdown(text: string): string {
-    const raw = marked.parse(text, { async: false }) as string;
-    // Sanitize only if DOMPurify is loaded (browser-only)
-    if (typeof DOMPurify !== 'undefined' && DOMPurify?.sanitize) {
-      return DOMPurify.sanitize(raw);
-    }
-    // On server or before DOMPurify loads, return raw markdown HTML
-    // (it will be sanitized when DOMPurify loads on client)
-    return raw;
+    // DOMPurify needs a real DOM and cannot run under SSR (invariant P4).
+    // Emit nothing until mounted on the client so the {@html} sink is only
+    // ever populated with sanitized HTML — never raw attacker-controlled
+    // markdown during SSR or the pre-hydration client render.
+    if (!isBrowser || !text) return '';
+    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
   }
 
   onMount(async () => {
     isBrowser = true;
-
-    // Import DOMPurify on browser only
-    if (!DOMPurify) {
-      const module = await import('dompurify');
-      DOMPurify = module.default;
-    }
 
     await tick();
     if (messagesEl) {
