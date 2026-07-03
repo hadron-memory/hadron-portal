@@ -22,9 +22,11 @@ const mockMeRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({
     request: async (query: string) => {
-      // The portal calls ORGANIZATIONS_QUERY and ME_QUERY in parallel.
-      // Dispatch by query string heuristic. Wrap the org fixtures in the
-      // uniform { items, total } page envelope (hadron-server#473).
+      // The portal calls ORGANIZATIONS_NAV_QUERY (the slim membership-scoped
+      // list — filter.memberOnly is baked into the query text, so no filter
+      // variable reaches this mock) and ME_QUERY in parallel. Dispatch by
+      // query string heuristic. Wrap the org fixtures in the uniform
+      // { items, total } page envelope (hadron-server#473).
       if (query.includes('organizations(')) {
         const res = (await mockMyOrgsRequest(query)) as { organizations: unknown[] };
         return { organizations: { items: res.organizations, total: res.organizations.length } };
@@ -443,12 +445,15 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
   });
 });
 
-describe('+layout.server.ts — hadron-server#473 admin sees all orgs', () => {
+describe('+layout.server.ts — hadron-server#473 admin/non-member org handling', () => {
   it("resolves the admin's OWN personal org even when another user's personal org sorts first", async () => {
-    // organizations() returns EVERY live org for a platform ADMIN/OWNER —
-    // including other users' personal orgs (isVisible !== true). The
-    // personal-org fallback must only consider actual memberships, or the
-    // admin lands in someone else's personal org (PR #451 review P2).
+    // The layout now fetches via ORGANIZATIONS_NAV_QUERY, whose
+    // filter.memberOnly makes the SERVER return memberships only (admins
+    // included). This test feeds a response that ignores the filter —
+    // modeling a stale/misbehaving server — to pin the client-side
+    // filterToMemberOrgs defense-in-depth: the personal-org fallback must
+    // only consider actual memberships, or the admin lands in someone
+    // else's personal org (PR #451 review P2).
     const foreignPersonal = makeOrg({ id: 'org-aaa-foreign-personal', isVisible: null, memberUserId: 'user-OTHER' });
     const ownPersonal = makeOrg({ id: 'org-zzz-own-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });
@@ -459,8 +464,11 @@ describe('+layout.server.ts — hadron-server#473 admin sees all orgs', () => {
 
     expect(data.personalOrgId).toBe('org-zzz-own-personal');
     expect(data.activeOrgId).toBe('org-zzz-own-personal');
-    // The nav list itself still carries the full (admin-visible) set.
-    expect(data.orgs).toHaveLength(3);
+    // The nav list is memberships-only now — the defense-in-depth filter
+    // drops the foreign org even when the server fails to (admins browse
+    // the full set on /app/orgs, which fetches its own list).
+    expect(data.orgs).toHaveLength(2);
+    expect(data.orgs.map((o) => o.id)).not.toContain('org-aaa-foreign-personal');
   });
 
   it('non-member orgs never satisfy the URL hint (falls through to own personal org)', async () => {

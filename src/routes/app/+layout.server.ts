@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
-import { ORGANIZATIONS_QUERY, ME_QUERY } from '$lib/server/queries';
+import { ORGANIZATIONS_NAV_QUERY, ME_QUERY } from '$lib/server/queries';
 import { filterToMemberOrgs, resolveActiveOrg } from '$lib/server/active-org';
 import type { Organization, UserSummary } from '$lib/types';
 import type { LayoutServerLoad } from './$types';
@@ -31,16 +31,18 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // id/roles/githubUsername, so the avatar URL and name live server-side and
   // we must fetch them to render the sidebar avatar correctly.
   const [orgs, meData] = await Promise.all([
-    fetchAllItems<Organization>(apiClient, ORGANIZATIONS_QUERY, 'organizations')
+    fetchAllItems<Organization>(apiClient, ORGANIZATIONS_NAV_QUERY, 'organizations')
       .catch(() => [] as Organization[]),
     apiClient
       .request<{ me: UserSummary | null }>(ME_QUERY)
       .catch(() => ({ me: null as UserSummary | null })),
   ]);
-  // hadron-server#473: organizations() returns ALL orgs for a platform
-  // admin. The nav list keeps the full set (flagged in PR #451), but
-  // consumer-mode detection and active-/personal-org resolution below must
-  // only consider actual memberships — see filterToMemberOrgs.
+  // hadron-server#473: nav + resolution use the slim membership-scoped
+  // ORGANIZATIONS_NAV_QUERY (filter.memberOnly — the server excludes other
+  // orgs even for a platform admin; admins browse ALL orgs on /app/orgs,
+  // which fetches its own list). filterToMemberOrgs stays as cheap
+  // defense-in-depth for consumer-mode detection and active-/personal-org
+  // resolution.
   const memberOrgs = filterToMemberOrgs(orgs, locals.user.id);
   const isConsumerMode = memberOrgs.length === 1 && memberOrgs[0].isVisible !== true;
 
@@ -110,7 +112,10 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
 
   return {
     user,
-    orgs,
+    // The nav/OrgSwitcher list — memberships only (an admin reaches the
+    // all-orgs view on /app/orgs). memberOrgs, not the raw fetch, so the
+    // client-side defense-in-depth applies to what the UI renders too.
+    orgs: memberOrgs,
     isConsumerMode,
     activeOrgId: resolution.activeOrgId,
     activeOrg: resolution.activeOrg,

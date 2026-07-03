@@ -1,7 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
-import { ORGANIZATIONS_QUERY } from '$lib/server/queries';
+import { ORGANIZATIONS_NAV_QUERY } from '$lib/server/queries';
 import { filterToMemberOrgs, resolveActiveOrg } from '$lib/server/active-org';
 import { safeRedirect } from '$lib/safeRedirect';
 import type { Organization } from '$lib/types';
@@ -42,11 +42,12 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
   // URL would otherwise open-redirect the authenticated victim off-site.
   if (explicitDest) redirect(303, safeRedirect(explicitDest));
 
-  const orgs = await fetchAllItems<Organization>(gqlClient(token), ORGANIZATIONS_QUERY, 'organizations')
+  const orgs = await fetchAllItems<Organization>(gqlClient(token), ORGANIZATIONS_NAV_QUERY, 'organizations')
     .catch(() => [] as Organization[]);
-  // hadron-server#473: a platform admin receives EVERY org here — resolve
-  // the landing org against actual memberships only, or the personal-org
-  // fallback could land the admin in another user's personal org.
+  // hadron-server#473: resolve the landing org against memberships only —
+  // the nav query is server-filtered (filter.memberOnly, admins included);
+  // filterToMemberOrgs stays as defense-in-depth so the personal-org
+  // fallback can never land an admin in another user's personal org.
   const { activeOrgId } = resolveActiveOrg({
     paramsId: undefined,
     lastActiveOrgId: null,

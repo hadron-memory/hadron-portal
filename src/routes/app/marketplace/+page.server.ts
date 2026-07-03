@@ -4,7 +4,7 @@ import { fetchAllItems } from '$lib/server/paginate';
 import {
   PUBLIC_MEMORIES_QUERY,
   ADD_TO_MY_MEMORIES_MUTATION,
-  ORGANIZATIONS_QUERY,
+  ORGANIZATIONS_NAV_QUERY,
 } from '$lib/server/queries';
 import { filterToMemberOrgs, resolveActiveOrg } from '$lib/server/active-org';
 import type { Memory, Organization } from '$lib/types';
@@ -33,10 +33,11 @@ export const actions: Actions = {
       // Resolve the active org and redirect straight to /app/orgs/<id>/
       // to avoid the /app/dashboard 303→302 chain. One extra GQL call
       // server-side is cheaper than a full browser redirect hop.
-      const orgs = await fetchAllItems<Organization>(gqlClient(locals.token), ORGANIZATIONS_QUERY, 'organizations')
+      const orgs = await fetchAllItems<Organization>(gqlClient(locals.token), ORGANIZATIONS_NAV_QUERY, 'organizations')
         .catch(() => [] as Organization[]);
-      // hadron-server#473: resolve against memberships only (see
-      // filterToMemberOrgs) — admins receive every org here.
+      // hadron-server#473: resolve against memberships only — the nav query
+      // is server-filtered (filter.memberOnly, admins included);
+      // filterToMemberOrgs stays as defense-in-depth.
       const { activeOrgId } = resolveActiveOrg({
         paramsId: undefined,
         lastActiveOrgId: null,
