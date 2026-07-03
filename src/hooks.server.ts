@@ -1,5 +1,6 @@
 import type { Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
+import { dev } from '$app/environment';
 
 /** Decode the JWT payload without verifying the signature.
  *  Verification is the server's responsibility; we just read the claims. */
@@ -51,8 +52,11 @@ const securityHeaders: Handle = async ({ event, resolve }) => {
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   // Legacy companion to the CSP `frame-ancestors 'none'` directive.
   response.headers.set('X-Frame-Options', 'DENY');
-  // Only meaningful (and only honored) over HTTPS; skip on http/localhost.
-  if (event.url.protocol === 'https:') {
+  // HSTS is only honored by browsers over HTTPS, so it's safe to always send
+  // outside dev. Gating on `dev` (not event.url.protocol) is required because
+  // the prod edge terminates TLS at a reverse proxy — the internal protocol is
+  // http:, which would otherwise suppress HSTS in production entirely.
+  if (!dev || event.url.protocol === 'https:') {
     response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
   }
   return response;

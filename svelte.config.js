@@ -5,7 +5,9 @@ const dev = process.env.NODE_ENV !== 'production';
 // The browser makes one cross-origin call — signin/signup POST to
 // `${PUBLIC_SERVER_URL}/auth/email` — so connect-src must allow the auth
 // server origin. Everything else is same-origin (/api/**, form actions).
-const serverUrl = process.env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
+// Normalize to the bare origin: a CSP host-source with a trailing slash or
+// path would be an invalid/mismatching source.
+const serverOrigin = new URL(process.env.PUBLIC_SERVER_URL ?? 'http://localhost:4000').origin;
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -28,7 +30,7 @@ const config = {
         'img-src': ['self', 'data:', 'https:'],
         'font-src': ['self', 'data:'],
         // Same-origin API + the auth server; ws(s) for the Vite HMR client in dev.
-        'connect-src': ['self', serverUrl, ...(dev ? ['ws:', 'wss:'] : [])],
+        'connect-src': ['self', serverOrigin, ...(dev ? ['ws:', 'wss:'] : [])],
         'object-src': ['none'],
         'base-uri': ['self'],
         'frame-ancestors': ['none'],
