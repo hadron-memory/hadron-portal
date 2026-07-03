@@ -1,8 +1,9 @@
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import {
-  MY_ORGANIZATIONS_QUERY,
+  ORGANIZATIONS_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   GRAPH_NODES_QUERY,
   UPDATE_AGENT_MUTATION,
@@ -20,24 +21,24 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
 
-  // Spec 018: the previous loader silently coerced any MY_ORGANIZATIONS_QUERY
-  // failure into `{ myOrganizations: [] }`, which then produced a misleading
+  // Spec 018: the previous loader silently coerced any ORGANIZATIONS_QUERY
+  // failure into an empty org list, which then produced a misleading
   // "Agent not found" 404 for transient GraphQL/network errors. Let errors
   // propagate so SvelteKit returns a 500 the user can distinguish from a
   // legitimate not-found.
-  const orgsData = await client.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY);
+  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
 
-  // Spec 018 D-1: scan all of myOrganizations and return the first
+  // Spec 018 D-1: scan all of the caller's orgs and return the first
   // match. An earlier variant org-scoped the search by a `?org=<id>`
   // query hint passed from /app/orgs/<id>/agents/<aid>, but it 404'd
   // legitimate cross-org navigation (same agent reachable from
   // multiple list surfaces, stale hint after an org change, etc.).
-  // The membership gate is enforced by the fact that myOrganizations
-  // only contains orgs the user belongs to — no extra org-id check
-  // needed here.
+  // The membership gate is enforced by the fact that organizations()
+  // only contains orgs the user belongs to (platform admins see all —
+  // hadron-server#473) — no extra org-id check needed here.
   let agent = null;
   let org = null;
-  for (const o of orgsData.myOrganizations) {
+  for (const o of orgs) {
     const found = (o.agents ?? []).find((a) => a.id === params.id);
     if (found) {
       agent = found;
@@ -68,16 +69,15 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
           GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
         ).catch(() => null)
       : Promise.resolve(null),
-    client.request<{ orgSystemMemories: Memory[] }>(
-      ORG_SYSTEM_MEMORIES_QUERY, { orgId: org.id },
-    ).catch(() => ({ orgSystemMemories: [] as Memory[] })),
+    fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: org.id })
+      .catch(() => [] as Memory[]),
     // 036: the AGENT-owned named configs. org-ADMIN gated server-side; a
     // non-admin member's call errors (the page hides the manager for them
     // anyway). Coerce to null so a transient failure surfaces as a load error
     // to admins instead of a misleading empty list.
-    client.request<{ aiServiceConfigs: AiServiceConfig[] }>(
-      AI_SERVICE_CONFIGS_QUERY, { ownerType: 'AGENT', ownerId: agent.id },
-    ).catch(() => null),
+    fetchAllItems<AiServiceConfig>(client, AI_SERVICE_CONFIGS_QUERY, 'aiServiceConfigs', {
+      ownerType: 'AGENT', ownerId: agent.id,
+    }).catch(() => null),
   ]);
 
   if (nodesResult) {
@@ -87,15 +87,15 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       .filter((n) => allMemoryIds.includes(n.memoryId))
       .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));
   }
-  orgSystemMemories = sysMemResult.orgSystemMemories;
+  orgSystemMemories = sysMemResult;
 
   return {
     agent,
     org,
     agentNodes,
-    allOrgs: orgsData.myOrganizations,
+    allOrgs: orgs,
     orgSystemMemories,
-    agentConfigs: configsResult?.aiServiceConfigs ?? [],
+    agentConfigs: configsResult ?? [],
     configsError: configsResult === null,
     currentUserId: locals.user?.id ?? null,
   };
@@ -126,7 +126,7 @@ export const actions: Actions = {
         // #335: scope by the agent's system memory. `conversations` exists in
         // every agent's system memory, so an unscoped node(loc:) now errors
         // (AMBIGUOUS_NODE_LOC) instead of silently resolving the wrong one.
-        const NODE_Q = `query N($loc: String!, $memory: ID!) { node(loc: $loc, memory: $memory) { id } }`;
+        const NODE_Q = `query N($loc: ID!, $memory: ID!) { node(ref: $loc, memory: $memory) { id } }`;
         const client = gqlClient(locals.token);
         const agentDisplayName = name ?? 'Agent';
 

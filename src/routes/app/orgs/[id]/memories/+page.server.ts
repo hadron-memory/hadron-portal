@@ -1,5 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATION_QUERY,
@@ -7,7 +8,7 @@ import {
   DELETE_MEMORY_MUTATION,
   SYNC_MEMORY_MUTATION,
   PUBLIC_MEMORIES_QUERY,
-  MY_MEMORIES_QUERY,
+  MEMORIES_QUERY,
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
 } from '$lib/server/queries';
@@ -17,30 +18,27 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
-  const [orgData, systemData, publicData, myData] = await Promise.all([
+  const [orgData, systemMemories, publicMemories, myMemories] = await Promise.all([
     client.request<{ organization: Organization }>(
       ORGANIZATION_QUERY, { id: params.id },
     ),
-    client.request<{ orgSystemMemories: Memory[] }>(
-      ORG_SYSTEM_MEMORIES_QUERY, { orgId: params.id },
-    ).catch(() => ({ orgSystemMemories: [] as Memory[] })),
-    gqlClient().request<{ publicMemories: Memory[] }>(PUBLIC_MEMORIES_QUERY).catch(() => ({
-      publicMemories: [] as Memory[],
-    })),
-    client.request<{ myMemories: Memory[] }>(MY_MEMORIES_QUERY).catch(() => ({
-      myMemories: [] as Memory[],
-    })),
+    fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
+      .catch(() => [] as Memory[]),
+    fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories')
+      .catch(() => [] as Memory[]),
+    fetchAllItems<Memory>(client, MEMORIES_QUERY, 'memories')
+      .catch(() => [] as Memory[]),
   ]);
   // Exclude memories already owned or subscribed to by this org
   const ownedIds = new Set((orgData.organization.memories ?? []).map((m) => m.id));
   const subscribedIds = new Set((orgData.organization.subscriptions ?? []).map((s) => s.memory.id));
-  const availableMemories = publicData.publicMemories.filter(
+  const availableMemories = publicMemories.filter(
     (m) => !ownedIds.has(m.id) && !subscribedIds.has(m.id) && m.organizationId !== params.id,
   );
   // Spec 034: owner-only memories (personal/private) are excluded from
   // Organization.memories server-side, so surface the caller's own ones whose
-  // container is this org. myMemories already scopes to the owner via userId.
-  const privateMemories = (myData.myMemories ?? []).filter(
+  // container is this org. memories() already scopes to the caller via userId.
+  const privateMemories = myMemories.filter(
     (m) =>
       m.organizationId === params.id &&
       !!locals.user?.id &&
@@ -49,7 +47,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   );
   return {
     org: orgData.organization,
-    systemMemories: systemData.orgSystemMemories,
+    systemMemories,
     availableMemories,
     privateMemories,
   };

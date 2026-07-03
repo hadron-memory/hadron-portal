@@ -16,22 +16,22 @@ import type { Actions, PageServerLoad } from './$types';
 const DATA_MAX = 262144; // 256 KB
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  // parent() and nodeById are independent — fetch in parallel.
+  // parent() and the node read are independent — fetch in parallel.
   // SvelteKit memoizes parent() across the load, so the guard's later call
   // does not refetch; passing a thunk that resolves to the already-fetched
   // value keeps the guard signature reusable without an extra round-trip.
   const [parentData, data] = await Promise.all([
     parent(),
-    gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
+    gqlClient(locals.token).request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
     ),
   ]);
   await requireNonConsumer(async () => parentData);
-  if (!data.nodeById) throw new Error(`Node not found: ${params.nodeId}`);
-  const node = data.nodeById;
+  if (!data.node) throw new Error(`Node not found: ${params.nodeId}`);
+  const node = data.node;
 
   // #237: the URL-acceptance counterpart to #234's URL-emission fix. The
-  // route is scoped by `[id]` (the memory id) but `nodeById` resolves by PK alone, so a
+  // route is scoped by `[id]` (the memory id) but `node(ref:)` resolves the PK alone, so a
   // mismatched URL (stale tab after a node move, manual edit, future link
   // bug, etc.) would silently render a foreign node under the current
   // memory's basePath. Redirect to the correct memory's URL so the user
@@ -86,7 +86,7 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
     // #237: derive memoryId from the anchor (URL) node so a stale URL
     // doesn't write the new parent into the wrong memory.
-    const { nodeById: anchorNode } = await client.request<{ nodeById: MemoryNode | null }>(
+    const { node: anchorNode } = await client.request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
     );
     if (!anchorNode) return fail(404, { error: 'Node not found' });
@@ -104,7 +104,7 @@ export const actions: Actions = {
     const fd = await request.formData();
     const client = gqlClient(locals.token);
 
-    const { nodeById: currentNode } = await client.request<{ nodeById: MemoryNode | null }>(
+    const { node: currentNode } = await client.request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
     );
     if (!currentNode) return fail(404, { error: 'Node not found' });
@@ -156,11 +156,11 @@ export const actions: Actions = {
 
   delete: async ({ params, locals }) => {
     // Load the node to get its loc AND its actual memoryId (#237).
-    const data = await gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
+    const data = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
     );
-    if (!data.nodeById) return fail(404, { error: 'Node not found' });
-    const node = data.nodeById;
+    if (!data.node) return fail(404, { error: 'Node not found' });
+    const node = data.node;
     try {
       await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { loc: node.loc, memoryId: node.memoryId });
     } catch (e: unknown) {
@@ -177,7 +177,7 @@ export const actions: Actions = {
 
     const client = gqlClient(locals.token);
     try {
-      const { nodeById: node } = await client.request<{ nodeById: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
       await client.request(UPDATE_NODE_MUTATION, {
@@ -212,7 +212,7 @@ export const actions: Actions = {
 
     const client = gqlClient(locals.token);
     try {
-      const { nodeById: node } = await client.request<{ nodeById: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
       await client.request(UPDATE_NODE_MUTATION, {
@@ -258,7 +258,7 @@ export const actions: Actions = {
 
     const client = gqlClient(locals.token);
     try {
-      const { nodeById: node } = await client.request<{ nodeById: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
       await client.request(UPDATE_NODE_MUTATION, {
@@ -293,7 +293,7 @@ export const actions: Actions = {
 
     const client = gqlClient(locals.token);
     try {
-      const { nodeById: node } = await client.request<{ nodeById: MemoryNode | null }>(
+      const { node } = await client.request<{ node: MemoryNode | null }>(
         NODE_BY_ID_QUERY, { id: params.nodeId },
       );
       if (!node) return fail(404, { error: 'Node not found' });
@@ -330,7 +330,7 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
     // #237: derive memoryId from the URL's anchor node so a stale-URL
     // POST reorders within the actual memory, not the URL's gid.
-    const { nodeById: anchorNode } = await client.request<{ nodeById: MemoryNode | null }>(
+    const { node: anchorNode } = await client.request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
     );
     if (!anchorNode) return fail(404, { error: 'Anchor node not found' });

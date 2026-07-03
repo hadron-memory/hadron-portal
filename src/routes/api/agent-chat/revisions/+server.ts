@@ -1,6 +1,7 @@
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import {
-  MY_ORGANIZATIONS_QUERY,
+  ORGANIZATIONS_QUERY,
   CREATE_REVISION_MUTATION,
   PUBLISH_REVISION_MUTATION,
   RESTORE_REVISION_MUTATION,
@@ -11,14 +12,14 @@ import type { Organization } from '$lib/types';
 import type { RequestHandler } from './$types';
 
 // Resolve the agent's system-memory id server-side from agentId, gated by the
-// caller's org memberships (MY_ORGANIZATIONS_QUERY only returns the caller's
-// orgs). Mirrors the fixtures endpoint's resolveAgent: never trust a
+// caller's org memberships (ORGANIZATIONS_QUERY only returns orgs the caller
+// can see). Mirrors the fixtures endpoint's resolveAgent: never trust a
 // client-supplied memory id for scoping. Returns null when the agent is not
 // visible to the caller or has no system memory (caller then 404s — no leak).
 async function resolveAgentSystemMemory(token: string, agentId: string): Promise<string | null> {
   const client = gqlClient(token);
-  const data = await client.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY);
-  for (const o of data.myOrganizations) {
+  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
+  for (const o of orgs) {
     const found = (o.agents ?? []).find((a) => a.id === agentId);
     if (found) {
       return (found as unknown as { systemMemoryId?: string | null }).systemMemoryId ?? null;

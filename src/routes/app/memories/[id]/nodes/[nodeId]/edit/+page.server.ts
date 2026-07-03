@@ -8,19 +8,19 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
-  const data = await gqlClient(locals.token).request<{ nodeById: MemoryNode | null }>(
+  const data = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
     NODE_BY_ID_QUERY, { id: params.nodeId },
   );
-  if (!data.nodeById) throw new Error(`Node not found: ${params.nodeId}`);
+  if (!data.node) throw new Error(`Node not found: ${params.nodeId}`);
   // #237: same URL-acceptance guard as the detail page. Without it, an
   // edit URL with a mismatched (gid, nodeId) would let the user save
   // changes into the foreign node while believing they edit the current
   // memory's row. Redirect to the correct edit URL so the destination
   // memory is consistent with the node's actual ownership.
-  if (data.nodeById.memoryId !== params.id) {
-    redirect(303, `/app/memories/${data.nodeById.memoryId}/nodes/${params.nodeId}/edit`);
+  if (data.node.memoryId !== params.id) {
+    redirect(303, `/app/memories/${data.node.memoryId}/nodes/${params.nodeId}/edit`);
   }
-  return { node: data.nodeById };
+  return { node: data.node };
 };
 
 export const actions: Actions = {
@@ -30,7 +30,7 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
 
     // Load current node to get its loc
-    const { nodeById: currentNode } = await client.request<{ nodeById: MemoryNode | null }>(
+    const { node: currentNode } = await client.request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
     );
     if (!currentNode) return fail(404, { error: 'Node not found' });

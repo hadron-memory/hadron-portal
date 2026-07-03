@@ -48,7 +48,10 @@ function routeMock(opts: { aiConfigs?: { data?: unknown; error?: unknown } }) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === AI_SERVICE_CONFIGS_QUERY) {
       if (opts.aiConfigs?.error !== undefined) throw opts.aiConfigs.error;
-      return opts.aiConfigs?.data ?? { aiServiceConfigs: [] };
+      // hadron-server#473: wrap in the uniform { items, total } envelope.
+      const configs =
+        (opts.aiConfigs?.data as { aiServiceConfigs: unknown[] } | undefined)?.aiServiceConfigs ?? [];
+      return { aiServiceConfigs: { items: configs, total: configs.length } };
     }
     throw new Error('Unexpected query passed to mockRequest');
   });

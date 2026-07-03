@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  MY_ORGANIZATIONS_QUERY,
+  ORGANIZATIONS_QUERY,
   GRAPH_NODES_QUERY,
   START_CHAT_MUTATION,
   UPDATE_NODE_MUTATION,
@@ -92,12 +92,12 @@ function setupChat(opts: {
   replyText?: string;
 }) {
   mockRequest.mockImplementation(async (query: string) => {
-    if (query === MY_ORGANIZATIONS_QUERY) {
-      return { myOrganizations: [
+    if (query === ORGANIZATIONS_QUERY) {
+      return { organizations: { items: [
         { id: 'org-a', name: 'A', urn: 'u', agents: [
           { id: 'agent-aaa', organizationId: 'org-a', systemMemoryId: 'sys-mem-a' },
         ] },
-      ] };
+      ], total: 1 } };
     }
     if (query === GRAPH_NODES_QUERY) return { findNodes: { hits: opts.nodes.map((node) => ({ node })) } };
     if (query === START_CHAT_MUTATION) {
@@ -212,7 +212,7 @@ describe('POST /api/agent-chat/fixtures/run', () => {
 
   it('404 when the agent is not a member', async () => {
     mockRequest.mockImplementation(async (query: string) => {
-      if (query === MY_ORGANIZATIONS_QUERY) return { myOrganizations: [] };
+      if (query === ORGANIZATIONS_QUERY) return { organizations: { items: [], total: 0 } };
       throw new Error('unexpected');
     });
     const POST = await importPOST();

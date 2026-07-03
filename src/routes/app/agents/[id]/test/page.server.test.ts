@@ -4,11 +4,11 @@
  * Mirrors the spec-018 loader-test pattern (mock $lib/server/api,
  * import load dynamically, assert on returned data or thrown
  * SvelteKit response). The loader resolves the agent through the
- * same `myOrganizations[*].agents` path the spec-018-fixed detail
+ * same organizations[*].agents path the spec-018-fixed detail
  * loader uses, so most failure modes are inherited.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
+import { ORGANIZATIONS_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -37,9 +37,12 @@ function ev(opts: { agentId?: string; token?: string | null } = {}) {
   } as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
-function routeMyOrgs(data: unknown) {
+function routeMyOrgs(data: { organizations: unknown[] }) {
   mockRequest.mockImplementation(async (query: string) => {
-    if (query === MY_ORGANIZATIONS_QUERY) return data;
+    // hadron-server#473: wrap in the uniform { items, total } envelope.
+    if (query === ORGANIZATIONS_QUERY) {
+      return { organizations: { items: data.organizations, total: data.organizations.length } };
+    }
     return { findNodes: { hits: [] } };
   });
 }
@@ -70,7 +73,7 @@ const agentUnconfigured = {
 
 describe('/app/agents/[id]/test loader', () => {
   it('returns agent + org + llmProviderConfigured=true for a configured agent', async () => {
-    routeMyOrgs({ myOrganizations: [{ ...orgA, agents: [agentConfigured] }] });
+    routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] });
     const load = await importLoad();
     const result = (await load(ev({ agentId: 'agent-aaa' }))) as {
       agent: typeof agentConfigured;
@@ -85,7 +88,7 @@ describe('/app/agents/[id]/test loader', () => {
   });
 
   it('returns llmProviderConfigured=false when the agent has no LLM provider set', async () => {
-    routeMyOrgs({ myOrganizations: [{ ...orgA, agents: [agentUnconfigured] }] });
+    routeMyOrgs({ organizations: [{ ...orgA, agents: [agentUnconfigured] }] });
     const load = await importLoad();
     const result = (await load(ev({ agentId: 'agent-bbb' }))) as {
       agent: typeof agentUnconfigured;
@@ -97,7 +100,7 @@ describe('/app/agents/[id]/test loader', () => {
   });
 
   it('404s when the agent is not in any of the user member orgs (FR-005 no-leak)', async () => {
-    routeMyOrgs({ myOrganizations: [{ ...orgA, agents: [agentConfigured] }] });
+    routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] });
     const load = await importLoad();
     let thrown: unknown;
     try {

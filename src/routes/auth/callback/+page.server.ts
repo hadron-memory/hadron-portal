@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
+import { fetchAllItems } from '$lib/server/paginate';
+import { ORGANIZATIONS_QUERY } from '$lib/server/queries';
 import { resolveActiveOrg } from '$lib/server/active-org';
 import { safeRedirect } from '$lib/safeRedirect';
 import type { Organization } from '$lib/types';
@@ -27,13 +28,12 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
   // URL would otherwise open-redirect the authenticated victim off-site.
   if (explicitDest) redirect(303, safeRedirect(explicitDest));
 
-  const orgsData = await gqlClient(token)
-    .request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
-    .catch(() => ({ myOrganizations: [] as Organization[] }));
+  const orgs = await fetchAllItems<Organization>(gqlClient(token), ORGANIZATIONS_QUERY, 'organizations')
+    .catch(() => [] as Organization[]);
   const { activeOrgId } = resolveActiveOrg({
     paramsId: undefined,
     lastActiveOrgId: null,
-    myOrganizations: orgsData.myOrganizations,
+    myOrganizations: orgs,
   });
   redirect(303, activeOrgId ? `/app/orgs/${activeOrgId}/` : '/app/orgs/');
 };

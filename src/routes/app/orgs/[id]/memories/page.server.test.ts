@@ -1,7 +1,7 @@
 /**
  * Spec 034-memory-class-access — memories-list loader.
  *
- * Verifies the new `privateMemories` surface: the loader pulls myMemories and
+ * Verifies the new `privateMemories` surface: the loader pulls memories() and
  * filters to the caller's own owner-only memories (personal/private) whose
  * container is the current org. Mocks `$lib/server/api`'s `gqlClient` and
  * routes by query identity, as in the sibling loader tests.
@@ -11,7 +11,7 @@ import {
   ORGANIZATION_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   PUBLIC_MEMORIES_QUERY,
-  MY_MEMORIES_QUERY,
+  MEMORIES_QUERY,
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -48,9 +48,9 @@ const fakeOrg = {
 function routeMock(myMemories: unknown[]) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === ORGANIZATION_QUERY) return { organization: fakeOrg };
-    if (query === ORG_SYSTEM_MEMORIES_QUERY) return { orgSystemMemories: [] };
-    if (query === PUBLIC_MEMORIES_QUERY) return { publicMemories: [] };
-    if (query === MY_MEMORIES_QUERY) return { myMemories };
+    if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+    if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+    if (query === MEMORIES_QUERY) return { memories: { items: myMemories, total: myMemories.length } };
     throw new Error('Unexpected query');
   });
 }
@@ -69,12 +69,12 @@ describe('memories-list load() — privateMemories (spec 034)', () => {
     expect(result.privateMemories.map((m) => m.id).sort()).toEqual(['p1', 'p2']);
   });
 
-  it('myMemories failure degrades to an empty privateMemories list (no throw)', async () => {
+  it('memories() failure degrades to an empty privateMemories list (no throw)', async () => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === ORGANIZATION_QUERY) return { organization: fakeOrg };
-      if (query === ORG_SYSTEM_MEMORIES_QUERY) return { orgSystemMemories: [] };
-      if (query === PUBLIC_MEMORIES_QUERY) return { publicMemories: [] };
-      if (query === MY_MEMORIES_QUERY) throw new Error('boom');
+      if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+      if (query === MEMORIES_QUERY) throw new Error('boom');
       throw new Error('Unexpected query');
     });
     const load = await importLoad();

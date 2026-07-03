@@ -8,7 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  MY_ORGANIZATIONS_QUERY,
+  ORGANIZATIONS_QUERY,
   ORGANIZATION_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   GRAPH_NODES_QUERY,
@@ -57,9 +57,12 @@ function routeMock(opts: {
   nodes?: { data?: unknown; error?: unknown };
 }) {
   mockRequest.mockImplementation(async (query: string) => {
-    if (query === MY_ORGANIZATIONS_QUERY) {
+    if (query === ORGANIZATIONS_QUERY) {
       if (opts.myOrgs?.error !== undefined) throw opts.myOrgs.error;
-      return opts.myOrgs?.data ?? { myOrganizations: [] };
+      // hadron-server#473: wrap in the uniform { items, total } envelope.
+      const orgs =
+        (opts.myOrgs?.data as { organizations: unknown[] } | undefined)?.organizations ?? [];
+      return { organizations: { items: orgs, total: orgs.length } };
     }
     if (query === ORGANIZATION_QUERY) {
       if (opts.org?.error !== undefined) throw opts.org.error;
@@ -67,7 +70,7 @@ function routeMock(opts: {
     }
     if (query === ORG_SYSTEM_MEMORIES_QUERY) {
       if (opts.orgSysMems?.error !== undefined) throw opts.orgSysMems.error;
-      return opts.orgSysMems?.data ?? { orgSystemMemories: [] };
+      return opts.orgSysMems?.data ?? { memories: { items: [], total: 0 } };
     }
     if (query === GRAPH_NODES_QUERY) {
       if (opts.nodes?.error !== undefined) throw opts.nodes.error;
@@ -94,9 +97,9 @@ const agentInB = { id: 'agent-bbb', organizationId: 'org-b', name: 'Agent in B',
 describe('/app/agents/[id] loader', () => {
   // ── US1: false-404 fix ───────────────────────────────────────────────────
 
-  it('US1 — happy path, single-org user: returns agent + org from myOrganizations', async () => {
+  it('US1 — happy path, single-org user: returns agent + org from organizations()', async () => {
     routeMock({
-      myOrgs: { data: { myOrganizations: [{ ...orgA, agents: [agentInA] }] } },
+      myOrgs: { data: { organizations: [{ ...orgA, agents: [agentInA] }] } },
     });
     const load = await importLoad();
     const result = (await load(ev({ agentId: 'agent-aaa' }))) as {
@@ -114,7 +117,7 @@ describe('/app/agents/[id] loader', () => {
     routeMock({
       myOrgs: {
         data: {
-          myOrganizations: [
+          organizations: [
             { ...orgA, agents: [] },
             { ...orgB, agents: [agentInB] },
           ],
@@ -139,7 +142,7 @@ describe('/app/agents/[id] loader', () => {
     routeMock({
       myOrgs: {
         data: {
-          myOrganizations: [
+          organizations: [
             { ...orgA, agents: [agentInA] },
             { ...orgB, agents: [agentInB] },
           ],
@@ -155,7 +158,7 @@ describe('/app/agents/[id] loader', () => {
     expect(result.org.id).toBe('org-b');
   });
 
-  it('US1 — resilience: MY_ORGANIZATIONS_QUERY errors propagate (no silent 404)', async () => {
+  it('US1 — resilience: ORGANIZATIONS_QUERY errors propagate (no silent 404)', async () => {
     routeMock({ myOrgs: { error: new Error('graphql blew up') } });
     const load = await importLoad();
     let thrown: unknown;
@@ -177,7 +180,7 @@ describe('/app/agents/[id] loader', () => {
 
   it('US2 — 404 when agent is in no user-member org', async () => {
     routeMock({
-      myOrgs: { data: { myOrganizations: [{ ...orgA, agents: [agentInA] }] } },
+      myOrgs: { data: { organizations: [{ ...orgA, agents: [agentInA] }] } },
     });
     const load = await importLoad();
     let thrown: unknown;
@@ -189,11 +192,11 @@ describe('/app/agents/[id] loader', () => {
     expect((thrown as { status: number }).status).toBe(404);
   });
 
-  it('US2 — soft-deleted agent (filtered out of myOrganizations.agents by server) returns 404', async () => {
+  it('US2 — soft-deleted agent (filtered out of organizations().agents by server) returns 404', async () => {
     // The server's ORG_INCLUDE filters `deletedAt: null`, so a soft-deleted
     // agent simply doesn't appear in `o.agents`. Loader sees no match → 404.
     routeMock({
-      myOrgs: { data: { myOrganizations: [{ ...orgA, agents: [] }] } },
+      myOrgs: { data: { organizations: [{ ...orgA, agents: [] }] } },
     });
     const load = await importLoad();
     let thrown: unknown;
@@ -207,7 +210,7 @@ describe('/app/agents/[id] loader', () => {
 
   it('US2 — 404 body carries no agent fields (FR-005 no-leak guard)', async () => {
     routeMock({
-      myOrgs: { data: { myOrganizations: [{ ...orgA, agents: [agentInA] }] } },
+      myOrgs: { data: { organizations: [{ ...orgA, agents: [agentInA] }] } },
     });
     const load = await importLoad();
     let thrown: unknown;
@@ -235,7 +238,7 @@ describe('/app/agents/[id] loader', () => {
     routeMock({
       myOrgs: {
         data: {
-          myOrganizations: [
+          organizations: [
             { ...orgA, agents: [agentInA] },
             { ...orgB, agents: [agentInB] },
           ],

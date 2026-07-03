@@ -4,7 +4,9 @@ import { SEARCH_USERS_QUERY } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 
 // User search for the "Add existing user" picker (#414). Browser → this
-// endpoint → hadron-server `searchUsers`. GraphQL only runs server-side (the
+// endpoint → hadron-server `users(filter: { query })` (hadron-server#473
+// folded searchUsers into the uniform users list). GraphQL only runs
+// server-side (the
 // token lives in locals), so SelectUser fetches here, the same way the node
 // search picker hits /api/nodes/search.
 //
@@ -45,12 +47,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (q.length < 3) return json({ users: [] });
 
   try {
-    const data = await gqlClient(locals.token).request<{ searchUsers: SearchUserRow[] }>(
+    const data = await gqlClient(locals.token).request<{ users: { items: SearchUserRow[] } }>(
       SEARCH_USERS_QUERY,
       { query: q },
     );
     // Drop name + raw email before the data leaves the server.
-    const users = (data.searchUsers ?? []).map((u) => ({
+    const users = (data.users.items ?? []).map((u) => ({
       id: u.id,
       handle: u.handle,
       urn: u.urn,

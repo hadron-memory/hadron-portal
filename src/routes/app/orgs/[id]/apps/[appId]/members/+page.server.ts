@@ -1,5 +1,6 @@
 import { fail, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   APP_WITH_MEMBERS_QUERY,
@@ -24,9 +25,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     client
       .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id })
       .catch(() => ({ organization: null })),
-    client
-      .request<{ users: UserSummary[] }>(USERS_QUERY)
-      .catch(() => ({ users: [] as UserSummary[] })),
+    fetchAllItems<UserSummary>(client, USERS_QUERY, 'users')
+      .catch(() => [] as UserSummary[]),
   ]);
   if (!appData.app) throw error(404, 'App not found');
   if (!orgData.organization) throw error(404, 'Organization not found');
@@ -35,7 +35,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     app: appData.app,
     org: orgData.organization,
     members: appData.app.members ?? [],
-    allUsers: usersData.users,
+    allUsers: usersData,
   };
 };
 

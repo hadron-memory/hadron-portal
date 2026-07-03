@@ -1,7 +1,8 @@
 import { fail, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
-import { MY_ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
+import { ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
 import { createNodeErrorCode } from '$lib/i18n/create-node-strings';
 import type { Organization, MemoryNode } from '$lib/types';
@@ -28,7 +29,7 @@ const GRAPH_NODES_QUERY = `
 // so an unscoped call can't compile/run — node(loc:) without a scope now
 // errors on a cross-memory loc collision (AMBIGUOUS_NODE_LOC). Shared by the
 // stageOrder reads in addStage / updateExtractionSpec / updateGoals.
-const NODE_DATA_BY_LOC_QUERY = `query N($loc: String!, $memory: ID!) { node(loc: $loc, memory: $memory) { data } }`;
+const NODE_DATA_BY_LOC_QUERY = `query N($loc: ID!, $memory: ID!) { node(ref: $loc, memory: $memory) { data } }`;
 
 // hadron-server#460: upsertNode is split into createNode (create-only,
 // NodeLocConflictError on a live (memoryId, loc)) and updateNode (never
@@ -42,12 +43,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const client = gqlClient(locals.token);
 
   // Find the agent across all orgs
-  const orgsData = await client.request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
-    .catch(() => ({ myOrganizations: [] as Organization[] }));
+  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations')
+    .catch(() => [] as Organization[]);
 
   let agent = null;
   let org = null;
-  for (const o of orgsData.myOrganizations) {
+  for (const o of orgs) {
     const found = (o.agents ?? []).find((a) => a.id === params.id);
     if (found) { agent = found; org = o; break; }
   }

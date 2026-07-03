@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
@@ -24,15 +25,13 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const { org } = await parent();
   // The registry list is org-ADMIN gated server-side; non-admin members get a
   // GraphQL error here — surface it as an empty/error state, not a 500.
-  const configsData = await gqlClient(locals.token)
-    .request<{ aiServiceConfigs: AiServiceConfig[] }>(AI_SERVICE_CONFIGS_QUERY, {
-      ownerType: 'ORGANIZATION',
-      ownerId: params.id,
-    })
-    .catch(() => null);
+  const configsData = await fetchAllItems<AiServiceConfig>(
+    gqlClient(locals.token), AI_SERVICE_CONFIGS_QUERY, 'aiServiceConfigs',
+    { ownerType: 'ORGANIZATION', ownerId: params.id },
+  ).catch(() => null);
   return {
     org,
-    configs: configsData?.aiServiceConfigs ?? [],
+    configs: configsData ?? [],
     configsError: configsData === null,
     currentUserId: locals.user?.id ?? null,
   };

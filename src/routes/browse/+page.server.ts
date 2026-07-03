@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import { PUBLIC_MEMORIES_QUERY, ADD_TO_MY_MEMORIES_MUTATION } from '$lib/server/queries';
 import type { Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -18,8 +19,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   }
 
   try {
-    const data = await gqlClient().request<{ publicMemories: Memory[] }>(PUBLIC_MEMORIES_QUERY);
-    return { memories: data.publicMemories, isAuthenticated: !!locals.user };
+    const memories = await fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories');
+    return { memories, isAuthenticated: !!locals.user };
   } catch {
     return { memories: [] as Memory[], isAuthenticated: !!locals.user };
   }
