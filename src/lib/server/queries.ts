@@ -1383,14 +1383,17 @@ export const NODE_USAGE_QUERY = /* GraphQL */ `
 `;
 
 // hadron-server#468 (BREAKING): `myMemories` dropped `includeAgentSystem` in
-// favour of `memoryClasses: [MemoryClass!]`. Callers that omit the variable
-// get the server default, which hides `system` — the behaviour the portal's
-// only caller relies on (it surfaces personal/private memories). To include
-// system memories, pass all classes explicitly.
+// favour of `memoryClasses: [MemoryClass!]`. The portal's only caller wants the
+// server default (which hides `system`; it surfaces personal/private memories),
+// so we omit the argument entirely — a literally-absent argument unambiguously
+// takes the server default, with no dependency on GraphQL's absent-variable-vs-
+// null coercion. Class filtering (e.g. a "show system memories" toggle,
+// #444/#447) will need a separate query constant that declares and passes
+// `memoryClasses`.
 export const MY_MEMORIES_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
-  query MyMemories($memoryClasses: [MemoryClass!]) {
-    myMemories(memoryClasses: $memoryClasses) {
+  query MyMemories {
+    myMemories {
       ...MemoryFields
     }
   }
