@@ -17,6 +17,8 @@ import {
   type Assertion,
 } from '$lib/server/agent-tester/fixture-codec';
 import { judgeAgentReply, judgeVerdict } from '$lib/server/agent-tester/llm-judge';
+import { testRegexSafely, RegexTimeoutError } from '$lib/server/safe-regex';
+import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { Organization } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -81,6 +83,11 @@ interface RunBody {
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) return json({ error: 'Unauthorized' }, 401);
+  // #441: fan-out endpoint (drives 2 LLM calls per fixture). Rate-limit per
+  // user so single-fixture looping can't bypass the per-run cost cap or drain
+  // the shared process.
+  const limited = rateLimitResponse(locals.user?.id, 'agent-fixtures-run', 10, 60_000);
+  if (limited) return limited;
   let body: RunBody;
   try { body = await request.json(); }
   catch { return json({ error: 'Invalid JSON body' }, 400); }
@@ -290,8 +297,16 @@ async function evaluateAssertion(
     return { verdict: pass ? 'pass' : 'fail', detail: pass ? `contains "${a.value}"` : `did not contain "${a.value}"` };
   }
   if (a.mode === 'regex') {
-    const re = new RegExp(a.pattern, a.flags ?? '');
-    const pass = re.test(reply);
+    // #440: time-bounded match in a worker thread (ReDoS-safe).
+    let pass: boolean;
+    try {
+      pass = await testRegexSafely(a.pattern, a.flags ?? '', reply);
+    } catch (e) {
+      const why = e instanceof RegexTimeoutError
+        ? 'evaluation timed out (pattern too complex)'
+        : e instanceof Error ? e.message : 'invalid regex';
+      return { verdict: 'fail', detail: `regex ${why}` };
+    }
     return { verdict: pass ? 'pass' : 'fail', detail: pass ? `matched /${a.pattern}/` : `did not match /${a.pattern}/` };
   }
   // llm-judge

@@ -6,7 +6,14 @@ import {
 } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
+import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
+
+// #441: bound the fan-out. Each message becomes one sequential real LLM call,
+// so an unbounded followUpMessages array holds a request open for N round-trips
+// and grows unbounded in memory.
+const MAX_FOLLOWUP_MESSAGES = 50;
+const MAX_TOTAL_MESSAGE_BYTES = 100_000;
 
 /**
  * POST /api/agent-chat/test-persona
@@ -29,6 +36,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     });
   }
 
+  const limited = rateLimitResponse(locals.user?.id, 'agent-test-persona', 10, 60_000);
+  if (limited) return limited;
+
   let body: {
     agentId?: string;
     personaName?: string;
@@ -49,6 +59,25 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (!body.agentId || !body.personaName || !body.openingMessage) {
     return new Response(
       JSON.stringify({ error: 'agentId, personaName, and openingMessage are required' }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
+  // #441: hard-cap the fan-out and total payload before issuing any LLM calls.
+  const followUps = body.followUpMessages ?? [];
+  if (followUps.length > MAX_FOLLOWUP_MESSAGES) {
+    return new Response(
+      JSON.stringify({ error: `followUpMessages exceeds the ${MAX_FOLLOWUP_MESSAGES}-message limit` }),
+      { status: 400, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+  const totalBytes = [body.openingMessage, ...followUps].reduce(
+    (n, m) => n + Buffer.byteLength(String(m ?? ''), 'utf8'),
+    0,
+  );
+  if (totalBytes > MAX_TOTAL_MESSAGE_BYTES) {
+    return new Response(
+      JSON.stringify({ error: `total message size exceeds ${MAX_TOTAL_MESSAGE_BYTES} bytes` }),
       { status: 400, headers: { 'Content-Type': 'application/json' } },
     );
   }
