@@ -24,13 +24,17 @@
   // in the app shell" — no separate derived needed.
 
   // #339: the command bar needs the active org PK (for /app/orgs/<pk>/… routes)
-  // and the user's orgs (for the "switch" picker). Both ride $page.data from the
-  // /app/ layout; Nav lives in the root layout, so read them off the page store.
+  // and the user's member orgs (for the "switch" picker). Both ride $page.data
+  // from the /app/ layout; Nav lives in the root layout, so read them off the
+  // page store. The layout key is `navOrgs`, NOT `orgs` — child routes (e.g.
+  // /app/orgs) return their own page-local `orgs`, and SvelteKit's merged
+  // $page.data would let the child value shadow the layout's membership list
+  // (PR #452 Codex P2).
   const pageData = $derived(
-    $page.data as unknown as { activeOrgId?: string | null; orgs?: { id: string; name: string }[] },
+    $page.data as unknown as { activeOrgId?: string | null; navOrgs?: { id: string; name: string }[] },
   );
   const activeOrgId = $derived(pageData.activeOrgId ?? null);
-  const orgs = $derived(pageData.orgs ?? []);
+  const orgs = $derived(pageData.navOrgs ?? []);
 </script>
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">

@@ -101,9 +101,9 @@
             class="block truncate text-sm font-medium text-zinc-700 transition hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white"
             data-testid="active-org-name"
           >{data.activeOrg.name}</a>
-          {#if data.orgs.length > 1}
+          {#if data.navOrgs.length > 1}
             <div class="mt-1.5">
-              <OrgSwitcher activeOrg={data.activeOrg} orgs={data.orgs} />
+              <OrgSwitcher activeOrg={data.activeOrg} orgs={data.navOrgs} />
             </div>
           {/if}
         </div>

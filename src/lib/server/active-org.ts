@@ -35,9 +35,14 @@ export interface ActiveOrgResolution {
  * for a platform ADMIN/OWNER, not just the caller's memberships. Active-org /
  * personal-org resolution must only ever consider orgs the user is actually a
  * member of — otherwise an admin's 'personal' fallback (isVisible !== true)
- * can resolve to ANOTHER user's personal org. Filter client-side on the
- * nested members selection (ORGANIZATIONS_QUERY selects members[].user.id)
- * until the server grows a memberships-only filter (planned follow-up).
+ * can resolve to ANOTHER user's personal org.
+ *
+ * The server now filters too: resolution callers fetch via
+ * ORGANIZATIONS_NAV_QUERY, which passes filter.memberOnly so even a platform
+ * admin only receives their memberships (cor:api:120:03). This client-side
+ * pass over members[].user.id stays as cheap defense-in-depth — it also
+ * covers any caller still feeding the unfiltered browse query through
+ * resolveActiveOrg.
  *
  * Every resolveActiveOrg caller MUST pass its organizations() result through
  * this first.

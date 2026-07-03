@@ -248,7 +248,9 @@ export const ADD_TO_MY_MEMORIES_MUTATION = /* GraphQL */ `
 
 // hadron-server#473: myOrganizations is now the uniform organizations() list
 // (the caller's memberships). NOTE: a platform ADMIN/OWNER now receives EVERY
-// live org, not just their memberships — the admin unscoped reach.
+// live org, not just their memberships — the admin unscoped reach. That is
+// the right list for BROWSE surfaces (/app/orgs, cross-org agent lookups);
+// nav / active-org RESOLUTION must use ORGANIZATIONS_NAV_QUERY below instead.
 export const ORGANIZATIONS_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}
@@ -271,6 +273,34 @@ export const ORGANIZATIONS_QUERY = /* GraphQL */ `
         }
         apps {
           ...AppFields
+        }
+      }
+      total
+    }
+  }
+`;
+
+// Slim membership-scoped org list for the nav / active-org resolution path
+// (layout sidebar + OrgSwitcher/CommandBar, auth-callback landing, the
+// marketplace post-add redirect). filter.memberOnly restricts the list to the
+// caller's own memberships SERVER-side, even for a platform ADMIN/OWNER (the
+// old myOrganizations semantics — hadron-server cor:api:120:03), so an
+// admin's nav doesn't receive every live org. Selection is only what
+// resolution + nav actually read: OrgFields scalars (id/name/isVisible for
+// resolveActiveOrg and consumer-mode detection, urn for display) plus a
+// members[].user.id skeleton for the filterToMemberOrgs defense-in-depth —
+// none of the heavy memories/agents/apps/member-PII nesting the browse query
+// carries (flagged by Copilot on portal PR #451).
+export const ORGANIZATIONS_NAV_QUERY = /* GraphQL */ `
+  ${ORG_FIELDS}
+  query OrganizationsNav($limit: Int, $offset: Int) {
+    organizations(filter: { memberOnly: true }, limit: $limit, offset: $offset) {
+      items {
+        ...OrgFields
+        members {
+          id
+          role
+          user { id }
         }
       }
       total
