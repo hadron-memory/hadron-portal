@@ -115,7 +115,15 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
     // The nav/OrgSwitcher list — memberships only (an admin reaches the
     // all-orgs view on /app/orgs). memberOrgs, not the raw fetch, so the
     // client-side defense-in-depth applies to what the UI renders too.
-    orgs: memberOrgs,
+    //
+    // Named `navOrgs`, NOT `orgs`: SvelteKit's merged $page.data takes the
+    // CHILD route's value on a key collision, and /app/orgs returns its own
+    // page-local `orgs` (the full admin browse list). Under a shared `orgs`
+    // key the nav/CommandBar switcher on that page would render non-member
+    // orgs — and picking one bounces off the active-org resolver (PR #452
+    // Codex P2). A distinct key keeps the layout list authoritative for the
+    // nav everywhere.
+    navOrgs: memberOrgs,
     isConsumerMode,
     activeOrgId: resolution.activeOrgId,
     activeOrg: resolution.activeOrg,

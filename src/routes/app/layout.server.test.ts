@@ -122,7 +122,7 @@ async function loadAuthed(
   ...args: Parameters<Awaited<ReturnType<typeof importLoad>>>
 ): Promise<{
   user: { id: string; roles: string[]; githubUsername: string; name?: string; avatarUrl?: string | null; email?: string };
-  orgs: ReturnType<typeof makeOrg>[];
+  navOrgs: ReturnType<typeof makeOrg>[];
   isConsumerMode: boolean;
   activeOrgId: string | null;
   activeOrg: ReturnType<typeof makeOrg> | null;
@@ -467,8 +467,26 @@ describe('+layout.server.ts — hadron-server#473 admin/non-member org handling'
     // The nav list is memberships-only now — the defense-in-depth filter
     // drops the foreign org even when the server fails to (admins browse
     // the full set on /app/orgs, which fetches its own list).
-    expect(data.orgs).toHaveLength(2);
-    expect(data.orgs.map((o) => o.id)).not.toContain('org-aaa-foreign-personal');
+    expect(data.navOrgs).toHaveLength(2);
+    expect(data.navOrgs.map((o) => o.id)).not.toContain('org-aaa-foreign-personal');
+  });
+
+  it("returns the nav list under `navOrgs`, never `orgs` (child pages' own `orgs` must not shadow it)", async () => {
+    // PR #452 Codex P2: SvelteKit's merged $page.data takes the CHILD
+    // route's value on a key collision, and /app/orgs returns its own
+    // page-local `orgs` (the full admin browse list). If the layout ever
+    // reverts to the shared `orgs` key, the Nav/CommandBar switcher on that
+    // page would render non-member orgs — and picking one bounces off the
+    // active-org resolver. Pin the distinct key.
+    const personal = makeOrg({ id: 'org-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [personal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
+
+    expect(data.navOrgs.map((o) => o.id)).toEqual(['org-personal', 'org-a']);
+    expect(data).not.toHaveProperty('orgs');
   });
 
   it('non-member orgs never satisfy the URL hint (falls through to own personal org)', async () => {
