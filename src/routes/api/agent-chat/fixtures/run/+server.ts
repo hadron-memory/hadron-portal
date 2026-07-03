@@ -86,7 +86,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // #441: fan-out endpoint (drives 2 LLM calls per fixture). Rate-limit per
   // user so single-fixture looping can't bypass the per-run cost cap or drain
   // the shared process.
-  const limited = rateLimitResponse(locals.user?.id, 'agent-fixtures-run', 10, 60_000);
+  const limited = rateLimitResponse(locals.user?.id ?? locals.token, 'agent-fixtures-run', 10, 60_000);
   if (limited) return limited;
   let body: RunBody;
   try { body = await request.json(); }
@@ -307,7 +307,7 @@ async function evaluateAssertion(
         : e instanceof Error ? e.message : 'invalid regex';
       return { verdict: 'fail', detail: `regex ${why}` };
     }
-    return { verdict: pass ? 'pass' : 'fail', detail: pass ? `matched /${a.pattern}/` : `did not match /${a.pattern}/` };
+    return { verdict: pass ? 'pass' : 'fail', detail: pass ? `matched /${a.pattern}/${a.flags ?? ''}` : `did not match /${a.pattern}/${a.flags ?? ''}` };
   }
   // llm-judge
   const judge = await judgeAgentReply({ token, agentId, reply, criterion: a.criterion });

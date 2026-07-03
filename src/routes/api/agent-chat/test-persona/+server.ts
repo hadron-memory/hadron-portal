@@ -36,7 +36,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     });
   }
 
-  const limited = rateLimitResponse(locals.user?.id, 'agent-test-persona', 10, 60_000);
+  const limited = rateLimitResponse(locals.user?.id ?? locals.token, 'agent-test-persona', 10, 60_000);
   if (limited) return limited;
 
   let body: {

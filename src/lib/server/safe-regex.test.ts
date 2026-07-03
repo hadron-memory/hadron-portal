@@ -33,4 +33,10 @@ describe('testRegexSafely', () => {
   it('surfaces an invalid pattern as RegexInvalidError', async () => {
     await expect(testRegexSafely('(', '', 'x')).rejects.toBeInstanceOf(RegexInvalidError);
   });
+
+  it('accepts valid flags and rejects invalid/over-long flags', async () => {
+    expect(await testRegexSafely('abc', 'i', 'ABC')).toBe(true);
+    await expect(testRegexSafely('abc', 'zzz', 'abc')).rejects.toBeInstanceOf(RegexInvalidError);
+    await expect(testRegexSafely('abc', 'g'.repeat(20), 'abc')).rejects.toBeInstanceOf(RegexInvalidError);
+  });
 });

@@ -19,7 +19,12 @@ export class RegexTimeoutError extends Error {}
 
 export const MAX_PATTERN_LEN = 1000;
 export const MAX_INPUT_LEN = 100_000;
+export const MAX_FLAGS_LEN = 8;
 export const DEFAULT_TIMEOUT_MS = 100;
+
+// The valid JS regex flag characters; also bounds structured-clone cost of the
+// attacker-controlled `flags` before it reaches the worker.
+const VALID_FLAGS = /^[dgimsuy]*$/;
 
 // Compile + test inside an isolated thread. Kept dependency-free and passed as
 // an eval string so the SvelteKit/Vite bundler doesn't need to resolve a
@@ -47,6 +52,9 @@ export async function testRegexSafely(
 ): Promise<boolean> {
   if (pattern.length > MAX_PATTERN_LEN) {
     throw new RegexInvalidError(`pattern exceeds ${MAX_PATTERN_LEN} characters`);
+  }
+  if (typeof flags !== 'string' || flags.length > MAX_FLAGS_LEN || !VALID_FLAGS.test(flags)) {
+    throw new RegexInvalidError('invalid regex flags');
   }
   // Bound the haystack too — cheap defense that also caps memory/time.
   const safeInput = input.length > MAX_INPUT_LEN ? input.slice(0, MAX_INPUT_LEN) : input;
@@ -76,5 +84,11 @@ export async function testRegexSafely(
       ),
     );
     worker.once('error', (err) => finish(() => reject(err)));
+    // A worker crash (OOM, native fault) emits `exit` with a non-zero code and
+    // no message/error — reject immediately instead of hanging until timeout.
+    // Our own terminate() also fires this, but `settled` is already true by then.
+    worker.once('exit', (code) => {
+      if (code !== 0) finish(() => reject(new Error(`regex worker exited with code ${code}`)));
+    });
   });
 }

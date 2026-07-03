@@ -58,12 +58,16 @@ export function rateLimit(
  * is over the limit, or `null` when the call is allowed.
  */
 export function rateLimitResponse(
-  userId: string | null | undefined,
+  identifier: string | null | undefined,
   bucket: string,
   limit: number,
   windowMs: number,
 ): Response | null {
-  const key = `${bucket}:${userId ?? 'unknown'}`;
+  // Callers must pass a per-principal identifier. The 'unknown' fallback is a
+  // last resort — a shared bucket — so callers should pass a guaranteed-unique
+  // value (e.g. the session token) rather than let a missing id collapse many
+  // principals into one bucket.
+  const key = `${bucket}:${identifier ?? 'unknown'}`;
   const { ok, retryAfterSec } = rateLimit(key, limit, windowMs);
   if (ok) return null;
   return new Response(

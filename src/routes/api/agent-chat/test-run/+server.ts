@@ -3,7 +3,7 @@ import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import { judgeAgentReply, judgeVerdict } from '$lib/server/agent-tester/llm-judge';
-import { testRegexSafely, RegexTimeoutError, MAX_PATTERN_LEN } from '$lib/server/safe-regex';
+import { testRegexSafely, RegexTimeoutError, MAX_PATTERN_LEN, MAX_FLAGS_LEN } from '$lib/server/safe-regex';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
 
@@ -50,7 +50,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // #441: bound how often a single user can drive real LLM calls through the
   // tester, so one tenant can't exhaust provider budget / occupy the shared
   // adapter-node process.
-  const limited = rateLimitResponse(locals.user?.id, 'agent-test-run', 30, 60_000);
+  const limited = rateLimitResponse(locals.user?.id ?? locals.token, 'agent-test-run', 30, 60_000);
   if (limited) return limited;
 
   let body: TestRunBody;
@@ -182,6 +182,8 @@ function validateAssertion(a: Assertion): string | null {
     case 'regex':
       if (typeof a.pattern !== 'string' || a.pattern === '') return 'regex.pattern must be a non-empty string';
       if (a.pattern.length > MAX_PATTERN_LEN) return `regex.pattern must be at most ${MAX_PATTERN_LEN} characters`;
+      if (a.flags != null && (typeof a.flags !== 'string' || a.flags.length > MAX_FLAGS_LEN || !/^[dgimsuy]*$/.test(a.flags)))
+        return 'regex.flags must contain only valid flag characters (dgimsuy)';
       try { new RegExp(a.pattern, a.flags ?? ''); } catch (e) {
         return `regex.pattern invalid: ${e instanceof Error ? e.message : 'unknown'}`;
       }
