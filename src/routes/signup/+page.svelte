@@ -1,12 +1,17 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { env } from '$env/dynamic/public';
+  import { isLocalPath } from '$lib/safeRedirect';
 
   const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
 
   // If coming from marketplace with a memory param, redirect back there after auth
   const memoryId = $derived(page.url.searchParams.get('memory') ?? page.url.searchParams.get('graph'));
-  const redirectTo = $derived(page.url.searchParams.get('redirect'));
+  // #439: only honor a same-origin local path; ignore attacker-supplied
+  // absolute/protocol-relative redirect targets.
+  const redirectTo = $derived(
+    isLocalPath(page.url.searchParams.get('redirect')) ? page.url.searchParams.get('redirect') : null
+  );
   const postAuthRedirect = $derived(
     redirectTo ?? (memoryId ? `/browse?addMemory=${memoryId}` : '/app/dashboard')
   );

@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { MY_ORGANIZATIONS_QUERY } from '$lib/server/queries';
 import { resolveActiveOrg } from '$lib/server/active-org';
+import { safeRedirect } from '$lib/safeRedirect';
 import type { Organization } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -21,8 +22,10 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 
   // Honor an explicit ?redirect=... if the caller supplied one (e.g. a
   // sign-in initiated from a protected URL); otherwise resolve the active
-  // org and skip the /app/dashboard 303→302 chain.
-  if (explicitDest) redirect(303, explicitDest);
+  // org and skip the /app/dashboard 303→302 chain. #439: validate it is a
+  // same-origin local path — an attacker-supplied absolute/protocol-relative
+  // URL would otherwise open-redirect the authenticated victim off-site.
+  if (explicitDest) redirect(303, safeRedirect(explicitDest));
 
   const orgsData = await gqlClient(token)
     .request<{ myOrganizations: Organization[] }>(MY_ORGANIZATIONS_QUERY)
