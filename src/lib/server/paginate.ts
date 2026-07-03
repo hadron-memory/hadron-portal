@@ -27,9 +27,20 @@ export async function fetchAllItems<T>(
       limit: PAGE_LIMIT,
       offset,
     });
-    const page = data[field];
-    items.push(...page.items);
-    // Stop on a short/empty page too, so a shrinking total can never loop.
-    if (page.items.length < PAGE_LIMIT || items.length >= page.total) return items;
+    const page = data?.[field];
+    if (!page) {
+      // Fail fast with the field name — a mismatched `field` would otherwise
+      // surface as an opaque "cannot read properties of undefined" (or,
+      // worse, a silently partial list).
+      throw new Error(
+        `fetchAllItems: response has no '${field}' page — ` +
+          "check that `field` matches the query's top-level result key",
+      );
+    }
+    const pageItems = page.items ?? [];
+    items.push(...pageItems);
+    // Stop on a short/empty page too, so a shrinking (or missing) total can
+    // never loop forever.
+    if (pageItems.length < PAGE_LIMIT || items.length >= (page.total ?? 0)) return items;
   }
 }

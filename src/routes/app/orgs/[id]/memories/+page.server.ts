@@ -1,4 +1,4 @@
-import { fail } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
@@ -19,7 +19,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
   const [orgData, systemMemories, publicMemories, myMemories] = await Promise.all([
-    client.request<{ organization: Organization }>(
+    client.request<{ organization: Organization | null }>(
       ORGANIZATION_QUERY, { id: params.id },
     ),
     fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
@@ -29,6 +29,9 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     fetchAllItems<Memory>(client, MEMORIES_QUERY, 'memories')
       .catch(() => [] as Memory[]),
   ]);
+  // organization(ref:) returns null for a missing org (denied throws above) —
+  // surface it as a clean 404 rather than a TypeError 500.
+  if (!orgData?.organization) throw error(404, 'Organization not found');
   // Exclude memories already owned or subscribed to by this org
   const ownedIds = new Set((orgData.organization.memories ?? []).map((m) => m.id));
   const subscribedIds = new Set((orgData.organization.subscriptions ?? []).map((s) => s.memory.id));

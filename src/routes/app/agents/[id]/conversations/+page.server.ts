@@ -42,9 +42,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
 
-  // Find the agent across all orgs
-  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations')
-    .catch(() => [] as Organization[]);
+  // Find the agent across all orgs. No .catch here — coercing an org-query
+  // failure into an empty list would turn transient errors into a misleading
+  // "Agent not found" 404 (the spec-018 false-404 class; see the agent detail
+  // loader and the portal's no-silent-loader-catch review convention).
+  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
 
   let agent = null;
   let org = null;
