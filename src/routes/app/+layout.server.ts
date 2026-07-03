@@ -2,7 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { ORGANIZATIONS_QUERY, ME_QUERY } from '$lib/server/queries';
-import { resolveActiveOrg } from '$lib/server/active-org';
+import { filterToMemberOrgs, resolveActiveOrg } from '$lib/server/active-org';
 import type { Organization, UserSummary } from '$lib/types';
 import type { LayoutServerLoad } from './$types';
 
@@ -37,7 +37,12 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
       .request<{ me: UserSummary | null }>(ME_QUERY)
       .catch(() => ({ me: null as UserSummary | null })),
   ]);
-  const isConsumerMode = orgs.length === 1 && orgs[0].isVisible !== true;
+  // hadron-server#473: organizations() returns ALL orgs for a platform
+  // admin. The nav list keeps the full set (flagged in PR #451), but
+  // consumer-mode detection and active-/personal-org resolution below must
+  // only consider actual memberships — see filterToMemberOrgs.
+  const memberOrgs = filterToMemberOrgs(orgs, locals.user.id);
+  const isConsumerMode = memberOrgs.length === 1 && memberOrgs[0].isVisible !== true;
 
   // Merge fresh server-side fields (name, avatarUrl, email) over the JWT
   // payload, so the layout always has current user metadata.
@@ -59,7 +64,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   const resolution = resolveActiveOrg({
     paramsId,
     lastActiveOrgId: cookieOrgId,
-    myOrganizations: orgs,
+    myOrganizations: memberOrgs,
   });
 
   // Persist the URL-driven selection so subsequent loads on org-less

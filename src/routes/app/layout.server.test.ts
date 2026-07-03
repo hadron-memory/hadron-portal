@@ -39,7 +39,15 @@ beforeEach(() => {
   mockMeRequest.mockReset();
 });
 
-function makeOrg(overrides: { id: string; isVisible: boolean | null; name?: string }) {
+function makeOrg(overrides: {
+  id: string;
+  isVisible: boolean | null;
+  name?: string;
+  /** Whose membership rows the org carries. Defaults to the test user —
+   *  pass another id to model an org the test user is NOT a member of
+   *  (visible to platform admins via organizations(), hadron-server#473). */
+  memberUserId?: string;
+}) {
   return {
     id: overrides.id,
     name: overrides.name ?? `Org ${overrides.id}`,
@@ -50,6 +58,9 @@ function makeOrg(overrides: { id: string; isVisible: boolean | null; name?: stri
     hasGithubAppPrivateKey: false,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
+    members: [
+      { id: `member-${overrides.id}`, role: 'MEMBER', user: { id: overrides.memberUserId ?? 'user-1' } },
+    ],
   };
 }
 
@@ -429,5 +440,45 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
     const names = cookieWrites.map((c) => c.name);
     expect(names).toContain(`hadron_active_org_${TEST_USER_ID}`);
     expect(names).not.toContain('hadron_active_org');
+  });
+});
+
+describe('+layout.server.ts — hadron-server#473 admin sees all orgs', () => {
+  it("resolves the admin's OWN personal org even when another user's personal org sorts first", async () => {
+    // organizations() returns EVERY live org for a platform ADMIN/OWNER —
+    // including other users' personal orgs (isVisible !== true). The
+    // personal-org fallback must only consider actual memberships, or the
+    // admin lands in someone else's personal org (PR #451 review P2).
+    const foreignPersonal = makeOrg({ id: 'org-aaa-foreign-personal', isVisible: null, memberUserId: 'user-OTHER' });
+    const ownPersonal = makeOrg({ id: 'org-zzz-own-personal', isVisible: null });
+    const orgA = makeOrg({ id: 'org-a', isVisible: true });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [foreignPersonal, ownPersonal, orgA] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
+
+    expect(data.personalOrgId).toBe('org-zzz-own-personal');
+    expect(data.activeOrgId).toBe('org-zzz-own-personal');
+    // The nav list itself still carries the full (admin-visible) set.
+    expect(data.orgs).toHaveLength(3);
+  });
+
+  it('non-member orgs never satisfy the URL hint (falls through to own personal org)', async () => {
+    const foreignOrg = makeOrg({ id: 'org-foreign', isVisible: true, memberUserId: 'user-OTHER' });
+    const ownPersonal = makeOrg({ id: 'org-personal', isVisible: null });
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [foreignOrg, ownPersonal] });
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    // URL names the non-member org → resolution must NOT activate it.
+    let redirected: { status: number; location: string } | null = null;
+    try {
+      await loadAuthed(ev({ paramsId: 'org-foreign', pathname: '/app/orgs/org-foreign/agents' }));
+    } catch (e) {
+      redirected = e as { status: number; location: string };
+    }
+    // Spec 014 FR-009 fall-through: the layout rewrites the org segment to
+    // the resolved (member) org and redirects.
+    expect(redirected?.status).toBe(302);
+    expect(redirected?.location).toBe('/app/orgs/org-personal/agents');
   });
 });

@@ -30,6 +30,26 @@ export interface ActiveOrgResolution {
   source: ActiveOrgSource;
 }
 
+/**
+ * hadron-server#473: the uniform organizations() list returns EVERY live org
+ * for a platform ADMIN/OWNER, not just the caller's memberships. Active-org /
+ * personal-org resolution must only ever consider orgs the user is actually a
+ * member of — otherwise an admin's 'personal' fallback (isVisible !== true)
+ * can resolve to ANOTHER user's personal org. Filter client-side on the
+ * nested members selection (ORGANIZATIONS_QUERY selects members[].user.id)
+ * until the server grows a memberships-only filter (planned follow-up).
+ *
+ * Every resolveActiveOrg caller MUST pass its organizations() result through
+ * this first.
+ */
+export function filterToMemberOrgs(
+  orgs: Organization[],
+  userId: string | null | undefined,
+): Organization[] {
+  if (!userId) return [];
+  return orgs.filter((o) => (o.members ?? []).some((m) => m.user?.id === userId));
+}
+
 export interface ResolveActiveOrgInput {
   paramsId: string | undefined;
   lastActiveOrgId: string | null;

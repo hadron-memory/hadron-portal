@@ -6,7 +6,7 @@ import {
   ADD_TO_MY_MEMORIES_MUTATION,
   ORGANIZATIONS_QUERY,
 } from '$lib/server/queries';
-import { resolveActiveOrg } from '$lib/server/active-org';
+import { filterToMemberOrgs, resolveActiveOrg } from '$lib/server/active-org';
 import type { Memory, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -35,10 +35,12 @@ export const actions: Actions = {
       // server-side is cheaper than a full browser redirect hop.
       const orgs = await fetchAllItems<Organization>(gqlClient(locals.token), ORGANIZATIONS_QUERY, 'organizations')
         .catch(() => [] as Organization[]);
+      // hadron-server#473: resolve against memberships only (see
+      // filterToMemberOrgs) — admins receive every org here.
       const { activeOrgId } = resolveActiveOrg({
         paramsId: undefined,
         lastActiveOrgId: null,
-        myOrganizations: orgs,
+        myOrganizations: filterToMemberOrgs(orgs, locals.user?.id),
       });
       redirect(303, activeOrgId ? `/app/orgs/${activeOrgId}/` : '/app/orgs/');
     } catch (e: unknown) {

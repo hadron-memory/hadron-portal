@@ -2,10 +2,24 @@ import { redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { ORGANIZATIONS_QUERY } from '$lib/server/queries';
-import { resolveActiveOrg } from '$lib/server/active-org';
+import { filterToMemberOrgs, resolveActiveOrg } from '$lib/server/active-org';
 import { safeRedirect } from '$lib/safeRedirect';
 import type { Organization } from '$lib/types';
 import type { PageServerLoad } from './$types';
+
+/** Read the user id (sub claim) out of the freshly-issued JWT. The hooks
+ *  handle hasn't seen the cookie yet on this request, so locals.user is not
+ *  populated; verification is the server's job — we just need the id to
+ *  filter memberships. */
+function jwtSub(token: string): string | null {
+  try {
+    const [, payload] = token.split('.');
+    const parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return typeof parsed.sub === 'string' ? parsed.sub : null;
+  } catch {
+    return null;
+  }
+}
 
 export const load: PageServerLoad = async ({ url, cookies }) => {
   const token = url.searchParams.get('token');
@@ -30,10 +44,13 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
 
   const orgs = await fetchAllItems<Organization>(gqlClient(token), ORGANIZATIONS_QUERY, 'organizations')
     .catch(() => [] as Organization[]);
+  // hadron-server#473: a platform admin receives EVERY org here — resolve
+  // the landing org against actual memberships only, or the personal-org
+  // fallback could land the admin in another user's personal org.
   const { activeOrgId } = resolveActiveOrg({
     paramsId: undefined,
     lastActiveOrgId: null,
-    myOrganizations: orgs,
+    myOrganizations: filterToMemberOrgs(orgs, jwtSub(token)),
   });
   redirect(303, activeOrgId ? `/app/orgs/${activeOrgId}/` : '/app/orgs/');
 };
