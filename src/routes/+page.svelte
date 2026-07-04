@@ -76,6 +76,16 @@
 
 <!-- Hero -->
 <section class="mx-auto max-w-7xl px-4 pb-16 pt-24 text-center">
+  <img
+    src="/img/hadron-logo-01-round-w-name-1024.png"
+    alt="Hadron"
+    class="mx-auto mb-10 block h-16 w-auto dark:hidden sm:h-20"
+  />
+  <img
+    src="/img/hadron-logo-01-round-w-name-dark-1024.png"
+    alt="Hadron"
+    class="mx-auto mb-10 hidden h-16 w-auto dark:block sm:h-20"
+  />
   <h1 class="mb-6 text-5xl font-bold tracking-tight text-zinc-900 dark:text-white sm:text-6xl">
     Deep Memory for AI
   </h1>
