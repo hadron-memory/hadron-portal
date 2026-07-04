@@ -35,6 +35,18 @@
   );
   const activeOrgId = $derived(pageData.activeOrgId ?? null);
   const orgs = $derived(pageData.navOrgs ?? []);
+
+  // Primary marketing links. Rendered inline on sm+ and inside the mobile
+  // menu below sm, so both stay in sync from one source.
+  const navLinks = [
+    { href: '/', label: 'Home' },
+    { href: 'https://docs.hadronmemory.com', label: 'Docs', external: true },
+    { href: '/contact', label: 'Contact' },
+    { href: '/about', label: 'About' },
+  ];
+
+  // Below sm the inline links collapse into this toggled panel.
+  let mobileMenuOpen = $state(false);
 </script>
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
@@ -61,13 +73,19 @@
     <!-- Right side: nav links + auth + theme -->
     <div class="flex items-center gap-2">
       <div class="hidden items-center gap-1 text-sm sm:flex">
-        <a href="/" class="rounded-md px-3 py-1.5 transition {dark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'}">Home</a>
-        <a href="https://docs.hadronmemory.com" target="_blank" rel="noopener" class="inline-flex items-center gap-1 rounded-md px-3 py-1.5 transition {dark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'}">
-          Docs
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="opacity-50"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        </a>
-        <a href="/contact" class="rounded-md px-3 py-1.5 transition {dark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'}">Contact</a>
-        <a href="/about" class="rounded-md px-3 py-1.5 transition {dark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'}">About</a>
+        {#each navLinks as link}
+          <a
+            href={link.href}
+            target={link.external ? '_blank' : undefined}
+            rel={link.external ? 'noopener' : undefined}
+            class="inline-flex items-center gap-1 rounded-md px-3 py-1.5 transition {dark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100'}"
+          >
+            {link.label}
+            {#if link.external}
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="opacity-50"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            {/if}
+          </a>
+        {/each}
       </div>
 
       {#if user && !showCommandBar}
@@ -107,6 +125,46 @@
           </svg>
         {/if}
       </button>
+
+      <!-- Mobile menu toggle: the inline links hide below sm, so surface them here. -->
+      <button
+        type="button"
+        onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
+        class="rounded-md p-1.5 transition sm:hidden {dark ? 'text-zinc-400 hover:text-white' : 'text-zinc-500 hover:text-zinc-900'}"
+        aria-label="Menu"
+        aria-expanded={mobileMenuOpen}
+        aria-controls="mobile-menu"
+      >
+        {#if mobileMenuOpen}
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        {:else}
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        {/if}
+      </button>
     </div>
   </div>
+
+  <!-- Mobile menu panel: the sm+ inline links, revealed on toggle below sm. -->
+  {#if mobileMenuOpen}
+    <div id="mobile-menu" class="border-t px-2 py-2 sm:hidden {dark ? 'border-zinc-800' : 'border-zinc-200'}">
+      {#each navLinks as link}
+        <a
+          href={link.href}
+          target={link.external ? '_blank' : undefined}
+          rel={link.external ? 'noopener' : undefined}
+          onclick={() => (mobileMenuOpen = false)}
+          class="flex items-center gap-1.5 rounded-md px-3 py-2 text-sm transition {dark ? 'text-zinc-300 hover:text-white hover:bg-zinc-800' : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-100'}"
+        >
+          {link.label}
+          {#if link.external}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="opacity-50"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          {/if}
+        </a>
+      {/each}
+    </div>
+  {/if}
 </nav>
