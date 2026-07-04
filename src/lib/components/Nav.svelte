@@ -41,7 +41,7 @@
   <div class="flex items-center justify-between gap-4 px-4 py-3">
     <!-- Logo -->
     <a href="/" class="shrink-0">
-      <img src="/img/hadron-logo-01-square-1000.png" alt="Hadron" class="h-9 w-auto" />
+      <img src="/img/hadron-logo-01-square-256.png" alt="Hadron" class="h-9 w-auto" />
     </a>
 
     <!-- #320: command/search bar — signed-in users, inside the app shell only.
