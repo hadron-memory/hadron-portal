@@ -41,12 +41,10 @@
   <div class="flex items-center justify-between gap-4 px-4 py-3">
     <!-- Logo -->
     <a href="/" class="shrink-0">
-      <!-- Symbol-only on mobile (opaque disc reads on either theme); full wordmark on sm+ -->
-      <img src="/img/hadron-logo-01-round-symbol-128.png" alt="Hadron" class="h-8 w-auto sm:hidden" />
       <img
-        src={dark ? '/img/hadron-logo-01-round-w-name-dark-1024.png' : '/img/hadron-logo-01-round-w-name-1024.png'}
+        src={dark ? '/img/hadron-logo-01-round-dark-128.png' : '/img/hadron-logo-01-round-128.png'}
         alt="Hadron"
-        class="hidden h-8 w-auto sm:block"
+        class="h-8 w-auto"
       />
     </a>
 
