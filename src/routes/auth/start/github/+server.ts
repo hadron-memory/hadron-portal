@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/public';
 import { randomBytes } from 'node:crypto';
+import { safeRedirect } from '$lib/safeRedirect';
 import type { RequestHandler } from './$types';
 
 /**
@@ -16,13 +17,13 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = ({ url, cookies }) => {
   const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
 
-  // Post-auth destination — a portal-local path. Reject anything that could be
-  // an open redirect (absolute/protocol-relative); fall back to the dashboard.
-  const requested = url.searchParams.get('redirect');
-  const dest =
-    requested && requested.startsWith('/') && !requested.startsWith('//')
-      ? requested
-      : '/app/dashboard';
+  // Post-auth destination — must be a portal-local path. Validate with the
+  // shared #439 helper (rejects absolute, protocol-relative, AND backslash-
+  // obfuscated `/\evil` targets that some clients normalize to `//`); fall back
+  // to the dashboard otherwise. The callback re-validates too (defense in
+  // depth), but this entry point must not forward an unsafe target into the
+  // OAuth round-trip in the first place (Codex #459 P2).
+  const dest = safeRedirect(url.searchParams.get('redirect'));
 
   const clientState = randomBytes(32).toString('hex');
   cookies.set('hadron_login_state', clientState, {

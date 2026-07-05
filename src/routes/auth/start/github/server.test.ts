@@ -63,4 +63,11 @@ describe('/auth/start/github', () => {
     const thrown = runGet(makeEvent('//evil.example'));
     expect(new URL(thrown.location).searchParams.get('redirect')).toBe('/app/dashboard');
   });
+
+  it('falls back for a backslash-obfuscated redirect (#459 P2)', () => {
+    // Some clients normalize /\evil.example to //evil.example — must not be
+    // forwarded into the OAuth flow as a local path.
+    const thrown = runGet(makeEvent('/\\evil.example/path'));
+    expect(new URL(thrown.location).searchParams.get('redirect')).toBe('/app/dashboard');
+  });
 });
