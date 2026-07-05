@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { afterNavigate } from '$app/navigation';
   import CommandBar from './CommandBar.svelte';
 
   interface Props {
@@ -47,6 +48,11 @@
 
   // Below sm the inline links collapse into this toggled panel.
   let mobileMenuOpen = $state(false);
+
+  // Close the mobile panel after any in-app navigation — covers running a
+  // CommandBar command (which navigates internally, with no link click to
+  // hook). External/new-tab links don't navigate, so those close via onclick.
+  afterNavigate(() => (mobileMenuOpen = false));
 </script>
 
 <nav class="border-b {dark ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-white'}">
@@ -151,6 +157,11 @@
   <!-- Mobile menu panel: the sm+ inline links, revealed on toggle below sm. -->
   {#if mobileMenuOpen}
     <div id="mobile-menu" class="border-t px-2 py-2 sm:hidden {dark ? 'border-zinc-800' : 'border-zinc-200'}">
+      {#if showCommandBar}
+        <div class="px-1 pb-2">
+          <CommandBar {dark} {activeOrgId} {orgs} />
+        </div>
+      {/if}
       {#each navLinks as link}
         <a
           href={link.href}
