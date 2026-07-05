@@ -1,4 +1,5 @@
 import { redirect } from '@sveltejs/kit';
+import { env } from '$env/dynamic/private';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { ORGANIZATIONS_NAV_QUERY } from '$lib/server/queries';
@@ -22,11 +23,34 @@ function jwtSub(token: string): string | null {
 }
 
 export const load: PageServerLoad = async ({ url, cookies }) => {
-  const token = url.searchParams.get('token');
-  if (!token) redirect(303, '/');
+  // #477: the server hands off a single-use `?code=`, not the JWT. Redeem it
+  // server-to-server so the 30-day JWT arrives in a response body and is seated
+  // as an HttpOnly cookie here — it never rides in a browser-visible URL.
+  const code = url.searchParams.get('code');
+  if (!code) redirect(303, '/');
 
-  const explicitDest = url.searchParams.get('redirect');
+  // GitHub flow: present the browser nonce set at login start so the server can
+  // confirm this is the same browser (session-fixation defense). The email flow
+  // sets no nonce, and the server's code carries no binding — so absence is fine.
+  const clientState = cookies.get('hadron_login_state') ?? undefined;
+  cookies.delete('hadron_login_state', { path: '/auth' });
 
+  const serverUrl = env.LOCAL_SERVER_URL ?? 'http://localhost:4000';
+  let session: { token: string; redirect: string; isNew: boolean } | null = null;
+  try {
+    const res = await fetch(`${serverUrl}/auth/session`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ code, clientState }),
+    });
+    if (res.ok) session = (await res.json()) as { token: string; redirect: string; isNew: boolean };
+  } catch {
+    // network error — fall through to the failure redirect below
+  }
+  // redirect() throws, so it must run OUTSIDE the try (a catch would swallow it).
+  if (!session) redirect(303, '/signin?error=auth');
+
+  const token = session.token;
   cookies.set('hadron_token', token, {
     path: '/',
     httpOnly: true,
@@ -35,12 +59,13 @@ export const load: PageServerLoad = async ({ url, cookies }) => {
     maxAge: 60 * 60 * 24 * 30, // 30 days
   });
 
-  // Honor an explicit ?redirect=... if the caller supplied one (e.g. a
-  // sign-in initiated from a protected URL); otherwise resolve the active
-  // org and skip the /app/dashboard 303→302 chain. #439: validate it is a
-  // same-origin local path — an attacker-supplied absolute/protocol-relative
-  // URL would otherwise open-redirect the authenticated victim off-site.
-  if (explicitDest) redirect(303, safeRedirect(explicitDest));
+  // Honor the server-provided destination (e.g. sign-in from a protected URL, or
+  // the new-user /app/setup); otherwise resolve the active org and skip the
+  // /app/dashboard 303→302 chain. #439: the destination originates from the
+  // caller-supplied `redirect` at login start, so validate it is a same-origin
+  // local path — an absolute/protocol-relative URL would otherwise open-redirect
+  // the authenticated victim off-site.
+  if (session.redirect && session.redirect !== '/') redirect(303, safeRedirect(session.redirect));
 
   const orgs = await fetchAllItems<Organization>(gqlClient(token), ORGANIZATIONS_NAV_QUERY, 'organizations')
     .catch(() => [] as Organization[]);

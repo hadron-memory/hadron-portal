@@ -6,10 +6,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AI_SERVICE_CONFIGS_QUERY } from '$lib/server/queries';
 
-// `$env/dynamic/private` is a SvelteKit virtual module; vitest skips the
-// SvelteKit plugin. The integrations +page.server.ts imports `env` for the
+// `$env/dynamic/*` are SvelteKit virtual modules; vitest skips the SvelteKit
+// plugin. The integrations +page.server.ts imports both for the
 // `connectExchange` action — these load() tests don't exercise it.
 vi.mock('$env/dynamic/private', () => ({ env: {} }));
+vi.mock('$env/dynamic/public', () => ({ env: {} }));
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({

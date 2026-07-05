@@ -15,8 +15,10 @@
   const postAuthRedirect = $derived(
     redirectTo ?? (memoryId ? `/browse?addMemory=${memoryId}` : '/app/dashboard')
   );
+  // #477: go through the portal's own /auth/start/github so it can set the
+  // session-fixation nonce cookie before bouncing to the server's OAuth start.
   const githubUrl = $derived(
-    `${serverUrl}/auth/github?redirect=${encodeURIComponent(postAuthRedirect)}`
+    `/auth/start/github?redirect=${encodeURIComponent(postAuthRedirect)}`
   );
 
   let email = $state('');
