@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { env as publicEnv } from '$env/dynamic/public';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
@@ -86,11 +87,33 @@ export const actions: Actions = {
   },
 
   connectExchange: async ({ params, locals }) => {
-    // Redirect to hadron-server's Microsoft OAuth endpoint
-    const serverUrl = env.LOCAL_SERVER_URL ?? 'http://localhost:4000';
+    // #477 Sink 2: start Microsoft OAuth server-to-server with the Bearer token
+    // (over LOCAL_SERVER_URL) and get back a single-use nonce, THEN redirect the
+    // browser (to PUBLIC_SERVER_URL) with only the nonce. The 30-day JWT never
+    // rides in the browser URL / access logs.
+    const localUrl = env.LOCAL_SERVER_URL ?? 'http://localhost:4000';
+    const publicUrl = publicEnv.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
     const integrationsPath = `/app/orgs/${params.id}/integrations`;
-    const authUrl = `${serverUrl}/auth/microsoft?orgId=${params.id}&redirect=${encodeURIComponent(integrationsPath)}&token=${locals.token}`;
-    redirect(303, authUrl);
+
+    let nonce: string;
+    try {
+      const res = await fetch(`${localUrl}/auth/microsoft/start`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${locals.token}`,
+        },
+        body: JSON.stringify({ orgId: params.id, redirect: integrationsPath }),
+      });
+      if (!res.ok) {
+        return fail(res.status, { exchangeError: 'Failed to start Microsoft sign-in.' });
+      }
+      ({ nonce } = (await res.json()) as { nonce: string });
+    } catch {
+      return fail(500, { exchangeError: 'Could not reach the server to start sign-in.' });
+    }
+    // redirect() throws — must run outside the try so the catch can't swallow it.
+    redirect(303, `${publicUrl}/auth/microsoft?nonce=${encodeURIComponent(nonce)}`);
   },
 
   deleteExchangeConnection: async ({ request, locals }) => {

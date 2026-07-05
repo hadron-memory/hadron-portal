@@ -1,6 +1,5 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { env } from '$env/dynamic/public';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -14,7 +13,6 @@
     maxActivations?: number;
   } | null);
 
-  const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
   const expired = $derived(inv?.expiresAt ? new Date(inv.expiresAt) < new Date() : false);
   const maxedOut = $derived(inv?.maxActivations ? inv.activationCount >= inv.maxActivations : false);
 </script>
@@ -93,7 +91,7 @@
               <hr class="flex-1 border-zinc-700" />
             </div>
 
-            <a href="{serverUrl}/auth/github?redirect=/invite/{data.slug}" class="block w-full rounded-lg bg-zinc-800 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-zinc-700">
+            <a href="/auth/start/github?redirect=/invite/{data.slug}" class="block w-full rounded-lg bg-zinc-800 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-zinc-700">
               Sign in with GitHub
             </a>
           </div>
