@@ -1,9 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { env } from '$env/dynamic/public';
   import { isLocalPath } from '$lib/safeRedirect';
-
-  const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
 
   // If coming from marketplace with a memory param, redirect back there after auth
   const memoryId = $derived(page.url.searchParams.get('memory') ?? page.url.searchParams.get('graph'));
@@ -31,10 +28,12 @@
     error = '';
     loading = true;
     try {
-      const res = await fetch(`${serverUrl}/auth/email`, {
+      // #505: go through the portal's /auth/start/email so it can set the
+      // session-fixation nonce cookie before the server sends the link.
+      const res = await fetch('/auth/start/email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, ...(redirectTo ? { redirect: redirectTo } : {}) }),
       });
       if (!res.ok) {
         const data = await res.json();
