@@ -813,14 +813,14 @@
               </select>
             </div>
             <div>
-              <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Memory <span class="text-zinc-500">(for chatbot conversations)</span></label>
+              <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Memory <span class="text-zinc-500">(for conversations, automations, and more)</span></label>
               <select id="editSystemMemoryId" name="systemMemoryId" value={agent.systemMemoryId ?? ''} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                 <option value="">— None —</option>
                 {#each orgSystemMemories as sm}
                   <option value={sm.id}>{sm.name} ({sm.urn})</option>
                 {/each}
               </select>
-              <p class="mt-1 text-xs text-zinc-400">Memory containing conversation designs, stages, and prompt templates.</p>
+              <p class="mt-1 text-xs text-zinc-400">Memory the agent uses for conversations, automations, and other tasks.</p>
             </div>
             <div class="flex gap-3">
               <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
