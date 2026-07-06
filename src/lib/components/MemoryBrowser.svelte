@@ -198,6 +198,39 @@
   $effect(() => { graphState.searchFilter = keyword; });
   onDestroy(() => { graphState.searchFilter = ''; });
 
+  // #429: structured server-side dimensions the slim loaded set can't answer
+  // client-side. `myNodesOnly` → findNodes filter.createdBy (needs the caller's
+  // id); `changedSince` → filter.updatedAfter; `sortMode` → server sort. These,
+  // plus a text query, put the browser into "server view" (serverResults is the
+  // working set); the memory/type/tag/hidden filters still refine client-side.
+  const currentUserId = $derived(
+    ($page.data as { user?: { id?: string | null } | null }).user?.id ?? null,
+  );
+  let myNodesOnly = $state(false);
+  let changedSince = $state<'any' | '24h' | '7d' | '30d'>('any');
+  // 'loc' is the natural browse order and does NOT force a server fetch;
+  // updatedAt/relevance require the server (not in the slim loaded set).
+  let sortMode = $state<'loc' | 'updatedAt' | 'relevance'>('loc');
+
+  const changedSinceIso = $derived.by(() => {
+    const now = Date.now();
+    const days = changedSince === '24h' ? 1 : changedSince === '7d' ? 7 : changedSince === '30d' ? 30 : 0;
+    return days ? new Date(now - days * 24 * 60 * 60 * 1000).toISOString() : null;
+  });
+  const serverFilter = $derived({
+    createdBy: myNodesOnly ? currentUserId : null,
+    updatedAfter: changedSinceIso,
+    updatedBefore: null as string | null,
+  });
+  // In server view, serverResults replaces the loaded set as the working pool.
+  const serverViewActive = $derived(
+    keyword.trim() !== '' ||
+      !!serverFilter.createdBy ||
+      !!serverFilter.updatedAfter ||
+      sortMode === 'updatedAt' ||
+      sortMode === 'relevance',
+  );
+
   // The memory set to search = the distinct memories in the loaded nodes
   // (memory page → one; agent/app → several). Empty ⇒ nothing to search.
   // Derive a STABLE string key, not an array: `nodes` gets a new identity on
@@ -207,17 +240,20 @@
     [...new Set(nodes.map((n) => n.memoryId))].sort().join(','),
   );
 
-  // Server search results: null = not searching (show the normal browse set).
+  // Server search results: null = not in server view (show the normal browse set).
   let serverResults = $state<MemoryNode[] | null>(null);
   let searching = $state(false);
   let searchError = $state<string | null>(null);
   let searchNote = $state<string | null>(null);
+  let searchCapped = $state(false); // server hit the result cap — showing a slice
   let searchSeq = 0; // monotonic — drops out-of-order responses
 
-  async function runSearch(
+  async function runServerFetch(
     q: string,
     mode: 'exact' | 'fuzzy',
     memoryIds: string[],
+    filter: { createdBy: string | null; updatedAfter: string | null; updatedBefore: string | null },
+    sort: 'loc' | 'updatedAt' | 'relevance',
     signal?: AbortSignal,
   ) {
     if (memoryIds.length === 0) { serverResults = []; searching = false; return; }
@@ -225,18 +261,20 @@
     searching = true;
     searchError = null;
     searchNote = null;
+    searchCapped = false;
     try {
       const res = await fetch('/api/nodes/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, mode, memoryIds }),
+        body: JSON.stringify({ query: q, mode, memoryIds, filter, sort }),
         signal,
       });
       const data = await res.json();
-      if (seq !== searchSeq) return; // a newer query superseded this one
+      if (seq !== searchSeq) return; // a newer request superseded this one
       if (!res.ok) { searchError = data.error ?? 'Search failed'; serverResults = []; return; }
       serverResults = data.nodes ?? [];
       searchNote = data.note ?? null;
+      searchCapped = !!data.capped;
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return; // superseded / destroyed
       if (seq !== searchSeq) return;
@@ -247,23 +285,26 @@
     }
   }
 
-  // Debounce typing / toggle changes into a server search; clear immediately
-  // (and cancel any in-flight response) when the box is emptied.
+  // Debounce query / filter / sort changes into a server fetch; clear
+  // immediately (and cancel any in-flight response) when server view turns off.
   $effect(() => {
     const q = keyword.trim();
     const mode = searchMode;
     const idsStr = searchMemoryIdsStr;
-    if (!q) {
+    const filter = serverFilter;
+    const sort = sortMode;
+    if (!serverViewActive) {
       searchSeq++;
       serverResults = null;
       searching = false;
       searchError = null;
       searchNote = null;
+      searchCapped = false;
       return;
     }
     const ids = idsStr ? idsStr.split(',') : [];
     const controller = new AbortController();
-    const timer = setTimeout(() => runSearch(q, mode, ids, controller.signal), 300);
+    const timer = setTimeout(() => runServerFetch(q, mode, ids, filter, sort, controller.signal), 300);
     return () => {
       clearTimeout(timer);
       controller.abort(); // cancel an in-flight fetch on new keystroke / destroy
@@ -292,13 +333,24 @@
     }
   }
 
-  const hasActiveFilters = $derived(activeMemoryUrns.size > 0 || activeNodeTypes.size > 0 || activeTags.size > 0 || keyword.length > 0);
+  const hasActiveFilters = $derived(
+    activeMemoryUrns.size > 0 ||
+      activeNodeTypes.size > 0 ||
+      activeTags.size > 0 ||
+      keyword.length > 0 ||
+      myNodesOnly ||
+      changedSince !== 'any' ||
+      sortMode !== 'loc',
+  );
 
   function clearAllFilters() {
     activeMemoryUrns = new Set();
     activeNodeTypes = new Set();
     activeTags = new Set();
     keyword = '';
+    myNodesOnly = false;
+    changedSince = 'any';
+    sortMode = 'loc';
   }
 
   function toggleMemory(urn: string) {
@@ -589,6 +641,34 @@
         class="px-2.5 py-1 text-xs {searchMode === 'fuzzy' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}">Fuzzy</button>
     </div>
 
+    <!-- #429: My nodes (server-side filter.createdBy) — needs the caller's id -->
+    {#if currentUserId}
+      <button type="button" onclick={() => (myNodesOnly = !myNodesOnly)}
+        title="Show only nodes you created"
+        class="rounded-lg border px-3 py-1.5 text-xs font-medium transition
+          {myNodesOnly ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}"
+      >My nodes</button>
+    {/if}
+
+    <!-- #429: Changed since (server-side filter.updatedAfter) -->
+    <select bind:value={changedSince} title="Filter by when nodes were last updated"
+      class="rounded-lg border px-2 py-1.5 text-xs
+        {changedSince !== 'any' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
+      <option value="any">Any time</option>
+      <option value="24h">Last 24h</option>
+      <option value="7d">Last 7 days</option>
+      <option value="30d">Last 30 days</option>
+    </select>
+
+    <!-- #429: Sort (server-side for updatedAt/relevance; loc is the browse default) -->
+    <select bind:value={sortMode} title="Sort order"
+      class="rounded-lg border px-2 py-1.5 text-xs
+        {sortMode !== 'loc' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
+      <option value="loc">Sort: Location</option>
+      <option value="updatedAt">Sort: Recently updated</option>
+      <option value="relevance">Sort: Best match</option>
+    </select>
+
     {#if searching}
       <span class="text-xs text-zinc-400">Searching…</span>
     {/if}
@@ -643,6 +723,14 @@
   {#if serverResults !== null && (searchError || searchNote)}
     <div class="text-xs {searchError ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}">
       {searchError ?? searchNote}
+    </div>
+  {/if}
+
+  <!-- #429: the server result set is capped — say so instead of implying these
+       are all the matches. -->
+  {#if serverResults !== null && searchCapped}
+    <div class="text-xs text-amber-600 dark:text-amber-400">
+      Showing the first {(serverResults?.length ?? 0).toLocaleString()} matches — narrow the filters to see fewer.
     </div>
   {/if}
 
