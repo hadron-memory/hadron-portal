@@ -8,6 +8,7 @@ import {
   RESOLVE_AI_CONFIG_QUERY,
 } from '$lib/server/queries';
 import { callAgentChatLlm } from '$lib/server/llm/agentChatLlm.js';
+import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { AIProvider, AiConfigOwnerType, AiServiceConfig } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -135,6 +136,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
 
     case 'test': {
+      // #467: this drives a real LLM call — and the saved-config path burns the
+      // org's server-stored provider budget — so bound it per user like the
+      // other tester endpoints (#441). Without it a co-tenant could loop this to
+      // drain budget / occupy the adapter process.
+      const limited = rateLimitResponse(locals.user?.id ?? locals.token, 'ai-config-test', 20, 60_000);
+      if (limited) return limited;
+
       let provider: string;
       let model: string;
       let apiKey: string;

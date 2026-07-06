@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { REGENERATE_APP_KEY_MUTATION } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 
@@ -21,7 +22,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ rawKey: result.regenerateAppKey.rawKey });
   } catch (e: unknown) {
     return json(
-      { error: e instanceof Error ? e.message : 'Failed to regenerate key' },
+      { error: extractGqlError(e, 'Failed to regenerate key') },
       { status: 500 },
     );
   }

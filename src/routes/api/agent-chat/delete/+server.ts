@@ -1,4 +1,5 @@
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { DELETE_CHAT_MUTATION } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 
@@ -37,7 +38,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Failed to delete chat';
+    const msg = extractGqlError(e, 'Failed to delete chat');
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
