@@ -1328,6 +1328,20 @@ export const MEMORY_EDGES_QUERY = /* GraphQL */ `
   }
 `;
 
+// Full nodes under a loc subtree (memoryId + loc prefix). Used where a caller
+// needs the heavy fields (content/data/createdAt) that the slim memoryNodes
+// projection omits — e.g. team-chat messages under `<chat>:messages:`, which
+// #447 stopped shipping via the memory layout's graphNodes. `locPrefix` maps to
+// a `loc startsWith` match server-side (resolvers.query.node).
+export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
+  ${NODE_FIELDS}
+  query NodesByLocPrefix($memoryId: ID!, $locPrefix: String!, $limit: Int) {
+    findNodes(filter: { memoryIds: [$memoryId], locPrefix: $locPrefix }, limit: $limit) {
+      hits { node { ...NodeFields } }
+    }
+  }
+`;
+
 // Node CONTENT search (issue #355) — keyword/FTS over name+description+content,
 // scoped to a SET of memories (`filter.memoryIds`). Backs the "Exact" toggle of the
 // MemoryBrowser search box; powers /api/nodes/search. NOTE: `mode:keyword` is now

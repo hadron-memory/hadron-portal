@@ -61,10 +61,14 @@ function node(id: string, extra: Partial<SlimNode> = {}): SlimNode {
 function routeMock(opts: {
   nodePages?: SlimNode[][]; // one array per offset page (0, 2000, …)
   total?: number;
-  edges?: SlimEdge[];
+  edges?: SlimEdge[]; // convenience: a single edge page
+  edgePages?: SlimEdge[][]; // explicit multi-page edges
+  edgeTotal?: number;
   nodesThrow?: boolean;
 }) {
-  const { nodePages = [[]], total = 0, edges = [], nodesThrow = false } = opts;
+  const { nodePages = [[]], total = 0, edges, edgePages, edgeTotal, nodesThrow = false } = opts;
+  const ePages = edgePages ?? [edges ?? []];
+  const eTotal = edgeTotal ?? (edges ?? []).length;
   mockRequest.mockImplementation(async (query: string, vars: { offset?: number } = {}) => {
     if (query === MEMORY_BY_ID_QUERY) {
       return { memory: { id: 'mem-1', urn: 'org::mem', name: 'Mem', organizationId: null } };
@@ -75,7 +79,8 @@ function routeMock(opts: {
       return { memoryNodes: { nodes: page, total } };
     }
     if (query === MEMORY_EDGES_QUERY) {
-      return { memoryEdges: { edges, total: edges.length } };
+      const page = ePages[(vars.offset ?? 0) / 2000] ?? [];
+      return { memoryEdges: { edges: page, total: eTotal } };
     }
     if (query === MEMORY_USAGE_SUMMARY_QUERY) return { memoryUsageSummary: [] };
     return {};
@@ -134,6 +139,28 @@ describe('memory-detail layout — slim graph fetch (#447)', () => {
     expect(data.graphNodes).toHaveLength(2001);
     expect(data.nodesTotal).toBe(2001);
     expect(data.graphNodes.some((n) => n.id === 'tail')).toBe(true);
+  });
+
+  it('pages memoryEdges to completion past one page', async () => {
+    // 2 nodes, 2001 edges n1→n2 split across two edge pages: all must be
+    // reconstructed onto n1, proving pageAll() runs for edges too.
+    const firstEdges = Array.from({ length: 2000 }, (_, i) => ({
+      id: `e${i}`,
+      loc: `e${i}`,
+      name: null,
+      sourceId: 'n1',
+      targetId: 'n2',
+    }));
+    routeMock({
+      nodePages: [[node('n1'), node('n2')]],
+      total: 2,
+      edgePages: [firstEdges, [{ id: 'eTail', loc: 'eTail', name: null, sourceId: 'n1', targetId: 'n2' }]],
+      edgeTotal: 2001,
+    });
+    const data = (await (await importLoad())(ev())) as LoadResult;
+    const n1 = data.graphNodes.find((n) => n.id === 'n1')!;
+    expect(n1.outgoingEdges).toHaveLength(2001);
+    expect(n1.outgoingEdges.some((e) => e.id === 'eTail')).toBe(true);
   });
 
   it('flags nodesFailed (and null total, empty nodes) when the fetch errors', async () => {

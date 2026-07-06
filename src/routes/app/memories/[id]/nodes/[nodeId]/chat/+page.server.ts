@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, CREATE_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, CREATE_NODE_MUTATION, NODES_BY_LOC_PREFIX_QUERY } from '$lib/server/queries';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -55,7 +55,23 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // This allows other content (attachments, etc) under the chat without collision.
   const messagesPrefix = `${node.loc}:messages:`;
 
-  let children = ((parentData?.graphNodes ?? []) as MemoryNode[])
+  // #447: the memory layout's graphNodes are now the slim projection (no
+  // content/data/createdAt), so fetch the message children directly with full
+  // fields via the loc-prefix query. Non-fatal on error — an empty thread beats
+  // crashing the chat page.
+  const messagesData = await gqlClient(locals.token)
+    .request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(NODES_BY_LOC_PREFIX_QUERY, {
+      memoryId: params.id,
+      locPrefix: messagesPrefix,
+      limit: 2000,
+    })
+    .catch((err) => {
+      console.error('[chat-page] messages query failed:', err);
+      return { findNodes: { hits: [] as Array<{ node: MemoryNode }> } };
+    });
+
+  let children = messagesData.findNodes.hits
+    .map((h) => h.node)
     .filter((n: MemoryNode) => {
       if (!n?.loc?.startsWith(messagesPrefix)) return false;
       // Only include direct message children (no further nesting)

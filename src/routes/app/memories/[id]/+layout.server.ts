@@ -37,6 +37,12 @@ type SlimEdge = { id: string; loc: string; name: string | null; sourceId: string
 // window (the old GRAPH_NODES_QUERY silently capped at 5000).
 const GRAPH_PAGE = 2000;
 
+// The slim projection omits createdAt/updatedAt; no graphNodes consumer reads
+// them (chat messages, which do, fetch full nodes separately), but use a valid
+// ISO sentinel so an accidental `new Date(...)` yields the epoch, not Invalid
+// Date. Matches the fixture-codec fallback convention.
+const EPOCH_ISO = new Date(0).toISOString();
+
 async function pageAll<T>(
   run: (limit: number, offset: number) => Promise<{ items: T[]; total: number }>,
 ): Promise<{ items: T[]; total: number }> {
@@ -135,8 +141,8 @@ function reconstructNodes(
     data: null,
     ownerRepo: null,
     isRunnable: n.isRunnable ?? null,
-    createdAt: '',
-    updatedAt: '',
+    createdAt: EPOCH_ISO,
+    updatedAt: EPOCH_ISO,
     memory: memRef,
     outgoingEdges: outBySource.get(n.id) ?? [],
     incomingEdges: [],
