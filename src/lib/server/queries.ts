@@ -1302,6 +1302,46 @@ export const GRAPH_NODES_QUERY = /* GraphQL */ `
   }
 `;
 
+// #447 / hadron-server#466: slim, paginated graph-fetch primitives that scale
+// past the ~5000-node ceiling of GRAPH_NODES_QUERY. `memoryNodes` returns only
+// what the tree/graph/table draw (no heavy content/abstract/data bodies);
+// `memoryEdges` returns endpoint IDs only. Both are loc-ascending and paged
+// (default 1000, cap 2000). Callers page each to completion, then map edge
+// sourceId/targetId onto the loaded nodes. seq/isRunnable/description added in
+// hadron-server#513 so the tree ordering + action dots + graph tooltips keep
+// full parity with the old full-node fetch.
+export const MEMORY_NODES_QUERY = /* GraphQL */ `
+  query MemoryNodes($memoryId: ID!, $limit: Int, $offset: Int) {
+    memoryNodes(memoryId: $memoryId, limit: $limit, offset: $offset) {
+      nodes { id loc name nodeType tags seq isRunnable description }
+      total
+    }
+  }
+`;
+
+export const MEMORY_EDGES_QUERY = /* GraphQL */ `
+  query MemoryEdges($memoryId: ID!, $limit: Int, $offset: Int) {
+    memoryEdges(memoryId: $memoryId, limit: $limit, offset: $offset) {
+      edges { id loc name sourceId targetId }
+      total
+    }
+  }
+`;
+
+// Full nodes under a loc subtree (memoryId + loc prefix). Used where a caller
+// needs the heavy fields (content/data/createdAt) that the slim memoryNodes
+// projection omits — e.g. team-chat messages under `<chat>:messages:`, which
+// #447 stopped shipping via the memory layout's graphNodes. `locPrefix` maps to
+// a `loc startsWith` match server-side (resolvers.query.node).
+export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
+  ${NODE_FIELDS}
+  query NodesByLocPrefix($memoryId: ID!, $locPrefix: String!, $limit: Int) {
+    findNodes(filter: { memoryIds: [$memoryId], locPrefix: $locPrefix }, limit: $limit) {
+      hits { node { ...NodeFields } }
+    }
+  }
+`;
+
 // Node CONTENT search (issue #355) — keyword/FTS over name+description+content,
 // scoped to a SET of memories (`filter.memoryIds`). Backs the "Exact" toggle of the
 // MemoryBrowser search box; powers /api/nodes/search. NOTE: `mode:keyword` is now
