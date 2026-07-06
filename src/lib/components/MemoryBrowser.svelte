@@ -7,6 +7,7 @@
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { onDestroy } from 'svelte';
+  import { t } from '$lib/i18n/t';
   import type { MemoryNode, TreeEntry } from '$lib/types';
 
   /** Build the URL to a node's detail page, or empty if memory context is missing */
@@ -20,12 +21,20 @@
 
   let {
     nodes,
+    nodesTotal = null,
     basePath = '',
     multiMemory = false,
     writableMemoryIds = [],
     forcedView,
   }: {
     nodes: MemoryNode[];
+    /**
+     * #429: the memory's full server-reported node count. `nodes` is a capped
+     * window (limit 5000), so when `nodesTotal` exceeds it the browse/filter
+     * view is working over a truncated set. Null/absent (agent + app pages)
+     * falls back to the loaded count — no truncation claim.
+     */
+    nodesTotal?: number | null;
     basePath?: string;
     multiMemory?: boolean;
     writableMemoryIds?: string[];
@@ -34,6 +43,12 @@
   } = $props();
 
   const writableSet = $derived(new Set(writableMemoryIds));
+
+  // #429: the loaded window is truncated when the server's full count exceeds
+  // the rows we actually loaded. Drives the "N of M" count + a notice so the
+  // truncation is no longer silent.
+  const displayTotal = $derived(nodesTotal ?? nodes.length);
+  const isTruncated = $derived(nodesTotal != null && nodes.length < nodesTotal);
 
   // Saved-views key for the flat node list (spec 020), scoped to the single
   // memory being browsed. Only set when viewing one memory's detail (basePath
@@ -618,7 +633,7 @@
         </div>
       {/if}
       <span class="text-xs text-zinc-400">
-        {#if serverResults !== null}{searchedNodes.length} result{searchedNodes.length === 1 ? '' : 's'}{:else}{searchedNodes.length}{searchedNodes.length !== nodes.length ? ` / ${nodes.length}` : ''}{/if}
+        {#if serverResults !== null}{searchedNodes.length} result{searchedNodes.length === 1 ? '' : 's'}{:else}{searchedNodes.length}{searchedNodes.length !== displayTotal ? ` / ${displayTotal}` : ''}{/if}
       </span>
     </div>
   </div>
@@ -640,6 +655,20 @@
       {hiddenSearchMatchCount === 1 ? 'match is a record/system node' : 'matches are record/system nodes'}
       hidden by default.
       <button type="button" onclick={() => (showHidden = true)} class="font-medium underline hover:no-underline">Show hidden</button>
+    </div>
+  {/if}
+
+  <!-- #429: the loaded window is capped (5000) — when the memory has more, say
+       so instead of silently truncating. The type/tag filters and the tree/graph
+       reflect only this loaded set; the search box queries the whole memory. -->
+  {#if serverResults === null && isTruncated}
+    <div class="text-xs text-amber-600 dark:text-amber-400">
+      {t(
+        'memory-browser.truncated-notice',
+        'Showing the first {loaded} of {total} nodes. The type/tag filters and the tree/graph reflect only this loaded set; the search box covers the whole memory.',
+      )
+        .replace('{loaded}', nodes.length.toLocaleString())
+        .replace('{total}', (nodesTotal ?? 0).toLocaleString())}
     </div>
   {/if}
 
