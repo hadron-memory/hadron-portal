@@ -1297,6 +1297,7 @@ export const GRAPH_NODES_QUERY = /* GraphQL */ `
           ...NodeFields
         }
       }
+      total
     }
   }
 `;

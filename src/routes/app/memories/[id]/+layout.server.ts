@@ -14,7 +14,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     client.request<{ memory: Memory | null }>(
       MEMORY_BY_ID_QUERY, { id: params.id },
     ),
-    client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
+    client.request<{ findNodes: { hits: Array<{ node: MemoryNode }>; total: number | null } }>(
       GRAPH_NODES_QUERY, { limit: 5000, memoryIds: [params.id] },
     ).catch((err) => {
       console.error('[memory-layout] GRAPH_NODES_QUERY failed:', err);
@@ -49,6 +49,11 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   const nodesFailed = 'failed' in nodesData && nodesData.failed === true;
   const allNodes = 'findNodes' in nodesData ? (nodesData.findNodes?.hits ?? []).map((h) => h.node) : [];
   const memoryNodes = allNodes.filter((n) => n?.memoryId === params.id);
+  // #429: the server-reported full node count for this memory. The loaded
+  // window is capped (limit: 5000), so `total > memoryNodes.length` means the
+  // browse/filter view is working over a truncated set — surface that in the UI
+  // instead of the old silent truncation. Null when the node query failed.
+  const nodesTotal = 'findNodes' in nodesData ? (nodesData.findNodes?.total ?? null) : null;
 
   let treeEntries: ReturnType<typeof buildTreeEntries> = [];
   let graphViewData = null;
@@ -71,6 +76,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     org: orgData.organization,
     graph: memory,
     graphNodes: memoryNodes,
+    nodesTotal,
     nodesFailed,
     treeEntries,
     graphViewData,
