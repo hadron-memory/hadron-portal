@@ -1348,15 +1348,43 @@ export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
 // FTS-ranked (whole-token match, name hits above buried body hits) rather than raw
 // substring — the old "Exact" substring behaviour changes slightly, but keyword is
 // injection-safe (unlike `mode:regex`) for arbitrary search-box input.
-export const NODE_CONTENT_SEARCH_QUERY = /* GraphQL */ `
+// Unified node find — backs /api/nodes/search for all of: text search
+// (keyword/hybrid), the net-new structured filters (createdBy = "my nodes",
+// updatedAfter/Before = "changed since"), and user-selectable sort. `query` is
+// optional — omitting it returns a deterministically-ordered filtered list
+// (cor:api:090). #429.
+export const NODE_FIND_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query NodeContentSearch($memoryIds: [ID!], $search: String, $limit: Int) {
-    findNodes(query: $search, mode: keyword, filter: { memoryIds: $memoryIds }, limit: $limit) {
+  query NodeFind(
+    $query: String
+    $mode: FindNodesMode
+    $sort: NodeSort
+    $memoryIds: [ID!]
+    $createdBy: String
+    $updatedAfter: String
+    $updatedBefore: String
+    $limit: Int
+  ) {
+    findNodes(
+      query: $query
+      mode: $mode
+      sort: $sort
+      limit: $limit
+      filter: {
+        memoryIds: $memoryIds
+        createdBy: $createdBy
+        updatedAfter: $updatedAfter
+        updatedBefore: $updatedBefore
+      }
+    ) {
       hits {
         node {
           ...NodeFields
         }
       }
+      total
+      reason
+      degraded
     }
   }
 `;
@@ -1364,20 +1392,6 @@ export const NODE_CONTENT_SEARCH_QUERY = /* GraphQL */ `
 // Node SEMANTIC search (issue #355) — vector/hybrid over embedded content, scoped
 // to the same memory set. Backs the "Fuzzy" toggle. `reason`/`degraded` surface
 // no-vector-index / embedding-unavailable so the UI can nudge the user to Exact.
-export const NODE_SEMANTIC_SEARCH_QUERY = /* GraphQL */ `
-  ${NODE_FIELDS}
-  query NodeSemanticSearch($query: String, $memoryIds: [ID!], $mode: FindNodesMode, $limit: Int) {
-    findNodes(query: $query, mode: $mode, filter: { memoryIds: $memoryIds }, limit: $limit) {
-      hits {
-        node {
-          ...NodeFields
-        }
-      }
-      reason
-      degraded
-    }
-  }
-`;
 
 // #335: a bare-loc ref is memory-blind — the same loc can exist in many
 // memories and the server REJECTS an unscoped collision (AMBIGUOUS_NODE_LOC).
