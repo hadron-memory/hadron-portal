@@ -74,7 +74,7 @@ describe('memory-detail layout — nodesTotal (#429)', () => {
     expect(data.nodesFailed).toBe(true);
   });
 
-  it('is null when the server omits total (older server)', async () => {
+  it('is null when the server returns a null total (older server)', async () => {
     routeMock({ total: null, hits: 2 });
     const load = await importLoad();
     const data = (await load(ev())) as { nodesTotal: number | null };

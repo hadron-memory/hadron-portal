@@ -7,6 +7,7 @@
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { onDestroy } from 'svelte';
+  import { t } from '$lib/i18n/t';
   import type { MemoryNode, TreeEntry } from '$lib/types';
 
   /** Build the URL to a node's detail page, or empty if memory context is missing */
@@ -662,9 +663,12 @@
        reflect only this loaded set; the search box queries the whole memory. -->
   {#if serverResults === null && isTruncated}
     <div class="text-xs text-amber-600 dark:text-amber-400">
-      Showing the first {nodes.length.toLocaleString()} of {(nodesTotal ?? 0).toLocaleString()} nodes.
-      The type/tag filters and the tree/graph reflect only this loaded set; the search box covers
-      the whole memory.
+      {t(
+        'memory-browser.truncated-notice',
+        'Showing the first {loaded} of {total} nodes. The type/tag filters and the tree/graph reflect only this loaded set; the search box covers the whole memory.',
+      )
+        .replace('{loaded}', nodes.length.toLocaleString())
+        .replace('{total}', (nodesTotal ?? 0).toLocaleString())}
     </div>
   {/if}
 
