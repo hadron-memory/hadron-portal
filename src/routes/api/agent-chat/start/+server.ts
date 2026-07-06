@@ -1,4 +1,5 @@
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
@@ -103,7 +104,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     conversationName = startResult.startChat.conversationName;
     stageName = startResult.startChat.stageName;
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Failed to start chat';
+    const msg = extractGqlError(e, 'Failed to start chat');
     // Spec 017 FR-006 / SC-005 — distinguish ChatScopeError sub-codes so
     // the portal can render an actionable message per failure mode.
     //

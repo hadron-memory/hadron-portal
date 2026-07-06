@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { MOVE_NODE_MUTATION } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 
@@ -17,6 +18,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     await gqlClient(locals.token).request(MOVE_NODE_MUTATION, { from, to, memoryId });
     return json({ ok: true });
   } catch (e: unknown) {
-    return json({ error: e instanceof Error ? e.message : 'Failed to move node' }, { status: 500 });
+    return json({ error: extractGqlError(e, 'Failed to move node') }, { status: 500 });
   }
 };

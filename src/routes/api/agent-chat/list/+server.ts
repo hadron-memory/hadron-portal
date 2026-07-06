@@ -1,4 +1,5 @@
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { MY_CHATS_QUERY } from '$lib/server/queries';
 import type { Chat } from '$lib/types';
 import type { RequestHandler } from './$types';
@@ -31,7 +32,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Failed to list chats';
+    const msg = extractGqlError(e, 'Failed to list chats');
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

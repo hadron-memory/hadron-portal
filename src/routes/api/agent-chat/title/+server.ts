@@ -1,4 +1,5 @@
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { UPDATE_CHAT_TITLE_MUTATION } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 
@@ -38,7 +39,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Failed to update title';
+    const msg = extractGqlError(e, 'Failed to update title');
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

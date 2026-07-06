@@ -1,7 +1,10 @@
 // graphql-request packs the entire request/response payload (query, variables,
-// stack) into `Error.message`. Returning that to the client both leaks internal
-// detail and produces unreadable UI errors. Prefer the server's first GraphQL
-// error message; fall back to the raw message, then a caller-supplied default.
+// stack) into a ClientError's `Error.message`. Returning that to the client
+// leaks internal detail and is unreadable, so prefer the server's first GraphQL
+// error message (`response.errors[0].message`) — that's the #468 fix for the
+// query/variable leak. Fall back to the raw message for non-GraphQL (transport)
+// errors — callers/tests rely on it for message-based branching — then a
+// caller-supplied default.
 export function extractGqlError(e: unknown, fallback: string): string {
   if (e && typeof e === 'object' && 'response' in e) {
     // `response` can be null/undefined on transport errors even though the

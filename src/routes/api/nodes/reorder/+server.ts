@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { NODE_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
 import type { MemoryNode } from '$lib/types';
 import type { RequestHandler } from './$types';
@@ -32,6 +33,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
     return json({ ok: true });
   } catch (e: unknown) {
-    return json({ error: e instanceof Error ? e.message : 'Failed to reorder' }, { status: 500 });
+    return json({ error: extractGqlError(e, 'Failed to reorder') }, { status: 500 });
   }
 };

@@ -1,4 +1,5 @@
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { CHAT_HISTORY_QUERY, MY_CHATS_QUERY } from '$lib/server/queries';
 import type { Chat, ChatMessage } from '$lib/types';
 import type { RequestHandler } from './$types';
@@ -62,7 +63,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Failed to resume chat';
+    const msg = extractGqlError(e, 'Failed to resume chat');
     return new Response(JSON.stringify({ error: msg }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
