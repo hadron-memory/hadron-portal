@@ -513,6 +513,14 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         {tab.label}
       </button>
     {/each}
+    <!-- Runs is a real subroute (deep-linkable from "Test flow" and run
+         records), so it's a link styled as a tab, not an activeTab state. -->
+    <a
+      href="/app/orgs/{org.id}/apps/{app.id}/runs"
+      class="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+    >
+      {t('app.tabs.runs', 'Runs')}
+    </a>
   </div>
 
   <!-- ───────────── CHAT TAB (CHATBOT only) ───────────── -->
