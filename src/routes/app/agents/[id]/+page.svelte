@@ -160,7 +160,13 @@
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
   function urnSlug(urn: string): string {
-    return urn.includes(':') ? urn.split(':').slice(1).join(':') : urn;
+    // The agent slug is the LAST ':'-segment. `Agent.urn` is server-canonicalized
+    // (e.g. `hrn:agent:<org>::<slug>`), so dropping only the FIRST segment left
+    // `agent:<org>::<slug>` in the edit box — which updateAgent would then
+    // slugify back INTO the stored slug, corrupting the URN on save (same class
+    // as the app-detail slugOfUrn bug). Take the final segment only.
+    const idx = urn.lastIndexOf(':');
+    return idx >= 0 ? urn.slice(idx + 1) : urn;
   }
 
   // Ordered most→least restrictive. Spec 034 added GROUP to memory visibility;
