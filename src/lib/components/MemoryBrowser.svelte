@@ -194,7 +194,7 @@
   // highlight matches. `searchMode` is the exact↔fuzzy toggle (the CLI's
   // matchExactly): exact = substring (nodes), fuzzy = semantic (nodeSearch).
   let keyword = $state('');
-  let searchMode = $state<'exact' | 'fuzzy'>('exact');
+  let searchMode = $state<'exact' | 'regex' | 'fuzzy'>('exact');
   $effect(() => { graphState.searchFilter = keyword; });
   onDestroy(() => { graphState.searchFilter = ''; });
 
@@ -251,7 +251,7 @@
 
   async function runServerFetch(
     q: string,
-    mode: 'exact' | 'fuzzy',
+    mode: 'exact' | 'regex' | 'fuzzy',
     memoryIds: string[],
     filter: { createdBy: string | null; updatedAfter: string | null; updatedBefore: string | null },
     sort: 'loc' | 'updatedAt' | 'relevance',
@@ -307,6 +307,22 @@
       return;
     }
     const ids = idsStr ? idsStr.split(',') : [];
+    // #431: validate a regex pattern client-side — the server 400s on invalid
+    // patterns (e.g. an unbalanced `(`); show an inline error instead of firing.
+    if (mode === 'regex' && q) {
+      try {
+        new RegExp(q);
+      } catch {
+        searchSeq++;
+        serverResults = [];
+        searching = false;
+        searchError = 'Invalid regex pattern.';
+        searchNote = null;
+        searchCapped = false;
+        searchSnippets = {};
+        return;
+      }
+    }
     const controller = new AbortController();
     const timer = setTimeout(() => runServerFetch(q, mode, ids, filter, sort, controller.signal), 300);
     return () => {
@@ -635,12 +651,15 @@
     <input type="text" placeholder="Search content…" bind:value={keyword}
       class="w-48 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
 
-    <!-- Exact ↔ Fuzzy (the CLI's matchExactly): exact = substring over
-         name/description/content; fuzzy = semantic vector/hybrid. -->
+    <!-- Search mode (#431): Exact = keyword FTS (whole-word, ranked);
+         Regex = pattern / substring match (foo matches foobar); Fuzzy =
+         semantic vector search (needs a vector index). -->
     <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
-      title="Exact: substring match. Fuzzy: semantic search (needs a vector index).">
+      title="Exact: whole-word keyword match. Regex: pattern / substring match. Fuzzy: semantic search (needs a vector index).">
       <button type="button" onclick={() => searchMode = 'exact'}
         class="px-2.5 py-1 text-xs {searchMode === 'exact' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}">Exact</button>
+      <button type="button" onclick={() => searchMode = 'regex'}
+        class="px-2.5 py-1 text-xs {searchMode === 'regex' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}">Regex</button>
       <button type="button" onclick={() => searchMode = 'fuzzy'}
         class="px-2.5 py-1 text-xs {searchMode === 'fuzzy' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}">Fuzzy</button>
     </div>
