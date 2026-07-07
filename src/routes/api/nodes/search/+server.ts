@@ -88,31 +88,38 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   try {
     let { findNodes: r } = await runFind(findMode, granularity);
+    // Preserve the ORIGINAL degrade reason so the "semantic search unavailable"
+    // note still shows after a fallback (the hybrid re-run may report no reason).
+    let noteReason = r?.reason ?? null;
+    let noteDegraded = r?.degraded ?? null;
     // #430: vector mode powers the passage snippets, but a memory with no
     // vector index (or no embedding backend) returns nothing. Fall back to
     // hybrid (keyword+vector fusion, no passages) so a fuzzy search still
     // returns results everywhere — preserving pre-#430 behavior there.
-    if (
-      findMode === 'vector' &&
-      (r?.reason === 'no_vector_index' || r?.reason === 'embedding_unavailable')
-    ) {
+    if (findMode === 'vector' && (noteReason === 'no_vector_index' || noteReason === 'embedding_unavailable')) {
       ({ findNodes: r } = await runFind('hybrid', null));
+      noteDegraded = noteDegraded ?? r?.degraded ?? null;
     }
-    // #430: keep the best-scoring passage per node → { nodeId: snippet }.
+    const nodes = (r?.hits ?? []).map((h) => h.node);
+    const hitIds = new Set(nodes.map((n) => n.id));
+    // #430: best-scoring passage per node → { nodeId: snippet }, only for nodes
+    // actually present in the results.
     const snippets: Record<string, string> = {};
     const bestScore: Record<string, number> = {};
     for (const p of r?.passages ?? []) {
-      if (!(p.parentNodeId in bestScore) || p.score > bestScore[p.parentNodeId]) {
-        bestScore[p.parentNodeId] = p.score;
+      if (!p?.parentNodeId || typeof p.text !== 'string' || !hitIds.has(p.parentNodeId)) continue;
+      const score = typeof p.score === 'number' ? p.score : 0;
+      if (!(p.parentNodeId in bestScore) || score > bestScore[p.parentNodeId]) {
+        bestScore[p.parentNodeId] = score;
         snippets[p.parentNodeId] = p.text;
       }
     }
     return json({
-      nodes: (r?.hits ?? []).map((h) => h.node),
+      nodes,
       snippets,
       total: r?.total ?? null,
-      capped: (r?.hits?.length ?? 0) >= SEARCH_LIMIT,
-      note: degradeNote(r?.reason, r?.degraded),
+      capped: nodes.length >= SEARCH_LIMIT,
+      note: degradeNote(noteReason, noteDegraded),
     });
   } catch (e: unknown) {
     // Log detail server-side; return a generic message so GraphQL/DB internals

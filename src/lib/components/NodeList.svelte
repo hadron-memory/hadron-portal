@@ -16,6 +16,7 @@
   import ViewTabs from './table/ViewTabs.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+  import { t } from '$lib/i18n/t';
   import type { MemoryNode } from '$lib/types';
 
   let {
@@ -295,10 +296,10 @@
                       {/if}
                     </div>
                     <div class="mt-0.5 truncate"><Urn value={nodeUrn(n)} type="node" size={8} /></div>
-                    {#if snippets[n.id]}
+                    {#if snippets?.[n.id]}
                       <!-- #430: best matching passage from a semantic search. -->
                       <div
-                        title="Best matching passage (semantic search)"
+                        title={t('node-list.best-matching-passage', 'Best matching passage (semantic search)')}
                         class="mt-1 line-clamp-2 rounded border-l-2 border-indigo-300 bg-indigo-50/60 px-2 py-1 text-xs italic text-zinc-600 dark:border-indigo-700 dark:bg-indigo-950/30 dark:text-zinc-400"
                       >…{snippets[n.id]}…</div>
                     {/if}

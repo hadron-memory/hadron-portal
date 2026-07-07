@@ -95,16 +95,17 @@ describe('/api/nodes/search (#429)', () => {
     expect(mockRequest.mock.calls[0][1]).toMatchObject({ mode: 'keyword', granularity: null });
   });
 
-  it('#430: collapses passages to the best-scoring snippet per node', async () => {
+  it('#430: best passage per node, only for nodes present in the hits', async () => {
     mockRequest.mockResolvedValue({
       findNodes: {
-        hits: [{ node: { id: 'n1' } }],
+        hits: [{ node: { id: 'n1' } }, { node: { id: 'n2' } }],
         passages: [
           { parentNodeId: 'n1', text: 'weaker chunk', score: 0.4 },
           { parentNodeId: 'n1', text: 'best chunk', score: 0.9 },
           { parentNodeId: 'n2', text: 'other node chunk', score: 0.7 },
+          { parentNodeId: 'ghost', text: 'not in hits', score: 0.99 }, // dropped
         ],
-        total: 1,
+        total: 2,
         reason: null,
         degraded: null,
       },
