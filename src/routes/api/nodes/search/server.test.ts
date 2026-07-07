@@ -102,10 +102,10 @@ describe('/api/nodes/search (#429)', () => {
   });
 
   it('#431: a BAD_USER_INPUT (bad regex) surfaces as a friendly 400', async () => {
-    // graphql-request throws a ClientError carrying `.response.errors`. The
-    // endpoint logs the caught error server-side; silence console.error so
-    // vitest doesn't re-surface the logged rejection as a test failure.
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // graphql-request throws a ClientError carrying `.response.errors`. Use
+    // `mockRejectedValueOnce` (not the persistent `mockRejectedValue`) so
+    // vitest's spy doesn't leave a floating tracked rejection that surfaces as
+    // a test failure. The endpoint returns 400 before it logs, so no spy needed.
     mockRequest.mockRejectedValueOnce(
       Object.assign(new Error('invalid regex'), {
         response: { errors: [{ message: 'invalid regex', extensions: { code: 'BAD_USER_INPUT' } }] },
@@ -114,7 +114,6 @@ describe('/api/nodes/search (#429)', () => {
     const res = await POST(ev({ query: '(', mode: 'regex', memoryIds: ['m1'] }));
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe('Invalid search pattern.');
-    errSpy.mockRestore();
   });
 
   it('#430: best passage per node, only for nodes present in the hits', async () => {

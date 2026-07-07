@@ -125,15 +125,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       note: degradeNote(noteReason, noteDegraded),
     });
   } catch (e: unknown) {
+    // #431: a regex the server rejects (valid in JS, invalid POSIX) comes back
+    // as BAD_USER_INPUT — an expected, user-driven error. Return a friendly 400
+    // and don't log it (it's not a server fault, just log noise otherwise).
+    if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
+      return json({ error: 'Invalid search pattern.' }, { status: 400 });
+    }
     // Log detail server-side; return a generic message so GraphQL/DB internals
     // (query shapes, schema, server state) aren't leaked to the client (PR #358
     // review — security).
     console.error('[/api/nodes/search] failed:', e);
-    // #431: a regex the server rejects (valid in JS, invalid POSIX) comes back
-    // as BAD_USER_INPUT — surface it as a friendly 400, not a generic 500.
-    if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
-      return json({ error: 'Invalid search pattern.' }, { status: 400 });
-    }
     return json({ error: 'Search failed' }, { status: 500 });
   }
 };
