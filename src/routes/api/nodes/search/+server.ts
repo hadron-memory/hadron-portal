@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { NODE_FIND_QUERY } from '$lib/server/queries';
 import type { MemoryNode } from '$lib/types';
 import type { RequestHandler } from './$types';
@@ -60,7 +61,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // (not hybrid) so we can request `granularity:chunk` and get matching-passage
   // snippets — `hybrid + chunk` is out of scope server-side. Without a vector
   // index the server degrades (reason:no_vector_index) and returns no passages.
-  const findMode = q ? (mode === 'fuzzy' ? 'vector' : 'keyword') : null;
+  // #431: `regex` is a literal/pattern (substring) search — restores the
+  // substring matching lost when the migration mapped Exact→keyword.
+  const findMode = q ? (mode === 'fuzzy' ? 'vector' : mode === 'regex' ? 'regex' : 'keyword') : null;
   const granularity = findMode === 'vector' ? 'chunk' : null;
 
   const client = gqlClient(locals.token);
@@ -126,6 +129,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // (query shapes, schema, server state) aren't leaked to the client (PR #358
     // review — security).
     console.error('[/api/nodes/search] failed:', e);
+    // #431: a regex the server rejects (valid in JS, invalid POSIX) comes back
+    // as BAD_USER_INPUT — surface it as a friendly 400, not a generic 500.
+    if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
+      return json({ error: 'Invalid search pattern.' }, { status: 400 });
+    }
     return json({ error: 'Search failed' }, { status: 500 });
   }
 };
