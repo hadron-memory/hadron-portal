@@ -1359,6 +1359,7 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
     $query: String
     $mode: FindNodesMode
     $sort: NodeSort
+    $granularity: SearchGranularity
     $memoryIds: [ID!]
     $createdBy: String
     $updatedAfter: String
@@ -1369,6 +1370,7 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
       query: $query
       mode: $mode
       sort: $sort
+      granularity: $granularity
       limit: $limit
       filter: {
         memoryIds: $memoryIds
@@ -1381,6 +1383,12 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
         node {
           ...NodeFields
         }
+      }
+      # #430: matching-passage snippets (granularity:chunk, mode:vector only).
+      passages {
+        parentNodeId
+        text
+        score
       }
       total
       reason
