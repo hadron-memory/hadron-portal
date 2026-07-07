@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION } from '$lib/server/queries';
@@ -344,7 +345,7 @@ export const actions: Actions = {
       });
       runId = res.runTask;
     } catch (e: unknown) {
-      return fail(500, { testFlowError: e instanceof Error ? e.message : 'Failed to start the run' });
+      return fail(500, { testFlowError: extractGqlError(e, 'Failed to start the run') });
     }
     redirect(303, `/app/orgs/${orgId}/apps/${appId}/runs/${runId}`);
   },

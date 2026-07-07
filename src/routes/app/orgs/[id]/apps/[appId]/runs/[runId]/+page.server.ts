@@ -1,5 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   APP_QUERY,
@@ -62,7 +63,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(CANCEL_APP_RUN_MUTATION, { id: params.runId });
       return { cancelled: true };
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to cancel run' });
+      return fail(500, { error: extractGqlError(e, 'Failed to cancel run') });
     }
   },
 };
