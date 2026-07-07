@@ -24,7 +24,21 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const client = gqlClient(locals.token);
   const [appData, orgData, configsData] = await Promise.all([
     client.request<{ app: App | null }>(APP_QUERY, { id: params.appId })
-      .catch(() => ({ app: null })),
+      .catch((e) => {
+        // graphql-request throws on ANY GraphQL error even when usable data is
+        // present. A non-critical NULLABLE field erroring (e.g. installedAgentUrn,
+        // whose composeInstalledAgentUrn throws on a malformed app/agent urn)
+        // must not 404 the whole page — salvage the app from the partial
+        // response so it stays viewable/editable. A genuinely missing app (no
+        // data) still falls through to the 404 below. Only a GraphQL error
+        // carries `response`; rethrow transport/network errors so they surface
+        // as a 500, not a misleading 404.
+        if (e && typeof e === 'object' && 'response' in e) {
+          const partial = (e as { response?: { data?: { app?: App | null } } }).response?.data;
+          return { app: partial?.app ?? null };
+        }
+        throw e;
+      }),
     client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id })
       .catch(() => ({ organization: null })),
     // 036: APP-owned named configs. org-ADMIN gated server-side; a non-admin
