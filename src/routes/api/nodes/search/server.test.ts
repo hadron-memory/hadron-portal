@@ -22,6 +22,7 @@ function findNodesResult(hits: number, total: number | null = null) {
   return {
     findNodes: {
       hits: Array.from({ length: hits }, (_, i) => ({ node: { id: `n${i}` } })),
+      passages: [],
       total,
       reason: null,
       degraded: null,
@@ -65,10 +66,52 @@ describe('/api/nodes/search (#429)', () => {
     expect(vars).toMatchObject({ updatedAfter: '2026-07-01T00:00:00.000Z', sort: 'updatedAt' });
   });
 
-  it('maps a fuzzy query to hybrid mode', async () => {
+  it('maps a fuzzy query to vector mode + chunk granularity (#430)', async () => {
     mockRequest.mockResolvedValue(findNodesResult(1));
     await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }));
-    expect(mockRequest.mock.calls[0][1]).toMatchObject({ query: 'foo', mode: 'hybrid' });
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({
+      query: 'foo',
+      mode: 'vector',
+      granularity: 'chunk',
+    });
+  });
+
+  it('#430: falls back to hybrid when the memory has no vector index', async () => {
+    mockRequest
+      .mockResolvedValueOnce({
+        findNodes: { hits: [], passages: [], total: 0, reason: 'no_vector_index', degraded: null },
+      })
+      .mockResolvedValueOnce(findNodesResult(2));
+    const res = await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }));
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ mode: 'vector', granularity: 'chunk' });
+    expect(mockRequest.mock.calls[1][1]).toMatchObject({ mode: 'hybrid', granularity: null });
+    expect((await res.json()).nodes).toHaveLength(2);
+  });
+
+  it('keyword (exact) search requests no chunk granularity', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1));
+    await POST(ev({ query: 'foo', mode: 'exact', memoryIds: ['m1'] }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ mode: 'keyword', granularity: null });
+  });
+
+  it('#430: collapses passages to the best-scoring snippet per node', async () => {
+    mockRequest.mockResolvedValue({
+      findNodes: {
+        hits: [{ node: { id: 'n1' } }],
+        passages: [
+          { parentNodeId: 'n1', text: 'weaker chunk', score: 0.4 },
+          { parentNodeId: 'n1', text: 'best chunk', score: 0.9 },
+          { parentNodeId: 'n2', text: 'other node chunk', score: 0.7 },
+        ],
+        total: 1,
+        reason: null,
+        degraded: null,
+      },
+    });
+    const res = await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }));
+    const body = await res.json();
+    expect(body.snippets).toEqual({ n1: 'best chunk', n2: 'other node chunk' });
   });
 
   it('flags capped when the result hits the limit', async () => {

@@ -246,6 +246,7 @@
   let searchError = $state<string | null>(null);
   let searchNote = $state<string | null>(null);
   let searchCapped = $state(false); // server hit the result cap — showing a slice
+  let searchSnippets = $state<Record<string, string>>({}); // #430 nodeId → matching passage
   let searchSeq = 0; // monotonic — drops out-of-order responses
 
   async function runServerFetch(
@@ -262,6 +263,7 @@
     searchError = null;
     searchNote = null;
     searchCapped = false;
+    searchSnippets = {};
     try {
       const res = await fetch('/api/nodes/search', {
         method: 'POST',
@@ -275,6 +277,7 @@
       serverResults = data.nodes ?? [];
       searchNote = data.note ?? null;
       searchCapped = !!data.capped;
+      searchSnippets = data.snippets ?? {};
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return; // superseded / destroyed
       if (seq !== searchSeq) return;
@@ -300,6 +303,7 @@
       searchError = null;
       searchNote = null;
       searchCapped = false;
+      searchSnippets = {};
       return;
     }
     const ids = idsStr ? idsStr.split(',') : [];
@@ -819,7 +823,7 @@
           <!-- hideSearch: the single search box lives in MemoryBrowser now
                (issue #355 — was two boxes); NodeList's own box would be the
                redundant second field. -->
-          <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} />
+          <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} />
         </div>
       {/if}
     </div>

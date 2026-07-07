@@ -56,31 +56,60 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ nodes: [], total: null });
   }
 
-  // Only a text query carries a retrieval `mode`; a filter-only list ignores it.
-  const findMode = q ? (mode === 'fuzzy' ? 'hybrid' : 'keyword') : null;
+  // Only a text query carries a retrieval `mode`. #430: fuzzy uses `vector`
+  // (not hybrid) so we can request `granularity:chunk` and get matching-passage
+  // snippets — `hybrid + chunk` is out of scope server-side. Without a vector
+  // index the server degrades (reason:no_vector_index) and returns no passages.
+  const findMode = q ? (mode === 'fuzzy' ? 'vector' : 'keyword') : null;
+  const granularity = findMode === 'vector' ? 'chunk' : null;
 
   const client = gqlClient(locals.token);
-  try {
-    const data = await client.request<{
-      findNodes: {
-        hits: Array<{ node: MemoryNode }>;
-        total: number | null;
-        reason: string | null;
-        degraded: string | null;
-      };
-    }>(NODE_FIND_QUERY, {
+  type FindNodesResp = {
+    findNodes: {
+      hits: Array<{ node: MemoryNode }>;
+      passages: Array<{ parentNodeId: string; text: string; score: number }>;
+      total: number | null;
+      reason: string | null;
+      degraded: string | null;
+    };
+  };
+  const runFind = (m: string | null, g: string | null) =>
+    client.request<FindNodesResp>(NODE_FIND_QUERY, {
       query: q || null,
-      mode: findMode,
+      mode: m,
       sort: sortMode,
+      granularity: g,
       memoryIds,
       createdBy,
       updatedAfter,
       updatedBefore,
       limit: SEARCH_LIMIT,
     });
-    const r = data.findNodes;
+
+  try {
+    let { findNodes: r } = await runFind(findMode, granularity);
+    // #430: vector mode powers the passage snippets, but a memory with no
+    // vector index (or no embedding backend) returns nothing. Fall back to
+    // hybrid (keyword+vector fusion, no passages) so a fuzzy search still
+    // returns results everywhere — preserving pre-#430 behavior there.
+    if (
+      findMode === 'vector' &&
+      (r?.reason === 'no_vector_index' || r?.reason === 'embedding_unavailable')
+    ) {
+      ({ findNodes: r } = await runFind('hybrid', null));
+    }
+    // #430: keep the best-scoring passage per node → { nodeId: snippet }.
+    const snippets: Record<string, string> = {};
+    const bestScore: Record<string, number> = {};
+    for (const p of r?.passages ?? []) {
+      if (!(p.parentNodeId in bestScore) || p.score > bestScore[p.parentNodeId]) {
+        bestScore[p.parentNodeId] = p.score;
+        snippets[p.parentNodeId] = p.text;
+      }
+    }
     return json({
       nodes: (r?.hits ?? []).map((h) => h.node),
+      snippets,
       total: r?.total ?? null,
       capped: (r?.hits?.length ?? 0) >= SEARCH_LIMIT,
       note: degradeNote(r?.reason, r?.degraded),
