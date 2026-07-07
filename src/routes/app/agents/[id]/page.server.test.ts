@@ -12,6 +12,7 @@ import {
   ORGANIZATION_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   GRAPH_NODES_QUERY,
+  AGENT_APPS_QUERY,
 } from '$lib/server/queries';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
@@ -55,6 +56,7 @@ function routeMock(opts: {
   org?: { data?: unknown; error?: unknown };
   orgSysMems?: { data?: unknown; error?: unknown };
   nodes?: { data?: unknown; error?: unknown };
+  apps?: { data?: unknown; error?: unknown };
 }) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === ORGANIZATIONS_QUERY) {
@@ -75,6 +77,10 @@ function routeMock(opts: {
     if (query === GRAPH_NODES_QUERY) {
       if (opts.nodes?.error !== undefined) throw opts.nodes.error;
       return opts.nodes?.data ?? { findNodes: { hits: [] } };
+    }
+    if (query === AGENT_APPS_QUERY) {
+      const apps = (opts.apps?.data as unknown[]) ?? [];
+      return { apps: { items: apps, total: apps.length } };
     }
     throw new Error(`Unexpected query passed to mockRequest`);
   });

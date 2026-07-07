@@ -35,8 +35,9 @@
     { accessorKey: 'name', header: t('org-agents.column.name', 'Name'), enableHiding: false, size: 200 }, // identity column
     { accessorKey: 'urn', header: t('org-agents.column.urn', 'URN'), size: 280 },
     { accessorKey: 'description', header: t('org-agents.column.description', 'Description'), size: 280 },
-    // +1 for the agent's own system memory, which isn't part of memoryItems.
-    { accessorFn: (row) => row.memoryItems.length + 1, id: 'memories', header: t('org-agents.column.memories', 'Memories'), size: 100 },
+    // +1 for the agent's own system memory (when it has one) — it isn't part
+    // of memoryItems. Agents without a system memory count only memoryItems.
+    { accessorFn: (row) => row.memoryItems.length + (row.systemMemoryId ? 1 : 0), id: 'memories', header: t('org-agents.column.memories', 'Memories'), size: 100 },
     { id: 'actions', header: t('org-agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170 },
   ];
 

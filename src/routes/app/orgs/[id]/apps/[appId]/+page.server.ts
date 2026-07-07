@@ -30,9 +30,14 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
         // whose composeInstalledAgentUrn throws on a malformed app/agent urn)
         // must not 404 the whole page — salvage the app from the partial
         // response so it stays viewable/editable. A genuinely missing app (no
-        // data) still falls through to the 404 below.
-        const partial = (e as { response?: { data?: { app?: App | null } } })?.response?.data;
-        return { app: partial?.app ?? null };
+        // data) still falls through to the 404 below. Only a GraphQL error
+        // carries `response`; rethrow transport/network errors so they surface
+        // as a 500, not a misleading 404.
+        if (e && typeof e === 'object' && 'response' in e) {
+          const partial = (e as { response?: { data?: { app?: App | null } } }).response?.data;
+          return { app: partial?.app ?? null };
+        }
+        throw e;
       }),
     client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id })
       .catch(() => ({ organization: null })),
