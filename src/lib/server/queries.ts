@@ -1561,6 +1561,33 @@ export const APPS_QUERY = /* GraphQL */ `
   }
 `;
 
+// Slim app list — just enough to map an installed agent → its App (id/name).
+// Used by the org agents page to show an "Open" button for already-installed
+// agents without pulling the heavy AppFields (agent/keys/memory) payload.
+export const ORG_APP_INSTALLS_QUERY = /* GraphQL */ `
+  query OrgAppInstalls($orgId: ID, $limit: Int, $offset: Int) {
+    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+      items { id name agentId }
+      total
+    }
+  }
+`;
+
+// Apps an agent is installed into — for the agent detail page's Apps tab.
+// Omit orgId so `apps` is member-scoped to EVERY app across the caller's orgs
+// (an agent can be installed cross-org). Both `agentId` (primary) and the full
+// `agents` join list are selected so a many-to-many install is caught, and
+// `App.agents` is member-readable (unlike the admin-gated `Agent.apps`), so
+// non-admin members see this too.
+export const AGENT_APPS_QUERY = /* GraphQL */ `
+  query AgentApps($limit: Int, $offset: Int) {
+    apps(limit: $limit, offset: $offset) {
+      items { id name urn organizationId agentId agents { id } }
+      total
+    }
+  }
+`;
+
 // App queries/mutations are defined earlier in this file (above the
 // Memory section) — APP_QUERY, CREATE_APP_MUTATION, UPDATE_APP_MUTATION,
 // DELETE_APP_MUTATION, ADD_AGENT_TO_APP_MUTATION,

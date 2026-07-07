@@ -61,7 +61,12 @@
 
   // URN slug helpers — slug is the part after the org URN's prefix.
   function slugOfUrn(urn: string): string {
-    const idx = urn.indexOf(':');
+    // The app slug is the LAST ':'-segment. `App.urn` is server-canonicalized
+    // (e.g. `hrn:app:<org>::<slug>` / `<org>::<slug>`), so slicing after the
+    // FIRST colon captured the `app:`/`<org>::` prefix — which updateApp then
+    // slugified INTO the stored slug, prepending a garbage `app-<org>-` layer on
+    // every save (the app-…-app-…-agent-… URN corruption that 404'd the page).
+    const idx = urn.lastIndexOf(':');
     return idx >= 0 ? urn.slice(idx + 1) : urn;
   }
 
@@ -77,6 +82,24 @@
   let identifyUserMethod = $state(app.identifyUserMethod);
   let sessionTimeoutSeconds = $state(app.sessionTimeoutSeconds);
   let anonymousTtlDays = $state(app.anonymousTtlDays);
+
+  // The edit fields are $state snapshots seeded once at mount, so after a save
+  // (enhance runs update() → re-loads + resets the form) they drift from the
+  // refreshed `app`. Re-seed from the current `app` every time the form opens
+  // (and on cancel) so Edit always reflects live data — fixes the empty/stale
+  // fields on the second Edit after a save.
+  function syncEditFields() {
+    name = app.name;
+    appSlug = slugOfUrn(app.urn);
+    appType = app.appType;
+    role = app.role;
+    description = app.description ?? '';
+    systemPrompt = app.systemPrompt ?? '';
+    createUserPermission = app.createUserPermission;
+    identifyUserMethod = app.identifyUserMethod;
+    sessionTimeoutSeconds = app.sessionTimeoutSeconds;
+    anonymousTtlDays = app.anonymousTtlDays;
+  }
 
   let keyLabel = $state('');
   let selectedAgentId = $state('');
@@ -578,7 +601,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         <div class="mb-4 flex items-center justify-between">
           <h2 class="font-semibold text-zinc-900 dark:text-white">App</h2>
           {#if !editMode}
-            <button type="button" onclick={() => { editMode = true; }}
+            <button type="button" onclick={() => { syncEditFields(); editMode = true; }}
               class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
               Edit
             </button>
@@ -665,19 +688,8 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             </div>
             <div class="flex gap-2">
               <button type="submit" class="rounded-lg px-4 py-2 text-sm font-semibold text-white" style="background: #fb8500;">Save</button>
-              <button type="button" onclick={() => {
-                editMode = false;
-                name = app.name;
-                appSlug = slugOfUrn(app.urn);
-                appType = app.appType;
-                role = app.role;
-                description = app.description ?? '';
-                systemPrompt = app.systemPrompt ?? '';
-                createUserPermission = app.createUserPermission;
-                identifyUserMethod = app.identifyUserMethod;
-                sessionTimeoutSeconds = app.sessionTimeoutSeconds;
-                anonymousTtlDays = app.anonymousTtlDays;
-              }} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">
+              <button type="button" onclick={() => { editMode = false; syncEditFields(); }}
+                class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">
                 Cancel
               </button>
             </div>

@@ -26,6 +26,8 @@
   let { data }: { data: PageData } = $props();
   const org = $derived(data.org);
   const agents = $derived(org.agents ?? []);
+  // agentId → the App it's installed as (id + name), for the "Open" affordance.
+  const installedByAgent = $derived(data.installedByAgent ?? {});
 
   let globalFilter = $state('');
 
@@ -33,8 +35,9 @@
     { accessorKey: 'name', header: t('org-agents.column.name', 'Name'), enableHiding: false, size: 200 }, // identity column
     { accessorKey: 'urn', header: t('org-agents.column.urn', 'URN'), size: 280 },
     { accessorKey: 'description', header: t('org-agents.column.description', 'Description'), size: 280 },
-    { accessorFn: (row) => row.memoryItems.length, id: 'memories', header: t('org-agents.column.memories', 'Memories'), size: 100 },
-    { id: 'actions', header: t('org-agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 110 },
+    // +1 for the agent's own system memory, which isn't part of memoryItems.
+    { accessorFn: (row) => row.memoryItems.length + 1, id: 'memories', header: t('org-agents.column.memories', 'Memories'), size: 100 },
+    { id: 'actions', header: t('org-agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170 },
   ];
 
   const fmt: Record<string, (v: unknown) => string> = {
@@ -77,9 +80,6 @@
       <p class="text-sm text-zinc-500">Group memories into agents for app subscriptions.</p>
     </div>
     <div class="flex items-center gap-2">
-      <a href="/app/orgs/{org.id}/create-chatbot" class="rounded-lg px-4 py-2 text-sm font-medium text-white" style="background: #fb8500;">
-        New Chatbot Agent
-      </a>
       <a href="/app/orgs/{org.id}/agents/new" class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
         New Agent
       </a>
@@ -108,13 +108,25 @@
         {:else if cell.column.id === 'urn'}
           <Urn value={agent.urn} type="agent" size={8} />
         {:else if cell.column.id === 'actions'}
-          <a
-            href="/app/orgs/{org.id}/agents/install/{agent.id}"
-            class="inline-block rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
-            style="background: #fb8500;"
-          >
-            {installStrings.buttonLabel()}
-          </a>
+          {@const installed = installedByAgent[agent.id]}
+          <div class="flex items-center gap-2">
+            {#if installed}
+              <a
+                href="/app/orgs/{org.id}/apps/{installed.appId}"
+                title={t('org-agents.action.open-title', 'Open the app this agent is installed as')}
+                class="inline-block rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              >
+                {t('org-agents.action.open', 'Open')}
+              </a>
+            {/if}
+            <a
+              href="/app/orgs/{org.id}/agents/install/{agent.id}"
+              class="inline-block rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+              style="background: #fb8500;"
+            >
+              {installStrings.buttonLabel()}
+            </a>
+          </div>
         {:else}
           {@const f = fmt[cell.column.id]}
           <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
