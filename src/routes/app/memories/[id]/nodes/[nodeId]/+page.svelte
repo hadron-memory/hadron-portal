@@ -349,7 +349,10 @@
     `${basePath}/nodes/new?parent=${encodeURIComponent(cleanLocInput(node.loc))}`,
   );
   let moveOpen = $state(false);
-  let moveLoc = $state('');
+  // Full destination node URN (#489): editing the loc segment moves within
+  // the memory; editing the memory segment moves to another memory. Passed
+  // straight to moveNode's targetUrn.
+  let moveTarget = $state('');
   let deleteOpen = $state(false);
 
   const menuActions = $derived<NodeMenuAction[]>([
@@ -380,7 +383,7 @@
       case 'duplicate': duplicateForm?.requestSubmit(); break;
       case 'convert-to-task': convertForm?.requestSubmit(); break;
       case 'move':
-        moveLoc = cleanLocInput(node.loc);
+        moveTarget = fullUrn;
         moveOpen = true;
         break;
       case 'add-child': goto(addChildHref); break;
@@ -785,7 +788,7 @@
       testFlowAppId = '';
       testFlowPayload = '';
       moveOpen = false;
-      moveLoc = '';
+      moveTarget = '';
       deleteOpen = false;
       return;
     }
@@ -1002,17 +1005,20 @@
           </div>
         {/if}
 
-        <!-- Move (#503): relocate within this memory. #489 will add a
-             target-memory picker to this same dialog (moveNode already
-             supports cross-memory via targetUrn). -->
+        <!-- Move (#503/#489): edit the destination node URN. Change the loc
+             segment to relocate within this memory; change the memory segment
+             to move to another memory in the org — moveNode's targetUrn
+             resolves the destination memory by URN. -->
         {#if moveOpen}
           <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close move dialog" onclick={() => (moveOpen = false)}></button>
-          <div class="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+          <div class="absolute right-0 z-40 mt-2 w-96 rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
             <form method="POST" action="?/move" use:enhance class="space-y-3">
               <div>
-                <label for="moveLoc" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">New location (loc)</label>
-                <input id="moveLoc" name="loc" type="text" bind:value={moveLoc} class={inputClass} />
-                <p class="mt-1 text-xs text-zinc-400">Colon-separated path within this memory, e.g. <span class="font-mono">flows:step-1</span>.</p>
+                <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Destination node URN</label>
+                <input id="moveTarget" name="target" type="text" bind:value={moveTarget} spellcheck="false" class="{inputClass} font-mono text-xs" />
+                <p class="mt-1 text-xs text-zinc-400">
+                  <span class="font-mono">org::memory::loc</span> — change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.
+                </p>
               </div>
               {#if form && 'moveError' in form && form.moveError}
                 <p class="text-xs text-red-500">{form.moveError}</p>
@@ -1020,7 +1026,7 @@
               <div class="flex items-center gap-2">
                 <button
                   type="submit"
-                  disabled={!moveLoc.trim() || moveLoc.trim() === cleanLocInput(node.loc)}
+                  disabled={!moveTarget.trim() || moveTarget.trim() === fullUrn}
                   class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >Move node</button>
                 <button type="button" onclick={() => (moveOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>

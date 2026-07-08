@@ -466,27 +466,36 @@ export const actions: Actions = {
     redirect(303, `/app/memories/${node.memoryId}/nodes/${clonedId}`);
   },
 
-  // Move (#503): relocate the node to a new loc within its own memory — the
-  // actions-menu Move dialog. A dedicated action (vs. the loc field on
-  // updateMeta) so Move is a first-class thing; #489 will extend it with a
-  // target-memory picker (moveNode already supports targetUrn cross-memory).
-  // The node PK is stable across a loc move, so we redirect back to it.
+  // Move (#503 / #489): relocate the node via moveNode's targetUrn — a full
+  // destination node URN that may name a DIFFERENT memory (the server
+  // resolves the memory by URN). The dialog submits the full URN; a bare loc
+  // (no `::`) is accepted as a convenience and composed into the current
+  // memory. moveNode keeps the node's PK across the move (even cross-memory),
+  // so we redirect to it — the node page's load 303s to the destination
+  // memory's URL when node.memoryId no longer matches params.id (#237 guard).
   move: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const targetLoc = cleanLocInput(String(fd.get('loc') ?? ''));
-    if (!targetLoc) return fail(400, { moveError: 'Enter a destination location.' });
+    const raw = String(fd.get('target') ?? '').trim();
+    if (!raw) return fail(400, { moveError: 'Enter a destination node URN.' });
 
     const client = gqlClient(locals.token);
     const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
     if (!node) return fail(404, { moveError: 'Node not found' });
     if (!node.memory?.urn) return fail(500, { moveError: 'Node has no memory URN to move by.' });
-    if (targetLoc === node.loc) return { moved: true }; // no-op
+
+    // A fully-qualified node URN (has `::`, or an hrn:/urn: prefix) moves as-is
+    // — possibly to another memory. A bare loc composes into the current
+    // memory (same-memory rename/reparent).
+    const isFullUrn = raw.includes('::') || /^(?:hrn|urn):node:/.test(raw);
+    const targetUrn = isFullUrn ? raw : composeNodeUrn(node.memory.urn, cleanLocInput(raw));
+    // No-op when the destination is where the node already lives. Compare with
+    // the hrn:/urn: prefix stripped — the composed form is canonical (hrn:node:),
+    // but a pasted URN may omit the prefix; both are valid targetUrn inputs.
+    const bare = (u: string) => u.replace(/^(?:hrn|urn):node:/, '');
+    if (bare(targetUrn) === bare(composeNodeUrn(node.memory.urn, node.loc))) return { moved: true };
 
     try {
-      await client.request(MOVE_NODE_MUTATION, {
-        sourceRef: node.id,
-        targetUrn: composeNodeUrn(node.memory.urn, targetLoc),
-      });
+      await client.request(MOVE_NODE_MUTATION, { sourceRef: node.id, targetUrn });
     } catch (e: unknown) {
       const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
       return fail(status, { moveError: extractGqlError(e, 'Failed to move node') });
