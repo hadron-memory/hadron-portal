@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { invalidateAll } from '$app/navigation';
+  import { invalidateAll, goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import DOMPurify from 'dompurify';
   import {
@@ -17,6 +17,7 @@
   import NodeList from '$lib/components/NodeList.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
+  import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { t } from '$lib/i18n/t';
   import { NODE_TYPES, isCanonicalNodeType } from '$lib/node-types';
@@ -340,6 +341,58 @@
       return false;
     }
   });
+
+  // ── Actions menu (#503) ─────────────────────────────────────────────
+  // The header "⋯" menu consolidates node actions; each item flips a panel/
+  // dialog open or fires its form. Merge is deferred to hadron-server#568.
+  const addChildHref = $derived(
+    `${basePath}/nodes/new?parent=${encodeURIComponent(cleanLocInput(node.loc))}`,
+  );
+  let moveOpen = $state(false);
+  // Full destination node URN (#489): editing the loc segment moves within
+  // the memory; editing the memory segment moves to another memory. Passed
+  // straight to moveNode's targetUrn.
+  let moveTarget = $state('');
+  let deleteOpen = $state(false);
+  // #503: opt into a permanent (hard) delete; default is the safe soft delete.
+  let hardDelete = $state(false);
+
+  const menuActions = $derived<NodeMenuAction[]>([
+    { id: 'edit', label: t('node-actions.edit', 'Edit') },
+    { id: 'download', label: t('node-actions.download', 'Download') },
+    { id: 'add-child', label: t('node-actions.add-child', 'Add child') },
+    { id: 'move', label: t('node-actions.move', 'Move') },
+    { id: 'duplicate', label: t('node-actions.duplicate', 'Duplicate') },
+    // Only offered for plain nodes — a task node is already runnable.
+    ...(!node.isRunnable ? [{ id: 'convert-to-task', label: t('node-actions.convert-to-task', 'Convert to task') }] : []),
+    ...(canTestFlow ? [{ id: 'run', label: t('node-actions.run', 'Run') }] : []),
+    { id: 'delete', label: t('node-actions.delete', 'Delete'), danger: true },
+  ]);
+
+  let duplicateForm = $state<HTMLFormElement | null>(null);
+  let convertForm = $state<HTMLFormElement | null>(null);
+
+  function onMenuSelect(id: string) {
+    // Close any sibling panel so only one opens at a time.
+    testFlowOpen = false; downloadOpen = false; moveOpen = false; deleteOpen = false;
+    switch (id) {
+      case 'edit':
+        // Jump to the Settings tab and open its metadata form (#503).
+        activeTab = 'settings';
+        isEditing = true;
+        break;
+      case 'run': testFlowOpen = true; break;
+      case 'duplicate': duplicateForm?.requestSubmit(); break;
+      case 'convert-to-task': convertForm?.requestSubmit(); break;
+      case 'move':
+        moveTarget = fullUrn;
+        moveOpen = true;
+        break;
+      case 'add-child': goto(addChildHref); break;
+      case 'download': downloadOpen = true; break;
+      case 'delete': hardDelete = false; deleteOpen = true; break;
+    }
+  }
 
   // ── Download / export ───────────────────────────────────────────────
   // Server-rendered single-node export (#421 / hadron-server #386). The server's
@@ -736,6 +789,10 @@
       testFlowOpen = false;
       testFlowAppId = '';
       testFlowPayload = '';
+      moveOpen = false;
+      moveTarget = '';
+      deleteOpen = false;
+      hardDelete = false;
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -747,7 +804,12 @@
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 </script>
 
-<svelte:window onkeydown={(e) => { if (downloadOpen && e.key === 'Escape') downloadOpen = false; }} />
+<svelte:window onkeydown={(e) => {
+  // Escape closes whichever header popover is open (only one is at a time —
+  // onMenuSelect closes siblings). PR-504 review (Copilot: Move/Delete a11y).
+  if (e.key !== 'Escape') return;
+  downloadOpen = false; testFlowOpen = false; moveOpen = false; deleteOpen = false;
+}} />
 
 <svelte:head><title>{node.name} &middot; Hadron</title></svelte:head>
 
@@ -794,19 +856,26 @@
         <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
       {/if}
     </div>
-    <div class="shrink-0 flex gap-2">
-      {#if canTestFlow}
-        <!-- Test flow (#478): mint a MANUAL headless run of this node. -->
-        <div class="relative">
-          <button
-            type="button"
-            onclick={() => (testFlowOpen = !testFlowOpen)}
-            aria-haspopup="true"
-            aria-expanded={testFlowOpen}
-            class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-          >
-            ▶ Test flow
-          </button>
+    <div class="shrink-0 flex items-start gap-2">
+      {#if isTeamChat}
+        <a
+          href="{basePath}/nodes/{node.id}/chat"
+          class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
+        >
+          Open chat
+        </a>
+      {/if}
+      <!-- #503: the "⋯" menu is the single entry point for node actions;
+           each item opens one of the panels/dialogs below. -->
+      <NodeActionsMenu actions={menuActions} onselect={onMenuSelect} label={`Actions for ${node.name}`} />
+      <!-- Hidden form the menu's Duplicate item submits (requestSubmit fires
+           the submit event use:enhance intercepts, unlike .submit()). -->
+      <form bind:this={duplicateForm} method="POST" action="?/duplicate" use:enhance class="hidden"></form>
+      <!-- Convert-to-task: flips isRunnable on; enhance re-runs load so the
+           menu item disappears once the node is a task (#503). -->
+      <form bind:this={convertForm} method="POST" action="?/convertToTask" use:enhance class="hidden"></form>
+      <!-- Panels/dialogs opened from the actions menu, anchored to the header. -->
+      <div class="relative">
           {#if testFlowOpen}
             <button
               type="button"
@@ -858,40 +927,9 @@
               </form>
             </div>
           {/if}
-        </div>
-      {/if}
-      {#if isTeamChat}
-        <a
-          href="{basePath}/nodes/{node.id}/chat"
-          class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
-        >
-          Open chat
-        </a>
-      {/if}
-      <!-- Duplicate (#501): cloneNode into <loc>-copy beside this node, then
-           land on the copy. An occupied slot steps the suffix in the action. -->
-      <form method="POST" action="?/duplicate" use:enhance>
-        <button
-          type="submit"
-          class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-        >
-          Duplicate
-        </button>
-      </form>
-      <!-- Download / export — the file is rendered server-side by hadron-server
-           `nodeExport` (via /api/nodes/export); the browser just serves the
-           returned bytes. The portal never re-implements the export codec. -->
-      <div class="relative">
-        <button
-          type="button"
-          onclick={() => (downloadOpen = !downloadOpen)}
-          aria-haspopup="true"
-          aria-expanded={downloadOpen}
-          class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-        >
-          Download
-        </button>
-        {#if downloadOpen}
+          <!-- Download / export — server-rendered file (#421 / hadron-server
+               #386); the portal never re-implements the codec. Menu-triggered. -->
+          {#if downloadOpen}
           <!-- Outside-click backdrop. A real <button> (not a click-only div) so
                it's focusable and dismissible via keyboard/screen reader without
                a11y-ignore comments. Escape also closes — see svelte:window. -->
@@ -974,13 +1012,76 @@
             </button>
           </div>
         {/if}
+
+        <!-- Move (#503/#489): edit the destination node URN. Change the loc
+             segment to relocate within this memory; change the memory segment
+             to move to another memory in the org — moveNode's targetUrn
+             resolves the destination memory by URN. -->
+        {#if moveOpen}
+          <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close move dialog" onclick={() => (moveOpen = false)}></button>
+          <div class="absolute right-0 z-40 mt-2 w-96 rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <!-- Close on success only: a same-node move redirects back to
+                 THIS page (PK stable), so the per-node effect never fires to
+                 reset moveOpen — do it here. Keep open on failure so moveError
+                 shows (PR-504 review, Gemini). -->
+            <form
+              method="POST"
+              action="?/move"
+              use:enhance={() => async ({ result, update }) => { await update(); if (result.type !== 'failure') moveOpen = false; }}
+              class="space-y-3"
+            >
+              <div>
+                <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Destination node URN</label>
+                <input id="moveTarget" name="target" type="text" bind:value={moveTarget} spellcheck="false" class="{inputClass} font-mono text-xs" />
+                <p class="mt-1 text-xs text-zinc-400">
+                  <span class="font-mono">org::memory::loc</span> — change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.
+                </p>
+              </div>
+              {#if form && 'moveError' in form && form.moveError}
+                <p class="text-xs text-red-500">{form.moveError}</p>
+              {/if}
+              <div class="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={!moveTarget.trim() || moveTarget.trim() === fullUrn}
+                  class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >Move node</button>
+                <button type="button" onclick={() => (moveOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
+              </div>
+            </form>
+          </div>
+        {/if}
+
+        <!-- Delete (#503): the same ?/delete action the Settings danger zone
+             uses. The hard-delete checkbox sends hard=true (permanent purge);
+             unchecked = the default soft delete. -->
+        {#if deleteOpen}
+          <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close delete confirmation" onclick={() => (deleteOpen = false)}></button>
+          <div class="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-red-200 bg-white p-4 shadow-xl dark:border-red-900 dark:bg-zinc-900">
+            <form method="POST" action="?/delete" use:enhance class="space-y-3">
+              <p class="text-sm text-zinc-700 dark:text-zinc-200">Delete <span class="font-medium">{node.name}</span>?</p>
+              <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                <input type="checkbox" name="hard" value="true" bind:checked={hardDelete}
+                  class="mt-0.5 rounded border-zinc-300 text-red-600 focus:ring-red-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                <span>
+                  Hard delete
+                  <span class="block text-xs {hardDelete ? 'text-red-500' : 'text-zinc-400'}">
+                    {hardDelete
+                      ? 'Permanently removes the node — it cannot be recovered.'
+                      : 'Off: soft-deletes (hidden, but recoverable server-side).'}
+                  </span>
+                </span>
+              </label>
+              <div class="flex items-center gap-2">
+                <button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500">
+                  {hardDelete ? 'Delete permanently' : 'Delete'}
+                </button>
+                <button type="button" onclick={() => (deleteOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
+              </div>
+            </form>
+          </div>
+        {/if}
       </div>
-      <a
-        href="{basePath}/nodes/new?parent={encodeURIComponent(cleanLocInput(node.loc))}"
-        class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-      >
-        {createNodeStrings.addChildButton()}
-      </a>
     </div>
   </div>
 

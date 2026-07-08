@@ -1565,9 +1565,11 @@ export const UPDATE_NODE_MUTATION = /* GraphQL */ `
 
 // hadron-server#542: deleteNode collapsed (loc, memoryId) into a single
 // nodeRef (a node PK or fully-qualified URN).
+// hard: true permanently removes the row (vs. the default soft-delete's
+// deletedAt). #503.
 export const DELETE_NODE_MUTATION = /* GraphQL */ `
-  mutation DeleteNode($nodeRef: ID!) {
-    deleteNode(nodeRef: $nodeRef)
+  mutation DeleteNode($nodeRef: ID!, $hard: Boolean) {
+    deleteNode(nodeRef: $nodeRef, hard: $hard)
   }
 `;
 

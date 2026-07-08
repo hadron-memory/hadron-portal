@@ -188,7 +188,12 @@ export const actions: Actions = {
     }
   },
 
-  delete: async ({ params, locals }) => {
+  delete: async ({ request, params, locals }) => {
+    // Optional hard delete (#503): the menu's confirm dialog sends hard=true
+    // to purge the row rather than soft-delete it. Absent (Settings danger
+    // zone) → soft delete, the safe default.
+    const fd = await request.formData();
+    const hard = fd.get('hard') === 'true';
     // Load the node to get its loc AND its actual memoryId (#237).
     const data = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
@@ -197,9 +202,9 @@ export const actions: Actions = {
     const node = data.node;
     try {
       // #542: deleteNode takes a single nodeRef — pass the resolved node's PK.
-      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id });
+      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id, hard });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete' });
+      return fail(500, { error: extractGqlError(e, 'Failed to delete') });
     }
     // Redirect to the *actual* memory's list — not the URL's gid, which
     // may have been stale.
@@ -464,6 +469,66 @@ export const actions: Actions = {
       return fail(409, { error: 'Too many copies of this node already exist — rename one first.' });
     }
     redirect(303, `/app/memories/${node.memoryId}/nodes/${clonedId}`);
+  },
+
+  // Move (#503 / #489): relocate the node via moveNode's targetUrn — a full
+  // destination node URN that may name a DIFFERENT memory (the server
+  // resolves the memory by URN). The dialog submits the full URN; a bare loc
+  // (no `::`) is accepted as a convenience and composed into the current
+  // memory. moveNode keeps the node's PK across the move (even cross-memory),
+  // so we redirect to it — the node page's load 303s to the destination
+  // memory's URL when node.memoryId no longer matches params.id (#237 guard).
+  move: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const raw = String(fd.get('target') ?? '').trim();
+    if (!raw) return fail(400, { moveError: 'Enter a destination node URN.' });
+
+    const client = gqlClient(locals.token);
+    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+    if (!node) return fail(404, { moveError: 'Node not found' });
+    if (!node.memory?.urn) return fail(500, { moveError: 'Node has no memory URN to move by.' });
+
+    // A fully-qualified node URN (has `::`, or an hrn:/urn: prefix) moves as-is
+    // — possibly to another memory. A bare loc composes into the current
+    // memory (same-memory rename/reparent).
+    const isFullUrn = raw.includes('::') || /^(?:hrn|urn):node:/.test(raw);
+    const targetUrn = isFullUrn ? raw : composeNodeUrn(node.memory.urn, cleanLocInput(raw));
+    // No-op when the destination is where the node already lives. Compare with
+    // the hrn:/urn: prefix stripped — the composed form is canonical (hrn:node:),
+    // but a pasted URN may omit the prefix; both are valid targetUrn inputs.
+    const bare = (u: string) => u.replace(/^(?:hrn|urn):node:/, '');
+    if (bare(targetUrn) === bare(composeNodeUrn(node.memory.urn, node.loc))) return { moved: true };
+
+    try {
+      await client.request(MOVE_NODE_MUTATION, { sourceRef: node.id, targetUrn });
+    } catch (e: unknown) {
+      const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
+      return fail(status, { moveError: extractGqlError(e, 'Failed to move node') });
+    }
+    redirect(303, `/app/memories/${node.memoryId}/nodes/${node.id}`);
+  },
+
+  // Convert to task (#503): flip isRunnable on so the node can be run headless.
+  // updateNode preserves omitted fields, so this is a minimal patch — no
+  // redirect; enhance re-runs load and the menu item drops off once it's a task.
+  convertToTask: async ({ params, locals }) => {
+    const client = gqlClient(locals.token);
+    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+    if (!node) return fail(404, { error: 'Node not found' });
+    try {
+      await client.request(UPDATE_NODE_MUTATION, {
+        input: {
+          memoryId: node.memoryId,
+          loc: node.loc,
+          // #235: explicit tags pass-through — see updateContent.
+          tags: node.tags ?? [],
+          isRunnable: true,
+        },
+      });
+      return { convertedToTask: true };
+    } catch (e: unknown) {
+      return fail(500, { error: extractGqlError(e, 'Failed to convert node to a task') });
+    }
   },
 
   updateEdges: async ({ request, params, locals }) => {
