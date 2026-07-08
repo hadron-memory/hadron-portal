@@ -1064,7 +1064,7 @@ export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
     $data: JSON
   ) {
     updateEdge(
-      edgeId: $edgeId
+      edgeRef: $edgeId
       name: $name
       description: $description
       isRunnable: $isRunnable
@@ -1140,7 +1140,7 @@ export const FLOW_UPSTREAM_NODE_QUERY = /* GraphQL */ `
 
 export const DELETE_EDGE_MUTATION = /* GraphQL */ `
   mutation DeleteEdge($edgeId: ID!) {
-    deleteEdge(edgeId: $edgeId)
+    deleteEdge(edgeRef: $edgeId)
   }
 `;
 
