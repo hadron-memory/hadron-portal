@@ -574,7 +574,7 @@
     editableEdges.map((e) => ({ targetId: e.targetId, name: e.name || null })),
   ));
 
-  // ── References tab grid (#350) ────────────────────────────────────────
+  // ── Edges tab grid (#350; “References” renamed #490) ────────────────────────────────────────
   // One TanStack table for both directions. Each edge is owned by its source
   // node; the "endpoint" column shows the OTHER node (target for outgoing,
   // source for incoming). "Open" links to the edge detail page, which lives
@@ -692,7 +692,7 @@
 
   type NodeTab = 'content' | 'abstract' | 'data' | 'flow' | 'children' | 'references' | 'settings';
 
-  // Content / Abstract / Data / Flow / References / Settings are always
+  // Content / Abstract / Data / Flow / Edges / Settings are always
   // present; Children only when the node has children. (#256: Content is no
   // longer gated on hasContent — an empty node still needs an authoring
   // surface; Data follows the same always-on rationale so there's a portal
@@ -978,7 +978,7 @@
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
 
-  <!-- Tabs: Content | Abstract | Children (when present) | References | Settings -->
+  <!-- Tabs: Content | Abstract | Children (when present) | Edges | Settings -->
   <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
     <div class="mb-3 flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
       <!-- Always shown (#256) — an empty node still needs an authoring
@@ -1023,7 +1023,7 @@
       <button
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'references' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'references'}
-      >References
+      >Edges
         {#if hasReferences}
           <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span>
         {/if}
@@ -1434,7 +1434,7 @@
       {/key}
     {/if}
 
-    <!-- ═══ REFERENCES TAB ═══ -->
+    <!-- ═══ EDGES TAB (tab key stays 'references' — a rename would dead-link nothing, but listKey below persists saved views; #490) ═══ -->
     {#if activeTab === 'references'}
       <!-- #350: both directions in one TanStack table (Direction · Relationship ·
            Node · URN · Open). "Edit edges" still opens the inline add/remove
@@ -1442,7 +1442,7 @@
            (name, condition, priority, etc.) lives on the edge detail page,
            reached via the row's "Open" link. -->
       <div class="mb-4 flex items-center justify-between">
-        <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">References</h3>
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Edges</h3>
         {#if !editingEdges}
           <button type="button" onclick={startEditEdges}
             class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
@@ -1456,8 +1456,8 @@
           <DataTable
             table={edgeTable}
             listKey="node:references"
-            searchPlaceholder="Search references..."
-            searchAriaLabel="Search references"
+            searchPlaceholder="Search edges..."
+            searchAriaLabel="Search edges"
             bind:globalFilter={edgeFilter}
             maxHeight="max(200px, calc(100vh - 22rem))"
           >
@@ -1478,7 +1478,7 @@
             {/snippet}
           </DataTable>
         {:else}
-          <p class="text-sm text-zinc-400">No references.</p>
+          <p class="text-sm text-zinc-400">No edges.</p>
         {/if}
       {:else}
         <!-- Edit mode: list with remove buttons, add form, save/cancel -->
