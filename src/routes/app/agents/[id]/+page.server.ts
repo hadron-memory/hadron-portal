@@ -6,6 +6,7 @@ import {
   ORGANIZATIONS_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   GRAPH_NODES_QUERY,
+  AGENT_APPS_QUERY,
   UPDATE_AGENT_MUTATION,
   DELETE_AGENT_MUTATION,
   ADD_MEMORY_TO_AGENT_MUTATION,
@@ -63,7 +64,16 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   let agentNodes: MemoryNode[] = [];
   let orgSystemMemories: Memory[] = [];
 
-  const [nodesResult, sysMemResult, configsResult] = await Promise.all([
+  type AgentAppLite = {
+    id: string;
+    name: string;
+    urn: string;
+    organizationId: string;
+    agentId: string | null;
+    agents?: Array<{ id: string }>;
+  };
+
+  const [nodesResult, sysMemResult, configsResult, appsResult] = await Promise.all([
     allMemoryIds.length > 0
       ? client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
           GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
@@ -78,7 +88,18 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     fetchAllItems<AiServiceConfig>(client, AI_SERVICE_CONFIGS_QUERY, 'aiServiceConfigs', {
       ownerType: 'AGENT', ownerId: agent.id,
     }).catch(() => null),
+    // Apps this agent is installed into (member-scoped, all caller orgs).
+    // Non-fatal: on failure the Apps tab just shows none.
+    fetchAllItems<AgentAppLite>(client, AGENT_APPS_QUERY, 'apps').catch(() => [] as AgentAppLite[]),
   ]);
+
+  // An agent can be installed into several apps (as the primary agentId or via
+  // the AppAgent join), and an app can host several agents — match on both.
+  const agentId = agent.id;
+  const installedApps = (appsResult ?? [])
+    .filter((a) => a.agentId === agentId || (a.agents ?? []).some((x) => x.id === agentId))
+    .map((a) => ({ id: a.id, name: a.name, urn: a.urn, orgId: a.organizationId }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   if (nodesResult) {
     const memoryMap = new Map((agent.memoryItems ?? []).map((m) => [m.memory.id, m.memory]));
@@ -93,6 +114,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     agent,
     org,
     agentNodes,
+    installedApps,
     allOrgs: orgs,
     orgSystemMemories,
     agentConfigs: configsResult ?? [],
@@ -108,7 +130,14 @@ export const actions: Actions = {
     const urnSlug = String(fd.get('urnSlug') ?? '').trim() || undefined;
     const description = String(fd.get('description') ?? '').trim() || null;
     const systemPrompt = String(fd.get('systemPrompt') ?? '').trim() || null;
-    const systemMemoryId = String(fd.get('systemMemoryId') ?? '').trim() || null;
+    // '' → OMIT, never null (#488): updateAgent forbids unsetting/changing a
+    // system memory, so an explicit null THROWS when one is attached — and
+    // the form's select can degrade to "— None —" whenever the current
+    // memory is missing from the options (the org-system-memories list is
+    // membership-gated and best-effort). Sending null therefore failed the
+    // WHOLE save, visibility included. Omitting the variable makes the
+    // resolver skip the field; a real first-attach still sends the id.
+    const systemMemoryId = String(fd.get('systemMemoryId') ?? '').trim() || undefined;
     const visibility = String(fd.get('visibility') ?? '').trim() || undefined;
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {

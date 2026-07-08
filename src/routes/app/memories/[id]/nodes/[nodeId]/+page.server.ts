@@ -1,9 +1,13 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
+import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
+import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { isCanonicalNodeType } from '$lib/node-types';
+import { extractionRowsError, rowsToSpec, EXTRACTION_SHAPES, type ExtractionRow, type ExtractionShape } from '$lib/flow/extraction';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -65,7 +69,25 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     breadcrumb.push({ label: parts[i], path: ancestorLoc, nodeId });
   }
 
-  return { node, breadcrumb };
+  // "Test flow" (#478 phase 3): a runnable node can be executed as a MANUAL
+  // headless run via runTask(appRef:) — the button needs the org's Apps to
+  // run as. Best-effort: only offered to org members (org present) on
+  // runnable nodes; a fetch failure just hides the button (auxiliary UI,
+  // not the page's core load — review:no-silent-loader-catch).
+  const org = (parentData as { org?: { id: string } | null }).org;
+  let testFlowApps: Array<{ id: string; name: string }> = [];
+  if (node.isRunnable && org?.id) {
+    try {
+      const apps = await fetchAllItems<{ id: string; name: string }>(
+        gqlClient(locals.token), ORG_APP_INSTALLS_QUERY, 'apps', { orgId: org.id },
+      );
+      testFlowApps = apps.map((a) => ({ id: a.id, name: a.name }));
+    } catch (e) {
+      console.warn('[node-detail] test-flow app list failed:', e);
+    }
+  }
+
+  return { node, breadcrumb, testFlowApps };
 };
 
 export const actions: Actions = {
@@ -276,6 +298,123 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
     }
+  },
+
+  // Flow tab (#478 phase 2): structured editors for data.extractionSpec and
+  // data.output. Merges into the node's CURRENT data (fetched fresh here) so
+  // saving the flow config never clobbers unrelated data keys. Validation
+  // mirrors the server's reserved-name rules (exception/exceptions,
+  // __-prefix) with human messages — the server re-validates at save and run
+  // time; this is the earlier, friendlier gate the issue asks for.
+  updateFlow: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+
+    // Extraction rows arrive as a JSON array of { field, shape, description }.
+    const rowsRaw = String(fd.get('extractionRows') ?? '[]');
+    let rowsParsed: unknown;
+    try {
+      rowsParsed = JSON.parse(rowsRaw);
+    } catch {
+      return fail(400, { flowError: 'Invalid extraction rows' });
+    }
+    if (!Array.isArray(rowsParsed)) return fail(400, { flowError: 'Invalid extraction rows' });
+    const rows: ExtractionRow[] = rowsParsed.map((r) => ({
+      field: typeof r?.field === 'string' ? r.field : '',
+      shape: EXTRACTION_SHAPES.includes(r?.shape) ? (r.shape as ExtractionShape) : 'string',
+      description: typeof r?.description === 'string' ? r.description : '',
+    }));
+    const rowsError = extractionRowsError(rows);
+    if (rowsError) return fail(400, { flowError: rowsError.message });
+
+    // Output spec: empty writeTo = no output spec (the flow's LAST node then
+    // writes the default run record beside itself).
+    const writeTo = String(fd.get('outputWriteTo') ?? '').trim();
+    const mode = String(fd.get('outputMode') ?? 'replace') === 'append' ? 'append' : 'replace';
+    if (writeTo !== '' && !writeTo.includes('::')) {
+      return fail(400, {
+        flowError: 'Output target must be a fully-qualified node URN (org::memory::loc).',
+      });
+    }
+
+    const client = gqlClient(locals.token);
+    try {
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      if (!node) return fail(404, { flowError: 'Node not found' });
+
+      const merged: Record<string, unknown> = {
+        ...(node.data && typeof node.data === 'object' && !Array.isArray(node.data) ? node.data : {}),
+      };
+      if (rows.length > 0) merged.extractionSpec = rowsToSpec(rows);
+      else delete merged.extractionSpec;
+      if (writeTo !== '') merged.output = { writeTo, mode };
+      else delete merged.output;
+
+      await client.request(UPDATE_NODE_MUTATION, {
+        input: {
+          // #237: memoryId from the node, not the URL.
+          memoryId: node.memoryId,
+          loc: node.loc,
+          // #235: explicit tags pass-through — see updateContent.
+          tags: node.tags ?? [],
+          data: merged,
+        },
+      });
+      return { flowSaved: true };
+    } catch (e: unknown) {
+      return fail(500, { flowError: e instanceof Error ? e.message : 'Save failed' });
+    }
+  },
+
+  // "Test flow" (#478 phase 3): mint a MANUAL run for this node via
+  // runTask(urn, appRef:) with an optional JSON trigger payload, then
+  // deep-link to the run detail (the walker executes in the background).
+  testFlow: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const appId = String(fd.get('appId') ?? '').trim();
+    if (!appId) return fail(400, { testFlowError: 'Pick an App to run as.' });
+
+    // Optional trigger payload — reaches conditions/templates at
+    // message.data.<field>, so it must be a JSON OBJECT (named fields).
+    const payloadRaw = String(fd.get('payload') ?? '').trim();
+    let args: Record<string, unknown> | undefined;
+    if (payloadRaw !== '') {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(payloadRaw);
+      } catch {
+        return fail(400, { testFlowError: 'The test payload must be valid JSON.' });
+      }
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return fail(400, { testFlowError: 'The test payload must be a JSON object of named fields.' });
+      }
+      args = parsed as Record<string, unknown>;
+    }
+
+    // The redirect target's org segment comes from the form (the page only
+    // offers the button when the org is known). A stale/wrong value is
+    // harmless: the run detail page URL-corrects to run.organizationId.
+    const orgId = String(fd.get('orgId') ?? '').trim();
+    if (!orgId) return fail(400, { testFlowError: 'Missing organization.' });
+
+    const client = gqlClient(locals.token);
+    let runId: string;
+    try {
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      if (!node) return fail(404, { testFlowError: 'Node not found' });
+      if (!node.memory?.urn) return fail(500, { testFlowError: 'Node has no memory URN to run by.' });
+      const urn = composeNodeUrn(node.memory.urn, node.loc);
+
+      const res = await client.request<{ runTask: string }>(RUN_TASK_APP_MUTATION, {
+        urn,
+        args,
+        appRef: appId,
+        runAsSelf: false,
+      });
+      runId = res.runTask;
+    } catch (e: unknown) {
+      return fail(500, { testFlowError: extractGqlError(e, 'Failed to start the run') });
+    }
+    redirect(303, `/app/orgs/${orgId}/apps/${appId}/runs/${runId}`);
   },
 
   updateEdges: async ({ request, params, locals }) => {

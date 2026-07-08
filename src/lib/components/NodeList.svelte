@@ -16,6 +16,7 @@
   import ViewTabs from './table/ViewTabs.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+  import { t } from '$lib/i18n/t';
   import type { MemoryNode } from '$lib/types';
 
   let {
@@ -26,6 +27,7 @@
     onreorder,
     listKey,
     hideSearch = false,
+    snippets = {},
   }: {
     nodes: MemoryNode[];
     basePath?: string;
@@ -36,6 +38,11 @@
     listKey?: string;
     /** Hide the built-in search box (the owner provides search — issue #355). */
     hideSearch?: boolean;
+    /**
+     * #430: nodeId → best matching-passage snippet, from a semantic search.
+     * When present for a row, rendered under the node name. Empty in browse.
+     */
+    snippets?: Record<string, string>;
   } = $props();
 
   function nodeHref(node: MemoryNode): string {
@@ -289,6 +296,13 @@
                       {/if}
                     </div>
                     <div class="mt-0.5 truncate"><Urn value={nodeUrn(n)} type="node" size={8} /></div>
+                    {#if snippets?.[n.id]}
+                      <!-- #430: best matching passage from a semantic search. -->
+                      <div
+                        title={t('node-list.best-matching-passage', 'Best matching passage (semantic search)')}
+                        class="mt-1 line-clamp-2 rounded border-l-2 border-indigo-300 bg-indigo-50/60 px-2 py-1 text-xs italic text-zinc-600 dark:border-indigo-700 dark:bg-indigo-950/30 dark:text-zinc-400"
+                      >…{snippets[n.id]}…</div>
+                    {/if}
                   </td>
                 {:else if cell.column.id === 'nodeType'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">

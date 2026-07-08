@@ -1,14 +1,17 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
   import VariablePicker from './VariablePicker.svelte';
+  import type { KnownVariable } from './known-variables.js';
   import type { UiClause, UiOperator } from './types.js';
 
   let {
     clause = $bindable(),
     onRemove,
+    extraVariables = [],
   }: {
     clause: UiClause;
     onRemove?: () => void;
+    extraVariables?: ReadonlyArray<KnownVariable>;
   } = $props();
 
   const OPERATORS: ReadonlyArray<{ op: UiOperator; label: string }> = [
@@ -62,7 +65,7 @@
     <label class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500">
       {t('edge-conditions.builder.field', 'Variable')}
     </label>
-    <VariablePicker bind:value={clause.field} />
+    <VariablePicker bind:value={clause.field} {extraVariables} />
   </div>
 
   <div>

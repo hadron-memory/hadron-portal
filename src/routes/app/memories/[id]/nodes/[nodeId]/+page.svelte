@@ -18,7 +18,17 @@
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
+  import { t } from '$lib/i18n/t';
   import { NODE_TYPES, isCanonicalNodeType } from '$lib/node-types';
+  import {
+    EXTRACTION_SHAPES,
+    extractionFieldError,
+    extractionRowsError,
+    outputFromNodeData,
+    rowsFromNodeData,
+    rowsToSpec,
+    type ExtractionRow,
+  } from '$lib/flow/extraction';
   import type { NodeEdge } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
@@ -255,6 +265,82 @@
     } catch { /* no-op */ }
   }
 
+  // ── Flow (#478 phase 2) ─────────────────────────────────────────────
+  // Structured editors for the two flow-node data keys: extractionSpec
+  // (what a headless run pulls out of this node's LLM answer into the run
+  // envelope) and output (where a mid-flow node writes). Saved via the
+  // updateFlow action, which merges into node.data server-side so other
+  // data keys survive untouched.
+  let flowRows = $state<ExtractionRow[]>([]);
+  let outputWriteTo = $state('');
+  let outputMode = $state<'replace' | 'append'>('replace');
+
+  // Re-seed from the node whenever its data changes (navigation and post-
+  // save invalidateAll) — same pattern as the Content/Abstract/Data editors.
+  $effect(() => {
+    flowRows = rowsFromNodeData(node.data);
+    const output = outputFromNodeData(node.data);
+    outputWriteTo = output?.writeTo ?? '';
+    outputMode = output?.mode ?? 'replace';
+  });
+
+  function addFlowRow() {
+    flowRows = [...flowRows, { field: '', shape: 'string', description: '' }];
+  }
+  function removeFlowRow(i: number) {
+    flowRows = flowRows.filter((_, idx) => idx !== i);
+  }
+
+  const flowRowsError = $derived(extractionRowsError(flowRows));
+  const flowRowsJson = $derived(
+    JSON.stringify(flowRows.map((r) => ({ field: r.field, shape: r.shape, description: r.description }))),
+  );
+  // Dirty check against the stored spec (normalized through the same
+  // serializers, so seeded state never counts as a change).
+  const flowDirty = $derived.by(() => {
+    const stored = rowsFromNodeData(node.data);
+    const storedOutput = outputFromNodeData(node.data);
+    return (
+      JSON.stringify(rowsToSpec(flowRows)) !== JSON.stringify(rowsToSpec(stored)) ||
+      outputWriteTo.trim() !== (storedOutput?.writeTo ?? '') ||
+      (outputWriteTo.trim() !== '' && outputMode !== (storedOutput?.mode ?? 'replace'))
+    );
+  });
+  const outputWriteToValid = $derived(
+    outputWriteTo.trim() === '' || outputWriteTo.includes('::'),
+  );
+  const hasFlowConfig = $derived(
+    rowsFromNodeData(node.data).length > 0 || outputFromNodeData(node.data) !== null,
+  );
+  // Same-memory nodes for the output-target datalist (any URN can still be
+  // typed — flows may write to another memory in the org).
+  const outputTargetOptions = $derived(
+    (data.graphNodes ?? [])
+      .filter((n) => n.memoryId === data.graph.id && n.id !== node.id)
+      .map((n) => ({ urn: data.graph.urn ? composeNodeUrn(data.graph.urn, n.loc) : n.loc, name: n.name ?? n.loc })),
+  );
+
+  // ── Test flow (#478 phase 3) ─────────────────────────────────────────
+  // Runnable node + org member ⇒ offer minting a MANUAL headless run via
+  // the testFlow action (runTask(urn, appRef:)), with an optional JSON
+  // trigger payload the flow sees at message.data.<field>. On success the
+  // action redirects to the run detail page.
+  let testFlowOpen = $state(false);
+  let testFlowAppId = $state('');
+  let testFlowPayload = $state('');
+  const testFlowApps = $derived(data.testFlowApps ?? []);
+  const canTestFlow = $derived(!!node.isRunnable && testFlowApps.length > 0);
+  const testFlowPayloadValid = $derived.by(() => {
+    const raw = testFlowPayload.trim();
+    if (raw === '') return true;
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed);
+    } catch {
+      return false;
+    }
+  });
+
   // ── Download / export ───────────────────────────────────────────────
   // Server-rendered single-node export (#421 / hadron-server #386). The server's
   // `nodeExport` field owns the format — `full: true` is the canonical,
@@ -488,7 +574,7 @@
     editableEdges.map((e) => ({ targetId: e.targetId, name: e.name || null })),
   ));
 
-  // ── References tab grid (#350) ────────────────────────────────────────
+  // ── Edges tab grid (#350; “References” renamed #490) ────────────────────────────────────────
   // One TanStack table for both directions. Each edge is owned by its source
   // node; the "endpoint" column shows the OTHER node (target for outgoing,
   // source for incoming). "Open" links to the edge detail page, which lives
@@ -604,17 +690,19 @@
   // URN slug for edit form
   const urnSlug = $derived(node.loc);
 
-  type NodeTab = 'content' | 'abstract' | 'data' | 'children' | 'references' | 'settings';
+  type NodeTab = 'content' | 'abstract' | 'data' | 'flow' | 'children' | 'references' | 'settings';
 
-  // Content / Abstract / Data / References / Settings are always present;
-  // Children only when the node has children. (#256: Content is no longer
-  // gated on hasContent — an empty node still needs an authoring surface;
-  // Data follows the same always-on rationale so there's a portal path to
-  // add structured data to a node that has none.)
+  // Content / Abstract / Data / Flow / Edges / Settings are always
+  // present; Children only when the node has children. (#256: Content is no
+  // longer gated on hasContent — an empty node still needs an authoring
+  // surface; Data follows the same always-on rationale so there's a portal
+  // path to add structured data to a node that has none. Flow (#478) is
+  // always-on for the same reason: turning a plain node into a flow node
+  // needs a surface.)
   const availableTabs = $derived<NodeTab[]>(
     hasChildren
-      ? ['content', 'abstract', 'data', 'children', 'references', 'settings']
-      : ['content', 'abstract', 'data', 'references', 'settings'],
+      ? ['content', 'abstract', 'data', 'flow', 'children', 'references', 'settings']
+      : ['content', 'abstract', 'data', 'flow', 'references', 'settings'],
   );
 
   function defaultTab(): NodeTab {
@@ -645,6 +733,9 @@
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
+      testFlowOpen = false;
+      testFlowAppId = '';
+      testFlowPayload = '';
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -704,6 +795,71 @@
       {/if}
     </div>
     <div class="shrink-0 flex gap-2">
+      {#if canTestFlow}
+        <!-- Test flow (#478): mint a MANUAL headless run of this node. -->
+        <div class="relative">
+          <button
+            type="button"
+            onclick={() => (testFlowOpen = !testFlowOpen)}
+            aria-haspopup="true"
+            aria-expanded={testFlowOpen}
+            class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+          >
+            ▶ Test flow
+          </button>
+          {#if testFlowOpen}
+            <button
+              type="button"
+              class="fixed inset-0 z-10 cursor-default"
+              aria-label="Close test flow panel"
+              onclick={() => (testFlowOpen = false)}
+            ></button>
+            <div class="absolute right-0 z-20 mt-2 w-80 rounded-xl border border-zinc-200 bg-white p-4 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              <form method="POST" action="?/testFlow" use:enhance class="space-y-3">
+                <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                  Runs this node as a one-off headless flow: it executes, extracts its fields, and follows routing edges. You'll land on the live run page.
+                </p>
+                <div>
+                  <label for="testFlowApp" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Run as App</label>
+                  <select id="testFlowApp" name="appId" bind:value={testFlowAppId} required class={inputClass}>
+                    <option value="" disabled>Pick an App…</option>
+                    {#each testFlowApps as app (app.id)}
+                      <option value={app.id}>{app.name}</option>
+                    {/each}
+                  </select>
+                  <p class="mt-1 text-xs text-zinc-400">The run uses this App's budgets and permissions.</p>
+                </div>
+                <div>
+                  <label for="testFlowPayload" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Test payload (optional JSON)</label>
+                  <textarea
+                    id="testFlowPayload"
+                    name="payload"
+                    rows="4"
+                    bind:value={testFlowPayload}
+                    placeholder={'{ "confidence": 0.9 }'}
+                    spellcheck="false"
+                    class="w-full rounded-lg border bg-zinc-50 p-2 font-mono text-xs text-zinc-800 focus:outline-none dark:bg-zinc-950 dark:text-zinc-300 {testFlowPayloadValid ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 dark:border-red-700'}"
+                  ></textarea>
+                  <p class="mt-1 text-xs {testFlowPayloadValid ? 'text-zinc-400' : 'text-red-500'}">
+                    {testFlowPayloadValid
+                      ? 'Fields conditions can branch on — like a trigger would send.'
+                      : 'Must be a JSON object of named fields.'}
+                  </p>
+                </div>
+                {#if form && 'testFlowError' in form && form.testFlowError}
+                  <p class="text-xs text-red-500">{form.testFlowError}</p>
+                {/if}
+                <input type="hidden" name="orgId" value={data.org?.id ?? ''} />
+                <button
+                  type="submit"
+                  disabled={!testFlowAppId || !testFlowPayloadValid}
+                  class="w-full rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >Start test run</button>
+              </form>
+            </div>
+          {/if}
+        </div>
+      {/if}
       {#if isTeamChat}
         <a
           href="{basePath}/nodes/{node.id}/chat"
@@ -822,7 +978,7 @@
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
 
-  <!-- Tabs: Content | Abstract | Children (when present) | References | Settings -->
+  <!-- Tabs: Content | Abstract | Children (when present) | Edges | Settings -->
   <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
     <div class="mb-3 flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
       <!-- Always shown (#256) — an empty node still needs an authoring
@@ -850,6 +1006,14 @@
       >Data
         {#if !hasData}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
       </button>
+      <!-- Always shown (#478) — turning a plain node into a flow node (extract
+           fields, write output) needs an authoring surface. -->
+      <button
+        class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'flow' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+        onclick={() => activeTab = 'flow'}
+      >Flow
+        {#if !hasFlowConfig}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
+      </button>
       {#if hasChildren}
         <button
           class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'children' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
@@ -859,7 +1023,7 @@
       <button
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'references' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'references'}
-      >References
+      >Edges
         {#if hasReferences}
           <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span>
         {/if}
@@ -1051,6 +1215,175 @@
       {/if}
     {/if}
 
+    <!-- ═══ FLOW TAB (#478) ═══ -->
+    {#if activeTab === 'flow'}
+      <div class="max-w-3xl space-y-6">
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">
+          {t(
+            'node.flow.intro',
+            'In a headless run, this node is one step of a flow: the platform runs it, extracts the fields below from the answer, then follows the first matching routing edge. Extracted fields are available to edge conditions and as {{field}} placeholders in downstream node content.',
+          )}
+        </p>
+
+        {#if form && 'flowError' in form && form.flowError}
+          <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.flowError}</div>
+        {/if}
+        {#if form && 'flowSaved' in form && form.flowSaved}
+          <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+            {t('node.flow.saved', 'Flow settings saved.')}
+          </div>
+        {/if}
+
+        <form method="POST" action="?/updateFlow" use:enhance class="space-y-6">
+          <!-- Extraction -->
+          <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+            <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">
+              {t('node.flow.extraction.title', 'Extracted fields')}
+            </h3>
+            <p class="mt-1 text-xs text-zinc-400">
+              {t(
+                'node.flow.extraction.explainer',
+                'After this node runs, these fields are pulled from its answer into the run. Routing conditions can then branch on them.',
+              )}
+            </p>
+
+            {#if flowRows.length === 0}
+              <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+                {t('node.flow.extraction.empty', 'No fields yet — this node runs without extracting anything.')}
+              </p>
+            {:else}
+              <div class="mt-3 space-y-2">
+                {#each flowRows as row, i (i)}
+                  {@const fieldError = extractionFieldError(row.field)}
+                  <div class="flex flex-wrap items-start gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/40">
+                    <div class="w-44">
+                      <label class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500" for="flow-field-{i}">
+                        {t('node.flow.extraction.field', 'Field name')}
+                      </label>
+                      <input
+                        id="flow-field-{i}"
+                        type="text"
+                        bind:value={row.field}
+                        placeholder="confidence"
+                        class="w-full rounded border px-2 py-1 text-xs dark:bg-zinc-900 dark:text-white {fieldError ? 'border-red-400 dark:border-red-700' : 'border-zinc-300 dark:border-zinc-700'}"
+                      />
+                    </div>
+                    <div>
+                      <label class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500" for="flow-shape-{i}">
+                        {t('node.flow.extraction.shape', 'Type')}
+                      </label>
+                      <select
+                        id="flow-shape-{i}"
+                        bind:value={row.shape}
+                        class="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                      >
+                        {#each EXTRACTION_SHAPES as shape (shape)}
+                          <option value={shape}>{shape === 'string[]' ? t('node.flow.extraction.shape.list', 'list of text') : shape}</option>
+                        {/each}
+                      </select>
+                    </div>
+                    <div class="min-w-[12rem] flex-1">
+                      <label class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500" for="flow-desc-{i}">
+                        {t('node.flow.extraction.description', 'Description (helps the model)')}
+                      </label>
+                      <input
+                        id="flow-desc-{i}"
+                        type="text"
+                        bind:value={row.description}
+                        placeholder={t('node.flow.extraction.description.placeholder', 'How confident the answer is, 0 to 1')}
+                        class="w-full rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onclick={() => removeFlowRow(i)}
+                      class="self-end px-2 py-1 text-xs text-zinc-400 hover:text-red-500"
+                      aria-label={t('node.flow.extraction.remove', 'Remove field')}
+                    >×</button>
+                    {#if fieldError && row.field.trim() !== ''}
+                      <p class="basis-full text-xs text-red-500">{fieldError}</p>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+            <button
+              type="button"
+              onclick={addFlowRow}
+              class="mt-3 rounded bg-zinc-200 px-2 py-1 text-xs hover:bg-zinc-300 dark:bg-zinc-700 dark:hover:bg-zinc-600"
+            >+ {t('node.flow.extraction.add', 'Add field')}</button>
+          </section>
+
+          <!-- Output -->
+          <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+            <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">
+              {t('node.flow.output.title', 'Output')}
+            </h3>
+            <p class="mt-1 text-xs text-zinc-400">
+              {t(
+                'node.flow.output.explainer',
+                'Optionally write this node’s answer to a specific node mid-flow. Without this, only the flow’s last node writes — a run record placed beside it automatically.',
+              )}
+            </p>
+            <div class="mt-3 flex flex-wrap items-start gap-3">
+              <div class="min-w-[16rem] flex-1">
+                <label class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500" for="flow-writeto">
+                  {t('node.flow.output.write-to', 'Write to node (URN)')}
+                </label>
+                <input
+                  id="flow-writeto"
+                  type="text"
+                  bind:value={outputWriteTo}
+                  list="flow-writeto-options"
+                  placeholder={t('node.flow.output.write-to.placeholder', 'org::memory::reports:daily')}
+                  class="w-full rounded border px-2 py-1 font-mono text-xs dark:bg-zinc-900 dark:text-white {outputWriteToValid ? 'border-zinc-300 dark:border-zinc-700' : 'border-red-400 dark:border-red-700'}"
+                />
+                <datalist id="flow-writeto-options">
+                  {#each outputTargetOptions as opt (opt.urn)}
+                    <option value={opt.urn}>{opt.name}</option>
+                  {/each}
+                </datalist>
+                {#if !outputWriteToValid}
+                  <p class="mt-1 text-xs text-red-500">
+                    {t('node.flow.output.write-to.invalid', 'Must be a fully-qualified node URN (org::memory::loc), or empty.')}
+                  </p>
+                {/if}
+              </div>
+              <div>
+                <label class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500" for="flow-mode">
+                  {t('node.flow.output.mode', 'Mode')}
+                </label>
+                <select
+                  id="flow-mode"
+                  bind:value={outputMode}
+                  disabled={outputWriteTo.trim() === ''}
+                  class="rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+                >
+                  <option value="replace">{t('node.flow.output.mode.replace', 'replace content')}</option>
+                  <option value="append">{t('node.flow.output.mode.append', 'append to content')}</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <input type="hidden" name="extractionRows" value={flowRowsJson} />
+          <input type="hidden" name="outputWriteTo" value={outputWriteTo.trim()} />
+          <input type="hidden" name="outputMode" value={outputMode} />
+
+          <div class="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={!flowDirty || flowRowsError !== null || !outputWriteToValid}
+              class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40"
+            >{t('node.flow.save', 'Save flow settings')}</button>
+            {#if flowRowsError !== null && flowRows.some((r) => r.field.trim() !== '')}
+              <span class="text-xs text-red-500">{flowRowsError.message}</span>
+            {/if}
+          </div>
+        </form>
+      </div>
+    {/if}
+
     <!-- ═══ CHILDREN TAB ═══ -->
     {#if activeTab === 'children' && hasChildren}
       {#if childDragError}
@@ -1101,7 +1434,11 @@
       {/key}
     {/if}
 
-    <!-- ═══ REFERENCES TAB ═══ -->
+    <!-- ═══ EDGES TAB ═══
+         #490 renamed the visible copy only. The tab key stays 'references'
+         (it is not URL-bound, so renaming is safe but pure churn); the
+         DataTable listKey below MUST stay — it persists users' saved
+         table views. -->
     {#if activeTab === 'references'}
       <!-- #350: both directions in one TanStack table (Direction · Relationship ·
            Node · URN · Open). "Edit edges" still opens the inline add/remove
@@ -1109,7 +1446,7 @@
            (name, condition, priority, etc.) lives on the edge detail page,
            reached via the row's "Open" link. -->
       <div class="mb-4 flex items-center justify-between">
-        <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">References</h3>
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Edges</h3>
         {#if !editingEdges}
           <button type="button" onclick={startEditEdges}
             class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
@@ -1123,8 +1460,8 @@
           <DataTable
             table={edgeTable}
             listKey="node:references"
-            searchPlaceholder="Search references..."
-            searchAriaLabel="Search references"
+            searchPlaceholder="Search edges..."
+            searchAriaLabel="Search edges"
             bind:globalFilter={edgeFilter}
             maxHeight="max(200px, calc(100vh - 22rem))"
           >
@@ -1145,7 +1482,7 @@
             {/snippet}
           </DataTable>
         {:else}
-          <p class="text-sm text-zinc-400">No references.</p>
+          <p class="text-sm text-zinc-400">No edges.</p>
         {/if}
       {:else}
         <!-- Edit mode: list with remove buttons, add form, save/cancel -->

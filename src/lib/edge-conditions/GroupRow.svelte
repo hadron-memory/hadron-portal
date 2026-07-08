@@ -2,16 +2,19 @@
   import { t } from '$lib/i18n/t';
   import ClauseRow from './ClauseRow.svelte';
   import Self from './GroupRow.svelte';
+  import type { KnownVariable } from './known-variables.js';
   import type { UiClause, UiGroup } from './types.js';
 
   let {
     group = $bindable(),
     onRemove,
     depth = 0,
+    extraVariables = [],
   }: {
     group: UiGroup;
     onRemove?: () => void;
     depth?: number;
+    extraVariables?: ReadonlyArray<KnownVariable>;
   } = $props();
 
   function addClause() {
@@ -73,12 +76,14 @@
         <ClauseRow
           bind:clause={group.children[i] as UiClause}
           onRemove={() => removeChild(i)}
+          {extraVariables}
         />
       {:else}
         <Self
           bind:group={group.children[i] as UiGroup}
           depth={depth + 1}
           onRemove={() => removeChild(i)}
+          {extraVariables}
         />
       {/if}
     {/each}

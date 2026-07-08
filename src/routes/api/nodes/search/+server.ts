@@ -1,5 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { NODE_FIND_QUERY } from '$lib/server/queries';
 import type { MemoryNode } from '$lib/types';
 import type { RequestHandler } from './$types';
@@ -56,36 +57,80 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ nodes: [], total: null });
   }
 
-  // Only a text query carries a retrieval `mode`; a filter-only list ignores it.
-  const findMode = q ? (mode === 'fuzzy' ? 'hybrid' : 'keyword') : null;
+  // Only a text query carries a retrieval `mode`. #430: fuzzy uses `vector`
+  // (not hybrid) so we can request `granularity:chunk` and get matching-passage
+  // snippets — `hybrid + chunk` is out of scope server-side. Without a vector
+  // index the server degrades (reason:no_vector_index) and returns no passages.
+  // #431: `regex` is a literal/pattern (substring) search — restores the
+  // substring matching lost when the migration mapped Exact→keyword.
+  const findMode = q ? (mode === 'fuzzy' ? 'vector' : mode === 'regex' ? 'regex' : 'keyword') : null;
+  const granularity = findMode === 'vector' ? 'chunk' : null;
 
   const client = gqlClient(locals.token);
-  try {
-    const data = await client.request<{
-      findNodes: {
-        hits: Array<{ node: MemoryNode }>;
-        total: number | null;
-        reason: string | null;
-        degraded: string | null;
-      };
-    }>(NODE_FIND_QUERY, {
+  type FindNodesResp = {
+    findNodes: {
+      hits: Array<{ node: MemoryNode }>;
+      passages: Array<{ parentNodeId: string; text: string; score: number }>;
+      total: number | null;
+      reason: string | null;
+      degraded: string | null;
+    };
+  };
+  const runFind = (m: string | null, g: string | null) =>
+    client.request<FindNodesResp>(NODE_FIND_QUERY, {
       query: q || null,
-      mode: findMode,
+      mode: m,
       sort: sortMode,
+      granularity: g,
       memoryIds,
       createdBy,
       updatedAfter,
       updatedBefore,
       limit: SEARCH_LIMIT,
     });
-    const r = data.findNodes;
+
+  try {
+    let { findNodes: r } = await runFind(findMode, granularity);
+    // Preserve the ORIGINAL degrade reason so the "semantic search unavailable"
+    // note still shows after a fallback (the hybrid re-run may report no reason).
+    let noteReason = r?.reason ?? null;
+    let noteDegraded = r?.degraded ?? null;
+    // #430: vector mode powers the passage snippets, but a memory with no
+    // vector index (or no embedding backend) returns nothing. Fall back to
+    // hybrid (keyword+vector fusion, no passages) so a fuzzy search still
+    // returns results everywhere — preserving pre-#430 behavior there.
+    if (findMode === 'vector' && (noteReason === 'no_vector_index' || noteReason === 'embedding_unavailable')) {
+      ({ findNodes: r } = await runFind('hybrid', null));
+      noteDegraded = noteDegraded ?? r?.degraded ?? null;
+    }
+    const nodes = (r?.hits ?? []).map((h) => h.node);
+    const hitIds = new Set(nodes.map((n) => n.id));
+    // #430: best-scoring passage per node → { nodeId: snippet }, only for nodes
+    // actually present in the results.
+    const snippets: Record<string, string> = {};
+    const bestScore: Record<string, number> = {};
+    for (const p of r?.passages ?? []) {
+      if (!p?.parentNodeId || typeof p.text !== 'string' || !hitIds.has(p.parentNodeId)) continue;
+      const score = typeof p.score === 'number' ? p.score : 0;
+      if (!(p.parentNodeId in bestScore) || score > bestScore[p.parentNodeId]) {
+        bestScore[p.parentNodeId] = score;
+        snippets[p.parentNodeId] = p.text;
+      }
+    }
     return json({
-      nodes: (r?.hits ?? []).map((h) => h.node),
+      nodes,
+      snippets,
       total: r?.total ?? null,
-      capped: (r?.hits?.length ?? 0) >= SEARCH_LIMIT,
-      note: degradeNote(r?.reason, r?.degraded),
+      capped: nodes.length >= SEARCH_LIMIT,
+      note: degradeNote(noteReason, noteDegraded),
     });
   } catch (e: unknown) {
+    // #431: a regex the server rejects (valid in JS, invalid POSIX) comes back
+    // as BAD_USER_INPUT — an expected, user-driven error. Return a friendly 400
+    // and don't log it (it's not a server fault, just log noise otherwise).
+    if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
+      return json({ error: 'Invalid search pattern.' }, { status: 400 });
+    }
     // Log detail server-side; return a generic message so GraphQL/DB internals
     // (query shapes, schema, server state) aren't leaked to the client (PR #358
     // review — security).

@@ -24,6 +24,11 @@
   const agent = $derived(data.agent);
   const org = $derived(data.org);
   const orgSystemMemories = $derived((data as any).orgSystemMemories ?? []);
+  // Apps this agent is installed into (built server-side from the AppAgent join).
+  const installedApps = $derived(
+    (data as { installedApps?: Array<{ id: string; name: string; urn: string; orgId: string }> })
+      .installedApps ?? [],
+  );
   const writableMemoryIds = $derived((agent.memoryItems ?? []).filter((m) => m.role === 'read-write').map((m) => m.memory.id));
 
   // Agents with a system memory get the Chatbot Control tab. The chatbot
@@ -34,7 +39,7 @@
   // #352 tab reorg: Profile (agent info) is the landing tab; Memories and
   // AI Providers were split out of the old Settings tab; the old "Memory"
   // node browser is now "Nodes"; Settings keeps the danger zone.
-  type TabId = 'profile' | 'memories' | 'nodes' | 'chatbot' | 'ai' | 'settings';
+  type TabId = 'profile' | 'memories' | 'apps' | 'nodes' | 'chatbot' | 'ai' | 'settings';
   let activeTab = $state<TabId>('profile');
 
   // ── Chatbot Control sub-tab state ────────────────────────────────────
@@ -120,6 +125,7 @@
   const tabs = $derived<{ id: TabId; label: string }[]>([
     { id: 'profile', label: 'Profile' },
     { id: 'memories', label: 'Memories' },
+    { id: 'apps', label: 'Apps' },
     { id: 'nodes', label: 'Nodes' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
     { id: 'ai', label: 'AI Providers' },
@@ -154,7 +160,13 @@
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
   function urnSlug(urn: string): string {
-    return urn.includes(':') ? urn.split(':').slice(1).join(':') : urn;
+    // The agent slug is the LAST ':'-segment. `Agent.urn` is server-canonicalized
+    // (e.g. `hrn:agent:<org>::<slug>`), so dropping only the FIRST segment left
+    // `agent:<org>::<slug>` in the edit box — which updateAgent would then
+    // slugify back INTO the stored slug, corrupting the URN on save (same class
+    // as the app-detail slugOfUrn bug). Take the final segment only.
+    const idx = urn.lastIndexOf(':');
+    return idx >= 0 ? urn.slice(idx + 1) : urn;
   }
 
   // Ordered most→least restrictive. Spec 034 added GROUP to memory visibility;
@@ -210,6 +222,11 @@
     return result;
   });
   const availableMemories = $derived(allMemories.filter((m) => !memoryIdsInAgent.has(m.id) && m.class !== 'system'));
+  // The agent's own system memory is NOT part of memoryItems; surface it on the
+  // Memories tab as a fixed, read-only entry (can't be reassigned or removed).
+  const systemMemory = $derived(
+    agent.systemMemoryId ? allMemories.find((m) => m.id === agent.systemMemoryId) ?? null : null,
+  );
 
   const selectedAddMemory = $derived(
     allMemories.find((m) => m.id === selectedAddMemoryId)
@@ -472,8 +489,23 @@
   {#if activeTab === 'memories'}
     <section>
       <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Memories
-        <span class="ml-1 text-sm font-normal text-zinc-500">({(agent.memoryItems ?? []).length})</span>
+        <span class="ml-1 text-sm font-normal text-zinc-500">({(agent.memoryItems ?? []).length + (hasSystemMemory ? 1 : 0)})</span>
       </h2>
+
+      {#if hasSystemMemory}
+        <!-- The agent's own system memory — always attached, read-only, not
+             reassignable/removable, so it renders as a fixed item rather than a
+             table row. -->
+        <div class="mb-3 flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/50">
+          <span title="System memory — always attached, read-only" class="shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+          </span>
+          <a href="/app/memories/{agent.systemMemoryId}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{systemMemory?.name ?? 'System memory'}</a>
+          {#if systemMemory?.urn}<Urn value={systemMemory.urn} type="memory" size={10} />{/if}
+          <span class="ml-auto shrink-0 rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">system · read-only</span>
+        </div>
+      {/if}
+
       {#if memoryRows.length > 0}
         <!-- 24rem offset tuned to this page's chrome (breadcrumb + header +
              tab bar above, Add-memory form below) — per-page convention. -->
@@ -574,6 +606,29 @@
       selectedAddMemoryId = memory.id;
     }}
   />
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- APPS TAB — apps this agent is installed into (via the AppAgent join) -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'apps'}
+    <section>
+      <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Apps
+        <span class="ml-1 text-sm font-normal text-zinc-500">({installedApps.length})</span>
+      </h2>
+      {#if installedApps.length > 0}
+        <ul class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+          {#each installedApps as app (app.id)}
+            <li class="flex items-center gap-2 px-3 py-2">
+              <a href="/app/orgs/{app.orgId}/apps/{app.id}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{app.name}</a>
+              <Urn value={app.urn} type="app" size={10} />
+            </li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="text-sm text-zinc-500">This agent isn't installed into any apps yet.</p>
+      {/if}
+    </section>
+  {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- NODES TAB — browse the agent's memory nodes (was "Memory") (#352)   -->
@@ -814,13 +869,34 @@
             </div>
             <div>
               <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Memory <span class="text-zinc-500">(for conversations, automations, and more)</span></label>
-              <select id="editSystemMemoryId" name="systemMemoryId" value={agent.systemMemoryId ?? ''} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="">— None —</option>
-                {#each orgSystemMemories as sm}
-                  <option value={sm.id}>{sm.name} ({sm.urn})</option>
-                {/each}
-              </select>
-              <p class="mt-1 text-xs text-zinc-400">Memory the agent uses for conversations, automations, and other tasks.</p>
+              {#if agent.systemMemoryId}
+                <!-- #488: once attached, the server forbids changing/unsetting
+                     the system memory — offering a select here was worse than
+                     useless: when the current memory was missing from the
+                     (membership-gated, best-effort) options list, the browser
+                     fell back to "— None —" and the save of ANY field failed
+                     with "Cannot unset or change...". A DISABLED input (never
+                     submitted) keeps the label association intact for screen
+                     readers; systemMemory resolves from allMemories, which
+                     still carries the entry when the system-memories list
+                     doesn't (PR-492 review). -->
+                <input
+                  id="editSystemMemoryId"
+                  type="text"
+                  disabled
+                  value={systemMemory?.name ?? `System Memory (${agent.systemMemoryId})`}
+                  class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300"
+                />
+                <p class="mt-1 text-xs text-zinc-400">Can't be changed — delete the agent to replace its system memory.</p>
+              {:else}
+                <select id="editSystemMemoryId" name="systemMemoryId" value="" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                  <option value="">— None —</option>
+                  {#each orgSystemMemories as sm}
+                    <option value={sm.id}>{sm.name} ({sm.urn})</option>
+                  {/each}
+                </select>
+                <p class="mt-1 text-xs text-zinc-400">Memory the agent uses for conversations, automations, and other tasks.</p>
+              {/if}
             </div>
             <div class="flex gap-3">
               <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>

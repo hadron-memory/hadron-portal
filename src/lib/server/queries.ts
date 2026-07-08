@@ -280,6 +280,28 @@ export const ORGANIZATIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+// #486 — the org's Agent subscriptions (AgentOrgGrant rows: the 008 Org↔Agent
+// license, auto-provisioned on first install). Kept OUT of ORGANIZATION_QUERY:
+// the field resolver is org-ADMIN gated (non-admins get []), and widening the
+// shared org payload has cross-route blast radius (review:shared-layout-
+// payload-consumers). AgentOrgGrant.agent lazily resolves server-side.
+export const ORG_AGENT_GRANTS_QUERY = /* GraphQL */ `
+  query OrgAgentGrants($id: ID!) {
+    organization(ref: $id) {
+      id
+      agentOrgGrants {
+        agentId
+        activatedAt
+        expiresAt
+        revokedAt
+        isActive
+        createdAt
+        agent { id urn name description organizationId }
+      }
+    }
+  }
+`;
+
 // Slim membership-scoped org list for the nav / active-org resolution path
 // (layout sidebar + OrgSwitcher/CommandBar, auth-callback landing, the
 // marketplace post-add redirect). filter.memberOnly restricts the list to the
@@ -1062,12 +1084,9 @@ export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
 // the server has no single-edge query (resolveUrn doesn't dispatch edges).
 //
 // We DON'T select `source` on the outgoing edges: the host node IS the source
-// (the page renders it from `host`), and — crucially — the node read only
-// Prisma-includes `target` for outgoingEdges (`include: { target: true }`)
-// with no Edge.source field resolver to load it lazily. Selecting `source { … }`
-// here resolves to null against the non-null `Edge.source: Node!` schema field,
-// which errors the whole query (null bubbles up the non-null chain) → the
-// loader throws → 500 on every edge detail page.
+// (the page renders it from `host`), so it would only bloat the payload.
+// (Since server PR #381 Edge.source/target lazily load when not preloaded,
+// so selecting it is no longer a 500 — just redundant here.)
 export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
   query EdgeHostNode($id: ID!) {
     node(ref: $id) {
@@ -1075,6 +1094,7 @@ export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
       memoryId
       loc
       name
+      data
       memory { id urn name }
       outgoingEdges {
         id
@@ -1086,6 +1106,33 @@ export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
         priority
         data
         target { id loc name description tags memory { id urn } }
+      }
+      # Flow context (#478): nodes routing INTO this one contribute their
+      # extractionSpec fields to the run envelope, so the condition builder
+      # offers them. One level here (the node read preloads incomingEdges'
+      # source); deeper levels are fetched separately — Node.incomingEdges
+      # has no lazy resolver, so nesting it under source would come back
+      # empty.
+      incomingEdges {
+        name
+        loc
+        source { id loc name data }
+      }
+    }
+  }
+`;
+
+// Level-2 upstream fetch for the flow field picker (#478): the incoming
+// flow edges of ONE upstream node, with each edge's source node data.
+// Best-effort — the edge editor works without it.
+export const FLOW_UPSTREAM_NODE_QUERY = /* GraphQL */ `
+  query FlowUpstreamNode($id: ID!) {
+    node(ref: $id) {
+      id
+      incomingEdges {
+        name
+        loc
+        source { id loc name data }
       }
     }
   }
@@ -1359,6 +1406,7 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
     $query: String
     $mode: FindNodesMode
     $sort: NodeSort
+    $granularity: SearchGranularity
     $memoryIds: [ID!]
     $createdBy: String
     $updatedAfter: String
@@ -1369,6 +1417,7 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
       query: $query
       mode: $mode
       sort: $sort
+      granularity: $granularity
       limit: $limit
       filter: {
         memoryIds: $memoryIds
@@ -1381,6 +1430,12 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
         node {
           ...NodeFields
         }
+      }
+      # #430: matching-passage snippets (granularity:chunk, mode:vector only).
+      passages {
+        parentNodeId
+        text
+        score
       }
       total
       reason
@@ -1399,10 +1454,16 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
 // callers (reorder API + memory node page) always have the memory id.
 // hadron-server#473/#542: node(loc:, memory:) is now node(ref:, memoryRef:) —
 // ref accepts a bare loc, still scoped by memoryRef.
+// raw: true — #485: node(ref:) compiles Mustache templates on read by
+// default, so an authoring surface that round-trips content would silently
+// overwrite the template source with its rendered output on the next save
+// ({{age}} destroyed). Every portal consumer of these queries is an editor
+// or a metadata read, never a template-rendering display — so they always
+// read the source. (List queries — findNodes/appNodes — never compile.)
 export const NODE_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query Node($loc: ID!, $memory: ID!) {
-    node(ref: $loc, memoryRef: $memory) {
+    node(ref: $loc, memoryRef: $memory, raw: true) {
       ...NodeFields
     }
   }
@@ -1425,10 +1486,12 @@ export const RESOLVE_URN_QUERY = /* GraphQL */ `
 
 // hadron-server#473: nodeById(id:) is now the uniform node(ref:) — ref
 // accepts a PK. Result key is \`node\`.
+// raw: true — #485, see NODE_QUERY above: the node detail page is the
+// content EDITOR; it must round-trip the template source verbatim.
 export const NODE_BY_ID_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodeById($id: ID!) {
-    node(ref: $id) {
+    node(ref: $id, raw: true) {
       ...NodeFields
     }
   }
@@ -1558,6 +1621,117 @@ export const APPS_QUERY = /* GraphQL */ `
   query Apps($orgId: ID, $limit: Int, $offset: Int) {
     apps(orgId: $orgId, limit: $limit, offset: $offset) {
       items { ...AppFields }
+      total
+    }
+  }
+`;
+
+// Slim app list — just enough to map an installed agent → its App (id/name).
+// Used by the org agents page to show an "Open" button for already-installed
+// agents without pulling the heavy AppFields (agent/keys/memory) payload.
+export const ORG_APP_INSTALLS_QUERY = /* GraphQL */ `
+  query OrgAppInstalls($orgId: ID, $limit: Int, $offset: Int) {
+    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+      items { id name agentId }
+      total
+    }
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// Headless runs (spec 040 / #478) — the audit surface + kill switch
+// ---------------------------------------------------------------------------
+
+// NOTE: `data` (the run envelope) is deliberately NOT in this fragment —
+// it needs hadron-server#534 and is fetched separately (best-effort) by
+// APP_RUN_ENVELOPE_QUERY so the run pages work against older servers.
+export const APP_RUN_FIELDS = /* GraphQL */ `
+  fragment AppRunFields on AppRun {
+    id
+    organizationId
+    appId
+    agentId
+    userId
+    triggerKind
+    triggerId
+    entryNodeUrn
+    eventData
+    budgetTokens
+    budgetActions
+    status
+    curNodeUrn
+    parentRunId
+    failure
+    timeoutMs
+    attempts
+    startedAt
+    finishedAt
+    createdAt
+    createdBy
+  }
+`;
+
+// The runs audit list (org-READER gated server-side; limit hard-capped 200).
+export const APP_RUNS_QUERY = /* GraphQL */ `
+  ${APP_RUN_FIELDS}
+  query AppRuns($appRef: String, $status: AppRunStatus, $limit: Int, $offset: Int) {
+    appRuns(appRef: $appRef, status: $status, limit: $limit, offset: $offset) {
+      items { ...AppRunFields }
+      total
+    }
+  }
+`;
+
+export const APP_RUN_QUERY = /* GraphQL */ `
+  ${APP_RUN_FIELDS}
+  query AppRun($id: ID!) {
+    appRun(ref: $id) {
+      ...AppRunFields
+    }
+  }
+`;
+
+// The run envelope — separate query because `AppRun.data` only exists from
+// hadron-server#534 on; the detail loader degrades gracefully when the
+// field is unknown instead of erroring the whole page.
+export const APP_RUN_ENVELOPE_QUERY = /* GraphQL */ `
+  query AppRunEnvelope($id: ID!) {
+    appRun(ref: $id) {
+      id
+      data
+    }
+  }
+`;
+
+// The kill switch (guarded server-side: only a still-RUNNING/PENDING row
+// transitions; a raced terminal state survives in the audit log).
+export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
+  ${APP_RUN_FIELDS}
+  mutation CancelAppRun($id: ID!) {
+    cancelAppRun(id: $id) {
+      ...AppRunFields
+    }
+  }
+`;
+
+// "Test this flow" (#478): runTask with appRef mints a MANUAL AppRun and
+// returns its id (#529) — the walker executes it in the background.
+export const RUN_TASK_APP_MUTATION = /* GraphQL */ `
+  mutation RunTaskApp($urn: String!, $args: JSON, $appRef: ID!, $runAsSelf: Boolean) {
+    runTask(urn: $urn, args: $args, appRef: $appRef, runAsSelf: $runAsSelf)
+  }
+`;
+
+// Apps an agent is installed into — for the agent detail page's Apps tab.
+// Omit orgId so `apps` is member-scoped to EVERY app across the caller's orgs
+// (an agent can be installed cross-org). Both `agentId` (primary) and the full
+// `agents` join list are selected so a many-to-many install is caught, and
+// `App.agents` is member-readable (unlike the admin-gated `Agent.apps`), so
+// non-admin members see this too.
+export const AGENT_APPS_QUERY = /* GraphQL */ `
+  query AgentApps($limit: Int, $offset: Int) {
+    apps(limit: $limit, offset: $offset) {
+      items { id name urn organizationId agentId agents { id } }
       total
     }
   }
