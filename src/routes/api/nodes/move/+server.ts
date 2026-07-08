@@ -1,23 +1,46 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
-import { MOVE_NODE_MUTATION } from '$lib/server/queries';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY } from '$lib/server/queries';
+import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+import { cleanLocInput } from '$lib/urn/clean-loc-input';
+import type { MemoryNode } from '$lib/types';
 import type { RequestHandler } from './$types';
 
+// Tree drag-move endpoint (MemoryBrowser). #564 (#501) reshaped moveNode to
+// sourceRef + targetUrn, so the body is now { sourceRef, toLoc }: the node's
+// PK and the bare destination loc. The endpoint reads the node to compose
+// the full destination URN from its own memory — the client never has to
+// know the memory urn. Conflicts (NODE_ALREADY_EXISTS) come back as 409
+// with the server's message so the drag UI can fail loudly.
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { from, to, memoryId } = await request.json();
-  if (!from || !to || !memoryId) {
-    return json({ error: 'from, to, and memoryId are required' }, { status: 400 });
+  const { sourceRef, toLoc } = await request.json();
+  // Normalize toLoc the same way the rename/move forms do — a network client
+  // could send path separators or a raw URN-shaped string, which would
+  // otherwise compose into a malformed targetUrn (PR-502 review). cleanLocInput
+  // strips URN/loc prefixes, converts `/` to `:`, and returns the bare loc.
+  const loc = cleanLocInput(String(toLoc ?? ''));
+  if (!sourceRef || !loc) {
+    return json({ error: 'sourceRef and toLoc are required' }, { status: 400 });
   }
 
+  const client = gqlClient(locals.token);
   try {
-    await gqlClient(locals.token).request(MOVE_NODE_MUTATION, { from, to, memoryId });
+    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: String(sourceRef) });
+    if (!node) return json({ error: 'Node not found' }, { status: 404 });
+    if (!node.memory?.urn) return json({ error: 'Node has no memory URN to move by' }, { status: 500 });
+
+    await client.request(MOVE_NODE_MUTATION, {
+      sourceRef: node.id,
+      targetUrn: composeNodeUrn(node.memory.urn, loc),
+    });
     return json({ ok: true });
   } catch (e: unknown) {
-    return json({ error: extractGqlError(e, 'Failed to move node') }, { status: 500 });
+    const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
+    return json({ error: extractGqlError(e, 'Failed to move node') }, { status });
   }
 };

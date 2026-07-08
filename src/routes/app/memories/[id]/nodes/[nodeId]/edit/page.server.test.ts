@@ -143,19 +143,21 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes/pk');
   });
 
-  it('MOVE_NODE_MUTATION uses node.memoryId when the loc changes', async () => {
-    // When the user edits the loc, the move runs first. It also must
-    // target the node's actual memory, not the URL's.
+  it('MOVE_NODE_MUTATION targets the node via sourceRef + targetUrn from its OWN memory (#564)', async () => {
+    // When the user edits the loc, the move runs first. #564 reshaped the
+    // args: sourceRef is the node's PK and targetUrn is composed from the
+    // node's own memory urn — the URL's gid never enters the picture.
     mockRequest.mockResolvedValueOnce({
       node: {
         id: 'pk', memoryId: 'mem-B', loc: 'old-loc', name: 'a',
+        memory: { id: 'mem-B', urn: 'acme.com::brain', name: 'Brain' },
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
         isRunnable: null, createdAt: '', updatedAt: '',
         outgoingEdges: [], incomingEdges: [],
       },
     });
-    mockRequest.mockResolvedValueOnce({ moveNode: true });
+    mockRequest.mockResolvedValueOnce({ moveNode: { id: 'pk' } });
     mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
 
     const actions = await importActions();
@@ -167,7 +169,33 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
       }));
     } catch { /* redirect at end */ }
 
-    const [, moveVars] = mockRequest.mock.calls[1]! as [unknown, { from: string; to: string; memoryId: string }];
-    expect(moveVars.memoryId).toBe('mem-B');
+    const [, moveVars] = mockRequest.mock.calls[1]! as [unknown, { sourceRef: string; targetUrn: string }];
+    expect(moveVars.sourceRef).toBe('pk');
+    expect(moveVars.targetUrn).toBe('hrn:node:acme.com::brain::new-loc');
+  });
+
+  it('an occupied destination fails as 409, not 500 (#501 fail-loud)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'old-loc', name: 'a',
+        memory: { id: 'mem-B', urn: 'acme.com::brain', name: 'Brain' },
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockRejectedValueOnce({
+      response: {
+        errors: [{ message: 'A live node already occupies loc "new-loc" in the destination memory.', extensions: { code: 'NODE_ALREADY_EXISTS' } }],
+      },
+    });
+
+    const actions = await importActions();
+    const result = (await actions.default(actionEvent({
+      gid: 'mem-A', nodeId: 'pk', form: { name: 'a', loc: 'new-loc' },
+    }))) as { status: number; data: { error: string } };
+    expect(result.status).toBe(409);
+    expect(result.data.error).toMatch(/already occupies/);
   });
 });

@@ -1,8 +1,10 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
+import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -70,16 +72,24 @@ export const actions: Actions = {
     // the URL's gid. Form actions run BEFORE `load`, so the URL guard
     // above doesn't run on POST — a stale URL would otherwise commit
     // the user's edit into the wrong memory.
+    // #564 (#501): moveNode takes sourceRef (the PK) + targetUrn composed
+    // from the node's OWN memory urn — a stale URL can't redirect the move.
+    // An occupied destination fails loudly with NODE_ALREADY_EXISTS.
     const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
     if (loc !== currentNode.loc) {
+      if (!currentNode.memory?.urn) {
+        return fail(500, { error: 'Node has no memory URN to move by.' });
+      }
       try {
         await client.request(MOVE_NODE_MUTATION, {
-          from: currentNode.loc,
-          to: loc,
-          memoryId: currentNode.memoryId,
+          sourceRef: currentNode.id,
+          targetUrn: composeNodeUrn(currentNode.memory.urn, loc),
         });
       } catch (e: unknown) {
-        return fail(500, { error: e instanceof Error ? e.message : 'Failed to move node' });
+        // Occupied destination → 409 Conflict, matching the detail page +
+        // the /api/nodes/move endpoint.
+        const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
+        return fail(status, { error: extractGqlError(e, 'Failed to move node') });
       }
     }
 

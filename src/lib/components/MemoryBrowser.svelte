@@ -153,22 +153,36 @@
   }
 
   // ── Drag & drop handlers for tree ────────────────────────────────────
+  // Fail-loud (#501): a rejected move — most notably NODE_ALREADY_EXISTS
+  // when the destination slot is occupied (moves never overwrite) — shows
+  // the server's message instead of the tree silently snapping back.
+  let moveError = $state<string | null>(null);
+
   async function handleTreeMove(fromLoc: string, newParentLoc: string) {
-    // Determine memoryId from the dragged node
     const node = nodes.find((n) => n.loc === fromLoc);
     if (!node) return;
     const name = fromLoc.split(':').pop()!;
     const newLoc = newParentLoc ? `${newParentLoc}:${name}` : name;
     if (fromLoc === newLoc) return;
 
+    moveError = null;
     try {
+      // #564: the endpoint takes the node's PK + bare destination loc and
+      // composes the full target URN server-side.
       const res = await fetch('/api/nodes/move', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: fromLoc, to: newLoc, memoryId: node.memoryId }),
+        body: JSON.stringify({ sourceRef: node.id, toLoc: newLoc }),
       });
-      if (res.ok) await invalidateAll();
-    } catch { /* ignore */ }
+      if (res.ok) {
+        await invalidateAll();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        moveError = data.error ?? 'Failed to move node';
+      }
+    } catch (e) {
+      moveError = e instanceof Error ? e.message : 'Failed to move node';
+    }
   }
 
   async function handleTreeReorder(parentLoc: string, orderedLocs: string[]) {
@@ -800,6 +814,12 @@
             <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
             <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
           </div>
+          {#if moveError}
+            <p class="mb-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+              {moveError}
+              <button type="button" class="ml-1 font-semibold hover:underline" aria-label="Dismiss move error" title="Dismiss" onclick={() => (moveError = null)}>×</button>
+            </p>
+          {/if}
           <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onselect={handleTreeSelect} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
         </aside>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -835,6 +855,12 @@
       style="--memory-browser-h: calc(100vh - 320px); min-height: var(--memory-browser-h);">
       {#if nodesPane === 'tree'}
         <div class="overflow-y-auto bg-zinc-50 dark:bg-zinc-950" style="max-height: var(--memory-browser-h);">
+          {#if moveError}
+            <p class="m-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+              {moveError}
+              <button type="button" class="ml-1 font-semibold hover:underline" aria-label="Dismiss move error" title="Dismiss" onclick={() => (moveError = null)}>×</button>
+            </p>
+          {/if}
           <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
         </div>
       {:else}

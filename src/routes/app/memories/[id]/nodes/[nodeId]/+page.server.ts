@@ -1,9 +1,9 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { isCanonicalNodeType } from '$lib/node-types';
@@ -156,14 +156,26 @@ export const actions: Actions = {
 
     if (!name) return fail(400, { error: 'Name is required' });
 
-    // Move if loc changed. #237: route both mutations through the node's
-    // actual memoryId, not the URL's.
+    // Move if loc changed. #237: route the move through the node's OWN
+    // identity — #564 reshaped moveNode to sourceRef (the PK) + targetUrn
+    // (the full destination node URN, composed from the node's own memory
+    // urn), so a stale URL can't redirect the move anyway. An occupied
+    // destination fails loudly with NODE_ALREADY_EXISTS (#501).
     const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
     if (loc !== currentNode.loc) {
+      if (!currentNode.memory?.urn) {
+        return fail(500, { error: 'Node has no memory URN to move by.' });
+      }
       try {
-        await client.request(MOVE_NODE_MUTATION, { from: currentNode.loc, to: loc, memoryId: currentNode.memoryId });
+        await client.request(MOVE_NODE_MUTATION, {
+          sourceRef: currentNode.id,
+          targetUrn: composeNodeUrn(currentNode.memory.urn, loc),
+        });
       } catch (e: unknown) {
-        return fail(500, { error: e instanceof Error ? e.message : 'Failed to move node' });
+        // An occupied destination is a 409 Conflict, not a 500 — matches the
+        // /api/nodes/move endpoint and keeps it out of error monitoring.
+        const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
+        return fail(status, { error: extractGqlError(e, 'Failed to move node') });
       }
     }
 
@@ -415,6 +427,43 @@ export const actions: Actions = {
       return fail(500, { testFlowError: extractGqlError(e, 'Failed to start the run') });
     }
     redirect(303, `/app/orgs/${orgId}/apps/${appId}/runs/${runId}`);
+  },
+
+  // Duplicate (#501 / hadron-server#564): cloneNode into `<loc>-copy` beside
+  // the original, stepping to -copy-2… when the slot is taken (cloneNode
+  // fails loudly with NODE_ALREADY_EXISTS — never overwrites). Redirects to
+  // the new node's page.
+  duplicate: async ({ params, locals }) => {
+    const client = gqlClient(locals.token);
+    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+    if (!node) return fail(404, { error: 'Node not found' });
+    if (!node.memory?.urn) return fail(500, { error: 'Node has no memory URN to clone by.' });
+
+    // Normalize the source loc first (PR-502 review): a legacy stored loc can
+    // carry a URN prefix, and appending `-copy` to that then composing a URN
+    // would double the prefix (hrn:node:<mem>::hrn:node:<mem>::foo-copy).
+    const baseLoc = cleanLocInput(node.loc);
+    let clonedId: string | null = null;
+    for (let attempt = 1; attempt <= 5 && clonedId === null; attempt++) {
+      const candidateLoc = attempt === 1 ? `${baseLoc}-copy` : `${baseLoc}-copy-${attempt}`;
+      try {
+        const res = await client.request<{ cloneNode: { id: string; memoryId: string } }>(
+          CLONE_NODE_MUTATION,
+          { sourceRef: node.id, targetUrn: composeNodeUrn(node.memory.urn, candidateLoc) },
+        );
+        clonedId = res.cloneNode.id;
+      } catch (e: unknown) {
+        // An occupied -copy slot just means "try the next suffix"; anything
+        // else surfaces as-is.
+        if (extractGqlErrorCode(e) !== 'NODE_ALREADY_EXISTS') {
+          return fail(500, { error: extractGqlError(e, 'Failed to duplicate node') });
+        }
+      }
+    }
+    if (clonedId === null) {
+      return fail(409, { error: 'Too many copies of this node already exist — rename one first.' });
+    }
+    redirect(303, `/app/memories/${node.memoryId}/nodes/${clonedId}`);
   },
 
   updateEdges: async ({ request, params, locals }) => {

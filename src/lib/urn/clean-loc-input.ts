@@ -5,7 +5,10 @@ import { parseDisplayUrn as parseUrn } from './parse-urn';
 
 /**
  * Normalize a user-supplied loc input into a bare loc string suitable for
- * the moveNode / createNode / updateNode / deleteNode mutation `loc` argument.
+ * the createNode / updateNode / deleteNode mutation `loc` argument — and,
+ * since hadron-server#564 reshaped moveNode/cloneNode onto `targetUrn`, as
+ * the loc segment callers compose into the full destination node URN
+ * (`composeNodeUrn(memory.urn, cleanLocInput(...))`).
  *
  * The rename/move UI lets users edit the loc field, and the field has been
  * pre-populated in different shapes across the portal's history:
