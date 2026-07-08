@@ -353,11 +353,11 @@
   let deleteOpen = $state(false);
 
   const menuActions = $derived<NodeMenuAction[]>([
-    ...(canTestFlow ? [{ id: 'run', label: t('node-actions.run', 'Run') }] : []),
-    { id: 'duplicate', label: t('node-actions.duplicate', 'Duplicate') },
-    { id: 'move', label: t('node-actions.move', 'Move…') },
+    { id: 'download', label: t('node-actions.download', 'Download') },
     { id: 'add-child', label: t('node-actions.add-child', 'Add child') },
-    { id: 'download', label: t('node-actions.download', 'Download…') },
+    { id: 'move', label: t('node-actions.move', 'Move') },
+    { id: 'duplicate', label: t('node-actions.duplicate', 'Duplicate') },
+    ...(canTestFlow ? [{ id: 'run', label: t('node-actions.run', 'Run') }] : []),
     { id: 'delete', label: t('node-actions.delete', 'Delete'), danger: true },
   ]);
 
