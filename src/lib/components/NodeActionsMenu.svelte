@@ -37,6 +37,9 @@
     ...actions.filter((a) => a.danger),
   ]);
   const firstDangerId = $derived(actions.find((a) => a.danger)?.id ?? null);
+  // The danger divider only makes sense with safe items above it — guards a
+  // stray top-of-menu divider for a danger-only list (PR-504 review).
+  const hasSafeItems = $derived(actions.some((a) => !a.danger));
 
   function menuItems(): HTMLButtonElement[] {
     if (!menuEl) return [];
@@ -77,6 +80,10 @@
       return;
     }
     if (!open) return;
+    // Don't hijack arrow/Home/End keys once focus has left the menu (e.g. the
+    // user tabbed away while it's still open) — PR-504 review (Copilot).
+    const active = document.activeElement;
+    if (active !== triggerEl && !menuEl?.contains(active)) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       const i = focusedIndex();
@@ -126,7 +133,7 @@
       class="absolute right-0 z-40 mt-2 w-52 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
     >
       {#each ordered as action (action.id)}
-        {#if action.id === firstDangerId}
+        {#if action.id === firstDangerId && hasSafeItems}
           <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
         {/if}
         <button

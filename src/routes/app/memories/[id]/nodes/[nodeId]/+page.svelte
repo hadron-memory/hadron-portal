@@ -804,7 +804,12 @@
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 </script>
 
-<svelte:window onkeydown={(e) => { if (downloadOpen && e.key === 'Escape') downloadOpen = false; }} />
+<svelte:window onkeydown={(e) => {
+  // Escape closes whichever header popover is open (only one is at a time —
+  // onMenuSelect closes siblings). PR-504 review (Copilot: Move/Delete a11y).
+  if (e.key !== 'Escape') return;
+  downloadOpen = false; testFlowOpen = false; moveOpen = false; deleteOpen = false;
+}} />
 
 <svelte:head><title>{node.name} &middot; Hadron</title></svelte:head>
 
@@ -1015,7 +1020,16 @@
         {#if moveOpen}
           <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close move dialog" onclick={() => (moveOpen = false)}></button>
           <div class="absolute right-0 z-40 mt-2 w-96 rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-            <form method="POST" action="?/move" use:enhance class="space-y-3">
+            <!-- Close on success only: a same-node move redirects back to
+                 THIS page (PK stable), so the per-node effect never fires to
+                 reset moveOpen — do it here. Keep open on failure so moveError
+                 shows (PR-504 review, Gemini). -->
+            <form
+              method="POST"
+              action="?/move"
+              use:enhance={() => async ({ result, update }) => { await update(); if (result.type !== 'failure') moveOpen = false; }}
+              class="space-y-3"
+            >
               <div>
                 <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Destination node URN</label>
                 <input id="moveTarget" name="target" type="text" bind:value={moveTarget} spellcheck="false" class="{inputClass} font-mono text-xs" />
