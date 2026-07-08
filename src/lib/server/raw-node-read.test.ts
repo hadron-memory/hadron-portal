@@ -21,6 +21,7 @@ describe('editor node reads request the template source (#485)', () => {
   });
 
   it('NODE_QUERY passes raw: true', () => {
-    expect(NODE_QUERY).toMatch(/node\(ref:\s*\$loc,\s*memory:\s*\$memory,\s*raw:\s*true\)/);
+    // #542: node(memory:) renamed to node(memoryRef:).
+    expect(NODE_QUERY).toMatch(/node\(ref:\s*\$loc,\s*memoryRef:\s*\$memory,\s*raw:\s*true\)/);
   });
 });

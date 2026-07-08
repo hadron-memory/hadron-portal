@@ -155,7 +155,7 @@ export const actions: Actions = {
         // #335: scope by the agent's system memory. `conversations` exists in
         // every agent's system memory, so an unscoped node(loc:) now errors
         // (AMBIGUOUS_NODE_LOC) instead of silently resolving the wrong one.
-        const NODE_Q = `query N($loc: ID!, $memory: ID!) { node(ref: $loc, memory: $memory) { id } }`;
+        const NODE_Q = `query N($loc: ID!, $memory: ID!) { node(ref: $loc, memoryRef: $memory) { id } }`;
         const client = gqlClient(locals.token);
         const agentDisplayName = name ?? 'Agent';
 

@@ -6,6 +6,7 @@ import {
   UPDATE_NODE_MUTATION,
   DELETE_NODE_MUTATION,
   GRAPH_NODES_QUERY,
+  NODE_QUERY,
 } from '$lib/server/queries';
 import {
   newFixtureRecord,
@@ -207,7 +208,16 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
   if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
 
   const client = gqlClient(locals.token);
-  await client.request(DELETE_NODE_MUTATION, { loc: fixtureLoc, memoryId: resolved.systemMemoryId });
+  // #542: deleteNode takes a single nodeRef. Resolve the fixture node by loc
+  // within the system memory to its PK first, then delete. A missing node is a
+  // no-op (idempotent DELETE).
+  const found = await client.request<{ node: { id: string } | null }>(NODE_QUERY, {
+    loc: fixtureLoc,
+    memory: resolved.systemMemoryId,
+  });
+  if (found.node) {
+    await client.request(DELETE_NODE_MUTATION, { nodeRef: found.node.id });
+  }
 
   return new Response(null, { status: 204 });
 };

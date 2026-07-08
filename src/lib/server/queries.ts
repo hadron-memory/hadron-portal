@@ -1041,8 +1041,8 @@ export const CREATE_EDGE_MUTATION = /* GraphQL */ `
     $data: JSON
   ) {
     createEdge(
-      sourceNodeId: $sourceNodeId
-      targetNodeId: $targetNodeId
+      sourceRef: $sourceNodeId
+      targetRef: $targetNodeId
       name: $name
       condition: $condition
       priority: $priority
@@ -1452,8 +1452,8 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
 // memories and the server REJECTS an unscoped collision (AMBIGUOUS_NODE_LOC).
 // `$memory` is required (ID!) so this query can never run unscoped; both
 // callers (reorder API + memory node page) always have the memory id.
-// hadron-server#473: node(loc:, memory:) is now node(ref:, memory:) — ref
-// accepts a bare loc, still scoped by memory.
+// hadron-server#473/#542: node(loc:, memory:) is now node(ref:, memoryRef:) —
+// ref accepts a bare loc, still scoped by memoryRef.
 // raw: true — #485: node(ref:) compiles Mustache templates on read by
 // default, so an authoring surface that round-trips content would silently
 // overwrite the template source with its rendered output on the next save
@@ -1463,7 +1463,7 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
 export const NODE_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query Node($loc: ID!, $memory: ID!) {
-    node(ref: $loc, memory: $memory, raw: true) {
+    node(ref: $loc, memoryRef: $memory, raw: true) {
       ...NodeFields
     }
   }
@@ -1533,9 +1533,11 @@ export const UPDATE_NODE_MUTATION = /* GraphQL */ `
   }
 `;
 
+// hadron-server#542: deleteNode collapsed (loc, memoryId) into a single
+// nodeRef (a node PK or fully-qualified URN).
 export const DELETE_NODE_MUTATION = /* GraphQL */ `
-  mutation DeleteNode($loc: String!, $memoryId: String!) {
-    deleteNode(loc: $loc, memoryId: $memoryId)
+  mutation DeleteNode($nodeRef: ID!) {
+    deleteNode(nodeRef: $nodeRef)
   }
 `;
 
@@ -1586,8 +1588,8 @@ export const MEMORIES_QUERY = /* GraphQL */ `
 
 export const MOVE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
-  mutation MoveNode($from: String!, $to: String!, $memoryId: String!) {
-    moveNode(from: $from, to: $to, memoryId: $memoryId) { ...NodeFields }
+  mutation MoveNode($from: String!, $to: String!, $memoryId: ID!) {
+    moveNode(from: $from, to: $to, memoryRef: $memoryId) { ...NodeFields }
   }
 `;
 

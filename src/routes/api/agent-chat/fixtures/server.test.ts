@@ -8,6 +8,7 @@ import {
   UPDATE_NODE_MUTATION,
   DELETE_NODE_MUTATION,
   GRAPH_NODES_QUERY,
+  NODE_QUERY,
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -80,6 +81,11 @@ function mockResolveAgent() {
     }
     if (query === UPDATE_NODE_MUTATION) {
       return { updateNode: { id: 'node-upd', loc: (vars as { input: { loc: string } }).input.loc } };
+    }
+    if (query === NODE_QUERY) {
+      // #542: the DELETE handler resolves the fixture loc to a node PK before
+      // deleting. Return a node so the delete proceeds.
+      return { node: { id: 'node-1', loc: (vars as { loc: string }).loc, memoryId: 'sys-mem-a' } };
     }
     if (query === DELETE_NODE_MUTATION) {
       return { deleteNode: true };

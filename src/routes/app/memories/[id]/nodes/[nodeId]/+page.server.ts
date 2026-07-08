@@ -184,7 +184,8 @@ export const actions: Actions = {
     if (!data.node) return fail(404, { error: 'Node not found' });
     const node = data.node;
     try {
-      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { loc: node.loc, memoryId: node.memoryId });
+      // #542: deleteNode takes a single nodeRef — pass the resolved node's PK.
+      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete' });
     }
