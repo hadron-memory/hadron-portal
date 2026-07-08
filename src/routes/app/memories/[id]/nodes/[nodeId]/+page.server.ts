@@ -494,6 +494,29 @@ export const actions: Actions = {
     redirect(303, `/app/memories/${node.memoryId}/nodes/${node.id}`);
   },
 
+  // Convert to task (#503): flip isRunnable on so the node can be run headless.
+  // updateNode preserves omitted fields, so this is a minimal patch — no
+  // redirect; enhance re-runs load and the menu item drops off once it's a task.
+  convertToTask: async ({ params, locals }) => {
+    const client = gqlClient(locals.token);
+    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+    if (!node) return fail(404, { error: 'Node not found' });
+    try {
+      await client.request(UPDATE_NODE_MUTATION, {
+        input: {
+          memoryId: node.memoryId,
+          loc: node.loc,
+          // #235: explicit tags pass-through — see updateContent.
+          tags: node.tags ?? [],
+          isRunnable: true,
+        },
+      });
+      return { convertedToTask: true };
+    } catch (e: unknown) {
+      return fail(500, { error: extractGqlError(e, 'Failed to convert node to a task') });
+    }
+  },
+
   updateEdges: async ({ request, params, locals }) => {
     // Replaces the full set of outgoing edges on this node. The client sends
     // a JSON-encoded array of { targetId, name } — we pass it through the

@@ -353,22 +353,32 @@
   let deleteOpen = $state(false);
 
   const menuActions = $derived<NodeMenuAction[]>([
+    { id: 'edit', label: t('node-actions.edit', 'Edit') },
     { id: 'download', label: t('node-actions.download', 'Download') },
     { id: 'add-child', label: t('node-actions.add-child', 'Add child') },
     { id: 'move', label: t('node-actions.move', 'Move') },
     { id: 'duplicate', label: t('node-actions.duplicate', 'Duplicate') },
+    // Only offered for plain nodes — a task node is already runnable.
+    ...(!node.isRunnable ? [{ id: 'convert-to-task', label: t('node-actions.convert-to-task', 'Convert to task') }] : []),
     ...(canTestFlow ? [{ id: 'run', label: t('node-actions.run', 'Run') }] : []),
     { id: 'delete', label: t('node-actions.delete', 'Delete'), danger: true },
   ]);
 
   let duplicateForm = $state<HTMLFormElement | null>(null);
+  let convertForm = $state<HTMLFormElement | null>(null);
 
   function onMenuSelect(id: string) {
     // Close any sibling panel so only one opens at a time.
     testFlowOpen = false; downloadOpen = false; moveOpen = false; deleteOpen = false;
     switch (id) {
+      case 'edit':
+        // Jump to the Settings tab and open its metadata form (#503).
+        activeTab = 'settings';
+        isEditing = true;
+        break;
       case 'run': testFlowOpen = true; break;
       case 'duplicate': duplicateForm?.requestSubmit(); break;
+      case 'convert-to-task': convertForm?.requestSubmit(); break;
       case 'move':
         moveLoc = cleanLocInput(node.loc);
         moveOpen = true;
@@ -850,6 +860,9 @@
       <!-- Hidden form the menu's Duplicate item submits (requestSubmit fires
            the submit event use:enhance intercepts, unlike .submit()). -->
       <form bind:this={duplicateForm} method="POST" action="?/duplicate" use:enhance class="hidden"></form>
+      <!-- Convert-to-task: flips isRunnable on; enhance re-runs load so the
+           menu item disappears once the node is a task (#503). -->
+      <form bind:this={convertForm} method="POST" action="?/convertToTask" use:enhance class="hidden"></form>
       <!-- Panels/dialogs opened from the actions menu, anchored to the header. -->
       <div class="relative">
           {#if testFlowOpen}
