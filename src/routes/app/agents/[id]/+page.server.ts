@@ -130,7 +130,14 @@ export const actions: Actions = {
     const urnSlug = String(fd.get('urnSlug') ?? '').trim() || undefined;
     const description = String(fd.get('description') ?? '').trim() || null;
     const systemPrompt = String(fd.get('systemPrompt') ?? '').trim() || null;
-    const systemMemoryId = String(fd.get('systemMemoryId') ?? '').trim() || null;
+    // '' → OMIT, never null (#488): updateAgent forbids unsetting/changing a
+    // system memory, so an explicit null THROWS when one is attached — and
+    // the form's select can degrade to "— None —" whenever the current
+    // memory is missing from the options (the org-system-memories list is
+    // membership-gated and best-effort). Sending null therefore failed the
+    // WHOLE save, visibility included. Omitting the variable makes the
+    // resolver skip the field; a real first-attach still sends the id.
+    const systemMemoryId = String(fd.get('systemMemoryId') ?? '').trim() || undefined;
     const visibility = String(fd.get('visibility') ?? '').trim() || undefined;
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {

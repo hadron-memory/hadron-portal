@@ -869,13 +869,27 @@
             </div>
             <div>
               <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Memory <span class="text-zinc-500">(for conversations, automations, and more)</span></label>
-              <select id="editSystemMemoryId" name="systemMemoryId" value={agent.systemMemoryId ?? ''} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="">— None —</option>
-                {#each orgSystemMemories as sm}
-                  <option value={sm.id}>{sm.name} ({sm.urn})</option>
-                {/each}
-              </select>
-              <p class="mt-1 text-xs text-zinc-400">Memory the agent uses for conversations, automations, and other tasks.</p>
+              {#if agent.systemMemoryId}
+                <!-- #488: once attached, the server forbids changing/unsetting
+                     the system memory — offering a select here was worse than
+                     useless: when the current memory was missing from the
+                     (membership-gated, best-effort) options list, the browser
+                     fell back to "— None —" and the save of ANY field failed
+                     with "Cannot unset or change...". Read-only + no field
+                     submitted = the truth. -->
+                <p class="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+                  {orgSystemMemories.find((sm: { id: string }) => sm.id === agent.systemMemoryId)?.name ?? agent.systemMemoryId}
+                </p>
+                <p class="mt-1 text-xs text-zinc-400">Can't be changed — delete the agent to replace its system memory.</p>
+              {:else}
+                <select id="editSystemMemoryId" name="systemMemoryId" value="" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                  <option value="">— None —</option>
+                  {#each orgSystemMemories as sm}
+                    <option value={sm.id}>{sm.name} ({sm.urn})</option>
+                  {/each}
+                </select>
+                <p class="mt-1 text-xs text-zinc-400">Memory the agent uses for conversations, automations, and other tasks.</p>
+              {/if}
             </div>
             <div class="flex gap-3">
               <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
