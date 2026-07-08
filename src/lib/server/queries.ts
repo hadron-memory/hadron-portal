@@ -1473,7 +1473,7 @@ export const UPDATE_NODE_MUTATION = /* GraphQL */ `
 // hadron-server#542: deleteNode collapsed (loc, memoryId) into a single
 // nodeRef (a node PK or fully-qualified URN).
 export const DELETE_NODE_MUTATION = /* GraphQL */ `
-  mutation DeleteNode($nodeRef: String!) {
+  mutation DeleteNode($nodeRef: ID!) {
     deleteNode(nodeRef: $nodeRef)
   }
 `;
@@ -1525,7 +1525,7 @@ export const MEMORIES_QUERY = /* GraphQL */ `
 
 export const MOVE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
-  mutation MoveNode($from: String!, $to: String!, $memoryId: String!) {
+  mutation MoveNode($from: String!, $to: String!, $memoryId: ID!) {
     moveNode(from: $from, to: $to, memoryRef: $memoryId) { ...NodeFields }
   }
 `;
