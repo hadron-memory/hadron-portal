@@ -83,24 +83,30 @@
     return sep >= 0 ? bare.slice(0, sep) : bare;
   }
 
-  /** Lifecycle label mirroring the server's isActive derivation. */
-  function grantStatus(g: AgentGrant): string {
-    if (g.revokedAt) return t('org-agents.subscribed.status.revoked', 'Revoked');
-    if (g.expiresAt && new Date(g.expiresAt).getTime() < Date.now()) {
-      return t('org-agents.subscribed.status.expired', 'Expired');
-    }
-    return g.isActive
-      ? t('org-agents.subscribed.status.active', 'Active')
-      : t('org-agents.subscribed.status.pending', 'Pending');
+  // Lifecycle as a structural kind + a localized label, kept apart so the
+  // status-chip styling keys off the KIND — never the translated string
+  // (PR-494 review: label comparison breaks under any non-English locale).
+  type GrantStatusKind = 'active' | 'revoked' | 'expired' | 'pending';
+  function grantStatusKind(g: AgentGrant): GrantStatusKind {
+    if (g.revokedAt) return 'revoked';
+    if (g.expiresAt && new Date(g.expiresAt).getTime() < Date.now()) return 'expired';
+    return g.isActive ? 'active' : 'pending';
   }
+  const grantStatusLabel: Record<GrantStatusKind, string> = {
+    active: t('org-agents.subscribed.status.active', 'Active'),
+    revoked: t('org-agents.subscribed.status.revoked', 'Revoked'),
+    expired: t('org-agents.subscribed.status.expired', 'Expired'),
+    pending: t('org-agents.subscribed.status.pending', 'Pending'),
+  };
 
-  // Pin the locale so SSR and client format identically (no hydration mismatch).
+  // Pin locale AND timezone so SSR and client format identically — the
+  // server may run in UTC while the browser doesn't (PR-494 review).
   function fmtDate(s: string | null): string {
     if (!s) return '—';
     const d = new Date(s);
     return isNaN(d.getTime())
       ? '—'
-      : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+      : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
   }
 
   let grantsFilter = $state('');
@@ -109,7 +115,7 @@
     { accessorFn: (g) => g.agent?.name ?? g.agentId, id: 'name', header: t('org-agents.subscribed.column.name', 'Name'), enableHiding: false, size: 200 },
     { accessorFn: (g) => g.agent?.urn ?? '', id: 'urn', header: t('org-agents.subscribed.column.urn', 'URN'), size: 280 },
     { accessorFn: (g) => (g.agent ? ownerSlugOf(g.agent.urn) : '—'), id: 'owner', header: t('org-agents.subscribed.column.owner', 'Owner'), size: 140 },
-    { accessorFn: (g) => grantStatus(g), id: 'status', header: t('org-agents.subscribed.column.status', 'Status'), size: 100 },
+    { accessorFn: (g) => grantStatusLabel[grantStatusKind(g)], id: 'status', header: t('org-agents.subscribed.column.status', 'Status'), size: 100 },
     { accessorFn: (g) => g.activatedAt ?? g.createdAt, id: 'since', header: t('org-agents.subscribed.column.since', 'Since'), size: 120 },
   ];
 
@@ -159,10 +165,12 @@
        agents owned by OTHER orgs. -->
   <div class="flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
     <button
+      type="button"
       class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'own' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
       onclick={() => (activeTab = 'own')}
     >{t('org-agents.tab.own', 'Organization agents')}</button>
     <button
+      type="button"
       class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'subscribed' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
       onclick={() => (activeTab = 'subscribed')}
     >{t('org-agents.tab.subscribed', 'Subscribed')}
@@ -206,10 +214,10 @@
               —
             {/if}
           {:else if cell.column.id === 'status'}
-            {@const status = grantStatus(grant)}
-            <span class="rounded-full px-2 py-0.5 text-xs font-medium {status === 'Active'
+            {@const kind = grantStatusKind(grant)}
+            <span class="rounded-full px-2 py-0.5 text-xs font-medium {kind === 'active'
               ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300'
-              : 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{status}</span>
+              : 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{grantStatusLabel[kind]}</span>
           {:else if cell.column.id === 'since'}
             <span class="whitespace-nowrap">{fmtDate(grant.activatedAt ?? grant.createdAt)}</span>
           {:else}
