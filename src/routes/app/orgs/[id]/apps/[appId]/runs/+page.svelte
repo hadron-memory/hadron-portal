@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import {
     RUN_STATUSES,
@@ -9,9 +11,9 @@
     runDuration,
     statusChipClass,
   } from '$lib/flow/runs';
-  import type { PageData } from './$types';
+  import type { PageData, ActionData } from './$types';
 
-  let { data }: { data: PageData } = $props();
+  let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const basePath = $derived(`/app/orgs/${data.app.organizationId}/apps/${data.app.id}`);
   const totalPages = $derived(Math.max(1, Math.ceil(data.total / data.pageSize)));
@@ -51,6 +53,44 @@
     </div>
   </div>
 
+  <!-- Flows this app can start (#483) — derived: runnable entry nodes with
+       routing edges. The Run button mints a MANUAL run; payloads live on the
+       node page's Test-flow panel. -->
+  {#if data.flows.length > 0}
+    <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('flows.title', 'Flows')}</h2>
+      <p class="mt-1 text-xs text-zinc-400">
+        {t('flows.explainer', 'Runnable entry nodes with routing edges in this app’s memories. Run one here, or open the node to run it with a test payload.')}
+      </p>
+      {#if form?.runError}
+        <div class="mt-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.runError}</div>
+      {/if}
+      <ul class="mt-3 divide-y divide-zinc-100 dark:divide-zinc-800">
+        {#each data.flows as flow (flow.entry.id)}
+          <li class="flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5">
+            <div class="min-w-0 flex-1">
+              <a
+                href="/app/memories/{flow.entry.memoryId}/nodes/{flow.entry.id}"
+                class="font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+              >{flow.entry.name}</a>
+              <div class="mt-0.5"><Urn value={flow.entry.urn} type="node" size={10} /></div>
+            </div>
+            <span class="text-xs text-zinc-500 dark:text-zinc-400">
+              {flow.stepCount} {t('flows.steps', 'steps')}{#if flow.branchCount > 1} · {flow.branchCount} {t('flows.branches', 'branches')}{/if}
+            </span>
+            <form method="POST" action="?/run" use:enhance>
+              <input type="hidden" name="entryUrn" value={flow.entry.urn} />
+              <button
+                type="submit"
+                class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+              >▶ {t('flows.run', 'Run')}</button>
+            </form>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
+
   <!-- Status filter -->
   <div class="flex flex-wrap items-center gap-1.5">
     <a
@@ -78,10 +118,17 @@
       </p>
       {#if !data.status}
         <p class="mx-auto mt-2 max-w-lg text-xs text-zinc-500 dark:text-zinc-400">
-          {t(
-            'runs.empty.explainer',
-            'Runs start from a trigger: a schedule (run every morning), a webhook (run when an outside system calls), or manually — the “Test flow” button on any runnable node mints one.',
-          )}
+          {#if data.flows.length > 0}
+            {t(
+              'runs.empty.explainer.flows',
+              'Runs start from a trigger: a schedule (run every morning), a webhook (run when an outside system calls), or manually — hit Run on a flow above to mint one.',
+            )}
+          {:else}
+            {t(
+              'runs.empty.explainer',
+              'Runs start from a trigger: a schedule (run every morning), a webhook (run when an outside system calls), or manually — the “Test flow” button on any runnable node mints one.',
+            )}
+          {/if}
         </p>
       {/if}
     </div>
