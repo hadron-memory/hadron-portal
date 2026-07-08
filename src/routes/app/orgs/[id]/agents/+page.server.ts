@@ -2,16 +2,33 @@ import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
-import { ORGANIZATION_QUERY, ORG_APP_INSTALLS_QUERY } from '$lib/server/queries';
+import { ORGANIZATION_QUERY, ORG_APP_INSTALLS_QUERY, ORG_AGENT_GRANTS_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 type AppInstall = { id: string; name: string; agentId: string | null };
 
+/** One AgentOrgGrant row as the Subscribed tab consumes it (#486). */
+export interface AgentGrant {
+  agentId: string;
+  activatedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+  agent: {
+    id: string;
+    urn: string;
+    name: string;
+    description: string | null;
+    organizationId: string;
+  } | null;
+}
+
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
-  const [data, apps] = await Promise.all([
+  const [data, apps, grantsData] = await Promise.all([
     // Let transient GraphQL/network errors propagate (→ 500); a genuinely
     // missing org is handled by the `!data.organization` 404 below. (Coercing
     // every error to 404 here would hide real failures — the spec-018 lesson.)
@@ -21,6 +38,19 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     fetchAllItems<AppInstall>(client, ORG_APP_INSTALLS_QUERY, 'apps', { orgId: params.id }).catch(
       () => [] as AppInstall[],
     ),
+    // Subscribed tab (#486): the org's AgentOrgGrants. The server resolver
+    // returns [] for non-admins (no error), so a thrown error here is a real
+    // transport failure — coerce to null so the tab shows "unavailable"
+    // rather than a false "no subscriptions" (review:no-silent-loader-catch).
+    client
+      .request<{ organization: { agentOrgGrants: AgentGrant[] } | null }>(
+        ORG_AGENT_GRANTS_QUERY, { id: params.id },
+      )
+      .then((r) => r.organization?.agentOrgGrants ?? [])
+      .catch((e) => {
+        console.warn(`[org-agents] grants fetch failed for ${params.id}:`, e);
+        return null;
+      }),
   ]);
 
   if (!data.organization) throw error(404, 'Organization not found');
@@ -33,5 +63,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }
   }
 
-  return { org: data.organization, installedByAgent };
+  // "Subscribed" = grants for agents OWNED BY OTHER ORGS (#486). Grants for
+  // the org's own agents (auto-provisioned by every install) are noise here.
+  const subscribedGrants =
+    grantsData === null
+      ? null
+      : grantsData.filter((g) => g.agent && g.agent.organizationId !== params.id);
+
+  return { org: data.organization, installedByAgent, subscribedGrants };
 };

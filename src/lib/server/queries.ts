@@ -280,6 +280,28 @@ export const ORGANIZATIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+// #486 — the org's Agent subscriptions (AgentOrgGrant rows: the 008 Org↔Agent
+// license, auto-provisioned on first install). Kept OUT of ORGANIZATION_QUERY:
+// the field resolver is org-ADMIN gated (non-admins get []), and widening the
+// shared org payload has cross-route blast radius (review:shared-layout-
+// payload-consumers). AgentOrgGrant.agent lazily resolves server-side.
+export const ORG_AGENT_GRANTS_QUERY = /* GraphQL */ `
+  query OrgAgentGrants($id: ID!) {
+    organization(ref: $id) {
+      id
+      agentOrgGrants {
+        agentId
+        activatedAt
+        expiresAt
+        revokedAt
+        isActive
+        createdAt
+        agent { id urn name description organizationId }
+      }
+    }
+  }
+`;
+
 // Slim membership-scoped org list for the nav / active-org resolution path
 // (layout sidebar + OrgSwitcher/CommandBar, auth-callback landing, the
 // marketplace post-add redirect). filter.memberOnly restricts the list to the
