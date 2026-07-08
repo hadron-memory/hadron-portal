@@ -1606,6 +1606,90 @@ export const ORG_APP_INSTALLS_QUERY = /* GraphQL */ `
   }
 `;
 
+// ---------------------------------------------------------------------------
+// Headless runs (spec 040 / #478) — the audit surface + kill switch
+// ---------------------------------------------------------------------------
+
+// NOTE: `data` (the run envelope) is deliberately NOT in this fragment —
+// it needs hadron-server#534 and is fetched separately (best-effort) by
+// APP_RUN_ENVELOPE_QUERY so the run pages work against older servers.
+export const APP_RUN_FIELDS = /* GraphQL */ `
+  fragment AppRunFields on AppRun {
+    id
+    organizationId
+    appId
+    agentId
+    userId
+    triggerKind
+    triggerId
+    entryNodeUrn
+    eventData
+    budgetTokens
+    budgetActions
+    status
+    curNodeUrn
+    parentRunId
+    failure
+    timeoutMs
+    attempts
+    startedAt
+    finishedAt
+    createdAt
+    createdBy
+  }
+`;
+
+// The runs audit list (org-READER gated server-side; limit hard-capped 200).
+export const APP_RUNS_QUERY = /* GraphQL */ `
+  ${APP_RUN_FIELDS}
+  query AppRuns($appRef: String, $status: AppRunStatus, $limit: Int, $offset: Int) {
+    appRuns(appRef: $appRef, status: $status, limit: $limit, offset: $offset) {
+      items { ...AppRunFields }
+      total
+    }
+  }
+`;
+
+export const APP_RUN_QUERY = /* GraphQL */ `
+  ${APP_RUN_FIELDS}
+  query AppRun($id: ID!) {
+    appRun(ref: $id) {
+      ...AppRunFields
+    }
+  }
+`;
+
+// The run envelope — separate query because `AppRun.data` only exists from
+// hadron-server#534 on; the detail loader degrades gracefully when the
+// field is unknown instead of erroring the whole page.
+export const APP_RUN_ENVELOPE_QUERY = /* GraphQL */ `
+  query AppRunEnvelope($id: ID!) {
+    appRun(ref: $id) {
+      id
+      data
+    }
+  }
+`;
+
+// The kill switch (guarded server-side: only a still-RUNNING/PENDING row
+// transitions; a raced terminal state survives in the audit log).
+export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
+  ${APP_RUN_FIELDS}
+  mutation CancelAppRun($id: ID!) {
+    cancelAppRun(id: $id) {
+      ...AppRunFields
+    }
+  }
+`;
+
+// "Test this flow" (#478): runTask with appRef mints a MANUAL AppRun and
+// returns its id (#529) — the walker executes it in the background.
+export const RUN_TASK_APP_MUTATION = /* GraphQL */ `
+  mutation RunTaskApp($urn: String!, $args: JSON, $appRef: ID!, $runAsSelf: Boolean) {
+    runTask(urn: $urn, args: $args, appRef: $appRef, runAsSelf: $runAsSelf)
+  }
+`;
+
 // Apps an agent is installed into — for the agent detail page's Apps tab.
 // Omit orgId so `apps` is member-scoped to EVERY app across the caller's orgs
 // (an agent can be installed cross-org). Both `agentId` (primary) and the full

@@ -320,6 +320,27 @@
       .map((n) => ({ urn: data.graph.urn ? composeNodeUrn(data.graph.urn, n.loc) : n.loc, name: n.name ?? n.loc })),
   );
 
+  // ── Test flow (#478 phase 3) ─────────────────────────────────────────
+  // Runnable node + org member ⇒ offer minting a MANUAL headless run via
+  // the testFlow action (runTask(urn, appRef:)), with an optional JSON
+  // trigger payload the flow sees at message.data.<field>. On success the
+  // action redirects to the run detail page.
+  let testFlowOpen = $state(false);
+  let testFlowAppId = $state('');
+  let testFlowPayload = $state('');
+  const testFlowApps = $derived(data.testFlowApps ?? []);
+  const canTestFlow = $derived(!!node.isRunnable && testFlowApps.length > 0);
+  const testFlowPayloadValid = $derived.by(() => {
+    const raw = testFlowPayload.trim();
+    if (raw === '') return true;
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed);
+    } catch {
+      return false;
+    }
+  });
+
   // ── Download / export ───────────────────────────────────────────────
   // Server-rendered single-node export (#421 / hadron-server #386). The server's
   // `nodeExport` field owns the format — `full: true` is the canonical,
@@ -712,6 +733,9 @@
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
+      testFlowOpen = false;
+      testFlowAppId = '';
+      testFlowPayload = '';
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -771,6 +795,71 @@
       {/if}
     </div>
     <div class="shrink-0 flex gap-2">
+      {#if canTestFlow}
+        <!-- Test flow (#478): mint a MANUAL headless run of this node. -->
+        <div class="relative">
+          <button
+            type="button"
+            onclick={() => (testFlowOpen = !testFlowOpen)}
+            aria-haspopup="true"
+            aria-expanded={testFlowOpen}
+            class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+          >
+            ▶ Test flow
+          </button>
+          {#if testFlowOpen}
+            <button
+              type="button"
+              class="fixed inset-0 z-10 cursor-default"
+              aria-label="Close test flow panel"
+              onclick={() => (testFlowOpen = false)}
+            ></button>
+            <div class="absolute right-0 z-20 mt-2 w-80 rounded-xl border border-zinc-200 bg-white p-4 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              <form method="POST" action="?/testFlow" use:enhance class="space-y-3">
+                <p class="text-xs text-zinc-500 dark:text-zinc-400">
+                  Runs this node as a one-off headless flow: it executes, extracts its fields, and follows routing edges. You'll land on the live run page.
+                </p>
+                <div>
+                  <label for="testFlowApp" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Run as App</label>
+                  <select id="testFlowApp" name="appId" bind:value={testFlowAppId} required class={inputClass}>
+                    <option value="" disabled>Pick an App…</option>
+                    {#each testFlowApps as app (app.id)}
+                      <option value={app.id}>{app.name}</option>
+                    {/each}
+                  </select>
+                  <p class="mt-1 text-xs text-zinc-400">The run uses this App's budgets and permissions.</p>
+                </div>
+                <div>
+                  <label for="testFlowPayload" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Test payload (optional JSON)</label>
+                  <textarea
+                    id="testFlowPayload"
+                    name="payload"
+                    rows="4"
+                    bind:value={testFlowPayload}
+                    placeholder={'{ "confidence": 0.9 }'}
+                    spellcheck="false"
+                    class="w-full rounded-lg border bg-zinc-50 p-2 font-mono text-xs text-zinc-800 focus:outline-none dark:bg-zinc-950 dark:text-zinc-300 {testFlowPayloadValid ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 dark:border-red-700'}"
+                  ></textarea>
+                  <p class="mt-1 text-xs {testFlowPayloadValid ? 'text-zinc-400' : 'text-red-500'}">
+                    {testFlowPayloadValid
+                      ? 'Fields conditions can branch on — like a trigger would send.'
+                      : 'Must be a JSON object of named fields.'}
+                  </p>
+                </div>
+                {#if form && 'testFlowError' in form && form.testFlowError}
+                  <p class="text-xs text-red-500">{form.testFlowError}</p>
+                {/if}
+                <input type="hidden" name="orgId" value={data.org?.id ?? ''} />
+                <button
+                  type="submit"
+                  disabled={!testFlowAppId || !testFlowPayloadValid}
+                  class="w-full rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >Start test run</button>
+              </form>
+            </div>
+          {/if}
+        </div>
+      {/if}
       {#if isTeamChat}
         <a
           href="{basePath}/nodes/{node.id}/chat"
