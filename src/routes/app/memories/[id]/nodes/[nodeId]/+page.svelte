@@ -1434,7 +1434,11 @@
       {/key}
     {/if}
 
-    <!-- ═══ EDGES TAB (tab key stays 'references' — a rename would dead-link nothing, but listKey below persists saved views; #490) ═══ -->
+    <!-- ═══ EDGES TAB ═══
+         #490 renamed the visible copy only. The tab key stays 'references'
+         (it is not URL-bound, so renaming is safe but pure churn); the
+         DataTable listKey below MUST stay — it persists users' saved
+         table views. -->
     {#if activeTab === 'references'}
       <!-- #350: both directions in one TanStack table (Direction · Relationship ·
            Node · URN · Open). "Edit edges" still opens the inline add/remove
