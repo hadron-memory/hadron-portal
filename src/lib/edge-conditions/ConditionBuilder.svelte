@@ -1,13 +1,21 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
   import GroupRow from './GroupRow.svelte';
+  import type { KnownVariable } from './known-variables.js';
   import type { UiCondition, UiGroup } from './types.js';
 
   /**
    * Two-way bound to the parent's UI state. Null means "always fires"
    * (no condition); a UiGroup means structured authoring is active.
    */
-  let { value = $bindable() }: { value: UiCondition } = $props();
+  let {
+    value = $bindable(),
+    extraVariables = [],
+  }: {
+    value: UiCondition;
+    /** Context-specific variable paths surfaced first in the field picker. */
+    extraVariables?: ReadonlyArray<KnownVariable>;
+  } = $props();
 
   function enable() {
     value = { kind: 'group', combinator: 'and', children: [] };
@@ -46,6 +54,6 @@
   </div>
 
   {#if value !== null}
-    <GroupRow bind:group={value as UiGroup} />
+    <GroupRow bind:group={value as UiGroup} {extraVariables} />
   {/if}
 </div>
