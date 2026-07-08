@@ -868,6 +868,16 @@
           Open chat
         </a>
       {/if}
+      <!-- Duplicate (#501): cloneNode into <loc>-copy beside this node, then
+           land on the copy. An occupied slot steps the suffix in the action. -->
+      <form method="POST" action="?/duplicate" use:enhance>
+        <button
+          type="submit"
+          class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          Duplicate
+        </button>
+      </form>
       <!-- Download / export — the file is rendered server-side by hadron-server
            `nodeExport` (via /api/nodes/export); the browser just serves the
            returned bytes. The portal never re-implements the export codec. -->

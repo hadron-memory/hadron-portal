@@ -1616,10 +1616,24 @@ export const MEMORIES_QUERY = /* GraphQL */ `
   }
 `;
 
+// hadron-server#564 (#501): moveNode reshaped to the <object>Ref convention —
+// sourceRef (PK or URN) + exactly ONE of targetUrn (full destination node
+// URN: new loc and/or new memory) / targetMemoryRef (same loc, new memory).
+// A occupied destination fails loudly with NODE_ALREADY_EXISTS — never a
+// silent overwrite.
 export const MOVE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
-  mutation MoveNode($from: String!, $to: String!, $memoryId: ID!) {
-    moveNode(from: $from, to: $to, memoryRef: $memoryId) { ...NodeFields }
+  mutation MoveNode($sourceRef: ID!, $targetUrn: String, $targetMemoryRef: ID) {
+    moveNode(sourceRef: $sourceRef, targetUrn: $targetUrn, targetMemoryRef: $targetMemoryRef) { ...NodeFields }
+  }
+`;
+
+// #564's sibling: copy a node (same selector shape as moveNode; returns the
+// NEW node). Backs the node page's "Duplicate" action (#501).
+export const CLONE_NODE_MUTATION = /* GraphQL */ `
+  ${NODE_FIELDS}
+  mutation CloneNode($sourceRef: ID!, $targetUrn: String, $targetMemoryRef: ID) {
+    cloneNode(sourceRef: $sourceRef, targetUrn: $targetUrn, targetMemoryRef: $targetMemoryRef) { ...NodeFields }
   }
 `;
 
