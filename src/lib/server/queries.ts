@@ -280,6 +280,36 @@ export const ORGANIZATIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+// #486 / hadron-server#551 — the cross-org marketplace slice: every live
+// PUBLIC agent, no membership required (deliberately separate from the
+// member-scoped agents() list, server #552). Slim selection — the picker
+// only renders identity + provenance.
+export const PUBLIC_AGENTS_QUERY = /* GraphQL */ `
+  query PublicAgents($limit: Int, $offset: Int) {
+    publicAgents(limit: $limit, offset: $offset) {
+      items { id urn name description organizationId visibility }
+      total
+    }
+  }
+`;
+
+// Find-one agent read for the install flow's PUBLIC path (#486): since
+// server #552, agent(ref:) admits a PUBLIC agent for ANY caller (non-public
+// keeps the membership gate). Callers must still check visibility === PUBLIC
+// before treating a cross-org hit as installable.
+export const AGENT_PUBLIC_QUERY = /* GraphQL */ `
+  query AgentPublic($id: ID!) {
+    agent(ref: $id) {
+      id
+      urn
+      name
+      description
+      organizationId
+      visibility
+    }
+  }
+`;
+
 // #486 — the org's Agent subscriptions (AgentOrgGrant rows: the 008 Org↔Agent
 // license, auto-provisioned on first install). Kept OUT of ORGANIZATION_QUERY:
 // the field resolver is org-ADMIN gated (non-admins get []), and widening the

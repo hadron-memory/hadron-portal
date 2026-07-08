@@ -9,6 +9,7 @@ import {
   ORGANIZATION_QUERY,
   ORG_APP_INSTALLS_QUERY,
   ORG_AGENT_GRANTS_QUERY,
+  PUBLIC_AGENTS_QUERY,
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -42,7 +43,7 @@ const grant = (agentId: string, orgId: string, over: Record<string, unknown> = {
   ...over,
 });
 
-function route(opts: { grants?: unknown[]; grantsError?: boolean }) {
+function route(opts: { grants?: unknown[]; grantsError?: boolean; publicAgents?: unknown[] }) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === ORGANIZATION_QUERY) {
       return { organization: { id: ORG_ID, name: 'Org', agents: [] } };
@@ -51,6 +52,10 @@ function route(opts: { grants?: unknown[]; grantsError?: boolean }) {
     if (query === ORG_AGENT_GRANTS_QUERY) {
       if (opts.grantsError) throw new Error('boom');
       return { organization: { agentOrgGrants: opts.grants ?? [] } };
+    }
+    if (query === PUBLIC_AGENTS_QUERY) {
+      const items = opts.publicAgents ?? [];
+      return { publicAgents: { items, total: items.length } };
     }
     throw new Error(`unexpected query: ${query.slice(0, 60)}`);
   });
@@ -62,7 +67,10 @@ async function runLoad() {
     params: { id: ORG_ID },
     locals: { token: 'tok' },
     parent: vi.fn().mockResolvedValue({ isConsumerMode: false }),
-  } as never)) as { subscribedGrants: unknown[] | null };
+  } as never)) as {
+    subscribedGrants: unknown[] | null;
+    subscribablePublicAgents: Array<{ id: string }>;
+  };
 }
 
 describe('org agents loader — subscribed grants (#486)', () => {
@@ -87,5 +95,18 @@ describe('org agents loader — subscribed grants (#486)', () => {
   it('coerces a grants fetch failure to null — unavailable, not empty', async () => {
     route({ grantsError: true });
     expect((await runLoad()).subscribedGrants).toBeNull();
+  });
+
+  it('picker candidates exclude own-org agents and already-granted agents (#486)', async () => {
+    const pub = (id: string, orgId: string) => ({
+      id, urn: `hrn:agent:other.org::${id}`, name: id, description: null,
+      organizationId: orgId, visibility: 'PUBLIC',
+    });
+    route({
+      grants: [grant('already-granted', 'org-OTHER')],
+      publicAgents: [pub('fresh', 'org-OTHER'), pub('already-granted', 'org-OTHER'), pub('own-public', ORG_ID)],
+    });
+    const result = await runLoad();
+    expect(result.subscribablePublicAgents.map((a) => a.id)).toEqual(['fresh']);
   });
 });
