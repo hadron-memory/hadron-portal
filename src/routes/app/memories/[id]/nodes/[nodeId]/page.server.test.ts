@@ -514,12 +514,35 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     } catch (e) {
       thrown = e;
     }
-    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { nodeRef: string }];
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { nodeRef: string; hard: boolean }];
     // #542: deleteNode takes the resolved node's PK, not loc+memoryId.
     expect(vars.nodeRef).toBe('pk');
+    // #503: no `hard` field in the form → soft delete (the safe default).
+    expect(vars.hard).toBe(false);
     // Redirect to mem-B's list, not mem-A's.
     expect((thrown as { status: number }).status).toBe(303);
     expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes');
+  });
+
+  it('delete: hard=true from the form is forwarded to deleteNode (#503)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce(true);
+
+    const actions = await importActions();
+    try {
+      await actions.delete(actionEvent({ gid: 'mem-B', nodeId: 'pk', form: { hard: 'true' } }));
+    } catch { /* redirect */ }
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { nodeRef: string; hard: boolean }];
+    expect(vars).toMatchObject({ nodeRef: 'pk', hard: true });
   });
 
   it('createParent: create uses anchorNode.memoryId, not params.gid', async () => {

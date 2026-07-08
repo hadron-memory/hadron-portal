@@ -354,6 +354,8 @@
   // straight to moveNode's targetUrn.
   let moveTarget = $state('');
   let deleteOpen = $state(false);
+  // #503: opt into a permanent (hard) delete; default is the safe soft delete.
+  let hardDelete = $state(false);
 
   const menuActions = $derived<NodeMenuAction[]>([
     { id: 'edit', label: t('node-actions.edit', 'Edit') },
@@ -388,7 +390,7 @@
         break;
       case 'add-child': goto(addChildHref); break;
       case 'download': downloadOpen = true; break;
-      case 'delete': deleteOpen = true; break;
+      case 'delete': hardDelete = false; deleteOpen = true; break;
     }
   }
 
@@ -790,6 +792,7 @@
       moveOpen = false;
       moveTarget = '';
       deleteOpen = false;
+      hardDelete = false;
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -1035,17 +1038,33 @@
           </div>
         {/if}
 
-        <!-- Delete (#503): the same ?/delete action the Settings danger zone uses. -->
+        <!-- Delete (#503): the same ?/delete action the Settings danger zone
+             uses. The hard-delete checkbox sends hard=true (permanent purge);
+             unchecked = the default soft delete. -->
         {#if deleteOpen}
           <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close delete confirmation" onclick={() => (deleteOpen = false)}></button>
-          <div class="absolute right-0 z-40 mt-2 w-72 rounded-xl border border-red-200 bg-white p-4 shadow-xl dark:border-red-900 dark:bg-zinc-900">
-            <p class="text-sm text-zinc-700 dark:text-zinc-200">Delete <span class="font-medium">{node.name}</span>? This cannot be undone.</p>
-            <div class="mt-3 flex items-center gap-2">
-              <form method="POST" action="?/delete" use:enhance>
-                <button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500">Yes, delete</button>
-              </form>
-              <button type="button" onclick={() => (deleteOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
-            </div>
+          <div class="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-red-200 bg-white p-4 shadow-xl dark:border-red-900 dark:bg-zinc-900">
+            <form method="POST" action="?/delete" use:enhance class="space-y-3">
+              <p class="text-sm text-zinc-700 dark:text-zinc-200">Delete <span class="font-medium">{node.name}</span>?</p>
+              <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                <input type="checkbox" name="hard" value="true" bind:checked={hardDelete}
+                  class="mt-0.5 rounded border-zinc-300 text-red-600 focus:ring-red-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                <span>
+                  Hard delete
+                  <span class="block text-xs {hardDelete ? 'text-red-500' : 'text-zinc-400'}">
+                    {hardDelete
+                      ? 'Permanently removes the node — it cannot be recovered.'
+                      : 'Off: soft-deletes (hidden, but recoverable server-side).'}
+                  </span>
+                </span>
+              </label>
+              <div class="flex items-center gap-2">
+                <button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500">
+                  {hardDelete ? 'Delete permanently' : 'Delete'}
+                </button>
+                <button type="button" onclick={() => (deleteOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
+              </div>
+            </form>
           </div>
         {/if}
       </div>

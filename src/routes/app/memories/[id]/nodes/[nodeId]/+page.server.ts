@@ -188,7 +188,12 @@ export const actions: Actions = {
     }
   },
 
-  delete: async ({ params, locals }) => {
+  delete: async ({ request, params, locals }) => {
+    // Optional hard delete (#503): the menu's confirm dialog sends hard=true
+    // to purge the row rather than soft-delete it. Absent (Settings danger
+    // zone) → soft delete, the safe default.
+    const fd = await request.formData();
+    const hard = fd.get('hard') === 'true';
     // Load the node to get its loc AND its actual memoryId (#237).
     const data = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
@@ -197,9 +202,9 @@ export const actions: Actions = {
     const node = data.node;
     try {
       // #542: deleteNode takes a single nodeRef — pass the resolved node's PK.
-      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id });
+      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id, hard });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete' });
+      return fail(500, { error: extractGqlError(e, 'Failed to delete') });
     }
     // Redirect to the *actual* memory's list — not the URL's gid, which
     // may have been stale.
