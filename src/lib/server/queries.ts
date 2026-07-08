@@ -1062,12 +1062,9 @@ export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
 // the server has no single-edge query (resolveUrn doesn't dispatch edges).
 //
 // We DON'T select `source` on the outgoing edges: the host node IS the source
-// (the page renders it from `host`), and — crucially — the node read only
-// Prisma-includes `target` for outgoingEdges (`include: { target: true }`)
-// with no Edge.source field resolver to load it lazily. Selecting `source { … }`
-// here resolves to null against the non-null `Edge.source: Node!` schema field,
-// which errors the whole query (null bubbles up the non-null chain) → the
-// loader throws → 500 on every edge detail page.
+// (the page renders it from `host`), so it would only bloat the payload.
+// (Since server PR #381 Edge.source/target lazily load when not preloaded,
+// so selecting it is no longer a 500 — just redundant here.)
 export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
   query EdgeHostNode($id: ID!) {
     node(ref: $id) {
@@ -1075,6 +1072,7 @@ export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
       memoryId
       loc
       name
+      data
       memory { id urn name }
       outgoingEdges {
         id
@@ -1086,6 +1084,33 @@ export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
         priority
         data
         target { id loc name description tags memory { id urn } }
+      }
+      # Flow context (#478): nodes routing INTO this one contribute their
+      # extractionSpec fields to the run envelope, so the condition builder
+      # offers them. One level here (the node read preloads incomingEdges'
+      # source); deeper levels are fetched separately — Node.incomingEdges
+      # has no lazy resolver, so nesting it under source would come back
+      # empty.
+      incomingEdges {
+        name
+        loc
+        source { id loc name data }
+      }
+    }
+  }
+`;
+
+// Level-2 upstream fetch for the flow field picker (#478): the incoming
+// flow edges of ONE upstream node, with each edge's source node data.
+// Best-effort — the edge editor works without it.
+export const FLOW_UPSTREAM_NODE_QUERY = /* GraphQL */ `
+  query FlowUpstreamNode($id: ID!) {
+    node(ref: $id) {
+      id
+      incomingEdges {
+        name
+        loc
+        source { id loc name data }
       }
     }
   }

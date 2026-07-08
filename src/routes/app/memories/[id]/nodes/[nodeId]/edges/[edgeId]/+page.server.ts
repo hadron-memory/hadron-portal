@@ -1,7 +1,14 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { EDGE_HOST_NODE_QUERY, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
+import {
+  EDGE_HOST_NODE_QUERY,
+  FLOW_UPSTREAM_NODE_QUERY,
+  UPDATE_EDGE_MUTATION,
+  DELETE_EDGE_MUTATION,
+} from '$lib/server/queries';
+import { collectFlowFields, type FlowFieldNode } from '$lib/flow/fields';
+import { isRoutingName, routingNameOf } from '$lib/flow/routing';
 import type { NodeEdge } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -9,13 +16,72 @@ import type { Actions, PageServerLoad } from './$types';
 // the edge's HOST node (= its source — every edge is owned by its source node)
 // by PK and pick the edge out of outgoingEdges. The route nodeId is therefore
 // the source node's id (the References tab builds the link that way).
+interface UpstreamEdge {
+  name: string | null;
+  loc: string;
+  source: { id: string; loc: string; name: string; data: unknown } | null;
+}
+
 interface HostNode {
   id: string;
   memoryId: string;
   loc: string;
   name: string;
+  data: unknown;
   memory: { id: string; urn: string; name: string } | null;
   outgoingEdges: NodeEdge[];
+  incomingEdges: UpstreamEdge[];
+}
+
+// Level-2 upstream fan-out cap — the field picker is best-effort (#478);
+// a hub node with dozens of inbound flow edges shouldn't stall the page.
+const UPSTREAM_FETCH_MAX = 8;
+
+/**
+ * Envelope fields for the condition builder: the host's own extraction
+ * fields plus upstream flow nodes' (2 levels). Level 1 rides the host
+ * query; level 2 is fetched here per upstream node, best-effort — a
+ * failure only shrinks the picker, never the page.
+ */
+async function loadFlowFields(token: string | null | undefined, host: HostNode) {
+  const upstream = host.incomingEdges
+    .filter((e) => e.source && isRoutingName(routingNameOf(e, e.source.loc)))
+    .slice(0, UPSTREAM_FETCH_MAX);
+
+  const level2 = await Promise.all(
+    upstream.map(async (e) => {
+      try {
+        const res = await gqlClient(token).request<{
+          node: { incomingEdges: UpstreamEdge[] } | null;
+        }>(FLOW_UPSTREAM_NODE_QUERY, { id: e.source!.id });
+        return res.node?.incomingEdges ?? [];
+      } catch (err) {
+        console.warn(`[edge-editor] upstream fetch failed for ${e.source!.id}:`, err);
+        return [];
+      }
+    }),
+  );
+
+  const tree: FlowFieldNode = {
+    loc: host.loc,
+    name: host.name,
+    data: host.data,
+    incomingEdges: upstream.map((e, i) => ({
+      name: e.name,
+      loc: e.loc,
+      source: e.source && {
+        loc: e.source.loc,
+        name: e.source.name,
+        data: e.source.data,
+        incomingEdges: level2[i].map((u) => ({
+          name: u.name,
+          loc: u.loc,
+          source: u.source && { loc: u.source.loc, name: u.source.name, data: u.source.data },
+        })),
+      },
+    })),
+  };
+  return collectFlowFields(tree);
 }
 
 // Mirrors the node Data tab cap — keeps a pathological paste from hitting the
@@ -43,7 +109,9 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     redirect(303, `/app/memories/${host.memoryId}/nodes/${params.nodeId}/edges/${params.edgeId}`);
   }
 
-  return { host, edge };
+  const flowFields = await loadFlowFields(locals.token, host);
+
+  return { host, edge, flowFields };
 };
 
 export const actions: Actions = {

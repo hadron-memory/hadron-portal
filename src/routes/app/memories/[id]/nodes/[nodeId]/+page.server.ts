@@ -7,6 +7,7 @@ import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATIO
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { isCanonicalNodeType } from '$lib/node-types';
+import { extractionRowsError, rowsToSpec, EXTRACTION_SHAPES, type ExtractionRow, type ExtractionShape } from '$lib/flow/extraction';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -295,6 +296,71 @@ export const actions: Actions = {
       });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
+    }
+  },
+
+  // Flow tab (#478 phase 2): structured editors for data.extractionSpec and
+  // data.output. Merges into the node's CURRENT data (fetched fresh here) so
+  // saving the flow config never clobbers unrelated data keys. Validation
+  // mirrors the server's reserved-name rules (exception/exceptions,
+  // __-prefix) with human messages — the server re-validates at save and run
+  // time; this is the earlier, friendlier gate the issue asks for.
+  updateFlow: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+
+    // Extraction rows arrive as a JSON array of { field, shape, description }.
+    const rowsRaw = String(fd.get('extractionRows') ?? '[]');
+    let rowsParsed: unknown;
+    try {
+      rowsParsed = JSON.parse(rowsRaw);
+    } catch {
+      return fail(400, { flowError: 'Invalid extraction rows' });
+    }
+    if (!Array.isArray(rowsParsed)) return fail(400, { flowError: 'Invalid extraction rows' });
+    const rows: ExtractionRow[] = rowsParsed.map((r) => ({
+      field: typeof r?.field === 'string' ? r.field : '',
+      shape: EXTRACTION_SHAPES.includes(r?.shape) ? (r.shape as ExtractionShape) : 'string',
+      description: typeof r?.description === 'string' ? r.description : '',
+    }));
+    const rowsError = extractionRowsError(rows);
+    if (rowsError) return fail(400, { flowError: rowsError.message });
+
+    // Output spec: empty writeTo = no output spec (the flow's LAST node then
+    // writes the default run record beside itself).
+    const writeTo = String(fd.get('outputWriteTo') ?? '').trim();
+    const mode = String(fd.get('outputMode') ?? 'replace') === 'append' ? 'append' : 'replace';
+    if (writeTo !== '' && !writeTo.includes('::')) {
+      return fail(400, {
+        flowError: 'Output target must be a fully-qualified node URN (org::memory::loc).',
+      });
+    }
+
+    const client = gqlClient(locals.token);
+    try {
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      if (!node) return fail(404, { flowError: 'Node not found' });
+
+      const merged: Record<string, unknown> = {
+        ...(node.data && typeof node.data === 'object' && !Array.isArray(node.data) ? node.data : {}),
+      };
+      if (rows.length > 0) merged.extractionSpec = rowsToSpec(rows);
+      else delete merged.extractionSpec;
+      if (writeTo !== '') merged.output = { writeTo, mode };
+      else delete merged.output;
+
+      await client.request(UPDATE_NODE_MUTATION, {
+        input: {
+          // #237: memoryId from the node, not the URL.
+          memoryId: node.memoryId,
+          loc: node.loc,
+          // #235: explicit tags pass-through — see updateContent.
+          tags: node.tags ?? [],
+          data: merged,
+        },
+      });
+      return { flowSaved: true };
+    } catch (e: unknown) {
+      return fail(500, { flowError: e instanceof Error ? e.message : 'Save failed' });
     }
   },
 
