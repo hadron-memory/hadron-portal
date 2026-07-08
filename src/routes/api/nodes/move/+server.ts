@@ -3,6 +3,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { MOVE_NODE_MUTATION, NODE_BY_ID_QUERY } from '$lib/server/queries';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import type { MemoryNode } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -18,7 +19,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   const { sourceRef, toLoc } = await request.json();
-  if (!sourceRef || !toLoc) {
+  // Normalize toLoc the same way the rename/move forms do — a network client
+  // could send path separators or a raw URN-shaped string, which would
+  // otherwise compose into a malformed targetUrn (PR-502 review). cleanLocInput
+  // strips URN/loc prefixes, converts `/` to `:`, and returns the bare loc.
+  const loc = cleanLocInput(String(toLoc ?? ''));
+  if (!sourceRef || !loc) {
     return json({ error: 'sourceRef and toLoc are required' }, { status: 400 });
   }
 
@@ -30,7 +36,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     await client.request(MOVE_NODE_MUTATION, {
       sourceRef: node.id,
-      targetUrn: composeNodeUrn(node.memory.urn, String(toLoc)),
+      targetUrn: composeNodeUrn(node.memory.urn, loc),
     });
     return json({ ok: true });
   } catch (e: unknown) {

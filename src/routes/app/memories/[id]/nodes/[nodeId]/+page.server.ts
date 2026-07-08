@@ -172,7 +172,10 @@ export const actions: Actions = {
           targetUrn: composeNodeUrn(currentNode.memory.urn, loc),
         });
       } catch (e: unknown) {
-        return fail(500, { error: extractGqlError(e, 'Failed to move node') });
+        // An occupied destination is a 409 Conflict, not a 500 — matches the
+        // /api/nodes/move endpoint and keeps it out of error monitoring.
+        const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
+        return fail(status, { error: extractGqlError(e, 'Failed to move node') });
       }
     }
 
@@ -436,9 +439,13 @@ export const actions: Actions = {
     if (!node) return fail(404, { error: 'Node not found' });
     if (!node.memory?.urn) return fail(500, { error: 'Node has no memory URN to clone by.' });
 
+    // Normalize the source loc first (PR-502 review): a legacy stored loc can
+    // carry a URN prefix, and appending `-copy` to that then composing a URN
+    // would double the prefix (hrn:node:<mem>::hrn:node:<mem>::foo-copy).
+    const baseLoc = cleanLocInput(node.loc);
     let clonedId: string | null = null;
     for (let attempt = 1; attempt <= 5 && clonedId === null; attempt++) {
-      const candidateLoc = attempt === 1 ? `${node.loc}-copy` : `${node.loc}-copy-${attempt}`;
+      const candidateLoc = attempt === 1 ? `${baseLoc}-copy` : `${baseLoc}-copy-${attempt}`;
       try {
         const res = await client.request<{ cloneNode: { id: string; memoryId: string } }>(
           CLONE_NODE_MUTATION,

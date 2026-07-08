@@ -173,4 +173,29 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     expect(moveVars.sourceRef).toBe('pk');
     expect(moveVars.targetUrn).toBe('hrn:node:acme.com::brain::new-loc');
   });
+
+  it('an occupied destination fails as 409, not 500 (#501 fail-loud)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'old-loc', name: 'a',
+        memory: { id: 'mem-B', urn: 'acme.com::brain', name: 'Brain' },
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockRejectedValueOnce({
+      response: {
+        errors: [{ message: 'A live node already occupies loc "new-loc" in the destination memory.', extensions: { code: 'NODE_ALREADY_EXISTS' } }],
+      },
+    });
+
+    const actions = await importActions();
+    const result = (await actions.default(actionEvent({
+      gid: 'mem-A', nodeId: 'pk', form: { name: 'a', loc: 'new-loc' },
+    }))) as { status: number; data: { error: string } };
+    expect(result.status).toBe(409);
+    expect(result.data.error).toMatch(/already occupies/);
+  });
 });

@@ -1619,7 +1619,7 @@ export const MEMORIES_QUERY = /* GraphQL */ `
 // hadron-server#564 (#501): moveNode reshaped to the <object>Ref convention —
 // sourceRef (PK or URN) + exactly ONE of targetUrn (full destination node
 // URN: new loc and/or new memory) / targetMemoryRef (same loc, new memory).
-// A occupied destination fails loudly with NODE_ALREADY_EXISTS — never a
+// An occupied destination fails loudly with NODE_ALREADY_EXISTS — never a
 // silent overwrite.
 export const MOVE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}

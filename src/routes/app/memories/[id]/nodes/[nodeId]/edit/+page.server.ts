@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
@@ -86,7 +86,10 @@ export const actions: Actions = {
           targetUrn: composeNodeUrn(currentNode.memory.urn, loc),
         });
       } catch (e: unknown) {
-        return fail(500, { error: extractGqlError(e, 'Failed to move node') });
+        // Occupied destination → 409 Conflict, matching the detail page +
+        // the /api/nodes/move endpoint.
+        const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
+        return fail(status, { error: extractGqlError(e, 'Failed to move node') });
       }
     }
 
