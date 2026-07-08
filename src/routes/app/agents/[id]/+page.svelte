@@ -875,11 +875,18 @@
                      useless: when the current memory was missing from the
                      (membership-gated, best-effort) options list, the browser
                      fell back to "— None —" and the save of ANY field failed
-                     with "Cannot unset or change...". Read-only + no field
-                     submitted = the truth. -->
-                <p class="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
-                  {orgSystemMemories.find((sm: { id: string }) => sm.id === agent.systemMemoryId)?.name ?? agent.systemMemoryId}
-                </p>
+                     with "Cannot unset or change...". A DISABLED input (never
+                     submitted) keeps the label association intact for screen
+                     readers; systemMemory resolves from allMemories, which
+                     still carries the entry when the system-memories list
+                     doesn't (PR-492 review). -->
+                <input
+                  id="editSystemMemoryId"
+                  type="text"
+                  disabled
+                  value={systemMemory?.name ?? `System Memory (${agent.systemMemoryId})`}
+                  class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300"
+                />
                 <p class="mt-1 text-xs text-zinc-400">Can't be changed — delete the agent to replace its system memory.</p>
               {:else}
                 <select id="editSystemMemoryId" name="systemMemoryId" value="" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
