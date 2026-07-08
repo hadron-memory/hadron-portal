@@ -2,11 +2,21 @@ import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
-import { ORGANIZATION_QUERY, ORG_APP_INSTALLS_QUERY, ORG_AGENT_GRANTS_QUERY } from '$lib/server/queries';
+import { ORGANIZATION_QUERY, ORG_APP_INSTALLS_QUERY, ORG_AGENT_GRANTS_QUERY, PUBLIC_AGENTS_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
 type AppInstall = { id: string; name: string; agentId: string | null };
+
+/** One publicAgents item as the subscribe picker consumes it (#486). */
+export interface PublicAgent {
+  id: string;
+  urn: string;
+  name: string;
+  description: string | null;
+  organizationId: string;
+  visibility: string;
+}
 
 /** One AgentOrgGrant row as the Subscribed tab consumes it (#486). */
 export interface AgentGrant {
@@ -28,7 +38,7 @@ export interface AgentGrant {
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
-  const [data, apps, grantsData] = await Promise.all([
+  const [data, apps, grantsData, publicAgents] = await Promise.all([
     // Let transient GraphQL/network errors propagate (→ 500); a genuinely
     // missing org is handled by the `!data.organization` 404 below. (Coercing
     // every error to 404 here would hide real failures — the spec-018 lesson.)
@@ -51,6 +61,13 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
         console.warn(`[org-agents] grants fetch failed for ${params.id}:`, e);
         return null;
       }),
+    // Subscribe picker (#486 / hadron-server#551): the cross-org PUBLIC
+    // marketplace slice. Best-effort — a failure just leaves the picker
+    // empty; the Subscribed table above it is unaffected.
+    fetchAllItems<PublicAgent>(client, PUBLIC_AGENTS_QUERY, 'publicAgents').catch((e) => {
+      console.warn('[org-agents] publicAgents fetch failed:', e);
+      return [] as PublicAgent[];
+    }),
   ]);
 
   if (!data.organization) throw error(404, 'Organization not found');
@@ -70,5 +87,13 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       ? null
       : grantsData.filter((g) => g.agent && g.agent.organizationId !== params.id);
 
-  return { org: data.organization, installedByAgent, subscribedGrants };
+  // Picker candidates: public agents the org doesn't own and isn't already
+  // subscribed to (any grant row counts — active or not; re-subscribing a
+  // revoked grant is an admin conversation, not a picker click).
+  const grantedAgentIds = new Set((grantsData ?? []).map((g) => g.agentId));
+  const subscribablePublicAgents = publicAgents.filter(
+    (a) => a.organizationId !== params.id && !grantedAgentIds.has(a.id),
+  );
+
+  return { org: data.organization, installedByAgent, subscribedGrants, subscribablePublicAgents };
 };

@@ -21,6 +21,7 @@ import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATIONS_QUERY,
+  AGENT_PUBLIC_QUERY,
   CREATE_APP_MUTATION,
 } from '$lib/server/queries';
 import { deriveDefaultUrn } from '$lib/install/derive-default-urn';
@@ -34,18 +35,25 @@ function agentSlugFromUrn(agentUrn: string): string {
   return colon >= 0 ? agentUrn.slice(colon + 1) : agentUrn;
 }
 
+/** The agent fields the install form actually consumes — satisfied by both
+ *  the member-org Agent payload and the slim PUBLIC read (#486). */
+type InstallableAgent = Pick<Agent, 'id' | 'urn' | 'name' | 'description'>;
+
 /**
- * Locate the Agent across all orgs the caller is a member of, and verify
- * it belongs to the target org. Returns the resolved org + agent on
- * success; throws a tagged error on failure so the caller (load or
- * action) can surface the right message.
+ * Locate the Agent and verify the caller may install it into the target
+ * org. Two admission paths (#486 / hadron-server#551):
+ *   1. the agent belongs to the target org (the original 009 R-2 path);
+ *   2. the agent is PUBLIC — the marketplace path (server #552 lifted the
+ *      same-org restriction for PUBLIC agents; the AgentOrgGrant is
+ *      auto-provisioned by createApp). A foreign NON-public agent is
+ *      still rejected as cross-org.
  */
 async function resolveInstallTarget(
   client: ReturnType<typeof gqlClient>,
   orgIdParam: string,
   agentIdParam: string,
 ): Promise<
-  | { ok: true; org: Organization; agent: Agent; otherApps: App[] }
+  | { ok: true; org: Organization; agent: InstallableAgent; otherApps: App[] }
   | { ok: false; reason: 'org-not-found' | 'agent-not-found' | 'cross-org' }
 > {
   const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations')
@@ -58,6 +66,21 @@ async function resolveInstallTarget(
   const inTarget = (targetOrg.agents ?? []).find((a: Agent) => a.id === agentIdParam);
   if (inTarget) {
     return { ok: true, org: targetOrg, agent: inTarget, otherApps: targetOrg.apps ?? [] };
+  }
+
+  // The marketplace path: a PUBLIC agent installs cross-org. agent(ref:)
+  // admits PUBLIC agents for any caller (server #552) — but it also admits
+  // a member's own non-public agents, so the visibility check here is the
+  // load-bearing gate, not the query succeeding. Best-effort: a transport
+  // failure falls through to the member-org scan below.
+  const publicAgent = await client
+    .request<{ agent: (InstallableAgent & { visibility: string }) | null }>(
+      AGENT_PUBLIC_QUERY, { id: agentIdParam },
+    )
+    .then((r) => r.agent)
+    .catch(() => null);
+  if (publicAgent && publicAgent.visibility === 'PUBLIC') {
+    return { ok: true, org: targetOrg, agent: publicAgent, otherApps: targetOrg.apps ?? [] };
   }
 
   // Otherwise: does the Agent exist in any other org the user is a member of?

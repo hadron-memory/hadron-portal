@@ -15,8 +15,10 @@
     getPaginationRowModel,
     type ColumnDef,
   } from '@tanstack/table-core';
+  import { goto } from '$app/navigation';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import SelectPublicAgent from '$lib/components/SelectPublicAgent.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import { installStrings } from '$lib/i18n/install-strings';
@@ -31,9 +33,17 @@
   const installedByAgent = $derived(data.installedByAgent ?? {});
   // #486: cross-org AgentOrgGrants; null = fetch failed (≠ empty).
   const subscribedGrants = $derived(data.subscribedGrants);
+  // Public agents this org can still subscribe to (own + granted excluded).
+  const subscribablePublicAgents = $derived(data.subscribablePublicAgents ?? []);
 
   // ── Tabs (#486): the org's own agents vs its subscriptions ───────────
   let activeTab = $state<'own' | 'subscribed'>('own');
+
+  // Subscribe picker: selecting a public agent routes into the existing
+  // install flow — createApp auto-provisions the AgentOrgGrant (the
+  // subscription) on first install; server #552 lifted the same-org
+  // restriction for PUBLIC agents.
+  let subscribeOpen = $state(false);
 
   let globalFilter = $state('');
 
@@ -157,9 +167,26 @@
         <a href="/app/orgs/{org.id}/agents/new" class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
           New Agent
         </a>
+      {:else}
+        <button
+          type="button"
+          onclick={() => (subscribeOpen = true)}
+          class="rounded-lg px-4 py-2 text-sm font-semibold text-white"
+          style="background: #fb8500;"
+        >
+          {t('org-agents.subscribed.subscribe', 'Subscribe to Public Agent')}
+        </button>
       {/if}
     </div>
   </div>
+
+  <!-- Select Public Agent (#486): picking one routes into the install flow;
+       createApp auto-provisions the AgentOrgGrant (the subscription). -->
+  <SelectPublicAgent
+    agents={subscribablePublicAgents}
+    bind:open={subscribeOpen}
+    onselect={(agent) => goto(`/app/orgs/${org.id}/agents/install/${agent.id}`)}
+  />
 
   <!-- Own vs Subscribed (#486). Subscribed = the org's AgentOrgGrants for
        agents owned by OTHER orgs. -->
@@ -193,7 +220,7 @@
         <p class="mx-auto mt-2 max-w-lg text-xs text-zinc-500 dark:text-zinc-400">
           {t(
             'org-agents.subscribed.empty.explainer',
-            'A subscription is created when this organization installs an agent owned by another organization. Only organization admins can see subscriptions. Browsing and subscribing to public agents from here is coming soon.',
+            'A subscription is created when this organization installs an agent owned by another organization — use “Subscribe to Public Agent” above to browse what’s available. Only organization admins can see subscriptions.',
           )}
         </p>
       </div>
