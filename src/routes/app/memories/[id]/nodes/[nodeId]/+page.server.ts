@@ -466,6 +466,34 @@ export const actions: Actions = {
     redirect(303, `/app/memories/${node.memoryId}/nodes/${clonedId}`);
   },
 
+  // Move (#503): relocate the node to a new loc within its own memory — the
+  // actions-menu Move dialog. A dedicated action (vs. the loc field on
+  // updateMeta) so Move is a first-class thing; #489 will extend it with a
+  // target-memory picker (moveNode already supports targetUrn cross-memory).
+  // The node PK is stable across a loc move, so we redirect back to it.
+  move: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const targetLoc = cleanLocInput(String(fd.get('loc') ?? ''));
+    if (!targetLoc) return fail(400, { moveError: 'Enter a destination location.' });
+
+    const client = gqlClient(locals.token);
+    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+    if (!node) return fail(404, { moveError: 'Node not found' });
+    if (!node.memory?.urn) return fail(500, { moveError: 'Node has no memory URN to move by.' });
+    if (targetLoc === node.loc) return { moved: true }; // no-op
+
+    try {
+      await client.request(MOVE_NODE_MUTATION, {
+        sourceRef: node.id,
+        targetUrn: composeNodeUrn(node.memory.urn, targetLoc),
+      });
+    } catch (e: unknown) {
+      const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
+      return fail(status, { moveError: extractGqlError(e, 'Failed to move node') });
+    }
+    redirect(303, `/app/memories/${node.memoryId}/nodes/${node.id}`);
+  },
+
   updateEdges: async ({ request, params, locals }) => {
     // Replaces the full set of outgoing edges on this node. The client sends
     // a JSON-encoded array of { targetId, name } — we pass it through the

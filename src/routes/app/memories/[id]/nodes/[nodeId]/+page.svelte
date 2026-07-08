@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { invalidateAll } from '$app/navigation';
+  import { invalidateAll, goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import DOMPurify from 'dompurify';
   import {
@@ -17,6 +17,7 @@
   import NodeList from '$lib/components/NodeList.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
+  import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { t } from '$lib/i18n/t';
   import { NODE_TYPES, isCanonicalNodeType } from '$lib/node-types';
@@ -340,6 +341,43 @@
       return false;
     }
   });
+
+  // ── Actions menu (#503) ─────────────────────────────────────────────
+  // The header "⋯" menu consolidates node actions; each item flips a panel/
+  // dialog open or fires its form. Merge is deferred to hadron-server#568.
+  const addChildHref = $derived(
+    `${basePath}/nodes/new?parent=${encodeURIComponent(cleanLocInput(node.loc))}`,
+  );
+  let moveOpen = $state(false);
+  let moveLoc = $state('');
+  let deleteOpen = $state(false);
+
+  const menuActions = $derived<NodeMenuAction[]>([
+    ...(canTestFlow ? [{ id: 'run', label: t('node-actions.run', 'Run') }] : []),
+    { id: 'duplicate', label: t('node-actions.duplicate', 'Duplicate') },
+    { id: 'move', label: t('node-actions.move', 'Move…') },
+    { id: 'add-child', label: t('node-actions.add-child', 'Add child') },
+    { id: 'download', label: t('node-actions.download', 'Download…') },
+    { id: 'delete', label: t('node-actions.delete', 'Delete'), danger: true },
+  ]);
+
+  let duplicateForm = $state<HTMLFormElement | null>(null);
+
+  function onMenuSelect(id: string) {
+    // Close any sibling panel so only one opens at a time.
+    testFlowOpen = false; downloadOpen = false; moveOpen = false; deleteOpen = false;
+    switch (id) {
+      case 'run': testFlowOpen = true; break;
+      case 'duplicate': duplicateForm?.requestSubmit(); break;
+      case 'move':
+        moveLoc = cleanLocInput(node.loc);
+        moveOpen = true;
+        break;
+      case 'add-child': goto(addChildHref); break;
+      case 'download': downloadOpen = true; break;
+      case 'delete': deleteOpen = true; break;
+    }
+  }
 
   // ── Download / export ───────────────────────────────────────────────
   // Server-rendered single-node export (#421 / hadron-server #386). The server's
@@ -736,6 +774,9 @@
       testFlowOpen = false;
       testFlowAppId = '';
       testFlowPayload = '';
+      moveOpen = false;
+      moveLoc = '';
+      deleteOpen = false;
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -794,19 +835,23 @@
         <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
       {/if}
     </div>
-    <div class="shrink-0 flex gap-2">
-      {#if canTestFlow}
-        <!-- Test flow (#478): mint a MANUAL headless run of this node. -->
-        <div class="relative">
-          <button
-            type="button"
-            onclick={() => (testFlowOpen = !testFlowOpen)}
-            aria-haspopup="true"
-            aria-expanded={testFlowOpen}
-            class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-          >
-            ▶ Test flow
-          </button>
+    <div class="shrink-0 flex items-start gap-2">
+      {#if isTeamChat}
+        <a
+          href="{basePath}/nodes/{node.id}/chat"
+          class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
+        >
+          Open chat
+        </a>
+      {/if}
+      <!-- #503: the "⋯" menu is the single entry point for node actions;
+           each item opens one of the panels/dialogs below. -->
+      <NodeActionsMenu actions={menuActions} onselect={onMenuSelect} label={`Actions for ${node.name}`} />
+      <!-- Hidden form the menu's Duplicate item submits (requestSubmit fires
+           the submit event use:enhance intercepts, unlike .submit()). -->
+      <form bind:this={duplicateForm} method="POST" action="?/duplicate" use:enhance class="hidden"></form>
+      <!-- Panels/dialogs opened from the actions menu, anchored to the header. -->
+      <div class="relative">
           {#if testFlowOpen}
             <button
               type="button"
@@ -858,40 +903,9 @@
               </form>
             </div>
           {/if}
-        </div>
-      {/if}
-      {#if isTeamChat}
-        <a
-          href="{basePath}/nodes/{node.id}/chat"
-          class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
-        >
-          Open chat
-        </a>
-      {/if}
-      <!-- Duplicate (#501): cloneNode into <loc>-copy beside this node, then
-           land on the copy. An occupied slot steps the suffix in the action. -->
-      <form method="POST" action="?/duplicate" use:enhance>
-        <button
-          type="submit"
-          class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-        >
-          Duplicate
-        </button>
-      </form>
-      <!-- Download / export — the file is rendered server-side by hadron-server
-           `nodeExport` (via /api/nodes/export); the browser just serves the
-           returned bytes. The portal never re-implements the export codec. -->
-      <div class="relative">
-        <button
-          type="button"
-          onclick={() => (downloadOpen = !downloadOpen)}
-          aria-haspopup="true"
-          aria-expanded={downloadOpen}
-          class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-        >
-          Download
-        </button>
-        {#if downloadOpen}
+          <!-- Download / export — server-rendered file (#421 / hadron-server
+               #386); the portal never re-implements the codec. Menu-triggered. -->
+          {#if downloadOpen}
           <!-- Outside-click backdrop. A real <button> (not a click-only div) so
                it's focusable and dismissible via keyboard/screen reader without
                a11y-ignore comments. Escape also closes — see svelte:window. -->
@@ -974,13 +988,48 @@
             </button>
           </div>
         {/if}
+
+        <!-- Move (#503): relocate within this memory. #489 will add a
+             target-memory picker to this same dialog (moveNode already
+             supports cross-memory via targetUrn). -->
+        {#if moveOpen}
+          <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close move dialog" onclick={() => (moveOpen = false)}></button>
+          <div class="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <form method="POST" action="?/move" use:enhance class="space-y-3">
+              <div>
+                <label for="moveLoc" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">New location (loc)</label>
+                <input id="moveLoc" name="loc" type="text" bind:value={moveLoc} class={inputClass} />
+                <p class="mt-1 text-xs text-zinc-400">Colon-separated path within this memory, e.g. <span class="font-mono">flows:step-1</span>.</p>
+              </div>
+              {#if form && 'moveError' in form && form.moveError}
+                <p class="text-xs text-red-500">{form.moveError}</p>
+              {/if}
+              <div class="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={!moveLoc.trim() || moveLoc.trim() === cleanLocInput(node.loc)}
+                  class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >Move node</button>
+                <button type="button" onclick={() => (moveOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
+              </div>
+            </form>
+          </div>
+        {/if}
+
+        <!-- Delete (#503): the same ?/delete action the Settings danger zone uses. -->
+        {#if deleteOpen}
+          <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close delete confirmation" onclick={() => (deleteOpen = false)}></button>
+          <div class="absolute right-0 z-40 mt-2 w-72 rounded-xl border border-red-200 bg-white p-4 shadow-xl dark:border-red-900 dark:bg-zinc-900">
+            <p class="text-sm text-zinc-700 dark:text-zinc-200">Delete <span class="font-medium">{node.name}</span>? This cannot be undone.</p>
+            <div class="mt-3 flex items-center gap-2">
+              <form method="POST" action="?/delete" use:enhance>
+                <button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500">Yes, delete</button>
+              </form>
+              <button type="button" onclick={() => (deleteOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
+            </div>
+          </div>
+        {/if}
       </div>
-      <a
-        href="{basePath}/nodes/new?parent={encodeURIComponent(cleanLocInput(node.loc))}"
-        class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-      >
-        {createNodeStrings.addChildButton()}
-      </a>
     </div>
   </div>
 
