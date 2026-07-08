@@ -59,6 +59,10 @@
   }
 </script>
 
+<!-- Top-level by necessity: the Svelte compiler forbids <svelte:window>
+     inside elements or blocks (svelte_meta_invalid_placement), so the
+     listener can't be mounted conditionally — the `open &&` guard makes it
+     a no-op while the modal is closed instead. -->
 <svelte:window onkeydown={(e) => { if (open && e.key === 'Escape') open = false; }} />
 
 {#if open}

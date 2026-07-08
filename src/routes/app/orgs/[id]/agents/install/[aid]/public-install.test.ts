@@ -48,20 +48,28 @@ async function runLoad(aid: string) {
 }
 
 describe('install target resolution — PUBLIC marketplace path (#486)', () => {
-  it('admits a foreign PUBLIC agent and derives defaults from it', async () => {
+  it('admits a foreign PUBLIC agent and derives defaults from its CANONICAL urn', async () => {
     route({
       publicAgent: {
         id: 'foreign-agent',
-        urn: 'other.org:concierge',
+        // Canonical shape — a first-colon slug slice returned
+        // "agent:other.org::concierge" here (PR-499 review).
+        urn: 'hrn:agent:other.org::concierge',
         name: 'Concierge',
         description: null,
         organizationId: 'org-OTHER',
         visibility: 'PUBLIC',
       },
     });
-    const result = (await runLoad('foreign-agent')) as { org: unknown; agent: { id: string }; defaultName: string };
+    const result = (await runLoad('foreign-agent')) as {
+      org: unknown;
+      agent: { id: string };
+      defaultName: string;
+      defaultUrnSlug: string;
+    };
     expect(result.agent.id).toBe('foreign-agent');
     expect(result.defaultName).toBe('Concierge');
+    expect(result.defaultUrnSlug).toBe('concierge');
   });
 
   it('still rejects a foreign NON-public agent (visibility is the gate, not query success)', async () => {
@@ -70,7 +78,7 @@ describe('install target resolution — PUBLIC marketplace path (#486)', () => {
     route({
       publicAgent: {
         id: 'foreign-agent',
-        urn: 'other.org:internal',
+        urn: 'hrn:agent:other.org::internal',
         name: 'Internal',
         description: null,
         organizationId: 'org-OTHER',

@@ -30,8 +30,13 @@ import { installStrings } from '$lib/i18n/install-strings';
 import type { Organization, Agent, App } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
+// The slug is the LAST ':'-segment (PR-499 review): a canonical agent URN is
+// hrn:agent:<org>::<slug> — the first-colon slice this used to do returned
+// "agent:<org>::<slug>" for the marketplace path and fed a malformed default
+// app slug into the install form. Same approach as the agent detail page's
+// slugOfUrn; also correct for the legacy <org>:<slug> shape.
 function agentSlugFromUrn(agentUrn: string): string {
-  const colon = agentUrn.indexOf(':');
+  const colon = agentUrn.lastIndexOf(':');
   return colon >= 0 ? agentUrn.slice(colon + 1) : agentUrn;
 }
 
