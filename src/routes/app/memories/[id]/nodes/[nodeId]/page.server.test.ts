@@ -495,7 +495,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     expect(vars.input.memoryId).not.toBe('mem-A');
   });
 
-  it('delete: DELETE_NODE_MUTATION targets node.memoryId, and redirect URL points at it too', async () => {
+  it('delete: DELETE_NODE_MUTATION targets the resolved node PK, and redirect URL points at node.memoryId too', async () => {
     mockRequest.mockResolvedValueOnce({
       node: {
         id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
@@ -514,8 +514,9 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     } catch (e) {
       thrown = e;
     }
-    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { loc: string; memoryId: string }];
-    expect(vars.memoryId).toBe('mem-B');
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { nodeRef: string }];
+    // #542: deleteNode takes the resolved node's PK, not loc+memoryId.
+    expect(vars.nodeRef).toBe('pk');
     // Redirect to mem-B's list, not mem-A's.
     expect((thrown as { status: number }).status).toBe(303);
     expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes');

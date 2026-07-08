@@ -29,7 +29,7 @@ const GRAPH_NODES_QUERY = `
 // so an unscoped call can't compile/run — node(loc:) without a scope now
 // errors on a cross-memory loc collision (AMBIGUOUS_NODE_LOC). Shared by the
 // stageOrder reads in addStage / updateExtractionSpec / updateGoals.
-const NODE_DATA_BY_LOC_QUERY = `query N($loc: ID!, $memory: ID!) { node(ref: $loc, memory: $memory) { data } }`;
+const NODE_DATA_BY_LOC_QUERY = `query N($loc: ID!, $memory: ID!) { node(ref: $loc, memoryRef: $memory) { data } }`;
 
 // hadron-server#460: upsertNode is split into createNode (create-only,
 // NodeLocConflictError on a live (memoryId, loc)) and updateNode (never
