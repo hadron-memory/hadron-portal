@@ -101,9 +101,9 @@
       </div>
     </section>
 
-    <!-- References -->
+    <!-- Edges (was “References” — #490) -->
     <section class="space-y-3">
-      <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">References</h2>
+      <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Edges</h2>
       <input type="hidden" name="edges" value={JSON.stringify(edges)} />
       {#if edges.length > 0}
         <div class="space-y-1">

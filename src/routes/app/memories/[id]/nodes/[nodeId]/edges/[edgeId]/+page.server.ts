@@ -15,7 +15,7 @@ import type { Actions, PageServerLoad } from './$types';
 // The edge detail page (#350). The server has no single-edge query, so we load
 // the edge's HOST node (= its source — every edge is owned by its source node)
 // by PK and pick the edge out of outgoingEdges. The route nodeId is therefore
-// the source node's id (the References tab builds the link that way).
+// the source node's id (the node page's Edges tab builds the link that way).
 interface UpstreamEdge {
   name: string | null;
   loc: string;
@@ -177,7 +177,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete edge' });
     }
-    // Back to the source node — its References tab is where the edge lived.
+    // Back to the source node — its Edges tab is where the edge lived.
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
   },
 };
