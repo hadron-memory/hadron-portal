@@ -1432,10 +1432,16 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
 // callers (reorder API + memory node page) always have the memory id.
 // hadron-server#473: node(loc:, memory:) is now node(ref:, memory:) — ref
 // accepts a bare loc, still scoped by memory.
+// raw: true — #485: node(ref:) compiles Mustache templates on read by
+// default, so an authoring surface that round-trips content would silently
+// overwrite the template source with its rendered output on the next save
+// ({{age}} destroyed). Every portal consumer of these queries is an editor
+// or a metadata read, never a template-rendering display — so they always
+// read the source. (List queries — findNodes/appNodes — never compile.)
 export const NODE_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query Node($loc: ID!, $memory: ID!) {
-    node(ref: $loc, memory: $memory) {
+    node(ref: $loc, memory: $memory, raw: true) {
       ...NodeFields
     }
   }
@@ -1458,10 +1464,12 @@ export const RESOLVE_URN_QUERY = /* GraphQL */ `
 
 // hadron-server#473: nodeById(id:) is now the uniform node(ref:) — ref
 // accepts a PK. Result key is \`node\`.
+// raw: true — #485, see NODE_QUERY above: the node detail page is the
+// content EDITOR; it must round-trip the template source verbatim.
 export const NODE_BY_ID_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodeById($id: ID!) {
-    node(ref: $id) {
+    node(ref: $id, raw: true) {
       ...NodeFields
     }
   }
