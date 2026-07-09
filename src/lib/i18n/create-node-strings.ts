@@ -78,6 +78,8 @@ export const createNodeStrings = {
       "No content yet. Content is the node's primary body, rendered as Markdown.",
     ),
   contentEmptyCta: (): string => t('node-detail.content.empty-cta', 'Write content'),
+  /** #505: label on the panel that surfaces a leading YAML frontmatter block. */
+  contentFrontmatterLabel: (): string => t('node-detail.content.frontmatter-label', 'Frontmatter'),
 
   /** Node-detail header caption prefix. "Task Node:" marks a runnable node (#322). */
   nodeCaption: (): string => t('node-detail.caption.node', 'Node:'),
