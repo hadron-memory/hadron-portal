@@ -12,6 +12,7 @@
   } from '@xyflow/svelte';
   import '@xyflow/svelte/dist/style.css';
   import ELK from 'elkjs/lib/elk.bundled.js';
+  import { t } from '$lib/i18n/t';
   import type { FlowCanvasEdge, FlowCanvasModel, FlowCanvasNode } from '$lib/flow/canvas';
   import FlowNodeCard from './FlowNodeCard.svelte';
 
@@ -37,8 +38,8 @@
 
   function edgeLabel(e: FlowCanvasEdge): string {
     if (e.kind === 'reference') return e.label;
-    const cond = e.conditionText ?? (e.isFallThrough ? 'always' : '');
-    const prefix = e.isUnreachable ? '⚠ unreachable · ' : '';
+    const cond = e.conditionText ?? (e.isFallThrough ? t('flow.edge.always', 'always') : '');
+    const prefix = e.isUnreachable ? `${t('flow.edge.unreachable', '⚠ unreachable')} · ` : '';
     return `${prefix}${e.position}. ${e.label}${cond ? ` — ${cond}` : ''}`;
   }
 
@@ -78,19 +79,29 @@
   });
 
   onMount(async () => {
-    const elk = new ELK();
-    const layout = await elk.layout({
-      id: 'root',
-      layoutOptions: {
-        'elk.algorithm': 'layered',
-        'elk.direction': 'RIGHT',
-        'elk.layered.spacing.nodeNodeBetweenLayers': '140',
-        'elk.spacing.nodeNode': '48',
-      },
-      children: model.nodes.map((n) => ({ id: n.id, width: NODE_WIDTH, height: nodeHeight(n) })),
-      edges: model.edges.map((e) => ({ id: e.id, sources: [e.sourceId], targets: [e.targetId] })),
-    });
-    const positions = new Map((layout.children ?? []).map((c) => [c.id, { x: c.x ?? 0, y: c.y ?? 0 }]));
+    // A layout failure must not strand the page on the loading state —
+    // fall back to a simple grid and render anyway.
+    let positions = new Map<string, { x: number; y: number }>();
+    try {
+      const elk = new ELK();
+      const layout = await elk.layout({
+        id: 'root',
+        layoutOptions: {
+          'elk.algorithm': 'layered',
+          'elk.direction': 'RIGHT',
+          'elk.layered.spacing.nodeNodeBetweenLayers': '140',
+          'elk.spacing.nodeNode': '48',
+        },
+        children: model.nodes.map((n) => ({ id: n.id, width: NODE_WIDTH, height: nodeHeight(n) })),
+        edges: model.edges.map((e) => ({ id: e.id, sources: [e.sourceId], targets: [e.targetId] })),
+      });
+      positions = new Map((layout.children ?? []).map((c) => [c.id, { x: c.x ?? 0, y: c.y ?? 0 }]));
+    } catch (err) {
+      console.error('[flow-canvas] ELK layout failed; using grid fallback:', err);
+      model.nodes.forEach((n, i) => {
+        positions.set(n.id, { x: (i % 4) * (NODE_WIDTH + 60), y: Math.floor(i / 4) * 180 });
+      });
+    }
 
     nodes = model.nodes.map((n) => ({
       id: n.id,
@@ -125,6 +136,7 @@
       fitView
       minZoom={0.15}
       nodesConnectable={false}
+      deleteKey={null}
       proOptions={{ hideAttribution: false }}
     >
       <Background />
@@ -132,6 +144,8 @@
       <MiniMap />
     </SvelteFlow>
   {:else}
-    <div class="flex h-full items-center justify-center text-sm text-zinc-400">Laying out flow…</div>
+    <div class="flex h-full items-center justify-center text-sm text-zinc-400">
+      {t('flow.canvas.layingOut', 'Laying out flow…')}
+    </div>
   {/if}
 </div>

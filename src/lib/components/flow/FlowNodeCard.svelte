@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Handle, Position, type NodeProps } from '@xyflow/svelte';
+  import { t } from '$lib/i18n/t';
 
   // Card data assembled by FlowCanvas from a FlowCanvasNode.
   interface FlowCardData extends Record<string, unknown> {
@@ -41,13 +42,13 @@
       <span
         class="shrink-0 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700 dark:bg-green-900/50 dark:text-green-300"
       >
-        entry
+        {t('flow.card.entry', 'entry')}
       </span>
     {:else if card.kind === 'reference'}
       <span
         class="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
       >
-        reference
+        {t('flow.card.reference', 'reference')}
       </span>
     {/if}
   </div>

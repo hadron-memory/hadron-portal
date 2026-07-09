@@ -69,7 +69,9 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     fetched.set(id, node);
 
     for (const e of node.outgoingEdges) {
-      if (edgeRoutes(e, node.loc) && !fetched.has(e.target.id)) queue.push(e.target.id);
+      // e.target is typed non-null but a deleted/unreadable endpoint can
+      // surface as null at runtime — skip rather than crash the page.
+      if (e.target && edgeRoutes(e, node.loc) && !fetched.has(e.target.id)) queue.push(e.target.id);
     }
     for (const e of node.incomingEdges) {
       if (e.source && edgeRoutes(e, e.source.loc) && !fetched.has(e.source.id)) {
@@ -98,6 +100,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   let referencesDropped = 0;
   for (const n of fetched.values()) {
     for (const e of n.outgoingEdges) {
+      if (!e.target) continue;
       if (edgeRoutes(e, n.loc) || fetched.has(e.target.id)) continue;
       if (nodeInputs.some((existing) => existing.id === e.target.id)) continue;
       if (nodeInputs.length - fetched.size >= REFERENCE_NODES_MAX) {
@@ -109,16 +112,18 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   }
 
   const edgeInputs: FlowCanvasEdgeInput[] = [...fetched.values()].flatMap((n) =>
-    n.outgoingEdges.map((e) => ({
-      id: e.id,
-      name: e.name,
-      loc: e.loc,
-      priority: e.priority,
-      condition: e.condition,
-      sourceId: n.id,
-      sourceLoc: n.loc,
-      targetId: e.target.id,
-    })),
+    n.outgoingEdges
+      .filter((e) => e.target)
+      .map((e) => ({
+        id: e.id,
+        name: e.name,
+        loc: e.loc,
+        priority: e.priority,
+        condition: e.condition,
+        sourceId: n.id,
+        sourceLoc: n.loc,
+        targetId: e.target.id,
+      })),
   );
 
   return {
