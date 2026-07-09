@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { NODE_FIND_QUERY } from '$lib/server/queries';
-import type { MemoryNode } from '$lib/types';
+import type { MemoryNode, SearchHitMeta } from '$lib/types';
 import type { RequestHandler } from './$types';
 
 // Node search + structured filter (issues #355, #429). Browser → this endpoint
@@ -67,9 +67,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const granularity = findMode === 'vector' ? 'chunk' : null;
 
   const client = gqlClient(locals.token);
+  type Hit = {
+    node: MemoryNode;
+    score: number | null;
+    vector: {
+      similarity: number | null;
+      model: string | null;
+      abstractStale: boolean | null;
+      source: string | null;
+    } | null;
+  };
   type FindNodesResp = {
     findNodes: {
-      hits: Array<{ node: MemoryNode }>;
+      hits: Hit[];
       passages: Array<{ parentNodeId: string; text: string; score: number }>;
       total: number | null;
       reason: string | null;
@@ -103,8 +113,33 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       ({ findNodes: r } = await runFind('hybrid', null));
       noteDegraded = noteDegraded ?? r?.degraded ?? null;
     }
-    const nodes = (r?.hits ?? []).map((h) => h.node);
+    const hits = r?.hits ?? [];
+    const nodes = hits.map((h) => h.node);
     const hitIds = new Set(nodes.map((n) => n.id));
+    // #432: per-hit relevance + vector metadata → { nodeId: SearchHitMeta }.
+    // findNodes' raw `score` isn't comparable across modes (keyword ts_rank vs.
+    // vector cosine vs. hybrid RRF — hadron-server#497), so surface a RELATIVE
+    // indicator: each hit's score as a % of the top hit's score in this set.
+    const finiteScore = (s: number | null): s is number => typeof s === 'number' && Number.isFinite(s);
+    const topScore = Math.max(0, ...hits.map((h) => h.score).filter(finiteScore));
+    const meta: Record<string, SearchHitMeta> = {};
+    for (const h of hits) {
+      const id = h.node?.id;
+      if (!id) continue;
+      const scorePct = finiteScore(h.score) && topScore > 0 ? Math.round((h.score / topScore) * 100) : null;
+      const v = h.vector;
+      const abstractStale = v?.abstractStale === true;
+      // Only emit an entry when there's something to render (a relevance % or a
+      // stale-abstract badge) — keeps the browse/filtered-list case empty.
+      if (scorePct === null && !abstractStale) continue;
+      meta[id] = {
+        scorePct,
+        abstractStale,
+        similarity: finiteScore(v?.similarity ?? null) ? v!.similarity : null,
+        model: typeof v?.model === 'string' ? v.model : null,
+        source: typeof v?.source === 'string' ? v.source : null,
+      };
+    }
     // #430: best-scoring passage per node → { nodeId: snippet }, only for nodes
     // actually present in the results.
     const snippets: Record<string, string> = {};
@@ -120,6 +155,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({
       nodes,
       snippets,
+      meta,
       total: r?.total ?? null,
       capped: nodes.length >= SEARCH_LIMIT,
       note: degradeNote(noteReason, noteDegraded),

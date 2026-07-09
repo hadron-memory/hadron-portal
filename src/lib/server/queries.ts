@@ -1460,6 +1460,16 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
         node {
           ...NodeFields
         }
+        # #432: per-hit relevance + vector metadata. score is null for an
+        # unscored (no-query) filtered list; vector is present only when the
+        # hit came from the vector index (fuzzy / hybrid).
+        score
+        vector {
+          similarity
+          model
+          abstractStale
+          source
+        }
       }
       # #430: matching-passage snippets (granularity:chunk, mode:vector only).
       passages {

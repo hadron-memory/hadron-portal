@@ -8,7 +8,7 @@
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { onDestroy } from 'svelte';
   import { t } from '$lib/i18n/t';
-  import type { MemoryNode, TreeEntry } from '$lib/types';
+  import type { MemoryNode, TreeEntry, SearchHitMeta } from '$lib/types';
 
   /** Build the URL to a node's detail page, or empty if memory context is missing */
   function nodeHref(node: MemoryNode, base: string): string {
@@ -261,6 +261,7 @@
   let searchNote = $state<string | null>(null);
   let searchCapped = $state(false); // server hit the result cap — showing a slice
   let searchSnippets = $state<Record<string, string>>({}); // #430 nodeId → matching passage
+  let searchMeta = $state<Record<string, SearchHitMeta>>({}); // #432 nodeId → relevance/stale meta
   let searchSeq = 0; // monotonic — drops out-of-order responses
 
   async function runServerFetch(
@@ -278,6 +279,7 @@
     searchNote = null;
     searchCapped = false;
     searchSnippets = {};
+    searchMeta = {};
     try {
       const res = await fetch('/api/nodes/search', {
         method: 'POST',
@@ -292,6 +294,7 @@
       searchNote = data.note ?? null;
       searchCapped = !!data.capped;
       searchSnippets = data.snippets ?? {};
+      searchMeta = data.meta ?? {};
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return; // superseded / destroyed
       if (seq !== searchSeq) return;
@@ -318,6 +321,7 @@
       searchNote = null;
       searchCapped = false;
       searchSnippets = {};
+      searchMeta = {};
       return;
     }
     const ids = idsStr ? idsStr.split(',') : [];
@@ -334,6 +338,7 @@
         searchNote = null;
         searchCapped = false;
         searchSnippets = {};
+        searchMeta = {};
         return;
       }
     }
@@ -868,7 +873,7 @@
           <!-- hideSearch: the single search box lives in MemoryBrowser now
                (issue #355 — was two boxes); NodeList's own box would be the
                redundant second field. -->
-          <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} />
+          <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta} />
         </div>
       {/if}
     </div>

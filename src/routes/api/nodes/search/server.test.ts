@@ -116,6 +116,44 @@ describe('/api/nodes/search (#429)', () => {
     expect((await res.json()).error).toBe('Invalid search pattern.');
   });
 
+  it('#432: per-hit meta — relevance % relative to top + stale-abstract flag', async () => {
+    mockRequest.mockResolvedValue({
+      findNodes: {
+        hits: [
+          {
+            node: { id: 'n1' },
+            score: 0.5,
+            vector: { similarity: 0.9, model: 'text-embed', abstractStale: true, source: 'chunk' },
+          },
+          { node: { id: 'n2' }, score: 0.25, vector: null }, // half the top score
+          { node: { id: 'n3' }, score: null, vector: null }, // unscored → no entry
+        ],
+        passages: [],
+        total: 3,
+        reason: null,
+        degraded: null,
+      },
+    });
+    const res = await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }));
+    const body = await res.json();
+    expect(body.meta.n1).toEqual({
+      scorePct: 100,
+      abstractStale: true,
+      similarity: 0.9,
+      model: 'text-embed',
+      source: 'chunk',
+    });
+    expect(body.meta.n2).toMatchObject({ scorePct: 50, abstractStale: false });
+    // n3 has neither a score nor a stale flag → no entry (nothing to render).
+    expect(body.meta.n3).toBeUndefined();
+  });
+
+  it('#432: an unscored filtered list (no query) yields no relevance meta', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(2, 2));
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { createdBy: 'u1' } }));
+    expect((await res.json()).meta).toEqual({});
+  });
+
   it('#430: best passage per node, only for nodes present in the hits', async () => {
     mockRequest.mockResolvedValue({
       findNodes: {

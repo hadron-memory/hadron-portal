@@ -17,7 +17,7 @@
   import ColumnToggle from './table/ColumnToggle.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { t } from '$lib/i18n/t';
-  import type { MemoryNode } from '$lib/types';
+  import type { MemoryNode, SearchHitMeta } from '$lib/types';
 
   let {
     nodes,
@@ -28,6 +28,7 @@
     listKey,
     hideSearch = false,
     snippets = {},
+    meta = {},
   }: {
     nodes: MemoryNode[];
     basePath?: string;
@@ -43,7 +44,22 @@
      * When present for a row, rendered under the node name. Empty in browse.
      */
     snippets?: Record<string, string>;
+    /**
+     * #432: nodeId → per-hit relevance + vector metadata from a search. Renders
+     * a relevance % and a stale-abstract badge on the row. Empty in browse.
+     */
+    meta?: Record<string, SearchHitMeta>;
   } = $props();
+
+  // #432: relevance tooltip — explain the relative % and add the vector "why did
+  // this match" lineage when the hit came from the vector index.
+  function relevanceTitle(m: SearchHitMeta): string {
+    const lines = [t('node-list.relevance-of-top', 'Relevance, relative to the top hit')];
+    if (m.similarity !== null) lines.push(`similarity ${(m.similarity * 100).toFixed(0)}%`);
+    if (m.model) lines.push(`model ${m.model}`);
+    if (m.source) lines.push(`source ${m.source}`);
+    return lines.join(' · ');
+  }
 
   function nodeHref(node: MemoryNode): string {
     if (basePath) return `${basePath}/nodes/${node.id}`;
@@ -285,14 +301,32 @@
               {#each row.getVisibleCells() as cell (cell.id)}
                 {#if cell.column.id === 'name'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
-                    <div class="truncate">
-                      {#if href}
-                        <a {href} class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{n.name}</a>
-                      {:else}
-                        <span class="font-medium text-zinc-900 dark:text-white">{n.name}</span>
+                    <div class="flex min-w-0 items-center gap-1.5">
+                      <span class="min-w-0 truncate">
+                        {#if href}
+                          <a {href} class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{n.name}</a>
+                        {:else}
+                          <span class="font-medium text-zinc-900 dark:text-white">{n.name}</span>
+                        {/if}
+                        {#if n.seq !== null && n.seq !== undefined}
+                          <span class="ml-1 text-xs tabular-nums text-zinc-400">#{n.seq}</span>
+                        {/if}
+                      </span>
+                      {#if meta?.[n.id]?.scorePct !== null && meta?.[n.id]?.scorePct !== undefined}
+                        <!-- #432: relevance relative to the top hit (scores aren't
+                             comparable across modes, so % of top, not the raw score). -->
+                        <span
+                          title={relevanceTitle(meta[n.id])}
+                          class="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
+                        >{meta[n.id].scorePct}%</span>
                       {/if}
-                      {#if n.seq !== null && n.seq !== undefined}
-                        <span class="ml-1 text-xs tabular-nums text-zinc-400">#{n.seq}</span>
+                      {#if meta?.[n.id]?.abstractStale}
+                        <!-- #432: the abstract/preview may lag the node's content
+                             (spec 032). Vector-index hits only. -->
+                        <span
+                          title={t('node-list.abstract-stale', 'Preview may be out of date — the abstract lags the node content')}
+                          class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
+                        >{t('node-list.stale-badge', 'preview may be stale')}</span>
                       {/if}
                     </div>
                     <div class="mt-0.5 truncate"><Urn value={nodeUrn(n)} type="node" size={8} /></div>
