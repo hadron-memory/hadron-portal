@@ -152,8 +152,36 @@
 
   let renderedAbstractHtml = $state('');
 
+  // #505: a leading YAML frontmatter block (---\n...\n---) is otherwise
+  // parsed as a thematic break + setext heading by marked and reads as
+  // garbled/invisible metadata. Split it out so it can be rendered as its
+  // own panel (verbatim, delimiters included) and stripped from the body
+  // handed to the markdown renderer.
+  const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
+  // Guard against splitting plain Markdown that merely starts with a
+  // thematic break (e.g. `---\nIntro\n\n---\n# Body`): only treat the
+  // block as frontmatter if every non-blank line looks like YAML — a
+  // `key: value` pair, a list item, or an indented continuation.
+  function looksLikeYaml(block: string): boolean {
+    const lines = block.split(/\r?\n/).filter((line) => line.trim().length > 0);
+    if (lines.length === 0) return false;
+    return lines.every(
+      (line) => /^[\w.-]+:(\s|$)/.test(line) || /^\s*-\s/.test(line) || /^\s+\S/.test(line),
+    );
+  }
+  const parsedContent = $derived.by(() => {
+    if (!node.content) return { frontmatter: null as string | null, body: '' };
+    const match = FRONTMATTER_RE.exec(node.content);
+    if (match && looksLikeYaml(match[1])) {
+      return { frontmatter: match[0].trimEnd(), body: node.content.slice(match[0].length) };
+    }
+    return { frontmatter: null, body: node.content };
+  });
+  const contentFrontmatter = $derived(parsedContent.frontmatter);
+  const contentBody = $derived(parsedContent.body);
+
   $effect(() => {
-    renderedHtml = markedReady && node.content ? renderMarkdown(node.content) : '';
+    renderedHtml = markedReady && contentBody ? renderMarkdown(contentBody) : '';
   });
 
   $effect(() => {
@@ -1190,6 +1218,12 @@
           </div>
         </div>
       {:else if hasContent}
+        {#if contentFrontmatter}
+          <div class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950">
+            <div class="border-b border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">{createNodeStrings.contentFrontmatterLabel()}</div>
+            <pre class="overflow-x-auto whitespace-pre-wrap p-3 font-mono text-xs text-zinc-700 dark:text-zinc-300">{contentFrontmatter}</pre>
+          </div>
+        {/if}
         <div class="prose prose-sm prose-zinc mt-3 max-w-none dark:prose-invert">{@html renderedHtml}</div>
       {:else}
         <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
