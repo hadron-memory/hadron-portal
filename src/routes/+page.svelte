@@ -71,7 +71,7 @@
 </script>
 
 <svelte:head>
-  <title>Hadron — Deep Memory for AI</title>
+  <title>Hadron — Knowledge System</title>
 </svelte:head>
 
 <!-- Hero -->
@@ -87,14 +87,10 @@
     class="mx-auto mb-10 hidden h-16 w-auto dark:block sm:h-20"
   />
   <h1 class="mb-6 text-5xl font-bold tracking-tight text-zinc-900 dark:text-white sm:text-6xl">
-    Deep Memory for AI
+    Knowledge lives
   </h1>
   <p class="mx-auto mb-4 max-w-2xl text-lg text-zinc-600 dark:text-zinc-400">
-    Hadron delivers on-demand, deeply structured and connected memory to AI applications.
-  </p>
-  <p class="mx-auto mb-10 max-w-2xl text-zinc-500 dark:text-zinc-500">
-    A knowledge memory platform that lets AI remember what it learned, who it's talking to,
-    and what was decided — across sessions, days, and teams.
+    Hadron manages knowledge, for you, for AI. Well protected, yet easy to access.
   </p>
   {#if !data.user}
     <p class="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-sm text-amber-600 dark:text-amber-400">
@@ -106,11 +102,29 @@
 <!-- The problem -->
 <section class="mx-auto max-w-3xl px-4 py-12">
   <div class="rounded-2xl border border-zinc-200 bg-zinc-50 p-8 dark:border-zinc-800 dark:bg-zinc-900/50">
-    <h2 class="mb-4 text-center text-xl font-semibold text-zinc-900 dark:text-white">Solving the "AI forgot it again!" problem</h2>
+    <h2 class="mb-4 text-center text-xl font-semibold text-zinc-900 dark:text-white">Knowledge turned into Lego blocks!</h2>
     <div class="space-y-4 text-sm text-zinc-600 dark:text-zinc-400">
-      <p>AI tools have memory now — but it's shallow. Flat context windows, keyword retrieval, disconnected snippets. That's not how real knowledge works.</p>
-      <p>Real knowledge is <strong class="text-zinc-900 dark:text-white">built gradually</strong>, through work. A human and an AI collaborate on a task. The AI learns something. That learning gets reviewed, linked to prior knowledge, compared to other sources. Over time, it becomes reliable, structured memory — not just a pile of past conversations.</p>
-      <p>Hadron treats memory as a <strong class="text-zinc-900 dark:text-white">living, curated body of knowledge</strong>. It's built during real work with a human in the loop. It's peer-reviewed by other AI agents. It evolves as facts change. It connects to external sources. And it's shared across teams, so everyone — human and AI — works from the same understanding.</p>
+      <p>
+        You bundle knowledge to <strong class="text-zinc-900 dark:text-white">Memories</strong>,
+        graph structures with interconnected nodes. Done in a few clicks.
+      </p>
+      <p>
+        <strong class="text-zinc-900 dark:text-white">Encrypt</strong> it just for you. Or share it with the team, the world.
+        You control who has access to your Hadron memories.
+      </p>
+      <p>
+        <strong class="text-zinc-900 dark:text-white">Ultra fast search</strong> retrieves
+        what you are looking for, even in massive institutional knowledge stores.
+      </p>
+      <p>
+        <strong class="text-zinc-900 dark:text-white">Build powerful AI automations</strong> by
+        turning memory nodes into active tasks that are chained to flow structures.
+      </p>
+      <p>
+        <strong class="text-zinc-900 dark:text-white">Package your automations</strong> to
+        agents. Build your personal AI assistant, or craft sophisticated agents that you can
+        offer to clients.
+      </p>
     </div>
   </div>
 </section>
