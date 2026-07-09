@@ -1370,6 +1370,13 @@
           )}
         </p>
 
+        <a
+          href="/app/memories/{node.memoryId}/nodes/{node.id}/flow"
+          class="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 px-3 py-1.5 text-sm font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-300 dark:hover:bg-indigo-950"
+        >
+          {t('node.flow.openCanvas', 'Open flow canvas')} →
+        </a>
+
         {#if form && 'flowError' in form && form.flowError}
           <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.flowError}</div>
         {/if}
