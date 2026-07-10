@@ -811,9 +811,11 @@ export const REGENERATE_APP_KEY_MUTATION = /* GraphQL */ `
 // App Keys
 // ---------------------------------------------------------------------------
 
+// hadron-server#598: read-surface args renamed <entity>Id → <entity>Ref
+// (ref accepts a PK or URN). Variable names + call-site keys follow suit.
 export const APP_KEYS_QUERY = /* GraphQL */ `
-  query AppKeys($appId: ID!) {
-    appKeys(appId: $appId) {
+  query AppKeys($appRef: ID!) {
+    appKeys(appRef: $appRef) {
       id label keyPreview lastUsedAt createdAt revokedAt
     }
   }
@@ -938,8 +940,8 @@ export const DELETE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
 // Privileged — returns the DECRYPTED key. Server gates on org-ADMIN / platform.
 // Used only server-side (runtime chat path + Test); never sent to the browser.
 export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
-  query ResolveAIConfig($name: String, $appId: ID, $agentId: ID) {
-    resolveAIConfig(name: $name, appId: $appId, agentId: $agentId) {
+  query ResolveAIConfig($name: String, $appRef: ID, $agentRef: ID) {
+    resolveAIConfig(name: $name, appRef: $appRef, agentRef: $agentRef) {
       provider
       model
       apiKey
@@ -954,16 +956,16 @@ export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
 // tab's config picker + LLM-readiness gate.
 export const RESOLVE_AI_SERVICE_CONFIGS_QUERY = /* GraphQL */ `
   ${AI_SERVICE_CONFIG_FIELDS}
-  query ResolveAiServiceConfigs($appId: ID, $agentId: ID) {
-    resolveAiServiceConfigs(appId: $appId, agentId: $agentId) {
+  query ResolveAiServiceConfigs($appRef: ID, $agentRef: ID) {
+    resolveAiServiceConfigs(appRef: $appRef, agentRef: $agentRef) {
       ...AiServiceConfigFields
     }
   }
 `;
 
 export const MY_CHATS_QUERY = /* GraphQL */ `
-  query MyChats($agentId: ID!, $limit: Int, $offset: Int) {
-    myChats(agentId: $agentId, limit: $limit, offset: $offset) {
+  query MyChats($agentRef: ID!, $limit: Int, $offset: Int) {
+    myChats(agentRef: $agentRef, limit: $limit, offset: $offset) {
       id
       loc
       title
@@ -1217,8 +1219,8 @@ export const RELEASE_EDITOR_LOCK_MUTATION = /* GraphQL */ `
 `;
 
 export const APP_NODES_QUERY = /* GraphQL */ `
-  query AppNodes($appId: ID!, $limit: Int) {
-    appNodes(appId: $appId, limit: $limit) {
+  query AppNodes($appRef: ID!, $limit: Int) {
+    appNodes(appRef: $appRef, limit: $limit) {
       id
       memoryId
       nodeType
@@ -1388,8 +1390,8 @@ export const GRAPH_NODES_QUERY = /* GraphQL */ `
 // hadron-server#513 so the tree ordering + action dots + graph tooltips keep
 // full parity with the old full-node fetch.
 export const MEMORY_NODES_QUERY = /* GraphQL */ `
-  query MemoryNodes($memoryId: ID!, $limit: Int, $offset: Int) {
-    memoryNodes(memoryId: $memoryId, limit: $limit, offset: $offset) {
+  query MemoryNodes($memoryRef: ID!, $limit: Int, $offset: Int) {
+    memoryNodes(memoryRef: $memoryRef, limit: $limit, offset: $offset) {
       nodes { id loc name nodeType tags seq isRunnable description }
       total
     }
@@ -1397,8 +1399,8 @@ export const MEMORY_NODES_QUERY = /* GraphQL */ `
 `;
 
 export const MEMORY_EDGES_QUERY = /* GraphQL */ `
-  query MemoryEdges($memoryId: ID!, $limit: Int, $offset: Int) {
-    memoryEdges(memoryId: $memoryId, limit: $limit, offset: $offset) {
+  query MemoryEdges($memoryRef: ID!, $limit: Int, $offset: Int) {
+    memoryEdges(memoryRef: $memoryRef, limit: $limit, offset: $offset) {
       edges { id loc name sourceId targetId }
       total
     }
@@ -1591,8 +1593,8 @@ export const DELETE_NODE_MUTATION = /* GraphQL */ `
 `;
 
 export const MEMORY_USAGE_SUMMARY_QUERY = /* GraphQL */ `
-  query MemoryUsageSummary($memoryId: ID!) {
-    memoryUsageSummary(memoryId: $memoryId) {
+  query MemoryUsageSummary($memoryRef: ID!) {
+    memoryUsageSummary(memoryRef: $memoryRef) {
       nodeLoc
       type
       count

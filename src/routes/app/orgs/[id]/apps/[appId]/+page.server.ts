@@ -61,13 +61,13 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // agent linked.
   const [nodesData, chatConfigs] = await Promise.all([
     client
-      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appId: params.appId, limit: 500 })
+      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
     appData.app.agentId
       ? client
           .request<{ resolveAiServiceConfigs: AiServiceConfig[] }>(RESOLVE_AI_SERVICE_CONFIGS_QUERY, {
-            appId: params.appId,
-            agentId: appData.app.agentId,
+            appRef: params.appId,
+            agentRef: appData.app.agentId,
           })
           .then((r) => r.resolveAiServiceConfigs)
           .catch(() => null)

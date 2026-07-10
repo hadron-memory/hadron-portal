@@ -161,8 +161,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             resolveAIConfig: { provider: string; model: string; apiKey: string } | null;
           }>(RESOLVE_AI_CONFIG_QUERY, {
             name: body.name,
-            appId: body.appId ?? undefined,
-            agentId: body.agentId ?? undefined,
+            appRef: body.appId ?? undefined,
+            agentRef: body.agentId ?? undefined,
           });
           if (!resolved.resolveAIConfig) {
             return json({ ok: false, error: 'No AI config available to test' });
