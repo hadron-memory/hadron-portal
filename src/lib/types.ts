@@ -314,6 +314,28 @@ export interface MemoryNode {
   incomingEdges: NodeEdge[];
 }
 
+/**
+ * #432: per-hit metadata `findNodes` returns alongside each node, surfaced on
+ * search-result rows. Keyed by node id.
+ *
+ * `scorePct` is a RELATIVE relevance indicator — the hit's score as a percentage
+ * of the top hit's score in the same result set. findNodes' raw `score` is NOT
+ * comparable across modes (keyword ts_rank vs. vector cosine vs. hybrid RRF —
+ * hadron-server#497), so the meaningful signal is the within-set relative rank,
+ * not the absolute number. Null for an unscored (no-query) filtered list.
+ *
+ * The rest come from `hit.vector`, present only when a hit came from the vector
+ * index (fuzzy / hybrid): `abstractStale` flags a possibly-out-of-date preview
+ * (spec 032), and similarity/model power a "why did this match" tooltip.
+ */
+export interface SearchHitMeta {
+  scorePct: number | null;
+  abstractStale: boolean;
+  similarity: number | null;
+  model: string | null;
+  source: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Usage types
 // ---------------------------------------------------------------------------
