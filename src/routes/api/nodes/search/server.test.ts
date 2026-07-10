@@ -154,6 +154,38 @@ describe('/api/nodes/search (#429)', () => {
     expect((await res.json()).meta).toEqual({});
   });
 
+  it('#433: forwards a valid fields weight-mask on a lexical (exact) query, dropping unknowns', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1));
+    await POST(ev({ query: 'foo', mode: 'exact', memoryIds: ['m1'], fields: ['name', 'content', 'bogus'] }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ mode: 'keyword', fields: ['name', 'content'] });
+  });
+
+  it('#433: does NOT send fields for a fuzzy (vector) query — the mask is lexical-only', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1));
+    await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'], fields: ['name'] }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ mode: 'vector', fields: null });
+  });
+
+  it('#433: an all-unknown fields list sends null (all fields / server default)', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1));
+    await POST(ev({ query: 'foo', mode: 'exact', memoryIds: ['m1'], fields: ['nope', 'zzz'] }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ fields: null });
+  });
+
+  it('#433: includeDeleted is forwarded and drives a filter-only fetch (no query)', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(3, 3));
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { includeDeleted: true } }));
+    expect(mockRequest).toHaveBeenCalledTimes(1); // includeDeleted counts as a filter
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ query: null, includeDeleted: true });
+    expect((await res.json()).nodes).toHaveLength(3);
+  });
+
+  it('#433: includeDeleted omitted/false sends null (server default excludes deleted)', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1));
+    await POST(ev({ query: 'foo', mode: 'exact', memoryIds: ['m1'], filter: { includeDeleted: false } }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ includeDeleted: null });
+  });
+
   it('#430: best passage per node, only for nodes present in the hits', async () => {
     mockRequest.mockResolvedValue({
       findNodes: {

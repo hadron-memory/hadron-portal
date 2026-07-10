@@ -634,7 +634,7 @@
   <!-- NODES TAB — browse the agent's memory nodes (was "Memory") (#352)   -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'nodes'}
-    <MemoryBrowser nodes={data.agentNodes ?? []} multiMemory={(agent.memoryItems ?? []).length > 1} {writableMemoryIds} />
+    <MemoryBrowser nodes={data.agentNodes ?? []} multiMemory={(agent.memoryItems ?? []).length > 1} {writableMemoryIds} scopeMemoryIds={(agent.memoryItems ?? []).map((item) => item.memory.id)} />
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->

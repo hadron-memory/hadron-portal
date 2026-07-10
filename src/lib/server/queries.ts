@@ -1437,10 +1437,12 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
     $mode: FindNodesMode
     $sort: NodeSort
     $granularity: SearchGranularity
+    $fields: [NodeField!]
     $memoryIds: [ID!]
     $createdBy: String
     $updatedAfter: String
     $updatedBefore: String
+    $includeDeleted: Boolean
     $limit: Int
   ) {
     findNodes(
@@ -1448,12 +1450,17 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
       mode: $mode
       sort: $sort
       granularity: $granularity
+      # #433: fields is a lexical scoring weight-mask (cor:api:090:03), not a
+      # hard filter; ignored by the server for vector/hybrid retrieval.
+      fields: $fields
       limit: $limit
       filter: {
         memoryIds: $memoryIds
         createdBy: $createdBy
         updatedAfter: $updatedAfter
         updatedBefore: $updatedBefore
+        # #433: surface soft-deleted nodes (admin/audit/restore); default false.
+        includeDeleted: $includeDeleted
       }
     ) {
       hits {
