@@ -177,9 +177,11 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
       gid: memA,
       nodeId: 'leaf-pk',
       parentGraphNodes: [{ id: 'leaf-pk', memoryId: memA, loc: 'foo' }],
-    }))) as LoadResult & { memories: Array<{ id: string }> };
+    }))) as LoadResult & { memories: Promise<Array<{ id: string }>> };
 
-    expect(result.memories.map((m) => m.id)).toEqual([memA]); // 'mem-sys' filtered out
+    // #513: memories is streamed (a promise), so await it before asserting.
+    const memories = await result.memories;
+    expect(memories.map((m) => m.id)).toEqual([memA]); // 'mem-sys' filtered out
   });
 
   it('#512 — a failed memory-list fetch degrades to an empty picker (page still loads)', async () => {
@@ -200,10 +202,10 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
       gid: memA,
       nodeId: 'leaf-pk',
       parentGraphNodes: [{ id: 'leaf-pk', memoryId: memA, loc: 'foo' }],
-    }))) as LoadResult & { memories: unknown[] };
+    }))) as LoadResult & { memories: Promise<unknown[]> };
 
     expect(result.node).toBeTruthy();
-    expect(result.memories).toEqual([]);
+    expect(await result.memories).toEqual([]); // streamed; degrades to empty
   });
 
   it('#237 — redirects when node.memoryId does not match params.gid (PK-mismatch guard)', async () => {

@@ -87,18 +87,18 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }
   }
 
-  // #512: the memories the Move dialog's picker can target. Best-effort — a
-  // fetch failure just leaves the picker empty and the free-text URN input
-  // still works (auxiliary UI, not the page's core load). System-class
-  // memories are excluded (user nodes don't move into them).
+  // #512: the memories the Move dialog's picker can target. STREAMED (not
+  // awaited) so it never blocks the node page render — the dialog may never
+  // open. Best-effort: a fetch failure degrades to an empty picker and the
+  // free-text URN input still works. System-class memories are excluded (user
+  // nodes don't move into them).
   type PickMemory = { id: string; name: string; urn: string; visibility: string | null; class: string | null };
-  let memories: PickMemory[] = [];
-  try {
-    const all = await fetchAllItems<PickMemory>(gqlClient(locals.token), MEMORIES_QUERY, 'memories');
-    memories = all.filter((m) => m.class !== 'system');
-  } catch (e) {
-    console.warn('[node-detail] memory picker list failed:', e);
-  }
+  const memories = fetchAllItems<PickMemory>(gqlClient(locals.token), MEMORIES_QUERY, 'memories')
+    .then((all) => all.filter((m) => m.class !== 'system'))
+    .catch((e) => {
+      console.warn('[node-detail] memory picker list failed:', e);
+      return [] as PickMemory[];
+    });
 
   return { node, breadcrumb, testFlowApps, memories };
 };
