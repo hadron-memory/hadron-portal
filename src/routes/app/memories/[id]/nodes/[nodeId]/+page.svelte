@@ -15,6 +15,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NodeList from '$lib/components/NodeList.svelte';
+  import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -381,6 +382,12 @@
   // the memory; editing the memory segment moves to another memory. Passed
   // straight to moveNode's targetUrn.
   let moveTarget = $state('');
+  // #512: the "Select target memory" picker inside the Move dialog. Picking a
+  // memory rewrites the memory segment of the destination URN, keeping the loc.
+  let memoryPickerOpen = $state(false);
+  function onPickTargetMemory(memory: { urn: string }) {
+    moveTarget = composeNodeUrn(memory.urn, node.loc);
+  }
   let deleteOpen = $state(false);
   // #503: opt into a permanent (hard) delete; default is the safe soft delete.
   let hardDelete = $state(false);
@@ -1064,6 +1071,15 @@
                 <p class="mt-1 text-xs text-zinc-400">
                   <span class="font-mono">org::memory::loc</span> — change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.
                 </p>
+                <!-- #512: pick the target memory from a searchable list instead
+                     of hand-typing its URN; keeps the current loc. -->
+                {#if data.memories.length > 0}
+                  <button
+                    type="button"
+                    onclick={() => (memoryPickerOpen = true)}
+                    class="mt-2 rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  >{t('node-actions.move-select-memory', 'Select target memory…')}</button>
+                {/if}
               </div>
               {#if form && 'moveError' in form && form.moveError}
                 <p class="text-xs text-red-500">{form.moveError}</p>
@@ -1078,6 +1094,14 @@
               </div>
             </form>
           </div>
+          <!-- #512: memory picker for the Move dialog. Renders its own full-screen
+               modal (z-50), so it layers above the move panel. -->
+          <SelectMemory
+            memories={data.memories}
+            bind:open={memoryPickerOpen}
+            onselect={onPickTargetMemory}
+            placeholder={t('node-actions.move-search-memories', 'Search memories to move into…')}
+          />
         {/if}
 
         <!-- Delete (#503): the same ?/delete action the Settings danger zone

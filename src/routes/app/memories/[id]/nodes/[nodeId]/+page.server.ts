@@ -3,7 +3,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { isCanonicalNodeType } from '$lib/node-types';
@@ -87,7 +87,20 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }
   }
 
-  return { node, breadcrumb, testFlowApps };
+  // #512: the memories the Move dialog's picker can target. Best-effort — a
+  // fetch failure just leaves the picker empty and the free-text URN input
+  // still works (auxiliary UI, not the page's core load). System-class
+  // memories are excluded (user nodes don't move into them).
+  type PickMemory = { id: string; name: string; urn: string; visibility: string | null; class: string | null };
+  let memories: PickMemory[] = [];
+  try {
+    const all = await fetchAllItems<PickMemory>(gqlClient(locals.token), MEMORIES_QUERY, 'memories');
+    memories = all.filter((m) => m.class !== 'system');
+  } catch (e) {
+    console.warn('[node-detail] memory picker list failed:', e);
+  }
+
+  return { node, breadcrumb, testFlowApps, memories };
 };
 
 export const actions: Actions = {
