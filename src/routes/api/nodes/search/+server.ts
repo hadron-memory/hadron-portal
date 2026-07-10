@@ -3,6 +3,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { NODE_FIND_QUERY } from '$lib/server/queries';
 import type { MemoryNode, SearchHitMeta } from '$lib/types';
+import { NODE_FIELD_MASK_SET } from '$lib/search/node-fields';
 import type { RequestHandler } from './$types';
 
 // Node search + structured filter (issues #355, #429). Browser → this endpoint
@@ -23,13 +24,6 @@ const SEARCH_LIMIT = 500;
 
 type SortMode = 'loc' | 'seq' | 'updatedAt' | 'relevance';
 const SORTS: readonly SortMode[] = ['loc', 'seq', 'updatedAt', 'relevance'];
-
-// #433: the server's NodeField enum — the lexical scoring weight-mask
-// (cor:api:090:03). Anything the client sends is validated against this so a
-// bad value can't reach the server (a GraphQL enum-coercion 400).
-const NODE_FIELDS = [
-  'name', 'alias', 'loc', 'tags', 'description', 'abstract', 'content', 'properties', 'data',
-] as const;
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
@@ -63,7 +57,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // #433: validate the fields weight-mask against the known enum, drop unknowns,
   // dedupe. Null (all fields, default weights) unless a valid subset is given.
   const fieldSet = Array.isArray(fields)
-    ? [...new Set(fields.filter((f): f is string => typeof f === 'string' && (NODE_FIELDS as readonly string[]).includes(f)))]
+    ? [...new Set(fields.filter((f): f is string => typeof f === 'string' && NODE_FIELD_MASK_SET.has(f)))]
     : [];
   // A lexical weight-mask is meaningless for a filter-only list (no ranking) and
   // is ignored by vector retrieval — only forward it for a lexical query.

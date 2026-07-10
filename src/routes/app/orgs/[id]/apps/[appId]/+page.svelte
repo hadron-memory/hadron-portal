@@ -598,7 +598,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 
   <!-- ───────────── MEMORY TAB ───────────── -->
   {#if activeTab === 'memory'}
-    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} {writableMemoryIds} />
+    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} {writableMemoryIds} scopeMemoryIds={effectiveMemories.map((m) => m.id)} />
   {/if}
 
   <!-- ───────────── SETTINGS TAB ───────────── -->

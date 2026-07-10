@@ -8,6 +8,7 @@
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { onDestroy } from 'svelte';
   import { t } from '$lib/i18n/t';
+  import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
   import type { MemoryNode, TreeEntry, SearchHitMeta } from '$lib/types';
 
   /** Build the URL to a node's detail page, or empty if memory context is missing */
@@ -25,6 +26,7 @@
     basePath = '',
     multiMemory = false,
     writableMemoryIds = [],
+    scopeMemoryIds = [],
     forcedView,
   }: {
     nodes: MemoryNode[];
@@ -38,6 +40,16 @@
     basePath?: string;
     multiMemory?: boolean;
     writableMemoryIds?: string[];
+    /**
+     * #433: the page's full memory scope, independent of which nodes loaded.
+     * Server search derives its scope from the loaded `nodes` by default, but a
+     * memory with zero loaded (non-deleted) rows — e.g. a fully soft-deleted
+     * memory the Include-deleted audit view targets — never appears there.
+     * Multi-memory pages (agent/app) pass their attached memory ids so those
+     * memories stay searchable. Single-memory pages don't need it (the id is
+     * recovered from basePath).
+     */
+    scopeMemoryIds?: string[];
     /** When set (the #266 tab layout), fixes the view and hides the toggle. */
     forcedView?: 'graph' | 'nodes';
   } = $props();
@@ -231,8 +243,8 @@
   // #433: the fields weight-mask (findNodes fields, cor:api:090:03) — scopes a
   // LEXICAL query's scoring to a subset of node fields. Empty = all fields
   // (the server default). Ignored for Fuzzy (vector retrieval) and for a
-  // filter-only list (no ranking).
-  const NODE_FIELDS = ['name', 'alias', 'loc', 'tags', 'description', 'abstract', 'content', 'properties', 'data'] as const;
+  // filter-only list (no ranking). Options are shared with the endpoint's
+  // validation via $lib/search/node-fields so the two can't drift.
   let searchFields = $state<Set<string>>(new Set());
   const lexicalMode = $derived(searchMode === 'exact' || searchMode === 'regex');
 
@@ -266,9 +278,20 @@
   // Derive a STABLE string key, not an array: `nodes` gets a new identity on
   // every reorder/invalidate, and a fresh array reference would re-run the
   // search effect each time even when the id set is unchanged (PR #358 review).
-  const searchMemoryIdsStr = $derived(
-    [...new Set(nodes.map((n) => n.memoryId))].sort().join(','),
-  );
+  const searchMemoryIdsStr = $derived.by(() => {
+    const ids = new Set(nodes.map((n) => n.memoryId));
+    // #433: also include the page's declared scope so a memory with zero loaded
+    // (non-deleted) rows stays searchable — the Include-deleted audit/restore
+    // view must reach fully soft-deleted memories, which never appear in `nodes`.
+    for (const id of scopeMemoryIds) ids.add(id);
+    // Single-memory pages carry the memory id in basePath (/app/memories/<id>)
+    // even when nothing loaded — recover it so an empty memory is searchable.
+    if (!multiMemory && basePath) {
+      const id = basePath.split('/').pop();
+      if (id) ids.add(id);
+    }
+    return [...ids].sort().join(',');
+  });
 
   // Server search results: null = not in server view (show the normal browse set).
   let serverResults = $state<MemoryNode[] | null>(null);
@@ -730,7 +753,7 @@
             {#if searchFields.size > 0}
               <button type="button" onclick={() => { searchFields = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
             {/if}
-            {#each NODE_FIELDS as f}
+            {#each NODE_FIELD_MASK_OPTIONS as f}
               <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
                 <input type="checkbox" checked={searchFields.has(f)} onchange={() => toggleField(f)}
                   class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
