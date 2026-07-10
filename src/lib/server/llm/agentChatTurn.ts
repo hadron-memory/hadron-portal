@@ -38,8 +38,8 @@ export async function fetchAgentAIConfig(
       resolveAIConfig: { provider: string; apiKey: string; model: string };
     }>(RESOLVE_AI_CONFIG_QUERY, {
       name: opts?.configName ?? 'default',
-      appId: opts?.appId ?? undefined,
-      agentId,
+      appRef: opts?.appId ?? undefined,
+      agentRef: agentId,
     });
     return {
       provider: result.resolveAIConfig.provider as AIProvider,

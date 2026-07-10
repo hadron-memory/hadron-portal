@@ -25,7 +25,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
   try {
     const result = await gqlClient(locals.token).request<{ myChats: Chat[] }>(MY_CHATS_QUERY, {
-      agentId,
+      agentRef: agentId,
     });
     return new Response(JSON.stringify({ chats: result.myChats }), {
       status: 200,

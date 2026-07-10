@@ -42,7 +42,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // Use myChats to find the chat metadata — we already have ownership
     // filtering baked in there. Small N per user, simple.
     const [listResult, historyResult] = await Promise.all([
-      client.request<{ myChats: Chat[] }>(MY_CHATS_QUERY, { agentId: body.agentId }),
+      client.request<{ myChats: Chat[] }>(MY_CHATS_QUERY, { agentRef: body.agentId }),
       client.request<{ chatHistory: ChatMessage[] }>(CHAT_HISTORY_QUERY, {
         chatId: body.chatId,
         limit: 500,

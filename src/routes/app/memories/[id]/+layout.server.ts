@@ -67,14 +67,14 @@ async function fetchGraph(client: GraphQLClient, memoryId: string) {
       pageAll<SlimNode>(async (limit, offset) => {
         const d = await client.request<{ memoryNodes: { nodes: SlimNode[]; total: number } }>(
           MEMORY_NODES_QUERY,
-          { memoryId, limit, offset },
+          { memoryRef: memoryId, limit, offset },
         );
         return { items: d.memoryNodes.nodes, total: d.memoryNodes.total };
       }),
       pageAll<SlimEdge>(async (limit, offset) => {
         const d = await client.request<{ memoryEdges: { edges: SlimEdge[]; total: number } }>(
           MEMORY_EDGES_QUERY,
-          { memoryId, limit, offset },
+          { memoryRef: memoryId, limit, offset },
         );
         return { items: d.memoryEdges.edges, total: d.memoryEdges.total };
       }),
@@ -159,7 +159,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     fetchGraph(client, params.id),
     client
       .request<{ memoryUsageSummary: UsageSummaryEntry[] }>(MEMORY_USAGE_SUMMARY_QUERY, {
-        memoryId: params.id,
+        memoryRef: params.id,
       })
       .catch(() => ({ memoryUsageSummary: [] as UsageSummaryEntry[] })),
   ]);

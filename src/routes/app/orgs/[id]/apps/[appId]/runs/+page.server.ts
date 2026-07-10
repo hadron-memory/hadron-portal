@@ -37,7 +37,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     // failure only hides the Flows section, never the audit list (auxiliary
     // data; review:no-silent-loader-catch).
     client
-      .request<{ appNodes: FlowGraphNode[] }>(APP_NODES_QUERY, { appId: params.appId, limit: 500 })
+      .request<{ appNodes: FlowGraphNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
       .catch((e) => {
         console.warn(`[runs] appNodes fetch failed for ${params.appId}:`, e);
         return { appNodes: [] as FlowGraphNode[] };
