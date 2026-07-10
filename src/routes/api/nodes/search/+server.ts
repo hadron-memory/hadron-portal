@@ -24,18 +24,26 @@ const SEARCH_LIMIT = 500;
 type SortMode = 'loc' | 'seq' | 'updatedAt' | 'relevance';
 const SORTS: readonly SortMode[] = ['loc', 'seq', 'updatedAt', 'relevance'];
 
+// #433: the server's NodeField enum — the lexical scoring weight-mask
+// (cor:api:090:03). Anything the client sends is validated against this so a
+// bad value can't reach the server (a GraphQL enum-coercion 400).
+const NODE_FIELDS = [
+  'name', 'alias', 'loc', 'tags', 'description', 'abstract', 'content', 'properties', 'data',
+] as const;
+
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const body = await request.json();
-  const { query, mode, memoryIds, filter, sort } = body as {
+  const { query, mode, memoryIds, filter, sort, fields } = body as {
     query?: unknown;
     mode?: unknown;
     memoryIds?: unknown;
-    filter?: { createdBy?: unknown; updatedAfter?: unknown; updatedBefore?: unknown };
+    filter?: { createdBy?: unknown; updatedAfter?: unknown; updatedBefore?: unknown; includeDeleted?: unknown };
     sort?: unknown;
+    fields?: unknown;
   };
 
   const q = typeof query === 'string' ? query.trim() : '';
@@ -48,22 +56,35 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     typeof filter?.updatedAfter === 'string' && filter.updatedAfter ? filter.updatedAfter : null;
   const updatedBefore =
     typeof filter?.updatedBefore === 'string' && filter.updatedBefore ? filter.updatedBefore : null;
+  // #433: only send includeDeleted when true — the server default is false.
+  const includeDeleted = filter?.includeDeleted === true ? true : null;
   const sortMode = SORTS.includes(sort as SortMode) ? (sort as SortMode) : null;
 
-  const hasFilter = !!(createdBy || updatedAfter || updatedBefore);
+  // #433: validate the fields weight-mask against the known enum, drop unknowns,
+  // dedupe. Null (all fields, default weights) unless a valid subset is given.
+  const fieldSet = Array.isArray(fields)
+    ? [...new Set(fields.filter((f): f is string => typeof f === 'string' && (NODE_FIELDS as readonly string[]).includes(f)))]
+    : [];
+  // A lexical weight-mask is meaningless for a filter-only list (no ranking) and
+  // is ignored by vector retrieval — only forward it for a lexical query.
+  const findMode = q ? (mode === 'fuzzy' ? 'vector' : mode === 'regex' ? 'regex' : 'keyword') : null;
+  const lexical = findMode === 'keyword' || findMode === 'regex';
+  const searchFields = lexical && fieldSet.length > 0 ? fieldSet : null;
+
+  const hasFilter = !!(createdBy || updatedAfter || updatedBefore || includeDeleted);
   // Nothing to do → let the client browse the already-loaded set. (A bare
   // loc/seq sort with no query/filter is also a client-side reorder.)
   if (!q && !hasFilter && (!sortMode || sortMode === 'loc' || sortMode === 'seq')) {
     return json({ nodes: [], total: null });
   }
 
-  // Only a text query carries a retrieval `mode`. #430: fuzzy uses `vector`
-  // (not hybrid) so we can request `granularity:chunk` and get matching-passage
-  // snippets — `hybrid + chunk` is out of scope server-side. Without a vector
-  // index the server degrades (reason:no_vector_index) and returns no passages.
-  // #431: `regex` is a literal/pattern (substring) search — restores the
-  // substring matching lost when the migration mapped Exact→keyword.
-  const findMode = q ? (mode === 'fuzzy' ? 'vector' : mode === 'regex' ? 'regex' : 'keyword') : null;
+  // findMode (computed above) maps the toggle to a server retrieval mode.
+  // #430: fuzzy uses `vector` (not hybrid) so we can request `granularity:chunk`
+  // and get matching-passage snippets — `hybrid + chunk` is out of scope
+  // server-side. Without a vector index the server degrades
+  // (reason:no_vector_index) and returns no passages. #431: `regex` is a
+  // literal/pattern (substring) search — restores the substring matching lost
+  // when the migration mapped Exact→keyword.
   const granularity = findMode === 'vector' ? 'chunk' : null;
 
   const client = gqlClient(locals.token);
@@ -92,10 +113,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       mode: m,
       sort: sortMode,
       granularity: g,
+      fields: searchFields,
       memoryIds,
       createdBy,
       updatedAfter,
       updatedBefore,
+      includeDeleted,
       limit: SEARCH_LIMIT,
     });
 

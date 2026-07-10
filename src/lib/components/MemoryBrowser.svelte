@@ -225,6 +225,16 @@
   // 'loc' is the natural browse order and does NOT force a server fetch;
   // updatedAt/relevance require the server (not in the slim loaded set).
   let sortMode = $state<'loc' | 'updatedAt' | 'relevance'>('loc');
+  // #433: include soft-deleted nodes (findNodes filter.includeDeleted) — an
+  // audit/restore view; server-only (the slim loaded set excludes deleted).
+  let includeDeleted = $state(false);
+  // #433: the fields weight-mask (findNodes fields, cor:api:090:03) — scopes a
+  // LEXICAL query's scoring to a subset of node fields. Empty = all fields
+  // (the server default). Ignored for Fuzzy (vector retrieval) and for a
+  // filter-only list (no ranking).
+  const NODE_FIELDS = ['name', 'alias', 'loc', 'tags', 'description', 'abstract', 'content', 'properties', 'data'] as const;
+  let searchFields = $state<Set<string>>(new Set());
+  const lexicalMode = $derived(searchMode === 'exact' || searchMode === 'regex');
 
   const changedSinceIso = $derived.by(() => {
     const now = Date.now();
@@ -235,12 +245,18 @@
     createdBy: myNodesOnly ? currentUserId : null,
     updatedAfter: changedSinceIso,
     updatedBefore: null as string | null,
+    includeDeleted: includeDeleted || null,
   });
+  // A stable key for the fields mask — a fresh Set identity on every toggle
+  // would re-run the search effect even when the selection is unchanged (same
+  // guard as searchMemoryIdsStr). Only lexical modes send it.
+  const searchFieldsStr = $derived(lexicalMode ? [...searchFields].sort().join(',') : '');
   // In server view, serverResults replaces the loaded set as the working pool.
   const serverViewActive = $derived(
     keyword.trim() !== '' ||
       !!serverFilter.createdBy ||
       !!serverFilter.updatedAfter ||
+      !!serverFilter.includeDeleted ||
       sortMode === 'updatedAt' ||
       sortMode === 'relevance',
   );
@@ -268,8 +284,9 @@
     q: string,
     mode: 'exact' | 'regex' | 'fuzzy',
     memoryIds: string[],
-    filter: { createdBy: string | null; updatedAfter: string | null; updatedBefore: string | null },
+    filter: { createdBy: string | null; updatedAfter: string | null; updatedBefore: string | null; includeDeleted: boolean | null },
     sort: 'loc' | 'updatedAt' | 'relevance',
+    fields: string[],
     signal?: AbortSignal,
   ) {
     if (memoryIds.length === 0) { serverResults = []; searching = false; return; }
@@ -284,7 +301,7 @@
       const res = await fetch('/api/nodes/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, mode, memoryIds, filter, sort }),
+        body: JSON.stringify({ query: q, mode, memoryIds, filter, sort, fields }),
         signal,
       });
       const data = await res.json();
@@ -313,6 +330,7 @@
     const idsStr = searchMemoryIdsStr;
     const filter = serverFilter;
     const sort = sortMode;
+    const fieldsStr = searchFieldsStr; // tracked dep; '' when non-lexical
     if (!serverViewActive) {
       searchSeq++;
       serverResults = null;
@@ -342,8 +360,9 @@
         return;
       }
     }
+    const fields = fieldsStr ? fieldsStr.split(',') : [];
     const controller = new AbortController();
-    const timer = setTimeout(() => runServerFetch(q, mode, ids, filter, sort, controller.signal), 300);
+    const timer = setTimeout(() => runServerFetch(q, mode, ids, filter, sort, fields, controller.signal), 300);
     return () => {
       clearTimeout(timer);
       controller.abort(); // cancel an in-flight fetch on new keystroke / destroy
@@ -360,9 +379,9 @@
   let activeTags = $state<Set<string>>(new Set());
 
   // Dropdown open state
-  let openDropdown = $state<'memory' | 'type' | 'tags' | null>(null);
+  let openDropdown = $state<'memory' | 'type' | 'tags' | 'fields' | null>(null);
 
-  function toggleDropdown(d: 'memory' | 'type' | 'tags') {
+  function toggleDropdown(d: 'memory' | 'type' | 'tags' | 'fields') {
     openDropdown = openDropdown === d ? null : d;
   }
 
@@ -379,6 +398,8 @@
       keyword.length > 0 ||
       myNodesOnly ||
       changedSince !== 'any' ||
+      includeDeleted ||
+      searchFields.size > 0 ||
       sortMode !== 'loc',
   );
 
@@ -389,7 +410,15 @@
     keyword = '';
     myNodesOnly = false;
     changedSince = 'any';
+    includeDeleted = false;
+    searchFields = new Set();
     sortMode = 'loc';
+  }
+
+  function toggleField(f: string) {
+    if (searchFields.has(f)) searchFields.delete(f);
+    else searchFields.add(f);
+    searchFields = new Set(searchFields);
   }
 
   function toggleMemory(urn: string) {
@@ -683,6 +712,36 @@
         class="px-2.5 py-1 text-xs {searchMode === 'fuzzy' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}">Fuzzy</button>
     </div>
 
+    <!-- #433: Fields weight-mask — scope a LEXICAL query's scoring to a subset
+         of node fields (a ranking mask, not a hard filter). Only meaningful for
+         Exact/Regex; hidden for Fuzzy (vector retrieval ignores it). -->
+    {#if lexicalMode}
+      <div class="relative filter-dropdown">
+        <button type="button" onclick={() => toggleDropdown('fields')}
+          title="Scope the search to specific fields (ranking weight, not a hard filter)"
+          class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition
+            {searchFields.size > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
+          Fields {#if searchFields.size > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{searchFields.size}</span>{/if}
+          <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'fields' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
+        </button>
+        {#if openDropdown === 'fields'}
+          <div class="absolute left-0 top-full z-20 mt-1 w-48 rounded-lg border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            <p class="px-2 pb-1 text-[10px] leading-tight text-zinc-400">Ranking weight — narrows what scores a match, not a hard filter. All fields when none selected.</p>
+            {#if searchFields.size > 0}
+              <button type="button" onclick={() => { searchFields = new Set(); }} class="mb-1 w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
+            {/if}
+            {#each NODE_FIELDS as f}
+              <label class="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-zinc-700 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800 cursor-pointer">
+                <input type="checkbox" checked={searchFields.has(f)} onchange={() => toggleField(f)}
+                  class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                {f}
+              </label>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <!-- #429: My nodes (server-side filter.createdBy) — needs the caller's id -->
     {#if currentUserId}
       <button type="button" onclick={() => (myNodesOnly = !myNodesOnly)}
@@ -710,6 +769,14 @@
       <option value="updatedAt">Sort: Recently updated</option>
       <option value="relevance">Sort: Best match</option>
     </select>
+
+    <!-- #433: Include deleted (server-side filter.includeDeleted) — audit /
+         restore view; soft-deleted nodes are excluded by default. -->
+    <button type="button" onclick={() => (includeDeleted = !includeDeleted)}
+      title="Include soft-deleted nodes (audit / restore)"
+      class="rounded-lg border px-3 py-1.5 text-xs font-medium transition
+        {includeDeleted ? 'border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}"
+    >Include deleted</button>
 
     {#if searching}
       <span class="text-xs text-zinc-400">Searching…</span>
