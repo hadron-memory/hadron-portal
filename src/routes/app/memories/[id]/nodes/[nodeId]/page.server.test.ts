@@ -10,6 +10,7 @@
  * `graphNodes` instead of issuing a memory-blind GraphQL lookup.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NODE_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -130,6 +131,8 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
+    // #512: the loader also lists memories for the Move picker.
+    mockRequest.mockResolvedValueOnce({ memories: { items: [], total: 0 } });
 
     await runLoad(loadEvent({
       gid: memA,
@@ -141,8 +144,68 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
       ],
     }));
 
-    // Only NODE_BY_ID_QUERY ran; the per-ancestor NODE_QUERY calls are gone.
-    expect(mockRequest).toHaveBeenCalledTimes(1);
+    // The per-ancestor NODE_QUERY (loc-blind lookup) never runs — ancestors
+    // resolve from the parent layout's graphNodes. (The loader makes other
+    // requests — the node read + the #512 memory list — so assert the specific
+    // query is absent rather than a blanket call count.)
+    const usedNodeQuery = mockRequest.mock.calls.some(([doc]) => doc === NODE_QUERY);
+    expect(usedNodeQuery).toBe(false);
+  });
+
+  it('#512 — returns the Move picker memory list, excluding system-class memories', async () => {
+    const memA = 'mem-A';
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'leaf-pk', memoryId: memA, loc: 'foo', name: 'foo',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({
+      memories: {
+        items: [
+          { id: memA, name: 'Memory A', urn: 'org::a', visibility: 'PRIVATE', class: 'knowledge' },
+          { id: 'mem-sys', name: 'System', urn: 'org::sys', visibility: 'PRIVATE', class: 'system' },
+        ],
+        total: 2,
+      },
+    });
+
+    const result = (await runLoad(loadEvent({
+      gid: memA,
+      nodeId: 'leaf-pk',
+      parentGraphNodes: [{ id: 'leaf-pk', memoryId: memA, loc: 'foo' }],
+    }))) as LoadResult & { memories: Promise<Array<{ id: string }>> };
+
+    // #513: memories is streamed (a promise), so await it before asserting.
+    const memories = await result.memories;
+    expect(memories.map((m) => m.id)).toEqual([memA]); // 'mem-sys' filtered out
+  });
+
+  it('#512 — a failed memory-list fetch degrades to an empty picker (page still loads)', async () => {
+    const memA = 'mem-A';
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'leaf-pk', memoryId: memA, loc: 'foo', name: 'foo',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockRejectedValueOnce(new Error('memories boom'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = (await runLoad(loadEvent({
+      gid: memA,
+      nodeId: 'leaf-pk',
+      parentGraphNodes: [{ id: 'leaf-pk', memoryId: memA, loc: 'foo' }],
+    }))) as LoadResult & { memories: Promise<unknown[]> };
+
+    expect(result.node).toBeTruthy();
+    expect(await result.memories).toEqual([]); // streamed; degrades to empty
   });
 
   it('#237 — redirects when node.memoryId does not match params.gid (PK-mismatch guard)', async () => {

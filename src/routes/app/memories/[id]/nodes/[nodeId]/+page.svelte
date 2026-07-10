@@ -15,6 +15,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NodeList from '$lib/components/NodeList.svelte';
+  import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -49,13 +50,19 @@
   // upstream data-shape change.
   // R-2 (2026-05-06): also guard empty loc, which the prefix-strip
   // above can produce when a stored loc equals the memory URN exactly.
-  const fullUrn = $derived.by(() => {
+  // The node's loc, normalized against the legacy shape where a stored loc had
+  // its memory URN baked in — strip that prefix so we never double-compose.
+  // Shared by fullUrn and the #512 move-target picker.
+  const cleanLoc = $derived.by(() => {
     let loc = node.loc;
     if (data.graph.urn && loc.startsWith(data.graph.urn + ':')) {
       loc = loc.slice(data.graph.urn.length + 1);
     }
-    return data.graph.urn && loc ? composeNodeUrn(data.graph.urn, loc) : loc;
+    return loc;
   });
+  const fullUrn = $derived(
+    data.graph.urn && cleanLoc ? composeNodeUrn(data.graph.urn, cleanLoc) : cleanLoc,
+  );
 
   let showSource = $state(false);
   let confirmDelete = $state(false);
@@ -381,6 +388,14 @@
   // the memory; editing the memory segment moves to another memory. Passed
   // straight to moveNode's targetUrn.
   let moveTarget = $state('');
+  // #512: the "Select target memory" picker inside the Move dialog. Picking a
+  // memory rewrites the memory segment of the destination URN, keeping the loc.
+  // Uses cleanLoc (not the raw node.loc) so a legacy prefixed loc doesn't
+  // double-compose into hrn:node:<new>::hrn:node:<old>::… (PR #513 review, codex).
+  let memoryPickerOpen = $state(false);
+  function onPickTargetMemory(memory: { urn: string }) {
+    if (cleanLoc) moveTarget = composeNodeUrn(memory.urn, cleanLoc);
+  }
   let deleteOpen = $state(false);
   // #503: opt into a permanent (hard) delete; default is the safe soft delete.
   let hardDelete = $state(false);
@@ -1064,6 +1079,18 @@
                 <p class="mt-1 text-xs text-zinc-400">
                   <span class="font-mono">org::memory::loc</span> — change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.
                 </p>
+                <!-- #512: pick the target memory from a searchable list instead
+                     of hand-typing its URN; keeps the current loc. The list is
+                     streamed (#513 review), so gate on the resolved value. -->
+                {#await data.memories then memories}
+                  {#if memories.length > 0}
+                    <button
+                      type="button"
+                      onclick={() => (memoryPickerOpen = true)}
+                      class="mt-2 rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                    >{t('node-actions.move-select-memory', 'Select target memory…')}</button>
+                  {/if}
+                {/await}
               </div>
               {#if form && 'moveError' in form && form.moveError}
                 <p class="text-xs text-red-500">{form.moveError}</p>
@@ -1078,6 +1105,17 @@
               </div>
             </form>
           </div>
+          <!-- #512: memory picker for the Move dialog. Renders its own full-screen
+               modal (z-50), so it layers above the move panel. The list is
+               streamed (#513 review), so resolve it before passing it in. -->
+          {#await data.memories then memories}
+            <SelectMemory
+              {memories}
+              bind:open={memoryPickerOpen}
+              onselect={onPickTargetMemory}
+              placeholder={t('node-actions.move-search-memories', 'Search memories to move into…')}
+            />
+          {/await}
         {/if}
 
         <!-- Delete (#503): the same ?/delete action the Settings danger zone
