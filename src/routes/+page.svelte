@@ -8,21 +8,48 @@
 
   const brandColors = ['#8ecae6', '#219ebc', '#023047', '#ffb703', '#fb8500'];
 
-  const capabilities = [
+  // The three-tier value ladder: capture knowledge → make it AI-native → build automations.
+  const pillars = [
     {
-      title: 'Knowledge graphs',
-      body: 'Organize knowledge as interconnected nodes — not flat files. Every fact, decision, and insight is linked, searchable, and reusable.',
-      color: brandColors[0],
-    },
-    {
-      title: 'Conversation memory',
-      body: 'AI conversations that remember. Chat history, extracted facts, and user profiles persist across sessions — days, weeks, or months apart.',
+      step: 'Capture & protect',
+      title: 'One secure home for what your team knows',
+      body: 'Bundle knowledge into Memories — composable graphs of nodes, built in a few clicks. Everything stays linked, versioned, and instantly searchable, even across massive institutional stores.',
       color: brandColors[1],
     },
     {
-      title: 'Smart templates',
-      body: 'Prompt templates with live data. Variables resolve from your knowledge graph, so prompts stay current as facts change.',
+      step: 'Make it AI-native',
+      title: 'Give your AI the context to actually help',
+      body: 'Connect any AI tool over MCP or GraphQL. Your AI reads the context it needs before acting and saves what it learns back — so it can answer, act, and automate against how your organization really works.',
       color: brandColors[3],
+    },
+    {
+      step: 'Automate & build agents',
+      title: 'Turn knowledge into working automations',
+      body: 'Turn memory nodes into active tasks, chain them into flows, and package the result into agents and chatbots. Build your own AI assistant — or craft sophisticated agents you can offer to clients.',
+      color: brandColors[4],
+    },
+  ];
+
+  const capabilities = [
+    {
+      title: 'Knowledge graphs',
+      body: 'Organize what your team knows as interconnected nodes — not flat files. Every fact, decision, and insight is linked, searchable, and reusable.',
+      color: brandColors[0],
+    },
+    {
+      title: 'Encryption & access control',
+      body: 'Private, team, or public. Encrypt a memory just for you, or share exactly what a person or agent should see — without exposing everything else.',
+      color: brandColors[2],
+    },
+    {
+      title: 'Ultra-fast search',
+      body: 'Keyword, semantic, and hybrid search retrieve the right node in milliseconds — even across massive institutional knowledge stores.',
+      color: brandColors[1],
+    },
+    {
+      title: 'MCP & API native',
+      body: 'Connect any AI tool via MCP or GraphQL. Works with Claude, GPT, Cursor, and custom agents out of the box.',
+      color: brandColors[0],
     },
     {
       title: 'Fact evolution',
@@ -30,48 +57,77 @@
       color: brandColors[4],
     },
     {
-      title: 'Access control',
-      body: 'Private, organization, or public. Control who sees what. Share knowledge across teams without sharing everything.',
-      color: brandColors[2],
+      title: 'Tasks, flows & agents',
+      body: 'Turn nodes into active tasks, chain them into flows, and package them into agents and chatbots you run yourself or offer to clients.',
+      color: brandColors[3],
     },
+  ];
+
+  // Where knowledge is delivered — to AI over MCP/API, and to people via native clients.
+  const clients = [
     {
-      title: 'Citations & references',
-      body: 'Link external sources — papers, legislation, URLs — as citable references. Build citation networks your AI can traverse and reason about.',
+      name: 'Web app',
+      body: 'The full portal in your browser — manage memories, nodes, and agents, and access your knowledge from anywhere.',
+      glyph: '🌐',
       color: brandColors[0],
     },
     {
-      title: 'MCP & API native',
-      body: 'Connect any AI tool via MCP or GraphQL. Works with Claude, GPT, Cursor, and custom agents out of the box.',
+      name: 'CLI',
+      body: 'A complete command-line tool for developers. Read, write, and automate your memory straight from the terminal or CI.',
+      glyph: '⌨️',
       color: brandColors[1],
+    },
+    {
+      name: 'Chrome extension',
+      body: 'Import content from the browser, even behind a paywall. 2 clicks.',
+      glyph: '🧩',
+      color: brandColors[3],
+    },
+    {
+      name: 'macOS app',
+      body: 'A native desktop companion for fast, always-there access to your memories.',
+      glyph: '🖥️',
+      color: brandColors[4],
+    },
+    {
+      name: 'Slack app',
+      body: 'Bring Hadron memory into the conversations your team already has.',
+      glyph: '💬',
+      color: brandColors[2],
+      soon: true,
     },
   ];
 
   const useCases = [
     {
-      title: 'AI coding agents',
-      description: 'Give your coding agent persistent memory of your codebase architecture, conventions, and past decisions. Sessions save plans and learnings that future agents can build on.',
+      title: 'Engineering & product',
+      description: 'Give coding agents persistent memory of your architecture, conventions, and past decisions. Every session builds on the last instead of starting from zero.',
       color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
     },
     {
-      title: 'AI mentoring & coaching',
-      description: 'Build AI mentors that remember each person they work with. Structured conversation flows guide users through onboarding, discovery, and action planning.',
+      title: 'Support & customer success',
+      description: 'AI that knows your product deeply and remembers each customer relationship — consistent, up-to-date answers across every interaction.',
+      color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
+    },
+    {
+      title: 'Onboarding & training',
+      description: 'Turn tribal knowledge into structured, guided flows. New people — and new agents — ramp on how your organization actually works.',
       color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
     },
     {
-      title: 'Research assistants',
-      description: 'Manage sources, discuss papers, and build a citation network. Your AI remembers your research interests and builds on previous conversations.',
+      title: 'Consultants & agencies',
+      description: 'Package your expertise into agents and chatbots you can deliver to clients, each grounded in its own private memory.',
       color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-    },
-    {
-      title: 'Customer support',
-      description: 'AI that knows your product deeply and remembers each customer relationship. Knowledge stays consistent and up-to-date across every interaction.',
-      color: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
     },
   ];
 </script>
 
 <svelte:head>
-  <title>Hadron — Knowledge System</title>
+  <title>Hadron — Knowledge your AI can use</title>
+  <meta
+    name="description"
+    content="Hadron is a secure knowledge platform for teams. Capture what your organization knows, then give your AI the context it needs to answer, act, and automate."
+  />
 </svelte:head>
 
 <!-- Hero -->
@@ -87,10 +143,11 @@
     class="mx-auto mb-10 hidden h-16 w-auto dark:block sm:h-20"
   />
   <h1 class="mb-6 text-5xl font-bold tracking-tight text-zinc-900 dark:text-white sm:text-6xl">
-    Knowledge lives
+    Knowledge lego-style
   </h1>
   <p class="mx-auto mb-4 max-w-2xl text-lg text-zinc-600 dark:text-zinc-400">
-    Hadron manages knowledge, for you, for AI. Well protected, yet easy to access.
+    Make AI work for your business — grounded in your team's knowledge, and locked to
+    exactly what each person and agent should see.
   </p>
   {#if !data.user}
     <p class="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-sm text-amber-600 dark:text-amber-400">
@@ -99,33 +156,49 @@
   {/if}
 </section>
 
-<!-- The problem -->
-<section class="mx-auto max-w-3xl px-4 py-12">
+<!-- The hook: what makes Hadron different -->
+<section class="mx-auto max-w-4xl px-4 py-12">
   <div class="rounded-2xl border border-zinc-200 bg-zinc-50 p-8 dark:border-zinc-800 dark:bg-zinc-900/50">
-    <h2 class="mb-4 text-center text-xl font-semibold text-zinc-900 dark:text-white">Knowledge turned into Lego blocks!</h2>
-    <div class="space-y-4 text-sm text-zinc-600 dark:text-zinc-400">
-      <p>
-        You bundle knowledge to <strong class="text-zinc-900 dark:text-white">Memories</strong>,
-        graph structures with interconnected nodes. Done in a few clicks.
-      </p>
-      <p>
-        <strong class="text-zinc-900 dark:text-white">Encrypt</strong> it just for you. Or share it with the team, the world.
-        You control who has access to your Hadron memories.
-      </p>
-      <p>
-        <strong class="text-zinc-900 dark:text-white">Ultra fast search</strong> retrieves
-        what you are looking for, even in massive institutional knowledge stores.
-      </p>
-      <p>
-        <strong class="text-zinc-900 dark:text-white">Build powerful AI automations</strong> by
-        turning memory nodes into active tasks that are chained to flow structures.
-      </p>
-      <p>
-        <strong class="text-zinc-900 dark:text-white">Package your automations</strong> to
-        agents. Build your personal AI assistant, or craft sophisticated agents that you can
-        offer to clients.
-      </p>
+    <h2 class="mb-2 text-center text-2xl font-semibold text-zinc-900 dark:text-white">Feed AI your knowledge — without losing control of it</h2>
+    <p class="mx-auto mb-8 max-w-2xl text-center text-sm text-zinc-600 dark:text-zinc-400">
+      Generic AI doesn't know your business — but pouring your company's knowledge into it
+      isn't safe. Hadron gives each team and agent exactly the knowledge it needs, and
+      nothing it shouldn't have.
+    </p>
+    <div class="grid gap-8 sm:grid-cols-2">
+      <div>
+        <h3 class="mb-2 font-semibold" style="color: {brandColors[4]};">Make AI genuinely useful</h3>
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">
+          Bundle your institutional knowledge into composable Memories — Lego-style — and
+          hand each project or agent the exact set it needs to do its job. No more blank
+          stares from an AI that doesn't know how you work.
+        </p>
+      </div>
+      <div>
+        <h3 class="mb-2 font-semibold" style="color: {brandColors[1]};">Stay in control</h3>
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">
+          Encrypt, scope, and share block by block. Sensitive knowledge stays sensitive, and
+          every person and every AI sees only what it should — nothing more.
+        </p>
+      </div>
     </div>
+  </div>
+</section>
+
+<!-- Value ladder -->
+<section class="mx-auto max-w-7xl px-4 py-16">
+  <h2 class="mb-10 text-center text-2xl font-semibold text-zinc-900 dark:text-white">From knowledge to working AI</h2>
+  <div class="grid gap-6 md:grid-cols-3">
+    {#each pillars as pillar, i}
+      <div class="flex flex-col rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900" style="border-top: 3px solid {pillar.color};">
+        <div class="mb-3 flex items-center gap-3">
+          <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white" style="background: {pillar.color};">{i + 1}</span>
+          <span class="text-xs font-semibold uppercase tracking-wide" style="color: {pillar.color};">{pillar.step}</span>
+        </div>
+        <h3 class="mb-2 font-semibold text-zinc-900 dark:text-white">{pillar.title}</h3>
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">{pillar.body}</p>
+      </div>
+    {/each}
   </div>
 </section>
 
@@ -137,6 +210,29 @@
       <div class="rounded-xl border-l-4 bg-white p-6 shadow-sm dark:bg-zinc-900" style="border-left-color: {cap.color};">
         <h3 class="mb-2 font-semibold" style="color: {cap.color};">{cap.title}</h3>
         <p class="text-sm text-zinc-600 dark:text-zinc-400">{cap.body}</p>
+      </div>
+    {/each}
+  </div>
+</section>
+
+<!-- Where knowledge is delivered -->
+<section class="mx-auto max-w-7xl px-4 py-16">
+  <h2 class="mb-2 text-center text-2xl font-semibold text-zinc-900 dark:text-white">Knowledge that comes to you</h2>
+  <p class="mx-auto mb-10 max-w-2xl text-center text-sm text-zinc-600 dark:text-zinc-400">
+    Memory is only useful where you work. Hadron feeds your AI over MCP and API — and meets
+    your people in the tools they already use.
+  </p>
+  <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+    {#each clients as client}
+      <div class="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+        <div class="mb-3 flex items-center gap-3">
+          <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xl" style="background: {client.color}20;">{client.glyph}</span>
+          <h3 class="font-semibold text-zinc-900 dark:text-white">{client.name}</h3>
+          {#if client.soon}
+            <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">Soon</span>
+          {/if}
+        </div>
+        <p class="text-sm text-zinc-600 dark:text-zinc-400">{client.body}</p>
       </div>
     {/each}
   </div>
@@ -176,9 +272,28 @@
     <div class="flex gap-4">
       <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold" style="background: #fb8500; color: #023047;">3</div>
       <div>
-        <h3 class="font-semibold text-zinc-900 dark:text-white">AI remembers and learns</h3>
-        <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Your AI reads knowledge before acting, saves what it learns, and builds on past sessions. Every conversation makes the memory better.</p>
+        <h3 class="font-semibold text-zinc-900 dark:text-white">Automate and ship agents</h3>
+        <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Your AI reads before acting and saves what it learns. Turn the best patterns into tasks, flows, and agents your whole team — or your clients — can use.</p>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- Trust -->
+<section class="mx-auto max-w-5xl px-4 py-16">
+  <h2 class="mb-10 text-center text-2xl font-semibold text-zinc-900 dark:text-white">Your knowledge stays yours</h2>
+  <div class="grid gap-8 text-center sm:grid-cols-3">
+    <div>
+      <h3 class="mb-1 font-semibold text-zinc-900 dark:text-white">Encrypted memories</h3>
+      <p class="text-sm text-zinc-600 dark:text-zinc-400">Encrypt a memory so only you can read it. Sensitive institutional knowledge stays private by default.</p>
+    </div>
+    <div>
+      <h3 class="mb-1 font-semibold text-zinc-900 dark:text-white">Granular access control</h3>
+      <p class="text-sm text-zinc-600 dark:text-zinc-400">Private, team, or public — per memory. Share exactly what a person or agent should see, nothing more.</p>
+    </div>
+    <div>
+      <h3 class="mb-1 font-semibold text-zinc-900 dark:text-white">Open standards</h3>
+      <p class="text-sm text-zinc-600 dark:text-zinc-400">Built on MCP and GraphQL. Connect the AI tools you already use — no lock-in.</p>
     </div>
   </div>
 </section>
