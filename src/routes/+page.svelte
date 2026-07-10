@@ -70,24 +70,28 @@
       body: 'The full portal in your browser — manage memories, nodes, and agents, and access your knowledge from anywhere.',
       glyph: '🌐',
       color: brandColors[0],
+      img: '/img/screenshots/portal.png',
     },
     {
       name: 'CLI',
       body: 'A complete command-line tool for developers. Read, write, and automate your memory straight from the terminal or CI.',
       glyph: '⌨️',
       color: brandColors[1],
+      img: '/img/screenshots/cli.png',
     },
     {
       name: 'Chrome extension',
       body: 'Import content from the browser, even behind a paywall. 2 clicks.',
       glyph: '🧩',
       color: brandColors[3],
+      img: '/img/screenshots/chrome-extension.png',
     },
     {
       name: 'macOS app',
       body: 'A native desktop companion for fast, always-there access to your memories.',
       glyph: '🖥️',
       color: brandColors[4],
+      img: '/img/screenshots/macos-app.png',
     },
     {
       name: 'Slack app',
@@ -224,15 +228,36 @@
   </p>
   <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
     {#each clients as client}
-      <div class="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-        <div class="mb-3 flex items-center gap-3">
-          <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-xl" style="background: {client.color}20;">{client.glyph}</span>
-          <h3 class="font-semibold text-zinc-900 dark:text-white">{client.name}</h3>
-          {#if client.soon}
-            <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">Soon</span>
-          {/if}
+      <div class="flex flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+        <!-- Framed screenshot in a unified window chrome (so light + dark shots read as one set) -->
+        {#if client.img}
+          <div class="border-b border-zinc-200 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800">
+            <div class="flex items-center gap-1.5 px-3 py-2">
+              <span class="h-2.5 w-2.5 rounded-full bg-red-400"></span>
+              <span class="h-2.5 w-2.5 rounded-full bg-amber-400"></span>
+              <span class="h-2.5 w-2.5 rounded-full bg-green-400"></span>
+            </div>
+            <img
+              src={client.img}
+              alt="Hadron {client.name} screenshot"
+              loading="lazy"
+              class="aspect-[3/2] w-full object-cover object-top"
+            />
+          </div>
+        {:else}
+          <div class="flex aspect-[3/2] items-center justify-center border-b border-zinc-200 dark:border-zinc-700" style="background: {client.color}14;">
+            <span class="text-5xl opacity-80">{client.glyph}</span>
+          </div>
+        {/if}
+        <div class="flex flex-1 flex-col p-6">
+          <div class="mb-1 flex items-center gap-2">
+            <h3 class="font-semibold text-zinc-900 dark:text-white">{client.name}</h3>
+            {#if client.soon}
+              <span class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600 dark:text-amber-400">Soon</span>
+            {/if}
+          </div>
+          <p class="text-sm text-zinc-600 dark:text-zinc-400">{client.body}</p>
         </div>
-        <p class="text-sm text-zinc-600 dark:text-zinc-400">{client.body}</p>
       </div>
     {/each}
   </div>
