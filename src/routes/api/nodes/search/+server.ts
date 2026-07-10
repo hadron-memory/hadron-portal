@@ -120,8 +120,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // findNodes' raw `score` isn't comparable across modes (keyword ts_rank vs.
     // vector cosine vs. hybrid RRF — hadron-server#497), so surface a RELATIVE
     // indicator: each hit's score as a % of the top hit's score in this set.
-    const finiteScore = (s: number | null): s is number => typeof s === 'number' && Number.isFinite(s);
-    const topScore = Math.max(0, ...hits.map((h) => h.score).filter(finiteScore));
+    const finiteScore = (s: number | null | undefined): s is number =>
+      typeof s === 'number' && Number.isFinite(s);
+    // reduce (not Math.max(...spread)) — a large hit array would blow the call
+    // stack when spread as arguments (PR #511 review, gemini).
+    const topScore = hits.reduce((max, h) => (finiteScore(h.score) && h.score > max ? h.score : max), 0);
     const meta: Record<string, SearchHitMeta> = {};
     for (const h of hits) {
       const id = h.node?.id;
@@ -135,9 +138,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       meta[id] = {
         scorePct,
         abstractStale,
-        similarity: finiteScore(v?.similarity ?? null) ? v!.similarity : null,
-        model: typeof v?.model === 'string' ? v.model : null,
-        source: typeof v?.source === 'string' ? v.source : null,
+        similarity: v && finiteScore(v.similarity) ? v.similarity : null,
+        model: v?.model ?? null,
+        source: v?.source ?? null,
       };
     }
     // #430: best-scoring passage per node → { nodeId: snippet }, only for nodes

@@ -55,9 +55,10 @@
   // this match" lineage when the hit came from the vector index.
   function relevanceTitle(m: SearchHitMeta): string {
     const lines = [t('node-list.relevance-of-top', 'Relevance, relative to the top hit')];
-    if (m.similarity !== null) lines.push(`similarity ${(m.similarity * 100).toFixed(0)}%`);
-    if (m.model) lines.push(`model ${m.model}`);
-    if (m.source) lines.push(`source ${m.source}`);
+    if (m.similarity !== null)
+      lines.push(`${t('node-list.similarity', 'similarity')} ${(m.similarity * 100).toFixed(0)}%`);
+    if (m.model) lines.push(`${t('node-list.model', 'model')} ${m.model}`);
+    if (m.source) lines.push(`${t('node-list.source', 'source')} ${m.source}`);
     return lines.join(' · ');
   }
 
