@@ -1781,7 +1781,7 @@
               </div>
               <div>
                 <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-                <input id="editDescription" name="description" type="text" value={node.description ?? ''} placeholder="Short caption" class={inputClass} />
+                <textarea id="editDescription" name="description" rows="3" value={node.description ?? ''} placeholder="Short caption" class={inputClass}></textarea>
               </div>
               <div>
                 <label for="editAlias" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Alias</label>
