@@ -31,7 +31,7 @@
     rowsToSpec,
     type ExtractionRow,
   } from '$lib/flow/extraction';
-  import type { NodeEdge } from '$lib/types';
+  import type { NodeEdge, NodeVersion } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -766,6 +766,54 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
+  // ── History (#529) — NodeVersion snapshots in the shared DataTable ────────
+  // data.versions is a streamed promise; resolve it into a rune so the table
+  // (which needs a synchronous array) can consume it. This keeps the list
+  // client-rendered — the History tab isn't SSR'd (not the default tab) and the
+  // promise resolves on the client.
+  let versionRows = $state<NodeVersion[]>([]);
+  let versionsLoaded = $state(false);
+  $effect(() => {
+    const p = data.versions; // track the current navigation's promise
+    versionsLoaded = false;
+    p.then((v) => {
+      versionRows = v;
+      versionsLoaded = true;
+    });
+  });
+
+  let versionFilter = $state('');
+  const versionColumns: ColumnDef<NodeVersion>[] = [
+    { accessorKey: 'createdAt', id: 'when', header: t('node.history.col.when', 'When'), size: 240 },
+    { accessorFn: (v) => v.editedBy ?? '', id: 'editedBy', header: t('node.history.col.edited-by', 'Edited by'), size: 220 },
+  ];
+  const versionTable = createSvelteTable<NodeVersion>({
+    get data() {
+      return versionRows;
+    },
+    columns: versionColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return versionFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      versionFilter = typeof u === 'function' ? u(versionFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: {
+      pagination: { pageIndex: 0, pageSize: 20 },
+      sorting: [{ id: 'when', desc: true }], // most recent first
+    },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -1793,44 +1841,35 @@
       {/if}
     {/if}
 
-    <!-- ═══ HISTORY TAB (#529) — read-only NodeVersion snapshots ═══ -->
+    <!-- ═══ HISTORY TAB (#529) — read-only NodeVersion snapshots ═══
+         Layout iteration: the shared DataTable (filter header, savable views,
+         pagination), most-recent-first. Row actions (Display/Restore/Delete) +
+         Clear-all are a follow-up once the server APIs land (hadron-server#617). -->
     {#if activeTab === 'history'}
-      {#await data.versions}
+      {#if !versionsLoaded}
         <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.loading', 'Loading history…')}</p>
-      {:then versions}
-        {#if versions.length === 0}
-          <div class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-            <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.empty', 'No prior versions. A snapshot is saved each time the node is edited.')}</p>
-          </div>
-        {:else}
-          <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.intro', 'Snapshots saved on each edit, most recent first.')}</p>
-          <div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-            <table class="w-full text-sm">
-              <thead>
-                <tr class="border-b border-zinc-200 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-                  <th class="px-4 py-2.5">{t('node.history.col.when', 'When')}</th>
-                  <th class="px-4 py-2.5">{t('node.history.col.name', 'Name')}</th>
-                  <th class="px-4 py-2.5">{t('node.history.col.edited-by', 'Edited by')}</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
-                {#each versions as v (v.id)}
-                  <tr class="bg-white dark:bg-zinc-950">
-                    <td class="whitespace-nowrap px-4 py-2.5 text-zinc-600 dark:text-zinc-400" title={v.createdAt}>{new Date(v.createdAt).toLocaleString()}</td>
-                    <td class="px-4 py-2.5">
-                      <div class="truncate font-medium text-zinc-900 dark:text-white">{v.name}</div>
-                      {#if v.description}<div class="truncate text-xs text-zinc-500 dark:text-zinc-400">{v.description}</div>{/if}
-                    </td>
-                    <td class="whitespace-nowrap px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{v.editedBy ?? '—'}</td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {/if}
-      {:catch}
-        <p class="text-sm text-red-500">{t('node.history.error', "Couldn't load version history.")}</p>
-      {/await}
+      {:else if versionRows.length === 0}
+        <div class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.empty', 'No prior versions. A snapshot is saved each time the node is edited.')}</p>
+        </div>
+      {:else}
+        <DataTable
+          table={versionTable}
+          listKey="node:history"
+          searchPlaceholder={t('node.history.search', 'Search history…')}
+          searchAriaLabel={t('node.history.search', 'Search history…')}
+          bind:globalFilter={versionFilter}
+          maxHeight="max(200px, calc(100vh - 22rem))"
+        >
+          {#snippet cell(cell, r)}
+            {#if cell.column.id === 'when'}
+              <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{new Date(r.createdAt).toLocaleString()}</span>
+            {:else if cell.column.id === 'editedBy'}
+              <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400">{r.editedBy ?? '—'}</span>
+            {/if}
+          {/snippet}
+        </DataTable>
+      {/if}
     {/if}
 
     <!-- ═══ SETTINGS TAB ═══ -->
