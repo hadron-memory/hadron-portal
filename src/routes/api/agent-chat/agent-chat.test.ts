@@ -559,7 +559,9 @@ describe('GET /api/agent-chat/list', () => {
     const res = await GET(ev({ searchParams: { agentId: 'a1' } }));
     expect(res.status).toBe(200);
     expect(await jsonOf(res)).toEqual({ chats });
-    expect(mockRequest.mock.calls[0][1]).toEqual({ agentId: 'a1' });
+    // The endpoint's query param stays `agentId`, but it forwards the server's
+    // renamed `agentRef` arg (8032d99: read-surface <entity>Id → <entity>Ref).
+    expect(mockRequest.mock.calls[0][1]).toEqual({ agentRef: 'a1' });
   });
 
   // Spec 016 — pins the list contract the UI sidebar relies on.

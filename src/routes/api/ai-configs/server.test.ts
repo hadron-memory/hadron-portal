@@ -161,7 +161,9 @@ describe('POST /api/ai-configs', () => {
     const res = await POST(ev({ body: { action: 'test', name: 'default', agentId: 'a1' } }));
     expect(res.status).toBe(200);
     expect((await jsonOf(res)).ok).toBe(true);
-    expect(mockRequest.mock.calls[0][1]).toMatchObject({ name: 'default', agentId: 'a1' });
+    // Input body keeps `agentId`, but it's forwarded as the server's renamed
+    // `agentRef` arg (8032d99: read-surface <entity>Id → <entity>Ref).
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ name: 'default', agentRef: 'a1' });
     expect(mockCallAgentChatLlm.mock.calls[0][0].apiKey).toBe('sk-resolved');
   });
 
