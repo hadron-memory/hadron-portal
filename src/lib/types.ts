@@ -292,15 +292,19 @@ export interface NodeEdge {
 }
 
 // #529: a NodeVersion snapshot (server type), listed in the node History tab.
-// `content` is omitted here — the query doesn't select it (bodies can be large).
+// `content` is only selected by the single-version (Display) query — optional here.
 export interface NodeVersion {
   id: string;
+  nodeId?: string;
   loc: string;
   name: string;
   alias: string | null;
   description: string | null;
+  content?: string | null;
   tags: string[];
   editedBy: string | null;
+  // #617: editor resolved to a user (handle + URN); null for app/client editors.
+  editedByUser?: { handle: string | null; urn: string | null } | null;
   createdAt: string;
 }
 

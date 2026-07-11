@@ -677,9 +677,49 @@ export const NODE_VERSIONS_QUERY = /* GraphQL */ `
       description
       tags
       editedBy
+      # #617: the editor resolved to a user (handle + URN) when editedBy is a
+      # user id; null for app/client principals — fall back to the raw editedBy.
+      editedByUser { handle urn }
       createdAt
     }
   }
+`;
+
+// #529: a single version's full snapshot (incl. content) for the read-only
+// "Display" view. Access-gated server-side; null when unreadable/missing.
+export const NODE_VERSION_QUERY = /* GraphQL */ `
+  query NodeVersion($versionId: ID!) {
+    nodeVersion(versionId: $versionId) {
+      id
+      nodeId
+      loc
+      name
+      alias
+      description
+      content
+      tags
+      editedBy
+      editedByUser { handle urn }
+      createdAt
+    }
+  }
+`;
+
+// #529/#617: version-history write surface. restore(truncate:true) restores the
+// node to the version AND deletes newer snapshots (atomic); delete removes one
+// snapshot; clear removes all for a node (returns the count).
+export const RESTORE_NODE_VERSION_MUTATION = /* GraphQL */ `
+  mutation RestoreNodeVersion($versionId: ID!, $truncate: Boolean) {
+    restoreNodeVersion(versionId: $versionId, truncate: $truncate) { id }
+  }
+`;
+
+export const DELETE_NODE_VERSION_MUTATION = /* GraphQL */ `
+  mutation DeleteNodeVersion($versionId: ID!) { deleteNodeVersion(versionId: $versionId) }
+`;
+
+export const CLEAR_NODE_HISTORY_MUTATION = /* GraphQL */ `
+  mutation ClearNodeHistory($nodeRef: ID!) { clearNodeHistory(nodeRef: $nodeRef) }
 `;
 
 export const SYNC_MEMORY_MUTATION = /* GraphQL */ `
