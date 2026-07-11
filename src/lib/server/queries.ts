@@ -1334,6 +1334,8 @@ export const NODE_FIELDS = /* GraphQL */ `
     tags
     seq
     data
+    # #518: structured key-value metadata, shown read-only in the Properties tab.
+    properties
     ownerRepo
     isRunnable
     createdAt

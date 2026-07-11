@@ -139,6 +139,9 @@ function reconstructNodes(
     tags: n.tags,
     seq: n.seq ?? null,
     data: null,
+    // #518: heavy JSON field the slim graph projection doesn't fetch (like
+    // data/content/abstract) — the node-detail page loads the full node by PK.
+    properties: null,
     ownerRepo: null,
     isRunnable: n.isRunnable ?? null,
     createdAt: EPOCH_ISO,

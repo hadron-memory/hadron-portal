@@ -305,6 +305,9 @@ export interface MemoryNode {
   tags: string[];
   seq: number | null;
   data: Record<string, unknown> | null;
+  // #518: structured key-value metadata (server Node.properties, JSON). Often
+  // server-set provenance (e.g. properties.url / .title from the write seam).
+  properties: Record<string, unknown> | null;
   ownerRepo: string | null;
   isRunnable: boolean | null;
   createdAt: string;
