@@ -241,6 +241,10 @@
   $effect(() => {
     if (!graphReady || !network || !nodesDataset) return;
     const raw = graphState.searchFilter;
+    // #531: node PKs matched by the server content search (name + tags +
+    // description + body), or null for a plain (no-server-search) filter. Read
+    // here so the effect re-runs when the result set arrives.
+    const resultNodeIds = graphState.searchResultNodeIds;
 
     // Debounce: wait 300ms after last keystroke before updating the graph
     if (filterTimeout) clearTimeout(filterTimeout);
@@ -248,7 +252,7 @@
       if (!network || !nodesDataset) return;
       const q = raw.toLowerCase().trim();
 
-      if (!q) {
+      if (!resultNodeIds && !q) {
         // Show all nodes
         for (const id of allTopicIds) {
           try { nodesDataset.update({ id, hidden: false }); } catch {}
@@ -259,12 +263,16 @@
         return;
       }
 
-      // Filter: show only matching topics and related folders
+      // Filter: show only matching topics and related folders. #531: prefer the
+      // server content-search hits so a tag/body-only match shows in the graph
+      // too; fall back to the local name/description match. Topic.id IS the node
+      // PK (buildGraphViewData), so it matches searchResultNodeIds directly.
       const matchingTopicIds = new Set<string>();
       for (const t of data.topics) {
-        if (t.name.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q)) {
-          matchingTopicIds.add(t.id);
-        }
+        const hit = resultNodeIds
+          ? resultNodeIds.has(t.id)
+          : t.name.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q);
+        if (hit) matchingTopicIds.add(t.id);
       }
 
       // Show all folder nodes if any topic matches (folders don't have searchable content)
