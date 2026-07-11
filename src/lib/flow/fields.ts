@@ -83,3 +83,41 @@ export function collectFlowFields(node: FlowFieldNode): KnownVariable[] {
   addFrom(node);
   return out;
 }
+
+export interface FlowGraphNodeInput {
+  id: string;
+  loc: string;
+  name: string;
+  data?: unknown;
+}
+
+export interface FlowGraphEdgeInput {
+  name: string | null;
+  loc: string;
+  sourceId: string;
+  targetId: string;
+}
+
+/**
+ * Envelope-field picker entries for EVERY node of an already-fetched flow
+ * graph (the flow canvas, #510): wires the nodes into a FlowFieldNode object
+ * graph (cyclic references are fine — collectFlowFields guards by loc) and
+ * collects each node's fields from its full upstream within the graph.
+ */
+export function collectFlowFieldsByNode(
+  nodes: readonly FlowGraphNodeInput[],
+  edges: readonly FlowGraphEdgeInput[],
+): Record<string, KnownVariable[]> {
+  const byId = new Map<string, FlowFieldNode>(
+    nodes.map((n) => [n.id, { loc: n.loc, name: n.name, data: n.data, incomingEdges: [] }]),
+  );
+  for (const e of edges) {
+    const source = byId.get(e.sourceId);
+    const target = byId.get(e.targetId);
+    if (!source || !target) continue;
+    target.incomingEdges!.push({ name: e.name, loc: e.loc, source });
+  }
+  const out: Record<string, KnownVariable[]> = {};
+  for (const [id, fieldNode] of byId) out[id] = collectFlowFields(fieldNode);
+  return out;
+}
