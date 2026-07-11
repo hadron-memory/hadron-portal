@@ -22,11 +22,11 @@ describe('scopeTreeEntriesToSearch', () => {
     expect(scopeTreeEntriesToSearch(POOL, null, '   ')).toEqual(POOL);
   });
 
-  it('#531: scopes to server-matched locs even when the node NAME does not match the query', () => {
+  it('#531: scopes to server-matched node PKs even when the node NAME does not match the query', () => {
     // "payment" matched design:ai-credit-billing server-side (tag/body), though
-    // its name contains no "payment".
-    const locs = new Set(['design:ai-credit-billing']);
-    const result = scopeTreeEntriesToSearch(POOL, locs, 'payment').map((e) => e.id);
+    // its name contains no "payment". The server publishes the PK (n.id).
+    const ids = new Set(['pk-design:ai-credit-billing']);
+    const result = scopeTreeEntriesToSearch(POOL, ids, 'payment').map((e) => e.id);
     // The matched node AND its `design` ancestor (so it stays reachable)...
     expect(result).toContain('design:ai-credit-billing');
     expect(result).toContain('design');
@@ -34,6 +34,14 @@ describe('scopeTreeEntriesToSearch', () => {
     expect(result).not.toContain('design:export-node-pdf');
     expect(result).not.toContain('conventions');
     expect(result).not.toContain('conventions:llm-usage-metering');
+  });
+
+  it('#531: matches on the PK, so a memory-URN-prefixed loc still resolves (normalization-proof)', () => {
+    // TreeEntry.id is the URN-prefix-normalized loc; the server hit set carries
+    // PKs, so scoping is immune to whether the raw server loc was prefixed.
+    const ids = new Set(['pk-design:ai-credit-billing']);
+    const result = scopeTreeEntriesToSearch(POOL, ids, 'payment').map((e) => e.id);
+    expect(result).toContain('design:ai-credit-billing');
   });
 
   it('#531: an empty server-match set hides everything (a real "no matches")', () => {

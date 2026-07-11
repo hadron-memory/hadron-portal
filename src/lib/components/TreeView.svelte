@@ -37,20 +37,20 @@
 
   // Use shared search state so graph can react to the same filter
   let search = $derived(graphState.searchFilter);
-  // #531: locs matched by the server-backed content search, or null when the
+  // #531: node PKs matched by the server-backed content search, or null when the
   // active search is TreeView's own name/id box (hideSearch=false consumers).
-  let searchResultLocs = $derived(graphState.searchResultLocs);
+  let searchResultNodeIds = $derived(graphState.searchResultNodeIds);
   // Alias retained so existing template bindings keep working.
   let showRecords = $derived(showHidden);
 
   // Filter entries: exclude record nodes by default, then scope to the active
-  // search. #531: a server content search publishes matched locs (searchResultLocs)
-  // that the tree scopes to — so a tag/body-only hit surfaces here, not just in
-  // the table. See scopeTreeEntriesToSearch.
+  // search. #531: a server content search publishes matched node PKs
+  // (searchResultNodeIds) that the tree scopes to — so a tag/body-only hit
+  // surfaces here, not just in the table. See scopeTreeEntriesToSearch.
   let filteredEntries = $derived.by(() => {
     const hiddenTypes = new Set(['record', 'system']);
     const pool = showRecords ? entries : entries.filter((e) => !hiddenTypes.has(e.nodeType) || e.isVirtual);
-    return scopeTreeEntriesToSearch(pool, searchResultLocs, search);
+    return scopeTreeEntriesToSearch(pool, searchResultNodeIds, search);
   });
 
   const hasHiddenNodes = $derived(entries.some((e) => e.nodeType === 'record' || e.nodeType === 'system'));
@@ -170,7 +170,7 @@
   function isMatch(entry: TreeEntry): boolean {
     // #531: highlight the server content-search hits when one drives the tree;
     // otherwise fall back to the local name/id match.
-    if (searchResultLocs) return searchResultLocs.has(entry.id);
+    if (searchResultNodeIds) return entry.nodeId != null && searchResultNodeIds.has(entry.nodeId);
     if (!search.trim()) return false;
     const q = search.toLowerCase();
     return entry.name.toLowerCase().includes(q) || entry.id.toLowerCase().includes(q);
