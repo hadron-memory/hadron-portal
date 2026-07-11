@@ -682,6 +682,8 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
       editedByInfo
       editedByUser { handle urn }
       revLabel
+      # #620: which node fields the edit changed (empty on legacy rows).
+      changes
       createdAt
     }
   }
@@ -704,6 +706,7 @@ export const NODE_REVISION_QUERY = /* GraphQL */ `
       editedByInfo
       editedByUser { handle urn }
       revLabel
+      changes
       createdAt
     }
   }

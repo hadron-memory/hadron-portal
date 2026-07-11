@@ -798,7 +798,9 @@
   let revisionFilter = $state('');
   const revisionColumns: ColumnDef<NodeRevision>[] = [
     { accessorKey: 'createdAt', id: 'when', header: t('node.history.col.when', 'When'), size: 200 },
-    { accessorFn: (r) => r.revLabel ?? '', id: 'label', header: t('node.history.col.label', 'Label'), size: 320 },
+    { accessorFn: (r) => r.revLabel ?? '', id: 'label', header: t('node.history.col.label', 'Label'), size: 280 },
+    // #620: changed fields (empty on legacy rows). Filterable by field name.
+    { accessorFn: (r) => (r.changes ?? []).join(' '), id: 'changes', header: t('node.history.col.changes', 'Changes'), enableSorting: false, size: 220 },
     // Filterable by handle / identity string.
     { accessorFn: (r) => editorLabel(r), id: 'editedBy', header: t('node.history.col.edited-by', 'Edited by'), size: 220 },
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
@@ -1957,6 +1959,16 @@
               <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{new Date(r.createdAt).toLocaleString()}</span>
             {:else if cell.column.id === 'label'}
               <span class="text-zinc-600 dark:text-zinc-400">{r.revLabel ?? '—'}</span>
+            {:else if cell.column.id === 'changes'}
+              {#if r.changes && r.changes.length > 0}
+                <div class="flex flex-wrap gap-1">
+                  {#each r.changes as field}
+                    <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{field}</span>
+                  {/each}
+                </div>
+              {:else}
+                <span class="text-zinc-400">—</span>
+              {/if}
             {:else if cell.column.id === 'editedBy'}
               {#if r.editedByUser?.handle || r.editedByUser?.urn}
                 <div class="min-w-0">

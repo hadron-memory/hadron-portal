@@ -310,6 +310,9 @@ export interface NodeRevision {
   editedByInfo?: string | null;
   editedByUser?: { handle: string | null; urn: string | null } | null;
   revLabel?: string | null;
+  // #620: node fields the edit changed, e.g. ["abstract","tags"]; empty on
+  // legacy rows captured before the column existed.
+  changes?: string[];
   createdAt: string;
 }
 
