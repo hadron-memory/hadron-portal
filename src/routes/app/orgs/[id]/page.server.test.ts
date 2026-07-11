@@ -78,13 +78,16 @@ describe('org-detail Profile load()', () => {
 });
 
 describe('org-detail Profile update action (#394)', () => {
-  it('forwards name, urn and isVisible=true (checkbox present) to updateOrganization', async () => {
+  it('forwards name and urn to updateOrganization — and no longer isVisible (#609)', async () => {
     mockRequest.mockResolvedValueOnce({ updateOrganization: { id: 'org-id-123' } });
     const { actions } = await importMod();
+    // #609: even if an `isVisible` field is somehow present, it must not be
+    // forwarded — the flag is system-managed, not user-editable here.
     const result = await actions.update(actionEv({ name: 'Renamed', urn: 'renamed', isVisible: 'on' }));
     expect(result).toEqual({ success: true });
     const [, vars] = mockRequest.mock.calls[0];
-    expect(vars).toMatchObject({ id: 'org-id-123', name: 'Renamed', urn: 'renamed', isVisible: true });
+    expect(vars).toMatchObject({ id: 'org-id-123', name: 'Renamed', urn: 'renamed' });
+    expect(vars).not.toHaveProperty('isVisible');
   });
 
   it('strips a scheme/type prefix to the bare slug (guards the #394 cascade corruption)', async () => {
@@ -104,14 +107,6 @@ describe('org-detail Profile update action (#394)', () => {
     const result = await actions.update(actionEv({ name: 'Acme', urn: 'hrn:org:acme::dev' }));
     expect(result).toMatchObject({ status: 400, data: { error: expect.any(String) } });
     expect(mockRequest).not.toHaveBeenCalled();
-  });
-
-  it('isVisible=false when the checkbox field is absent', async () => {
-    mockRequest.mockResolvedValueOnce({ updateOrganization: { id: 'org-id-123' } });
-    const { actions } = await importMod();
-    await actions.update(actionEv({ name: 'Renamed', urn: 'renamed' }));
-    const [, vars] = mockRequest.mock.calls[0];
-    expect(vars.isVisible).toBe(false);
   });
 
   it('returns a 500 fail with an error message when the mutation throws', async () => {

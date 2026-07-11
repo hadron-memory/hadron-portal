@@ -19,9 +19,10 @@ import type { Actions, PageServerLoad } from './$types';
 // so APPS_QUERY (the apps-count overfetch, originally spec 015) is gone too.
 //
 // #394: the Profile tab now shows the org's own properties and lets an
-// org ADMIN/OWNER edit them (name, URN slug, visibility). `currentUserId`
-// lets the page gate the Edit affordance to admins; the server enforces the
-// real ADMIN check on the `update` action regardless.
+// org ADMIN/OWNER edit them (name, URN slug). `currentUserId` lets the page
+// gate the Edit affordance to admins; the server enforces the real ADMIN check
+// on the `update` action regardless. #609: the isVisible edit was removed — it
+// is a system-managed listing flag, not a user-facing public/private toggle.
 export const load: PageServerLoad = async ({ parent, locals }) => {
   const { org } = await parent();
   return { org, currentUserId: locals.user?.id ?? null };
@@ -55,10 +56,9 @@ export const actions: Actions = {
         return fail(400, { error: e instanceof UrnParseError ? e.message : 'Invalid organization URN' });
       }
     }
-    const isVisible = fd.get('isVisible') != null;
     try {
       await gqlClient(locals.token).request(UPDATE_ORGANIZATION_MUTATION, {
-        id: params.id, name, urn, isVisible,
+        id: params.id, name, urn,
       });
       return { success: true };
     } catch (e: unknown) {

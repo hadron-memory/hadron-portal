@@ -6,7 +6,9 @@
   // #364: the Memories/Agents/Apps quick-stat cards were removed — those
   // sections own their tabs (and the count surfaced apps via an overfetch).
   // #394: the Profile tab now also shows the org's core properties and lets an
-  // org ADMIN/OWNER edit them inline (name, URN slug, visibility).
+  // org ADMIN/OWNER edit them inline (name, URN slug). #609: the isVisible
+  // control was removed — it is a system-managed listing flag (set on org-mode
+  // activation), not a user-facing public/private toggle.
   // The Team members preview was dropped — the member count is now a field in
   // the properties box (linking to the Team tab); Team owns the full list.
   import { enhance } from '$app/forms';
@@ -73,10 +75,6 @@
             class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
           <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">{t('org-detail.profile.urn-warning', 'Changing the URN also rewrites it across every memory, agent, and app in this organization.')}</p>
         </div>
-        <div class="flex items-center gap-2">
-          <input id="orgIsVisible" name="isVisible" type="checkbox" checked={org.isVisible ?? false} class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
-          <label for="orgIsVisible" class="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('org-detail.profile.visible', 'Visible in public listings')}</label>
-        </div>
         <div class="flex gap-3">
           <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">{t('org-detail.profile.save', 'Save')}</button>
           <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">{t('org-detail.profile.cancel', 'Cancel')}</button>
@@ -91,10 +89,6 @@
         <div class="px-5 py-3">
           <span class="text-sm text-zinc-500">{t('org-detail.profile.urn', 'URN')}</span>
           <div class="mt-1"><Urn value={org.urn} type="org" size={10} /></div>
-        </div>
-        <div class="flex items-center justify-between px-5 py-3">
-          <span class="text-sm text-zinc-500">{t('org-detail.profile.visibility', 'Visibility')}</span>
-          <span class="text-sm font-medium text-zinc-900 dark:text-white">{org.isVisible ? t('org-detail.profile.visible-public', 'Public') : t('org-detail.profile.visible-private', 'Private')}</span>
         </div>
         <div class="flex items-center justify-between px-5 py-3">
           <span class="text-sm text-zinc-500">{t('org-detail.profile.members', 'Members')}</span>
