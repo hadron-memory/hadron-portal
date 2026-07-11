@@ -779,11 +779,13 @@
   // promise resolves on the client.
   let versionRows = $state<NodeVersion[]>([]);
   let versionsLoaded = $state(false);
+  let versionsFailed = $state(false);
   $effect(() => {
     const p = data.versions; // track the current navigation's promise
     versionsLoaded = false;
-    p.then((v) => {
-      versionRows = v;
+    p.then((res) => {
+      versionRows = res.items;
+      versionsFailed = !res.ok; // distinguish "no versions" from "couldn't load"
       versionsLoaded = true;
     });
   });
@@ -1912,6 +1914,10 @@
     {#if activeTab === 'history'}
       {#if !versionsLoaded}
         <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.loading', 'Loading history…')}</p>
+      {:else if versionsFailed}
+        <div class="rounded-lg border border-amber-300 bg-amber-50 p-6 text-center dark:border-amber-800 dark:bg-amber-950">
+          <p class="text-sm text-amber-800 dark:text-amber-300">{t('node.history.load-failed', "Couldn't load version history — the node service returned an error. This is not the same as an empty history; try refreshing.")}</p>
+        </div>
       {:else if versionRows.length === 0}
         <div class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
           <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.empty', 'No prior versions. A snapshot is saved each time the node is edited.')}</p>

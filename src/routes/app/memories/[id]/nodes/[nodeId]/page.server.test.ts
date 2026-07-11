@@ -231,14 +231,16 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
       gid: memA,
       nodeId: 'leaf-pk',
       parentGraphNodes: [{ id: 'leaf-pk', memoryId: memA, loc: 'foo' }],
-    }))) as LoadResult & { versions: Promise<Array<{ id: string }>> };
+    }))) as LoadResult & { versions: Promise<{ ok: boolean; items: Array<{ id: string }> }> };
 
-    expect((await result.versions).map((v) => v.id)).toEqual(['v2', 'v1']); // most recent first
+    const res = await result.versions;
+    expect(res.ok).toBe(true);
+    expect(res.items.map((v) => v.id)).toEqual(['v2', 'v1']); // most recent first
     const call = mockRequest.mock.calls.find(([doc]) => doc === NODE_VERSIONS_QUERY);
     expect(call?.[1]).toMatchObject({ nodeRef: 'leaf-pk' });
   });
 
-  it('#529 — a failed version-history fetch degrades to an empty list', async () => {
+  it('#529 — a failed version-history fetch reports ok:false (not a silent empty)', async () => {
     const memA = 'mem-A';
     mockRequest.mockResolvedValueOnce({
       node: {
@@ -257,9 +259,11 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
       gid: memA,
       nodeId: 'leaf-pk',
       parentGraphNodes: [{ id: 'leaf-pk', memoryId: memA, loc: 'foo' }],
-    }))) as LoadResult & { versions: Promise<unknown[]> };
+    }))) as LoadResult & { versions: Promise<{ ok: boolean; items: unknown[] }> };
 
-    expect(await result.versions).toEqual([]);
+    const res = await result.versions;
+    expect(res.ok).toBe(false); // surfaced as a failure, not an empty history
+    expect(res.items).toEqual([]);
   });
 
   it('#237 — redirects when node.memoryId does not match params.gid (PK-mismatch guard)', async () => {

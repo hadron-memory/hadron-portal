@@ -104,16 +104,19 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // never be opened) and best-effort — a failure degrades to an empty list. An
   // async IIFE keeps it unawaited (streamed) while capturing BOTH a synchronous
   // throw and an async rejection in the try/catch (PR #530 review).
-  const versions = (async (): Promise<NodeVersion[]> => {
+  // Resolves to a discriminated result so the tab can tell "no versions" from
+  // "couldn't load" — a silent [] on failure masks real errors (schema drift, a
+  // down server) as an empty history, which is confusing.
+  const versions = (async (): Promise<{ ok: boolean; items: NodeVersion[] }> => {
     try {
       const r = await gqlClient(locals.token).request<{ nodeVersions: NodeVersion[] }>(
         NODE_VERSIONS_QUERY,
         { nodeRef: node.id, limit: 100 },
       );
-      return r?.nodeVersions ?? [];
+      return { ok: true, items: r?.nodeVersions ?? [] };
     } catch (e) {
       console.warn('[node-detail] version history failed:', e);
-      return [];
+      return { ok: false, items: [] };
     }
   })();
 
