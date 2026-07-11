@@ -245,7 +245,7 @@
       const mcpConfig = claudeCodeMcpConfig(url, apiKey, withClientApp);
       const marketplaceManifest = {
         name: 'hadron',
-        owner: { name: 'Baragaun', email: 'info@baragaun.com' },
+        owner: { name: 'Baragaun', email: 'help@hadronmemory.com' },
         metadata: { description: 'Hadron knowledge memory plugins' },
         plugins: [{
           name: 'hadron',
