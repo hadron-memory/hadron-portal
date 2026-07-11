@@ -101,20 +101,21 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     });
 
   // #529: the node's version history for the History tab. STREAMED (the tab may
-  // never be opened) and best-effort — a failure degrades to an empty list.
-  // Promise.resolve() wraps the request so it stays a promise chain even if the
-  // client returns a non-thenable (defensive; keeps the .catch in charge).
-  const versions = Promise.resolve(
-    gqlClient(locals.token).request<{ nodeVersions: NodeVersion[] }>(NODE_VERSIONS_QUERY, {
-      nodeRef: node.id,
-      limit: 100,
-    }),
-  )
-    .then((r) => r?.nodeVersions ?? [])
-    .catch((e) => {
+  // never be opened) and best-effort — a failure degrades to an empty list. An
+  // async IIFE keeps it unawaited (streamed) while capturing BOTH a synchronous
+  // throw and an async rejection in the try/catch (PR #530 review).
+  const versions = (async (): Promise<NodeVersion[]> => {
+    try {
+      const r = await gqlClient(locals.token).request<{ nodeVersions: NodeVersion[] }>(
+        NODE_VERSIONS_QUERY,
+        { nodeRef: node.id, limit: 100 },
+      );
+      return r?.nodeVersions ?? [];
+    } catch (e) {
       console.warn('[node-detail] version history failed:', e);
-      return [] as NodeVersion[];
-    });
+      return [];
+    }
+  })();
 
   return { node, breadcrumb, testFlowApps, memories, versions };
 };
