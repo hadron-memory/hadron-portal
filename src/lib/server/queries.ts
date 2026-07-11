@@ -663,33 +663,35 @@ export const CLONE_MEMORY_MUTATION = /* GraphQL */ `
   }
 `;
 
-// #529: version history for a node (NodeVersion snapshots), most recent first.
-// Access-gated on the node's memory server-side (unreadable → empty list).
-// `content` is intentionally omitted — the History tab lists metadata and
-// snapshot bodies can be large.
-export const NODE_VERSIONS_QUERY = /* GraphQL */ `
-  query NodeVersions($nodeRef: ID!, $limit: Int) {
-    nodeVersions(nodeRef: $nodeRef, limit: $limit) {
+// #529: revision history for a node (NodeRevision snapshots, #623 rename from
+// NodeVersion), most recent first. Access-gated on the node's memory server-side
+// (unreadable → empty list). `content` is omitted — the History tab lists
+// metadata and snapshot bodies can be large.
+export const NODE_REVISIONS_QUERY = /* GraphQL */ `
+  query NodeRevisions($nodeRef: ID!, $limit: Int) {
+    nodeRevisions(nodeRef: $nodeRef, limit: $limit) {
       id
       loc
       name
       alias
       description
       tags
+      # #620 display contract: editedByUser (resolved handle + URN) is preferred;
+      # else editedByInfo (identity string); revLabel is the edit reason/label.
       editedBy
-      # #617: the editor resolved to a user (handle + URN) when editedBy is a
-      # user id; null for app/client principals — fall back to the raw editedBy.
+      editedByInfo
       editedByUser { handle urn }
+      revLabel
       createdAt
     }
   }
 `;
 
-// #529: a single version's full snapshot (incl. content) for the read-only
+// #529: a single revision's full snapshot (incl. content) for the read-only
 // "Display" view. Access-gated server-side; null when unreadable/missing.
-export const NODE_VERSION_QUERY = /* GraphQL */ `
-  query NodeVersion($versionId: ID!) {
-    nodeVersion(versionId: $versionId) {
+export const NODE_REVISION_QUERY = /* GraphQL */ `
+  query NodeRevision($revisionId: ID!) {
+    nodeRevision(revisionId: $revisionId) {
       id
       nodeId
       loc
@@ -699,23 +701,25 @@ export const NODE_VERSION_QUERY = /* GraphQL */ `
       content
       tags
       editedBy
+      editedByInfo
       editedByUser { handle urn }
+      revLabel
       createdAt
     }
   }
 `;
 
-// #529/#617: version-history write surface. restore(truncate:true) restores the
-// node to the version AND deletes newer snapshots (atomic); delete removes one
-// snapshot; clear removes all for a node (returns the count).
-export const RESTORE_NODE_VERSION_MUTATION = /* GraphQL */ `
-  mutation RestoreNodeVersion($versionId: ID!, $truncate: Boolean) {
-    restoreNodeVersion(versionId: $versionId, truncate: $truncate) { id }
+// #529/#617: revision-history write surface (#623 rename). restore(truncate:true)
+// restores the node to the revision AND deletes newer snapshots (atomic); delete
+// removes one snapshot; clear removes all for a node (returns the count).
+export const RESTORE_NODE_REVISION_MUTATION = /* GraphQL */ `
+  mutation RestoreNodeRevision($revisionId: ID!, $truncate: Boolean) {
+    restoreNodeRevision(revisionId: $revisionId, truncate: $truncate) { id }
   }
 `;
 
-export const DELETE_NODE_VERSION_MUTATION = /* GraphQL */ `
-  mutation DeleteNodeVersion($versionId: ID!) { deleteNodeVersion(versionId: $versionId) }
+export const DELETE_NODE_REVISION_MUTATION = /* GraphQL */ `
+  mutation DeleteNodeRevision($revisionId: ID!) { deleteNodeRevision(revisionId: $revisionId) }
 `;
 
 export const CLEAR_NODE_HISTORY_MUTATION = /* GraphQL */ `

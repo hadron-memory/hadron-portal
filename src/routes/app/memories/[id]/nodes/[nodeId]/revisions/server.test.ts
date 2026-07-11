@@ -1,7 +1,7 @@
 /**
- * #529/#617 — /app/memories/[id]/nodes/[nodeId]/versions: the History-tab
+ * #529/#617 — /app/memories/[id]/nodes/[nodeId]/revisions: the History-tab
  * write actions (restore / delete / clear). Mocks the GraphQL client and
- * asserts the forwarded mutation + variables.
+ * asserts the forwarded mutation + variables. (#623 rename: revision*.)
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,8 +10,8 @@ vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) 
 
 import { POST } from './+server';
 import {
-  RESTORE_NODE_VERSION_MUTATION,
-  DELETE_NODE_VERSION_MUTATION,
+  RESTORE_NODE_REVISION_MUTATION,
+  DELETE_NODE_REVISION_MUTATION,
   CLEAR_NODE_HISTORY_MUTATION,
 } from '$lib/server/queries';
 
@@ -25,27 +25,27 @@ function ev(body: unknown, token: string | null = 'tok', nodeId = 'node-1') {
   } as unknown as Parameters<typeof POST>[0];
 }
 
-describe('/app/memories/[id]/nodes/[nodeId]/versions (#529)', () => {
+describe('/app/memories/[id]/nodes/[nodeId]/revisions (#529)', () => {
   it('401s without a token', async () => {
     const res = await POST(ev({ action: 'clear' }, null));
     expect(res.status).toBe(401);
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('restore forwards restoreNodeVersion with truncate:true', async () => {
-    mockRequest.mockResolvedValue({ restoreNodeVersion: { id: 'node-1' } });
-    const res = await POST(ev({ action: 'restore', versionId: 'v9' }));
+  it('restore forwards restoreNodeRevision with truncate:true', async () => {
+    mockRequest.mockResolvedValue({ restoreNodeRevision: { id: 'node-1' } });
+    const res = await POST(ev({ action: 'restore', revisionId: 'r9' }));
     expect(res.status).toBe(200);
-    expect(mockRequest.mock.calls[0][0]).toBe(RESTORE_NODE_VERSION_MUTATION);
-    expect(mockRequest.mock.calls[0][1]).toEqual({ versionId: 'v9', truncate: true });
+    expect(mockRequest.mock.calls[0][0]).toBe(RESTORE_NODE_REVISION_MUTATION);
+    expect(mockRequest.mock.calls[0][1]).toEqual({ revisionId: 'r9', truncate: true });
   });
 
-  it('delete forwards deleteNodeVersion', async () => {
-    mockRequest.mockResolvedValue({ deleteNodeVersion: true });
-    const res = await POST(ev({ action: 'delete', versionId: 'v9' }));
+  it('delete forwards deleteNodeRevision', async () => {
+    mockRequest.mockResolvedValue({ deleteNodeRevision: true });
+    const res = await POST(ev({ action: 'delete', revisionId: 'r9' }));
     expect(res.status).toBe(200);
-    expect(mockRequest.mock.calls[0][0]).toBe(DELETE_NODE_VERSION_MUTATION);
-    expect(mockRequest.mock.calls[0][1]).toEqual({ versionId: 'v9' });
+    expect(mockRequest.mock.calls[0][0]).toBe(DELETE_NODE_REVISION_MUTATION);
+    expect(mockRequest.mock.calls[0][1]).toEqual({ revisionId: 'r9' });
   });
 
   it('clear forwards clearNodeHistory with the node id as nodeRef', async () => {
@@ -57,7 +57,7 @@ describe('/app/memories/[id]/nodes/[nodeId]/versions (#529)', () => {
     expect((await res.json()).cleared).toBe(3);
   });
 
-  it('restore/delete require a versionId (no server call)', async () => {
+  it('restore/delete require a revisionId (no server call)', async () => {
     expect((await POST(ev({ action: 'restore' }))).status).toBe(400);
     expect((await POST(ev({ action: 'delete' }))).status).toBe(400);
     expect(mockRequest).not.toHaveBeenCalled();

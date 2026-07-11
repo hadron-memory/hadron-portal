@@ -10,7 +10,7 @@
  * `graphNodes` instead of issuing a memory-blind GraphQL lookup.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NODE_QUERY, NODE_VERSIONS_QUERY } from '$lib/server/queries';
+import { NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -208,7 +208,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     expect(await result.memories).toEqual([]); // streamed; degrades to empty
   });
 
-  it('#529 — streams the node version history (nodeVersions), forwarding the node id', async () => {
+  it('#529 — streams the node revision history (nodeRevisions), forwarding the node id', async () => {
     const memA = 'mem-A';
     mockRequest.mockResolvedValueOnce({
       node: {
@@ -221,9 +221,9 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     });
     mockRequest.mockResolvedValueOnce({ memories: { items: [], total: 0 } });
     mockRequest.mockResolvedValueOnce({
-      nodeVersions: [
-        { id: 'v2', createdAt: '2026-07-02T00:00:00Z', name: 'foo', editedBy: 'u1' },
-        { id: 'v1', createdAt: '2026-07-01T00:00:00Z', name: 'foo', editedBy: 'u1' },
+      nodeRevisions: [
+        { id: 'r2', createdAt: '2026-07-02T00:00:00Z', name: 'foo', editedBy: 'u1' },
+        { id: 'r1', createdAt: '2026-07-01T00:00:00Z', name: 'foo', editedBy: 'u1' },
       ],
     });
 
@@ -231,16 +231,16 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
       gid: memA,
       nodeId: 'leaf-pk',
       parentGraphNodes: [{ id: 'leaf-pk', memoryId: memA, loc: 'foo' }],
-    }))) as LoadResult & { versions: Promise<{ ok: boolean; items: Array<{ id: string }> }> };
+    }))) as LoadResult & { revisions: Promise<{ ok: boolean; items: Array<{ id: string }> }> };
 
-    const res = await result.versions;
+    const res = await result.revisions;
     expect(res.ok).toBe(true);
-    expect(res.items.map((v) => v.id)).toEqual(['v2', 'v1']); // most recent first
-    const call = mockRequest.mock.calls.find(([doc]) => doc === NODE_VERSIONS_QUERY);
+    expect(res.items.map((v) => v.id)).toEqual(['r2', 'r1']); // most recent first
+    const call = mockRequest.mock.calls.find(([doc]) => doc === NODE_REVISIONS_QUERY);
     expect(call?.[1]).toMatchObject({ nodeRef: 'leaf-pk' });
   });
 
-  it('#529 — a failed version-history fetch reports ok:false (not a silent empty)', async () => {
+  it('#529 — a failed revision-history fetch reports ok:false (not a silent empty)', async () => {
     const memA = 'mem-A';
     mockRequest.mockResolvedValueOnce({
       node: {
@@ -259,9 +259,9 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
       gid: memA,
       nodeId: 'leaf-pk',
       parentGraphNodes: [{ id: 'leaf-pk', memoryId: memA, loc: 'foo' }],
-    }))) as LoadResult & { versions: Promise<{ ok: boolean; items: unknown[] }> };
+    }))) as LoadResult & { revisions: Promise<{ ok: boolean; items: unknown[] }> };
 
-    const res = await result.versions;
+    const res = await result.revisions;
     expect(res.ok).toBe(false); // surfaced as a failure, not an empty history
     expect(res.items).toEqual([]);
   });

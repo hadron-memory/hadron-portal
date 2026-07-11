@@ -291,9 +291,10 @@ export interface NodeEdge {
   target: NodeSummary;
 }
 
-// #529: a NodeVersion snapshot (server type), listed in the node History tab.
-// `content` is only selected by the single-version (Display) query — optional here.
-export interface NodeVersion {
+// #529: a NodeRevision snapshot (server type, #623 rename from NodeVersion),
+// listed in the node History tab. `content` is only selected by the single-
+// revision (Display) query — optional here.
+export interface NodeRevision {
   id: string;
   nodeId?: string;
   loc: string;
@@ -303,8 +304,12 @@ export interface NodeVersion {
   content?: string | null;
   tags: string[];
   editedBy: string | null;
-  // #617: editor resolved to a user (handle + URN); null for app/client editors.
+  // #620 display contract: editedByUser (resolved handle + URN) is preferred;
+  // else editedByInfo (identity string like 'github:<login>' / 'app:<id>');
+  // revLabel is the edit reason/label.
+  editedByInfo?: string | null;
   editedByUser?: { handle: string | null; urn: string | null } | null;
+  revLabel?: string | null;
   createdAt: string;
 }
 

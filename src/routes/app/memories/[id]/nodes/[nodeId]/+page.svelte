@@ -31,7 +31,7 @@
     rowsToSpec,
     type ExtractionRow,
   } from '$lib/flow/extraction';
-  import type { NodeEdge, NodeVersion } from '$lib/types';
+  import type { NodeEdge, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -772,46 +772,52 @@
     getPaginationRowModel: getPaginationRowModel(),
   });
 
-  // ── History (#529) — NodeVersion snapshots in the shared DataTable ────────
-  // data.versions is a streamed promise; resolve it into a rune so the table
+  // ── History (#529) — NodeRevision snapshots in the shared DataTable ───────
+  // data.revisions is a streamed promise; resolve it into a rune so the table
   // (which needs a synchronous array) can consume it. This keeps the list
   // client-rendered — the History tab isn't SSR'd (not the default tab) and the
   // promise resolves on the client.
-  let versionRows = $state<NodeVersion[]>([]);
-  let versionsLoaded = $state(false);
-  let versionsFailed = $state(false);
+  let revisionRows = $state<NodeRevision[]>([]);
+  let revisionsLoaded = $state(false);
+  let revisionsFailed = $state(false);
   $effect(() => {
-    const p = data.versions; // track the current navigation's promise
-    versionsLoaded = false;
+    const p = data.revisions; // track the current navigation's promise
+    revisionsLoaded = false;
     p.then((res) => {
-      versionRows = res.items;
-      versionsFailed = !res.ok; // distinguish "no versions" from "couldn't load"
-      versionsLoaded = true;
+      revisionRows = res.items;
+      revisionsFailed = !res.ok; // distinguish "no revisions" from "couldn't load"
+      revisionsLoaded = true;
     });
   });
 
-  let versionFilter = $state('');
-  const versionColumns: ColumnDef<NodeVersion>[] = [
-    { accessorKey: 'createdAt', id: 'when', header: t('node.history.col.when', 'When'), size: 240 },
-    // Filterable by handle or the raw editor id.
-    { accessorFn: (v) => v.editedByUser?.handle ?? v.editedBy ?? '', id: 'editedBy', header: t('node.history.col.edited-by', 'Edited by'), size: 260 },
+  // Editor display (#620 contract): resolved handle, else identity string.
+  function editorLabel(r: NodeRevision): string {
+    return r.editedByUser?.handle ? `@${r.editedByUser.handle}` : (r.editedByInfo ?? '—');
+  }
+
+  let revisionFilter = $state('');
+  const revisionColumns: ColumnDef<NodeRevision>[] = [
+    { accessorKey: 'createdAt', id: 'when', header: t('node.history.col.when', 'When'), size: 200 },
+    { accessorFn: (r) => r.revLabel ?? '', id: 'label', header: t('node.history.col.label', 'Label'), size: 320 },
+    // Filterable by handle / identity string.
+    { accessorFn: (r) => editorLabel(r), id: 'editedBy', header: t('node.history.col.edited-by', 'Edited by'), size: 220 },
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
   ];
-  const versionTable = createSvelteTable<NodeVersion>({
+  const revisionTable = createSvelteTable<NodeRevision>({
     get data() {
-      return versionRows;
+      return revisionRows;
     },
-    columns: versionColumns,
+    columns: revisionColumns,
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
     state: {
       get globalFilter() {
-        return versionFilter;
+        return revisionFilter;
       },
     },
     onGlobalFilterChange: (u) => {
-      versionFilter = typeof u === 'function' ? u(versionFilter) : u;
+      revisionFilter = typeof u === 'function' ? u(revisionFilter) : u;
     },
     globalFilterFn: 'includesString',
     initialState: {
@@ -827,42 +833,42 @@
   // #529 row actions (Display / Restore / Delete) + Clear-all. The per-row menu
   // is a SINGLE fixed-positioned popover (anchored to the clicked ⋯ button), so
   // it isn't clipped by the DataTable's overflow-auto scroll container.
-  let historyMenuFor = $state<NodeVersion | null>(null);
+  let historyMenuFor = $state<NodeRevision | null>(null);
   let historyMenuX = $state(0);
   let historyMenuY = $state(0);
-  let restoreTarget = $state<NodeVersion | null>(null);
+  let restoreTarget = $state<NodeRevision | null>(null);
   let clearConfirm = $state(false);
   let historyBusy = $state(false);
   let historyError = $state<string | null>(null);
 
-  function versionHref(v: NodeVersion): string {
-    return `${basePath}/nodes/${node.id}/versions/${v.id}`;
+  function revisionHref(r: NodeRevision): string {
+    return `${basePath}/nodes/${node.id}/revisions/${r.id}`;
   }
-  function openHistoryMenu(e: MouseEvent, v: NodeVersion) {
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    historyMenuX = r.right;
-    historyMenuY = r.bottom + 4;
-    historyMenuFor = v;
+  function openHistoryMenu(e: MouseEvent, r: NodeRevision) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    historyMenuX = rect.right;
+    historyMenuY = rect.bottom + 4;
+    historyMenuFor = r;
   }
 
-  async function postVersionAction(payload: Record<string, unknown>): Promise<boolean> {
+  async function postRevisionAction(payload: Record<string, unknown>): Promise<boolean> {
     historyBusy = true;
     historyError = null;
     try {
-      const res = await fetch(`${basePath}/nodes/${node.id}/versions`, {
+      const res = await fetch(`${basePath}/nodes/${node.id}/revisions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
-        historyError = d.error ?? 'Version action failed';
+        historyError = d.error ?? 'Revision action failed';
         return false;
       }
-      await invalidateAll(); // refresh the node + the streamed version list
+      await invalidateAll(); // refresh the node + the streamed revision list
       return true;
     } catch (e) {
-      historyError = e instanceof Error ? e.message : 'Version action failed';
+      historyError = e instanceof Error ? e.message : 'Revision action failed';
       return false;
     } finally {
       historyBusy = false;
@@ -870,19 +876,19 @@
   }
 
   function onHistoryMenuSelect(id: string) {
-    const v = historyMenuFor;
+    const r = historyMenuFor;
     historyMenuFor = null;
-    if (!v) return;
-    if (id === 'display') window.open(versionHref(v), '_blank', 'noopener');
-    else if (id === 'restore') restoreTarget = v; // opens the warning dialog
-    else if (id === 'delete') void postVersionAction({ action: 'delete', versionId: v.id });
+    if (!r) return;
+    if (id === 'display') window.open(revisionHref(r), '_blank', 'noopener');
+    else if (id === 'restore') restoreTarget = r; // opens the warning dialog
+    else if (id === 'delete') void postRevisionAction({ action: 'delete', revisionId: r.id });
   }
   async function confirmRestore() {
     if (!restoreTarget) return;
-    if (await postVersionAction({ action: 'restore', versionId: restoreTarget.id })) restoreTarget = null;
+    if (await postRevisionAction({ action: 'restore', revisionId: restoreTarget.id })) restoreTarget = null;
   }
   async function confirmClear() {
-    if (await postVersionAction({ action: 'clear' })) clearConfirm = false;
+    if (await postRevisionAction({ action: 'clear' })) clearConfirm = false;
   }
 
   function edgeDetailHref(r: EdgeRow): string {
@@ -1347,7 +1353,7 @@
           <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span>
         {/if}
       </button>
-      <!-- #529: read-only version history (NodeVersion snapshots). Always shown
+      <!-- #529: revision history (NodeRevision snapshots). Always shown
            for discoverability; the list streams from load. -->
       <button
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
@@ -1907,20 +1913,20 @@
       {/if}
     {/if}
 
-    <!-- ═══ HISTORY TAB (#529) — NodeVersion snapshots (#617 actions) ═══
+    <!-- ═══ HISTORY TAB (#529) — NodeRevision snapshots (#617 actions) ═══
          Shared DataTable (filter header, savable views, pagination),
          most-recent-first, with a per-row menu (Display/Restore/Delete) and a
          Clear-all button. -->
     {#if activeTab === 'history'}
-      {#if !versionsLoaded}
+      {#if !revisionsLoaded}
         <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.loading', 'Loading history…')}</p>
-      {:else if versionsFailed}
+      {:else if revisionsFailed}
         <div class="rounded-lg border border-amber-300 bg-amber-50 p-6 text-center dark:border-amber-800 dark:bg-amber-950">
-          <p class="text-sm text-amber-800 dark:text-amber-300">{t('node.history.load-failed', "Couldn't load version history — the node service returned an error. This is not the same as an empty history; try refreshing.")}</p>
+          <p class="text-sm text-amber-800 dark:text-amber-300">{t('node.history.load-failed', "Couldn't load revision history — the node service returned an error. This is not the same as an empty history; try refreshing.")}</p>
         </div>
-      {:else if versionRows.length === 0}
+      {:else if revisionRows.length === 0}
         <div class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-          <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.empty', 'No prior versions. A snapshot is saved each time the node is edited.')}</p>
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.empty', 'No prior revisions. A snapshot is saved each time the node is edited.')}</p>
         </div>
       {:else}
         <div class="mb-3 flex items-center justify-between gap-3">
@@ -1934,16 +1940,18 @@
           <p class="mb-2 text-xs text-red-500">{historyError}</p>
         {/if}
         <DataTable
-          table={versionTable}
+          table={revisionTable}
           listKey="node:history"
           searchPlaceholder={t('node.history.search', 'Search history…')}
           searchAriaLabel={t('node.history.search', 'Search history…')}
-          bind:globalFilter={versionFilter}
+          bind:globalFilter={revisionFilter}
           maxHeight="max(200px, calc(100vh - 22rem))"
         >
           {#snippet cell(cell, r)}
             {#if cell.column.id === 'when'}
               <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{new Date(r.createdAt).toLocaleString()}</span>
+            {:else if cell.column.id === 'label'}
+              <span class="text-zinc-600 dark:text-zinc-400">{r.revLabel ?? '—'}</span>
             {:else if cell.column.id === 'editedBy'}
               {#if r.editedByUser?.handle || r.editedByUser?.urn}
                 <div class="min-w-0">
@@ -1951,11 +1959,11 @@
                   {#if r.editedByUser.urn}<Urn value={r.editedByUser.urn} type="user" size={9} />{/if}
                 </div>
               {:else}
-                <span class="whitespace-nowrap text-zinc-500 dark:text-zinc-400">{r.editedBy ?? '—'}</span>
+                <span class="whitespace-nowrap text-zinc-500 dark:text-zinc-400">{r.editedByInfo ?? '—'}</span>
               {/if}
             {:else if cell.column.id === 'actions'}
               <button type="button" onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
-                aria-label={t('node.history.row-actions', 'Version actions')}
+                aria-label={t('node.history.row-actions', 'Revision actions')}
                 class="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
               </button>
@@ -1981,8 +1989,8 @@
       <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
         <button type="button" class="absolute inset-0 cursor-default bg-black/30" aria-label={t('node.history.restore.cancel', 'Cancel')} onclick={() => (restoreTarget = null)}></button>
         <div class="relative w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-          <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('node.history.restore.heading', 'Restore this version?')}</h3>
-          <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('node.history.restore.warning', 'This restores the node to the selected version and deletes the history newer than it. This cannot be undone.')}</p>
+          <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('node.history.restore.heading', 'Restore this revision?')}</h3>
+          <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('node.history.restore.warning', 'This restores the node to the selected revision and deletes the history newer than it. This cannot be undone.')}</p>
           <p class="mt-2 text-xs text-zinc-500">{new Date(restoreTarget.createdAt).toLocaleString()}{restoreTarget.editedByUser?.handle ? ` · @${restoreTarget.editedByUser.handle}` : ''}</p>
           {#if historyError}<p class="mt-2 text-xs text-red-500">{historyError}</p>{/if}
           <div class="mt-4 flex items-center justify-end gap-2">
@@ -1998,7 +2006,7 @@
         <button type="button" class="absolute inset-0 cursor-default bg-black/30" aria-label={t('node.history.clear-dialog.cancel', 'Cancel')} onclick={() => (clearConfirm = false)}></button>
         <div class="relative w-full max-w-md rounded-xl border border-red-200 bg-white p-5 shadow-xl dark:border-red-900 dark:bg-zinc-900">
           <h3 class="text-sm font-semibold text-red-600 dark:text-red-400">{t('node.history.clear-dialog.heading', 'Clear all history?')}</h3>
-          <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('node.history.clear-dialog.warning', 'This permanently deletes every saved version of this node. The node itself is unchanged. This cannot be undone.')}</p>
+          <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('node.history.clear-dialog.warning', 'This permanently deletes every saved revision of this node. The node itself is unchanged. This cannot be undone.')}</p>
           {#if historyError}<p class="mt-2 text-xs text-red-500">{historyError}</p>{/if}
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onclick={() => (clearConfirm = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.clear-dialog.cancel', 'Cancel')}</button>
