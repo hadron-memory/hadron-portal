@@ -1,5 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { page } from '$app/stores';
+  import { replaceState } from '$app/navigation';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
   import type { PageData, ActionData } from './$types';
@@ -36,6 +38,27 @@
   let isEditing = $state(false);
   let saving = $state(false);
   let confirmDelete = $state(false);
+
+  // #520: the memory-detail ⋯ menu deep-links here (?edit=1 / ?delete=1) to open
+  // the relevant form on arrival — Edit → the edit form, Delete → the danger-zone
+  // confirm (still gated by canDelete below). Reactive (not a one-time $state
+  // init) because SvelteKit REUSES this component when only the query changes,
+  // so navigating from the menu while already on Settings must still open the
+  // form. Then CONSUME the params (strip via replaceState) so a later
+  // load/enhance $page update can't re-open a form the user has since closed
+  // (PR #528 review — gemini + codex).
+  $effect(() => {
+    const sp = $page.url.searchParams;
+    const wantEdit = sp.get('edit') === '1';
+    const wantDelete = sp.get('delete') === '1';
+    if (!wantEdit && !wantDelete) return;
+    if (wantEdit) isEditing = true;
+    if (wantDelete) confirmDelete = true;
+    const u = new URL($page.url);
+    u.searchParams.delete('edit');
+    u.searchParams.delete('delete');
+    replaceState(u, {});
+  });
 
   // The URN field edits only the bare memory slug (e.g. "mm-holger-personal"),
   // matching the create form (which posts a bare `slug` under the `<org-urn>:`
