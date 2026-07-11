@@ -168,3 +168,41 @@ export function buildGraphViewData(nodes: MemoryNode[], memoryUrn?: string): Gra
     hierEdges,
   };
 }
+
+/**
+ * #531: pick the visible tree entries for the active search. When the server-
+ * backed content search publishes the set of matched node locs
+ * (`searchResultLocs` — name + tags + description + body), scope the tree to
+ * those, plus every loc-ancestor so a deep match stays reachable (ancestors are
+ * virtual folder entries keyed by loc). Otherwise fall back to the local
+ * name/id substring match (TreeView's own box, hideSearch=false consumers).
+ *
+ * `pool` is the already hidden-type-filtered entry list. Pure so it can be unit-
+ * tested independently of the component's reactivity.
+ */
+export function scopeTreeEntriesToSearch(
+  pool: TreeEntry[],
+  searchResultLocs: Set<string> | null,
+  search: string,
+): TreeEntry[] {
+  const withAncestors = (matching: TreeEntry[]): Set<string> => {
+    const ids = new Set(matching.map((e) => e.id));
+    for (const entry of matching) {
+      const parts = entry.id.split(':');
+      for (let i = 1; i < parts.length; i++) ids.add(parts.slice(0, i).join(':'));
+    }
+    return ids;
+  };
+
+  if (searchResultLocs) {
+    const ids = withAncestors(pool.filter((e) => searchResultLocs.has(e.id)));
+    return pool.filter((e) => ids.has(e.id));
+  }
+
+  if (!search.trim()) return pool;
+  const q = search.toLowerCase();
+  const ids = withAncestors(
+    pool.filter((e) => e.name.toLowerCase().includes(q) || e.id.toLowerCase().includes(q)),
+  );
+  return pool.filter((e) => ids.has(e.id));
+}

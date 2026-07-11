@@ -241,6 +241,10 @@
   $effect(() => {
     if (!graphReady || !network || !nodesDataset) return;
     const raw = graphState.searchFilter;
+    // #531: locs matched by the server content search (name + tags + description
+    // + body), or null for a plain (no-server-search) filter. Read here so the
+    // effect re-runs when the result set arrives.
+    const resultLocs = graphState.searchResultLocs;
 
     // Debounce: wait 300ms after last keystroke before updating the graph
     if (filterTimeout) clearTimeout(filterTimeout);
@@ -248,7 +252,7 @@
       if (!network || !nodesDataset) return;
       const q = raw.toLowerCase().trim();
 
-      if (!q) {
+      if (!resultLocs && !q) {
         // Show all nodes
         for (const id of allTopicIds) {
           try { nodesDataset.update({ id, hidden: false }); } catch {}
@@ -259,12 +263,15 @@
         return;
       }
 
-      // Filter: show only matching topics and related folders
+      // Filter: show only matching topics and related folders. #531: prefer the
+      // server content-search hits (topic.id is a loc) so a tag/body-only match
+      // shows in the graph too; fall back to the local name/description match.
       const matchingTopicIds = new Set<string>();
       for (const t of data.topics) {
-        if (t.name.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q)) {
-          matchingTopicIds.add(t.id);
-        }
+        const hit = resultLocs
+          ? resultLocs.has(t.id)
+          : t.name.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q);
+        if (hit) matchingTopicIds.add(t.id);
       }
 
       // Show all folder nodes if any topic matches (folders don't have searchable content)

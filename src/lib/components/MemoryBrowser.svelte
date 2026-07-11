@@ -222,7 +222,7 @@
   let keyword = $state('');
   let searchMode = $state<'exact' | 'regex' | 'fuzzy'>('exact');
   $effect(() => { graphState.searchFilter = keyword; });
-  onDestroy(() => { graphState.searchFilter = ''; });
+  onDestroy(() => { graphState.searchFilter = ''; graphState.searchResultLocs = null; });
 
   // #429: structured server-side dimensions the slim loaded set can't answer
   // client-side. `myNodesOnly` → findNodes filter.createdBy (needs the caller's
@@ -295,6 +295,17 @@
 
   // Server search results: null = not in server view (show the normal browse set).
   let serverResults = $state<MemoryNode[] | null>(null);
+  // #531: mirror the server content-search hits (as node locs) into the shared
+  // tree/graph filter, so the Tree pane scopes to the SAME matches the table
+  // lists. TreeView's own filter is name/id-substring only and would hide a
+  // tag/body-only hit. Gated on a non-empty text query (not filter-only server
+  // views) so `keyword` is always set alongside it — that keeps TreeView's
+  // auto-expand + "No matches" logic (which keys on the query) intact. Null →
+  // tree shows the full set / uses its local filter.
+  $effect(() => {
+    graphState.searchResultLocs =
+      keyword.trim() !== '' && serverResults ? new Set(serverResults.map((n) => n.loc)) : null;
+  });
   let searching = $state(false);
   let searchError = $state<string | null>(null);
   let searchNote = $state<string | null>(null);
