@@ -1542,6 +1542,10 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
   query NodeById($id: ID!) {
     node(ref: $id, raw: true) {
       ...NodeFields
+      # #518: properties is detail-only — kept OUT of the shared NodeFields
+      # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
+      # spreads the same fragment; PR #523 review, codex).
+      properties
     }
   }
 `;

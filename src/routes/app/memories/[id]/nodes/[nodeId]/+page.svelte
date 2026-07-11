@@ -590,6 +590,25 @@
   }
   const highlightedData = $derived(renderedJson != null ? highlightJson(renderedJson) : []);
 
+  // ── Properties (#518) ───────────────────────────────────────────────────
+  // Node.properties is structured key-value metadata, often server-set
+  // provenance (properties.url / .title from the write seam). Read-only here —
+  // it's not user-authored free-form like Node.data, so the tab only shows it.
+  const hasProperties = $derived(node.properties != null);
+  const propertiesString = $derived(hasProperties ? JSON.stringify(node.properties, null, 2) : '');
+  const highlightedProperties = $derived(hasProperties ? highlightJson(propertiesString) : []);
+  let copiedProperties = $state(false);
+  async function copyProperties() {
+    if (!hasProperties) return;
+    try {
+      await navigator.clipboard.writeText(propertiesString);
+      copiedProperties = true;
+      setTimeout(() => (copiedProperties = false), 2000);
+    } catch {
+      /* clipboard unavailable — no-op */
+    }
+  }
+
   const hasReferences = $derived(node.outgoingEdges.length > 0 || node.incomingEdges.length > 0);
   const hasContent = $derived(!!node.content);
   const hasAbstract = $derived(!!node.abstract);
@@ -786,19 +805,20 @@
   // URN slug for edit form
   const urnSlug = $derived(node.loc);
 
-  type NodeTab = 'content' | 'abstract' | 'data' | 'flow' | 'children' | 'references' | 'settings';
+  type NodeTab = 'content' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'settings';
 
-  // Content / Abstract / Data / Flow / Edges / Settings are always
+  // Content / Abstract / Data / Properties / Flow / Edges / Settings are always
   // present; Children only when the node has children. (#256: Content is no
   // longer gated on hasContent — an empty node still needs an authoring
   // surface; Data follows the same always-on rationale so there's a portal
   // path to add structured data to a node that has none. Flow (#478) is
   // always-on for the same reason: turning a plain node into a flow node
-  // needs a surface.)
+  // needs a surface. Properties (#518) is read-only but always-on for
+  // discoverability, same as Data.)
   const availableTabs = $derived<NodeTab[]>(
     hasChildren
-      ? ['content', 'abstract', 'data', 'flow', 'children', 'references', 'settings']
-      : ['content', 'abstract', 'data', 'flow', 'references', 'settings'],
+      ? ['content', 'abstract', 'data', 'properties', 'flow', 'children', 'references', 'settings']
+      : ['content', 'abstract', 'data', 'properties', 'flow', 'references', 'settings'],
   );
 
   function defaultTab(): NodeTab {
@@ -1183,6 +1203,14 @@
       >Data
         {#if !hasData}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
       </button>
+      <!-- #518: Node.properties (read-only) — structured key-value metadata,
+           often server-set provenance. Always shown for discoverability. -->
+      <button
+        class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'properties' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+        onclick={() => activeTab = 'properties'}
+      >{t('node.properties.tab', 'Properties')}
+        {#if !hasProperties}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
+      </button>
       <!-- Always shown (#478) — turning a plain node into a flow node (extract
            fields, write output) needs an authoring surface. -->
       <button
@@ -1394,6 +1422,26 @@
             onclick={() => showDataSource = true}
             class="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
           >Add data</button>
+        </div>
+      {/if}
+    {/if}
+
+    <!-- ═══ PROPERTIES TAB (#518) — read-only structured metadata ═══ -->
+    {#if activeTab === 'properties'}
+      {#if hasProperties}
+        <div class="flex items-center justify-end">
+          <button onclick={copyProperties} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('node.properties.copy', 'Copy properties')}>
+            {#if copiedProperties}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            {:else}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            {/if}
+          </button>
+        </div>
+        <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedProperties as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
+      {:else}
+        <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.properties.empty', 'No properties. Node.properties holds structured key-value metadata (often server-set, e.g. source URL or title).')}</p>
         </div>
       {/if}
     {/if}

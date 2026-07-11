@@ -305,6 +305,11 @@ export interface MemoryNode {
   tags: string[];
   seq: number | null;
   data: Record<string, unknown> | null;
+  // #518: structured key-value metadata (server Node.properties, JSON). Often
+  // server-set provenance (e.g. properties.url / .title from the write seam).
+  // Optional: only the node-detail read (NODE_BY_ID_QUERY) selects it — it's
+  // kept off the shared NodeFields fragment so search/list payloads stay lean.
+  properties?: Record<string, unknown> | null;
   ownerRepo: string | null;
   isRunnable: boolean | null;
   createdAt: string;
