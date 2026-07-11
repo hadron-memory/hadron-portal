@@ -76,11 +76,36 @@ The `speckit.hadron.capture` hook (bound at `after_plan` and `after_implement`) 
 
 ## Portal review criteria
 
-Portal code is reviewed against project-specific criteria stored in Hadron. To see them:
+Portal code is reviewed against project-specific criteria stored in Hadron as a
+**review checklist tree**: each criterion is a child node under the
+`hadronmemory.com::hadron-portal::review` parent, and every child carries an
+`Applies when …` edge **back** to that parent. So the canonical way to discover
+the criteria is to read the parent and scan its **Referenced by** list — each
+entry is one check plus the condition it applies to.
 
 ```bash
-hadron_find_nodes "review" query:"hadronmemory.com::hadron-portal"
-hadron_get_node <loc>  # from the search results above
+hadron_set_active_memory hadronmemory.com::hadron-portal
+
+# The canonical index: read the review parent, scan its "Referenced by" list.
+hadron_get_node hadronmemory.com::hadron-portal::review
+
+# Or browse/search the children directly (scope by memoryUrn, NOT a query: arg).
+hadron_list_nodes parentRel:"review"
+hadron_find_nodes "aria" memoryUrn:"hadronmemory.com::hadron-portal"
+
+# Then read the specific check by its URN.
+hadron_get_node hadronmemory.com::hadron-portal::review:<name>
 ```
 
-Common review dimensions: accessibility, TypeScript strictness, component composition, data fetching, error handling, and localization (i18n). See the review node for the canonical checklist.
+Before opening a PR, read the checks whose `Applies when …` condition matches
+your diff and verify against them. Current dimensions include accessibility,
+Svelte 5 runes reactivity, data fetching / shared-layout payloads, GraphQL
+selection sets, loader error handling, `{@html}` sanitization, template-raw
+reads, and localization (the `t()` i18n helper).
+
+**Add a check when a defect or near-miss reveals a reusable pattern.** Don't just
+drop a node in — follow the runnable task
+`hadronmemory.com::hadron-portal::tasks:add-review-node`, which specifies the
+mandatory `Applies when …` edge back to the `review` parent (without it, the
+reviewer silently skips the check) and how to decide whether it also warrants a
+preflight cross-link.
