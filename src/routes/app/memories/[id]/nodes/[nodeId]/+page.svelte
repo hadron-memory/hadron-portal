@@ -1360,7 +1360,7 @@
       <button
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'history'}
-      >{t('node.history.tab', 'History')}</button>
+      >{t('node.history.tab', 'Revisions')}</button>
       <button
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'settings' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'settings'}
@@ -1932,7 +1932,7 @@
         </div>
       {:else}
         <div class="mb-3 flex items-center justify-between gap-3">
-          <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.intro', 'Snapshots saved on each edit, most recent first.')}</p>
+          <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.intro', 'Revisions saved on each edit, most recent first.')}</p>
           <button type="button" onclick={() => (clearConfirm = true)} disabled={historyBusy}
             class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">
             {t('node.history.clear', 'Clear')}
