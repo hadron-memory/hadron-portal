@@ -49,7 +49,7 @@
     <div>
       <label for="urn" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
       <div class="flex items-center gap-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 focus-within:border-indigo-500 dark:border-zinc-700 dark:bg-zinc-900">
-        <span class="text-zinc-500 text-sm select-none">hadrongraph.io/</span>
+        <span class="select-none font-mono text-sm text-zinc-500">hrn:org:</span>
         <input
           id="urn" name="urn" type="text" required
           bind:value={urn}
