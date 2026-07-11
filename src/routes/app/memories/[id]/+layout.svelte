@@ -51,7 +51,14 @@
   function memParts(urn: string): { org: string; slug: string } {
     const bare = urn.replace(/^hrn:memory:/, '');
     const i = bare.indexOf('::');
-    return i < 0 ? { org: '', slug: bare } : { org: bare.slice(0, i), slug: bare.slice(i + 2) };
+    if (i >= 0) return { org: bare.slice(0, i), slug: bare.slice(i + 2) };
+    // Legacy single-`:` URN (hrn:memory:org:slug) — org is the second-to-last
+    // segment (mirrors the settings page's legacy parsing). Avoids composing a
+    // malformed `::slug-copy` target the server would reject (PR #528 review).
+    const parts = bare.split(':');
+    return parts.length >= 2
+      ? { org: parts[parts.length - 2] ?? '', slug: parts[parts.length - 1] ?? '' }
+      : { org: '', slug: bare };
   }
 
   function onMenuSelect(id: string) {
@@ -89,7 +96,7 @@
         body: JSON.stringify({ targetUrn: target }),
       });
       const d = await res.json().catch(() => ({}));
-      if (!res.ok) {
+      if (!res.ok || !d.memory?.id) {
         cloneError = d.error ?? 'Failed to clone memory';
         return;
       }
