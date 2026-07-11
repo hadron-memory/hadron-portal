@@ -1208,7 +1208,7 @@
       <button
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'properties' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'properties'}
-      >Properties
+      >{t('node.properties.tab', 'Properties')}
         {#if !hasProperties}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
       </button>
       <!-- Always shown (#478) — turning a plain node into a flow node (extract
@@ -1430,7 +1430,7 @@
     {#if activeTab === 'properties'}
       {#if hasProperties}
         <div class="flex items-center justify-end">
-          <button onclick={copyProperties} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy properties">
+          <button onclick={copyProperties} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('node.properties.copy', 'Copy properties')}>
             {#if copiedProperties}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
             {:else}
@@ -1441,7 +1441,7 @@
         <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedProperties as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
       {:else}
         <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-          <p class="text-sm text-zinc-500 dark:text-zinc-400">No properties. Node.properties holds structured key-value metadata (often server-set, e.g. source URL or title).</p>
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.properties.empty', 'No properties. Node.properties holds structured key-value metadata (often server-set, e.g. source URL or title).')}</p>
         </div>
       {/if}
     {/if}
