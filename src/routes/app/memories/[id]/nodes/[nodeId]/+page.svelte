@@ -1939,14 +1939,19 @@
         {#if historyError}
           <p class="mb-2 text-xs text-red-500">{historyError}</p>
         {/if}
-        <DataTable
-          table={revisionTable}
-          listKey="node:history"
-          searchPlaceholder={t('node.history.search', 'Search history…')}
-          searchAriaLabel={t('node.history.search', 'Search history…')}
-          bind:globalFilter={revisionFilter}
-          maxHeight="max(200px, calc(100vh - 22rem))"
-        >
+        <!-- space-y-3 spaces DataTable's search-row / table / pagination-footer
+             (the footer would otherwise sit flush against the table). A deeper
+             maxHeight offset keeps the footer above the fold — the History table
+             sits low on the node page (breadcrumb + header + tabs + this row). -->
+        <div class="space-y-3">
+          <DataTable
+            table={revisionTable}
+            listKey="node:history"
+            searchPlaceholder={t('node.history.search', 'Search history…')}
+            searchAriaLabel={t('node.history.search', 'Search history…')}
+            bind:globalFilter={revisionFilter}
+            maxHeight="max(200px, calc(100vh - 28rem))"
+          >
           {#snippet cell(cell, r)}
             {#if cell.column.id === 'when'}
               <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{new Date(r.createdAt).toLocaleString()}</span>
@@ -1970,6 +1975,7 @@
             {/if}
           {/snippet}
         </DataTable>
+        </div>
       {/if}
     {/if}
 
