@@ -3,12 +3,12 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_VERSIONS_QUERY } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { extractionRowsError, rowsToSpec, EXTRACTION_SHAPES, type ExtractionRow, type ExtractionShape } from '$lib/flow/extraction';
-import type { MemoryNode } from '$lib/types';
+import type { MemoryNode, NodeVersion } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 // Soft cap on the Node.data payload, mirrored client-side in +page.svelte.
@@ -100,7 +100,23 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       return [] as PickMemory[];
     });
 
-  return { node, breadcrumb, testFlowApps, memories };
+  // #529: the node's version history for the History tab. STREAMED (the tab may
+  // never be opened) and best-effort — a failure degrades to an empty list.
+  // Promise.resolve() wraps the request so it stays a promise chain even if the
+  // client returns a non-thenable (defensive; keeps the .catch in charge).
+  const versions = Promise.resolve(
+    gqlClient(locals.token).request<{ nodeVersions: NodeVersion[] }>(NODE_VERSIONS_QUERY, {
+      nodeRef: node.id,
+      limit: 100,
+    }),
+  )
+    .then((r) => r?.nodeVersions ?? [])
+    .catch((e) => {
+      console.warn('[node-detail] version history failed:', e);
+      return [] as NodeVersion[];
+    });
+
+  return { node, breadcrumb, testFlowApps, memories, versions };
 };
 
 export const actions: Actions = {

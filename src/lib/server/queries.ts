@@ -663,6 +663,25 @@ export const CLONE_MEMORY_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #529: version history for a node (NodeVersion snapshots), most recent first.
+// Access-gated on the node's memory server-side (unreadable → empty list).
+// `content` is intentionally omitted — the History tab lists metadata and
+// snapshot bodies can be large.
+export const NODE_VERSIONS_QUERY = /* GraphQL */ `
+  query NodeVersions($nodeRef: ID!, $limit: Int) {
+    nodeVersions(nodeRef: $nodeRef, limit: $limit) {
+      id
+      loc
+      name
+      alias
+      description
+      tags
+      editedBy
+      createdAt
+    }
+  }
+`;
+
 export const SYNC_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation SyncMemory($id: ID!) {

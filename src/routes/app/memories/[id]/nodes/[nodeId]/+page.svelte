@@ -805,7 +805,7 @@
   // URN slug for edit form
   const urnSlug = $derived(node.loc);
 
-  type NodeTab = 'content' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'settings';
+  type NodeTab = 'content' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'history' | 'settings';
 
   // Content / Abstract / Data / Properties / Flow / Edges / Settings are always
   // present; Children only when the node has children. (#256: Content is no
@@ -817,8 +817,8 @@
   // discoverability, same as Data.)
   const availableTabs = $derived<NodeTab[]>(
     hasChildren
-      ? ['content', 'abstract', 'data', 'properties', 'flow', 'children', 'references', 'settings']
-      : ['content', 'abstract', 'data', 'properties', 'flow', 'references', 'settings'],
+      ? ['content', 'abstract', 'data', 'properties', 'flow', 'children', 'references', 'history', 'settings']
+      : ['content', 'abstract', 'data', 'properties', 'flow', 'references', 'history', 'settings'],
   );
 
   function defaultTab(): NodeTab {
@@ -1233,6 +1233,12 @@
           <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span>
         {/if}
       </button>
+      <!-- #529: read-only version history (NodeVersion snapshots). Always shown
+           for discoverability; the list streams from load. -->
+      <button
+        class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+        onclick={() => activeTab = 'history'}
+      >{t('node.history.tab', 'History')}</button>
       <button
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'settings' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'settings'}
@@ -1785,6 +1791,46 @@
           </div>
         </form>
       {/if}
+    {/if}
+
+    <!-- ═══ HISTORY TAB (#529) — read-only NodeVersion snapshots ═══ -->
+    {#if activeTab === 'history'}
+      {#await data.versions}
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.loading', 'Loading history…')}</p>
+      {:then versions}
+        {#if versions.length === 0}
+          <div class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
+            <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.empty', 'No prior versions. A snapshot is saved each time the node is edited.')}</p>
+          </div>
+        {:else}
+          <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.intro', 'Snapshots saved on each edit, most recent first.')}</p>
+          <div class="overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-zinc-200 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                  <th class="px-4 py-2.5">{t('node.history.col.when', 'When')}</th>
+                  <th class="px-4 py-2.5">{t('node.history.col.name', 'Name')}</th>
+                  <th class="px-4 py-2.5">{t('node.history.col.edited-by', 'Edited by')}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
+                {#each versions as v (v.id)}
+                  <tr class="bg-white dark:bg-zinc-950">
+                    <td class="whitespace-nowrap px-4 py-2.5 text-zinc-600 dark:text-zinc-400" title={v.createdAt}>{new Date(v.createdAt).toLocaleString()}</td>
+                    <td class="px-4 py-2.5">
+                      <div class="truncate font-medium text-zinc-900 dark:text-white">{v.name}</div>
+                      {#if v.description}<div class="truncate text-xs text-zinc-500 dark:text-zinc-400">{v.description}</div>{/if}
+                    </td>
+                    <td class="whitespace-nowrap px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{v.editedBy ?? '—'}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+      {:catch}
+        <p class="text-sm text-red-500">{t('node.history.error', "Couldn't load version history.")}</p>
+      {/await}
     {/if}
 
     <!-- ═══ SETTINGS TAB ═══ -->

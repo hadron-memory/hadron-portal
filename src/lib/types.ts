@@ -291,6 +291,19 @@ export interface NodeEdge {
   target: NodeSummary;
 }
 
+// #529: a NodeVersion snapshot (server type), listed in the node History tab.
+// `content` is omitted here — the query doesn't select it (bodies can be large).
+export interface NodeVersion {
+  id: string;
+  loc: string;
+  name: string;
+  alias: string | null;
+  description: string | null;
+  tags: string[];
+  editedBy: string | null;
+  createdAt: string;
+}
+
 export interface MemoryNode {
   id: string;
   memoryId: string;
