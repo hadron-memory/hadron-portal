@@ -1,11 +1,17 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { page } from '$app/stores';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const g = $derived(data.graph);
+
+  // #520: the memory-detail ⋯ menu deep-links here to open the relevant form on
+  // arrival — Edit memory → ?edit=1, Delete memory → ?delete=1 (the danger zone
+  // still gates on canDelete below). Read once at mount.
+  const deepLink = $page.url.searchParams;
 
   // Agent system memories are owned by their agent and have a stripped-down
   // settings view: no org transfer, no categories, no license, no visibility,
@@ -33,9 +39,9 @@
         : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
   );
 
-  let isEditing = $state(false);
+  let isEditing = $state(deepLink.get('edit') === '1');
   let saving = $state(false);
-  let confirmDelete = $state(false);
+  let confirmDelete = $state(deepLink.get('delete') === '1');
 
   // The URN field edits only the bare memory slug (e.g. "mm-holger-personal"),
   // matching the create form (which posts a bare `slug` under the `<org-urn>:`

@@ -2,16 +2,105 @@
   // #266: memory-detail is a tab layout. The layout renders the breadcrumb +
   // header + tab bar; each tab is a sub-route rendered via {@render children()}.
   import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
+  import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { t } from '$lib/i18n/t';
-  import { createNodeStrings } from '$lib/i18n/create-node-strings';
+  import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
 
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
   const basePath = $derived(`/app/memories/${data.graph.id}`);
+
+  // ── #520: memory actions menu (⋯), mirroring the node-detail page ─────────
+  const g = $derived(data.graph);
+  // canDelete mirrors the Settings danger-zone gate (spec 013/034): owner-only
+  // classes → the owner; other classes → an org ADMIN/OWNER; agent-system
+  // memories are excluded (delete goes through the owning agent). The server
+  // resolver is the trust boundary; this only hides the affordance.
+  const myMember = $derived(data.org?.members?.find((m) => m.user?.id === data.user?.id));
+  const canDelete = $derived(
+    g.class !== 'system' &&
+      (g.class === 'personal' || g.class === 'private'
+        ? !!data.user?.id && data.user.id === g.userId
+        : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
+  );
+  // cloneMemory rejects system + encrypted sources — hide Clone there.
+  const cloneable = $derived(g.class !== 'system' && !g.isEncrypted);
+
+  const memoryActions = $derived<NodeMenuAction[]>([
+    { id: 'add-node', label: t('memory-actions.add-node', 'Add node') },
+    { id: 'edit', label: t('memory-actions.edit', 'Edit memory') },
+    ...(cloneable ? [{ id: 'clone', label: t('memory-actions.clone', 'Clone memory') }] : []),
+    ...(canDelete ? [{ id: 'delete', label: t('memory-actions.delete', 'Delete memory'), danger: true }] : []),
+  ]);
+
+  // Clone dialog — mirrors the node Move dialog: a full target memory URN the
+  // user can edit, with a "Select org" button that rewrites the org segment.
+  let cloneOpen = $state(false);
+  let cloneTarget = $state('');
+  let orgPickerOpen = $state(false);
+  let cloning = $state(false);
+  let cloneError = $state<string | null>(null);
+
+  const bareOrg = (urn: string) => urn.replace(/^hrn:[a-z]+:/, '');
+  function memParts(urn: string): { org: string; slug: string } {
+    const bare = urn.replace(/^hrn:memory:/, '');
+    const i = bare.indexOf('::');
+    return i < 0 ? { org: '', slug: bare } : { org: bare.slice(0, i), slug: bare.slice(i + 2) };
+  }
+
+  function onMenuSelect(id: string) {
+    cloneOpen = false;
+    cloneError = null;
+    switch (id) {
+      case 'add-node': goto(`${basePath}/nodes/new`); break;
+      // Edit + Delete live on the Settings tab; deep-link so the relevant form
+      // opens on arrival (?edit=1 / ?delete=1).
+      case 'edit': goto(`${basePath}/settings?edit=1`); break;
+      case 'delete': goto(`${basePath}/settings?delete=1`); break;
+      case 'clone': {
+        const { org, slug } = memParts(g.urn);
+        cloneTarget = `${org}::${slug}-copy`;
+        cloneOpen = true;
+        break;
+      }
+    }
+  }
+
+  function onPickOrg(org: OrgSummary) {
+    const { slug } = memParts(cloneTarget.includes('::') ? cloneTarget : g.urn);
+    cloneTarget = `${bareOrg(org.urn)}::${slug}`;
+  }
+
+  async function submitClone() {
+    const target = cloneTarget.trim();
+    if (!target || cloning) return;
+    cloning = true;
+    cloneError = null;
+    try {
+      const res = await fetch(`${basePath}/clone`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUrn: target }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        cloneError = d.error ?? 'Failed to clone memory';
+        return;
+      }
+      cloneOpen = false;
+      goto(`/app/memories/${d.memory.id}`);
+    } catch (e) {
+      cloneError = e instanceof Error ? e.message : 'Failed to clone memory';
+    } finally {
+      cloning = false;
+    }
+  }
 
   // #260: org context comes from the memory's owning org, which may be one the
   // user isn't a member of (org is then null). Only link the section crumb back
@@ -70,13 +159,47 @@
           >{tab.label}</a>
         {/each}
       </div>
-      <a
-        href="{basePath}/nodes/new"
-        class="mb-1 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-      >
-        {createNodeStrings.newNodeButton()}
-      </a>
+      <!-- #520: ⋯ actions menu (Add node / Edit / Clone / Delete), replacing the
+           lone "New node" button — mirrors the node-detail page. -->
+      <div class="mb-1">
+        <NodeActionsMenu
+          actions={memoryActions}
+          onselect={onMenuSelect}
+          label={t('memory-actions.label', 'Memory actions')}
+        />
+      </div>
     </div>
+  {/if}
+
+  <!-- #520: Clone dialog — a full target memory URN with a "Select org" button
+       (mirrors the node Move dialog). Submits to the memory clone endpoint. -->
+  {#if cloneOpen}
+    <div class="fixed inset-0 z-40">
+      <button type="button" class="absolute inset-0 cursor-default bg-black/20" aria-label={t('memory-actions.clone.close', 'Close clone dialog')} onclick={() => (cloneOpen = false)}></button>
+      <div class="absolute right-4 top-24 w-96 rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <h3 class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('memory-actions.clone.heading', 'Clone memory')}</h3>
+        <label for="cloneTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('memory-actions.clone.target-label', 'New memory URN')}</label>
+        <input id="cloneTarget" type="text" bind:value={cloneTarget} spellcheck="false"
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-1.5 font-mono text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+        <p class="mt-1 text-xs text-zinc-400">
+          <span class="font-mono">org::slug</span> — {t('memory-actions.clone.hint', 'copies every node into a new memory. Fails if one already lives there.')}
+        </p>
+        <button type="button" onclick={() => (orgPickerOpen = true)}
+          class="mt-2 rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >{t('memory-actions.clone.select-org', 'Select org…')}</button>
+        {#if cloneError}
+          <p class="mt-2 text-xs text-red-500">{cloneError}</p>
+        {/if}
+        <div class="mt-3 flex items-center gap-2">
+          <button type="button" onclick={submitClone}
+            disabled={cloning || !cloneTarget.trim() || cloneTarget.trim() === memParts(g.urn).org + '::' + memParts(g.urn).slug}
+            class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >{cloning ? t('memory-actions.clone.cloning', 'Cloning…') : t('memory-actions.clone.submit', 'Clone')}</button>
+          <button type="button" onclick={() => (cloneOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('memory-actions.clone.cancel', 'Cancel')}</button>
+        </div>
+      </div>
+    </div>
+    <SelectOrg orgs={data.navOrgs ?? []} bind:open={orgPickerOpen} onselect={onPickOrg} />
   {/if}
 
   <!-- Nodes/Graph share one MemoryBrowser rendered HERE (in the persistent

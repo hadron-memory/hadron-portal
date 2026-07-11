@@ -654,6 +654,15 @@ export const DELETE_MEMORY_MUTATION = /* GraphQL */ `
   mutation DeleteMemory($id: ID!) { deleteMemory(id: $id) }
 `;
 
+// #520: clone a memory's whole graph into a new memory at targetUrn
+// (`<org>::<slug>`). Server rejects system/encrypted sources and an occupied
+// or malformed targetUrn (BAD_USER_INPUT). Returns the new memory.
+export const CLONE_MEMORY_MUTATION = /* GraphQL */ `
+  mutation CloneMemory($ref: ID!, $targetUrn: String!) {
+    cloneMemory(ref: $ref, targetUrn: $targetUrn) { id urn name }
+  }
+`;
+
 export const SYNC_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation SyncMemory($id: ID!) {
