@@ -663,6 +663,72 @@ export const CLONE_MEMORY_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #529: revision history for a node (NodeRevision snapshots, #623 rename from
+// NodeVersion), most recent first. Access-gated on the node's memory server-side
+// (unreadable → empty list). `content` is omitted — the History tab lists
+// metadata and snapshot bodies can be large.
+export const NODE_REVISIONS_QUERY = /* GraphQL */ `
+  query NodeRevisions($nodeRef: ID!, $limit: Int) {
+    nodeRevisions(nodeRef: $nodeRef, limit: $limit) {
+      id
+      loc
+      name
+      alias
+      description
+      tags
+      # #620 display contract: editedByUser (resolved handle + URN) is preferred;
+      # else editedByInfo (identity string); revLabel is the edit reason/label.
+      editedBy
+      editedByInfo
+      editedByUser { handle urn }
+      revLabel
+      # #620: which node fields the edit changed (empty on legacy rows).
+      changes
+      createdAt
+    }
+  }
+`;
+
+// #529: a single revision's full snapshot (incl. content) for the read-only
+// "Display" view. Access-gated server-side; null when unreadable/missing.
+export const NODE_REVISION_QUERY = /* GraphQL */ `
+  query NodeRevision($revisionId: ID!) {
+    nodeRevision(revisionId: $revisionId) {
+      id
+      nodeId
+      loc
+      name
+      alias
+      description
+      content
+      tags
+      editedBy
+      editedByInfo
+      editedByUser { handle urn }
+      revLabel
+      changes
+      createdAt
+    }
+  }
+`;
+
+// #529/#617: revision-history write surface (#623 rename). restore(truncate:true)
+// restores the node to the revision AND deletes newer snapshots (atomic); delete
+// removes one snapshot; clear removes all for a node (returns the count).
+export const RESTORE_NODE_REVISION_MUTATION = /* GraphQL */ `
+  mutation RestoreNodeRevision($revisionId: ID!, $truncate: Boolean) {
+    restoreNodeRevision(revisionId: $revisionId, truncate: $truncate) { id }
+  }
+`;
+
+export const DELETE_NODE_REVISION_MUTATION = /* GraphQL */ `
+  mutation DeleteNodeRevision($revisionId: ID!) { deleteNodeRevision(revisionId: $revisionId) }
+`;
+
+export const CLEAR_NODE_HISTORY_MUTATION = /* GraphQL */ `
+  mutation ClearNodeHistory($nodeRef: ID!) { clearNodeHistory(nodeRef: $nodeRef) }
+`;
+
 export const SYNC_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation SyncMemory($id: ID!) {

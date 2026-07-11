@@ -10,7 +10,7 @@
  * `graphNodes` instead of issuing a memory-blind GraphQL lookup.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NODE_QUERY } from '$lib/server/queries';
+import { NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -206,6 +206,64 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
 
     expect(result.node).toBeTruthy();
     expect(await result.memories).toEqual([]); // streamed; degrades to empty
+  });
+
+  it('#529 — streams the node revision history (nodeRevisions), forwarding the node id', async () => {
+    const memA = 'mem-A';
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'leaf-pk', memoryId: memA, loc: 'foo', name: 'foo',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ memories: { items: [], total: 0 } });
+    mockRequest.mockResolvedValueOnce({
+      nodeRevisions: [
+        { id: 'r2', createdAt: '2026-07-02T00:00:00Z', name: 'foo', editedBy: 'u1' },
+        { id: 'r1', createdAt: '2026-07-01T00:00:00Z', name: 'foo', editedBy: 'u1' },
+      ],
+    });
+
+    const result = (await runLoad(loadEvent({
+      gid: memA,
+      nodeId: 'leaf-pk',
+      parentGraphNodes: [{ id: 'leaf-pk', memoryId: memA, loc: 'foo' }],
+    }))) as LoadResult & { revisions: Promise<{ ok: boolean; items: Array<{ id: string }> }> };
+
+    const res = await result.revisions;
+    expect(res.ok).toBe(true);
+    expect(res.items.map((v) => v.id)).toEqual(['r2', 'r1']); // most recent first
+    const call = mockRequest.mock.calls.find(([doc]) => doc === NODE_REVISIONS_QUERY);
+    expect(call?.[1]).toMatchObject({ nodeRef: 'leaf-pk' });
+  });
+
+  it('#529 — a failed revision-history fetch reports ok:false (not a silent empty)', async () => {
+    const memA = 'mem-A';
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'leaf-pk', memoryId: memA, loc: 'foo', name: 'foo',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ memories: { items: [], total: 0 } });
+    mockRequest.mockRejectedValueOnce(new Error('history boom'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = (await runLoad(loadEvent({
+      gid: memA,
+      nodeId: 'leaf-pk',
+      parentGraphNodes: [{ id: 'leaf-pk', memoryId: memA, loc: 'foo' }],
+    }))) as LoadResult & { revisions: Promise<{ ok: boolean; items: unknown[] }> };
+
+    const res = await result.revisions;
+    expect(res.ok).toBe(false); // surfaced as a failure, not an empty history
+    expect(res.items).toEqual([]);
   });
 
   it('#237 — redirects when node.memoryId does not match params.gid (PK-mismatch guard)', async () => {

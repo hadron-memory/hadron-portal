@@ -3,12 +3,12 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { extractionRowsError, rowsToSpec, EXTRACTION_SHAPES, type ExtractionRow, type ExtractionShape } from '$lib/flow/extraction';
-import type { MemoryNode } from '$lib/types';
+import type { MemoryNode, NodeRevision } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 // Soft cap on the Node.data payload, mirrored client-side in +page.svelte.
@@ -100,7 +100,26 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       return [] as PickMemory[];
     });
 
-  return { node, breadcrumb, testFlowApps, memories };
+  // #529: the node's revision history for the History tab (#623 rename).
+  // STREAMED (the tab may never be opened) and best-effort. An async IIFE keeps
+  // it unawaited (streamed) while capturing BOTH a synchronous throw and an
+  // async rejection (PR #530 review). Resolves to a discriminated result so the
+  // tab can tell "no revisions" from "couldn't load" — a silent [] on failure
+  // masks real errors (schema drift, a down server) as an empty history.
+  const revisions = (async (): Promise<{ ok: boolean; items: NodeRevision[] }> => {
+    try {
+      const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeRevision[] }>(
+        NODE_REVISIONS_QUERY,
+        { nodeRef: node.id, limit: 100 },
+      );
+      return { ok: true, items: r?.nodeRevisions ?? [] };
+    } catch (e) {
+      console.warn('[node-detail] revision history failed:', e);
+      return { ok: false, items: [] };
+    }
+  })();
+
+  return { node, breadcrumb, testFlowApps, memories, revisions };
 };
 
 export const actions: Actions = {

@@ -31,7 +31,7 @@
     rowsToSpec,
     type ExtractionRow,
   } from '$lib/flow/extraction';
-  import type { NodeEdge } from '$lib/types';
+  import type { NodeEdge, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -772,6 +772,127 @@
     getPaginationRowModel: getPaginationRowModel(),
   });
 
+  // ── History (#529) — NodeRevision snapshots in the shared DataTable ───────
+  // data.revisions is a streamed promise; resolve it into a rune so the table
+  // (which needs a synchronous array) can consume it. This keeps the list
+  // client-rendered — the History tab isn't SSR'd (not the default tab) and the
+  // promise resolves on the client.
+  let revisionRows = $state<NodeRevision[]>([]);
+  let revisionsLoaded = $state(false);
+  let revisionsFailed = $state(false);
+  $effect(() => {
+    const p = data.revisions; // track the current navigation's promise
+    revisionsLoaded = false;
+    p.then((res) => {
+      revisionRows = res.items;
+      revisionsFailed = !res.ok; // distinguish "no revisions" from "couldn't load"
+      revisionsLoaded = true;
+    });
+  });
+
+  // Editor display (#620 contract): resolved handle, else identity string.
+  function editorLabel(r: NodeRevision): string {
+    return r.editedByUser?.handle ? `@${r.editedByUser.handle}` : (r.editedByInfo ?? '—');
+  }
+
+  let revisionFilter = $state('');
+  const revisionColumns: ColumnDef<NodeRevision>[] = [
+    { accessorKey: 'createdAt', id: 'when', header: t('node.history.col.when', 'When'), size: 200 },
+    { accessorFn: (r) => r.revLabel ?? '', id: 'label', header: t('node.history.col.label', 'Label'), size: 280 },
+    // #620: changed fields (empty on legacy rows). Filterable by field name.
+    { accessorFn: (r) => (r.changes ?? []).join(' '), id: 'changes', header: t('node.history.col.changes', 'Changes'), enableSorting: false, size: 220 },
+    // Filterable by handle / identity string.
+    { accessorFn: (r) => editorLabel(r), id: 'editedBy', header: t('node.history.col.edited-by', 'Edited by'), size: 220 },
+    { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
+  ];
+  const revisionTable = createSvelteTable<NodeRevision>({
+    get data() {
+      return revisionRows;
+    },
+    columns: revisionColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return revisionFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      revisionFilter = typeof u === 'function' ? u(revisionFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: {
+      pagination: { pageIndex: 0, pageSize: 20 },
+      sorting: [{ id: 'when', desc: true }], // most recent first
+    },
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
+  // #529 row actions (Display / Restore / Delete) + Clear-all. The per-row menu
+  // is a SINGLE fixed-positioned popover (anchored to the clicked ⋯ button), so
+  // it isn't clipped by the DataTable's overflow-auto scroll container.
+  let historyMenuFor = $state<NodeRevision | null>(null);
+  let historyMenuX = $state(0);
+  let historyMenuY = $state(0);
+  let restoreTarget = $state<NodeRevision | null>(null);
+  let clearConfirm = $state(false);
+  let historyBusy = $state(false);
+  let historyError = $state<string | null>(null);
+
+  function revisionHref(r: NodeRevision): string {
+    return `${basePath}/nodes/${node.id}/revisions/${r.id}`;
+  }
+  function openHistoryMenu(e: MouseEvent, r: NodeRevision) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    historyMenuX = rect.right;
+    historyMenuY = rect.bottom + 4;
+    historyMenuFor = r;
+  }
+
+  async function postRevisionAction(payload: Record<string, unknown>): Promise<boolean> {
+    historyBusy = true;
+    historyError = null;
+    try {
+      const res = await fetch(`${basePath}/nodes/${node.id}/revisions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        historyError = d.error ?? 'Revision action failed';
+        return false;
+      }
+      await invalidateAll(); // refresh the node + the streamed revision list
+      return true;
+    } catch (e) {
+      historyError = e instanceof Error ? e.message : 'Revision action failed';
+      return false;
+    } finally {
+      historyBusy = false;
+    }
+  }
+
+  function onHistoryMenuSelect(id: string) {
+    const r = historyMenuFor;
+    historyMenuFor = null;
+    if (!r) return;
+    if (id === 'display') window.open(revisionHref(r), '_blank', 'noopener');
+    else if (id === 'restore') restoreTarget = r; // opens the warning dialog
+    else if (id === 'delete') void postRevisionAction({ action: 'delete', revisionId: r.id });
+  }
+  async function confirmRestore() {
+    if (!restoreTarget) return;
+    if (await postRevisionAction({ action: 'restore', revisionId: restoreTarget.id })) restoreTarget = null;
+  }
+  async function confirmClear() {
+    if (await postRevisionAction({ action: 'clear' })) clearConfirm = false;
+  }
+
   function edgeDetailHref(r: EdgeRow): string {
     return `/app/memories/${r.sourceMemoryId}/nodes/${r.sourceId}/edges/${r.edgeId}`;
   }
@@ -805,7 +926,7 @@
   // URN slug for edit form
   const urnSlug = $derived(node.loc);
 
-  type NodeTab = 'content' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'settings';
+  type NodeTab = 'content' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'history' | 'settings';
 
   // Content / Abstract / Data / Properties / Flow / Edges / Settings are always
   // present; Children only when the node has children. (#256: Content is no
@@ -817,8 +938,8 @@
   // discoverability, same as Data.)
   const availableTabs = $derived<NodeTab[]>(
     hasChildren
-      ? ['content', 'abstract', 'data', 'properties', 'flow', 'children', 'references', 'settings']
-      : ['content', 'abstract', 'data', 'properties', 'flow', 'references', 'settings'],
+      ? ['content', 'abstract', 'data', 'properties', 'flow', 'children', 'references', 'history', 'settings']
+      : ['content', 'abstract', 'data', 'properties', 'flow', 'references', 'history', 'settings'],
   );
 
   function defaultTab(): NodeTab {
@@ -872,6 +993,7 @@
   // onMenuSelect closes siblings). PR-504 review (Copilot: Move/Delete a11y).
   if (e.key !== 'Escape') return;
   downloadOpen = false; testFlowOpen = false; moveOpen = false; deleteOpen = false;
+  historyMenuFor = null; // #529: close the History row menu on Escape too
 }} />
 
 <svelte:head><title>{node.name} &middot; Hadron</title></svelte:head>
@@ -1233,6 +1355,12 @@
           <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span>
         {/if}
       </button>
+      <!-- #529: revision history (NodeRevision snapshots). Always shown
+           for discoverability; the list streams from load. -->
+      <button
+        class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+        onclick={() => activeTab = 'history'}
+      >{t('node.history.tab', 'Revisions')}</button>
       <button
         class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'settings' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'settings'}
@@ -1785,6 +1913,125 @@
           </div>
         </form>
       {/if}
+    {/if}
+
+    <!-- ═══ HISTORY TAB (#529) — NodeRevision snapshots (#617 actions) ═══
+         Shared DataTable (filter header, savable views, pagination),
+         most-recent-first, with a per-row menu (Display/Restore/Delete) and a
+         Clear-all button. -->
+    {#if activeTab === 'history'}
+      {#if !revisionsLoaded}
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.loading', 'Loading history…')}</p>
+      {:else if revisionsFailed}
+        <div class="rounded-lg border border-amber-300 bg-amber-50 p-6 text-center dark:border-amber-800 dark:bg-amber-950">
+          <p class="text-sm text-amber-800 dark:text-amber-300">{t('node.history.load-failed', "Couldn't load revision history — the node service returned an error. This is not the same as an empty history; try refreshing.")}</p>
+        </div>
+      {:else if revisionRows.length === 0}
+        <div class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.empty', 'No prior revisions. A snapshot is saved each time the node is edited.')}</p>
+        </div>
+      {:else}
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.intro', 'Revisions saved on each edit, most recent first.')}</p>
+          <button type="button" onclick={() => (clearConfirm = true)} disabled={historyBusy}
+            class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">
+            {t('node.history.clear', 'Clear')}
+          </button>
+        </div>
+        {#if historyError}
+          <p class="mb-2 text-xs text-red-500">{historyError}</p>
+        {/if}
+        <!-- space-y-3 spaces DataTable's search-row / table / pagination-footer
+             (the footer would otherwise sit flush against the table). A deeper
+             maxHeight offset keeps the footer above the fold — the History table
+             sits low on the node page (breadcrumb + header + tabs + this row). -->
+        <div class="space-y-3">
+          <DataTable
+            table={revisionTable}
+            listKey="node:history"
+            searchPlaceholder={t('node.history.search', 'Search history…')}
+            searchAriaLabel={t('node.history.search', 'Search history…')}
+            bind:globalFilter={revisionFilter}
+            maxHeight="max(200px, calc(100vh - 28rem))"
+          >
+          {#snippet cell(cell, r)}
+            {#if cell.column.id === 'when'}
+              <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{new Date(r.createdAt).toLocaleString()}</span>
+            {:else if cell.column.id === 'label'}
+              <span class="text-zinc-600 dark:text-zinc-400">{r.revLabel ?? '—'}</span>
+            {:else if cell.column.id === 'changes'}
+              {#if r.changes && r.changes.length > 0}
+                <div class="flex flex-wrap gap-1">
+                  {#each r.changes as field}
+                    <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{field}</span>
+                  {/each}
+                </div>
+              {:else}
+                <span class="text-zinc-400">—</span>
+              {/if}
+            {:else if cell.column.id === 'editedBy'}
+              {#if r.editedByUser?.handle || r.editedByUser?.urn}
+                <div class="min-w-0">
+                  {#if r.editedByUser.handle}<div class="truncate text-zinc-700 dark:text-zinc-300">@{r.editedByUser.handle}</div>{/if}
+                  {#if r.editedByUser.urn}<Urn value={r.editedByUser.urn} type="user" size={9} />{/if}
+                </div>
+              {:else}
+                <span class="whitespace-nowrap text-zinc-500 dark:text-zinc-400">{r.editedByInfo ?? '—'}</span>
+              {/if}
+            {:else if cell.column.id === 'actions'}
+              <button type="button" onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
+                aria-label={t('node.history.row-actions', 'Revision actions')}
+                class="flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+              </button>
+            {/if}
+          {/snippet}
+        </DataTable>
+        </div>
+      {/if}
+    {/if}
+
+    <!-- #529: History row menu (single, fixed — anchored to the clicked ⋯ so
+         it escapes the DataTable's overflow) + Restore/Clear dialogs. -->
+    {#if historyMenuFor}
+      <button type="button" class="fixed inset-0 z-40 cursor-default" aria-label={t('node.history.close-menu', 'Close menu')} onclick={() => (historyMenuFor = null)}></button>
+      <div role="menu" class="fixed z-50 w-44 -translate-x-full rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900" style="left: {historyMenuX}px; top: {historyMenuY}px;">
+        <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('display')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.display', 'Display')}</button>
+        <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('restore')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.restore', 'Restore')}</button>
+        <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
+        <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('delete')} class="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800">{t('node.history.action.delete', 'Delete')}</button>
+      </div>
+    {/if}
+
+    {#if restoreTarget}
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <button type="button" class="absolute inset-0 cursor-default bg-black/30" aria-label={t('node.history.restore.cancel', 'Cancel')} onclick={() => (restoreTarget = null)}></button>
+        <div class="relative w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+          <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('node.history.restore.heading', 'Restore this revision?')}</h3>
+          <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('node.history.restore.warning', 'This restores the node to the selected revision and deletes the history newer than it. This cannot be undone.')}</p>
+          <p class="mt-2 text-xs text-zinc-500">{new Date(restoreTarget.createdAt).toLocaleString()}{restoreTarget.editedByUser?.handle ? ` · @${restoreTarget.editedByUser.handle}` : ''}</p>
+          {#if historyError}<p class="mt-2 text-xs text-red-500">{historyError}</p>{/if}
+          <div class="mt-4 flex items-center justify-end gap-2">
+            <button type="button" onclick={() => (restoreTarget = null)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.restore.cancel', 'Cancel')}</button>
+            <button type="button" onclick={confirmRestore} disabled={historyBusy} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">{historyBusy ? t('node.history.restore.working', 'Restoring…') : t('node.history.restore.confirm', 'Restore')}</button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    {#if clearConfirm}
+      <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <button type="button" class="absolute inset-0 cursor-default bg-black/30" aria-label={t('node.history.clear-dialog.cancel', 'Cancel')} onclick={() => (clearConfirm = false)}></button>
+        <div class="relative w-full max-w-md rounded-xl border border-red-200 bg-white p-5 shadow-xl dark:border-red-900 dark:bg-zinc-900">
+          <h3 class="text-sm font-semibold text-red-600 dark:text-red-400">{t('node.history.clear-dialog.heading', 'Clear all history?')}</h3>
+          <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('node.history.clear-dialog.warning', 'This permanently deletes every saved revision of this node. The node itself is unchanged. This cannot be undone.')}</p>
+          {#if historyError}<p class="mt-2 text-xs text-red-500">{historyError}</p>{/if}
+          <div class="mt-4 flex items-center justify-end gap-2">
+            <button type="button" onclick={() => (clearConfirm = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.clear-dialog.cancel', 'Cancel')}</button>
+            <button type="button" onclick={confirmClear} disabled={historyBusy} class="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50">{historyBusy ? t('node.history.clear-dialog.working', 'Clearing…') : t('node.history.clear-dialog.confirm', 'Clear all')}</button>
+          </div>
+        </div>
+      </div>
     {/if}
 
     <!-- ═══ SETTINGS TAB ═══ -->

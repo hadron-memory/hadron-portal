@@ -291,6 +291,31 @@ export interface NodeEdge {
   target: NodeSummary;
 }
 
+// #529: a NodeRevision snapshot (server type, #623 rename from NodeVersion),
+// listed in the node History tab. `content` is only selected by the single-
+// revision (Display) query — optional here.
+export interface NodeRevision {
+  id: string;
+  nodeId?: string;
+  loc: string;
+  name: string;
+  alias: string | null;
+  description: string | null;
+  content?: string | null;
+  tags: string[];
+  editedBy: string | null;
+  // #620 display contract: editedByUser (resolved handle + URN) is preferred;
+  // else editedByInfo (identity string like 'github:<login>' / 'app:<id>');
+  // revLabel is the edit reason/label.
+  editedByInfo?: string | null;
+  editedByUser?: { handle: string | null; urn: string | null } | null;
+  revLabel?: string | null;
+  // #620: node fields the edit changed, e.g. ["abstract","tags"]; empty on
+  // legacy rows captured before the column existed.
+  changes?: string[];
+  createdAt: string;
+}
+
 export interface MemoryNode {
   id: string;
   memoryId: string;
