@@ -6,7 +6,7 @@ import { CREATE_EDGE_MUTATION, EDGE_HOST_NODE_QUERY, UPDATE_EDGE_MUTATION } from
 import { buildFlowCanvas, edgeRoutes } from '$lib/flow/canvas';
 import type { FlowCanvasEdgeInput, FlowCanvasNodeInput, FlowEdgeDetail } from '$lib/flow/canvas';
 import { collectFlowFieldsByNode } from '$lib/flow/fields';
-import { buildRoutingName, nextFreeRoutingIndex } from '$lib/flow/routing';
+import { buildRoutingName, nextFreeRoutingIndex, routingOrder } from '$lib/flow/routing';
 import type { NodeEdge } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -236,11 +236,27 @@ export const actions: Actions = {
     if (!host) return fail(404, { error: `Node not found: ${sourceId}` });
 
     const name = buildRoutingName(nextFreeRoutingIndex(host.outgoingEdges, host.loc), '');
+
+    // The next free numeric index alone does NOT guarantee last place: an
+    // index-less sibling (`next`, `next.<label>`) sorts AFTER every numeric
+    // index, so the new condition-less edge would become the fall-through and
+    // cut that sibling off. Simulate the walker's order with a probe and bump
+    // the new edge's priority past every routing sibling when needed.
+    const probe = { name, loc: `${host.loc}:${name}:probe`, priority: 0, condition: null };
+    const ordered = routingOrder([...host.outgoingEdges, probe], host.loc);
+    let priority: number | undefined;
+    if (ordered.length > 0 && ordered[ordered.length - 1].edge !== probe) {
+      priority =
+        Math.max(...ordered.filter((o) => o.edge !== probe).map((o) => o.edge.priority ?? 0)) + 1;
+    }
+
     try {
       const res = await client.request<{ createEdge: { id: string } }>(CREATE_EDGE_MUTATION, {
         sourceNodeId: sourceId,
         targetNodeId: targetId,
         name,
+        // Absent variable = server default; only sent when a bump is needed.
+        ...(priority !== undefined ? { priority } : {}),
       });
       return { created: true, edgeId: res.createEdge.id };
     } catch (e: unknown) {

@@ -142,7 +142,7 @@
     }
 
     nodes = model.nodes.map((n) => toNode(n, positions.get(n.id) ?? { x: 0, y: 0 }));
-    edges = model.edges.map((e) => toEdge(e, selectedEdgeId));
+    // edges are mapped by the sync effect as soon as `ready` flips true.
     lastModel = model;
     ready = true;
   });
@@ -182,7 +182,14 @@
       proOptions={{ hideAttribution: false }}
       onedgeclick={({ edge }) => onEdgeSelect?.(edge.id)}
       onpaneclick={() => onEdgeSelect?.(null)}
-      onconnect={(connection) => onConnect?.(connection.source, connection.target)}
+      onbeforeconnect={(connection) => {
+        // Returning null suppresses SvelteFlow's optimistic client-side edge
+        // (added BEFORE onconnect would fire) — otherwise a failed createEdge
+        // action would leave a phantom edge on the canvas. The real edge
+        // arrives via invalidation after the action succeeds.
+        onConnect?.(connection.source, connection.target);
+        return null;
+      }}
     >
       <Background />
       <Controls />

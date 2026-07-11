@@ -70,8 +70,15 @@
     };
   });
   let isRouting = $state(seededRouting.routing);
-  let routingIndexText = $state(seededRouting.indexText);
+  // string | number | null: seeded as string, but the number-input binding
+  // writes numbers/null back (see routingIndexTrimmed below).
+  let routingIndexText = $state<string | number | null>(seededRouting.indexText);
   let routingLabel = $state(seededRouting.label);
+
+  // Svelte coerces a number-input binding through to_number(), so after the
+  // user types, routingIndexText holds a number (or null when cleared), not a
+  // string — normalize before every string operation or .trim() throws.
+  const routingIndexTrimmed = $derived(String(routingIndexText ?? '').trim());
 
   function setRouting(on: boolean) {
     isRouting = on;
@@ -80,18 +87,18 @@
       const parsed = parseRoutingName(name);
       routingIndexText = parsed.index !== null ? String(parsed.index) : '';
       routingLabel = parsed.label ?? '';
-    } else if (routingIndexText.trim() === '') {
+    } else if (routingIndexTrimmed === '') {
       routingIndexText = String(nextFreeRoutingIndex(siblings, edge.sourceLoc));
       routingLabel = '';
     }
   }
 
   const routingIndexValid = $derived(
-    routingIndexText.trim() === '' || /^\d+$/.test(routingIndexText.trim()),
+    routingIndexTrimmed === '' || /^\d+$/.test(routingIndexTrimmed),
   );
   const routingName = $derived(
     buildRoutingName(
-      routingIndexValid && routingIndexText.trim() !== '' ? Number(routingIndexText.trim()) : null,
+      routingIndexValid && routingIndexTrimmed !== '' ? Number(routingIndexTrimmed) : null,
       routingLabel,
     ),
   );

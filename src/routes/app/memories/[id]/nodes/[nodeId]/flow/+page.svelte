@@ -23,12 +23,31 @@
     selectedEdge ? data.edgeDetails.filter((e) => e.sourceId === selectedEdge.sourceId) : [],
   );
 
-  // updateEdge results are scoped to the edge they were submitted for, so a
-  // stale banner never shows on a different edge's panel.
-  const panelSaved = $derived(!!form?.saved && form?.edgeId === selectedEdge?.id);
-  const panelError = $derived(
-    form?.error != null && form?.edgeId === selectedEdge?.id ? (form.error as string) : null,
-  );
+  // `form` outlives selection changes, so a result is "acknowledged" the
+  // moment the user changes the selection — otherwise re-selecting a saved
+  // edge would re-show its stale "Edge saved." banner. Plain variable: every
+  // write co-occurs with a selectedEdgeId write, which re-runs the deriveds.
+  let acknowledgedForm: ActionData = null;
+  function selectEdge(id: string | null) {
+    if (id !== selectedEdgeId) acknowledgedForm = form;
+    selectedEdgeId = id;
+  }
+
+  // updateEdge results are scoped to the edge they were submitted for; the
+  // edgeId != null guard keeps edgeId-less results (createEdge failures,
+  // missing-edge-id 400s) out of the panel — with both sides undefined the
+  // bare comparison would be true and silently swallow the page banner.
+  const formIsLive = $derived(form != null && form !== acknowledgedForm);
+  const panelSaved = $derived.by(() => {
+    if (!formIsLive || !form) return false;
+    const { saved, edgeId } = form as { saved?: boolean; edgeId?: string };
+    return !!saved && edgeId != null && edgeId === selectedEdge?.id;
+  });
+  const panelError = $derived.by(() => {
+    if (!formIsLive || !form) return null;
+    const { error, edgeId } = form as { error?: string; edgeId?: string };
+    return error != null && edgeId != null && edgeId === selectedEdge?.id ? error : null;
+  });
 
   // ── Drag-to-connect (#510): SvelteFlow's onconnect fills this hidden form,
   // which posts to the createEdge action; on success the new edge is selected
@@ -60,7 +79,7 @@
       <p class="mt-0.5 text-sm text-zinc-500 dark:text-zinc-400">
         {t(
           'flow.canvas.intro.editable',
-          'The multi-node flow around this node. Click an edge to edit its routing and condition; drag between node handles to add a routing edge.',
+          'The multi-node flow around this node: solid edges route (numbered in walker firing order), dashed edges are references the walker inlines but never follows. Click an edge to edit it; drag between node handles to add a routing edge.',
         )}
       </p>
     </div>
@@ -87,7 +106,7 @@
   {/if}
 
   <!-- Errors not tied to the panel's edge (createEdge failures) surface here. -->
-  {#if form?.error != null && !panelError}
+  {#if formIsLive && form?.error != null && !panelError}
     <div
       class="mb-3 rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
     >
@@ -101,7 +120,7 @@
     >
       {t(
         'flow.canvas.noRouting.editable',
-        'This node has no routing (next*) edges yet — it runs as a single-node flow. Drag from its right handle to another node to add one.',
+        'This node has no routing (next*) edges yet — it runs as a single-node flow. Add a routing edge from the Edges tab, or drag from a node handle when other nodes are on the canvas.',
       )}
     </div>
   {/if}
@@ -122,7 +141,7 @@
         {basePath}
         height={canvasHeight}
         selectedEdgeId={selectedEdge?.id ?? null}
-        onEdgeSelect={(id) => (selectedEdgeId = id)}
+        onEdgeSelect={selectEdge}
         onConnect={handleConnect}
       />
     </div>
@@ -135,7 +154,7 @@
           {basePath}
           saved={panelSaved}
           error={panelError}
-          onClose={() => (selectedEdgeId = null)}
+          onClose={() => selectEdge(null)}
         />
       {/key}
     {/if}
@@ -152,6 +171,8 @@
         await update();
         connectPending = false;
         if (result.type === 'success' && typeof result.data?.edgeId === 'string') {
+          // Direct assignment (not selectEdge): the createEdge result must
+          // stay live so the freshly opened panel reflects it.
           selectedEdgeId = result.data.edgeId;
         }
       };

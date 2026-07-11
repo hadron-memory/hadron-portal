@@ -122,6 +122,28 @@ describe('createEdge', () => {
     });
   });
 
+  it('bumps priority past an index-less sibling so the new branch lands last', async () => {
+    // A bare `next` (index-less) sorts AFTER every numeric index; without the
+    // bump the new condition-less next.1 would become the fall-through and cut
+    // the existing branch off.
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        ...host,
+        outgoingEdges: [
+          { id: 'e1', name: 'next', loc: 'classify:next:act', target: { id: 'n2', loc: 'act', name: 'Act' } },
+        ],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ createEdge: { id: 'e-new' } });
+    await runAction('createEdge', { sourceId: 'n1', targetId: 'n4' });
+    expect(mockRequest.mock.calls[1][1]).toEqual({
+      sourceNodeId: 'n1',
+      targetNodeId: 'n4',
+      name: 'next.1',
+      priority: 1,
+    });
+  });
+
   it('rejects a self-connection without any server calls', async () => {
     const result = (await runAction('createEdge', { sourceId: 'n1', targetId: 'n1' })) as {
       status: number;

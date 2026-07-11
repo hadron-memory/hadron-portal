@@ -87,5 +87,15 @@
     </div>
   {/if}
 
-  <Handle type="source" position={Position.Right} class="!bg-zinc-400" />
+  <!-- Reference nodes can't START a connection: their outgoing edges are never
+       fetched by the flow loader (BFS walks routing edges from the focus), so a
+       reference→reference edge would be created but never rendered. Receiving a
+       connection is fine — the source is a fetched flow node, and the reload
+       promotes the target. -->
+  <Handle
+    type="source"
+    position={Position.Right}
+    class="!bg-zinc-400"
+    isConnectable={card.kind !== 'reference'}
+  />
 </div>
