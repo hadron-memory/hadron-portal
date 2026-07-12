@@ -164,6 +164,24 @@ export const ME_QUERY = /* GraphQL */ `
   }
 `;
 
+// Public profile read for /app/user/[id] (#533). `ref` accepts a PK or a
+// `hrn:user:<handle>` URN (hadron-server#473 uniform read). The server gates
+// resolution to the user themselves, a platform admin, or a co-member and
+// returns null otherwise — denied and missing are indistinguishable — so this
+// selects only the public identifiers (no PII name/email; those stay gated by
+// the User field resolvers even when included).
+export const USER_PROFILE_QUERY = /* GraphQL */ `
+  query UserProfile($ref: ID!) {
+    user(ref: $ref) {
+      id
+      handle
+      urn
+      githubUsername
+      avatarUrl
+    }
+  }
+`;
+
 export const INVITE_USER_MUTATION = /* GraphQL */ `
   mutation InviteUser($name: String, $email: String, $githubUsername: String, $maxActivations: Int, $expiresInDays: Int) {
     inviteUser(name: $name, email: $email, githubUsername: $githubUsername, maxActivations: $maxActivations, expiresInDays: $expiresInDays) {

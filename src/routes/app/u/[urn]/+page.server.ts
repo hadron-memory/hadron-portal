@@ -19,13 +19,13 @@ import type { PageServerLoad } from './$types';
  * children (dashboard, agents, …).
  */
 type UrnResolution = {
-  kind: 'memory' | 'node' | 'agent' | 'org' | 'app';
+  kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user';
   id: string;
   memoryId: string | null;
   organizationId: string | null;
 };
 
-const KNOWN_KINDS = new Set<UrnResolution['kind']>(['memory', 'node', 'agent', 'org', 'app']);
+const KNOWN_KINDS = new Set<UrnResolution['kind']>(['memory', 'node', 'agent', 'org', 'app', 'user']);
 
 export const load: PageServerLoad = async ({ params, locals }) => {
   const urn = normalizeUrn(params.urn);
@@ -75,6 +75,9 @@ function canonicalPath(r: UrnResolution): string | null {
       return `/app/orgs/${r.id}`;
     case 'agent':
       return `/app/agents/${r.id}`;
+    case 'user':
+      // #533: public profile page, PK-scoped like the other canonical pages.
+      return `/app/user/${r.id}`;
     case 'app':
       // Apps live under their org; organizationId is always set by the resolver.
       return r.organizationId ? `/app/orgs/${r.organizationId}/apps/${r.id}` : null;

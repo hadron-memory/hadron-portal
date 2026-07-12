@@ -87,6 +87,15 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
     expect(r.location).toBe('/app/agents/agent-1');
   });
 
+  it('redirects a user URN to /app/user/{id}', async () => {
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'user', id: 'user-1', memoryId: null, organizationId: null },
+    });
+    const r = await expectRedirect('urn:user:alice');
+    expect(r.status).toBe(307);
+    expect(r.location).toBe('/app/user/user-1');
+  });
+
   it('redirects an app URN to /app/orgs/{organizationId}/apps/{id}', async () => {
     mockRequest.mockResolvedValueOnce({
       resolveUrn: { kind: 'app', id: 'app-1', memoryId: null, organizationId: 'org-7' },
