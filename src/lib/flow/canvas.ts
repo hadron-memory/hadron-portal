@@ -67,6 +67,25 @@ export interface FlowCanvasModel {
   edges: FlowCanvasEdge[];
 }
 
+/**
+ * Everything the canvas side panel (#510) needs to edit one edge: the
+ * editable fields plus endpoint labels. RoutingEdgeLike-compatible so the
+ * panel can feed a source node's edges straight into routingOrder.
+ */
+export interface FlowEdgeDetail {
+  id: string;
+  name: string | null;
+  loc: string;
+  priority: number | null;
+  condition: unknown;
+  sourceId: string;
+  sourceLoc: string;
+  sourceName: string;
+  targetId: string;
+  targetLoc: string;
+  targetName: string;
+}
+
 function toolsOf(data: unknown): string[] {
   if (data == null || typeof data !== 'object') return [];
   const tools = (data as Record<string, unknown>).tools;

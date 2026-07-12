@@ -21,7 +21,21 @@
     focusId,
     basePath,
     height,
-  }: { model: FlowCanvasModel; focusId: string; basePath: string; height: number } = $props();
+    selectedEdgeId = null,
+    onEdgeSelect,
+    onConnect,
+  }: {
+    model: FlowCanvasModel;
+    focusId: string;
+    basePath: string;
+    height: number;
+    /** Highlighted edge (the side panel's selection); null = none. */
+    selectedEdgeId?: string | null;
+    /** Edge click → id, pane click → null. Omit for a read-only canvas. */
+    onEdgeSelect?: (edgeId: string | null) => void;
+    /** Drag-to-connect completed. Omit to keep handles non-connectable. */
+    onConnect?: (sourceId: string, targetId: string) => void;
+  } = $props();
 
   const nodeTypes = { flow: FlowNodeCard };
 
@@ -43,8 +57,14 @@
     return `${prefix}${e.position}. ${e.label}${cond ? ` — ${cond}` : ''}`;
   }
 
-  function toEdge(e: FlowCanvasEdge): Edge {
+  function toEdge(e: FlowCanvasEdge, selectedId: string | null): Edge {
     const routing = e.kind === 'routing';
+    const stroke = routing
+      ? e.isUnreachable
+        ? 'stroke: #f87171; stroke-dasharray: 6 3; opacity: 0.6;'
+        : 'stroke: #6366f1;'
+      : 'stroke: #a1a1aa; stroke-dasharray: 4 4; opacity: 0.7;';
+    const selected = e.id === selectedId ? ' stroke-width: 3;' : '';
     return {
       id: e.id,
       source: e.sourceId,
@@ -52,18 +72,36 @@
       label: edgeLabel(e),
       markerEnd: { type: MarkerType.ArrowClosed },
       animated: routing && !e.isUnreachable,
-      style: routing
-        ? e.isUnreachable
-          ? 'stroke: #f87171; stroke-dasharray: 6 3; opacity: 0.6;'
-          : 'stroke: #6366f1;'
-        : 'stroke: #a1a1aa; stroke-dasharray: 4 4; opacity: 0.7;',
+      style: stroke + selected,
       labelStyle: 'font-size: 10px;',
+    };
+  }
+
+  function toNode(n: FlowCanvasNode, position: { x: number; y: number }): Node {
+    return {
+      id: n.id,
+      type: 'flow',
+      position,
+      data: {
+        name: n.name,
+        loc: n.loc,
+        kind: n.kind,
+        isEntry: n.isEntry,
+        isFocus: n.id === focusId,
+        extractionFields: n.extractionFields,
+        tools: n.tools,
+        outputWriteTo: n.outputWriteTo,
+        href: `${basePath}/nodes/${n.id}`,
+      },
     };
   }
 
   let nodes = $state.raw<Node[]>([]);
   let edges = $state.raw<Edge[]>([]);
   let ready = $state(false);
+  // Last model the canvas was synced from — plain (not $state): the sync
+  // effect reads AND writes it, so tracking it would double-run the effect.
+  let lastModel: FlowCanvasModel | null = null;
 
   // ssr = false on the route, so document is available at component init.
   // The root layout applies the .dark class after this component initializes,
@@ -103,24 +141,28 @@
       });
     }
 
-    nodes = model.nodes.map((n) => ({
-      id: n.id,
-      type: 'flow',
-      position: positions.get(n.id) ?? { x: 0, y: 0 },
-      data: {
-        name: n.name,
-        loc: n.loc,
-        kind: n.kind,
-        isEntry: n.isEntry,
-        isFocus: n.id === focusId,
-        extractionFields: n.extractionFields,
-        tools: n.tools,
-        outputWriteTo: n.outputWriteTo,
-        href: `${basePath}/nodes/${n.id}`,
-      },
-    }));
-    edges = model.edges.map(toEdge);
+    nodes = model.nodes.map((n) => toNode(n, positions.get(n.id) ?? { x: 0, y: 0 }));
+    // edges are mapped by the sync effect as soon as `ready` flips true.
+    lastModel = model;
     ready = true;
+  });
+
+  // Re-sync after the initial layout when the model changes (a save/create
+  // invalidated the load) or the selection highlight moves — WITHOUT
+  // re-running elk, so node positions (including user drags) survive. Nodes
+  // the previous model didn't have fall back to a grid slot.
+  $effect(() => {
+    const m = model;
+    const sel = selectedEdgeId;
+    if (!ready) return;
+    if (m !== lastModel) {
+      lastModel = m;
+      const prev = new Map(nodes.map((n) => [n.id, n.position]));
+      nodes = m.nodes.map((n, i) =>
+        toNode(n, prev.get(n.id) ?? { x: (i % 4) * (NODE_WIDTH + 60), y: Math.floor(i / 4) * 180 }),
+      );
+    }
+    edges = m.edges.map((e) => toEdge(e, sel));
   });
 </script>
 
@@ -135,9 +177,19 @@
       {colorMode}
       fitView
       minZoom={0.15}
-      nodesConnectable={false}
+      nodesConnectable={!!onConnect}
       deleteKey={null}
       proOptions={{ hideAttribution: false }}
+      onedgeclick={({ edge }) => onEdgeSelect?.(edge.id)}
+      onpaneclick={() => onEdgeSelect?.(null)}
+      onbeforeconnect={(connection) => {
+        // Returning null suppresses SvelteFlow's optimistic client-side edge
+        // (added BEFORE onconnect would fire) — otherwise a failed createEdge
+        // action would leave a phantom edge on the canvas. The real edge
+        // arrives via invalidation after the action succeeds.
+        onConnect?.(connection.source, connection.target);
+        return null;
+      }}
     >
       <Background />
       <Controls />

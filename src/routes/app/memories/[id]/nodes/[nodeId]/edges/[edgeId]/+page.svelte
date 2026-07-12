@@ -76,8 +76,12 @@
   }
   const seededRouting = untrack(() => seedRouting(edge, host.loc));
   let isRouting = $state(seededRouting.routing);
-  let routingIndexText = $state(seededRouting.indexText);
+  // string | number | null: seeded as string, but Svelte coerces a
+  // number-input binding through to_number(), so after the user types this
+  // holds a number (or null when cleared) — normalize before .trim().
+  let routingIndexText = $state<string | number | null>(seededRouting.indexText);
   let routingLabel = $state(seededRouting.label);
+  const routingIndexTrimmed = $derived(String(routingIndexText ?? '').trim());
 
   function setRouting(on: boolean) {
     isRouting = on;
@@ -86,18 +90,18 @@
       const parsed = parseRoutingName(name);
       routingIndexText = parsed.index !== null ? String(parsed.index) : '';
       routingLabel = parsed.label ?? '';
-    } else if (routingIndexText.trim() === '') {
+    } else if (routingIndexTrimmed === '') {
       routingIndexText = String(nextFreeRoutingIndex(host.outgoingEdges, host.loc));
       routingLabel = '';
     }
   }
 
   const routingIndexValid = $derived(
-    routingIndexText.trim() === '' || /^\d+$/.test(routingIndexText.trim()),
+    routingIndexTrimmed === '' || /^\d+$/.test(routingIndexTrimmed),
   );
   const routingName = $derived(
     buildRoutingName(
-      routingIndexValid && routingIndexText.trim() !== '' ? Number(routingIndexText.trim()) : null,
+      routingIndexValid && routingIndexTrimmed !== '' ? Number(routingIndexTrimmed) : null,
       routingLabel,
     ),
   );
