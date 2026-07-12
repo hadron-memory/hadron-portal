@@ -48,8 +48,12 @@
         return h.organizationId ? `/app/orgs/${h.organizationId}/apps/${h.id}` : null;
       case 'aiServiceConfig':
         return h.organizationId ? `/app/orgs/${h.organizationId}/integrations` : null;
+      case 'user':
+        // #533: PK-scoped profile page. Link by id (not urn) so handle-less
+        // users — whose urn is null — stay clickable.
+        return `/app/user/${h.id}`;
       default:
-        // user (no detail page) + any future kind: resolver fallback if URN'd.
+        // Any future kind without a direct page: resolver fallback if URN'd.
         return h.urn ? `/app/u/${encodeURIComponent(h.urn)}` : null;
     }
   }
