@@ -2,19 +2,19 @@
   import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
   import ConditionBuilder from '$lib/edge-conditions/ConditionBuilder.svelte';
-  import { serialize, deserialize } from '$lib/edge-conditions/serializer';
   import { describeCondition } from '$lib/edge-conditions/describe';
   import type { UiCondition } from '$lib/edge-conditions/types';
   import type { KnownVariable } from '$lib/edge-conditions/known-variables';
   import type { FlowEdgeDetail } from '$lib/flow/canvas';
   import {
-    buildRoutingName,
-    isRoutingName,
-    nextFreeRoutingIndex,
-    parseRoutingName,
-    routingNameOf,
-    routingOrder,
-  } from '$lib/flow/routing';
+    conditionJsonFor,
+    conditionSummary,
+    previewFiringOrder,
+    routingToggleSeed,
+    seedConditionState,
+    seedRoutingState,
+  } from '$lib/flow/edge-editing';
+  import { buildRoutingName, isRoutingName } from '$lib/flow/routing';
   import { t } from '$lib/i18n/t';
 
   // Edge editing side panel for the flow canvas (#510 increment 1). The
@@ -47,28 +47,15 @@
   // ── Seed once from the loaded edge (the page keys the panel by edge id;
   // untrack silences state_referenced_locally for the initial reads). As on
   // the edge editor page, a condition the visual builder can't represent is
-  // shown read-only and preserved verbatim on save.
-  function seedCondition(): { ui: UiCondition; error: string | null } {
-    const r = deserialize(edge.condition);
-    return r.ok ? { ui: r.ui, error: null } : { ui: null, error: r.reason };
-  }
-  const seeded = untrack(() => seedCondition());
+  // shown read-only and preserved verbatim on save (seedConditionState).
+  const seeded = untrack(() => seedConditionState(edge.condition));
   let condition = $state<UiCondition>(seeded.ui);
   const conditionError = seeded.error;
 
   let name = $state(untrack(() => edge.name ?? ''));
   let priority = $state(untrack(() => String(edge.priority ?? 0)));
 
-  const seededRouting = untrack(() => {
-    const routingName = routingNameOf(edge, edge.sourceLoc);
-    const routing = isRoutingName(routingName);
-    const parsed = routing ? parseRoutingName(routingName) : { index: null, label: null };
-    return {
-      routing,
-      indexText: parsed.index !== null ? String(parsed.index) : '',
-      label: parsed.label ?? '',
-    };
-  });
+  const seededRouting = untrack(() => seedRoutingState(edge, edge.sourceLoc));
   let isRouting = $state(seededRouting.routing);
   // string | number | null: seeded as string, but the number-input binding
   // writes numbers/null back (see routingIndexTrimmed below).
@@ -83,13 +70,10 @@
   function setRouting(on: boolean) {
     isRouting = on;
     if (!on) return;
-    if (isRoutingName(name)) {
-      const parsed = parseRoutingName(name);
-      routingIndexText = parsed.index !== null ? String(parsed.index) : '';
-      routingLabel = parsed.label ?? '';
-    } else if (routingIndexTrimmed === '') {
-      routingIndexText = String(nextFreeRoutingIndex(siblings, edge.sourceLoc));
-      routingLabel = '';
+    const seed = routingToggleSeed(name, routingIndexTrimmed, siblings, edge.sourceLoc);
+    if (seed) {
+      routingIndexText = seed.indexText;
+      routingLabel = seed.label;
     }
   }
 
@@ -104,36 +88,20 @@
   );
   const effectiveName = $derived(isRouting ? routingName : name);
 
-  // Hidden form field: preserve an unrepresentable condition verbatim,
-  // otherwise serialize the builder (null = always fires → CLEAR on save).
-  const conditionJson = $derived(
-    conditionError ? JSON.stringify(edge.condition ?? null) : JSON.stringify(serialize(condition)),
-  );
+  const conditionJson = $derived(conditionJsonFor(conditionError, edge.condition, condition));
   const conditionPreview = $derived(conditionError ? null : describeCondition(condition));
 
   // Live firing order among the source node's edges with THIS edge's unsaved
   // values substituted — same preview the edge editor page shows.
-  const firingOrder = $derived.by(() => {
-    const priorityNum = Number(priority);
-    const substituted = siblings.map((e) =>
-      e.id === edge.id
-        ? {
-            ...e,
-            name: effectiveName || null,
-            priority: Number.isInteger(priorityNum) ? priorityNum : (e.priority ?? 0),
-            condition: conditionError ? e.condition : serialize(condition),
-          }
-        : e,
-    );
-    return routingOrder(substituted, edge.sourceLoc);
-  });
-
-  function conditionSummary(cond: unknown): string {
-    if (cond == null) return t('edge-editor.order.always', 'always fires');
-    const r = deserialize(cond);
-    if (!r.ok) return t('edge-editor.order.custom', 'custom condition');
-    return describeCondition(r.ui) ?? t('edge-editor.order.always', 'always fires');
-  }
+  const firingOrder = $derived.by(() =>
+    previewFiringOrder(siblings, edge.sourceLoc, {
+      id: edge.id,
+      name: effectiveName,
+      priorityText: priority,
+      condition,
+      conditionError,
+    }),
+  );
 </script>
 
 <!-- Side-by-side with the canvas on lg+; stacked (and height-capped) below it

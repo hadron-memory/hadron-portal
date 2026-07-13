@@ -7,6 +7,7 @@ import {
   UPDATE_EDGE_MUTATION,
   DELETE_EDGE_MUTATION,
 } from '$lib/server/queries';
+import { parseConditionField, parsePriorityField } from '$lib/flow/edge-editing';
 import { collectFlowFields, type FlowFieldNode } from '$lib/flow/fields';
 import { isRoutingName, routingNameOf } from '$lib/flow/routing';
 import type { NodeEdge } from '$lib/types';
@@ -125,21 +126,11 @@ export const actions: Actions = {
     const description = String(fd.get('description') ?? '').trim() || null;
     const isRunnable = fd.get('isRunnable') === 'true';
 
-    // Number() + isInteger (not parseInt): parseInt('1e2') === 1 and '1.5' → 1
-    // both silently mis-parse; we want to reject non-integers outright.
-    const priorityRaw = String(fd.get('priority') ?? '').trim();
-    const priority = priorityRaw === '' ? 0 : Number(priorityRaw);
-    if (!Number.isInteger(priority)) return fail(400, { error: 'Priority must be a whole number' });
+    const priority = parsePriorityField(fd.get('priority'));
+    if (!priority.ok) return fail(400, { error: priority.error });
 
-    // Hidden field carries the ConditionBuilder's serialized JSONLogic, or the
-    // literal "null" when the condition is empty (always-fires → CLEAR).
-    const conditionRaw = String(fd.get('condition') ?? 'null');
-    let condition: unknown;
-    try {
-      condition = JSON.parse(conditionRaw);
-    } catch {
-      return fail(400, { error: 'Invalid condition expression' });
-    }
+    const condition = parseConditionField(fd.get('condition'));
+    if (!condition.ok) return fail(400, { error: condition.error });
 
     // Free-form JSON payload. Empty → null (clear). Non-empty must parse.
     const dataRaw = String(fd.get('data') ?? '').trim();
@@ -161,8 +152,8 @@ export const actions: Actions = {
         name,
         description,
         isRunnable,
-        condition,
-        priority,
+        condition: condition.value,
+        priority: priority.value,
         data: dataVal,
       });
       return { saved: true };
