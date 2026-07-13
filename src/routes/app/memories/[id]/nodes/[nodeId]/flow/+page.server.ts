@@ -47,13 +47,21 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   // Overlap the shared-layout load with the focus-node fetch (BFS level 0),
   // as the edge editor page does — this load re-runs on every panel save.
+  // The fetch is settled (not awaited raw) so a failure can't surface before
+  // the consumer-mode guard has had the chance to redirect.
   const [parentData, focusRes] = await Promise.all([
     parent(),
-    client.request<{ node: FlowHostNode | null }>(EDGE_HOST_NODE_QUERY, { id: params.nodeId }),
+    client
+      .request<{ node: FlowHostNode | null }>(EDGE_HOST_NODE_QUERY, { id: params.nodeId })
+      .then(
+        (res) => ({ ok: true as const, res }),
+        (err: unknown) => ({ ok: false as const, err }),
+      ),
   ]);
   await requireNonConsumer(async () => parentData);
+  if (!focusRes.ok) throw focusRes.err;
 
-  const focus = focusRes.node;
+  const focus = focusRes.res.node;
   if (!focus) error(404, `Node not found: ${params.nodeId}`);
 
   // #237-style URL correction, as on the edge editor page.

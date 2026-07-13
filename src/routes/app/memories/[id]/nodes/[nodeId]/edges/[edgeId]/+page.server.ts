@@ -90,15 +90,21 @@ async function loadFlowFields(token: string | null | undefined, host: HostNode) 
 const DATA_MAX = 262144; // 256 KB
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  const [parentData, data] = await Promise.all([
+  // The host fetch overlaps parent() but is settled (not awaited raw) so a
+  // failure can't surface before the consumer-mode guard redirects.
+  const [parentData, hostRes] = await Promise.all([
     parent(),
-    gqlClient(locals.token).request<{ node: HostNode | null }>(
-      EDGE_HOST_NODE_QUERY, { id: params.nodeId },
-    ),
+    gqlClient(locals.token)
+      .request<{ node: HostNode | null }>(EDGE_HOST_NODE_QUERY, { id: params.nodeId })
+      .then(
+        (res) => ({ ok: true as const, res }),
+        (err: unknown) => ({ ok: false as const, err }),
+      ),
   ]);
   await requireNonConsumer(async () => parentData);
+  if (!hostRes.ok) throw hostRes.err;
 
-  const host = data.node;
+  const host = hostRes.res.node;
   if (!host) error(404, `Node not found: ${params.nodeId}`);
   const edge = host.outgoingEdges.find((e) => e.id === params.edgeId);
   if (!edge) error(404, `Edge not found: ${params.edgeId}`);
