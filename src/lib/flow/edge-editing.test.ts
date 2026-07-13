@@ -6,10 +6,9 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  composeRoutingName,
   conditionJsonFor,
   conditionSummary,
-  parseConditionField,
-  parsePriorityField,
   previewFiringOrder,
   routingToggleSeed,
   seedConditionState,
@@ -123,28 +122,18 @@ describe('previewFiringOrder', () => {
   });
 });
 
-describe('parsePriorityField', () => {
-  it('defaults empty to 0 and trims', () => {
-    expect(parsePriorityField('')).toEqual({ ok: true, value: 0 });
-    expect(parsePriorityField(' 7 ')).toEqual({ ok: true, value: 7 });
-    expect(parsePriorityField(null)).toEqual({ ok: true, value: 0 });
+describe('composeRoutingName', () => {
+  it('builds next.<index>[.<label>] from the order/label inputs', () => {
+    expect(composeRoutingName('2', 'High Confidence')).toEqual({
+      valid: true,
+      name: 'next.2.high-confidence',
+    });
+    expect(composeRoutingName('0', '')).toEqual({ valid: true, name: 'next.0' });
   });
 
-  it('rejects non-integers via Number(), not parseInt()', () => {
-    expect(parsePriorityField('1.5').ok).toBe(false);
-    expect(parsePriorityField('abc').ok).toBe(false);
-    // parseInt('1e2') would silently yield 1; Number() reads it as 100.
-    expect(parsePriorityField('1e2')).toEqual({ ok: true, value: 100 });
-  });
-});
-
-describe('parseConditionField', () => {
-  it('parses JSONLogic and treats a missing field as null (CLEAR)', () => {
-    expect(parseConditionField(JSON.stringify(gt08))).toEqual({ ok: true, value: gt08 });
-    expect(parseConditionField(null)).toEqual({ ok: true, value: null });
-  });
-
-  it('rejects malformed JSON', () => {
-    expect(parseConditionField('{nope').ok).toBe(false);
+  it('treats an empty order as index-less and a non-integer as invalid', () => {
+    expect(composeRoutingName('', '')).toEqual({ valid: true, name: 'next' });
+    expect(composeRoutingName('', 'high')).toEqual({ valid: true, name: 'next.high' });
+    expect(composeRoutingName('1.5', 'high').valid).toBe(false);
   });
 });

@@ -7,7 +7,7 @@ import {
   UPDATE_EDGE_MUTATION,
   DELETE_EDGE_MUTATION,
 } from '$lib/server/queries';
-import { parseConditionField, parsePriorityField } from '$lib/flow/edge-editing';
+import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
 import { collectFlowFields, type FlowFieldNode } from '$lib/flow/fields';
 import { isRoutingName, routingNameOf } from '$lib/flow/routing';
 import type { NodeEdge } from '$lib/types';

@@ -12,6 +12,7 @@ import { deserialize, serialize } from '$lib/edge-conditions/serializer';
 import type { UiCondition } from '$lib/edge-conditions/types';
 import { t } from '$lib/i18n/t';
 import {
+  buildRoutingName,
   isRoutingName,
   nextFreeRoutingIndex,
   parseRoutingName,
@@ -99,6 +100,22 @@ export function routingToggleSeed(
   return null;
 }
 
+/**
+ * Compose the routing name the form will submit from the order/label
+ * inputs: `valid` is false for a non-integer order (blocks save), and
+ * the name is built from the parsed index + slugified label.
+ */
+export function composeRoutingName(
+  indexText: string,
+  label: string,
+): { valid: boolean; name: string } {
+  const valid = indexText === '' || /^\d+$/.test(indexText);
+  return {
+    valid,
+    name: buildRoutingName(valid && indexText !== '' ? Number(indexText) : null, label),
+  };
+}
+
 // ── Firing-order preview ────────────────────────────────────────────────────
 
 /**
@@ -134,33 +151,5 @@ export function previewFiringOrder<E extends RoutingEdgeLike & { id: string }>(
   return routingOrder(substituted, sourceLoc);
 }
 
-// ── Form-field parsing (server actions) ─────────────────────────────────────
-
-/**
- * Parse the `priority` form field. Number() + isInteger (not parseInt):
- * parseInt('1e2') === 1 and '1.5' → 1 both silently mis-parse; we want
- * to reject non-integers outright. Empty defaults to 0.
- */
-export function parsePriorityField(
-  raw: FormDataEntryValue | null,
-): { ok: true; value: number } | { ok: false; error: string } {
-  const trimmed = String(raw ?? '').trim();
-  const value = trimmed === '' ? 0 : Number(trimmed);
-  if (!Number.isInteger(value)) return { ok: false, error: 'Priority must be a whole number' };
-  return { ok: true, value };
-}
-
-/**
- * Parse the hidden `condition` form field: the ConditionBuilder's
- * serialized JSONLogic, or the literal "null" when the condition is
- * empty (always-fires → CLEAR).
- */
-export function parseConditionField(
-  raw: FormDataEntryValue | null,
-): { ok: true; value: unknown } | { ok: false; error: string } {
-  try {
-    return { ok: true, value: JSON.parse(String(raw ?? 'null')) };
-  } catch {
-    return { ok: false, error: 'Invalid condition expression' };
-  }
-}
+// (The server-action form parsers live in ./edge-form — kept separate so
+// actions don't import this module's UI-presentation/i18n dependencies.)

@@ -92,10 +92,10 @@ describe('collectFlowFieldsFor', () => {
   // node's field list on demand (the open edge panel's source node):
   // entry → classify → act, with a reference edge off classify.
   const nodes = [
-    { id: 'n1', loc: 'entry', name: 'Entry', data: { extractionSpec: [{ field: 'seed' }] } },
-    { id: 'n2', loc: 'classify', name: 'Classify', data: { extractionSpec: [{ field: 'intent' }] } },
-    { id: 'n3', loc: 'act', name: 'Act', data: null },
-    { id: 'n4', loc: 'spec', name: 'Spec', data: { extractionSpec: [{ field: 'never' }] } },
+    { id: 'n1', loc: 'entry', name: 'Entry', extractionSpec: [{ field: 'seed' }] },
+    { id: 'n2', loc: 'classify', name: 'Classify', extractionSpec: [{ field: 'intent' }] },
+    { id: 'n3', loc: 'act', name: 'Act', extractionSpec: [] },
+    { id: 'n4', loc: 'spec', name: 'Spec', extractionSpec: [{ field: 'never' }] },
   ];
   const edges = [
     { name: 'next', loc: 'entry:next:classify', sourceId: 'n1', targetId: 'n2' },

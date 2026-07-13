@@ -7,6 +7,7 @@
   import { describeCondition } from '$lib/edge-conditions/describe';
   import type { UiCondition } from '$lib/edge-conditions/types';
   import {
+    composeRoutingName,
     conditionJsonFor,
     conditionSummary,
     previewFiringOrder,
@@ -14,7 +15,7 @@
     seedConditionState,
     seedRoutingState,
   } from '$lib/flow/edge-editing';
-  import { buildRoutingName, isRoutingName } from '$lib/flow/routing';
+  import { isRoutingName } from '$lib/flow/routing';
   import { t } from '$lib/i18n/t';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { PageData, ActionData } from './$types';
@@ -78,15 +79,9 @@
     }
   }
 
-  const routingIndexValid = $derived(
-    routingIndexTrimmed === '' || /^\d+$/.test(routingIndexTrimmed),
-  );
-  const routingName = $derived(
-    buildRoutingName(
-      routingIndexValid && routingIndexTrimmed !== '' ? Number(routingIndexTrimmed) : null,
-      routingLabel,
-    ),
-  );
+  const composedRouting = $derived(composeRoutingName(routingIndexTrimmed, routingLabel));
+  const routingIndexValid = $derived(composedRouting.valid);
+  const routingName = $derived(composedRouting.name);
   /** The name the form submits: generated in routing mode, free-text otherwise. */
   const effectiveName = $derived(isRouting ? routingName : name);
 

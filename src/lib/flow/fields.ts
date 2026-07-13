@@ -88,7 +88,8 @@ export interface FlowGraphNodeInput {
   id: string;
   loc: string;
   name: string;
-  data?: unknown;
+  /** Already-extracted spec entries (extractionSpecOf), not raw node data. */
+  extractionSpec: ExtractionEntry[];
 }
 
 export interface FlowGraphEdgeInput {
@@ -114,7 +115,10 @@ export function collectFlowFieldsFor(
   edges: readonly FlowGraphEdgeInput[],
 ): KnownVariable[] {
   const byId = new Map<string, FlowFieldNode>(
-    nodes.map((n) => [n.id, { loc: n.loc, name: n.name, data: n.data, incomingEdges: [] }]),
+    nodes.map((n) => [
+      n.id,
+      { loc: n.loc, name: n.name, data: { extractionSpec: n.extractionSpec }, incomingEdges: [] },
+    ]),
   );
   for (const e of edges) {
     const source = byId.get(e.sourceId);

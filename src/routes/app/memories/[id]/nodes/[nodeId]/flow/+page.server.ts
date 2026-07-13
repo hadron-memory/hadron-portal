@@ -5,7 +5,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { CREATE_EDGE_MUTATION, EDGE_HOST_NODE_QUERY, UPDATE_EDGE_MUTATION } from '$lib/server/queries';
 import { buildFlowCanvas, edgeRoutes } from '$lib/flow/canvas';
 import type { FlowCanvasNodeInput, FlowEdgeDetail } from '$lib/flow/canvas';
-import { parseConditionField, parsePriorityField } from '$lib/flow/edge-editing';
+import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
 import { extractionSpecOf } from '$lib/flow/fields';
 import type { FlowGraphNodeInput } from '$lib/flow/fields';
 import { buildRoutingName, nextFreeRoutingIndex, routingOrder } from '$lib/flow/routing';
@@ -43,26 +43,68 @@ const FLOW_NODES_MAX = 40;
 const REFERENCE_NODES_MAX = 20;
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  const parentData = await parent();
+  const client = gqlClient(locals.token);
+
+  // Overlap the shared-layout load with the focus-node fetch (BFS level 0),
+  // as the edge editor page does — this load re-runs on every panel save.
+  const [parentData, focusRes] = await Promise.all([
+    parent(),
+    client.request<{ node: FlowHostNode | null }>(EDGE_HOST_NODE_QUERY, { id: params.nodeId }),
+  ]);
   await requireNonConsumer(async () => parentData);
 
-  const client = gqlClient(locals.token);
-  const fetched = new Map<string, FlowHostNode>();
-  let frontier = [params.nodeId];
+  const focus = focusRes.node;
+  if (!focus) error(404, `Node not found: ${params.nodeId}`);
+
+  // #237-style URL correction, as on the edge editor page.
+  if (focus.memoryId !== params.id) {
+    redirect(303, `/app/memories/${focus.memoryId}/nodes/${params.nodeId}/flow`);
+  }
+
+  const fetched = new Map<string, FlowHostNode>([[params.nodeId, focus]]);
+  const attempted = new Set<string>();
   let truncated = false;
 
-  while (frontier.length > 0) {
-    // Dedupe the level and reserve slots up to the cap, then fetch it in one
-    // Promise.all (as the edge editor does for its upstream level).
-    const batch: string[] = [];
-    for (const id of frontier) {
-      if (fetched.has(id) || batch.includes(id)) continue;
-      if (fetched.size + batch.length >= FLOW_NODES_MAX) {
-        truncated = true;
-        break;
+  const routedNeighborsOf = (node: FlowHostNode): string[] => {
+    const out: string[] = [];
+    for (const e of node.outgoingEdges) {
+      // e.target is typed non-null but a deleted/unreadable endpoint can
+      // surface as null at runtime — skip rather than crash the page.
+      if (e.target && edgeRoutes(e, node.loc) && !fetched.has(e.target.id)) {
+        out.push(e.target.id);
       }
-      batch.push(id);
     }
+    for (const e of node.incomingEdges) {
+      if (e.source && edgeRoutes(e, e.source.loc) && !fetched.has(e.source.id)) {
+        out.push(e.source.id);
+      }
+    }
+    return out;
+  };
+
+  // BFS one frontier level at a time, each level fetched in a single
+  // Promise.all. Only SUCCESSFUL fetches count against FLOW_NODES_MAX — a
+  // failed/deleted neighbor frees its slot — and candidates beyond the cap
+  // carry over to the next round ahead of deeper discoveries, so nodes
+  // closer to the focus keep priority.
+  let frontier = routedNeighborsOf(focus);
+  while (frontier.length > 0) {
+    const candidates: string[] = [];
+    const seen = new Set<string>();
+    for (const id of frontier) {
+      if (fetched.has(id) || attempted.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      candidates.push(id);
+    }
+    if (candidates.length === 0) break;
+
+    const remaining = FLOW_NODES_MAX - fetched.size;
+    if (remaining <= 0) {
+      truncated = true;
+      break;
+    }
+    const batch = candidates.slice(0, remaining);
+    for (const id of batch) attempted.add(id);
 
     const results = await Promise.all(
       batch.map(async (id) => {
@@ -70,47 +112,25 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
           const res = await client.request<{ node: FlowHostNode | null }>(EDGE_HOST_NODE_QUERY, {
             id,
           });
-          return { id, node: res.node };
+          return res.node;
         } catch (err) {
           // Best-effort beyond the focus node: an unreadable neighbor shrinks
           // the canvas, it doesn't 500 the page.
-          if (id === params.nodeId) throw err;
           console.warn(`[flow-canvas] neighbor fetch failed for ${id}:`, err);
-          return { id, node: null };
+          return null;
         }
       }),
     );
 
-    const next: string[] = [];
-    for (const { id, node } of results) {
-      if (!node) {
-        if (id === params.nodeId) error(404, `Node not found: ${id}`);
-        continue;
-      }
-      fetched.set(id, node);
-
-      for (const e of node.outgoingEdges) {
-        // e.target is typed non-null but a deleted/unreadable endpoint can
-        // surface as null at runtime — skip rather than crash the page.
-        if (e.target && edgeRoutes(e, node.loc) && !fetched.has(e.target.id)) {
-          next.push(e.target.id);
-        }
-      }
-      for (const e of node.incomingEdges) {
-        if (e.source && edgeRoutes(e, e.source.loc) && !fetched.has(e.source.id)) {
-          next.push(e.source.id);
-        }
-      }
+    // Over-cap candidates retry next round, BEFORE this level's discoveries.
+    const next = candidates.slice(remaining);
+    for (let i = 0; i < batch.length; i++) {
+      const node = results[i];
+      if (!node) continue; // deleted or unreadable — its slot stays free
+      fetched.set(batch[i], node);
+      next.push(...routedNeighborsOf(node));
     }
     frontier = next;
-  }
-
-  const focus = fetched.get(params.nodeId);
-  if (!focus) error(404, `Node not found: ${params.nodeId}`);
-
-  // #237-style URL correction, as on the edge editor page.
-  if (focus.memoryId !== params.id) {
-    redirect(303, `/app/memories/${focus.memoryId}/nodes/${params.nodeId}/flow`);
   }
 
   const nodeInputs: FlowCanvasNodeInput[] = [...fetched.values()].map((n) => ({
@@ -161,12 +181,19 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // the client (collectFlowFieldsFor) for the one open panel — only each flow
   // node's extraction spec ships, not full node data and not a precomputed
   // O(nodes × upstream) label map. Upstream coverage is the whole fetched
-  // graph (deeper than the edge editor's 2 levels), via edgeDetails.
+  // graph (deeper than the edge editor's 2 levels), via edgeDetails. Entries
+  // are stripped to the keys the picker uses: extractionSpecOf filters
+  // malformed entries but keeps extra author keys, which would bloat this
+  // per-save payload.
   const fieldNodes: FlowGraphNodeInput[] = [...fetched.values()].map((n) => ({
     id: n.id,
     loc: n.loc,
     name: n.name,
-    data: { extractionSpec: extractionSpecOf(n.data) },
+    extractionSpec: extractionSpecOf(n.data).map(({ field, description, shape }) => ({
+      field,
+      description,
+      shape,
+    })),
   }));
 
   return {

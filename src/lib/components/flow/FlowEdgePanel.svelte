@@ -7,6 +7,7 @@
   import type { KnownVariable } from '$lib/edge-conditions/known-variables';
   import type { FlowEdgeDetail } from '$lib/flow/canvas';
   import {
+    composeRoutingName,
     conditionJsonFor,
     conditionSummary,
     previewFiringOrder,
@@ -14,7 +15,7 @@
     seedConditionState,
     seedRoutingState,
   } from '$lib/flow/edge-editing';
-  import { buildRoutingName, isRoutingName } from '$lib/flow/routing';
+  import { isRoutingName } from '$lib/flow/routing';
   import { t } from '$lib/i18n/t';
 
   // Edge editing side panel for the flow canvas (#510 increment 1). The
@@ -77,15 +78,9 @@
     }
   }
 
-  const routingIndexValid = $derived(
-    routingIndexTrimmed === '' || /^\d+$/.test(routingIndexTrimmed),
-  );
-  const routingName = $derived(
-    buildRoutingName(
-      routingIndexValid && routingIndexTrimmed !== '' ? Number(routingIndexTrimmed) : null,
-      routingLabel,
-    ),
-  );
+  const composedRouting = $derived(composeRoutingName(routingIndexTrimmed, routingLabel));
+  const routingIndexValid = $derived(composedRouting.valid);
+  const routingName = $derived(composedRouting.name);
   const effectiveName = $derived(isRouting ? routingName : name);
 
   const conditionJson = $derived(conditionJsonFor(conditionError, edge.condition, condition));
