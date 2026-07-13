@@ -27,7 +27,7 @@ export interface FlowFieldNode {
   }> | null;
 }
 
-interface ExtractionEntry {
+export interface ExtractionEntry {
   field: string;
   description?: string;
   shape?: string;
@@ -88,7 +88,8 @@ export interface FlowGraphNodeInput {
   id: string;
   loc: string;
   name: string;
-  data?: unknown;
+  /** Already-extracted spec entries (extractionSpecOf), not raw node data. */
+  extractionSpec: ExtractionEntry[];
 }
 
 export interface FlowGraphEdgeInput {
@@ -99,17 +100,25 @@ export interface FlowGraphEdgeInput {
 }
 
 /**
- * Envelope-field picker entries for EVERY node of an already-fetched flow
- * graph (the flow canvas, #510): wires the nodes into a FlowFieldNode object
- * graph (cyclic references are fine — collectFlowFields guards by loc) and
- * collects each node's fields from its full upstream within the graph.
+ * Envelope-field picker entries for ONE node of an already-fetched flow
+ * graph (the flow canvas's edge panel, #510): wires the nodes into a
+ * FlowFieldNode object graph (cyclic references are fine —
+ * collectFlowFields guards by loc; edges with an endpoint outside
+ * `nodes` are skipped) and collects the node's fields from its full
+ * upstream within the graph. Client-safe, so the canvas page computes
+ * fields lazily for the one open panel instead of shipping a
+ * precomputed O(nodes × upstream) label map on every load.
  */
-export function collectFlowFieldsByNode(
+export function collectFlowFieldsFor(
+  nodeId: string,
   nodes: readonly FlowGraphNodeInput[],
   edges: readonly FlowGraphEdgeInput[],
-): Record<string, KnownVariable[]> {
+): KnownVariable[] {
   const byId = new Map<string, FlowFieldNode>(
-    nodes.map((n) => [n.id, { loc: n.loc, name: n.name, data: n.data, incomingEdges: [] }]),
+    nodes.map((n) => [
+      n.id,
+      { loc: n.loc, name: n.name, data: { extractionSpec: n.extractionSpec }, incomingEdges: [] },
+    ]),
   );
   for (const e of edges) {
     const source = byId.get(e.sourceId);
@@ -117,7 +126,6 @@ export function collectFlowFieldsByNode(
     if (!source || !target) continue;
     target.incomingEdges!.push({ name: e.name, loc: e.loc, source });
   }
-  const out: Record<string, KnownVariable[]> = {};
-  for (const [id, fieldNode] of byId) out[id] = collectFlowFields(fieldNode);
-  return out;
+  const fieldNode = byId.get(nodeId);
+  return fieldNode ? collectFlowFields(fieldNode) : [];
 }

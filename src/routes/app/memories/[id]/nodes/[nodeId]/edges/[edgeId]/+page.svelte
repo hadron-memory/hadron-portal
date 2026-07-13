@@ -4,17 +4,18 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import ConditionBuilder from '$lib/edge-conditions/ConditionBuilder.svelte';
-  import { serialize, deserialize } from '$lib/edge-conditions/serializer';
   import { describeCondition } from '$lib/edge-conditions/describe';
   import type { UiCondition } from '$lib/edge-conditions/types';
   import {
-    buildRoutingName,
-    isRoutingName,
-    nextFreeRoutingIndex,
-    parseRoutingName,
-    routingNameOf,
-    routingOrder,
-  } from '$lib/flow/routing';
+    composeRoutingName,
+    conditionJsonFor,
+    conditionSummary,
+    previewFiringOrder,
+    routingToggleSeed,
+    seedConditionState,
+    seedRoutingState,
+  } from '$lib/flow/edge-editing';
+  import { isRoutingName } from '$lib/flow/routing';
   import { t } from '$lib/i18n/t';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { PageData, ActionData } from './$types';
@@ -36,20 +37,15 @@
   const sourceUrn = $derived(nodeUrn(host.memory?.urn ?? data.graph.urn, host.loc));
   const targetUrn = $derived(nodeUrn(edge.target.memory?.urn ?? data.graph.urn, edge.target.loc));
 
-  // ── Editable state (seeded from the loaded edge) ─────────────────────────
-  // deserialize() can fail for JSONLogic shapes the structured ConditionBuilder
-  // can't represent. On failure we keep the raw value, show it read-only, and
-  // preserve it verbatim on save — letting the empty builder serialize over it
-  // would silently clear the condition (#350 review).
-  function seedCondition(e: typeof edge): { ui: UiCondition; error: string | null } {
-    const r = deserialize(e.condition);
-    return r.ok ? { ui: r.ui, error: null } : { ui: null, error: r.reason };
-  }
+  // ── Editable state (seeded from the loaded edge, via the shared
+  // $lib/flow/edge-editing helpers the flow-canvas panel also uses).
+  // seedConditionState keeps an unrepresentable JSONLogic condition raw,
+  // shown read-only and preserved verbatim on save (#350 review).
 
   // Seed once from the loaded edge (untrack — these are initial values; the
   // effect below reseeds when the edge changes). untrack also silences the
   // state_referenced_locally warning for reading the `edge` derived here.
-  const seeded = untrack(() => seedCondition(edge));
+  const seeded = untrack(() => seedConditionState(edge.condition));
   let name = $state(untrack(() => edge.name ?? ''));
   let description = $state(untrack(() => edge.description ?? ''));
   let isRunnable = $state(untrack(() => !!edge.isRunnable));
@@ -64,17 +60,7 @@
   // (falling back to the loc-derived segment for unnamed edges). Authors
   // never type that grammar by hand: routing mode generates the name from
   // an order number + optional label.
-  function seedRouting(e: typeof edge, sourceLoc: string) {
-    const routingName = routingNameOf(e, sourceLoc);
-    const routing = isRoutingName(routingName);
-    const parsed = routing ? parseRoutingName(routingName) : { index: null, label: null };
-    return {
-      routing,
-      indexText: parsed.index !== null ? String(parsed.index) : '',
-      label: parsed.label ?? '',
-    };
-  }
-  const seededRouting = untrack(() => seedRouting(edge, host.loc));
+  const seededRouting = untrack(() => seedRoutingState(edge, host.loc));
   let isRouting = $state(seededRouting.routing);
   // string | number | null: seeded as string, but Svelte coerces a
   // number-input binding through to_number(), so after the user types this
@@ -86,25 +72,16 @@
   function setRouting(on: boolean) {
     isRouting = on;
     if (!on) return;
-    if (isRoutingName(name)) {
-      const parsed = parseRoutingName(name);
-      routingIndexText = parsed.index !== null ? String(parsed.index) : '';
-      routingLabel = parsed.label ?? '';
-    } else if (routingIndexTrimmed === '') {
-      routingIndexText = String(nextFreeRoutingIndex(host.outgoingEdges, host.loc));
-      routingLabel = '';
+    const seed = routingToggleSeed(name, routingIndexTrimmed, host.outgoingEdges, host.loc);
+    if (seed) {
+      routingIndexText = seed.indexText;
+      routingLabel = seed.label;
     }
   }
 
-  const routingIndexValid = $derived(
-    routingIndexTrimmed === '' || /^\d+$/.test(routingIndexTrimmed),
-  );
-  const routingName = $derived(
-    buildRoutingName(
-      routingIndexValid && routingIndexTrimmed !== '' ? Number(routingIndexTrimmed) : null,
-      routingLabel,
-    ),
-  );
+  const composedRouting = $derived(composeRoutingName(routingIndexTrimmed, routingLabel));
+  const routingIndexValid = $derived(composedRouting.valid);
+  const routingName = $derived(composedRouting.name);
   /** The name the form submits: generated in routing mode, free-text otherwise. */
   const effectiveName = $derived(isRouting ? routingName : name);
 
@@ -112,28 +89,15 @@
   // exact ordering (priority asc → numeric index → loc), with THIS edge's
   // unsaved name/priority/condition substituted so the panel previews what
   // saving would do.
-  const firingOrder = $derived.by(() => {
-    const priorityNum = Number(priority);
-    const siblings = host.outgoingEdges.map((e) =>
-      e.id === edge.id
-        ? {
-            ...e,
-            name: effectiveName || null,
-            priority: Number.isInteger(priorityNum) ? priorityNum : (e.priority ?? 0),
-            condition: conditionError ? e.condition : serialize(condition),
-          }
-        : e,
-    );
-    return routingOrder(siblings, host.loc);
-  });
-
-  /** Plain-English summary of a sibling's stored JSONLogic condition. */
-  function conditionSummary(cond: unknown): string {
-    if (cond == null) return t('edge-editor.order.always', 'always fires');
-    const r = deserialize(cond);
-    if (!r.ok) return t('edge-editor.order.custom', 'custom condition');
-    return describeCondition(r.ui) ?? t('edge-editor.order.always', 'always fires');
-  }
+  const firingOrder = $derived.by(() =>
+    previewFiringOrder(host.outgoingEdges, host.loc, {
+      id: edge.id,
+      name: effectiveName,
+      priorityText: priority,
+      condition,
+      conditionError,
+    }),
+  );
 
   // Live preview of the condition being edited ("when confidence is greater
   // than 0.8"); null = no condition.
@@ -152,12 +116,12 @@
     description = edge.description ?? '';
     isRunnable = !!edge.isRunnable;
     priority = String(edge.priority ?? 0);
-    const s = seedCondition(edge);
+    const s = seedConditionState(edge.condition);
     condition = s.ui;
     conditionError = s.error;
     dataText = edge.data != null ? JSON.stringify(edge.data, null, 2) : '';
     confirmDelete = false;
-    const r = seedRouting(edge, host.loc);
+    const r = seedRoutingState(edge, host.loc);
     isRouting = r.routing;
     routingIndexText = r.indexText;
     routingLabel = r.label;
@@ -166,9 +130,7 @@
   // Hidden form field. When the condition couldn't be parsed into the builder,
   // submit the ORIGINAL JSONLogic unchanged (preserve); otherwise serialize the
   // builder. null = always fires → CLEAR on save. (Mirrors the conv. editor.)
-  const conditionJson = $derived(
-    conditionError ? JSON.stringify(edge.condition ?? null) : JSON.stringify(serialize(condition)),
-  );
+  const conditionJson = $derived(conditionJsonFor(conditionError, edge.condition, condition));
 
   // Client-side JSON validity hint for the data field (server re-validates).
   const dataTrimmed = $derived(dataText.trim());

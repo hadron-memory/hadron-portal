@@ -4,8 +4,10 @@ import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { CREATE_EDGE_MUTATION, EDGE_HOST_NODE_QUERY, UPDATE_EDGE_MUTATION } from '$lib/server/queries';
 import { buildFlowCanvas, edgeRoutes } from '$lib/flow/canvas';
-import type { FlowCanvasEdgeInput, FlowCanvasNodeInput, FlowEdgeDetail } from '$lib/flow/canvas';
-import { collectFlowFieldsByNode } from '$lib/flow/fields';
+import type { FlowCanvasNodeInput, FlowEdgeDetail } from '$lib/flow/canvas';
+import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
+import { extractionSpecOf } from '$lib/flow/fields';
+import type { FlowGraphNodeInput } from '$lib/flow/fields';
 import { buildRoutingName, nextFreeRoutingIndex, routingOrder } from '$lib/flow/routing';
 import type { NodeEdge } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -34,61 +36,109 @@ interface FlowHostNode {
 }
 
 // Caps: RUN_MAX_HOPS is 50 but real flows are 3–10 hops; 40 nodes covers a
-// generous flow while bounding this page to 40 sequential-ish node reads.
+// generous flow while bounding this page to 40 node reads (one parallel
+// batch per BFS level — every panel save/create invalidates this load, so
+// latency must scale with flow DEPTH, not node count × RTT).
 const FLOW_NODES_MAX = 40;
 const REFERENCE_NODES_MAX = 20;
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  const parentData = await parent();
-  await requireNonConsumer(async () => parentData);
-
   const client = gqlClient(locals.token);
-  const fetched = new Map<string, FlowHostNode>();
-  const queue = [params.nodeId];
-  let truncated = false;
 
-  while (queue.length > 0) {
-    const id = queue.shift()!;
-    if (fetched.has(id)) continue;
-    if (fetched.size >= FLOW_NODES_MAX) {
-      truncated = true;
-      break;
-    }
-    let node: FlowHostNode | null;
-    try {
-      const res = await client.request<{ node: FlowHostNode | null }>(EDGE_HOST_NODE_QUERY, { id });
-      node = res.node;
-    } catch (err) {
-      // Best-effort beyond the focus node: an unreadable neighbor shrinks
-      // the canvas, it doesn't 500 the page.
-      if (id === params.nodeId) throw err;
-      console.warn(`[flow-canvas] neighbor fetch failed for ${id}:`, err);
-      continue;
-    }
-    if (!node) {
-      if (id === params.nodeId) error(404, `Node not found: ${id}`);
-      continue;
-    }
-    fetched.set(id, node);
+  // Overlap the shared-layout load with the focus-node fetch (BFS level 0),
+  // as the edge editor page does — this load re-runs on every panel save.
+  // The fetch is settled (not awaited raw) so a failure can't surface before
+  // the consumer-mode guard has had the chance to redirect.
+  const [parentData, focusRes] = await Promise.all([
+    parent(),
+    client
+      .request<{ node: FlowHostNode | null }>(EDGE_HOST_NODE_QUERY, { id: params.nodeId })
+      .then(
+        (res) => ({ ok: true as const, res }),
+        (err: unknown) => ({ ok: false as const, err }),
+      ),
+  ]);
+  await requireNonConsumer(async () => parentData);
+  if (!focusRes.ok) throw focusRes.err;
 
-    for (const e of node.outgoingEdges) {
-      // e.target is typed non-null but a deleted/unreadable endpoint can
-      // surface as null at runtime — skip rather than crash the page.
-      if (e.target && edgeRoutes(e, node.loc) && !fetched.has(e.target.id)) queue.push(e.target.id);
-    }
-    for (const e of node.incomingEdges) {
-      if (e.source && edgeRoutes(e, e.source.loc) && !fetched.has(e.source.id)) {
-        queue.push(e.source.id);
-      }
-    }
-  }
-
-  const focus = fetched.get(params.nodeId);
+  const focus = focusRes.res.node;
   if (!focus) error(404, `Node not found: ${params.nodeId}`);
 
   // #237-style URL correction, as on the edge editor page.
   if (focus.memoryId !== params.id) {
     redirect(303, `/app/memories/${focus.memoryId}/nodes/${params.nodeId}/flow`);
+  }
+
+  const fetched = new Map<string, FlowHostNode>([[params.nodeId, focus]]);
+  const attempted = new Set<string>();
+  let truncated = false;
+
+  const routedNeighborsOf = (node: FlowHostNode): string[] => {
+    const out: string[] = [];
+    for (const e of node.outgoingEdges) {
+      // e.target is typed non-null but a deleted/unreadable endpoint can
+      // surface as null at runtime — skip rather than crash the page.
+      if (e.target && edgeRoutes(e, node.loc) && !fetched.has(e.target.id)) {
+        out.push(e.target.id);
+      }
+    }
+    for (const e of node.incomingEdges) {
+      if (e.source && edgeRoutes(e, e.source.loc) && !fetched.has(e.source.id)) {
+        out.push(e.source.id);
+      }
+    }
+    return out;
+  };
+
+  // BFS one frontier level at a time, each level fetched in a single
+  // Promise.all. Only SUCCESSFUL fetches count against FLOW_NODES_MAX — a
+  // failed/deleted neighbor frees its slot — and candidates beyond the cap
+  // carry over to the next round ahead of deeper discoveries, so nodes
+  // closer to the focus keep priority.
+  let frontier = routedNeighborsOf(focus);
+  while (frontier.length > 0) {
+    const candidates: string[] = [];
+    const seen = new Set<string>();
+    for (const id of frontier) {
+      if (fetched.has(id) || attempted.has(id) || seen.has(id)) continue;
+      seen.add(id);
+      candidates.push(id);
+    }
+    if (candidates.length === 0) break;
+
+    const remaining = FLOW_NODES_MAX - fetched.size;
+    if (remaining <= 0) {
+      truncated = true;
+      break;
+    }
+    const batch = candidates.slice(0, remaining);
+    for (const id of batch) attempted.add(id);
+
+    const results = await Promise.all(
+      batch.map(async (id) => {
+        try {
+          const res = await client.request<{ node: FlowHostNode | null }>(EDGE_HOST_NODE_QUERY, {
+            id,
+          });
+          return res.node;
+        } catch (err) {
+          // Best-effort beyond the focus node: an unreadable neighbor shrinks
+          // the canvas, it doesn't 500 the page.
+          console.warn(`[flow-canvas] neighbor fetch failed for ${id}:`, err);
+          return null;
+        }
+      }),
+    );
+
+    // Over-cap candidates retry next round, BEFORE this level's discoveries.
+    const next = candidates.slice(remaining);
+    for (let i = 0; i < batch.length; i++) {
+      const node = results[i];
+      if (!node) continue; // deleted or unreadable — its slot stays free
+      fetched.set(batch[i], node);
+      next.push(...routedNeighborsOf(node));
+    }
+    frontier = next;
   }
 
   const nodeInputs: FlowCanvasNodeInput[] = [...fetched.values()].map((n) => ({
@@ -114,22 +164,9 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }
   }
 
-  const edgeInputs: FlowCanvasEdgeInput[] = [...fetched.values()].flatMap((n) =>
-    n.outgoingEdges
-      .filter((e) => e.target)
-      .map((e) => ({
-        id: e.id,
-        name: e.name,
-        loc: e.loc,
-        priority: e.priority,
-        condition: e.condition,
-        sourceId: n.id,
-        sourceLoc: n.loc,
-        targetId: e.target.id,
-      })),
-  );
-
   // Editable detail per displayed edge (#510) — the side panel's payload.
+  // FlowEdgeDetail is a superset of FlowCanvasEdgeInput, so this one pass
+  // also feeds buildFlowCanvas.
   const edgeDetails: FlowEdgeDetail[] = [...fetched.values()].flatMap((n) =>
     n.outgoingEdges
       .filter((e) => e.target)
@@ -148,18 +185,29 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       })),
   );
 
-  // Envelope fields for the panel's condition builder, keyed by source node.
-  // The canvas already fetched every flow node's data, so upstream coverage
-  // is the whole fetched graph (deeper than the edge editor's 2 levels).
-  const flowFieldsByNode = collectFlowFieldsByNode(
-    [...fetched.values()].map((n) => ({ id: n.id, loc: n.loc, name: n.name, data: n.data })),
-    edgeInputs.map((e) => ({ name: e.name, loc: e.loc, sourceId: e.sourceId, targetId: e.targetId })),
-  );
+  // Inputs for the panel's condition-builder field picker, computed LAZILY on
+  // the client (collectFlowFieldsFor) for the one open panel — only each flow
+  // node's extraction spec ships, not full node data and not a precomputed
+  // O(nodes × upstream) label map. Upstream coverage is the whole fetched
+  // graph (deeper than the edge editor's 2 levels), via edgeDetails. Entries
+  // are stripped to the keys the picker uses: extractionSpecOf filters
+  // malformed entries but keeps extra author keys, which would bloat this
+  // per-save payload.
+  const fieldNodes: FlowGraphNodeInput[] = [...fetched.values()].map((n) => ({
+    id: n.id,
+    loc: n.loc,
+    name: n.name,
+    extractionSpec: extractionSpecOf(n.data).map(({ field, description, shape }) => ({
+      field,
+      description,
+      shape,
+    })),
+  }));
 
   return {
-    canvas: buildFlowCanvas(nodeInputs, edgeInputs),
+    canvas: buildFlowCanvas(nodeInputs, edgeDetails),
     edgeDetails,
-    flowFieldsByNode,
+    fieldNodes,
     focusId: params.nodeId,
     focusName: focus.name || focus.loc,
     memoryId: focus.memoryId,
@@ -180,30 +228,18 @@ export const actions: Actions = {
     if (!edgeId) return fail(400, { error: 'Missing edge id' });
     const name = String(fd.get('name') ?? '').trim() || null;
 
-    // Number() + isInteger (not parseInt), as on the edge editor page:
-    // parseInt('1e2') === 1 and '1.5' → 1 both silently mis-parse.
-    const priorityRaw = String(fd.get('priority') ?? '').trim();
-    const priority = priorityRaw === '' ? 0 : Number(priorityRaw);
-    if (!Number.isInteger(priority)) {
-      return fail(400, { edgeId, error: 'Priority must be a whole number' });
-    }
+    const priority = parsePriorityField(fd.get('priority'));
+    if (!priority.ok) return fail(400, { edgeId, error: priority.error });
 
-    // Hidden field carries the ConditionBuilder's serialized JSONLogic, or
-    // the literal "null" when the condition is empty (always-fires → CLEAR).
-    const conditionRaw = String(fd.get('condition') ?? 'null');
-    let condition: unknown;
-    try {
-      condition = JSON.parse(conditionRaw);
-    } catch {
-      return fail(400, { edgeId, error: 'Invalid condition expression' });
-    }
+    const condition = parseConditionField(fd.get('condition'));
+    if (!condition.ok) return fail(400, { edgeId, error: condition.error });
 
     try {
       await gqlClient(locals.token).request(UPDATE_EDGE_MUTATION, {
         edgeId,
         name,
-        condition,
-        priority,
+        condition: condition.value,
+        priority: priority.value,
       });
       return { saved: true, edgeId };
     } catch (e: unknown) {

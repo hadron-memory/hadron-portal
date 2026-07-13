@@ -4,6 +4,7 @@
   import { t } from '$lib/i18n/t';
   import FlowCanvas from '$lib/components/flow/FlowCanvas.svelte';
   import FlowEdgePanel from '$lib/components/flow/FlowEdgePanel.svelte';
+  import { collectFlowFieldsFor } from '$lib/flow/fields';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -21,6 +22,12 @@
   const selectedEdge = $derived(data.edgeDetails.find((e) => e.id === selectedEdgeId) ?? null);
   const selectedSiblings = $derived(
     selectedEdge ? data.edgeDetails.filter((e) => e.sourceId === selectedEdge.sourceId) : [],
+  );
+  // Condition-builder field picker for the open panel, computed lazily from
+  // the shipped extraction specs — only one panel can be open, so the server
+  // no longer precomputes (and re-sends) every node's upstream field list.
+  const selectedFlowFields = $derived(
+    selectedEdge ? collectFlowFieldsFor(selectedEdge.sourceId, data.fieldNodes, data.edgeDetails) : [],
   );
 
   // `form` outlives selection changes, so a result is "acknowledged" the
@@ -150,7 +157,7 @@
         <FlowEdgePanel
           edge={selectedEdge}
           siblings={selectedSiblings}
-          flowFields={data.flowFieldsByNode[selectedEdge.sourceId] ?? []}
+          flowFields={selectedFlowFields}
           {basePath}
           saved={panelSaved}
           error={panelError}
