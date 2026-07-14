@@ -358,5 +358,11 @@
 
 <!-- Footer -->
 <footer class="border-t border-zinc-200 py-8 text-center text-sm text-zinc-500 dark:border-zinc-800">
-  &copy; {new Date().getFullYear()} Baragaun &middot; <a href="https://hadronmemory.com" class="hover:text-zinc-700 dark:hover:text-zinc-300">hadronmemory.com</a>
+  &copy; {new Date().getFullYear()} Baragaun
+  &middot;
+  <a href="https://hadronmemory.com" class="hover:text-zinc-700 dark:hover:text-zinc-300">hadronmemory.com</a>
+  &middot;
+  <a href="https://docs.hadronmemory.com/legal/privacy/" class="hover:text-zinc-700 dark:hover:text-zinc-300">Privacy</a>
+  &middot;
+  <a href="https://docs.hadronmemory.com/legal/terms/" class="hover:text-zinc-700 dark:hover:text-zinc-300">Terms</a>
 </footer>
