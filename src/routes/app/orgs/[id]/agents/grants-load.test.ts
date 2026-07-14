@@ -10,6 +10,8 @@ import {
   ORG_APP_INSTALLS_QUERY,
   ORG_AGENT_GRANTS_QUERY,
   PUBLIC_AGENTS_QUERY,
+  CREATE_AGENT_ORG_GRANT_MUTATION,
+  REVOKE_AGENT_ORG_GRANT_MUTATION,
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -73,6 +75,28 @@ async function runLoad() {
   };
 }
 
+async function runSubscribe(agentId = 'foreign-agent') {
+  const fd = new FormData();
+  if (agentId) fd.set('agentId', agentId);
+  const { actions } = await import('./+page.server');
+  return actions.subscribe!({
+    params: { id: ORG_ID },
+    locals: { token: 'tok' },
+    request: { formData: async () => fd },
+  } as never);
+}
+
+async function runUnsubscribe(agentId = 'foreign-agent') {
+  const fd = new FormData();
+  if (agentId) fd.set('agentId', agentId);
+  const { actions } = await import('./+page.server');
+  return actions.unsubscribe!({
+    params: { id: ORG_ID },
+    locals: { token: 'tok' },
+    request: { formData: async () => fd },
+  } as never);
+}
+
 describe('org agents loader — subscribed grants (#486)', () => {
   it('keeps only grants for agents owned by OTHER orgs', async () => {
     route({
@@ -108,5 +132,73 @@ describe('org agents loader — subscribed grants (#486)', () => {
     });
     const result = await runLoad();
     expect(result.subscribablePublicAgents.map((a) => a.id)).toEqual(['fresh']);
+  });
+});
+
+describe('org agents subscribe action (#649)', () => {
+  it('creates an AgentOrgGrant without routing through createApp', async () => {
+    mockRequest.mockResolvedValueOnce({
+      createAgentOrgGrant: { orgId: ORG_ID, agentId: 'foreign-agent', isActive: true },
+    });
+
+    await expect(runSubscribe()).resolves.toEqual({ subscribed: true });
+    expect(mockRequest).toHaveBeenCalledOnce();
+    expect(mockRequest).toHaveBeenCalledWith(CREATE_AGENT_ORG_GRANT_MUTATION, {
+      agentRef: 'foreign-agent',
+      orgRef: ORG_ID,
+    });
+  });
+
+  it('rejects an empty selection without calling GraphQL', async () => {
+    await expect(runSubscribe('')).resolves.toMatchObject({
+      status: 400,
+      data: { subscribeError: expect.any(String) },
+    });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns the server GraphQL message when subscription fails', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Only PUBLIC agents can be subscribed to.' }] },
+    });
+
+    await expect(runSubscribe()).resolves.toMatchObject({
+      status: 500,
+      data: { subscribeError: 'Only PUBLIC agents can be subscribed to.' },
+    });
+  });
+});
+
+describe('org agents unsubscribe action (#651)', () => {
+  it('revokes the AgentOrgGrant without deleting App state', async () => {
+    mockRequest.mockResolvedValueOnce({
+      revokeAgentOrgGrant: { agentId: 'foreign-agent' },
+    });
+
+    await expect(runUnsubscribe()).resolves.toEqual({ unsubscribed: true });
+    expect(mockRequest).toHaveBeenCalledOnce();
+    expect(mockRequest).toHaveBeenCalledWith(REVOKE_AGENT_ORG_GRANT_MUTATION, {
+      agentRef: 'foreign-agent',
+      orgRef: ORG_ID,
+    });
+  });
+
+  it('rejects an empty selection without calling GraphQL', async () => {
+    await expect(runUnsubscribe('')).resolves.toMatchObject({
+      status: 400,
+      data: { unsubscribeError: expect.any(String) },
+    });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns the server GraphQL message when revocation fails', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'AgentOrgGrant not found.' }] },
+    });
+
+    await expect(runUnsubscribe()).resolves.toMatchObject({
+      status: 500,
+      data: { unsubscribeError: 'AgentOrgGrant not found.' },
+    });
   });
 });

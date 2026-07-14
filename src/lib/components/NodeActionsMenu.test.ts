@@ -29,4 +29,12 @@ describe('NodeActionsMenu', () => {
     expect(body).not.toContain('role="menuitem"');
     expect(body).not.toContain('>Duplicate<');
   });
+
+  it('can disable the trigger while an action is pending', () => {
+    const { body } = render(NodeActionsMenu, {
+      props: { actions, onselect: () => {}, disabled: true },
+    });
+    expect(body).toContain('disabled');
+    expect(body).toContain('aria-busy="true"');
+  });
 });

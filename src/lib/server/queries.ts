@@ -350,6 +350,26 @@ export const ORG_AGENT_GRANTS_QUERY = /* GraphQL */ `
   }
 `;
 
+// Explicit marketplace subscribe step (#649): creates the org-level Agent
+// license without also installing an App. Both refs accept IDs or URNs.
+export const CREATE_AGENT_ORG_GRANT_MUTATION = /* GraphQL */ `
+  mutation CreateAgentOrgGrant($agentRef: ID!, $orgRef: ID!) {
+    createAgentOrgGrant(agentRef: $agentRef, orgRef: $orgRef) {
+      agentId
+    }
+  }
+`;
+
+// Revoke the org-level Agent license without deleting its App/install state.
+// Both refs accept IDs or URNs; the server preserves the grant lifecycle row.
+export const REVOKE_AGENT_ORG_GRANT_MUTATION = /* GraphQL */ `
+  mutation RevokeAgentOrgGrant($agentRef: ID!, $orgRef: ID!) {
+    revokeAgentOrgGrant(agentRef: $agentRef, orgRef: $orgRef) {
+      agentId
+    }
+  }
+`;
+
 // Slim membership-scoped org list for the nav / active-org resolution path
 // (layout sidebar + OrgSwitcher/CommandBar, auth-callback landing, the
 // marketplace post-add redirect). filter.memberOnly restricts the list to the
