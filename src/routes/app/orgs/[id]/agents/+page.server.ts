@@ -1,10 +1,19 @@
-import { error } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
+import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
-import { ORGANIZATION_QUERY, ORG_APP_INSTALLS_QUERY, ORG_AGENT_GRANTS_QUERY, PUBLIC_AGENTS_QUERY } from '$lib/server/queries';
+import { t } from '$lib/i18n/t';
+import {
+  ORGANIZATION_QUERY,
+  ORG_APP_INSTALLS_QUERY,
+  ORG_AGENT_GRANTS_QUERY,
+  PUBLIC_AGENTS_QUERY,
+  CREATE_AGENT_ORG_GRANT_MUTATION,
+  REVOKE_AGENT_ORG_GRANT_MUTATION,
+} from '$lib/server/queries';
 import type { Organization } from '$lib/types';
-import type { PageServerLoad } from './$types';
+import type { Actions, PageServerLoad } from './$types';
 
 type AppInstall = { id: string; name: string; agentId: string | null };
 
@@ -96,4 +105,64 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   );
 
   return { org: data.organization, installedByAgent, subscribedGrants, subscribablePublicAgents };
+};
+
+export const actions: Actions = {
+  subscribe: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const agentId = String(fd.get('agentId') ?? '').trim();
+    if (!agentId) {
+      return fail(400, {
+        subscribeError: t(
+          'org-agents.subscribed.error.no-selection',
+          'Select a public agent to subscribe to.',
+        ),
+      });
+    }
+
+    try {
+      await gqlClient(locals.token).request(CREATE_AGENT_ORG_GRANT_MUTATION, {
+        agentRef: agentId,
+        orgRef: params.id,
+      });
+      return { subscribed: true };
+    } catch (e: unknown) {
+      return fail(500, {
+        subscribeError: extractGqlError(
+          e,
+          t('org-agents.subscribed.error', 'Failed to subscribe to the agent.'),
+        ),
+      });
+    }
+  },
+  unsubscribe: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const agentId = String(fd.get('agentId') ?? '').trim();
+    if (!agentId) {
+      return fail(400, {
+        unsubscribeError: t(
+          'org-agents.subscribed.unsubscribe.error.no-selection',
+          'Select an agent subscription to remove.',
+        ),
+      });
+    }
+
+    try {
+      await gqlClient(locals.token).request(REVOKE_AGENT_ORG_GRANT_MUTATION, {
+        agentRef: agentId,
+        orgRef: params.id,
+      });
+      return { unsubscribed: true };
+    } catch (e: unknown) {
+      return fail(500, {
+        unsubscribeError: extractGqlError(
+          e,
+          t(
+            'org-agents.subscribed.unsubscribe.error',
+            'Failed to remove the agent subscription.',
+          ),
+        ),
+      });
+    }
+  },
 };

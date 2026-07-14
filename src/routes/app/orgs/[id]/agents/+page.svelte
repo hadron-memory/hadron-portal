@@ -15,15 +15,18 @@
     getPaginationRowModel,
     type ColumnDef,
   } from '@tanstack/table-core';
+  import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
+  import { tick } from 'svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import SelectPublicAgent from '$lib/components/SelectPublicAgent.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import { installStrings } from '$lib/i18n/install-strings';
   import type { Agent } from '$lib/types';
-  import type { AgentGrant } from './+page.server';
+  import type { AgentGrant, PublicAgent } from './+page.server';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -39,11 +42,54 @@
   // ── Tabs (#486): the org's own agents vs its subscriptions ───────────
   let activeTab = $state<'own' | 'subscribed'>('own');
 
-  // Subscribe picker: selecting a public agent routes into the existing
-  // install flow — createApp auto-provisions the AgentOrgGrant (the
-  // subscription) on first install; server #552 lifted the same-org
-  // restriction for PUBLIC agents.
+  // Subscribe picker: selecting a public agent submits the explicit grant
+  // mutation through a SvelteKit action; no App is installed (#649).
   let subscribeOpen = $state(false);
+  let subscribeAgentId = $state('');
+  let subscribePending = $state(false);
+  let subscribeError = $state<string | null>(null);
+  let subscribeForm: HTMLFormElement;
+
+  // Row-level unsubscribe state keeps the rest of the table usable while a
+  // grant is being revoked and leaves lifecycle history visible afterward.
+  let unsubscribeAgentId = $state('');
+  let unsubscribePendingAgentId = $state<string | null>(null);
+  let unsubscribeError = $state<string | null>(null);
+  let unsubscribeForm: HTMLFormElement;
+
+  async function subscribeTo(agent: Pick<PublicAgent, 'id'>) {
+    if (subscribePending) return;
+    subscribeError = null;
+    subscribeAgentId = agent.id;
+    await tick();
+    subscribeForm.requestSubmit();
+  }
+
+  const activeGrantActions: NodeMenuAction[] = [
+    { id: 'install', label: t('org-agents.subscribed.action.install', 'Install') },
+    {
+      id: 'unsubscribe',
+      label: t('org-agents.subscribed.unsubscribe', 'Unsubscribe'),
+      danger: true,
+    },
+  ];
+
+  async function onGrantAction(actionId: string, grant: AgentGrant) {
+    if (actionId === 'install') {
+      goto(`/app/orgs/${org.id}/agents/install/${grant.agentId}`);
+      return;
+    }
+    if (actionId !== 'unsubscribe' || unsubscribePendingAgentId) return;
+
+    const agentName = grant.agent?.name ?? grant.agentId;
+    const prompt = t('org-agents.subscribed.unsubscribe.confirm', 'Unsubscribe from');
+    if (!confirm(`${prompt} "${agentName}"?`)) return;
+
+    unsubscribeAgentId = grant.agentId;
+    unsubscribePendingAgentId = grant.agentId;
+    await tick();
+    unsubscribeForm.requestSubmit();
+  }
 
   let globalFilter = $state('');
 
@@ -127,6 +173,7 @@
     { accessorFn: (g) => (g.agent ? ownerSlugOf(g.agent.urn) : '—'), id: 'owner', header: t('org-agents.subscribed.column.owner', 'Owner'), size: 140 },
     { accessorFn: (g) => grantStatusLabel[grantStatusKind(g)], id: 'status', header: t('org-agents.subscribed.column.status', 'Status'), size: 100 },
     { accessorFn: (g) => g.activatedAt ?? g.createdAt, id: 'since', header: t('org-agents.subscribed.column.since', 'Since'), size: 120 },
+    { id: 'actions', header: t('org-agents.subscribed.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 130 },
   ];
 
   const grantsTable = createSvelteTable<AgentGrant>({
@@ -171,22 +218,95 @@
         <button
           type="button"
           onclick={() => (subscribeOpen = true)}
-          class="rounded-lg px-4 py-2 text-sm font-semibold text-white"
+          disabled={subscribePending}
+          class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-50"
           style="background: #fb8500;"
         >
-          {t('org-agents.subscribed.subscribe', 'Subscribe to Public Agent')}
+          {subscribePending
+            ? t('org-agents.subscribed.subscribing', 'Subscribing...')
+            : t('org-agents.subscribed.subscribe', 'Subscribe to Public Agent')}
         </button>
       {/if}
     </div>
   </div>
 
-  <!-- Select Public Agent (#486): picking one routes into the install flow;
-       createApp auto-provisions the AgentOrgGrant (the subscription). -->
+  <form
+    bind:this={subscribeForm}
+    method="POST"
+    action="?/subscribe"
+    class="hidden"
+    use:enhance={() => {
+      subscribePending = true;
+      return async ({ result, update }) => {
+        try {
+          if (result.type === 'failure') {
+            subscribeError = typeof result.data?.subscribeError === 'string'
+              ? result.data.subscribeError
+              : t('org-agents.subscribed.error', 'Failed to subscribe to the agent.');
+          } else if (result.type === 'success') {
+            subscribeAgentId = '';
+            subscribeError = null;
+          }
+          await update({ reset: false });
+          if (result.type === 'success') activeTab = 'subscribed';
+        } finally {
+          subscribePending = false;
+        }
+      };
+    }}
+  >
+    <input type="hidden" name="agentId" value={subscribeAgentId} />
+  </form>
+
+  <form
+    bind:this={unsubscribeForm}
+    method="POST"
+    action="?/unsubscribe"
+    class="hidden"
+    use:enhance={() => {
+      unsubscribePendingAgentId = unsubscribeAgentId;
+      unsubscribeError = null;
+      return async ({ result, update }) => {
+        try {
+          if (result.type === 'failure') {
+            unsubscribeError = typeof result.data?.unsubscribeError === 'string'
+              ? result.data.unsubscribeError
+              : t(
+                  'org-agents.subscribed.unsubscribe.error',
+                  'Failed to remove the agent subscription.',
+                );
+          } else if (result.type === 'success') {
+            unsubscribeError = null;
+          }
+          await update({ reset: false });
+        } finally {
+          unsubscribeAgentId = '';
+          unsubscribePendingAgentId = null;
+        }
+      };
+    }}
+  >
+    <input type="hidden" name="agentId" value={unsubscribeAgentId} />
+  </form>
+
+  <!-- Select Public Agent (#486/#649): selection creates the grant in place. -->
   <SelectPublicAgent
     agents={subscribablePublicAgents}
     bind:open={subscribeOpen}
-    onselect={(agent) => goto(`/app/orgs/${org.id}/agents/install/${agent.id}`)}
+    onselect={subscribeTo}
   />
+
+  {#if subscribeError}
+    <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+      {subscribeError}
+    </div>
+  {/if}
+
+  {#if unsubscribeError}
+    <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+      {unsubscribeError}
+    </div>
+  {/if}
 
   <!-- Own vs Subscribed (#486). Subscribed = the org's AgentOrgGrants for
        agents owned by OTHER orgs. -->
@@ -220,7 +340,7 @@
         <p class="mx-auto mt-2 max-w-lg text-xs text-zinc-500 dark:text-zinc-400">
           {t(
             'org-agents.subscribed.empty.explainer',
-            'A subscription is created when this organization installs an agent owned by another organization — use “Subscribe to Public Agent” above to browse what’s available. Only organization admins can see subscriptions.',
+            'Use “Subscribe to Public Agent” above to browse public agents from other organizations. Only organization admins can create and see subscriptions.',
           )}
         </p>
       </div>
@@ -247,6 +367,16 @@
               : 'bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'}">{grantStatusLabel[kind]}</span>
           {:else if cell.column.id === 'since'}
             <span class="whitespace-nowrap">{fmtDate(grant.activatedAt ?? grant.createdAt)}</span>
+          {:else if cell.column.id === 'actions'}
+            {#if grantStatusKind(grant) === 'active'}
+              <NodeActionsMenu
+                actions={activeGrantActions}
+                onselect={(actionId) => onGrantAction(actionId, grant)}
+                label={`${t('org-agents.subscribed.actions.label', 'Actions for')} ${grant.agent?.name ?? grant.agentId}`}
+                disabled={unsubscribePendingAgentId === grant.agentId}
+                fixed
+              />
+            {/if}
           {:else}
             <div class="truncate">{cell.getValue()}</div>
           {/if}

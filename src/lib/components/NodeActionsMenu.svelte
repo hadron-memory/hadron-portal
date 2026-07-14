@@ -15,21 +15,30 @@
    * focus, Escape, outside-click — mirror OrgSwitcher.svelte.
    */
   import { tick } from 'svelte';
+  import { Ellipsis } from 'lucide-svelte';
   import { t } from '$lib/i18n/t';
 
   let {
     actions,
     onselect,
     label = t('node-actions.label', 'Node actions'),
+    disabled = false,
+    fixed = false,
   }: {
     actions: NodeMenuAction[];
     onselect: (id: string) => void;
     label?: string;
+    disabled?: boolean;
+    /** Position against the viewport so overflow containers do not clip it. */
+    fixed?: boolean;
   } = $props();
 
   let open = $state(false);
+  let rootEl = $state<HTMLDivElement | null>(null);
   let menuEl = $state<HTMLDivElement | null>(null);
   let triggerEl = $state<HTMLButtonElement | null>(null);
+  let menuPos = $state({ top: 0, left: 0 });
+  let menuPositioned = $state(false);
 
   // Danger items sink to the bottom, after a divider — stable order otherwise.
   const ordered = $derived([
@@ -55,12 +64,30 @@
   }
 
   async function openMenu() {
+    if (disabled) return;
+    menuPositioned = !fixed;
     open = true;
     await tick();
+    if (fixed && triggerEl && menuEl) {
+      const triggerRect = triggerEl.getBoundingClientRect();
+      const menuRect = menuEl.getBoundingClientRect();
+      const gap = 8;
+      const edge = 8;
+      const top = triggerRect.bottom + gap + menuRect.height <= window.innerHeight - edge
+        ? triggerRect.bottom + gap
+        : Math.max(edge, triggerRect.top - menuRect.height - gap);
+      menuPos = {
+        top,
+        left: Math.max(edge, Math.min(triggerRect.right - menuRect.width, window.innerWidth - menuRect.width - edge)),
+      };
+      menuPositioned = true;
+      await tick();
+    }
     focusItem(0);
   }
   function closeMenu() {
     open = false;
+    menuPositioned = false;
   }
   function toggle() {
     open ? closeMenu() : openMenu();
@@ -103,14 +130,14 @@
 
   function handleOutside(e: MouseEvent) {
     if (!open) return;
-    const target = e.target as HTMLElement | null;
-    if (target && !target.closest('[data-node-actions]')) closeMenu();
+    const target = e.target as Node | null;
+    if (target && !rootEl?.contains(target)) closeMenu();
   }
 </script>
 
 <svelte:window onkeydown={handleKey} onclick={handleOutside} />
 
-<div class="relative" data-node-actions>
+<div bind:this={rootEl} class="relative" data-node-actions>
   <button
     bind:this={triggerEl}
     type="button"
@@ -118,11 +145,10 @@
     aria-haspopup="menu"
     aria-expanded={open}
     aria-label={label}
-    class="flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+    {disabled}
+    class="flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-100 disabled:cursor-wait disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
   >
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" />
-    </svg>
+    <Ellipsis size={18} aria-hidden="true" />
   </button>
 
   {#if open}
@@ -130,7 +156,8 @@
       bind:this={menuEl}
       role="menu"
       aria-label={label}
-      class="absolute right-0 z-40 mt-2 w-52 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+      class="{fixed ? 'fixed' : 'absolute right-0 mt-2'} {fixed && !menuPositioned ? 'invisible' : ''} z-40 w-52 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+      style={fixed ? `top: ${menuPos.top}px; left: ${menuPos.left}px;` : undefined}
     >
       {#each ordered as action (action.id)}
         {#if action.id === firstDangerId && hasSafeItems}
