@@ -4,6 +4,7 @@ import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
+import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
 import { createNodeErrorCode } from '$lib/i18n/create-node-strings';
 import type { Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -12,13 +13,15 @@ import type { Actions, PageServerLoad } from './$types';
 // class:'system' memories on a broad (no-memoryIds) call, so the system-memory
 // nodes only come back when we name the memory in the filter (which also
 // overrides the exclusion). Results are under `hits[].node`.
+// Edge condition/priority/data feed the canvas rule annotations and the
+// routing-rule side panel.
 const GRAPH_NODES_QUERY = `
   query Nodes($limit: Int, $memoryIds: [ID!]) {
     findNodes(filter: { memoryIds: $memoryIds }, limit: $limit) {
       hits {
         node {
           id memoryId nodeType loc name description content tags seq data
-          outgoingEdges { id name loc isRunnable target { id loc name } }
+          outgoingEdges { id name loc isRunnable condition priority data target { id loc name } }
         }
       }
     }
@@ -67,27 +70,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     .map((h) => h.node)
     .filter((n) => n.memoryId === systemMemoryId);
 
-  // Parse conversation structure
-  const conversations = systemNodes
-    .filter((n) => n.loc.startsWith('conversations:') && n.loc.split(':').length === 2)
-    .map((n) => {
-      const convData = (n.data as Record<string, unknown>) ?? {};
-      const stages = systemNodes
-        .filter((s) => s.loc.startsWith(n.loc + ':') && s.loc.split(':').length === 3)
-        .sort((a, b) => {
-          const order = (convData.stageOrder as string[]) ?? [];
-          const aIdx = order.indexOf(a.loc.split(':').pop()!);
-          const bIdx = order.indexOf(b.loc.split(':').pop()!);
-          if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
-          return a.loc.localeCompare(b.loc);
-        });
-      return { node: n, data: convData, stages };
-    });
-
-  // Parse prompts
+  // Prompts feed the stage panel's editor and the shared-partials section;
+  // the canvas view-model derives everything else from systemNodes client-side.
   const prompts = systemNodes.filter((n) => n.loc.startsWith('prompts:'));
 
-  return { agent, org, systemMemoryId, conversations, prompts, systemNodes };
+  return { agent, org, systemMemoryId, prompts, systemNodes };
 };
 
 export const actions: Actions = {
@@ -284,7 +271,7 @@ export const actions: Actions = {
     const priority = priorityRaw !== null && priorityRaw !== '' ? Number(priorityRaw) : undefined;
 
     try {
-      await client.request(CREATE_EDGE_MUTATION, {
+      const res = await client.request<{ createEdge: { id: string } }>(CREATE_EDGE_MUTATION, {
         sourceNodeId,
         targetNodeId,
         name: name || 'edge',
@@ -292,27 +279,72 @@ export const actions: Actions = {
         priority,
         data,
       });
+      // The canvas selects the fresh edge so its rule can be refined.
+      return { created: true, edgeId: res.createEdge.id };
     } catch (e: unknown) {
       return fail(400, { error: userFacingErrorMessage(e, 'Failed to create edge') });
     }
   },
 
+  // Saves the rule panel's editable set: name, priority, condition, and data
+  // (timing/behavior — the panel merges them into the stored data object,
+  // since the data variable REPLACES the whole value server-side).
   updateEdge: async ({ request, locals }) => {
     const fd = await request.formData();
     const client = gqlClient(locals.token);
     const edgeId = String(fd.get('edgeId') ?? '');
-    const name = String(fd.get('name') ?? '');
+    const name = String(fd.get('name') ?? '').trim() || null;
     const dataJson = String(fd.get('data') ?? '{}');
 
     if (!edgeId) return fail(400, { error: 'edgeId is required' });
 
+    const priority = parsePriorityField(fd.get('priority'));
+    if (!priority.ok) return fail(400, { edgeId, error: priority.error });
+    const condition = parseConditionField(fd.get('condition'));
+    if (!condition.ok) return fail(400, { edgeId, error: condition.error });
+
     let data: Record<string, unknown>;
-    try { data = JSON.parse(dataJson); } catch { return fail(400, { error: 'Invalid JSON' }); }
+    try { data = JSON.parse(dataJson); } catch { return fail(400, { edgeId, error: 'Invalid JSON' }); }
 
     try {
-      await client.request(UPDATE_EDGE_MUTATION, { edgeId, name: name || undefined, data });
+      await client.request(UPDATE_EDGE_MUTATION, {
+        edgeId,
+        name,
+        condition: condition.value,
+        priority: priority.value,
+        data,
+      });
+      return { saved: true, edgeId };
     } catch (e: unknown) {
-      return fail(400, { error: userFacingErrorMessage(e, 'Failed to update edge') });
+      return fail(400, { edgeId, error: userFacingErrorMessage(e, 'Failed to update edge') });
+    }
+  },
+
+  // Persists a canvas drag as data.position on the node (stage positions are
+  // parent-relative). Fire-and-forget from the client — no invalidation, the
+  // canvas already shows the dragged position.
+  savePosition: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const client = gqlClient(locals.token);
+    const systemMemoryId = String(fd.get('systemMemoryId') ?? '');
+    const loc = String(fd.get('loc') ?? '');
+    const x = Number(fd.get('x'));
+    const y = Number(fd.get('y'));
+    if (!systemMemoryId || !loc || !Number.isFinite(x) || !Number.isFinite(y)) {
+      return fail(400, { error: 'Invalid position' });
+    }
+
+    try {
+      const node = await client.request<{ node: { data: unknown } | null }>(
+        NODE_DATA_BY_LOC_QUERY,
+        { loc, memory: systemMemoryId },
+      );
+      const nodeData = (node.node?.data as Record<string, unknown>) ?? {};
+      await client.request(UPDATE, { input: {
+        memoryId: systemMemoryId, loc, data: { ...nodeData, position: { x, y } },
+      }});
+    } catch (e: unknown) {
+      return fail(500, { error: e instanceof Error ? e.message : 'Failed to save position' });
     }
   },
 
