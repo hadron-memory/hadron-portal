@@ -87,10 +87,24 @@ describe('addEdge', () => {
       targetNodeId: 'n2',
       name: '→ Setup',
       condition: 'null',
-      priority: '0',
+      priority: '3',
       data: JSON.stringify({ timing: 'on_complete', behavior: 'transition' }),
     });
     expect(result).toEqual({ created: true, edgeId: 'e-new' });
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ condition: null, priority: 3 });
+  });
+
+  it('rejects a non-integer priority before any mutation (Copilot review on #544)', async () => {
+    const result = (await runAction('addEdge', {
+      sourceNodeId: 'n1',
+      targetNodeId: 'n2',
+      name: 'x',
+      condition: 'null',
+      priority: '1.5',
+      data: '{}',
+    })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 });
 

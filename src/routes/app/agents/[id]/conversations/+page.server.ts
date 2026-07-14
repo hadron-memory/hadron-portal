@@ -259,24 +259,23 @@ export const actions: Actions = {
     const targetNodeId = String(fd.get('targetNodeId') ?? '');
     const name = String(fd.get('name') ?? '');
     const dataJson = String(fd.get('data') ?? '{}');
-    const conditionJson = String(fd.get('condition') ?? 'null');
-    const priorityRaw = fd.get('priority');
 
     if (!sourceNodeId || !targetNodeId) return fail(400, { error: 'Source and target are required' });
 
     let data: Record<string, unknown>;
     try { data = JSON.parse(dataJson); } catch { return fail(400, { error: 'Invalid JSON in edge data' }); }
-    let condition: unknown;
-    try { condition = JSON.parse(conditionJson); } catch { return fail(400, { error: 'Invalid JSON in edge condition' }); }
-    const priority = priorityRaw !== null && priorityRaw !== '' ? Number(priorityRaw) : undefined;
+    const condition = parseConditionField(fd.get('condition'));
+    if (!condition.ok) return fail(400, { error: condition.error });
+    const priority = parsePriorityField(fd.get('priority'));
+    if (!priority.ok) return fail(400, { error: priority.error });
 
     try {
       const res = await client.request<{ createEdge: { id: string } }>(CREATE_EDGE_MUTATION, {
         sourceNodeId,
         targetNodeId,
         name: name || 'edge',
-        condition,
-        priority,
+        condition: condition.value,
+        priority: priority.value,
         data,
       });
       // The canvas selects the fresh edge so its rule can be refined.

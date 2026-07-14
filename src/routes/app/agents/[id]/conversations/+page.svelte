@@ -257,15 +257,26 @@
   let connectSourceId = $state('');
   let connectTargetId = $state('');
   let connectName = $state('');
+  let connectPriority = $state(0);
   let connectForm: HTMLFormElement | undefined = $state();
   let connectPending = $state(false);
 
   async function handleConnect(sourceId: string, targetId: string) {
     if (connectPending || sourceId === targetId) return;
+    // Claimed HERE, not in the enhance callback — the await below yields, and
+    // a second connect in that window would overwrite the form fields.
+    connectPending = true;
     const target = data.systemNodes.find((n) => n.id === targetId);
     connectSourceId = sourceId;
     connectTargetId = targetId;
-    connectName = `→ ${target?.description || target?.name || 'next'}`;
+    connectName = `→ ${target?.description || target?.name || t('conversation.editor.connect.next', 'next')}`;
+    // Rules fire in ascending priority and the new rule has no condition, so
+    // at the sources' current minimum it would shadow every existing sibling
+    // (fall-through wins first). Land it after them instead; the panel opens
+    // for refinement anyway.
+    const siblings = edgeDetails.filter((e) => e.sourceId === sourceId);
+    connectPriority =
+      siblings.length > 0 ? Math.max(...siblings.map((e) => e.priority ?? 0)) + 1 : 0;
     await tick();
     connectForm?.requestSubmit();
   }
@@ -503,7 +514,7 @@
     <input type="hidden" name="targetNodeId" value={connectTargetId} />
     <input type="hidden" name="name" value={connectName} />
     <input type="hidden" name="condition" value="null" />
-    <input type="hidden" name="priority" value="0" />
+    <input type="hidden" name="priority" value={connectPriority} />
     <input type="hidden" name="data" value={JSON.stringify({ timing: 'on_complete', behavior: 'transition' })} />
   </form>
 
