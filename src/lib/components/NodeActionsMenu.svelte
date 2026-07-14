@@ -38,6 +38,7 @@
   let menuEl = $state<HTMLDivElement | null>(null);
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let menuPos = $state({ top: 0, left: 0 });
+  let menuPositioned = $state(false);
 
   // Danger items sink to the bottom, after a divider — stable order otherwise.
   const ordered = $derived([
@@ -64,6 +65,7 @@
 
   async function openMenu() {
     if (disabled) return;
+    menuPositioned = !fixed;
     open = true;
     await tick();
     if (fixed && triggerEl && menuEl) {
@@ -78,11 +80,14 @@
         top,
         left: Math.max(edge, Math.min(triggerRect.right - menuRect.width, window.innerWidth - menuRect.width - edge)),
       };
+      menuPositioned = true;
+      await tick();
     }
     focusItem(0);
   }
   function closeMenu() {
     open = false;
+    menuPositioned = false;
   }
   function toggle() {
     open ? closeMenu() : openMenu();
@@ -140,7 +145,6 @@
     aria-haspopup="menu"
     aria-expanded={open}
     aria-label={label}
-    aria-busy={disabled}
     {disabled}
     class="flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-100 disabled:cursor-wait disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
   >
@@ -152,7 +156,7 @@
       bind:this={menuEl}
       role="menu"
       aria-label={label}
-      class="{fixed ? 'fixed' : 'absolute right-0 mt-2'} z-40 w-52 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+      class="{fixed ? 'fixed' : 'absolute right-0 mt-2'} {fixed && !menuPositioned ? 'invisible' : ''} z-40 w-52 rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
       style={fixed ? `top: ${menuPos.top}px; left: ${menuPos.left}px;` : undefined}
     >
       {#each ordered as action (action.id)}

@@ -34,7 +34,7 @@ describe('NodeActionsMenu', () => {
     const { body } = render(NodeActionsMenu, {
       props: { actions, onselect: () => {}, disabled: true },
     });
-    expect(body).toContain('disabled');
-    expect(body).toContain('aria-busy="true"');
+    expect(body).toMatch(/<button(?=[^>]*\sdisabled(?:\s|>|=""))[^>]*>/);
+    expect(body).not.toContain('aria-busy');
   });
 });

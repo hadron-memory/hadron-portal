@@ -52,8 +52,10 @@
 
   // Row-level unsubscribe state keeps the rest of the table usable while a
   // grant is being revoked and leaves lifecycle history visible afterward.
+  let unsubscribeAgentId = $state('');
   let unsubscribePendingAgentId = $state<string | null>(null);
   let unsubscribeError = $state<string | null>(null);
+  let unsubscribeForm: HTMLFormElement;
 
   async function subscribeTo(agent: Pick<PublicAgent, 'id'>) {
     if (subscribePending) return;
@@ -72,7 +74,7 @@
     },
   ];
 
-  function onGrantAction(actionId: string, grant: AgentGrant) {
+  async function onGrantAction(actionId: string, grant: AgentGrant) {
     if (actionId === 'install') {
       goto(`/app/orgs/${org.id}/agents/install/${grant.agentId}`);
       return;
@@ -83,8 +85,10 @@
     const prompt = t('org-agents.subscribed.unsubscribe.confirm', 'Unsubscribe from');
     if (!confirm(`${prompt} "${agentName}"?`)) return;
 
-    const form = document.getElementById(`unsubscribe-${grant.agentId}`);
-    if (form instanceof HTMLFormElement) form.requestSubmit();
+    unsubscribeAgentId = grant.agentId;
+    unsubscribePendingAgentId = grant.agentId;
+    await tick();
+    unsubscribeForm.requestSubmit();
   }
 
   let globalFilter = $state('');
@@ -215,7 +219,6 @@
           type="button"
           onclick={() => (subscribeOpen = true)}
           disabled={subscribePending}
-          aria-busy={subscribePending}
           class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-50"
           style="background: #fb8500;"
         >
@@ -253,6 +256,37 @@
     }}
   >
     <input type="hidden" name="agentId" value={subscribeAgentId} />
+  </form>
+
+  <form
+    bind:this={unsubscribeForm}
+    method="POST"
+    action="?/unsubscribe"
+    class="hidden"
+    use:enhance={() => {
+      unsubscribePendingAgentId = unsubscribeAgentId;
+      unsubscribeError = null;
+      return async ({ result, update }) => {
+        try {
+          if (result.type === 'failure') {
+            unsubscribeError = typeof result.data?.unsubscribeError === 'string'
+              ? result.data.unsubscribeError
+              : t(
+                  'org-agents.subscribed.unsubscribe.error',
+                  'Failed to remove the agent subscription.',
+                );
+          } else if (result.type === 'success') {
+            unsubscribeError = null;
+          }
+          await update({ reset: false });
+        } finally {
+          unsubscribeAgentId = '';
+          unsubscribePendingAgentId = null;
+        }
+      };
+    }}
+  >
+    <input type="hidden" name="agentId" value={unsubscribeAgentId} />
   </form>
 
   <!-- Select Public Agent (#486/#649): selection creates the grant in place. -->
@@ -342,35 +376,6 @@
                 disabled={unsubscribePendingAgentId === grant.agentId}
                 fixed
               />
-              <form
-                id="unsubscribe-{grant.agentId}"
-                method="POST"
-                action="?/unsubscribe"
-                class="hidden"
-                use:enhance={() => {
-                  unsubscribePendingAgentId = grant.agentId;
-                  unsubscribeError = null;
-                  return async ({ result, update }) => {
-                    try {
-                      if (result.type === 'failure') {
-                        unsubscribeError = typeof result.data?.unsubscribeError === 'string'
-                          ? result.data.unsubscribeError
-                          : t(
-                              'org-agents.subscribed.unsubscribe.error',
-                              'Failed to remove the agent subscription.',
-                            );
-                      } else if (result.type === 'success') {
-                        unsubscribeError = null;
-                      }
-                      await update({ reset: false });
-                    } finally {
-                      unsubscribePendingAgentId = null;
-                    }
-                  };
-                }}
-              >
-                <input type="hidden" name="agentId" value={grant.agentId} />
-              </form>
             {/if}
           {:else}
             <div class="truncate">{cell.getValue()}</div>
