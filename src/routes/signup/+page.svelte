@@ -1,7 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { isLocalPath } from '$lib/safeRedirect';
-  import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
 
   // If coming from marketplace with a memory param, redirect back there after auth
   const memoryId = $derived(page.url.searchParams.get('memory') ?? page.url.searchParams.get('graph'));
@@ -17,9 +16,6 @@
   // session-fixation nonce cookie before bouncing to the server's OAuth start.
   const githubUrl = $derived(
     `/auth/start/github?redirect=${encodeURIComponent(postAuthRedirect)}`
-  );
-  const googleUrl = $derived(
-    `/auth/start/google?redirect=${encodeURIComponent(postAuthRedirect)}`
   );
 
   let email = $state('');
@@ -69,10 +65,6 @@
         Check your email for a sign-in link. You can close this page.
       </div>
     {:else}
-      <div class="mb-3">
-        <GoogleLoginButton href={googleUrl} />
-      </div>
-
       <!-- GitHub -->
       <a
         href={githubUrl}
