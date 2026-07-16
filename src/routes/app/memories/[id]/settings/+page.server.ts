@@ -9,6 +9,7 @@ import {
   ORGANIZATIONS_QUERY,
   RESOLVE_URN_QUERY,
 } from '$lib/server/queries';
+import { validateMemorySlugField } from '$lib/urn/form-validation';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -84,6 +85,10 @@ export const actions: Actions = {
     // the user gets an actionable error instead of a no-op save.
     if (fd.has('urnSlug') && !urnSlug) {
       return fail(400, { error: 'URN slug cannot be empty.' });
+    }
+    if (urnSlug) {
+      const urnSlugError = validateMemorySlugField(urnSlug);
+      if (urnSlugError) return fail(400, { error: urnSlugError });
     }
     // Only forward `urn` when the user actually edited the slug. The server's
     // updateMemory rebuilds the whole URN from this value (newUrn =

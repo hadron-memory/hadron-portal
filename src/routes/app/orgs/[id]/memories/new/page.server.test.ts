@@ -101,4 +101,25 @@ describe('create-memory action (spec 034)', () => {
     expect((result as { status?: number })?.status).toBe(400);
     expect(mockRequest).not.toHaveBeenCalled();
   });
+
+  it('rejects a reserved memory slug before calling the API', async () => {
+    const result = await runCreate({ slug: 'system', displayName: 'System', memoryClass: 'knowledge' });
+    expect(result).toMatchObject({ status: 400, data: { error: expect.stringContaining('reserved') } });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('surfaces only the GraphQL message when createMemory rejects a duplicate URN', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: {
+        errors: [{ message: 'A memory with URN "holger-pers:flow-lab" already exists' }],
+      },
+      message: 'A memory with URN "holger-pers:flow-lab" already exists: {"response":{"data":null},"request":{"query":"mutation CreateMemory { ... }"}}',
+    });
+
+    const result = await runCreate({ slug: 'flow-lab', displayName: 'Flow Lab', memoryClass: 'knowledge' });
+    expect(result).toMatchObject({
+      status: 500,
+      data: { error: 'A memory with URN "holger-pers:flow-lab" already exists' },
+    });
+  });
 });
