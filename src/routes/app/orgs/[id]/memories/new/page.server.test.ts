@@ -104,7 +104,24 @@ describe('create-memory action (spec 034)', () => {
 
   it('rejects a reserved memory slug before calling the API', async () => {
     const result = await runCreate({ slug: 'system', displayName: 'System', memoryClass: 'knowledge' });
-    expect(result).toMatchObject({ status: 400, data: { error: expect.stringContaining('reserved') } });
+    expect(result).toMatchObject({
+      status: 400,
+      data: { form: { errors: { slug: expect.arrayContaining([expect.stringContaining('reserved')]) } } },
+    });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid optional URLs before calling the API', async () => {
+    const result = await runCreate({
+      slug: 'links',
+      displayName: 'Links',
+      memoryClass: 'knowledge',
+      homeUrl: 'not a url',
+    });
+    expect(result).toMatchObject({
+      status: 400,
+      data: { form: { errors: { homeUrl: ['Enter a valid URL.'] } } },
+    });
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -118,8 +135,12 @@ describe('create-memory action (spec 034)', () => {
 
     const result = await runCreate({ slug: 'flow-lab', displayName: 'Flow Lab', memoryClass: 'knowledge' });
     expect(result).toMatchObject({
-      status: 500,
-      data: { error: 'A memory with URN "holger-pers:flow-lab" already exists' },
+      status: 409,
+      data: {
+        form: {
+          errors: { slug: ['A memory with URN "holger-pers:flow-lab" already exists'] },
+        },
+      },
     });
   });
 });
