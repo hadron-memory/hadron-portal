@@ -52,6 +52,14 @@ describe('Urn.svelte — canonical scheme rendering (#239)', () => {
     expect(body).toContain('hadronmemory.com:chatbot:run_123');
     expect(body).not.toContain('unknown:');
   });
+
+  it('renders spec v2 flat separators instead of spec v1 hierarchy separators', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hrn:node:acme.com::kb::findings:flaky-ci', type: 'node' },
+    });
+    expect(body).toContain('acme.com:kb:findings:flaky-ci');
+    expect(body).not.toContain('acme.com::kb::findings:flaky-ci');
+  });
 });
 
 describe('Urn.svelte — copy buttons (#310)', () => {

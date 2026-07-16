@@ -16,8 +16,14 @@
 
   const parsed = $derived(parseDisplayUrn(value, type));
   const displayType = $derived(parsed.type);
-  const bareValue = $derived(parsed.bareValue);
   const fullUrn = $derived(parsed.fullUrn);
+  const displayFullUrn = $derived(fullUrn.replaceAll('::', ':'));
+  const bareValue = $derived.by(() => {
+    const prefix = `${CANONICAL_SCHEME}:${displayType}:`;
+    return displayFullUrn.startsWith(prefix)
+      ? displayFullUrn.slice(prefix.length)
+      : parsed.bareValue.replaceAll('::', ':');
+  });
 
   // Type badge: uniform style across all types (incl. 'unknown' fallback)
   const typeBadgeClass = 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200';
@@ -26,7 +32,7 @@
     // navigator.clipboard is undefined outside secure contexts (HTTP on a
     // non-localhost host); bail rather than throw, and swallow async denials.
     if (!navigator.clipboard) return;
-    navigator.clipboard.writeText(fullUrn).catch((e) => console.error('Failed to copy URN', e));
+    navigator.clipboard.writeText(displayFullUrn).catch((e) => console.error('Failed to copy URN', e));
     copied = true;
     setTimeout(() => (copied = false), 2000);
   }
@@ -39,7 +45,7 @@
     // production. This handler only fires in the browser, so window.location is
     // always defined; deriving it here (not at render time) also keeps SSR from
     // ever touching window.
-    const shareUrl = buildResolverUrl(window.location.origin, fullUrn);
+    const shareUrl = buildResolverUrl(window.location.origin, displayFullUrn);
     navigator.clipboard.writeText(shareUrl).catch((e) => console.error('Failed to copy URL', e));
     urlCopied = true;
     setTimeout(() => (urlCopied = false), 2000);
@@ -49,11 +55,11 @@
 <span class="inline-flex min-w-0 max-w-full items-center gap-1">
   <code class="inline-flex min-w-0 items-center overflow-hidden rounded font-mono leading-tight" style="font-size: 0.6rem;">
     {#if compact}
-      <span class="min-w-0 truncate bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={fullUrn}>{bareValue}</span>
+      <span class="min-w-0 truncate bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={displayFullUrn}>{bareValue}</span>
     {:else}
       <span class="shrink-0 whitespace-nowrap pl-1.5 pr-0 py-0.5 font-medium {typeBadgeClass}">{CANONICAL_SCHEME}:</span>
       <span class="shrink-0 whitespace-nowrap pl-0 pr-0.5 py-0.5 font-medium {typeBadgeClass}">{displayType}:</span>
-      <span class="min-w-0 truncate bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200" title={fullUrn}>{bareValue}</span>
+      <span class="min-w-0 truncate bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200" title={displayFullUrn}>{bareValue}</span>
     {/if}
   </code>
   <button onclick={copy} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN" aria-label="Copy URN">

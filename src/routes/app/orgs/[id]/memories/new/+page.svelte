@@ -91,14 +91,14 @@
     <div>
       <label for="slug" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
       <div class="flex items-stretch">
-        <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.org.urn}:</span>
+        <span class="inline-flex shrink-0 items-center whitespace-nowrap rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.org.urn}:</span>
         <input id="slug" name="slug" type="text" required placeholder="my-knowledge-base"
           bind:value={$formData.slug}
           oninput={onSlugInput}
           aria-invalid={!!slugError}
           aria-describedby={slugError ? 'slugError' : undefined}
           {...$constraints.slug}
-          class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {slugError ? 'border-red-500 focus:border-red-500' : ''}" />
+          class="min-w-0 w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {slugError ? 'border-red-500 focus:border-red-500' : ''}" />
       </div>
       {#if slugError}
         <p id="slugError" class="mt-1 text-xs text-red-600 dark:text-red-400">{slugError}</p>
