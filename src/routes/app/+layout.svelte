@@ -94,7 +94,10 @@
            name is static; the OrgSwitcher renders a "Switch" button beside it,
            only when the user belongs to more than one org. -->
       {#if !data.isConsumerMode && data.activeOrg}
-        <hr class="my-2 border-zinc-200 dark:border-zinc-800" />
+        <hr class="mt-2 mb-0 border-zinc-200 dark:border-zinc-800" />
+        <div class="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase leading-none tracking-wider text-zinc-400 dark:text-zinc-500">
+          {t('app.layout.organization-section', 'Organization')}
+        </div>
         <div class="px-3 py-1.5">
           <a
             href={`/app/orgs/${data.activeOrg.id}`}
@@ -121,7 +124,10 @@
       <!-- #327: bottom block is now just the avatar + user name, linking to the
            account page. The active-org line moved up under the nav items. -->
       <div class="shrink-0 pt-4">
-        <hr class="mb-3 border-zinc-200 dark:border-zinc-800" />
+        <hr class="mb-0 border-zinc-200 dark:border-zinc-800" />
+        <div class="px-3 pb-2 pt-1 text-[10px] font-semibold uppercase leading-none tracking-wider text-zinc-400 dark:text-zinc-500">
+          {t('app.layout.user-account-section', 'User Account')}
+        </div>
         <a href="/app/account" aria-label={t('app.layout.account', 'Account')}
           class="flex items-center gap-3 rounded-md px-3 py-2 transition hover:bg-zinc-100 dark:hover:bg-zinc-900
             {$page.url.pathname.startsWith('/app/account')
@@ -133,7 +139,7 @@
             <div class="h-8 w-8 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
           {/if}
           <span class="min-w-0 flex-1 truncate text-sm {$page.url.pathname.startsWith('/app/account') ? 'font-medium' : ''}">
-            {data.user.name ?? data.user.githubUsername ?? data.user.email}
+            @{data.user.handle}
           </span>
         </a>
       </div>

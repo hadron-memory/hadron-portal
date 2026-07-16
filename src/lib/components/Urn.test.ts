@@ -23,13 +23,14 @@ describe('Urn.svelte — canonical scheme rendering (#239)', () => {
     expect(body).not.toMatch(/>\s*urn:\s*</);
   });
 
-  it('emits hrn: even when the input value carries the legacy urn: scheme', () => {
+  it('emits hrn: and the v2 mem type when the input value carries the legacy urn: scheme', () => {
     const { body } = render(Urn, {
       props: { value: 'urn:memory:micromentor.org:platform-specs', type: 'memory' },
     });
     expect(body).toContain('hrn:');
-    expect(body).toContain('memory:');
-    // The bare value has its scheme/type stripped by parseDisplayUrn.
+    expect(body).toContain('mem:');
+    expect(body).not.toContain('memory:');
+    // The bare value has its scheme/type stripped by the display parser.
     expect(body).toContain('micromentor.org:platform-specs');
     expect(body).not.toMatch(/>\s*urn:\s*</);
   });
@@ -51,6 +52,43 @@ describe('Urn.svelte — canonical scheme rendering (#239)', () => {
     expect(body).toContain('apprun:');
     expect(body).toContain('hadronmemory.com:chatbot:run_123');
     expect(body).not.toContain('unknown:');
+  });
+
+  it('renders v2 memory URNs with the mem type', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hrn:mem:micromentor.org:platform-specs', type: 'mem' },
+    });
+    expect(body).toContain('hrn:');
+    expect(body).toContain('mem:');
+    expect(body).toContain('micromentor.org:platform-specs');
+    expect(body).not.toContain('unknown:');
+    expect(body).not.toContain('memory:');
+  });
+
+  it('renders legacy v1 memory hierarchy separators as v2 flat separators', () => {
+    const { body } = render(Urn, {
+      props: { value: 'urn:memory:micromentor.org::platform-specs', type: 'memory' },
+    });
+    expect(body).toContain('mem:');
+    expect(body).toContain('micromentor.org:platform-specs');
+    expect(body).not.toContain('micromentor.org::platform-specs');
+    expect(body).not.toContain('memory:');
+  });
+
+  it('renders spec v2 flat separators instead of spec v1 hierarchy separators', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hrn:node:acme.com::kb::findings:flaky-ci', type: 'node' },
+    });
+    expect(body).toContain('acme.com:kb:findings:flaky-ci');
+    expect(body).not.toContain('acme.com::kb::findings:flaky-ci');
+  });
+
+  it('preserves v2 node-data fragments in the displayed and copied URN', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hrn:node:acme.com:kb:findings:flaky-ci#data', type: 'node' },
+    });
+    expect(body).toContain('acme.com:kb:findings:flaky-ci#data');
+    expect(body).toContain('title="hrn:node:acme.com:kb:findings:flaky-ci#data"');
   });
 });
 

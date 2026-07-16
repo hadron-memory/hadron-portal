@@ -5,7 +5,7 @@ import NodeList from './NodeList.svelte';
 import { NODE_FIELDS } from '$lib/server/queries';
 
 // Regression for the node-listing badge showing loc-only (e.g. `preflight`)
-// instead of the full node URN (`micromentor.org::mmdata::preflight`). Two
+// instead of the full node URN (`micromentor.org:mmdata:preflight`). Two
 // halves had to be right: the query had to fetch the node's memory urn, and
 // the list had to compose it with the loc.
 
@@ -33,13 +33,13 @@ describe('node listing renders the full node URN, not loc-only', () => {
     const { body } = render(NodeList, {
       props: { nodes: [node], memoryUrn: 'micromentor.org::mmdata' },
     });
-    expect(body).toContain('micromentor.org::mmdata::preflight');
+    expect(body).toContain('micromentor.org:mmdata:preflight');
   });
 
   // Render-layer guard: with no memoryUrn prop (the multi-memory agent/app
   // path), it falls back to each node's own memory.urn.
   it('falls back to node.memory.urn when no memoryUrn prop is given', () => {
     const { body } = render(NodeList, { props: { nodes: [node] } });
-    expect(body).toContain('micromentor.org::mmdata::preflight');
+    expect(body).toContain('micromentor.org:mmdata:preflight');
   });
 });

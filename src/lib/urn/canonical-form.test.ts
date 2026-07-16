@@ -2,74 +2,60 @@ import { describe, expect, it } from 'vitest';
 import { toCanonicalForPreview, isFullyCanonical } from './canonical-form';
 
 describe('toCanonicalForPreview', () => {
-  it('returns canonical form for a canonical-input URN with no resolver needed', () => {
-    const result = toCanonicalForPreview('hrn:agent:hadronmemory.com::coding-agent');
+  it('returns canonical v2 form for a canonical-input URN', () => {
+    const result = toCanonicalForPreview('hrn:agent:hadronmemory.com:coding-agent');
     expect(result).toEqual({
-      canonical: 'hrn:agent:hadronmemory.com::coding-agent',
+      canonical: 'hrn:agent:hadronmemory.com:coding-agent',
       needsServerCanonicalization: false,
     });
   });
 
-  it('returns parser-layer canonical for a type-markered (cat 4) input', () => {
-    const result = toCanonicalForPreview(
-      'urn:agent:micromentor.org::app:coding-app::agent:hadronmemory.com:coding-agent',
-    );
-    expect(result?.canonical).toBe(
-      'hrn:agent:micromentor.org::coding-app::hadronmemory.com:coding-agent',
-    );
-    expect(result?.needsServerCanonicalization).toBe(false);
+  it('normalizes a legacy urn: scheme on an otherwise v2-flat input', () => {
+    const result = toCanonicalForPreview('urn:node:hadronmemory.com:dev:review:sort-imports');
+    expect(result).toEqual({
+      canonical: 'hrn:node:hadronmemory.com:dev:review:sort-imports',
+      needsServerCanonicalization: false,
+    });
   });
 
-  it('flags needsServerCanonicalization for a shortened-form input (cat 3)', () => {
-    const result = toCanonicalForPreview(
-      'urn:agent:micromentor.org::coding-app::coding-agent',
-    );
-    expect(result?.needsServerCanonicalization).toBe(true);
+  it('uses the v2 memory type name', () => {
+    expect(toCanonicalForPreview('hrn:mem:hadronmemory.com:coding-agent')).toEqual({
+      canonical: 'hrn:mem:hadronmemory.com:coding-agent',
+      needsServerCanonicalization: false,
+    });
+    expect(toCanonicalForPreview('hrn:memory:hadronmemory.com:coding-agent')).toBeNull();
   });
 
-  it('flags needsServerCanonicalization for an urn:node: URN that may have a role (cat 2)', () => {
-    const result = toCanonicalForPreview(
-      'urn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports',
-    );
-    expect(result?.needsServerCanonicalization).toBe(true);
+  it('accepts v2 node-data fragments on node and apprun URNs', () => {
+    expect(toCanonicalForPreview('hrn:node:hadronmemory.com:dev:review:render-urn#data')).toEqual({
+      canonical: 'hrn:node:hadronmemory.com:dev:review:render-urn#data',
+      needsServerCanonicalization: false,
+    });
+    expect(toCanonicalForPreview('hrn:apprun:hadronmemory.com:portal:run_123#data')).toEqual({
+      canonical: 'hrn:apprun:hadronmemory.com:portal:run_123#data',
+      needsServerCanonicalization: false,
+    });
   });
 
-  it('returns null for an invalid URN (parse error)', () => {
+  it('returns null for invalid or v1-chain URNs', () => {
     expect(toCanonicalForPreview('not-a-urn')).toBeNull();
     expect(toCanonicalForPreview('urn:loc:foo')).toBeNull();
     expect(toCanonicalForPreview('urn:memory:org::')).toBeNull();
-  });
-
-  it('returns null for a reserved-word slug at a non-structural position', () => {
-    expect(toCanonicalForPreview('urn:memory:acme.com::system')).toBeNull();
+    expect(toCanonicalForPreview('hrn:node:hadronmemory.com::dev::review:render-urn')).toBeNull();
   });
 });
 
 describe('isFullyCanonical', () => {
-  it('returns true for canonical inputs that need no resolver', () => {
-    expect(isFullyCanonical('hrn:agent:hadronmemory.com::coding-agent')).toBe(true);
-    expect(isFullyCanonical('hrn:memory:hadronmemory.com::coding-agent::system')).toBe(true);
+  it('returns true for canonical v2 inputs', () => {
+    expect(isFullyCanonical('hrn:agent:hadronmemory.com:coding-agent')).toBe(true);
+    expect(isFullyCanonical('hrn:mem:hadronmemory.com:coding-agent')).toBe(true);
+    expect(isFullyCanonical('hrn:node:hadronmemory.com:dev:review:render-urn')).toBe(true);
   });
 
-  it('returns false for inputs needing parser-layer rewrites', () => {
-    expect(
-      isFullyCanonical('urn:agent:micromentor.org::app:coding-app::agent:hadronmemory.com:coding-agent'),
-    ).toBe(false);
-  });
-
-  it('returns false for inputs needing resolver-layer rewrites', () => {
-    // Shortened form (cat 3)
-    expect(
-      isFullyCanonical('urn:agent:micromentor.org::coding-app::coding-agent'),
-    ).toBe(false);
-    // urn:node: form (cat 2 may apply)
-    expect(
-      isFullyCanonical('urn:node:micromentor.org::coding-app::coding-agent::system::leaf'),
-    ).toBe(false);
-  });
-
-  it('returns false for invalid URNs', () => {
+  it('returns false for legacy schemes, v1 chains, and invalid URNs', () => {
+    expect(isFullyCanonical('urn:agent:hadronmemory.com:coding-agent')).toBe(false);
+    expect(isFullyCanonical('hrn:memory:hadronmemory.com:coding-agent')).toBe(false);
+    expect(isFullyCanonical('hrn:node:hadronmemory.com::dev::review:render-urn')).toBe(false);
     expect(isFullyCanonical('not-a-urn')).toBe(false);
-    expect(isFullyCanonical('urn:loc:foo')).toBe(false);
   });
 });
