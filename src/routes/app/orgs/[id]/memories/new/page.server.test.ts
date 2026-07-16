@@ -101,4 +101,10 @@ describe('create-memory action (spec 034)', () => {
     expect((result as { status?: number })?.status).toBe(400);
     expect(mockRequest).not.toHaveBeenCalled();
   });
+
+  it('rejects a reserved memory slug before calling the API', async () => {
+    const result = await runCreate({ slug: 'system', displayName: 'System', memoryClass: 'knowledge' });
+    expect(result).toMatchObject({ status: 400, data: { error: expect.stringContaining('reserved') } });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
 });

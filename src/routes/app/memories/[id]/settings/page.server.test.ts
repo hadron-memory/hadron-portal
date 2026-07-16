@@ -421,6 +421,20 @@ describe('memory-detail `update` action — visibility (spec 034)', () => {
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars.urn).toBeUndefined();
   });
+
+  it('rejects a reserved memory slug before calling the API', async () => {
+    const actions = await importActions();
+
+    const result = (await actions.update(updateEv({
+      displayName: 'Experiments',
+      urnSlug: 'system',
+      originalUrnSlug: 'experiments',
+    }))) as { status: number; data: { error: string } } | undefined;
+
+    expect(result!.status).toBe(400);
+    expect(result!.data.error).toContain('reserved');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
 });
 
 // ── Tests for the `update` action — URN-collision pre-check ──────────────

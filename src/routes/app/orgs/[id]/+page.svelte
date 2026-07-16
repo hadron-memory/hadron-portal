@@ -14,6 +14,7 @@
   import { enhance } from '$app/forms';
   import Urn from '$lib/components/Urn.svelte';
   import { parseDisplayUrn } from '$lib/urn/parse-urn';
+  import { validateOrgSlugField } from '$lib/urn/form-validation';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
 
@@ -38,8 +39,29 @@
   );
 
   let isEditing = $state(false);
+  let editName = $state('');
+  let editUrn = $state('');
+  const orgUrnError = $derived(validateOrgSlugField(editUrn));
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
+
+  function openEdit() {
+    editName = org.name;
+    editUrn = urnSlug;
+    isEditing = true;
+  }
+
+  function preventInvalidOrgUpdate(e: SubmitEvent) {
+    if (!orgUrnError) return;
+    e.preventDefault();
+  }
+
+  $effect(() => {
+    if (!isEditing) {
+      editName = org.name;
+      editUrn = urnSlug;
+    }
+  });
 </script>
 
 <svelte:head><title>{org.name} · Hadron</title></svelte:head>
@@ -58,25 +80,32 @@
     <div class="mb-4 flex items-center justify-between">
       <h2 class="font-semibold text-zinc-900 dark:text-white">{t('org-detail.profile.heading', 'Organization')}</h2>
       {#if canEdit && !isEditing}
-        <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">{t('org-detail.profile.edit', 'Edit')}</button>
+        <button onclick={openEdit} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">{t('org-detail.profile.edit', 'Edit')}</button>
       {/if}
     </div>
 
     {#if isEditing}
-      <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
+      <form method="POST" action="?/update" onsubmit={preventInvalidOrgUpdate}
+        use:enhance={() => { return async ({ result, update }) => { await update(); if (result.type === 'success') isEditing = false; }; }}
         class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
         <div>
           <label for="orgName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('org-detail.profile.name', 'Name')}</label>
-          <input id="orgName" name="name" type="text" required value={org.name} class={inputClass} />
+          <input id="orgName" name="name" type="text" required bind:value={editName} class={inputClass} />
         </div>
         <div>
           <label for="orgUrn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('org-detail.profile.urn', 'URN')}</label>
-          <input id="orgUrn" name="urn" type="text" required value={urnSlug}
-            class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-          <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">{t('org-detail.profile.urn-warning', 'Changing the URN also rewrites it across every memory, agent, and app in this organization.')}</p>
+          <input id="orgUrn" name="urn" type="text" required bind:value={editUrn}
+            aria-invalid={!!orgUrnError}
+            aria-describedby={orgUrnError ? 'orgUrnError' : 'orgUrnWarning'}
+            class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {orgUrnError ? 'border-red-500 focus:border-red-500' : ''}" />
+          {#if orgUrnError}
+            <p id="orgUrnError" class="mt-1 text-xs text-red-600 dark:text-red-400">{t('org-detail.profile.urn-error', orgUrnError)}</p>
+          {:else}
+            <p id="orgUrnWarning" class="mt-1 text-xs text-amber-600 dark:text-amber-400">{t('org-detail.profile.urn-warning', 'Changing the URN also rewrites it across every memory, agent, and app in this organization.')}</p>
+          {/if}
         </div>
         <div class="flex gap-3">
-          <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">{t('org-detail.profile.save', 'Save')}</button>
+          <button type="submit" disabled={!!orgUrnError} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">{t('org-detail.profile.save', 'Save')}</button>
           <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">{t('org-detail.profile.cancel', 'Cancel')}</button>
         </div>
       </form>

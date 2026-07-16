@@ -2,6 +2,8 @@ import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import { CREATE_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION, ORGANIZATION_QUERY } from '$lib/server/queries';
+import { toSlug } from '$lib/slug';
+import { validateMemorySlugField } from '$lib/urn/form-validation';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -18,8 +20,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
 export const actions: Actions = {
   default: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const slug = String(fd.get('slug') ?? '').trim();
     const displayName = String(fd.get('displayName') ?? '').trim();
+    const slug = String(fd.get('slug') ?? '').trim() || (displayName ? toSlug(displayName) : '');
     const name = slug || displayName; // slug for URN generation
     const shortDescription = String(fd.get('shortDescription') ?? '').trim() || null;
     const description = String(fd.get('description') ?? '').trim() || null;
@@ -50,6 +52,8 @@ export const actions: Actions = {
     const visibility = isOwnerOnly ? null : String(fd.get('visibility') ?? 'ORGANIZATION');
 
     if (!name) return fail(400, { error: 'Name is required' });
+    const slugError = validateMemorySlugField(name);
+    if (slugError) return fail(400, { error: slugError });
 
     try {
       const result = await gqlClient(locals.token).request<{ createMemory: { id: string } }>(CREATE_MEMORY_MUTATION, {

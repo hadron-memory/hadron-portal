@@ -2,6 +2,7 @@ import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import { CREATE_ORGANIZATION_MUTATION } from '$lib/server/queries';
+import { validateOrgSlugField } from '$lib/urn/form-validation';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent, url }) => {
@@ -18,7 +19,8 @@ export const actions: Actions = {
     const urn = String(fd.get('urn') ?? '').trim();
 
     if (!name || !urn) return fail(400, { error: 'Name and URN are required', name, urn });
-    if (!/^[a-z0-9-]+$/.test(urn)) return fail(400, { error: 'URN must be lowercase letters, numbers, and hyphens only', name, urn });
+    const urnError = validateOrgSlugField(urn);
+    if (urnError) return fail(400, { error: urnError, name, urn });
 
     try {
       const data = await gqlClient(locals.token).request<{ createOrganization: { id: string } }>(

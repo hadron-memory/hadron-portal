@@ -1,12 +1,33 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { validateHandleField } from '$lib/urn/form-validation';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const user = $derived(data.user);
   let isEditing = $state(false);
+  let handleInput = $state('');
+  const handleError = $derived(validateHandleField(handleInput));
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
+
+  function currentHandle() {
+    return user?.handle ?? user?.githubUsername ?? '';
+  }
+
+  function openEdit() {
+    handleInput = currentHandle();
+    isEditing = true;
+  }
+
+  function preventInvalidProfileSubmit(e: SubmitEvent) {
+    if (!handleError) return;
+    e.preventDefault();
+  }
+
+  $effect(() => {
+    if (!isEditing) handleInput = currentHandle();
+  });
 </script>
 
 <svelte:head><title>Account · Hadron</title></svelte:head>
@@ -24,12 +45,13 @@
     <div class="mb-4 flex items-center justify-between">
       <h2 class="font-semibold text-zinc-900 dark:text-white">Profile</h2>
       {#if !isEditing}
-        <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+        <button onclick={openEdit} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
       {/if}
     </div>
 
     {#if isEditing}
-      <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
+      <form method="POST" action="?/update" onsubmit={preventInvalidProfileSubmit}
+        use:enhance={() => { return async ({ result, update }) => { await update(); if (result.type === 'success') isEditing = false; }; }}
         class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4"
       >
         <div class="flex items-center gap-4 mb-2">
@@ -53,10 +75,16 @@
           <label for="editHandle" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Handle</label>
           <div class="flex items-stretch">
             <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">@</span>
-            <input id="editHandle" name="handle" type="text" value={user?.handle ?? user?.githubUsername ?? ''} placeholder="username"
-              class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+            <input id="editHandle" name="handle" type="text" bind:value={handleInput} placeholder="username"
+              aria-invalid={!!handleError}
+              aria-describedby={handleError ? 'editHandleError' : 'editHandleHelp'}
+              class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {handleError ? 'border-red-500 focus:border-red-500' : ''}" />
           </div>
-          <p class="mt-1 text-xs text-zinc-500">Used for attribution in discussions and node authorship.</p>
+          {#if handleError}
+            <p id="editHandleError" class="mt-1 text-xs text-red-600 dark:text-red-400">{handleError}</p>
+          {:else}
+            <p id="editHandleHelp" class="mt-1 text-xs text-zinc-500">Used for attribution in discussions and node authorship.</p>
+          {/if}
         </div>
 
         <div>
@@ -66,7 +94,7 @@
         </div>
 
         <div class="flex gap-3">
-          <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
+          <button type="submit" disabled={!!handleError} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">Save</button>
           <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
         </div>
       </form>

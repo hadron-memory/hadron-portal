@@ -4,6 +4,7 @@
   import { replaceState } from '$app/navigation';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
+  import { validateMemorySlugField } from '$lib/urn/form-validation';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -52,7 +53,7 @@
     const wantEdit = sp.get('edit') === '1';
     const wantDelete = sp.get('delete') === '1';
     if (!wantEdit && !wantDelete) return;
-    if (wantEdit) isEditing = true;
+    if (wantEdit) openEdit();
     if (wantDelete) confirmDelete = true;
     const u = new URL($page.url);
     u.searchParams.delete('edit');
@@ -74,6 +75,8 @@
   const urnSlug = $derived(
     g.urn ? (g.urn.includes('::') ? (g.urn.split('::')[1] ?? '') : (g.urn.split(':').pop() ?? '')) : '',
   );
+  let urnSlugInput = $state('');
+  const urnSlugError = $derived(isAgentSystem ? null : validateMemorySlugField(urnSlugInput));
 
   // The read-only head rendered before the slug input. Reconstruct it from the
   // memory's OWN canonical URN so it matches exactly — including the `::`
@@ -84,6 +87,20 @@
   const visibilityLabel: Record<string, string> = { ORGANIZATION: 'Organization', PUBLIC: 'Public', GROUP: 'Group' };
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
+
+  function openEdit() {
+    urnSlugInput = urnSlug;
+    isEditing = true;
+  }
+
+  function preventInvalidSettingsSubmit(e: SubmitEvent) {
+    if (!urnSlugError) return;
+    e.preventDefault();
+  }
+
+  $effect(() => {
+    if (!isEditing) urnSlugInput = urnSlug;
+  });
 
   function savingEnhance(formEl: HTMLFormElement) {
     return enhance(formEl, () => {
@@ -196,12 +213,12 @@
     <div class="mb-4 flex items-center justify-between">
       <h2 class="font-semibold text-zinc-900 dark:text-white">Memory</h2>
       {#if !isEditing}
-        <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+        <button onclick={openEdit} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
       {/if}
     </div>
 
     {#if isEditing}
-      <form id="graph-settings" method="POST" action="?/update" use:savingEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+      <form id="graph-settings" method="POST" action="?/update" onsubmit={preventInvalidSettingsSubmit} use:savingEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
         {#if isAgentSystem}
           <p class="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
             This is an agent system memory. Its name, URN, and visibility are
@@ -244,9 +261,14 @@
                    candidate URN from its `hrn:memory:<org>::` head to pre-check
                    for a collision before saving. -->
               <input type="hidden" name="currentUrn" value={g.urn} />
-              <input id="urnSlugInput" name="urnSlug" type="text" value={urnSlug}
-                class="w-full border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {urnPrefix ? 'rounded-r-lg' : 'rounded-lg'}" />
+              <input id="urnSlugInput" name="urnSlug" type="text" bind:value={urnSlugInput}
+                aria-invalid={!!urnSlugError}
+                aria-describedby={urnSlugError ? 'urnSlugError' : undefined}
+                class="w-full border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {urnPrefix ? 'rounded-r-lg' : 'rounded-lg'} {urnSlugError ? 'border-red-500 focus:border-red-500' : ''}" />
             </div>
+            {#if urnSlugError}
+              <p id="urnSlugError" class="mt-1 text-xs text-red-600 dark:text-red-400">{urnSlugError}</p>
+            {/if}
           </div>
         {/if}
 
@@ -313,7 +335,7 @@
         {/if}
 
         <div class="flex gap-3">
-          <button type="submit" disabled={saving} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+          <button type="submit" disabled={saving || !!urnSlugError} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
             {saving ? 'Saving...' : 'Save'}
           </button>
           <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>

@@ -2,7 +2,8 @@ import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { UPDATE_ORGANIZATION_MUTATION } from '$lib/server/queries';
-import { parseDisplayUrn, validateUserSlug, UrnParseError } from '$lib/urn/parse-urn';
+import { parseDisplayUrn } from '$lib/urn/parse-urn';
+import { validateOrgSlugField } from '$lib/urn/form-validation';
 import type { Actions, PageServerLoad } from './$types';
 
 // #336: this page is the Profile tab of the org-detail tab layout (the
@@ -44,17 +45,14 @@ export const actions: Actions = {
     // VALIDATE it's a single slug atom. parseDisplayUrn alone is not enough: a
     // crafted input can still leave a `:`-bearing value (`hrn:org:acme::dev` →
     // `acme::dev`, or a bare `hrn:org:` that doesn't match the scheme regex),
-    // which would again break the cascade. validateUserSlug rejects any `:`,
+    // which would again break the cascade. validateOrgSlug rejects any `:`,
     // bad charset, over-length, or reserved word, so we 400 instead of 500.
     const urnRaw = String(fd.get('urn') ?? '').trim();
     let urn: string | undefined;
     if (urnRaw) {
       urn = parseDisplayUrn(urnRaw, 'org').bareValue;
-      try {
-        validateUserSlug(urn);
-      } catch (e: unknown) {
-        return fail(400, { error: e instanceof UrnParseError ? e.message : 'Invalid organization URN' });
-      }
+      const urnError = validateOrgSlugField(urn);
+      if (urnError) return fail(400, { error: urnError });
     }
     try {
       await gqlClient(locals.token).request(UPDATE_ORGANIZATION_MUTATION, {

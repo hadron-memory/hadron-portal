@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import { toSlug } from '$lib/slug';
+  import { validateMemorySlugField } from '$lib/urn/form-validation';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -12,7 +13,8 @@
   // #320: a prefilled slug counts as "edited" so name-derivation won't clobber it.
   let slugManuallyEdited = $state(untrack(() => !!data.prefillSlug));
   let githubOpen = $state(false);
-  let colonWarning = $state(false);
+  const slugError = $derived(validateMemorySlugField(slug));
+  const showSlugError = $derived(!!slug && !!slugError);
   // Spec 034: knowledge = org-shared (visibility-governed); personal/private =
   // owner-only (visibility is auto-derived server-side, so we hide that knob).
   let memoryClass = $state<'knowledge' | 'personal' | 'private'>('knowledge');
@@ -24,9 +26,13 @@
     }
   });
 
-  function onSlugInput(e: Event) {
+  function onSlugInput() {
     slugManuallyEdited = true;
-    colonWarning = (e.target as HTMLInputElement).value.includes(':');
+  }
+
+  function preventInvalidMemorySubmit(e: SubmitEvent) {
+    if (!slugError) return;
+    e.preventDefault();
   }
 </script>
 
@@ -41,7 +47,7 @@
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">Add memory</h1>
   </div>
 
-  <form method="POST" use:enhance class="space-y-5">
+  <form method="POST" onsubmit={preventInvalidMemorySubmit} use:enhance class="space-y-5">
     {#if form?.error}
       <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
     {/if}
@@ -64,10 +70,12 @@
         <input id="slug" type="text" required placeholder="my-knowledge-base"
           bind:value={slug}
           oninput={onSlugInput}
-          class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {colonWarning ? 'border-amber-500 focus:border-amber-500' : ''}" />
+          aria-invalid={showSlugError}
+          aria-describedby={showSlugError ? 'slugError' : undefined}
+          class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {showSlugError ? 'border-red-500 focus:border-red-500' : ''}" />
       </div>
-      {#if colonWarning}
-        <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">Colons are used as URN delimiters and should not appear in the slug.</p>
+      {#if showSlugError}
+        <p id="slugError" class="mt-1 text-xs text-red-600 dark:text-red-400">{slugError}</p>
       {/if}
     </div>
 
@@ -192,7 +200,7 @@
       {/if}
     </div>
 
-    <button type="submit" class="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">
+    <button type="submit" disabled={showSlugError} class="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">
       Add memory
     </button>
   </form>

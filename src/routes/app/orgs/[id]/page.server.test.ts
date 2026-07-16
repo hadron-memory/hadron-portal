@@ -103,10 +103,18 @@ describe('org-detail Profile update action (#394)', () => {
   it('rejects a urn that parses to a non-slug atom with a 400, never calling the mutation', async () => {
     const { actions } = await importMod();
     // parseDisplayUrn would yield `acme::dev` here — a `:`-bearing value that
-    // would re-break the rename cascade. validateUserSlug must reject it.
+    // would re-break the rename cascade. validateOrgSlug must reject it.
     const result = await actions.update(actionEv({ name: 'Acme', urn: 'hrn:org:acme::dev' }));
     expect(result).toMatchObject({ status: 400, data: { error: expect.any(String) } });
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('accepts dotted bare org slugs from the shared validator', async () => {
+    mockRequest.mockResolvedValueOnce({ updateOrganization: { id: 'org-id-123' } });
+    const { actions } = await importMod();
+    await actions.update(actionEv({ name: 'Acme', urn: 'acme.com' }));
+    const [, vars] = mockRequest.mock.calls[0];
+    expect(vars.urn).toBe('acme.com');
   });
 
   it('returns a 500 fail with an error message when the mutation throws', async () => {
