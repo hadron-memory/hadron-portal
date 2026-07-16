@@ -1,41 +1,60 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { enhance } from '$app/forms';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import { toSlug } from '$lib/slug';
-  import { validateMemorySlugField } from '$lib/urn/form-validation';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
-  import type { PageData, ActionData } from './$types';
+  import type { ActionData, PageData } from './$types';
+  import { createMemorySchema } from './schema';
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
-  let name = $state('');
-  // #320: seed the slug once when the command bar deep-links here.
-  let slug = $state(untrack(() => data.prefillSlug ?? ''));
+  const initialForm = untrack(() => form?.form ?? data.form);
+
+  const {
+    form: formData,
+    errors,
+    constraints,
+    message,
+    allErrors,
+    submitting,
+    enhance,
+  } = superForm(initialForm, {
+    validators: zod4Client(createMemorySchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
   // #320: a prefilled slug counts as "edited" so name-derivation won't clobber it.
   let slugManuallyEdited = $state(untrack(() => !!data.prefillSlug));
-  let githubOpen = $state(false);
-  let submitAttempted = $state(false);
-  const slugError = $derived(validateMemorySlugField(slug));
-  const showSlugError = $derived(!!slug && !!slugError);
-  const actionError = $derived(form?.error ?? (submitAttempted && slugError ? slugError : null));
+  let githubOpen = $state(untrack(() => !!initialForm.errors.source));
+  let submitAttempted = $state(untrack(() => !!form?.form));
+  const displayNameError = $derived($errors.displayName?.[0] ?? null);
+  const slugError = $derived($errors.slug?.[0] ?? null);
+  const homeUrlError = $derived($errors.homeUrl?.[0] ?? null);
+  const iconUrlError = $derived($errors.iconUrl?.[0] ?? null);
+  const heroUrlError = $derived($errors.heroUrl?.[0] ?? null);
+  const sourceError = $derived($errors.source?.[0] ?? null);
+  const actionError = $derived($message ?? (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null));
   // Spec 034: knowledge = org-shared (visibility-governed); personal/private =
   // owner-only (visibility is auto-derived server-side, so we hide that knob).
-  let memoryClass = $state<'knowledge' | 'personal' | 'private'>('knowledge');
-  const isOwnerOnly = $derived(memoryClass === 'personal' || memoryClass === 'private');
+  const isOwnerOnly = $derived($formData.memoryClass === 'personal' || $formData.memoryClass === 'private');
 
-  $effect(() => {
-    if (!slugManuallyEdited) {
-      slug = toSlug(name);
+  function onDisplayNameInput(event: Event) {
+    const target = event.currentTarget as HTMLInputElement;
+    const nextSlug = toSlug(target.value);
+    if (!slugManuallyEdited && $formData.slug !== nextSlug) {
+      formData.update((current) => ({ ...current, slug: nextSlug }), { taint: false });
     }
-  });
+  }
 
   function onSlugInput() {
     slugManuallyEdited = true;
   }
 
-  function preventInvalidMemorySubmit(e: SubmitEvent) {
+  function markSubmitAttempted() {
     submitAttempted = true;
-    if (!slugError) return;
-    e.preventDefault();
   }
 </script>
 
@@ -50,34 +69,38 @@
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">Add memory</h1>
   </div>
 
-  <form method="POST" onsubmit={preventInvalidMemorySubmit} use:enhance class="space-y-5">
-    {#if form?.error}
-      <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  <form method="POST" onsubmit={markSubmitAttempted} use:enhance class="space-y-5" novalidate>
+    {#if actionError}
+      <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
     {/if}
-
-    <!-- slug is used for URN; displayName is the human-friendly name -->
-    <input type="hidden" name="slug" value={slug} />
-    <input type="hidden" name="displayName" value={name} />
 
     <div>
       <label for="displayName" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-      <input id="displayName" type="text" required placeholder="My Knowledge Base"
-        bind:value={name}
-        class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+      <input id="displayName" name="displayName" type="text" required placeholder="My Knowledge Base"
+        bind:value={$formData.displayName}
+        oninput={onDisplayNameInput}
+        aria-invalid={!!displayNameError}
+        aria-describedby={displayNameError ? 'displayNameError' : undefined}
+        {...$constraints.displayName}
+        class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {displayNameError ? 'border-red-500 focus:border-red-500' : ''}" />
+      {#if displayNameError}
+        <p id="displayNameError" class="mt-1 text-xs text-red-600 dark:text-red-400">{displayNameError}</p>
+      {/if}
     </div>
 
     <div>
       <label for="slug" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
       <div class="flex items-stretch">
         <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.org.urn}:</span>
-        <input id="slug" type="text" required placeholder="my-knowledge-base"
-          bind:value={slug}
+        <input id="slug" name="slug" type="text" required placeholder="my-knowledge-base"
+          bind:value={$formData.slug}
           oninput={onSlugInput}
-          aria-invalid={showSlugError}
-          aria-describedby={showSlugError ? 'slugError' : undefined}
-          class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {showSlugError ? 'border-red-500 focus:border-red-500' : ''}" />
+          aria-invalid={!!slugError}
+          aria-describedby={slugError ? 'slugError' : undefined}
+          {...$constraints.slug}
+          class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {slugError ? 'border-red-500 focus:border-red-500' : ''}" />
       </div>
-      {#if showSlugError}
+      {#if slugError}
         <p id="slugError" class="mt-1 text-xs text-red-600 dark:text-red-400">{slugError}</p>
       {/if}
     </div>
@@ -85,18 +108,21 @@
     <div>
       <label for="shortDescription" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Short description</label>
       <input id="shortDescription" name="shortDescription" type="text" placeholder="One-line summary"
+        bind:value={$formData.shortDescription}
         class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
     </div>
 
     <div>
       <label for="description" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
       <textarea id="description" name="description" rows="3" placeholder="Full description (supports markdown)"
+        bind:value={$formData.description}
         class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"></textarea>
     </div>
 
     <div>
       <label for="tags" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Tags <span class="text-zinc-500">(comma-separated)</span></label>
       <input id="tags" name="tags" type="text" placeholder="meal-planning, nutrition, family"
+        bind:value={$formData.tags}
         class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
     </div>
 
@@ -104,16 +130,19 @@
       <div>
         <label for="category0" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Category</label>
         <input id="category0" name="category0" type="text" placeholder="Primary"
+          bind:value={$formData.category0}
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
       </div>
       <div>
         <label for="category1" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Subcategory</label>
         <input id="category1" name="category1" type="text" placeholder="Secondary"
+          bind:value={$formData.category1}
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
       </div>
       <div>
         <label for="category2" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Sub-subcategory</label>
         <input id="category2" name="category2" type="text" placeholder="Tertiary"
+          bind:value={$formData.category2}
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
       </div>
     </div>
@@ -122,12 +151,19 @@
       <div>
         <label for="license" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">License</label>
         <input id="license" name="license" type="text" placeholder="MIT, CC-BY-4.0, proprietary"
+          bind:value={$formData.license}
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
       </div>
       <div>
         <label for="homeUrl" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Home URL</label>
         <input id="homeUrl" name="homeUrl" type="url" placeholder="https://example.com"
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+          bind:value={$formData.homeUrl}
+          aria-invalid={!!homeUrlError}
+          aria-describedby={homeUrlError ? 'homeUrlError' : undefined}
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {homeUrlError ? 'border-red-500 focus:border-red-500' : ''}" />
+        {#if homeUrlError}
+          <p id="homeUrlError" class="mt-1 text-xs text-red-600 dark:text-red-400">{homeUrlError}</p>
+        {/if}
       </div>
     </div>
 
@@ -135,18 +171,30 @@
       <div>
         <label for="iconUrl" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Icon URL</label>
         <input id="iconUrl" name="iconUrl" type="url" placeholder="https://example.com/icon.png"
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+          bind:value={$formData.iconUrl}
+          aria-invalid={!!iconUrlError}
+          aria-describedby={iconUrlError ? 'iconUrlError' : undefined}
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {iconUrlError ? 'border-red-500 focus:border-red-500' : ''}" />
+        {#if iconUrlError}
+          <p id="iconUrlError" class="mt-1 text-xs text-red-600 dark:text-red-400">{iconUrlError}</p>
+        {/if}
       </div>
       <div>
         <label for="heroUrl" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Hero image URL</label>
         <input id="heroUrl" name="heroUrl" type="url" placeholder="https://example.com/hero.jpg"
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+          bind:value={$formData.heroUrl}
+          aria-invalid={!!heroUrlError}
+          aria-describedby={heroUrlError ? 'heroUrlError' : undefined}
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {heroUrlError ? 'border-red-500 focus:border-red-500' : ''}" />
+        {#if heroUrlError}
+          <p id="heroUrlError" class="mt-1 text-xs text-red-600 dark:text-red-400">{heroUrlError}</p>
+        {/if}
       </div>
     </div>
 
     <div>
       <label for="memoryClass" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Memory kind</label>
-      <select id="memoryClass" name="memoryClass" bind:value={memoryClass} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+      <select id="memoryClass" name="memoryClass" bind:value={$formData.memoryClass} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
         <option value="knowledge">Organization knowledge</option>
         <option value="personal">Personal — only you (shareable later)</option>
         <option value="private">Private — only you</option>
@@ -156,10 +204,10 @@
       {/if}
     </div>
 
-    {#if memoryClass === 'knowledge'}
+    {#if $formData.memoryClass === 'knowledge'}
       <div>
         <label for="visibility" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
-        <select id="visibility" name="visibility" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+        <select id="visibility" name="visibility" bind:value={$formData.visibility} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
           <option value="ORGANIZATION">Organization</option>
           <option value="PUBLIC">Public</option>
         </select>
@@ -184,18 +232,26 @@
           <div>
             <label for="source" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Git source URL</label>
             <input id="source" name="source" type="url" placeholder="https://github.com/owner/repo.git"
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+              bind:value={$formData.source}
+              aria-invalid={!!sourceError}
+              aria-describedby={sourceError ? 'sourceError' : undefined}
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {sourceError ? 'border-red-500 focus:border-red-500' : ''}" />
+            {#if sourceError}
+              <p id="sourceError" class="mt-1 text-xs text-red-600 dark:text-red-400">{sourceError}</p>
+            {/if}
           </div>
 
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label for="readBranch" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Read branch</label>
               <input id="readBranch" name="readBranch" type="text" placeholder="main"
+                bind:value={$formData.readBranch}
                 class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
             </div>
             <div>
               <label for="writeBranch" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Write branch</label>
               <input id="writeBranch" name="writeBranch" type="text" placeholder="hadron-updates"
+                bind:value={$formData.writeBranch}
                 class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
             </div>
           </div>
@@ -207,8 +263,8 @@
       <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
     {/if}
 
-    <button type="submit" class="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">
-      Add memory
+    <button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">
+      {$submitting ? 'Adding...' : 'Add memory'}
     </button>
   </form>
 </div>

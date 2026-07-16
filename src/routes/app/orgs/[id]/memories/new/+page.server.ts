@@ -1,60 +1,61 @@
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { CREATE_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION, ORGANIZATION_QUERY } from '$lib/server/queries';
-import { toSlug } from '$lib/slug';
-import { validateMemorySlugField } from '$lib/urn/form-validation';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { createMemorySchema } from './schema';
+
+const createMemoryFormAdapter = zod4(createMemorySchema);
 
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ organization: Organization }>(
     ORGANIZATION_QUERY, { id: params.id },
   );
+  const prefillSlug = (url.searchParams.get('slug') ?? '').trim();
+  const form = await superValidate({ slug: prefillSlug }, createMemoryFormAdapter, { errors: false });
   // #320: the header command bar (Create mode) can deep-link here with the
   // memory slug prefilled (`?slug=<slug>`).
-  return { org: data.organization, prefillSlug: (url.searchParams.get('slug') ?? '').trim() };
+  return { org: data.organization, prefillSlug, form };
 };
 
 export const actions: Actions = {
   default: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const displayName = String(fd.get('displayName') ?? '').trim();
-    const slug = String(fd.get('slug') ?? '').trim() || (displayName ? toSlug(displayName) : '');
-    const name = slug || displayName; // slug for URN generation
-    const shortDescription = String(fd.get('shortDescription') ?? '').trim() || null;
-    const description = String(fd.get('description') ?? '').trim() || null;
-    const tagsRaw = String(fd.get('tags') ?? '').trim();
+    const form = await superValidate(fd, createMemoryFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
+    const {
+      slug,
+      displayName,
+      tags: tagsRaw,
+      memoryClass,
+    } = form.data;
+    const name = slug; // slug for URN generation
+    const shortDescription = form.data.shortDescription || null;
+    const description = form.data.description || null;
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : [];
-    const license = String(fd.get('license') ?? '').trim() || null;
-    const category0 = String(fd.get('category0') ?? '').trim() || null;
-    const category1 = String(fd.get('category1') ?? '').trim() || null;
-    const category2 = String(fd.get('category2') ?? '').trim() || null;
-    const iconUrl = String(fd.get('iconUrl') ?? '').trim() || null;
-    const heroUrl = String(fd.get('heroUrl') ?? '').trim() || null;
-    const homeUrl = String(fd.get('homeUrl') ?? '').trim() || null;
-    const source = String(fd.get('source') ?? '').trim() || null;
-    const readBranch = String(fd.get('readBranch') ?? '').trim() || null;
-    const writeBranch = String(fd.get('writeBranch') ?? '').trim() || null;
+    const license = form.data.license || null;
+    const category0 = form.data.category0 || null;
+    const category1 = form.data.category1 || null;
+    const category2 = form.data.category2 || null;
+    const iconUrl = form.data.iconUrl || null;
+    const heroUrl = form.data.heroUrl || null;
+    const homeUrl = form.data.homeUrl || null;
+    const source = form.data.source || null;
+    const readBranch = form.data.readBranch || null;
+    const writeBranch = form.data.writeBranch || null;
     // Spec 034: owner-only classes (personal/private) derive visibility
     // server-side, so we don't send a visibility for them. Only knowledge is
     // visibility-governed.
-    const memoryClass = String(fd.get('memoryClass') ?? 'knowledge');
-    // Only the user-creatable classes the form offers; reject anything else
-    // (e.g. system/app) before it reaches the server.
-    if (memoryClass !== 'knowledge' && memoryClass !== 'personal' && memoryClass !== 'private') {
-      return fail(400, { error: 'Invalid memory kind' });
-    }
     const isOwnerOnly = memoryClass === 'personal' || memoryClass === 'private';
     // knowledge is the only visibility-governed class created here; default to
     // ORGANIZATION (spec 034 dropped PRIVATE — privacy is the personal/private class).
-    const visibility = isOwnerOnly ? null : String(fd.get('visibility') ?? 'ORGANIZATION');
-
-    if (!name) return fail(400, { error: 'Name is required' });
-    const slugError = validateMemorySlugField(name);
-    if (slugError) return fail(400, { error: slugError });
+    const visibility = isOwnerOnly ? null : form.data.visibility;
 
     try {
       const result = await gqlClient(locals.token).request<{ createMemory: { id: string } }>(CREATE_MEMORY_MUTATION, {
@@ -71,7 +72,11 @@ export const actions: Actions = {
       redirect(303, `/app/orgs/${params.id}/memories`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      return fail(500, { error: extractGqlError(e, 'Failed to create memory') });
+      const error = extractGqlError(e, 'Failed to create memory');
+      if (/memory with URN/i.test(error)) {
+        return setError(form, 'slug', error, { status: 409 });
+      }
+      return message(form, error, { status: 500 });
     }
   },
 };

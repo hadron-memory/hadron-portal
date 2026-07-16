@@ -1,4 +1,4 @@
-import { UrnParseError, validateOrgSlug, validateUserSlug } from '$lib/urn/parse-urn';
+import { UrnParseError, validateAtomShape, validateOrgSlug, validateUserSlug } from '$lib/urn/parse-urn';
 
 type SlugValidator = (value: string) => void;
 
@@ -45,7 +45,12 @@ export function validateHandleField(value: string): string | null {
 }
 
 export function validateMemorySlugField(value: string): string | null {
-  return validateSlugField(value, 'Memory URN slug', 'URN slug is required.', validateUserSlug);
+  return validateSlugField(
+    value,
+    'Memory URN slug',
+    'URN slug is required.',
+    (slug) => validateAtomShape(slug, slug),
+  );
 }
 
 export function validateOrgSlugField(value: string): string | null {

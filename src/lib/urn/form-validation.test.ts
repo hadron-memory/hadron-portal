@@ -8,8 +8,9 @@ describe('URN form validation helpers', () => {
     expect(validateHandleField('Alice')).toMatch(/lowercase|reserved/);
   });
 
-  it('rejects reserved memory slugs', () => {
-    expect(validateMemorySlugField('system')).toMatch(/reserved/);
+  it('accepts reserved words as memory slugs but validates atom shape', () => {
+    expect(validateMemorySlugField('system')).toBeNull();
+    expect(validateMemorySlugField('Bad Slug')).toMatch(/lowercase|letters/);
   });
 
   it('rejects full organization URNs', () => {
