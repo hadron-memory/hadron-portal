@@ -1,5 +1,6 @@
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { CREATE_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION, ORGANIZATION_QUERY } from '$lib/server/queries';
 import { toSlug } from '$lib/slug';
@@ -70,7 +71,7 @@ export const actions: Actions = {
       redirect(303, `/app/orgs/${params.id}/memories`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create memory' });
+      return fail(500, { error: extractGqlError(e, 'Failed to create memory') });
     }
   },
 };
