@@ -147,7 +147,7 @@ function runCorpusCase(c: CorpusCase): unknown {
   if (c.fn === 'parseForRow') {
     return urn.parseFor({
       urn: c.in[0] as string,
-      urnNormalizedAt: c.in[1] ? new Date('2026-01-01T00:00:00.000Z') : null,
+      urnNormalizedAt: c.in[1] ? new Date(c.in[1] as string) : null,
     });
   }
 

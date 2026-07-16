@@ -38,6 +38,9 @@ export {
   isParserCanonical,
   toParserCanonical,
   formatCanonicalUrn,
+  // Strict lib composers are re-exported for corpus/compatibility only.
+  // Portal UI call sites should use $lib/urn/compose-node-urn instead; that
+  // wrapper accepts legacy single-colon memory URNs still seen by the portal.
   composeNodeUrn,
   composeEdgeUrn,
   composeInstalledAgentUrn,
@@ -81,6 +84,10 @@ export type {
  * generated `encodeURIComponent('hrn:memory:...')` link arrives here already
  * decoded. The only normalization needed is trimming stray surrounding
  * whitespace (e.g. from a copy-paste that grabbed a trailing space).
+ *
+ * A bare un-prefixed URN is left untouched: it is ambiguous across kinds
+ * (`org::slug` could be a memory or an agent), so the server resolver should
+ * decide whether it resolves or collapses to a 404.
  */
 export function normalizeUrn(raw: string): string {
   return raw.trim();
@@ -91,6 +98,11 @@ export function normalizeUrn(raw: string): string {
  * {@link normalizeUrn}. Used by the "Copy URL" button on URN chips (#310) to
  * produce a stable, shareable link that the resolver route (#262) 307-redirects
  * to the resource's canonical page.
+ *
+ * Keep the URN raw, not percent-encoded. The grammar only produces `:`
+ * delimiters plus slug atoms, and the resolver route is a single path segment,
+ * so escaping the colons would make the link harder to read without improving
+ * correctness.
  */
 export function buildResolverUrl(baseUrl: string, urn: string): string {
   const base = baseUrl.replace(/\/+$/, '');
