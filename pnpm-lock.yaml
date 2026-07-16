@@ -26,6 +26,9 @@ importers:
       '@ai-sdk/xai':
         specifier: ^3.0.74
         version: 3.0.74(zod@4.3.6)
+      '@hadron-memory/urn-lib-js':
+        specifier: 0.0.3
+        version: 0.0.3
       '@tailwindcss/typography':
         specifier: ^0.5.19
         version: 0.5.19(tailwindcss@4.2.1)
@@ -364,6 +367,9 @@ packages:
     resolution: {integrity: sha512-mB9oAsNCm9aM3/SOv4YtBMqZbYj10R7dkq8byBqxGY/ncFwhf2oQzMV+LCRlWoDSEBJ3COiR1yeDvMtsoOsuFQ==}
     peerDependencies:
       graphql: ^0.8.0 || ^0.9.0 || ^0.10.0 || ^0.11.0 || ^0.12.0 || ^0.13.0 || ^14.0.0 || ^15.0.0 || ^16.0.0 || ^17.0.0
+
+  '@hadron-memory/urn-lib-js@0.0.3':
+    resolution: {integrity: sha512-lY+WGUMW1rmbSCtW8yshswnFW5jNhNJ2b1zdxTErLMZYh4kyX4qyetuu7okU0kKaxaS62uGaMYfmqNBfQKHDeQ==}
 
   '@internationalized/date@3.12.0':
     resolution: {integrity: sha512-/PyIMzK29jtXaGU23qTvNZxvBXRtKbNnGDFD+PY6CZw/Y8Ex8pFUzkuCJCG9aOqmShjqhS9mPqP6Dk5onQY8rQ==}
@@ -1662,6 +1668,8 @@ snapshots:
   '@graphql-typed-document-node/core@3.2.0(graphql@16.13.1)':
     dependencies:
       graphql: 16.13.1
+
+  '@hadron-memory/urn-lib-js@0.0.3': {}
 
   '@internationalized/date@3.12.0':
     dependencies:

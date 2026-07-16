@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import corpus from '@hadron-memory/urn-lib-js/fixtures/corpus.json';
+import * as urn from './parse-urn';
 import {
   parseDisplayUrn as parseUrn,
   parseUrn as parseCanonicalUrn,
@@ -11,11 +10,9 @@ import {
   buildResolverUrl,
   normalizeUrn,
   UrnParseError,
-  type AliasCategory,
+  UrnNotQualifiedError,
+  type LegacyUrnType,
 } from './parse-urn';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 describe('parseDisplayUrn (spec 010)', () => {
   describe('US2 — auto-detected type from urn: prefix', () => {
@@ -51,6 +48,13 @@ describe('parseDisplayUrn (spec 010)', () => {
       expect(r.bareValue).toBe('micromentor.org:mmdata:review:sort-imports');
       expect(r.fullUrn).toBe('hrn:node:micromentor.org:mmdata:review:sort-imports');
     });
+
+    it('detects apprun so run URNs do not render as unknown (#699)', () => {
+      const r = parseUrn('hrn:apprun:hadronmemory.com:chatbot:run_123');
+      expect(r.type).toBe('apprun');
+      expect(r.bareValue).toBe('hadronmemory.com:chatbot:run_123');
+      expect(r.fullUrn).toBe('hrn:apprun:hadronmemory.com:chatbot:run_123');
+    });
   });
 
   describe('US3 — bare value preserves all colon segments', () => {
@@ -82,6 +86,13 @@ describe('parseDisplayUrn (spec 010)', () => {
       expect(r.type).toBe('node');
       expect(r.bareValue).toBe('abc-123');
       expect(r.fullUrn).toBe('hrn:node:abc-123');
+    });
+
+    it('typeProp supports apprun for bare run ids', () => {
+      const r = parseUrn('run_123', 'apprun');
+      expect(r.type).toBe('apprun');
+      expect(r.bareValue).toBe('run_123');
+      expect(r.fullUrn).toBe('hrn:apprun:run_123');
     });
 
     it('embedded prefix wins over typeProp (preserves pre-010 component behavior)', () => {
@@ -118,63 +129,66 @@ describe('parseDisplayUrn (spec 010)', () => {
   });
 });
 
-// =====================================================================
-// Spec 021 — canonical-form parser parity with hadron-server
-//
-// Every record in parser-golden-set.json is asserted against this
-// portal's parseUrn() implementation. The fixture is sha256-matched
-// across hadron-server / hadron-portal / hadron-client (T002-T004); CI
-// drift gate (T005) blocks divergence.
-// =====================================================================
-
-interface GoldenCase {
-  _section?: string;
-  _note?: string;
-  input: string;
-  expectedType?: string;
-  expectedParserCanonical?: string;
-  expectedParserRewrites?: AliasCategory[];
-  expectedNeedsResolver?: boolean;
-  expectedReject?: string;
-  offendingSegment?: string;
+interface CorpusCase {
+  fn: string;
+  in: unknown[];
+  out?: unknown;
+  throws?: string;
+  throwsQualified?: boolean;
+  throwsAny?: boolean;
 }
 
-const goldenSet: { cases: GoldenCase[] } = JSON.parse(
-  readFileSync(join(__dirname, '__fixtures__/parser-golden-set.json'), 'utf-8'),
-);
-const goldenCases: GoldenCase[] = goldenSet.cases.filter(c => c.input !== undefined);
+function runCorpusCase(c: CorpusCase): unknown {
+  if (c.fn === 'validateUrnTypeFromInput') {
+    const parsed = urn.parseUrnInput(c.in[0] as string);
+    return urn.validateUrnType(parsed, c.in[1] as LegacyUrnType);
+  }
 
-describe('parseUrn (spec 021) — golden-set parity', () => {
-  for (const c of goldenCases) {
-    const label = c.expectedReject
-      ? `[reject:${c.expectedReject}] ${c.input}`
-      : `${c.input} → ${c.expectedParserCanonical}`;
+  if (c.fn === 'parseForRow') {
+    return urn.parseFor({
+      urn: c.in[0] as string,
+      urnNormalizedAt: c.in[1] ? new Date('2026-01-01T00:00:00.000Z') : null,
+    });
+  }
+
+  const fn = urn[c.fn as keyof typeof urn];
+  if (typeof fn !== 'function') {
+    throw new Error(`No corpus function exported from parse-urn shim: ${c.fn}`);
+  }
+  return (fn as (...args: unknown[]) => unknown)(...c.in);
+}
+
+describe('urn-lib-js shared conformance corpus', () => {
+  const corpusCases = (corpus as { cases: CorpusCase[] }).cases;
+  for (const c of corpusCases) {
+    const label = `${c.fn}(${c.in.map(String).join(', ')})`;
     it(label, () => {
-      if (c.expectedReject) {
+      if (c.throwsAny) {
+        expect(() => runCorpusCase(c)).toThrow();
+        return;
+      }
+
+      if (c.throwsQualified) {
+        expect(() => runCorpusCase(c)).toThrow(UrnNotQualifiedError);
+        return;
+      }
+
+      if (c.throws) {
         try {
-          parseCanonicalUrn(c.input);
-          throw new Error(`Expected UrnParseError(${c.expectedReject}) but parsing succeeded`);
+          runCorpusCase(c);
+          throw new Error(`Expected UrnParseError(${c.throws}) but call succeeded`);
         } catch (e) {
           expect(e).toBeInstanceOf(UrnParseError);
-          expect((e as UrnParseError).reason).toBe(c.expectedReject);
-          if (c.offendingSegment) {
-            expect((e as UrnParseError).offendingSegment).toBe(c.offendingSegment);
-          }
-          expect((e as UrnParseError).input).toBe(c.input);
+          expect((e as UrnParseError).reason).toBe(c.throws);
         }
         return;
       }
-      const result = parseCanonicalUrn(c.input);
-      expect(result.type).toBe(c.expectedType);
-      expect(result.parserCanonical).toBe(c.expectedParserCanonical);
-      const got = [...result.parserRewrites].sort();
-      const exp = [...(c.expectedParserRewrites ?? [])].sort();
-      expect(got).toEqual(exp);
-      expect(result.needsResolverCanonicalization).toBe(c.expectedNeedsResolver === true);
-      // Idempotence
-      const reparsed = parseCanonicalUrn(result.parserCanonical);
-      expect(reparsed.parserCanonical).toBe(result.parserCanonical);
-      expect(reparsed.parserRewrites).toEqual([]);
+
+      if (Object.hasOwn(c, 'out')) {
+        expect(runCorpusCase(c)).toEqual(c.out);
+      } else {
+        expect(() => runCorpusCase(c)).not.toThrow();
+      }
     });
   }
 });

@@ -42,6 +42,16 @@ describe('Urn.svelte — canonical scheme rendering (#239)', () => {
     expect(body).not.toMatch(/>\s*urn:\s*</);
     expect(body).not.toMatch(/>\s*hrn:\s*</);
   });
+
+  it('renders apprun as a registered display type, not unknown (#699)', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hrn:apprun:hadronmemory.com:chatbot:run_123', type: 'apprun' },
+    });
+    expect(body).toContain('hrn:');
+    expect(body).toContain('apprun:');
+    expect(body).toContain('hadronmemory.com:chatbot:run_123');
+    expect(body).not.toContain('unknown:');
+  });
 });
 
 describe('Urn.svelte — copy buttons (#310)', () => {
