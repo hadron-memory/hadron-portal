@@ -4,9 +4,11 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import { toSlug } from '$lib/slug';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
-  import type { PageData } from './$types';
+  import type { ActionData, PageData } from './$types';
   import { createMemorySchema } from './schema';
-  let { data }: { data: PageData } = $props();
+  let { data, form }: { data: PageData; form: ActionData } = $props();
+
+  const initialForm = untrack(() => form?.form ?? data.form);
 
   const {
     form: formData,
@@ -16,7 +18,7 @@
     allErrors,
     submitting,
     enhance,
-  } = superForm(untrack(() => data.form), {
+  } = superForm(initialForm, {
     validators: zod4Client(createMemorySchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
@@ -26,21 +28,26 @@
 
   // #320: a prefilled slug counts as "edited" so name-derivation won't clobber it.
   let slugManuallyEdited = $state(untrack(() => !!data.prefillSlug));
-  let githubOpen = $state(false);
-  let submitAttempted = $state(false);
+  let githubOpen = $state(untrack(() => !!initialForm.errors.source));
+  let submitAttempted = $state(untrack(() => !!form?.form));
   const displayNameError = $derived($errors.displayName?.[0] ?? null);
   const slugError = $derived($errors.slug?.[0] ?? null);
+  const homeUrlError = $derived($errors.homeUrl?.[0] ?? null);
+  const iconUrlError = $derived($errors.iconUrl?.[0] ?? null);
+  const heroUrlError = $derived($errors.heroUrl?.[0] ?? null);
+  const sourceError = $derived($errors.source?.[0] ?? null);
   const actionError = $derived($message ?? (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null));
   // Spec 034: knowledge = org-shared (visibility-governed); personal/private =
   // owner-only (visibility is auto-derived server-side, so we hide that knob).
   const isOwnerOnly = $derived($formData.memoryClass === 'personal' || $formData.memoryClass === 'private');
 
-  $effect(() => {
-    const nextSlug = toSlug($formData.displayName);
+  function onDisplayNameInput(event: Event) {
+    const target = event.currentTarget as HTMLInputElement;
+    const nextSlug = toSlug(target.value);
     if (!slugManuallyEdited && $formData.slug !== nextSlug) {
       formData.update((current) => ({ ...current, slug: nextSlug }), { taint: false });
     }
-  });
+  }
 
   function onSlugInput() {
     slugManuallyEdited = true;
@@ -71,6 +78,7 @@
       <label for="displayName" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
       <input id="displayName" name="displayName" type="text" required placeholder="My Knowledge Base"
         bind:value={$formData.displayName}
+        oninput={onDisplayNameInput}
         aria-invalid={!!displayNameError}
         aria-describedby={displayNameError ? 'displayNameError' : undefined}
         {...$constraints.displayName}
@@ -150,7 +158,12 @@
         <label for="homeUrl" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Home URL</label>
         <input id="homeUrl" name="homeUrl" type="url" placeholder="https://example.com"
           bind:value={$formData.homeUrl}
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+          aria-invalid={!!homeUrlError}
+          aria-describedby={homeUrlError ? 'homeUrlError' : undefined}
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {homeUrlError ? 'border-red-500 focus:border-red-500' : ''}" />
+        {#if homeUrlError}
+          <p id="homeUrlError" class="mt-1 text-xs text-red-600 dark:text-red-400">{homeUrlError}</p>
+        {/if}
       </div>
     </div>
 
@@ -159,13 +172,23 @@
         <label for="iconUrl" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Icon URL</label>
         <input id="iconUrl" name="iconUrl" type="url" placeholder="https://example.com/icon.png"
           bind:value={$formData.iconUrl}
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+          aria-invalid={!!iconUrlError}
+          aria-describedby={iconUrlError ? 'iconUrlError' : undefined}
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {iconUrlError ? 'border-red-500 focus:border-red-500' : ''}" />
+        {#if iconUrlError}
+          <p id="iconUrlError" class="mt-1 text-xs text-red-600 dark:text-red-400">{iconUrlError}</p>
+        {/if}
       </div>
       <div>
         <label for="heroUrl" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Hero image URL</label>
         <input id="heroUrl" name="heroUrl" type="url" placeholder="https://example.com/hero.jpg"
           bind:value={$formData.heroUrl}
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+          aria-invalid={!!heroUrlError}
+          aria-describedby={heroUrlError ? 'heroUrlError' : undefined}
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {heroUrlError ? 'border-red-500 focus:border-red-500' : ''}" />
+        {#if heroUrlError}
+          <p id="heroUrlError" class="mt-1 text-xs text-red-600 dark:text-red-400">{heroUrlError}</p>
+        {/if}
       </div>
     </div>
 
@@ -210,7 +233,12 @@
             <label for="source" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Git source URL</label>
             <input id="source" name="source" type="url" placeholder="https://github.com/owner/repo.git"
               bind:value={$formData.source}
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+              aria-invalid={!!sourceError}
+              aria-describedby={sourceError ? 'sourceError' : undefined}
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {sourceError ? 'border-red-500 focus:border-red-500' : ''}" />
+            {#if sourceError}
+              <p id="sourceError" class="mt-1 text-xs text-red-600 dark:text-red-400">{sourceError}</p>
+            {/if}
           </div>
 
           <div class="grid grid-cols-2 gap-4">

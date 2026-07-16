@@ -4,8 +4,8 @@ import { validateMemorySlugField } from '$lib/urn/form-validation';
 const optionalUrl = z.string().trim().refine((value) => {
   if (!value) return true;
   try {
-    new URL(value);
-    return true;
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
   } catch {
     return false;
   }

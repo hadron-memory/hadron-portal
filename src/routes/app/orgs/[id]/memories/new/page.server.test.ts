@@ -102,11 +102,11 @@ describe('create-memory action (spec 034)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('rejects a reserved memory slug before calling the API', async () => {
-    const result = await runCreate({ slug: 'system', displayName: 'System', memoryClass: 'knowledge' });
+  it('rejects an invalid memory slug before calling the API', async () => {
+    const result = await runCreate({ slug: 'Bad Slug', displayName: 'Bad Slug', memoryClass: 'knowledge' });
     expect(result).toMatchObject({
       status: 400,
-      data: { form: { errors: { slug: expect.arrayContaining([expect.stringContaining('reserved')]) } } },
+      data: { form: { errors: { slug: expect.arrayContaining([expect.stringContaining('lowercase')]) } } },
     });
     expect(mockRequest).not.toHaveBeenCalled();
   });
@@ -121,6 +121,20 @@ describe('create-memory action (spec 034)', () => {
     expect(result).toMatchObject({
       status: 400,
       data: { form: { errors: { homeUrl: ['Enter a valid URL.'] } } },
+    });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsafe optional URL protocols before calling the API', async () => {
+    const result = await runCreate({
+      slug: 'links',
+      displayName: 'Links',
+      memoryClass: 'knowledge',
+      iconUrl: 'javascript:alert(1)',
+    });
+    expect(result).toMatchObject({
+      status: 400,
+      data: { form: { errors: { iconUrl: ['Enter a valid URL.'] } } },
     });
     expect(mockRequest).not.toHaveBeenCalled();
   });

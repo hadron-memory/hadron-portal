@@ -422,17 +422,17 @@ describe('memory-detail `update` action — visibility (spec 034)', () => {
     expect(vars.urn).toBeUndefined();
   });
 
-  it('rejects a reserved memory slug before calling the API', async () => {
+  it('rejects an invalid memory slug before calling the API', async () => {
     const actions = await importActions();
 
     const result = (await actions.update(updateEv({
       displayName: 'Experiments',
-      urnSlug: 'system',
+      urnSlug: 'Bad Slug',
       originalUrnSlug: 'experiments',
     }))) as { status: number; data: { error: string } } | undefined;
 
     expect(result!.status).toBe(400);
-    expect(result!.data.error).toContain('reserved');
+    expect(result!.data.error).toContain('lowercase');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 });
