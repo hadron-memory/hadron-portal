@@ -50,6 +50,15 @@ export {
   parseFor,
   DISPLAY_URN_TYPES,
   parseDisplayUrn,
+  V2_URN_TYPES,
+  parseUrnV2,
+  composeUrnV2,
+  isFlatV2,
+  composeSecretUrnV2,
+  composeAppRunUrnV2,
+  composeNodeRevUrnV2,
+  composeDataFragmentV2,
+  parseNodeRevUrnV2,
 } from '@hadron-memory/urn-lib-js';
 
 export type {
@@ -63,6 +72,9 @@ export type {
   DisplayUrnType,
   DisplayParsedUrnType,
   ParsedDisplayUrn,
+  V2UrnType,
+  ParsedUrnV2,
+  ParsedNodeRevUrnV2,
 } from '@hadron-memory/urn-lib-js';
 export type { ParsedUrn as ParsedCanonicalUrn } from '@hadron-memory/urn-lib-js';
 export type {

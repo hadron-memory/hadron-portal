@@ -1,12 +1,25 @@
 <script lang="ts">
-  // Spec 010 display surface (renamed from `parseUrn` in spec 021 to make
-  // room for the new canonical-form parser at the `parseUrn` name).
-  // Behavior is unchanged here.
-  import { CANONICAL_SCHEME, parseDisplayUrn, buildResolverUrl, type UrnType } from '$lib/urn/parse-urn';
+  import {
+    CANONICAL_SCHEME,
+    DISPLAY_URN_TYPES,
+    V2_URN_TYPES,
+    buildResolverUrl,
+    composeUrnV2,
+    parseDisplayUrn,
+    parseUrnV2,
+    type ParsedUrnV2,
+    type UrnType,
+    type V2UrnType,
+  } from '$lib/urn/parse-urn';
+
+  type UrnTypeHint = UrnType | V2UrnType;
+
+  const V2_TYPE_HINTS = new Set<string>([...V2_URN_TYPES, 'memory']);
+  const DISPLAY_TYPE_HINTS = new Set<string>(DISPLAY_URN_TYPES);
 
   let { value, type, size = 12, compact = false }: {
     value: string;
-    type?: UrnType;
+    type?: UrnTypeHint;
     size?: number;
     compact?: boolean;
   } = $props();
@@ -14,16 +27,67 @@
   let copied = $state(false);
   let urlCopied = $state(false);
 
-  const parsed = $derived(parseDisplayUrn(value, type));
-  const displayType = $derived(parsed.type);
-  const fullUrn = $derived(parsed.fullUrn);
-  const displayFullUrn = $derived(fullUrn.replaceAll('::', ':'));
-  const bareValue = $derived.by(() => {
+  function v2TypeHint(typeHint: UrnTypeHint | undefined): string | undefined {
+    if (!typeHint) return undefined;
+    if (typeHint === 'memory') return 'mem';
+    return V2_TYPE_HINTS.has(typeHint) ? typeHint : undefined;
+  }
+
+  function displayTypeHint(typeHint: UrnTypeHint | undefined): UrnType | undefined {
+    if (!typeHint) return undefined;
+    if (typeHint === 'mem') return 'memory';
+    return DISPLAY_TYPE_HINTS.has(typeHint) ? (typeHint as UrnType) : undefined;
+  }
+
+  function formatParsedV2(parsed: ParsedUrnV2): string {
+    const urn = composeUrnV2(parsed.type, parsed.root, ...parsed.segments);
+    return parsed.fragment ? `${urn}#${parsed.fragment}` : urn;
+  }
+
+  function displayFromV2(parsed: ParsedUrnV2) {
+    const fullUrn = formatParsedV2(parsed);
+    const prefix = `${CANONICAL_SCHEME}:${parsed.type}:`;
+    return {
+      type: parsed.type,
+      fullUrn,
+      bareValue: fullUrn.startsWith(prefix) ? fullUrn.slice(prefix.length) : fullUrn,
+    };
+  }
+
+  function parseV2ForDisplay(input: string, typeHint: UrnTypeHint | undefined) {
+    try {
+      return displayFromV2(parseUrnV2(input));
+    } catch {
+      const type = v2TypeHint(typeHint);
+      if (!type || input.startsWith('hrn:') || input.startsWith('urn:')) return null;
+
+      try {
+        return displayFromV2(parseUrnV2(`${CANONICAL_SCHEME}:${type}:${input.replaceAll('::', ':')}`));
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  function displayFromLegacy(input: string, typeHint: UrnTypeHint | undefined) {
+    const parsed = parseDisplayUrn(input, displayTypeHint(typeHint));
+    const displayType = parsed.type === 'memory' ? 'mem' : parsed.type;
+    const fullUrn = parsed.fullUrn.replaceAll('::', ':').replace(/^hrn:memory:/, 'hrn:mem:');
     const prefix = `${CANONICAL_SCHEME}:${displayType}:`;
-    return displayFullUrn.startsWith(prefix)
-      ? displayFullUrn.slice(prefix.length)
-      : parsed.bareValue.replaceAll('::', ':');
-  });
+
+    return {
+      type: displayType,
+      fullUrn,
+      bareValue: fullUrn.startsWith(prefix)
+        ? fullUrn.slice(prefix.length)
+        : parsed.bareValue.replaceAll('::', ':'),
+    };
+  }
+
+  const parsed = $derived(parseV2ForDisplay(value, type) ?? displayFromLegacy(value, type));
+  const displayType = $derived(parsed.type);
+  const displayFullUrn = $derived(parsed.fullUrn);
+  const bareValue = $derived(parsed.bareValue);
 
   // Type badge: uniform style across all types (incl. 'unknown' fallback)
   const typeBadgeClass = 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200';
