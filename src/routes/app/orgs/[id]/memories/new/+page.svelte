@@ -13,8 +13,10 @@
   // #320: a prefilled slug counts as "edited" so name-derivation won't clobber it.
   let slugManuallyEdited = $state(untrack(() => !!data.prefillSlug));
   let githubOpen = $state(false);
+  let submitAttempted = $state(false);
   const slugError = $derived(validateMemorySlugField(slug));
   const showSlugError = $derived(!!slug && !!slugError);
+  const actionError = $derived(form?.error ?? (submitAttempted && slugError ? slugError : null));
   // Spec 034: knowledge = org-shared (visibility-governed); personal/private =
   // owner-only (visibility is auto-derived server-side, so we hide that knob).
   let memoryClass = $state<'knowledge' | 'personal' | 'private'>('knowledge');
@@ -31,6 +33,7 @@
   }
 
   function preventInvalidMemorySubmit(e: SubmitEvent) {
+    submitAttempted = true;
     if (!slugError) return;
     e.preventDefault();
   }
@@ -200,7 +203,11 @@
       {/if}
     </div>
 
-    <button type="submit" disabled={showSlugError} class="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">
+    {#if actionError}
+      <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
+    {/if}
+
+    <button type="submit" class="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">
       Add memory
     </button>
   </form>
