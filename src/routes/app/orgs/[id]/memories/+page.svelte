@@ -16,6 +16,7 @@
     getSortedRowModel,
     getFilteredRowModel,
     getPaginationRowModel,
+    type Cell,
     type ColumnDef,
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -29,7 +30,9 @@
   const org = $derived(data.org);
 
   // #342: secondary tab — Org Memories vs Subscriptions.
-  let subTab = $state<'org' | 'subscriptions'>('org');
+  // #555: Personal Memories split out to its own tab (to the left of Org
+  // Memories) now that memories can be owned by users directly.
+  let subTab = $state<'personal' | 'org' | 'subscriptions'>('org');
   const subscriptions = $derived(org.subscriptions ?? []);
 
   // Subscribe form: the memory <select> is replaced by the SelectMemory modal
@@ -85,9 +88,10 @@
     return label ? `${on} · ${label}` : on;
   }
 
-  // #342: subscribed memories moved to their own sub-tab, so the grid carries
-  // only org + private/personal + system memories.
-  const rows = $derived<MemoryRow[]>([
+  // #342: subscribed memories moved to their own sub-tab. #555: private/personal
+  // memories moved to the "Personal Memories" tab, so the org grid now carries
+  // only org + system memories.
+  const orgRows = $derived<MemoryRow[]>([
     ...(org.memories ?? []).map((g) => ({
       id: g.id,
       name: g.name,
@@ -97,19 +101,6 @@
       storage: g.source ? 'git-backed' : 'DB-only',
       branch: g.readBranch,
       lastSyncedAt: g.lastSyncedAt,
-      vectorIndexEnabled: g.vectorIndexEnabled ?? false,
-      embeddingSource: g.embeddingSource ?? null,
-      vectorIndex: vectorIndexSummary(g.vectorIndexEnabled, g.embeddingSource),
-    })),
-    ...(data.privateMemories ?? []).map((g) => ({
-      id: g.id,
-      name: g.name,
-      urn: g.urn,
-      section: 'private' as const,
-      badge: g.class === 'private' ? 'Private' : 'Personal',
-      storage: null,
-      branch: null,
-      lastSyncedAt: null,
       vectorIndexEnabled: g.vectorIndexEnabled ?? false,
       embeddingSource: g.embeddingSource ?? null,
       vectorIndex: vectorIndexSummary(g.vectorIndexEnabled, g.embeddingSource),
@@ -128,6 +119,24 @@
       vectorIndex: vectorIndexSummary(g.vectorIndexEnabled, g.embeddingSource),
     })),
   ]);
+
+  // #555: the caller's own owner-only memories (personal + private), surfaced
+  // in the Personal Memories tab. These carry no git storage/branch/sync.
+  const personalRows = $derived<MemoryRow[]>(
+    (data.privateMemories ?? []).map((g) => ({
+      id: g.id,
+      name: g.name,
+      urn: g.urn,
+      section: 'private' as const,
+      badge: g.class === 'private' ? 'Private' : 'Personal',
+      storage: null,
+      branch: null,
+      lastSyncedAt: null,
+      vectorIndexEnabled: g.vectorIndexEnabled ?? false,
+      embeddingSource: g.embeddingSource ?? null,
+      vectorIndex: vectorIndexSummary(g.vectorIndexEnabled, g.embeddingSource),
+    })),
+  );
 
   // Badge chip colors — preserves the per-section palette of the old card
   // layout (visibility green/zinc, private amber, system purple).
@@ -159,6 +168,16 @@
     { id: 'actions', header: t('org-memories.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 140 },
   ];
 
+  // #555: personal memories are owner-only and DB-only, so the grid drops the
+  // git-oriented Storage/Branch/Last-synced columns entirely.
+  const personalColumns: ColumnDef<MemoryRow>[] = [
+    { accessorKey: 'name', header: t('org-memories.column.name', 'Name'), enableHiding: false, size: 200 },
+    { accessorKey: 'urn', header: t('org-memories.column.urn', 'URN'), size: 280 },
+    { accessorKey: 'badge', id: 'type', header: t('org-memories.column.type', 'Type'), size: 110 },
+    { accessorKey: 'vectorIndex', header: t('org-memories.column.vector-index', 'Vector index'), size: 150 },
+    { id: 'actions', header: t('org-memories.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 140 },
+  ];
+
   const fmt: Record<string, (v: unknown) => string> = {
     storage: (v) => (v as string | null) ?? '—',
     branch: (v) => (v as string | null) ?? '—',
@@ -167,7 +186,7 @@
 
   const table = createSvelteTable<MemoryRow>({
     get data() {
-      return rows;
+      return orgRows;
     },
     columns,
     enableMultiSort: false,
@@ -194,6 +213,35 @@
     getPaginationRowModel: getPaginationRowModel(),
   });
 
+  // #555: independent table instance for the Personal Memories tab so its
+  // search / sort / pagination state stays separate from the org grid.
+  let personalGlobalFilter = $state('');
+  const personalTable = createSvelteTable<MemoryRow>({
+    get data() {
+      return personalRows;
+    },
+    columns: personalColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return personalGlobalFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      personalGlobalFilter = typeof u === 'function' ? u(personalGlobalFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: {
+      pagination: { pageIndex: 0, pageSize: 20 },
+    },
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
   const subTabBase = 'border-b-2 px-3 py-1.5 text-sm font-medium transition';
   const subTabActive = 'border-indigo-500 text-indigo-600 dark:text-indigo-400';
   const subTabInactive = 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200';
@@ -205,11 +253,15 @@
   <!-- #364: section caption — the org H1 now lives on the Profile tab only. -->
   <div>
     <h1 class="text-lg font-semibold text-zinc-900 dark:text-white">Memories</h1>
-    <p class="mt-1 text-sm text-zinc-500">Memories owned by this organization and the ones it subscribes to.</p>
+    <p class="mt-1 text-sm text-zinc-500">Your personal memories, the ones owned by this organization, and the ones it subscribes to.</p>
   </div>
 
-  <!-- #342: secondary tab row (Org Memories / Subscriptions) -->
+  <!-- #342/#555: secondary tab row (Personal Memories / Org Memories / Subscriptions) -->
   <div class="flex gap-1 border-b border-zinc-200 dark:border-zinc-800">
+    <button type="button" onclick={() => (subTab = 'personal')} class="{subTabBase} {subTab === 'personal' ? subTabActive : subTabInactive}">
+      {t('org-memories.subtab.personal', 'Personal Memories')}
+      <span class="ml-1 text-xs font-normal text-zinc-400">({personalRows.length})</span>
+    </button>
     <button type="button" onclick={() => (subTab = 'org')} class="{subTabBase} {subTab === 'org' ? subTabActive : subTabInactive}">
       {t('org-memories.subtab.org', 'Org Memories')}
     </button>
@@ -229,8 +281,64 @@
     <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Subscribed to memory.</div>
   {/if}
 
-  {#if subTab === 'org'}
-    {#if rows.length === 0}
+  <!-- #555: shared cell renderer — reused by the Personal and Org grids. The
+       Delete action stays org-only (owner-only memories are managed from their
+       detail page), so personal rows render just the Edit link. -->
+  {#snippet memoryCell(cell: Cell<MemoryRow, unknown>, m: MemoryRow)}
+    {#if cell.column.id === 'name'}
+      <div class="truncate">
+        <a href="/app/memories/{m.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{m.name}</a>
+      </div>
+    {:else if cell.column.id === 'urn'}
+      <Urn value={m.urn} type="memory" size={10} />
+    {:else if cell.column.id === 'type'}
+      <span class="inline-block rounded px-1.5 py-0.5 text-xs {badgeClass(m)}">{m.badge}</span>
+    {:else if cell.column.id === 'vectorIndex'}
+      {#if m.vectorIndexEnabled}
+        <div class="flex flex-col gap-0.5">
+          <span class="inline-block w-fit rounded px-1.5 py-0.5 text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">{t('org-memories.vector-index.on', 'Enabled')}</span>
+          <!-- null source falls back to the 'abstract' default, matching the settings page. -->
+          <span class="text-xs text-zinc-500 dark:text-zinc-400">{embeddingSourceLabel(m.embeddingSource ?? 'abstract')}</span>
+        </div>
+      {:else}
+        <span class="inline-block rounded px-1.5 py-0.5 text-xs bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t('org-memories.vector-index.off', 'Off')}</span>
+      {/if}
+    {:else if cell.column.id === 'actions'}
+      <div class="flex items-center gap-3">
+        <a href="/app/memories/{m.id}" class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Edit</a>
+        {#if m.section === 'org'}
+          <form method="POST" action="?/delete" use:enhance onsubmit={(e) => { if (!confirm(`Delete "${m.name}"?`)) e.preventDefault(); }}>
+            <input type="hidden" name="id" value={m.id} />
+            <button type="submit" class="text-red-400 hover:text-red-300">Delete</button>
+          </form>
+        {/if}
+      </div>
+    {:else}
+      {@const f = fmt[cell.column.id]}
+      <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
+    {/if}
+  {/snippet}
+
+  {#if subTab === 'personal'}
+    <!-- #555: Personal Memories — the caller's own owner-only (personal/private)
+         memories in this org. -->
+    {#if personalRows.length === 0}
+      <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+        {t('org-memories.personal.empty', 'No personal memories yet.')} <a href="/app/orgs/{org.id}/memories/new" class="text-indigo-600 hover:underline dark:text-indigo-400">{t('org-memories.add-one', 'Add one →')}</a>
+      </div>
+    {:else}
+      <DataTable
+        table={personalTable}
+        listKey="orgs:memories:personal"
+        searchPlaceholder={t('org-memories.search.placeholder', 'Search memories...')}
+        searchAriaLabel={t('org-memories.search.aria-label', 'Search memories')}
+        bind:globalFilter={personalGlobalFilter}
+        maxHeight="max(200px, calc(100vh - 26rem))"
+        cell={memoryCell}
+      />
+    {/if}
+  {:else if subTab === 'org'}
+    {#if orgRows.length === 0}
       <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
         {t('org-memories.empty', 'No memories yet.')} <a href="/app/orgs/{org.id}/memories/new" class="text-indigo-600 hover:underline dark:text-indigo-400">{t('org-memories.add-one', 'Add one →')}</a>
       </div>
@@ -244,42 +352,8 @@
         searchAriaLabel={t('org-memories.search.aria-label', 'Search memories')}
         bind:globalFilter
         maxHeight="max(200px, calc(100vh - 26rem))"
-      >
-        {#snippet cell(cell, m)}
-          {#if cell.column.id === 'name'}
-            <div class="truncate">
-              <a href="/app/memories/{m.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{m.name}</a>
-            </div>
-          {:else if cell.column.id === 'urn'}
-            <Urn value={m.urn} type="memory" size={10} />
-          {:else if cell.column.id === 'type'}
-            <span class="inline-block rounded px-1.5 py-0.5 text-xs {badgeClass(m)}">{m.badge}</span>
-          {:else if cell.column.id === 'vectorIndex'}
-            {#if m.vectorIndexEnabled}
-              <div class="flex flex-col gap-0.5">
-                <span class="inline-block w-fit rounded px-1.5 py-0.5 text-xs bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">{t('org-memories.vector-index.on', 'Enabled')}</span>
-                <!-- null source falls back to the 'abstract' default, matching the settings page. -->
-                <span class="text-xs text-zinc-500 dark:text-zinc-400">{embeddingSourceLabel(m.embeddingSource ?? 'abstract')}</span>
-              </div>
-            {:else}
-              <span class="inline-block rounded px-1.5 py-0.5 text-xs bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t('org-memories.vector-index.off', 'Off')}</span>
-            {/if}
-          {:else if cell.column.id === 'actions'}
-            <div class="flex items-center gap-3">
-              <a href="/app/memories/{m.id}" class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Edit</a>
-              {#if m.section === 'org'}
-                <form method="POST" action="?/delete" use:enhance onsubmit={(e) => { if (!confirm(`Delete "${m.name}"?`)) e.preventDefault(); }}>
-                  <input type="hidden" name="id" value={m.id} />
-                  <button type="submit" class="text-red-400 hover:text-red-300">Delete</button>
-                </form>
-              {/if}
-            </div>
-          {:else}
-            {@const f = fmt[cell.column.id]}
-            <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
-          {/if}
-        {/snippet}
-      </DataTable>
+        cell={memoryCell}
+      />
     {/if}
 
     <!-- #342: actions moved below the table -->
