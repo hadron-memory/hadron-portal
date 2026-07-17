@@ -22,7 +22,9 @@ export type SearchResult = { hits: SearchHit[]; degraded: string[] };
  * Cross-entity global search results page. Reads `q` from the query string
  * (the sidebar search box GET-submits here); optional repeated `type` and
  * `field` params narrow the search (power-user URLs). Delegates to the
- * server's `globalSearch` query, which scopes every hit to the caller.
+ * server's `globalSearch` query, which scopes every hit to the caller. The
+ * default field set includes node content; otherwise a body-only node hit is
+ * missed because the server's null field default is intentionally content-blind.
  */
 export const load: PageServerLoad = async ({ url, locals }) => {
   const q = (url.searchParams.get('q') ?? '').trim();
@@ -37,7 +39,7 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       {
         query: q,
         entityTypes: types.length ? types : null,
-        fields: fields.length ? fields : null,
+        fields: fields.length ? fields : FIELDS,
         limit: 50,
       },
     );
