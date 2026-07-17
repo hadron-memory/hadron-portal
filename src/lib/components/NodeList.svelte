@@ -3,7 +3,7 @@
   // + our Svelte 5 runes adapter. First production consumer of src/lib/table/*.
   // Public API (props) is unchanged so both call sites — MemoryBrowser (browse
   // list) and the node-detail Children tab (orderable) — keep working.
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import {
     getCoreRowModel,
     getSortedRowModel,
@@ -84,6 +84,7 @@
 
   // Global filter (search across the visible columns), held in runes state.
   let globalFilter = $state('');
+  const tableCanSortAndResize = untrack(() => !orderable);
 
   const columns: ColumnDef<MemoryNode>[] = [
     { accessorKey: 'name', header: 'Node', enableHiding: false, size: 280 }, // identity column — always shown
@@ -99,10 +100,10 @@
     enableMultiSort: false,
     // In the orderable (children) list, manual drag order is the source of
     // truth — sorting would fight it, so it's disabled there (PR #277 review).
-    enableSorting: !orderable,
+    enableSorting: tableCanSortAndResize,
     // Resizing only in the browse list; the orderable children list uses a drag
     // handle and a narrow, fixed column set.
-    enableColumnResizing: !orderable,
+    enableColumnResizing: tableCanSortAndResize,
     columnResizeMode: 'onChange',
     state: {
       get globalFilter() {
@@ -268,13 +269,14 @@
                     {/if}
                   </div>
                   {#if header.column.getCanResize()}
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div
-                      class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
+                    <button
+                      type="button"
+                      aria-label="Resize column"
+                      class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none border-0 bg-transparent p-0 hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
                       onmousedown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                       ontouchstart={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                       onclick={(e) => e.stopPropagation()}
-                    ></div>
+                    ></button>
                   {/if}
                 </th>
               {/each}

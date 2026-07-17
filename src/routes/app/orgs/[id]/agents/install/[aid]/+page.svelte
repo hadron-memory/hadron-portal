@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
@@ -9,9 +10,13 @@
 
   const org = $derived(data.org);
   const agent = $derived(data.agent);
+  const initialInstallDefaults = untrack(() => ({
+    name: data.defaultName,
+    urnSlug: data.defaultUrnSlug,
+  }));
 
-  let name = $state(data.defaultName);
-  let urnSlug = $state(data.defaultUrnSlug);
+  let name = $state(initialInstallDefaults.name);
+  let urnSlug = $state(initialInstallDefaults.urnSlug);
   let appType = $state<'WORKSTATION' | 'CHATBOT' | 'AGENT' | 'AUTOMATION' | 'CLOUD' | 'IOT'>(
     'WORKSTATION',
   );

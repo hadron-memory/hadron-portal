@@ -62,17 +62,18 @@
 
 <div class="flex flex-wrap items-start gap-2 rounded border border-zinc-200 bg-zinc-50 p-2 dark:border-zinc-800 dark:bg-zinc-900/40">
   <div class="flex-1 min-w-[10rem]">
-    <label class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500">
+    <span class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500">
       {t('edge-conditions.builder.field', 'Variable')}
-    </label>
+    </span>
     <VariablePicker bind:value={clause.field} {extraVariables} />
   </div>
 
   <div>
-    <label class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500">
+    <span class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500">
       {t('edge-conditions.builder.operator', 'Operator')}
-    </label>
+    </span>
     <select
+      aria-label={t('edge-conditions.builder.operator', 'Operator')}
       bind:value={clause.operator}
       class="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
     >
@@ -84,11 +85,12 @@
 
   {#if showsValue}
     <div class="flex-1 min-w-[10rem]">
-      <label class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500">
+      <span class="mb-0.5 block text-[10px] uppercase tracking-wider text-zinc-500">
         {t('edge-conditions.builder.value', 'Value')}
-      </label>
+      </span>
       <div class="flex items-center gap-1">
         <select
+          aria-label={t('edge-conditions.builder.value-kind', 'Value kind')}
           value={clause.value?.kind ?? 'literal'}
           onchange={(e) => setValueKind((e.currentTarget as HTMLSelectElement).value as 'literal' | 'variable')}
           class="rounded border border-zinc-300 px-1 py-1 text-xs dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
@@ -98,6 +100,7 @@
         </select>
         {#if clause.value?.kind === 'variable'}
           <input
+            aria-label={t('edge-conditions.builder.value.variable-label', 'Variable path')}
             type="text"
             value={variablePath}
             oninput={(e) => onVariableChange((e.currentTarget as HTMLInputElement).value)}
@@ -106,6 +109,7 @@
           />
         {:else}
           <input
+            aria-label={t('edge-conditions.builder.value.literal-label', 'Literal value')}
             type="text"
             value={literalText}
             oninput={(e) => onLiteralChange((e.currentTarget as HTMLInputElement).value)}

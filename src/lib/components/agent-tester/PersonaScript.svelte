@@ -155,10 +155,10 @@
         </div>
 
         <div>
-          <label class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-200">
+          <div id="ps-followups-label" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-200">
             {t('agent-tester.persona.followups-label', 'Follow-up messages')}
-          </label>
-          <div class="space-y-2">
+          </div>
+          <div class="space-y-2" aria-labelledby="ps-followups-label">
             {#each followUps as _f, i (i)}
               <div class="flex items-start gap-2">
                 <span class="mt-2 w-6 text-right text-xs text-zinc-400">{i + 1}.</span>

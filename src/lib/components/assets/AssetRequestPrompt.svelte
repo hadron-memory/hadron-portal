@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { Upload, X } from 'lucide-svelte';
   import { uploadAsset, AssetUploadError, type AssetSummary } from '$lib/api/assetUpload';
 
@@ -41,7 +42,7 @@
   let progress = $state(0);
   let error = $state<string | null>(null);
   let controller: AbortController | null = null;
-  let secondsLeft = $state(timeoutSeconds);
+  let secondsLeft = $state(untrack(() => timeoutSeconds));
 
   let timer = setInterval(() => {
     secondsLeft -= 1;
@@ -103,7 +104,7 @@
     }
   }
 
-  const accept = allowedMimeTypes?.join(',');
+  const accept = $derived(allowedMimeTypes?.join(','));
 </script>
 
 <div class="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">

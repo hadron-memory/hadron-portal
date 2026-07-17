@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { tick } from 'svelte';
+
   type Element = {
     id: string;
     name: string;
@@ -23,6 +25,7 @@
   } = $props();
 
   let query = $state('');
+  let searchInput = $state<HTMLInputElement>();
 
   const filtered = $derived.by(() => {
     let results = elements;
@@ -53,6 +56,13 @@
     if (type === 'stage') return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400';
     return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400';
   }
+
+  $effect(() => {
+    if (!open) return;
+    tick().then(() => {
+      if (open) searchInput?.focus();
+    });
+  });
 </script>
 
 {#if open}
@@ -67,10 +77,10 @@
     >
       <div class="border-b border-zinc-200 p-3 dark:border-zinc-700">
         <input
+          bind:this={searchInput}
           type="text"
           bind:value={query}
           {placeholder}
-          autofocus
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
       </div>
