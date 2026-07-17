@@ -111,13 +111,15 @@
                     <span class={header.column.getIsSorted() ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-700'}>{sortIndicator(header.column.getIsSorted())}</span>
                   </div>
                   {#if header.column.getCanResize()}
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div
-                      class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
+                    <button
+                      type="button"
+                      tabindex="-1"
+                      aria-label="Resize column"
+                      class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none border-0 bg-transparent p-0 hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
                       onmousedown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                       ontouchstart={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                       onclick={(e) => e.stopPropagation()}
-                    ></div>
+                    ></button>
                   {/if}
                 </th>
               {/each}

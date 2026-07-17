@@ -203,6 +203,7 @@
         {@const color = getSenderColorClass(msg.author ?? 'Unknown')}
         {@const msgUrn = `${data.graph?.urn}::${msg.nodeData?.loc || ''}`}
         <div
+          role="group"
           class="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300 group"
           onmouseenter={() => hoveredMessageId = msg.id}
           onmouseleave={() => hoveredMessageId = null}

@@ -16,7 +16,7 @@
   }
 
   let { data }: NodeProps = $props();
-  const card = data as FlowCardData;
+  const card = $derived(data as FlowCardData);
 </script>
 
 <div

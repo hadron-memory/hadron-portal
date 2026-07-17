@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
   import { env } from '$env/dynamic/public';
+  import { untrack } from 'svelte';
   import JSZip from 'jszip';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -51,13 +52,17 @@
           ?? usableChatConfigs[0]?.name
           ?? null),
   );
-  let activeTab = $state<TabId>(hasChatSurface ? 'chat' : 'memory');
+  let activeTab = $state<TabId>(untrack(() => hasChatSurface ? 'chat' : 'memory'));
   const tabs = $derived<{ id: TabId; label: string }[]>([
     ...(hasChatSurface ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
     { id: 'memory', label: 'Memory' },
     { id: 'settings', label: 'Settings' },
     ...(!hasChatSurface ? [{ id: 'client' as TabId, label: 'Client' }] : []),
   ]);
+  $effect(() => {
+    const current = untrack(() => activeTab);
+    if (!tabs.some((tab) => tab.id === current)) activeTab = tabs[0]?.id ?? 'memory';
+  });
 
   // URN slug helpers — slug is the part after the org URN's prefix.
   function slugOfUrn(urn: string): string {
@@ -71,17 +76,18 @@
   }
 
   // ── Settings edit state ──────────────────────────────────────────────
+  const initialApp = untrack(() => app);
   let editMode = $state(false);
-  let name = $state(app.name);
-  let appSlug = $state(slugOfUrn(app.urn));
-  let appType = $state(app.appType);
-  let role = $state(app.role);
-  let description = $state(app.description ?? '');
-  let systemPrompt = $state(app.systemPrompt ?? '');
-  let createUserPermission = $state(app.createUserPermission);
-  let identifyUserMethod = $state(app.identifyUserMethod);
-  let sessionTimeoutSeconds = $state(app.sessionTimeoutSeconds);
-  let anonymousTtlDays = $state(app.anonymousTtlDays);
+  let name = $state(initialApp.name);
+  let appSlug = $state(slugOfUrn(initialApp.urn));
+  let appType = $state(initialApp.appType);
+  let role = $state(initialApp.role);
+  let description = $state(initialApp.description ?? '');
+  let systemPrompt = $state(initialApp.systemPrompt ?? '');
+  let createUserPermission = $state(initialApp.createUserPermission);
+  let identifyUserMethod = $state(initialApp.identifyUserMethod);
+  let sessionTimeoutSeconds = $state(initialApp.sessionTimeoutSeconds);
+  let anonymousTtlDays = $state(initialApp.anonymousTtlDays);
 
   // The edit fields are $state snapshots seeded once at mount, so after a save
   // (enhance runs update() → re-loads + resets the form) they drift from the

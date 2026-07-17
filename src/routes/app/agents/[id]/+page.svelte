@@ -607,10 +607,11 @@
         }} class="space-y-2">
           <div class="flex items-end gap-3">
           <div class="flex-1 max-w-md">
-            <label class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</label>
+            <div id="agent-add-memory-label" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</div>
             <div class="flex gap-2">
               <button
                 type="button"
+                aria-describedby="agent-add-memory-label"
                 onclick={() => selectMemoryOpen = true}
                 class="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800"
               >

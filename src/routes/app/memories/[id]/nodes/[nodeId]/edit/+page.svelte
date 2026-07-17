@@ -1,27 +1,29 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const node = $derived(data.node);
   const basePath = $derived(`/app/memories/${data.graph.id}`);
+  const initialNode = untrack(() => node);
 
-  let name = $state(node.name);
-  let loc = $state(node.loc);
-  let description = $state(node.description ?? '');
-  let alias = $state(node.alias ?? '');
-  let seqStr = $state(node.seq !== null && node.seq !== undefined ? String(node.seq) : '');
-  let tagsStr = $state(node.tags.join(', '));
-  let isRunnable = $state(node.isRunnable ?? false);
-  let abstract = $state(node.abstract ?? '');
-  let content = $state(node.content ?? '');
+  let name = $state(initialNode.name);
+  let loc = $state(initialNode.loc);
+  let description = $state(initialNode.description ?? '');
+  let alias = $state(initialNode.alias ?? '');
+  let seqStr = $state(initialNode.seq !== null && initialNode.seq !== undefined ? String(initialNode.seq) : '');
+  let tagsStr = $state(initialNode.tags.join(', '));
+  let isRunnable = $state(initialNode.isRunnable ?? false);
+  let abstract = $state(initialNode.abstract ?? '');
+  let content = $state(initialNode.content ?? '');
 
   const ABSTRACT_MAX = 2000;
 
   // Edge management
   let edges: Array<{ targetId: string; name: string }> = $state(
-    node.outgoingEdges.map((e) => ({ targetId: e.target.id, name: e.name ?? '' }))
+    initialNode.outgoingEdges.map((e) => ({ targetId: e.target.id, name: e.name ?? '' }))
   );
   let newTargetLoc = $state('');
   let newLabel = $state('');

@@ -4,7 +4,7 @@
   // tab carries a ▾ menu (rename/duplicate/set-default/delete) rendered as a
   // fixed-position popover so it isn't clipped by the strip's overflow; Save /
   // Reset surface as prominent buttons when the view is modified.
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import type { Table } from '@tanstack/table-core';
   import { createViewController } from '$lib/table/viewController.svelte';
   import { localStorageViewStore } from '$lib/table/localStorageViewStore';
@@ -28,7 +28,7 @@
     class?: string;
   } = $props();
 
-  const ctrl = createViewController({ table, listKey, store });
+  const ctrl = untrack(() => createViewController({ table, listKey, store }));
 
   // Default view first (GitHub puts the default leftmost); sort is stable for the rest.
   const sortedViews = $derived([...ctrl.views].sort((a, b) => Number(b.isDefault) - Number(a.isDefault)));

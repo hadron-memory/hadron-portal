@@ -373,7 +373,6 @@
   .controls { margin-left: auto; display: flex; gap: 8px; }
   .controls button { padding: 4px 12px; background: #21262d; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; cursor: pointer; font-size: 13px; }
   .controls button:hover { background: #30363d; }
-  .controls button.active { background: #1f6feb; border-color: #388bfd; }
   .graph-container { flex: 1; position: relative; min-height: 0; }
   .graph { width: 100%; height: 100%; }
   .detail-panel { position: absolute; top: 16px; right: 16px; width: 360px; max-height: calc(100% - 32px); overflow-y: auto; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; z-index: 10; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); }

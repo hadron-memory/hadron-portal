@@ -154,11 +154,18 @@
     "(d) The opt-in is revocable; revoking stops further indexing AND removes the memory's already-stored vectors.",
   ];
 
-  let viEnabled = $state(g.vectorIndexEnabled ?? false);
-  let viSource = $state<'abstract' | 'contentChunks' | 'both'>(g.embeddingSource ?? 'abstract');
-  let viChunkTokens = $state(g.chunkTokens != null ? String(g.chunkTokens) : '');
-  let viChunkOverlap = $state(g.chunkOverlap != null ? String(g.chunkOverlap) : '');
-  let viForceFixedSize = $state(g.forceFixedSize ?? false);
+  const initialVectorSettings = untrack(() => ({
+    enabled: g.vectorIndexEnabled ?? false,
+    source: g.embeddingSource ?? 'abstract',
+    chunkTokens: g.chunkTokens != null ? String(g.chunkTokens) : '',
+    chunkOverlap: g.chunkOverlap != null ? String(g.chunkOverlap) : '',
+    forceFixedSize: g.forceFixedSize ?? false,
+  }));
+  let viEnabled = $state(initialVectorSettings.enabled);
+  let viSource = $state<'abstract' | 'contentChunks' | 'both'>(initialVectorSettings.source);
+  let viChunkTokens = $state(initialVectorSettings.chunkTokens);
+  let viChunkOverlap = $state(initialVectorSettings.chunkOverlap);
+  let viForceFixedSize = $state(initialVectorSettings.forceFixedSize);
   let viSaving = $state(false);
   let showDisclosure = $state(false);
   let disclosureAccepted = $state(false);
