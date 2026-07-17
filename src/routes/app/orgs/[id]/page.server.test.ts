@@ -26,7 +26,7 @@ beforeEach(() => {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-const fakeOrg = { id: 'org-id-123', name: 'Acme', urn: 'urn:org:acme', members: [], memories: [], agents: [], subscriptions: [], exchangeConnections: [] };
+const fakeOrg = { id: 'org-id-123', name: 'Acme', urn: 'urn:org:acme.com', members: [], memories: [], agents: [], subscriptions: [], exchangeConnections: [] };
 
 async function importMod() {
   return import('./+page.server');
@@ -97,11 +97,11 @@ describe('org-detail Profile update action (#394)', () => {
     const { actions } = await importMod();
     // #609: even if an `isVisible` field is somehow present, it must not be
     // forwarded — the flag is system-managed, not user-editable here.
-    const result = await actions.update(actionEv({ name: 'Renamed', urn: 'renamed', isVisible: 'on' }));
+    const result = await actions.update(actionEv({ name: 'Renamed', urn: 'renamed.com', isVisible: 'on' }));
     expect(superFormFrom(result)?.message).toBe('Changes saved.');
     expect(superFormFrom(result)?.valid).toBe(true);
     const [, vars] = mockRequest.mock.calls[0];
-    expect(vars).toMatchObject({ id: 'org-id-123', name: 'Renamed', urn: 'renamed' });
+    expect(vars).toMatchObject({ id: 'org-id-123', name: 'Renamed', urn: 'renamed.com' });
     expect(vars).not.toHaveProperty('isVisible');
   });
 
@@ -110,9 +110,9 @@ describe('org-detail Profile update action (#394)', () => {
     const { actions } = await importMod();
     // A stale/prefixed urn must never reach updateOrganization verbatim — that
     // would store `hrn:org:acme` as the org urn and corrupt every child urn.
-    await actions.update(actionEv({ name: 'Acme', urn: 'hrn:org:acme' }));
+    await actions.update(actionEv({ name: 'Acme', urn: 'hrn:org:acme.com' }));
     const [, vars] = mockRequest.mock.calls[0];
-    expect(vars.urn).toBe('acme');
+    expect(vars.urn).toBe('acme.com');
   });
 
   it('rejects a urn that parses to a non-slug atom with a 400, never calling the mutation', async () => {
@@ -136,7 +136,7 @@ describe('org-detail Profile update action (#394)', () => {
   it('returns a 500 fail with an error message when the mutation throws', async () => {
     mockRequest.mockRejectedValueOnce(new Error('boom'));
     const { actions } = await importMod();
-    const result = await actions.update(actionEv({ name: 'x', urn: 'y' }));
+    const result = await actions.update(actionEv({ name: 'x', urn: 'y.com' }));
     expect(result).toMatchObject({ status: 500 });
     expect(superFormFrom(result)?.message).toBe('boom');
   });

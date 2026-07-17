@@ -30,6 +30,7 @@ export {
   validateAtomShape,
   validateUserSlug,
   validateOrgSlug,
+  validateUserHandle,
   deriveSlugFromName,
   parseUrnInput,
   formatUrn,
