@@ -29,11 +29,14 @@
   // makes the one-time snapshot explicit (data won't change without a reload).
   // #320: a prefilled (or manually-edited) URN must not be clobbered by
   // name-driven auto-generation.
-  let urnEdited = $state(untrack(() => !!data.prefillUrn || !!form?.form?.data.urn));
+  let urnEdited = $state(untrack(() => {
+    const submitted = form?.form?.data;
+    return !!data.prefillUrn || (!!submitted?.urn && submitted.urn !== toSlug(submitted.name));
+  }));
   let submitAttempted = $state(untrack(() => !!form?.form));
   const nameError = $derived($errors.name?.[0] ?? null);
   const urnError = $derived($errors.urn?.[0] ?? null);
-  const showUrnError = $derived(!!$formData.urn && !!urnError);
+  const showUrnError = $derived(!!urnError && (!!$formData.urn || submitAttempted));
   const actionError = $derived($message ?? (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null));
 
   // Auto-generate URN from name until the user (or a prefill) owns the field.

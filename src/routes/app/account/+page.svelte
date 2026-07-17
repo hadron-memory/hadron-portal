@@ -8,6 +8,7 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const user = $derived(data.user);
   const initialProfileForm = untrack(() => form?.form ?? data.form);
+  let isEditing = $state(untrack(() => !!form?.form && form.form.message !== 'Profile updated.'));
   const {
     form: profileForm,
     errors: profileErrors,
@@ -22,8 +23,10 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onUpdated({ form }) {
+      if (form.message === 'Profile updated.') isEditing = false;
+    },
   });
-  let isEditing = $state(untrack(() => !!form?.form && form.form.message !== 'Profile updated.'));
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
@@ -48,9 +51,6 @@
       : ($profileAllErrors[0]?.messages[0] ?? null),
   );
 
-  $effect(() => {
-    if ($profileMessage === 'Profile updated.') isEditing = false;
-  });
 </script>
 
 <svelte:head><title>Account · Hadron</title></svelte:head>

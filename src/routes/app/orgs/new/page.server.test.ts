@@ -57,6 +57,13 @@ describe('create organization action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects an empty org URN with a field error before calling the API', async () => {
+    const result = await runCreate({ name: 'Acme', urn: '' });
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'urn')).toBe('Organization URN is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('accepts dotted bare org slugs from the shared validator', async () => {
     mockRequest.mockResolvedValueOnce({ createOrganization: { id: 'org-1' } });
     await runCreate({ name: 'Acme', urn: 'acme.com' });

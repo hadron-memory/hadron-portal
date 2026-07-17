@@ -45,6 +45,14 @@ describe('account update action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects an invalid email before calling the API', async () => {
+    const actions = await importActions();
+    const result = await actions.update(actionEv({ name: 'Ada', handle: 'ada', email: 'not-an-email' }));
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'email')).toBe('Enter a valid email address.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('allows clearing the handle', async () => {
     mockRequest.mockResolvedValueOnce({ updateMyProfile: { id: 'u1' } });
     const actions = await importActions();
