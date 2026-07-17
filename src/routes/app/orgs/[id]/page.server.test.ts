@@ -109,7 +109,7 @@ describe('org-detail Profile update action (#394)', () => {
     mockRequest.mockResolvedValueOnce({ updateOrganization: { id: 'org-id-123' } });
     const { actions } = await importMod();
     // A stale/prefixed urn must never reach updateOrganization verbatim — that
-    // would store `hrn:org:acme` as the org urn and corrupt every child urn.
+    // would store `hrn:org:acme.com` as the org urn and corrupt every child urn.
     await actions.update(actionEv({ name: 'Acme', urn: 'hrn:org:acme.com' }));
     const [, vars] = mockRequest.mock.calls[0];
     expect(vars.urn).toBe('acme.com');
