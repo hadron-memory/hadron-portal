@@ -11,7 +11,7 @@ export const optionalHttpUrl = z.string().trim().refine((value) => {
   }
 }, 'Enter a valid URL.');
 
-export function memorySlugField(requiredMessage = 'URN slug is required.') {
+export function urnSlugField(label: string, requiredMessage = 'URN slug is required.') {
   return z
     .string()
     .trim()
@@ -19,8 +19,28 @@ export function memorySlugField(requiredMessage = 'URN slug is required.') {
     .superRefine((slug, ctx) => {
       if (!slug) return;
       const error = validateMemorySlugField(slug);
+      if (error) ctx.addIssue({ code: 'custom', message: error.replace('Memory URN slug', label) });
+    });
+}
+
+export function memorySlugField(requiredMessage = 'URN slug is required.') {
+  return urnSlugField('Memory URN slug', requiredMessage);
+}
+
+export function optionalMemorySlugField() {
+  return z
+    .string()
+    .trim()
+    .default('')
+    .superRefine((slug, ctx) => {
+      if (!slug) return;
+      const error = validateMemorySlugField(slug);
       if (error) ctx.addIssue({ code: 'custom', message: error });
     });
+}
+
+export function agentSlugField(requiredMessage = 'Agent URN slug is required.') {
+  return urnSlugField('Agent URN slug', requiredMessage);
 }
 
 export function orgSlugField(requiredMessage = 'Organization URN is required.') {
