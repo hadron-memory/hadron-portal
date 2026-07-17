@@ -43,15 +43,17 @@
     data.availableMemories.find((m) => m.id === selectedSubscribeMemoryId),
   );
 
-  type Section = 'org' | 'private' | 'system';
+  // 'personal' = the user-owned section (spans the personal + private memory
+  // classes); the class itself is carried in `badge` (Personal vs Private).
+  type Section = 'org' | 'personal' | 'system';
 
   interface MemoryRow {
     id: string; // memory id — nav target and delete payload
     name: string;
     urn: string;
     section: Section;
-    /** Badge text: visibility (org), Private/Personal, or system — the colored
-     *  chip that rendered per-section in the old card layout. */
+    /** Badge text: visibility (org), Personal/Private class, or system — the
+     *  colored chip that rendered per-section in the old card layout. */
     badge: string;
     storage: string | null; // git-backed / DB-only (org rows only)
     branch: string | null;
@@ -120,14 +122,14 @@
     })),
   ]);
 
-  // #555: the caller's own owner-only memories (personal + private), surfaced
-  // in the Personal Memories tab. These carry no git storage/branch/sync.
+  // #555: the caller's own personal memories (the personal + private classes),
+  // surfaced in the Personal Memories tab. These carry no git storage/branch/sync.
   const personalRows = $derived<MemoryRow[]>(
-    (data.privateMemories ?? []).map((g) => ({
+    (data.personalMemories ?? []).map((g) => ({
       id: g.id,
       name: g.name,
       urn: g.urn,
-      section: 'private' as const,
+      section: 'personal' as const,
       badge: g.class === 'private' ? 'Private' : 'Personal',
       storage: null,
       branch: null,
@@ -139,9 +141,9 @@
   );
 
   // Badge chip colors — preserves the per-section palette of the old card
-  // layout (visibility green/zinc, private amber, system purple).
+  // layout (visibility green/zinc, personal amber, system purple).
   function badgeClass(row: MemoryRow): string {
-    if (row.section === 'private') return 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300';
+    if (row.section === 'personal') return 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300';
     if (row.section === 'system') return 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300';
     return row.badge === 'PUBLIC'
       ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'

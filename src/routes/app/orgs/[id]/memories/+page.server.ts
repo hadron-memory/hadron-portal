@@ -38,10 +38,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const availableMemories = publicMemories.filter(
     (m) => !ownedIds.has(m.id) && !subscribedIds.has(m.id) && m.organizationId !== params.id,
   );
-  // Spec 034: owner-only memories (personal/private) are excluded from
-  // Organization.memories server-side, so surface the caller's own ones whose
-  // container is this org. memories() already scopes to the caller via userId.
-  const privateMemories = myMemories.filter(
+  // Spec 034: personal memories (the personal + private classes) are owner-only
+  // and excluded from Organization.memories server-side, so surface the caller's
+  // own ones whose container is this org. memories() already scopes to the
+  // caller via userId.
+  const personalMemories = myMemories.filter(
     (m) =>
       m.organizationId === params.id &&
       !!locals.user?.id &&
@@ -52,7 +53,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     org: orgData.organization,
     systemMemories,
     availableMemories,
-    privateMemories,
+    personalMemories,
   };
 };
 
