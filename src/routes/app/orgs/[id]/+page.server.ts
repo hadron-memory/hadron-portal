@@ -1,10 +1,14 @@
 import { fail } from '@sveltejs/kit';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { UPDATE_ORGANIZATION_MUTATION } from '$lib/server/queries';
 import { parseDisplayUrn } from '$lib/urn/parse-urn';
-import { validateOrgSlugField } from '$lib/urn/form-validation';
 import type { Actions, PageServerLoad } from './$types';
+import { orgProfileSchema } from './schema';
+
+const orgProfileFormAdapter = zod4(orgProfileSchema);
 
 // #336: this page is the Profile tab of the org-detail tab layout (the
 // dashboard landing). The org (incl. 404 handling) is already loaded by
@@ -26,7 +30,12 @@ import type { Actions, PageServerLoad } from './$types';
 // is a system-managed listing flag, not a user-facing public/private toggle.
 export const load: PageServerLoad = async ({ parent, locals }) => {
   const { org } = await parent();
-  return { org, currentUserId: locals.user?.id ?? null };
+  const form = await superValidate(
+    { name: org.name ?? '', urn: parseDisplayUrn(org.urn, 'org').bareValue },
+    orgProfileFormAdapter,
+    { errors: false },
+  );
+  return { org, currentUserId: locals.user?.id ?? null, form };
 };
 
 export const actions: Actions = {
@@ -35,8 +44,10 @@ export const actions: Actions = {
   // denormalized `<orgUrn>::…` prefix on every child Memory/Agent/App (#337) —
   // the portal just forwards the new values.
   update: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const name = String(fd.get('name') ?? '').trim() || undefined;
+    const form = await superValidate(await request.formData(), orgProfileFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
+    const name = form.data.name || undefined;
     // The server stores the BARE org slug; the denormalized `<orgUrn>::…`
     // prefix on child memory/agent/app urns is rebuilt from it on rename. If a
     // scheme-prefixed urn (e.g. `hrn:org:acme`) were stored as the org urn, the
@@ -47,20 +58,18 @@ export const actions: Actions = {
     // `acme::dev`, or a bare `hrn:org:` that doesn't match the scheme regex),
     // which would again break the cascade. validateOrgSlug rejects any `:`,
     // bad charset, over-length, or reserved word, so we 400 instead of 500.
-    const urnRaw = String(fd.get('urn') ?? '').trim();
+    const urnRaw = form.data.urn;
     let urn: string | undefined;
     if (urnRaw) {
       urn = parseDisplayUrn(urnRaw, 'org').bareValue;
-      const urnError = validateOrgSlugField(urn);
-      if (urnError) return fail(400, { error: urnError });
     }
     try {
       await gqlClient(locals.token).request(UPDATE_ORGANIZATION_MUTATION, {
         id: params.id, name, urn,
       });
-      return { success: true };
+      return message(form, 'Changes saved.');
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to update organization') });
+      return message(form, extractGqlError(e, 'Failed to update organization'), { status: 500 });
     }
   },
 };

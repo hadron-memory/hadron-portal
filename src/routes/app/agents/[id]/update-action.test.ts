@@ -41,10 +41,20 @@ function updateAgentVariables() {
   return call![1] as Record<string, unknown>;
 }
 
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { message?: unknown; valid?: boolean } };
+    form?: { message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { message?: unknown; valid?: boolean };
+  } | undefined)?.form;
+}
+
 describe('agent update action (#488)', () => {
   it('OMITS systemMemoryId when the field is empty — never sends null', async () => {
-    const result = await runUpdate({ name: 'Agent', visibility: 'PUBLIC', systemMemoryId: '' });
-    expect(result).toEqual({ success: true });
+    const result = await runUpdate({ name: 'Agent', urnSlug: 'agent', visibility: 'PUBLIC', systemMemoryId: '' });
+    expect(superFormFrom(result)?.message).toBe('Changes saved.');
+    expect(superFormFrom(result)?.valid).toBe(true);
     const vars = updateAgentVariables();
     expect(vars.visibility).toBe('PUBLIC');
     expect(vars.systemMemoryId).toBeUndefined();
@@ -53,12 +63,12 @@ describe('agent update action (#488)', () => {
   });
 
   it('passes a real first-attach systemMemoryId through', async () => {
-    await runUpdate({ name: 'Agent', systemMemoryId: 'mem-9' });
+    await runUpdate({ name: 'Agent', urnSlug: 'agent', systemMemoryId: 'mem-9' });
     expect(updateAgentVariables().systemMemoryId).toBe('mem-9');
   });
 
   it('passes visibility through verbatim (uppercase enum)', async () => {
-    await runUpdate({ name: 'Agent', visibility: 'ORGANIZATION' });
+    await runUpdate({ name: 'Agent', urnSlug: 'agent', visibility: 'ORGANIZATION' });
     expect(updateAgentVariables().visibility).toBe('ORGANIZATION');
   });
 });

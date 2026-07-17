@@ -1,5 +1,8 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import {
     getCoreRowModel,
     getSortedRowModel,
@@ -19,6 +22,7 @@
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
   import type { PageData, ActionData } from './$types';
+  import { agentSettingsSchema } from './schema';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const agent = $derived(data.agent);
@@ -154,7 +158,24 @@
     return systemNodes.find((n) => n.loc === loc);
   }
 
-  let isEditing = $state(false);
+  const initialAgentSettingsForm = untrack(() => form?.form ?? data.form);
+  const {
+    form: agentSettingsForm,
+    errors: agentSettingsErrors,
+    constraints: agentSettingsConstraints,
+    message: agentSettingsMessage,
+    allErrors: agentSettingsAllErrors,
+    submitting: agentSettingsSubmitting,
+    enhance: agentSettingsEnhance,
+  } = superForm(initialAgentSettingsForm, {
+    validators: zod4Client(agentSettingsSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  let isEditing = $state(untrack(() => !!form?.form && form.form.message !== 'Changes saved.'));
   let confirmDelete = $state(false);
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
@@ -168,6 +189,45 @@
     const idx = urn.lastIndexOf(':');
     return idx >= 0 ? urn.slice(idx + 1) : urn;
   }
+
+  function openEdit() {
+    agentSettingsForm.update((current) => ({
+      ...current,
+      name: agent.name ?? '',
+      urnSlug: urnSlug(agent.urn),
+      description: agent.description ?? '',
+      systemPrompt: agent.systemPrompt ?? '',
+      visibility: agent.visibility ?? 'ORGANIZATION',
+      systemMemoryId: '',
+    }), { taint: false });
+    isEditing = true;
+  }
+
+  const agentSettingsActionError = $derived(
+    typeof $agentSettingsMessage === 'string' && $agentSettingsMessage !== 'Changes saved.'
+      ? $agentSettingsMessage
+      : ($agentSettingsAllErrors[0]?.messages[0] ?? null),
+  );
+  const agentNameError = $derived($agentSettingsErrors.name?.[0] ?? null);
+  const agentUrnError = $derived($agentSettingsErrors.urnSlug?.[0] ?? null);
+
+  $effect(() => {
+    if (!isEditing) {
+      agentSettingsForm.update((current) => ({
+        ...current,
+        name: agent.name ?? '',
+        urnSlug: urnSlug(agent.urn),
+        description: agent.description ?? '',
+        systemPrompt: agent.systemPrompt ?? '',
+        visibility: agent.visibility ?? 'ORGANIZATION',
+        systemMemoryId: '',
+      }), { taint: false });
+    }
+  });
+
+  $effect(() => {
+    if ($agentSettingsMessage === 'Changes saved.') isEditing = false;
+  });
 
   // Ordered most→least restrictive. Spec 034 added GROUP to memory visibility;
   // spec 035: agent.visibility is one of PERSONAL/ORGANIZATION/PUBLIC (its own
@@ -371,7 +431,7 @@
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
-  {#if form?.success}
+  {#if form?.success || ($agentSettingsMessage === 'Changes saved.' && !isEditing)}
     <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
   {/if}
 
@@ -831,37 +891,53 @@
         <div class="mb-4 flex items-center justify-between">
           <h2 class="font-semibold text-zinc-900 dark:text-white">Agent</h2>
           {#if !isEditing}
-            <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+            <button onclick={openEdit} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
           {/if}
         </div>
 
         {#if isEditing}
-          <form method="POST" action="?/update" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
-            class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+          <form method="POST" action="?/update" use:agentSettingsEnhance
+            class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
+            {#if agentSettingsActionError}
+              <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{agentSettingsActionError}</div>
+            {/if}
             <div>
               <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-              <input id="editName" name="name" type="text" required value={agent.name} class={inputClass} />
+              <input id="editName" name="name" type="text" bind:value={$agentSettingsForm.name}
+                aria-invalid={!!agentNameError}
+                aria-describedby={agentNameError ? 'editNameError' : undefined}
+                {...$agentSettingsConstraints.name}
+                class="{inputClass} {agentNameError ? 'border-red-500 focus:border-red-500' : ''}" />
+              {#if agentNameError}
+                <p id="editNameError" class="mt-1 text-xs text-red-600 dark:text-red-400">{agentNameError}</p>
+              {/if}
             </div>
             <div>
               <label for="editUrn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
               <div class="flex items-stretch">
                 <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
-                <input id="editUrn" name="urnSlug" type="text" required value={urnSlug(agent.urn)}
-                  class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+                <input id="editUrn" name="urnSlug" type="text" bind:value={$agentSettingsForm.urnSlug}
+                  aria-invalid={!!agentUrnError}
+                  aria-describedby={agentUrnError ? 'editUrnError' : undefined}
+                  {...$agentSettingsConstraints.urnSlug}
+                  class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {agentUrnError ? 'border-red-500 focus:border-red-500' : ''}" />
               </div>
+              {#if agentUrnError}
+                <p id="editUrnError" class="mt-1 text-xs text-red-600 dark:text-red-400">{agentUrnError}</p>
+              {/if}
             </div>
             <div>
               <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-              <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" class={inputClass}>{agent.description ?? ''}</textarea>
+              <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" bind:value={$agentSettingsForm.description} class={inputClass}></textarea>
             </div>
             <div>
               <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent" class={inputClass}>{agent.systemPrompt ?? ''}</textarea>
+              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent" bind:value={$agentSettingsForm.systemPrompt} class={inputClass}></textarea>
               <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
             </div>
             <div>
               <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
-              <select id="editVisibility" name="visibility" value={agent.visibility} class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <select id="editVisibility" name="visibility" bind:value={$agentSettingsForm.visibility} class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                 <option value="PERSONAL">Personal</option>
                 <option value="ORGANIZATION">Organization</option>
                 <option value="PUBLIC">Public</option>
@@ -889,7 +965,7 @@
                 />
                 <p class="mt-1 text-xs text-zinc-400">Can't be changed — delete the agent to replace its system memory.</p>
               {:else}
-                <select id="editSystemMemoryId" name="systemMemoryId" value="" class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <select id="editSystemMemoryId" name="systemMemoryId" bind:value={$agentSettingsForm.systemMemoryId} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                   <option value="">— None —</option>
                   {#each orgSystemMemories as sm}
                     <option value={sm.id}>{sm.name} ({sm.urn})</option>
@@ -899,7 +975,7 @@
               {/if}
             </div>
             <div class="flex gap-3">
-              <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
+              <button type="submit" disabled={$agentSettingsSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">{$agentSettingsSubmitting ? 'Saving...' : 'Save'}</button>
               <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
             </div>
           </form>

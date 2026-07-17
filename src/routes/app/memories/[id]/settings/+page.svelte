@@ -1,11 +1,14 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
+  import { enhance as kitEnhance } from '$app/forms';
   import { page } from '$app/stores';
   import { replaceState } from '$app/navigation';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
-  import { validateMemorySlugField } from '$lib/urn/form-validation';
   import type { PageData, ActionData } from './$types';
+  import { memorySettingsSchema } from './schema';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const g = $derived(data.graph);
@@ -36,8 +39,24 @@
         : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
   );
 
-  let isEditing = $state(false);
-  let saving = $state(false);
+  const initialSettingsForm = untrack(() => form?.form ?? data.form);
+  const {
+    form: settingsForm,
+    errors: settingsErrors,
+    constraints: settingsConstraints,
+    message: settingsMessage,
+    allErrors: settingsAllErrors,
+    submitting: settingsSubmitting,
+    enhance: settingsEnhance,
+  } = superForm(initialSettingsForm, {
+    validators: zod4Client(memorySettingsSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  let isEditing = $state(untrack(() => !!form?.form && form.form.message !== 'Changes saved.'));
   let confirmDelete = $state(false);
 
   // #520: the memory-detail ⋯ menu deep-links here (?edit=1 / ?delete=1) to open
@@ -75,8 +94,10 @@
   const urnSlug = $derived(
     g.urn ? (g.urn.includes('::') ? (g.urn.split('::')[1] ?? '') : (g.urn.split(':').pop() ?? '')) : '',
   );
-  let urnSlugInput = $state('');
-  const urnSlugError = $derived(isAgentSystem ? null : validateMemorySlugField(urnSlugInput));
+  const urnSlugError = $derived(isAgentSystem ? null : ($settingsErrors.urnSlug?.[0] ?? null));
+  const homeUrlError = $derived($settingsErrors.homeUrl?.[0] ?? null);
+  const iconUrlError = $derived($settingsErrors.iconUrl?.[0] ?? null);
+  const heroUrlError = $derived($settingsErrors.heroUrl?.[0] ?? null);
 
   // The read-only head rendered before the slug input. Reconstruct it from the
   // memory's OWN canonical URN so it matches exactly — including the `::`
@@ -89,32 +110,45 @@
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
   function openEdit() {
-    urnSlugInput = urnSlug;
+    settingsForm.update((current) => ({
+      ...current,
+      displayName: g.name ?? '',
+      urnSlug,
+      urnSlugPresent: isAgentSystem ? '' : 'true',
+      originalUrnSlug: urnSlug,
+      currentUrn: g.urn ?? '',
+      organizationId: g.organizationId ?? '',
+      currentOrganizationId: g.organizationId ?? '',
+      shortDescription: g.shortDescription ?? '',
+      description: g.description ?? '',
+      tags: (g.tags ?? []).join(', '),
+      category0: g.category0 ?? '',
+      category1: g.category1 ?? '',
+      category2: g.category2 ?? '',
+      license: g.license ?? '',
+      homeUrl: g.homeUrl ?? '',
+      iconUrl: g.iconUrl ?? '',
+      heroUrl: g.heroUrl ?? '',
+      visibility: g.visibility === 'PUBLIC' ? 'PUBLIC' : 'ORGANIZATION',
+    }), { taint: false });
     isEditing = true;
   }
 
-  function preventInvalidSettingsSubmit(e: SubmitEvent) {
-    if (!urnSlugError) return;
-    e.preventDefault();
-  }
-
   $effect(() => {
-    if (!isEditing) urnSlugInput = urnSlug;
+    if (!isEditing) {
+      settingsForm.update((current) => ({ ...current, urnSlug }), { taint: false });
+    }
   });
 
-  function savingEnhance(formEl: HTMLFormElement) {
-    return enhance(formEl, () => {
-      saving = true;
-      // Only leave edit mode on success — on a failure (e.g. the URN-collision
-      // 409) keep the form open so the error banner is actionable and the user
-      // can correct the slug and resubmit.
-      return async ({ result, update }) => {
-        saving = false;
-        if (result.type === 'success') isEditing = false;
-        await update();
-      };
-    });
-  }
+  const settingsActionError = $derived(
+    typeof $settingsMessage === 'string' && $settingsMessage !== 'Changes saved.'
+      ? $settingsMessage
+      : ($settingsAllErrors[0]?.messages[0] ?? null),
+  );
+
+  $effect(() => {
+    if ($settingsMessage === 'Changes saved.') isEditing = false;
+  });
 
   // ── Vector index (spec 033 §2/§3) ───────────────────────────────────
   // The FR-026 disclosure text MUST match the server's FR_026_DISCLOSURE
@@ -172,7 +206,7 @@
   }
 
   function vectorEnhance(formEl: HTMLFormElement) {
-    return enhance(formEl, () => {
+    return kitEnhance(formEl, () => {
       viSaving = true;
       return async ({ result, update }) => {
         viSaving = false;
@@ -218,7 +252,10 @@
     </div>
 
     {#if isEditing}
-      <form id="graph-settings" method="POST" action="?/update" onsubmit={preventInvalidSettingsSubmit} use:savingEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+      <form id="graph-settings" method="POST" action="?/update" use:settingsEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
+        {#if settingsActionError}
+          <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{settingsActionError}</div>
+        {/if}
         {#if isAgentSystem}
           <p class="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
             This is an agent system memory. Its name, URN, and visibility are
@@ -227,19 +264,19 @@
         {:else}
           <div>
             <label for="displayName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-            <input id="displayName" name="displayName" type="text" value={g.name} class={inputClass} />
+            <input id="displayName" name="displayName" type="text" bind:value={$settingsForm.displayName} {...$settingsConstraints.displayName} class={inputClass} />
           </div>
 
           <!-- #260: org is no longer in the URL; submit the current org id so
                the server can skip a no-op transfer when the select is absent. -->
-          <input type="hidden" name="currentOrganizationId" value={g.organizationId} />
+          <input type="hidden" name="currentOrganizationId" value={$settingsForm.currentOrganizationId} />
 
           {#if (data as any).allOrgs && (data as any).allOrgs.length > 1}
             <div>
               <label for="organizationId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Organization</label>
-              <select id="organizationId" name="organizationId" class={inputClass}>
+              <select id="organizationId" name="organizationId" bind:value={$settingsForm.organizationId} class={inputClass}>
                 {#each (data as any).allOrgs as org (org.id)}
-                  <option value={org.id} selected={org.id === g.organizationId}>{org.name} ({org.urn})</option>
+                  <option value={org.id}>{org.name} ({org.urn})</option>
                 {/each}
               </select>
             </div>
@@ -254,16 +291,18 @@
               {#if urnPrefix}
                 <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 font-mono text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{urnPrefix}</span>
               {/if}
+              <input type="hidden" name="urnSlugPresent" value="true" />
               <!-- Lets the server skip URN recomposition unless the slug
                    actually changed (see the update action). -->
-              <input type="hidden" name="originalUrnSlug" value={urnSlug} />
+              <input type="hidden" name="originalUrnSlug" value={$settingsForm.originalUrnSlug} />
               <!-- The current full URN — the update action composes the
                    candidate URN from its `hrn:memory:<org>::` head to pre-check
                    for a collision before saving. -->
-              <input type="hidden" name="currentUrn" value={g.urn} />
-              <input id="urnSlugInput" name="urnSlug" type="text" bind:value={urnSlugInput}
+              <input type="hidden" name="currentUrn" value={$settingsForm.currentUrn} />
+              <input id="urnSlugInput" name="urnSlug" type="text" bind:value={$settingsForm.urnSlug}
                 aria-invalid={!!urnSlugError}
                 aria-describedby={urnSlugError ? 'urnSlugError' : undefined}
+                {...$settingsConstraints.urnSlug}
                 class="w-full border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {urnPrefix ? 'rounded-r-lg' : 'rounded-lg'} {urnSlugError ? 'border-red-500 focus:border-red-500' : ''}" />
             </div>
             {#if urnSlugError}
@@ -274,50 +313,68 @@
 
         <div>
           <label for="shortDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Short description</label>
-          <input id="shortDescription" name="shortDescription" type="text" value={g.shortDescription ?? ''} class={inputClass} />
+          <input id="shortDescription" name="shortDescription" type="text" bind:value={$settingsForm.shortDescription} class={inputClass} />
         </div>
         <div>
           <label for="description" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-          <textarea id="description" name="description" rows="3" class={inputClass}>{g.description ?? ''}</textarea>
+          <textarea id="description" name="description" rows="3" bind:value={$settingsForm.description} class={inputClass}></textarea>
         </div>
         <div>
           <label for="tags" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Tags <span class="text-zinc-500">(comma-separated)</span></label>
-          <input id="tags" name="tags" type="text" value={(g.tags ?? []).join(', ')} class={inputClass} />
+          <input id="tags" name="tags" type="text" bind:value={$settingsForm.tags} class={inputClass} />
         </div>
 
         {#if !isAgentSystem}
           <div class="grid grid-cols-3 gap-4">
             <div>
               <label for="category0" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Category</label>
-              <input id="category0" name="category0" type="text" value={g.category0 ?? ''} class={inputClass} />
+              <input id="category0" name="category0" type="text" bind:value={$settingsForm.category0} class={inputClass} />
             </div>
             <div>
               <label for="category1" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Subcategory</label>
-              <input id="category1" name="category1" type="text" value={g.category1 ?? ''} class={inputClass} />
+              <input id="category1" name="category1" type="text" bind:value={$settingsForm.category1} class={inputClass} />
             </div>
             <div>
               <label for="category2" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Sub-subcategory</label>
-              <input id="category2" name="category2" type="text" value={g.category2 ?? ''} class={inputClass} />
+              <input id="category2" name="category2" type="text" bind:value={$settingsForm.category2} class={inputClass} />
             </div>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label for="license" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">License</label>
-              <input id="license" name="license" type="text" value={g.license ?? ''} class={inputClass} />
+              <input id="license" name="license" type="text" bind:value={$settingsForm.license} class={inputClass} />
             </div>
             <div>
               <label for="homeUrl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Home URL</label>
-              <input id="homeUrl" name="homeUrl" type="url" value={g.homeUrl ?? ''} class={inputClass} />
+              <input id="homeUrl" name="homeUrl" type="url" bind:value={$settingsForm.homeUrl}
+                aria-invalid={!!homeUrlError}
+                aria-describedby={homeUrlError ? 'homeUrlError' : undefined}
+                class="{inputClass} {homeUrlError ? 'border-red-500 focus:border-red-500' : ''}" />
+              {#if homeUrlError}
+                <p id="homeUrlError" class="mt-1 text-xs text-red-600 dark:text-red-400">{homeUrlError}</p>
+              {/if}
             </div>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label for="iconUrl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Icon URL</label>
-              <input id="iconUrl" name="iconUrl" type="url" value={g.iconUrl ?? ''} class={inputClass} />
+              <input id="iconUrl" name="iconUrl" type="url" bind:value={$settingsForm.iconUrl}
+                aria-invalid={!!iconUrlError}
+                aria-describedby={iconUrlError ? 'iconUrlError' : undefined}
+                class="{inputClass} {iconUrlError ? 'border-red-500 focus:border-red-500' : ''}" />
+              {#if iconUrlError}
+                <p id="iconUrlError" class="mt-1 text-xs text-red-600 dark:text-red-400">{iconUrlError}</p>
+              {/if}
             </div>
             <div>
               <label for="heroUrl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Hero image URL</label>
-              <input id="heroUrl" name="heroUrl" type="url" value={g.heroUrl ?? ''} class={inputClass} />
+              <input id="heroUrl" name="heroUrl" type="url" bind:value={$settingsForm.heroUrl}
+                aria-invalid={!!heroUrlError}
+                aria-describedby={heroUrlError ? 'heroUrlError' : undefined}
+                class="{inputClass} {heroUrlError ? 'border-red-500 focus:border-red-500' : ''}" />
+              {#if heroUrlError}
+                <p id="heroUrlError" class="mt-1 text-xs text-red-600 dark:text-red-400">{heroUrlError}</p>
+              {/if}
             </div>
           </div>
           <!-- Spec 034: visibility is meaningful only for knowledge (PUBLIC vs
@@ -326,17 +383,17 @@
           {#if g.class === 'knowledge'}
             <div>
               <label for="visibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
-              <select id="visibility" name="visibility" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                <option value="ORGANIZATION" selected={g.visibility === 'ORGANIZATION'}>Organization</option>
-                <option value="PUBLIC" selected={g.visibility === 'PUBLIC'}>Public</option>
+              <select id="visibility" name="visibility" bind:value={$settingsForm.visibility} class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <option value="ORGANIZATION">Organization</option>
+                <option value="PUBLIC">Public</option>
               </select>
             </div>
           {/if}
         {/if}
 
         <div class="flex gap-3">
-          <button type="submit" disabled={saving || !!urnSlugError} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
-            {saving ? 'Saving...' : 'Save'}
+          <button type="submit" disabled={$settingsSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+            {$settingsSubmitting ? 'Saving...' : 'Save'}
           </button>
           <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
         </div>
@@ -512,7 +569,7 @@
           {deleteMemoryStrings.deleteButton()}
         </button>
       {:else}
-        <form method="POST" action="?/delete" use:enhance class="flex items-center gap-2">
+        <form method="POST" action="?/delete" use:kitEnhance class="flex items-center gap-2">
           <!-- #260: owning org id so the post-delete redirect can return to it. -->
           <input type="hidden" name="organizationId" value={g.organizationId} />
           <span class="text-sm text-red-500">{deleteMemoryStrings.confirmPrompt(g.name)}</span>

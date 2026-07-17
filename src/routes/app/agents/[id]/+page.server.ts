@@ -1,4 +1,6 @@
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
@@ -17,6 +19,14 @@ import {
 import { requireNonConsumer } from '$lib/server/guards';
 import type { Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { agentSettingsSchema } from './schema';
+
+const agentSettingsFormAdapter = zod4(agentSettingsSchema);
+
+function urnSlug(urn: string): string {
+  const idx = urn.lastIndexOf(':');
+  return idx >= 0 ? urn.slice(idx + 1) : urn;
+}
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
@@ -120,16 +130,26 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     agentConfigs: configsResult ?? [],
     configsError: configsResult === null,
     currentUserId: locals.user?.id ?? null,
+    form: await superValidate({
+      name: agent.name ?? '',
+      urnSlug: urnSlug(agent.urn),
+      description: agent.description ?? '',
+      systemPrompt: agent.systemPrompt ?? '',
+      visibility: agent.visibility ?? 'ORGANIZATION',
+      systemMemoryId: '',
+    }, agentSettingsFormAdapter, { errors: false }),
   };
 };
 
 export const actions: Actions = {
   update: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const name = String(fd.get('name') ?? '').trim() || undefined;
-    const urnSlug = String(fd.get('urnSlug') ?? '').trim() || undefined;
-    const description = String(fd.get('description') ?? '').trim() || null;
-    const systemPrompt = String(fd.get('systemPrompt') ?? '').trim() || null;
+    const form = await superValidate(await request.formData(), agentSettingsFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
+    const name = form.data.name || undefined;
+    const urnSlug = form.data.urnSlug || undefined;
+    const description = form.data.description || null;
+    const systemPrompt = form.data.systemPrompt || null;
     // '' → OMIT, never null (#488): updateAgent forbids unsetting/changing a
     // system memory, so an explicit null THROWS when one is attached — and
     // the form's select can degrade to "— None —" whenever the current
@@ -137,8 +157,8 @@ export const actions: Actions = {
     // membership-gated and best-effort). Sending null therefore failed the
     // WHOLE save, visibility included. Omitting the variable makes the
     // resolver skip the field; a real first-attach still sends the id.
-    const systemMemoryId = String(fd.get('systemMemoryId') ?? '').trim() || undefined;
-    const visibility = String(fd.get('visibility') ?? '').trim() || undefined;
+    const systemMemoryId = form.data.systemMemoryId || undefined;
+    const visibility = form.data.visibility || undefined;
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
         id: params.id, name, urn: urnSlug, description, systemPrompt, systemMemoryId, visibility,
@@ -214,9 +234,9 @@ export const actions: Actions = {
         }
       }
 
-      return { success: true };
+      return message(form, 'Changes saved.');
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to update agent') });
+      return message(form, extractGqlError(e, 'Failed to update agent'), { status: 500 });
     }
   },
 
