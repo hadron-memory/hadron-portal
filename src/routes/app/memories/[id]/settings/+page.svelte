@@ -134,12 +134,6 @@
     isEditing = true;
   }
 
-  $effect(() => {
-    if (!isEditing) {
-      settingsForm.update((current) => ({ ...current, urnSlug }), { taint: false });
-    }
-  });
-
   const settingsActionError = $derived(
     typeof $settingsMessage === 'string' && $settingsMessage !== 'Changes saved.'
       ? $settingsMessage

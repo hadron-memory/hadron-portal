@@ -92,13 +92,6 @@ export const actions: Actions = {
     // Normalize to a bare slug — the field should hold just the slug, but
     // tolerate a user pasting a full/prefixed URN by cutting the slug out of it.
     const urnSlug = toBareMemorySlugInput(form.data.urnSlug) || undefined;
-    // A submitted-but-empty slug (the user cleared the field, or pasted
-    // something with no extractable slug) would otherwise fall through as
-    // `undefined` → urnChanged=false → the old URN silently kept. Reject it so
-    // the user gets an actionable error instead of a no-op save.
-    if (form.data.urnSlugPresent === 'true' && !urnSlug) {
-      return setError(form, 'urnSlug', 'URN slug cannot be empty.', { status: 400 });
-    }
     // Only forward `urn` when the user actually edited the slug. The server's
     // updateMemory rebuilds the whole URN from this value (newUrn =
     // `${org.urn}:${slug}`) whenever urn !== undefined, so sending the

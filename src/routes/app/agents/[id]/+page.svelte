@@ -212,20 +212,6 @@
   const agentUrnError = $derived($agentSettingsErrors.urnSlug?.[0] ?? null);
 
   $effect(() => {
-    if (!isEditing) {
-      agentSettingsForm.update((current) => ({
-        ...current,
-        name: agent.name ?? '',
-        urnSlug: urnSlug(agent.urn),
-        description: agent.description ?? '',
-        systemPrompt: agent.systemPrompt ?? '',
-        visibility: agent.visibility ?? 'ORGANIZATION',
-        systemMemoryId: '',
-      }), { taint: false });
-    }
-  });
-
-  $effect(() => {
     if ($agentSettingsMessage === 'Changes saved.') isEditing = false;
   });
 

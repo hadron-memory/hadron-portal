@@ -9,7 +9,17 @@ export const orgProfileSchema = z
   })
   .superRefine((data, ctx) => {
     if (!data.urn) return;
-    const slug = parseDisplayUrn(data.urn, 'org').bareValue;
+    let slug: string;
+    try {
+      slug = parseDisplayUrn(data.urn, 'org').bareValue;
+    } catch {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['urn'],
+        message: 'Invalid organization URN.',
+      });
+      return;
+    }
     const error = validateOrgSlugField(slug);
     if (error) {
       ctx.addIssue({

@@ -73,12 +73,6 @@
   }
 
   $effect(() => {
-    if (!isEditing) {
-      profileForm.update((current) => ({ ...current, name: org.name, urn: urnSlug }), { taint: false });
-    }
-  });
-
-  $effect(() => {
     if ($profileMessage === 'Changes saved.') isEditing = false;
   });
 </script>
