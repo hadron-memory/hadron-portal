@@ -1,7 +1,7 @@
 // Spec 010 display surface (renamed from `parseUrn` in spec 021 to make
 // room for the new canonical-form parser at that name). Behavior here
 // is unchanged.
-import { parseDisplayUrn as parseUrn } from './parse-urn';
+import { parseDisplayUrn as parseUrn, splitNodeUrn } from './parse-urn';
 
 /**
  * Normalize a user-supplied loc input into a bare loc string suitable for
@@ -17,6 +17,11 @@ import { parseDisplayUrn as parseUrn } from './parse-urn';
  *   - spec-021 canonical node URN:         'urn:node:hadronmemory.com::dev::review:render-urn'
  *                                          (the loc is the FINAL `::`-segment;
  *                                           internal `:` is preserved)
+ *   - grammar-v2 flat node URN (#697):     'hrn:node:hadronmemory.com:dev:review:render-urn'
+ *                                          (single colon; a user-handle pool
+ *                                           root has no dot, so the dotted-org
+ *                                           heuristic below can't strip it —
+ *                                           the lib splitter handles both)
  *   - legacy loc: prefix:                  'loc:review:render-urn'
  *   - wrong-type memory URN (the bug):     'urn:memory:hadronmemory.com:dev:review:render-urn'
  *   - bare memory-prefixed loc:            'hadronmemory.com:dev:review:render-urn'
@@ -54,9 +59,28 @@ export function cleanLocInput(raw: string): string {
   // memory URNs pasted into a loc field it gives us the role marker,
   // which is then rejected server-side as a wrong-shape loc (better
   // than silently coercing to a meaningless path).
+  //
+  // NOTE this runs BEFORE the v2 splitter below — the lib's `splitNodeUrn`
+  // treats the first two atoms as the memory and would mis-split a DEEP v1
+  // `::` node URN (`org::app::agent::system::loc`); the last-`::`-segment rule
+  // is the correct v1 extraction.
   if (value.includes('::')) {
     const segments = value.split('::');
     return segments[segments.length - 1];
+  }
+
+  // Grammar-v2 flat node URN (#697): `<root>:<mem>:<loc…>`, single colon. The
+  // lib splitter extracts the loc exactly across BOTH root kinds — a dotted org
+  // root AND an undotted user-handle pool root (which the dotted-org heuristic
+  // below can't strip). Only a v2 node URN reaches here with no `::`; a memory
+  // URN or bare loc falls through. Guard with try/catch so a too-short value
+  // (not a node URN) drops to the tolerant heuristic instead of throwing.
+  if (parsed.type === 'node') {
+    try {
+      return splitNodeUrn(value).loc;
+    } catch {
+      // not a fully-qualified node URN — fall through
+    }
   }
 
   // Legacy single-`:` grammar fallback. Strip the memory-URN prefix
