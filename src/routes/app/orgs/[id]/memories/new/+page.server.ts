@@ -17,7 +17,20 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     ORGANIZATION_QUERY, { id: params.id },
   );
   const prefillSlug = (url.searchParams.get('slug') ?? '').trim();
-  const form = await superValidate({ slug: prefillSlug }, createMemoryFormAdapter, { errors: false });
+  // #556: the Personal Memories tab deep-links here with ?class=personal so the
+  // "Memory kind" select defaults to the personal class. Only honor the
+  // user-creatable classes; anything else falls through to the schema default
+  // (knowledge).
+  const classParam = url.searchParams.get('class');
+  const prefillClass =
+    classParam === 'personal' || classParam === 'private' || classParam === 'knowledge'
+      ? classParam
+      : undefined;
+  const form = await superValidate(
+    { slug: prefillSlug, ...(prefillClass ? { memoryClass: prefillClass } : {}) },
+    createMemoryFormAdapter,
+    { errors: false },
+  );
   // #320: the header command bar (Create mode) can deep-link here with the
   // memory slug prefilled (`?slug=<slug>`).
   return { org: data.organization, prefillSlug, form };
@@ -69,7 +82,10 @@ export const actions: Actions = {
           id: result.createMemory.id, name: displayName,
         }).catch(() => {}); // best-effort
       }
-      redirect(303, `/app/orgs/${params.id}/memories`);
+      // #556: land back on the tab that shows the memory just created — personal
+      // memories live on the Personal Memories tab, everything else on the org grid.
+      const tab = isOwnerOnly ? '?tab=personal' : '';
+      redirect(303, `/app/orgs/${params.id}/memories${tab}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       const error = extractGqlError(e, 'Failed to create memory');

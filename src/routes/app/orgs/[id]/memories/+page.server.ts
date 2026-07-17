@@ -15,7 +15,7 @@ import {
 import type { Organization, Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals, parent }) => {
+export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
   const [orgData, systemMemories, publicMemories, myMemories] = await Promise.all([
@@ -49,11 +49,18 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       m.userId === locals.user.id &&
       (m.class === 'personal' || m.class === 'private'),
   );
+  // #555/#556: the create flow deep-links back with ?tab= so a just-created
+  // personal memory lands on the tab that actually shows it. Validate against
+  // the known tabs; anything else falls back to the org grid.
+  const tabParam = url.searchParams.get('tab');
+  const initialTab: 'personal' | 'org' | 'subscriptions' =
+    tabParam === 'personal' || tabParam === 'subscriptions' ? tabParam : 'org';
   return {
     org: orgData.organization,
     systemMemories,
     availableMemories,
     personalMemories,
+    initialTab,
   };
 };
 

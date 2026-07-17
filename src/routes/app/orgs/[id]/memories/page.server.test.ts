@@ -32,11 +32,14 @@ async function importLoad() {
   return mod.load;
 }
 
-function ev(opts: { orgId?: string; userId?: string } = {}) {
+function ev(opts: { orgId?: string; userId?: string; tab?: string } = {}) {
+  const orgId = opts.orgId ?? 'org-1';
+  const search = opts.tab ? `?tab=${opts.tab}` : '';
   return {
-    params: { id: opts.orgId ?? 'org-1' },
+    params: { id: orgId },
     locals: { token: 'test-token', user: { id: opts.userId ?? 'u1' } },
     parent: async () => ({}),
+    url: new URL(`https://x/app/orgs/${orgId}/memories${search}`),
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
@@ -80,5 +83,28 @@ describe('memories-list load() — personalMemories (spec 034)', () => {
     const load = await importLoad();
     const result = (await load(ev())) as { personalMemories: unknown[] };
     expect(result.personalMemories).toEqual([]);
+  });
+});
+
+describe('memories-list load() — initialTab (#556)', () => {
+  it('defaults to the org tab with no ?tab= hint', async () => {
+    routeMock([]);
+    const load = await importLoad();
+    const result = (await load(ev())) as { initialTab: string };
+    expect(result.initialTab).toBe('org');
+  });
+
+  it('honors ?tab=personal (the create-flow deep link)', async () => {
+    routeMock([]);
+    const load = await importLoad();
+    const result = (await load(ev({ tab: 'personal' }))) as { initialTab: string };
+    expect(result.initialTab).toBe('personal');
+  });
+
+  it('falls back to org for an unknown ?tab= value', async () => {
+    routeMock([]);
+    const load = await importLoad();
+    const result = (await load(ev({ tab: 'bogus' }))) as { initialTab: string };
+    expect(result.initialTab).toBe('org');
   });
 });

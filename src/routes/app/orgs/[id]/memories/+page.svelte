@@ -10,6 +10,7 @@
   toggleable via the column menu).
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import {
     getCoreRowModel,
@@ -29,10 +30,11 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
 
-  // #342: secondary tab — Org Memories vs Subscriptions.
-  // #555: Personal Memories split out to its own tab (to the left of Org
-  // Memories) now that memories can be owned by users directly.
-  let subTab = $state<'personal' | 'org' | 'subscriptions'>('org');
+  // #342/#555: secondary tabs — Personal Memories | Org Memories |
+  // Subscriptions. Personal Memories (to the left of Org Memories) was split out
+  // now that memories can be owned by users directly. The initial tab honors the
+  // loader's ?tab= hint (the create flow deep-links back to 'personal').
+  let subTab = $state<'personal' | 'org' | 'subscriptions'>(untrack(() => data.initialTab));
   const subscriptions = $derived(org.subscriptions ?? []);
 
   // Subscribe form: the memory <select> is replaced by the SelectMemory modal
@@ -322,11 +324,12 @@
   {/snippet}
 
   {#if subTab === 'personal'}
-    <!-- #555: Personal Memories — the caller's own owner-only (personal/private)
-         memories in this org. -->
+    <!-- #555: Personal Memories — the caller's own personal memories (the
+         personal + private classes) in this org. The create link preselects the
+         personal class so the "new" page defaults to it. -->
     {#if personalRows.length === 0}
       <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
-        {t('org-memories.personal.empty', 'No personal memories yet.')} <a href="/app/orgs/{org.id}/memories/new" class="text-indigo-600 hover:underline dark:text-indigo-400">{t('org-memories.add-one', 'Add one →')}</a>
+        {t('org-memories.personal.empty', 'No personal memories yet.')} <a href="/app/orgs/{org.id}/memories/new?class=personal" class="text-indigo-600 hover:underline dark:text-indigo-400">{t('org-memories.add-one', 'Add one →')}</a>
       </div>
     {:else}
       <DataTable
@@ -339,6 +342,14 @@
         cell={memoryCell}
       />
     {/if}
+
+    <!-- #556: keep the Add-memory affordance on this tab too (reviewer note) —
+         no Sync all, since personal memories are DB-only. -->
+    <div class="flex items-center gap-3">
+      <a href="/app/orgs/{org.id}/memories/new?class=personal" class="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
+        + Add memory
+      </a>
+    </div>
   {:else if subTab === 'org'}
     {#if orgRows.length === 0}
       <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
