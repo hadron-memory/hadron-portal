@@ -55,19 +55,33 @@ function actionEv(fields: Record<string, string>, opts: { orgId?: string } = {})
   } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['actions']['update']>[0];
 }
 
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
+}
+
+function fieldError(result: unknown, field: string): string | undefined {
+  return superFormFrom(result)?.errors?.[field]?.[0];
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('org-detail Profile load()', () => {
   it('forwards the parent org and the current user id', async () => {
     const { load } = await importMod();
     const result = await load(ev({ orgId: 'org-id-123', userId: 'user-1' }));
-    expect(result).toEqual({ org: fakeOrg, currentUserId: 'user-1' });
+    expect(result).toMatchObject({ org: fakeOrg, currentUserId: 'user-1' });
+    expect((result as { form: { valid: boolean } }).form.valid).toBe(true);
   });
 
   it('null currentUserId when there is no logged-in user', async () => {
     const { load } = await importMod();
     const result = await load(ev({ userId: null }));
-    expect(result).toEqual({ org: fakeOrg, currentUserId: null });
+    expect(result).toMatchObject({ org: fakeOrg, currentUserId: null });
   });
 
   it('issues no GraphQL request of its own (org comes from parent())', async () => {
@@ -84,7 +98,8 @@ describe('org-detail Profile update action (#394)', () => {
     // #609: even if an `isVisible` field is somehow present, it must not be
     // forwarded — the flag is system-managed, not user-editable here.
     const result = await actions.update(actionEv({ name: 'Renamed', urn: 'renamed', isVisible: 'on' }));
-    expect(result).toEqual({ success: true });
+    expect(superFormFrom(result)?.message).toBe('Changes saved.');
+    expect(superFormFrom(result)?.valid).toBe(true);
     const [, vars] = mockRequest.mock.calls[0];
     expect(vars).toMatchObject({ id: 'org-id-123', name: 'Renamed', urn: 'renamed' });
     expect(vars).not.toHaveProperty('isVisible');
@@ -105,7 +120,8 @@ describe('org-detail Profile update action (#394)', () => {
     // parseDisplayUrn would yield `acme::dev` here — a `:`-bearing value that
     // would re-break the rename cascade. validateOrgSlug must reject it.
     const result = await actions.update(actionEv({ name: 'Acme', urn: 'hrn:org:acme::dev' }));
-    expect(result).toMatchObject({ status: 400, data: { error: expect.any(String) } });
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'urn')).toEqual(expect.any(String));
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -121,6 +137,7 @@ describe('org-detail Profile update action (#394)', () => {
     mockRequest.mockRejectedValueOnce(new Error('boom'));
     const { actions } = await importMod();
     const result = await actions.update(actionEv({ name: 'x', urn: 'y' }));
-    expect(result).toMatchObject({ status: 500, data: { error: expect.any(String) } });
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toBe('boom');
   });
 });

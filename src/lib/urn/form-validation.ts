@@ -56,3 +56,18 @@ export function validateMemorySlugField(value: string): string | null {
 export function validateOrgSlugField(value: string): string | null {
   return validateSlugField(value, 'Organization URN', 'Organization URN is required.', validateOrgSlug);
 }
+
+// Reduce a memory URN form value to the BARE memory slug the server's
+// updateMemory expects. The edit field is meant to hold just the slug, but a
+// user may paste a full or partial URN; normalize the common display forms so
+// validation and actions share one grammar.
+export function toBareMemorySlugInput(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const withoutScheme = trimmed.replace(/^(?:hrn|urn):/, '');
+  const withoutType = withoutScheme.replace(/^(?:memory|agent|app|node|org):/, '');
+  if (withoutType.includes('::')) {
+    return withoutType.split('::')[1] ?? '';
+  }
+  return withoutType;
+}

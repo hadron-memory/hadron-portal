@@ -306,6 +306,23 @@ function updateEv(form: Record<string, string>) {
   } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['update']>[0];
 }
 
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
+}
+
+function fieldError(result: unknown, field: string): string | undefined {
+  return superFormFrom(result)?.errors?.[field]?.[0];
+}
+
+function successMessage(result: unknown): unknown {
+  return superFormFrom(result)?.message;
+}
+
 describe('memory-detail `update` action — visibility (spec 034)', () => {
   it('passes visibility through when the control is present (knowledge memory)', async () => {
     mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
@@ -394,14 +411,14 @@ describe('memory-detail `update` action — visibility (spec 034)', () => {
   ])('rejects a submitted-but-empty slug with a 400 (%s — %s)', async (cleared) => {
     const actions = await importActions();
 
-    const result = (await actions.update(updateEv({
+    const result = await actions.update(updateEv({
       displayName: 'Experiments',
       urnSlug: cleared,
       originalUrnSlug: 'experiments',
-    }))) as { status: number; data: { error: string } } | undefined;
+    }));
 
-    expect(result!.status).toBe(400);
-    expect(result!.data.error).toContain('cannot be empty');
+    expect((result as { status: number }).status).toBe(400);
+    expect(fieldError(result, 'urnSlug')).toContain('cannot be empty');
     // Rejected before any network call.
     expect(mockRequest).not.toHaveBeenCalled();
   });
@@ -425,14 +442,14 @@ describe('memory-detail `update` action — visibility (spec 034)', () => {
   it('rejects an invalid memory slug before calling the API', async () => {
     const actions = await importActions();
 
-    const result = (await actions.update(updateEv({
+    const result = await actions.update(updateEv({
       displayName: 'Experiments',
       urnSlug: 'Bad Slug',
       originalUrnSlug: 'experiments',
-    }))) as { status: number; data: { error: string } } | undefined;
+    }));
 
-    expect(result!.status).toBe(400);
-    expect(result!.data.error).toContain('lowercase');
+    expect((result as { status: number }).status).toBe(400);
+    expect(fieldError(result, 'urnSlug')).toContain('lowercase');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 });
@@ -445,15 +462,15 @@ describe('memory-detail `update` action — URN collision pre-check', () => {
     mockRequest.mockResolvedValueOnce({ resolveUrn: { id: 'some-other-memory' } });
     const actions = await importActions();
 
-    const result = (await actions.update(updateEv({
+    const result = await actions.update(updateEv({
       displayName: 'Experiments',
       urnSlug: 'taken',
       originalUrnSlug: 'experiments',
       currentUrn: 'hrn:memory:hadronmemory.com::experiments',
-    }))) as { status: number; data: { error: string } } | undefined;
+    }));
 
-    expect(result!.status).toBe(409);
-    expect(result!.data.error).toContain('hrn:memory:hadronmemory.com::taken');
+    expect((result as { status: number }).status).toBe(409);
+    expect(fieldError(result, 'urnSlug')).toContain('hrn:memory:hadronmemory.com::taken');
     // The collision short-circuits BEFORE updateMemory — only resolveUrn ran,
     // and it was asked about the composed candidate URN.
     expect(mockRequest).toHaveBeenCalledTimes(1);
@@ -484,14 +501,15 @@ describe('memory-detail `update` action — URN collision pre-check', () => {
       .mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
     const actions = await importActions();
 
-    const result = (await actions.update(updateEv({
+    const result = await actions.update(updateEv({
       displayName: 'Experiments',
       urnSlug: 'fresh',
       originalUrnSlug: 'experiments',
       currentUrn: 'hrn:memory:hadronmemory.com::experiments',
-    }))) as { success?: boolean } | undefined;
+    }));
 
-    expect(result).toEqual({ success: true });
+    expect(successMessage(result)).toBe('Changes saved.');
+    expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledTimes(2);
     const [, updateVars] = mockRequest.mock.calls[1]! as [unknown, Record<string, unknown>];
     expect(updateVars.urn).toBe('fresh');
@@ -509,7 +527,8 @@ describe('memory-detail `update` action — URN collision pre-check', () => {
       currentUrn: 'hrn:memory:hadronmemory.com::experiments',
     }));
 
-    expect(result).toEqual({ success: true });
+    expect(successMessage(result)).toBe('Changes saved.');
+    expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledTimes(2);
   });
 
@@ -525,7 +544,8 @@ describe('memory-detail `update` action — URN collision pre-check', () => {
       currentUrn: 'hrn:memory:hadronmemory.com::experiments',
     }));
 
-    expect(result).toEqual({ success: true });
+    expect(successMessage(result)).toBe('Changes saved.');
+    expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledTimes(2);
   });
 
