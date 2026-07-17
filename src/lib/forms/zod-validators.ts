@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { validateMemorySlugField, validateOrgSlugField } from '$lib/urn/form-validation';
+import { validateHandleField, validateMemorySlugField, validateOrgSlugField } from '$lib/urn/form-validation';
 
 export const optionalHttpUrl = z.string().trim().refine((value) => {
   if (!value) return true;
@@ -31,6 +31,17 @@ export function orgSlugField(requiredMessage = 'Organization URN is required.') 
     .superRefine((slug, ctx) => {
       if (!slug) return;
       const error = validateOrgSlugField(slug);
+      if (error) ctx.addIssue({ code: 'custom', message: error });
+    });
+}
+
+export function handleField() {
+  return z
+    .string()
+    .trim()
+    .default('')
+    .superRefine((handle, ctx) => {
+      const error = validateHandleField(handle);
       if (error) ctx.addIssue({ code: 'custom', message: error });
     });
 }

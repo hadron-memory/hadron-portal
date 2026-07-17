@@ -1,13 +1,32 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
-  import { validateHandleField } from '$lib/urn/form-validation';
+  import { untrack } from 'svelte';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PageData, ActionData } from './$types';
+  import { accountProfileSchema } from './schema';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const user = $derived(data.user);
-  let isEditing = $state(false);
-  let handleInput = $state('');
-  const handleError = $derived(validateHandleField(handleInput));
+  const initialProfileForm = untrack(() => form?.form ?? data.form);
+  let isEditing = $state(untrack(() => !!form?.form && form.form.message !== 'Profile updated.'));
+  const {
+    form: profileForm,
+    errors: profileErrors,
+    constraints: profileConstraints,
+    message: profileMessage,
+    allErrors: profileAllErrors,
+    submitting: profileSubmitting,
+    enhance: profileEnhance,
+  } = superForm(initialProfileForm, {
+    validators: zod4Client(accountProfileSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated({ form }) {
+      if (form.message === 'Profile updated.') isEditing = false;
+    },
+  });
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
@@ -16,27 +35,28 @@
   }
 
   function openEdit() {
-    handleInput = currentHandle();
+    profileForm.update((current) => ({
+      ...current,
+      name: user?.name ?? '',
+      handle: currentHandle(),
+      email: user?.email ?? '',
+    }), { taint: false });
     isEditing = true;
   }
 
-  function preventInvalidProfileSubmit(e: SubmitEvent) {
-    if (!handleError) return;
-    e.preventDefault();
-  }
+  const handleError = $derived($profileErrors.handle?.[0] ?? null);
+  const profileActionError = $derived(
+    typeof $profileMessage === 'string' && $profileMessage !== 'Profile updated.'
+      ? $profileMessage
+      : ($profileAllErrors[0]?.messages[0] ?? null),
+  );
 
-  $effect(() => {
-    if (!isEditing) handleInput = currentHandle();
-  });
 </script>
 
 <svelte:head><title>Account · Hadron</title></svelte:head>
 
 <div class="max-w-lg space-y-8">
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
-  {/if}
-  {#if form?.success}
+  {#if $profileMessage === 'Profile updated.' && !isEditing}
     <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Profile updated.</div>
   {/if}
 
@@ -50,10 +70,14 @@
     </div>
 
     {#if isEditing}
-      <form method="POST" action="?/update" onsubmit={preventInvalidProfileSubmit}
-        use:enhance={() => { return async ({ result, update }) => { await update(); if (result.type === 'success') isEditing = false; }; }}
+      <form method="POST" action="?/update" use:profileEnhance
         class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4"
+        novalidate
       >
+        {#if profileActionError}
+          <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{profileActionError}</div>
+        {/if}
+
         <div class="flex items-center gap-4 mb-2">
           {#if user?.avatarUrl}
             <img src={user.avatarUrl} alt={user?.name ?? ''} class="h-12 w-12 rounded-full" />
@@ -67,7 +91,8 @@
 
         <div>
           <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-          <input id="editName" name="name" type="text" value={user?.name ?? ''} placeholder="Your display name"
+          <input id="editName" name="name" type="text" bind:value={$profileForm.name} placeholder="Your display name"
+            {...$profileConstraints.name}
             class={inputClass} />
         </div>
 
@@ -75,9 +100,10 @@
           <label for="editHandle" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Handle</label>
           <div class="flex items-stretch">
             <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">@</span>
-            <input id="editHandle" name="handle" type="text" bind:value={handleInput} placeholder="username"
+            <input id="editHandle" name="handle" type="text" bind:value={$profileForm.handle} placeholder="username"
               aria-invalid={!!handleError}
               aria-describedby={handleError ? 'editHandleError' : 'editHandleHelp'}
+              {...$profileConstraints.handle}
               class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {handleError ? 'border-red-500 focus:border-red-500' : ''}" />
           </div>
           {#if handleError}
@@ -89,12 +115,13 @@
 
         <div>
           <label for="editEmail" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Email</label>
-          <input id="editEmail" name="email" type="email" value={user?.email ?? ''} placeholder="you@example.com"
+          <input id="editEmail" name="email" type="email" bind:value={$profileForm.email} placeholder="you@example.com"
+            {...$profileConstraints.email}
             class={inputClass} />
         </div>
 
         <div class="flex gap-3">
-          <button type="submit" disabled={!!handleError} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">Save</button>
+          <button type="submit" disabled={!!handleError || $profileSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">{$profileSubmitting ? 'Saving...' : 'Save'}</button>
           <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
         </div>
       </form>
