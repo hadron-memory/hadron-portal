@@ -1,33 +1,46 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { enhance } from '$app/forms';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import { toSlug } from '$lib/slug';
-  import { validateOrgSlugField } from '$lib/urn/form-validation';
   import type { ActionData, PageData } from './$types';
+  import { createOrganizationSchema } from './schema';
 
   let { form, data }: { form: ActionData; data: PageData } = $props();
 
-  let name = $state('');
+  const initialForm = untrack(() => form?.form ?? data.form);
+  const {
+    form: formData,
+    errors,
+    constraints,
+    message,
+    allErrors,
+    submitting,
+    enhance,
+  } = superForm(initialForm, {
+    validators: zod4Client(createOrganizationSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
   // #320: seed the URN slug once when the command bar deep-links here. untrack
   // makes the one-time snapshot explicit (data won't change without a reload).
-  let urn = $state(untrack(() => data.prefillUrn ?? ''));
   // #320: a prefilled (or manually-edited) URN must not be clobbered by
   // name-driven auto-generation.
-  let urnEdited = $state(untrack(() => !!data.prefillUrn));
-  const urnError = $derived(validateOrgSlugField(urn));
-  const showUrnError = $derived(!!urn && !!urnError);
-  $effect(() => { if (form?.name) name = form.name; });
-  $effect(() => { if (form?.urn) urn = form.urn; });
+  let urnEdited = $state(untrack(() => !!data.prefillUrn || !!form?.form?.data.urn));
+  let submitAttempted = $state(untrack(() => !!form?.form));
+  const nameError = $derived($errors.name?.[0] ?? null);
+  const urnError = $derived($errors.urn?.[0] ?? null);
+  const showUrnError = $derived(!!$formData.urn && !!urnError);
+  const actionError = $derived($message ?? (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null));
 
   // Auto-generate URN from name until the user (or a prefill) owns the field.
   function onNameInput() {
     if (urnEdited) return;
-    urn = toSlug(name);
-  }
-
-  function preventInvalidOrgSubmit(e: SubmitEvent) {
-    if (!urnError) return;
-    e.preventDefault();
+    const nextUrn = toSlug($formData.name);
+    if ($formData.urn !== nextUrn) formData.update((current) => ({ ...current, urn: nextUrn }), { taint: false });
   }
 </script>
 
@@ -39,20 +52,26 @@
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">New organization</h1>
   </div>
 
-  <form method="POST" onsubmit={preventInvalidOrgSubmit} use:enhance class="space-y-5">
-    {#if form?.error}
-      <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  <form method="POST" onsubmit={() => { submitAttempted = true; }} use:enhance class="space-y-5" novalidate>
+    {#if actionError}
+      <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
     {/if}
 
     <div>
       <label for="name" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Organization name</label>
       <input
         id="name" name="name" type="text" required
-        bind:value={name}
+        bind:value={$formData.name}
         oninput={onNameInput}
+        aria-invalid={!!nameError}
+        aria-describedby={nameError ? 'nameError' : undefined}
+        {...$constraints.name}
         placeholder="Acme Corp"
-        class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none"
+        class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none {nameError ? 'border-red-500 focus:border-red-500' : ''}"
       />
+      {#if nameError}
+        <p id="nameError" class="mt-1 text-xs text-red-600 dark:text-red-400">{nameError}</p>
+      {/if}
     </div>
 
     <div>
@@ -61,10 +80,11 @@
         <span class="select-none font-mono text-sm text-zinc-500">hrn:org:</span>
         <input
           id="urn" name="urn" type="text" required
-          bind:value={urn}
+          bind:value={$formData.urn}
           oninput={() => (urnEdited = true)}
           aria-invalid={showUrnError}
           aria-describedby={showUrnError ? 'urnError' : 'urnHelp'}
+          {...$constraints.urn}
           placeholder="acme-corp"
           class="flex-1 bg-transparent font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none dark:text-white dark:placeholder-zinc-500"
         />
@@ -76,8 +96,8 @@
       {/if}
     </div>
 
-    <button type="submit" disabled={showUrnError} class="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">
-      Create organization
+    <button type="submit" disabled={showUrnError || $submitting} class="rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">
+      {$submitting ? 'Creating...' : 'Create organization'}
     </button>
   </form>
 </div>

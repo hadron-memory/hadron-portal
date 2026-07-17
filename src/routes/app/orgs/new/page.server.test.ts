@@ -27,6 +27,19 @@ function actionEv(fields: Record<string, string>) {
   } as unknown as Parameters<NonNullable<Awaited<ReturnType<typeof importActions>>['default']>>[0];
 }
 
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
+}
+
+function fieldError(result: unknown, field: string): string | undefined {
+  return superFormFrom(result)?.errors?.[field]?.[0];
+}
+
 async function runCreate(fields: Record<string, string>) {
   const actions = await importActions();
   try {
@@ -39,7 +52,8 @@ async function runCreate(fields: Record<string, string>) {
 describe('create organization action', () => {
   it('rejects a full org URN before calling the API', async () => {
     const result = await runCreate({ name: 'Acme', urn: 'hrn:org:acme' });
-    expect(result).toMatchObject({ status: 400, data: { error: expect.stringContaining('bare slug') } });
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'urn')).toEqual(expect.stringContaining('bare slug'));
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
