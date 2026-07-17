@@ -1,10 +1,10 @@
 /**
  * Spec 034-memory-class-access — memories-list loader.
  *
- * Verifies the new `privateMemories` surface: the loader pulls memories() and
- * filters to the caller's own owner-only memories (personal/private) whose
- * container is the current org. Mocks `$lib/server/api`'s `gqlClient` and
- * routes by query identity, as in the sibling loader tests.
+ * Verifies the new `personalMemories` surface: the loader pulls memories() and
+ * filters to the caller's own personal memories (the personal + private
+ * classes) whose container is the current org. Mocks `$lib/server/api`'s
+ * `gqlClient` and routes by query identity, as in the sibling loader tests.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -32,11 +32,14 @@ async function importLoad() {
   return mod.load;
 }
 
-function ev(opts: { orgId?: string; userId?: string } = {}) {
+function ev(opts: { orgId?: string; userId?: string; tab?: string } = {}) {
+  const orgId = opts.orgId ?? 'org-1';
+  const search = opts.tab ? `?tab=${opts.tab}` : '';
   return {
-    params: { id: opts.orgId ?? 'org-1' },
+    params: { id: orgId },
     locals: { token: 'test-token', user: { id: opts.userId ?? 'u1' } },
     parent: async () => ({}),
+    url: new URL(`https://x/app/orgs/${orgId}/memories${search}`),
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
@@ -55,8 +58,8 @@ function routeMock(myMemories: unknown[]) {
   });
 }
 
-describe('memories-list load() — privateMemories (spec 034)', () => {
-  it('keeps only this user\'s owner-only memories whose container is this org', async () => {
+describe('memories-list load() — personalMemories (spec 034)', () => {
+  it('keeps only this user\'s personal memories whose container is this org', async () => {
     routeMock([
       { id: 'p1', name: 'Mine private', organizationId: 'org-1', userId: 'u1', class: 'private' },
       { id: 'p2', name: 'Mine personal', organizationId: 'org-1', userId: 'u1', class: 'personal' },
@@ -65,11 +68,11 @@ describe('memories-list load() — privateMemories (spec 034)', () => {
       { id: 'p4', name: 'Other user private', organizationId: 'org-1', userId: 'u2', class: 'private' },
     ]);
     const load = await importLoad();
-    const result = (await load(ev({ orgId: 'org-1', userId: 'u1' }))) as { privateMemories: { id: string }[] };
-    expect(result.privateMemories.map((m) => m.id).sort()).toEqual(['p1', 'p2']);
+    const result = (await load(ev({ orgId: 'org-1', userId: 'u1' }))) as { personalMemories: { id: string }[] };
+    expect(result.personalMemories.map((m) => m.id).sort()).toEqual(['p1', 'p2']);
   });
 
-  it('memories() failure degrades to an empty privateMemories list (no throw)', async () => {
+  it('memories() failure degrades to an empty personalMemories list (no throw)', async () => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === ORGANIZATION_QUERY) return { organization: fakeOrg };
       if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
@@ -78,7 +81,30 @@ describe('memories-list load() — privateMemories (spec 034)', () => {
       throw new Error('Unexpected query');
     });
     const load = await importLoad();
-    const result = (await load(ev())) as { privateMemories: unknown[] };
-    expect(result.privateMemories).toEqual([]);
+    const result = (await load(ev())) as { personalMemories: unknown[] };
+    expect(result.personalMemories).toEqual([]);
+  });
+});
+
+describe('memories-list load() — initialTab (#556)', () => {
+  it('defaults to the org tab with no ?tab= hint', async () => {
+    routeMock([]);
+    const load = await importLoad();
+    const result = (await load(ev())) as { initialTab: string };
+    expect(result.initialTab).toBe('org');
+  });
+
+  it('honors ?tab=personal (the create-flow deep link)', async () => {
+    routeMock([]);
+    const load = await importLoad();
+    const result = (await load(ev({ tab: 'personal' }))) as { initialTab: string };
+    expect(result.initialTab).toBe('personal');
+  });
+
+  it('falls back to org for an unknown ?tab= value', async () => {
+    routeMock([]);
+    const load = await importLoad();
+    const result = (await load(ev({ tab: 'bogus' }))) as { initialTab: string };
+    expect(result.initialTab).toBe('org');
   });
 });

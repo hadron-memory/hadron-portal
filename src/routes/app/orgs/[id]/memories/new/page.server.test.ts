@@ -76,6 +76,16 @@ describe('create-memory action (spec 034)', () => {
     expect(vars?.visibility).toBeNull();
   });
 
+  it('#556: owner-only create redirects back to the Personal Memories tab', async () => {
+    const result = await runCreate({ slug: 'my-personal', displayName: 'my-personal', memoryClass: 'personal' });
+    expect(result).toMatchObject({ status: 303, location: '/app/orgs/org-1/memories?tab=personal' });
+  });
+
+  it('#556: knowledge create redirects to the org grid (no tab hint)', async () => {
+    const result = await runCreate({ slug: 'shared-kb', displayName: 'shared-kb', memoryClass: 'knowledge' });
+    expect(result).toMatchObject({ status: 303, location: '/app/orgs/org-1/memories' });
+  });
+
   it('knowledge (default) → keeps the chosen visibility and memoryClass=knowledge', async () => {
     await runCreate({ slug: 'shared-kb', displayName: 'shared-kb', memoryClass: 'knowledge', visibility: 'ORGANIZATION' });
     const vars = createVars();

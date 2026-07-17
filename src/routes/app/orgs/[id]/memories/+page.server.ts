@@ -15,7 +15,7 @@ import {
 import type { Organization, Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ params, locals, parent }) => {
+export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
   const [orgData, systemMemories, publicMemories, myMemories] = await Promise.all([
@@ -38,21 +38,29 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const availableMemories = publicMemories.filter(
     (m) => !ownedIds.has(m.id) && !subscribedIds.has(m.id) && m.organizationId !== params.id,
   );
-  // Spec 034: owner-only memories (personal/private) are excluded from
-  // Organization.memories server-side, so surface the caller's own ones whose
-  // container is this org. memories() already scopes to the caller via userId.
-  const privateMemories = myMemories.filter(
+  // Spec 034: personal memories (the personal + private classes) are owner-only
+  // and excluded from Organization.memories server-side, so surface the caller's
+  // own ones whose container is this org. memories() already scopes to the
+  // caller via userId.
+  const personalMemories = myMemories.filter(
     (m) =>
       m.organizationId === params.id &&
       !!locals.user?.id &&
       m.userId === locals.user.id &&
       (m.class === 'personal' || m.class === 'private'),
   );
+  // #555/#556: the create flow deep-links back with ?tab= so a just-created
+  // personal memory lands on the tab that actually shows it. Validate against
+  // the known tabs; anything else falls back to the org grid.
+  const tabParam = url.searchParams.get('tab');
+  const initialTab: 'personal' | 'org' | 'subscriptions' =
+    tabParam === 'personal' || tabParam === 'subscriptions' ? tabParam : 'org';
   return {
     org: orgData.organization,
     systemMemories,
     availableMemories,
-    privateMemories,
+    personalMemories,
+    initialTab,
   };
 };
 
