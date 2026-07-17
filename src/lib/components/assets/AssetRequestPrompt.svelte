@@ -43,29 +43,38 @@
   let error = $state<string | null>(null);
   let controller: AbortController | null = null;
   let secondsLeft = $state(untrack(() => timeoutSeconds));
+  let timer: ReturnType<typeof setInterval> | undefined;
 
-  let timer = setInterval(() => {
-    secondsLeft -= 1;
-    if (secondsLeft <= 0) {
-      clearInterval(timer);
-      ontimeout?.();
-    }
-  }, 1000);
+  function clearTimer() {
+    if (!timer) return;
+    clearInterval(timer);
+    timer = undefined;
+  }
 
-  $effect(() => () => clearInterval(timer));
+  $effect(() => {
+    timer = setInterval(() => {
+      secondsLeft -= 1;
+      if (secondsLeft <= 0) {
+        clearTimer();
+        ontimeout?.();
+      }
+    }, 1000);
+
+    return clearTimer;
+  });
 
   function pickFile() {
     inputEl?.click();
   }
 
   function decline() {
-    clearInterval(timer);
+    clearTimer();
     ondeclined?.();
   }
 
   function cancel() {
     controller?.abort();
-    clearInterval(timer);
+    clearTimer();
     oncancelled?.();
   }
 
@@ -94,7 +103,7 @@
         signal: controller.signal,
         onProgress: (loaded, total) => { progress = total ? loaded / total : 0; },
       });
-      clearInterval(timer);
+      clearTimer();
       onuploaded?.(asset);
     } catch (err) {
       error = err instanceof AssetUploadError ? err.message : (err as Error).message;

@@ -163,6 +163,7 @@
               <div class="flex items-start gap-2">
                 <span class="mt-2 w-6 text-right text-xs text-zinc-400">{i + 1}.</span>
                 <textarea
+                  aria-label={t('agent-tester.persona.followup-numbered-label', 'Follow-up message {number}').replace('{number}', String(i + 1))}
                   bind:value={followUps[i]}
                   rows="2"
                   placeholder={t('agent-tester.persona.followup-placeholder', 'Next user message')}

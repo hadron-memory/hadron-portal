@@ -60,7 +60,8 @@
     ...(!hasChatSurface ? [{ id: 'client' as TabId, label: 'Client' }] : []),
   ]);
   $effect(() => {
-    if (!tabs.some((tab) => tab.id === activeTab)) activeTab = tabs[0]?.id ?? 'memory';
+    const current = untrack(() => activeTab);
+    if (!tabs.some((tab) => tab.id === current)) activeTab = tabs[0]?.id ?? 'memory';
   });
 
   // URN slug helpers — slug is the part after the org URN's prefix.

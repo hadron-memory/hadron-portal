@@ -271,6 +271,7 @@
                   {#if header.column.getCanResize()}
                     <button
                       type="button"
+                      tabindex="-1"
                       aria-label="Resize column"
                       class="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none border-0 bg-transparent p-0 hover:bg-indigo-400 {header.column.getIsResizing() ? 'bg-indigo-500' : ''}"
                       onmousedown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
