@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-export const memberRoleSchema = z.enum(['READER', 'CONTRIBUTOR', 'ADMIN', 'OWNER']).default('READER');
-
 export const inviteMemberSchema = z
   .object({
     name: z.string().trim().default(''),
@@ -12,13 +10,13 @@ export const inviteMemberSchema = z
       .refine((email) => email === '' || z.string().email().safeParse(email).success, {
         message: 'Enter a valid email address.',
       }),
-    memberRole: memberRoleSchema,
+    memberRole: z.enum(['READER', 'CONTRIBUTOR', 'ADMIN', 'OWNER']).default('READER'),
   })
   .superRefine((data, ctx) => {
     if (data.name || data.email) return;
     ctx.addIssue({
       code: 'custom',
-      path: ['name'],
+      path: [],
       message: 'Enter a name or email address.',
     });
   });

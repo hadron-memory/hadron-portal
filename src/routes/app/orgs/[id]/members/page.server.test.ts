@@ -63,6 +63,10 @@ function fieldError(result: unknown, field: string): string | undefined {
   return superFormFrom(result)?.errors?.[field]?.[0];
 }
 
+function formError(result: unknown): string | undefined {
+  return superFormFrom(result)?.errors?._errors?.[0];
+}
+
 async function runInvite(fields: Record<string, string>) {
   const { actions } = await importMod();
   return actions.invite(actionEv(fields));
@@ -90,7 +94,7 @@ describe('org members invite action', () => {
     const result = await runInvite({ name: '', email: '', memberRole: 'READER' });
 
     expect(result).toMatchObject({ status: 400 });
-    expect(fieldError(result, 'name')).toBe('Enter a name or email address.');
+    expect(formError(result)).toBe('Enter a name or email address.');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 

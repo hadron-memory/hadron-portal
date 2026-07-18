@@ -117,9 +117,11 @@
   });
   const inviteNameError = $derived($inviteErrors.name?.[0] ?? null);
   const inviteEmailError = $derived($inviteErrors.email?.[0] ?? null);
-  const inviteActionError = $derived($inviteMessage ?? null);
+  const inviteFormError = $derived($inviteErrors._errors?.[0] ?? null);
+  const inviteActionError = $derived($inviteMessage ?? inviteFormError);
   const inviteValid = $derived(
     ($inviteForm.name.trim() !== '' || $inviteForm.email.trim() !== '') &&
+      !inviteFormError &&
       !inviteNameError &&
       !inviteEmailError,
   );
