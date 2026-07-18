@@ -9,6 +9,9 @@ vi.mock('$lib/server/api', () => ({
 }));
 
 vi.mock('$lib/server/emailLogin', () => ({
+  emailLoginErrorStatus: (status: number) => (
+    Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500
+  ),
   startBoundMagicLink: mockStartBoundMagicLink,
 }));
 

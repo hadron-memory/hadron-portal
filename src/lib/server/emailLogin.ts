@@ -1,6 +1,12 @@
 import { env } from '$env/dynamic/private';
 import { randomBytes } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
+import type { ErrorStatus } from 'sveltekit-superforms';
+
+export function emailLoginErrorStatus(status: number): ErrorStatus {
+  if (Number.isInteger(status) && status >= 400 && status <= 599) return status as ErrorStatus;
+  return 500;
+}
 
 /**
  * #505 — start a magic-link sign-in with a session-fixation binding.
@@ -12,8 +18,9 @@ import type { Cookies } from '@sveltejs/kit';
  * makes magic links same-browser-only by design — the fixation defense requires
  * the redeeming browser to be the requesting one.
  *
- * Shared by the /auth/start/email endpoint (signin/signup) and the invite
- * sendEmail action so the binding is established identically everywhere.
+ * Shared by Superforms-backed email auth actions, the invite sendEmail action,
+ * and the backwards-compatible /auth/start/email JSON endpoint so the binding is
+ * established identically everywhere.
  */
 export async function startBoundMagicLink(
   cookies: Cookies,

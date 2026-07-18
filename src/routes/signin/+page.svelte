@@ -1,16 +1,24 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { authEmailSchema } from '$lib/forms/authEmail';
   import { isLocalPath } from '$lib/safeRedirect';
+  import { untrack } from 'svelte';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
+  import type { ActionData, PageData } from './$types';
+
+  let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const memoryId = $derived(page.url.searchParams.get('memory') ?? page.url.searchParams.get('graph'));
   // #439: only honor a same-origin local path; ignore attacker-supplied
   // absolute/protocol-relative targets so we never forward them into the
   // OAuth flow that bounces them back to /auth/callback.
-  const redirectTo = $derived(
+  const explicitRedirect = $derived(
     isLocalPath(page.url.searchParams.get('redirect')) ? page.url.searchParams.get('redirect') : null
   );
+  const emailRedirect = $derived(explicitRedirect ?? (memoryId ? `/browse?addMemory=${memoryId}` : null));
   const postAuthRedirect = $derived(
-    redirectTo ?? (memoryId ? `/browse?addMemory=${memoryId}` : '/app/dashboard')
+    emailRedirect ?? '/app/dashboard'
   );
   // #477: go through the portal's own /auth/start/github so it can set the
   // session-fixation nonce cookie before bouncing to the server's OAuth start.
@@ -18,35 +26,24 @@
     `/auth/start/github?redirect=${encodeURIComponent(postAuthRedirect)}`
   );
 
-  let email = $state('');
-  let submitted = $state(false);
-  let error = $state('');
-  let loading = $state(false);
-
-  async function handleEmail(e: SubmitEvent) {
-    e.preventDefault();
-    error = '';
-    loading = true;
-    try {
-      // #505: go through the portal's /auth/start/email so it can set the
-      // session-fixation nonce cookie before the server sends the link.
-      const res = await fetch('/auth/start/email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, ...(redirectTo ? { redirect: redirectTo } : {}) }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        error = data.error ?? 'Something went wrong';
-      } else {
-        submitted = true;
-      }
-    } catch {
-      error = 'Could not connect to server';
-    } finally {
-      loading = false;
-    }
-  }
+  const initialEmailForm = untrack(() => form?.form ?? data.form);
+  const {
+    form: emailForm,
+    errors: emailErrors,
+    constraints: emailConstraints,
+    message: emailMessage,
+    submitting: emailSubmitting,
+    enhance: emailEnhance,
+  } = superForm(initialEmailForm, {
+    validators: zod4Client(authEmailSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const emailError = $derived($emailErrors.email?.[0] ?? null);
+  const actionError = $derived($emailMessage?.type === 'error' ? $emailMessage.text : null);
+  const successMessage = $derived($emailMessage?.type === 'success' ? $emailMessage.text : null);
 </script>
 
 <svelte:head>
@@ -60,9 +57,9 @@
       Welcome back to Hadron
     </p>
 
-    {#if submitted}
-      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-        Check your email for a sign-in link. You can close this page.
+    {#if successMessage}
+      <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+        {successMessage}
       </div>
     {:else}
       <!-- GitHub -->
@@ -83,31 +80,40 @@
       </div>
 
       <!-- Email -->
-      <form onsubmit={handleEmail}>
+      <form method="POST" use:emailEnhance novalidate>
+        {#if emailRedirect}
+          <input type="hidden" name="redirect" value={emailRedirect} />
+        {/if}
         <label for="email" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Email</label>
         <input
           id="email"
+          name="email"
           type="email"
-          required
-          bind:value={email}
+          bind:value={$emailForm.email}
           placeholder="you@example.com"
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+          aria-invalid={!!emailError}
+          aria-describedby={emailError ? 'signinEmailError' : undefined}
+          {...$emailConstraints.email}
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {emailError ? 'border-red-500 focus:border-red-500' : ''}"
         />
-        {#if error}
-          <p class="mt-2 text-sm text-red-500">{error}</p>
+        {#if emailError}
+          <p id="signinEmailError" class="mt-2 text-sm text-red-500">{emailError}</p>
+        {/if}
+        {#if actionError && !emailError}
+          <p role="alert" class="mt-2 text-sm text-red-500">{actionError}</p>
         {/if}
         <button
           type="submit"
-          disabled={loading}
-          class="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:opacity-50"
+          disabled={$emailSubmitting}
+          class="mt-3 w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {loading ? 'Sending...' : 'Continue with Email'}
+          {$emailSubmitting ? 'Sending...' : 'Continue with Email'}
         </button>
       </form>
     {/if}
 
     <p class="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-      Don't have an account? <a href="/signup{redirectTo ? `?redirect=${encodeURIComponent(redirectTo)}` : memoryId ? `?memory=${memoryId}` : ''}" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Create account</a>
+      Don't have an account? <a href="/signup{explicitRedirect ? `?redirect=${encodeURIComponent(explicitRedirect)}` : memoryId ? `?memory=${memoryId}` : ''}" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Create account</a>
     </p>
   </div>
 </div>
