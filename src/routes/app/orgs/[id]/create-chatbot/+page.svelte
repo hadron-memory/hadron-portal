@@ -41,7 +41,11 @@
   const knowledgeNameError = $derived($errors.knowledgeMemoryName?.[0] ?? null);
   const knowledgeSlugError = $derived($errors.knowledgeMemorySlug?.[0] ?? null);
   const systemSlugError = $derived($errors.systemMemorySlug?.[0] ?? null);
-  const actionError = $derived($message ?? (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null));
+  const actionError = $derived(
+    $message?.type === 'error'
+      ? $message.text
+      : (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null),
+  );
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 

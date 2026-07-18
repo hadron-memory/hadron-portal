@@ -37,7 +37,11 @@
   const nameError = $derived($errors.name?.[0] ?? null);
   const urnError = $derived($errors.urn?.[0] ?? null);
   const showUrnError = $derived(!!urnError && (!!$formData.urn || submitAttempted));
-  const actionError = $derived($message ?? (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null));
+  const actionError = $derived(
+    $message?.type === 'error'
+      ? $message.text
+      : (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null),
+  );
 
   // Auto-generate URN from name until the user (or a prefill) owns the field.
   function onNameInput() {

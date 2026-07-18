@@ -60,7 +60,9 @@
     `${inputClass} ${labelError ? 'border-red-500 focus:border-red-500' : ''}`,
   );
   const actionError = $derived(
-    form && 'error' in form && form.error ? form.error : $createMessage,
+    form && 'error' in form && form.error
+      ? form.error
+      : ($createMessage?.type === 'error' ? $createMessage.text : null),
   );
 
   // Cleared on the next navigation; persists across the post-mint render.

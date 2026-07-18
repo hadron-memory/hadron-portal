@@ -8,7 +8,7 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const user = $derived(data.user);
   const initialProfileForm = untrack(() => form?.form ?? data.form);
-  let isEditing = $state(untrack(() => !!form?.form && form.form.message !== 'Profile updated.'));
+  let isEditing = $state(untrack(() => !!form?.form && form.form.message?.type !== 'success'));
   const {
     form: profileForm,
     errors: profileErrors,
@@ -24,7 +24,7 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
     onUpdated({ form }) {
-      if (form.message === 'Profile updated.') isEditing = false;
+      if (form.message?.type === 'success') isEditing = false;
     },
   });
 
@@ -46,8 +46,8 @@
 
   const handleError = $derived($profileErrors.handle?.[0] ?? null);
   const profileActionError = $derived(
-    typeof $profileMessage === 'string' && $profileMessage !== 'Profile updated.'
-      ? $profileMessage
+    $profileMessage?.type === 'error'
+      ? $profileMessage.text
       : ($profileAllErrors[0]?.messages[0] ?? null),
   );
 
@@ -56,8 +56,8 @@
 <svelte:head><title>Account · Hadron</title></svelte:head>
 
 <div class="max-w-lg space-y-8">
-  {#if $profileMessage === 'Profile updated.' && !isEditing}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Profile updated.</div>
+  {#if $profileMessage?.type === 'success' && !isEditing}
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$profileMessage.text}</div>
   {/if}
 
   <!-- Profile -->

@@ -234,9 +234,9 @@ export const actions: Actions = {
         }
       }
 
-      return message(form, 'Changes saved.');
+      return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {
-      return message(form, extractGqlError(e, 'Failed to update agent'), { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update agent') }, { status: 500 });
     }
   },
 

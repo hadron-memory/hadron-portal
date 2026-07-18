@@ -36,9 +36,9 @@ export const actions: Actions = {
     const email = form.data.email || null;
     try {
       await gqlClient(locals.token).request(UPDATE_MY_PROFILE_MUTATION, { name, handle, email });
-      return message(form, 'Profile updated.');
+      return message(form, { type: 'success', text: 'Profile updated.' });
     } catch (e: unknown) {
-      return message(form, e instanceof Error ? e.message : 'Failed to update profile', { status: 500 });
+      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to update profile' }, { status: 500 });
     }
   },
 };

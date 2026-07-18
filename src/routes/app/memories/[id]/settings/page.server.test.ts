@@ -508,7 +508,7 @@ describe('memory-detail `update` action — URN collision pre-check', () => {
       currentUrn: 'hrn:memory:hadronmemory.com::experiments',
     }));
 
-    expect(successMessage(result)).toBe('Changes saved.');
+    expect(successMessage(result)).toEqual({ type: 'success', text: 'Changes saved.' });
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledTimes(2);
     const [, updateVars] = mockRequest.mock.calls[1]! as [unknown, Record<string, unknown>];
@@ -527,7 +527,7 @@ describe('memory-detail `update` action — URN collision pre-check', () => {
       currentUrn: 'hrn:memory:hadronmemory.com::experiments',
     }));
 
-    expect(successMessage(result)).toBe('Changes saved.');
+    expect(successMessage(result)).toEqual({ type: 'success', text: 'Changes saved.' });
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledTimes(2);
   });
@@ -544,7 +544,7 @@ describe('memory-detail `update` action — URN collision pre-check', () => {
       currentUrn: 'hrn:memory:hadronmemory.com::experiments',
     }));
 
-    expect(successMessage(result)).toBe('Changes saved.');
+    expect(successMessage(result)).toEqual({ type: 'success', text: 'Changes saved.' });
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledTimes(2);
   });

@@ -67,9 +67,9 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(UPDATE_ORGANIZATION_MUTATION, {
         id: params.id, name, urn,
       });
-      return message(form, 'Changes saved.');
+      return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {
-      return message(form, extractGqlError(e, 'Failed to update organization'), { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update organization') }, { status: 500 });
     }
   },
 };

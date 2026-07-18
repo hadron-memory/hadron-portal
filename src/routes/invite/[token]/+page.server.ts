@@ -11,7 +11,6 @@ import { inviteEmailSchema } from './schema';
 
 const inviteEmailFormAdapter = zod4(inviteEmailSchema);
 type InviteEmailForm = Infer<typeof inviteEmailSchema, 'zod4'>;
-type InviteEmailMessage = { type: 'success' | 'error'; text: string };
 
 function emailLoginErrorStatus(status: number): ErrorStatus {
   if (Number.isInteger(status) && status >= 400 && status <= 599) return status as ErrorStatus;
@@ -33,7 +32,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     invitation,
     isSignedIn: !!locals.user,
     slug,
-    form: await superValidate<InviteEmailForm, InviteEmailMessage>({}, inviteEmailFormAdapter, { errors: false }),
+    form: await superValidate<InviteEmailForm>({}, inviteEmailFormAdapter, { errors: false }),
   };
 };
 
@@ -53,7 +52,7 @@ export const actions: Actions = {
   },
 
   sendEmail: async ({ request, params, cookies }) => {
-    const form = await superValidate<InviteEmailForm, InviteEmailMessage>(
+    const form = await superValidate<InviteEmailForm>(
       await request.formData(),
       inviteEmailFormAdapter,
     );

@@ -184,7 +184,7 @@ describe('actions.create (mint)', () => {
       actionEvent('jwt-token', { label: 'cli' }),
     )) as { status: number };
     expect(result.status).toBe(500);
-    expect(superFormFrom(result)?.message).toBe('rate limit exceeded');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'rate limit exceeded' });
   });
 });
 

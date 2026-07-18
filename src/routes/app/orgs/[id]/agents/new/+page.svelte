@@ -30,7 +30,11 @@
   let submitAttempted = $state(untrack(() => !!form?.form));
   const displayNameError = $derived($errors.displayName?.[0] ?? null);
   const slugError = $derived($errors.slug?.[0] ?? null);
-  const actionError = $derived($message ?? (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null));
+  const actionError = $derived(
+    $message?.type === 'error'
+      ? $message.text
+      : (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null),
+  );
   const colonWarning = $derived($formData.slug.includes(':'));
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";

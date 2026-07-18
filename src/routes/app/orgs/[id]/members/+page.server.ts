@@ -91,7 +91,7 @@ export const actions: Actions = {
       // (name preferred, email as fallback, null when neither was given).
       return { form, inviteUrl, inviteName: name ?? email };
     } catch (e: unknown) {
-      return message(form, extractGqlError(e, 'Failed to create invitation'), { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to create invitation') }, { status: 500 });
     }
   },
 
