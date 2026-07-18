@@ -1,21 +1,15 @@
 import { fail, redirect } from '@sveltejs/kit';
-import type { ErrorStatus } from 'sveltekit-superforms';
 import type { Infer } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { startBoundMagicLink } from '$lib/server/emailLogin';
+import { emailLoginErrorStatus, startBoundMagicLink } from '$lib/server/emailLogin';
 import { INVITATION_QUERY, ACCEPT_INVITATION_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 import { inviteEmailSchema } from './schema';
 
 const inviteEmailFormAdapter = zod4(inviteEmailSchema);
 type InviteEmailForm = Infer<typeof inviteEmailSchema, 'zod4'>;
-
-function emailLoginErrorStatus(status: number): ErrorStatus {
-  if (Number.isInteger(status) && status >= 400 && status <= 599) return status as ErrorStatus;
-  return 500;
-}
 
 export const load: PageServerLoad = async ({ params, locals }) => {
   const slug = params.token;

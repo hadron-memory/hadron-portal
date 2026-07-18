@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$env/dynamic/private', () => ({ env: { LOCAL_SERVER_URL: 'http://server.internal:4000' } }));
 
-import { startBoundMagicLink } from './emailLogin';
+import { emailLoginErrorStatus, startBoundMagicLink } from './emailLogin';
 
 type CookieSet = { name: string; value: string; opts: Record<string, unknown> };
 
@@ -22,6 +22,19 @@ function cookieStub() {
 }
 
 beforeEach(() => vi.unstubAllGlobals());
+
+describe('emailLoginErrorStatus', () => {
+  it('passes through 4xx and 5xx statuses', () => {
+    expect(emailLoginErrorStatus(400)).toBe(400);
+    expect(emailLoginErrorStatus(503)).toBe(503);
+  });
+
+  it('falls back to 500 for non-error statuses', () => {
+    expect(emailLoginErrorStatus(302)).toBe(500);
+    expect(emailLoginErrorStatus(400.5)).toBe(500);
+    expect(emailLoginErrorStatus(600)).toBe(500);
+  });
+});
 
 describe('startBoundMagicLink', () => {
   it('sets an HttpOnly nonce cookie and forwards it as clientState', async () => {
