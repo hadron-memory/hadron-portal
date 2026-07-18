@@ -364,7 +364,7 @@
       {/if}
       <form method="POST" action="?/waitingList" use:waitingListEnhance class="space-y-3" novalidate>
         <input
-          type="email" name="email" required placeholder="you@example.com"
+          type="email" name="email" placeholder="you@example.com"
           bind:value={$waitingListData.email}
           aria-invalid={!!waitingListEmailError}
           aria-describedby={waitingListEmailError ? 'waitingListEmailError' : undefined}

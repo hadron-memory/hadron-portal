@@ -12,18 +12,20 @@ const waitingListFormAdapter = zod4(waitingListSchema);
 type WaitingListForm = Infer<typeof waitingListSchema, 'zod4'>;
 
 export const load: PageServerLoad = async () => {
+  const waitingListForm = await superValidate<WaitingListForm>({}, waitingListFormAdapter, { errors: false });
   try {
     const data = await gqlClient().request<{ memories: { items: Memory[] } }>(
       PUBLIC_MEMORIES_QUERY, { limit: 6 },
     );
     return {
       publicMemories: data.memories.items,
-      waitingListForm: await superValidate<WaitingListForm>({}, waitingListFormAdapter, { errors: false }),
+      waitingListForm,
     };
-  } catch {
+  } catch (e: unknown) {
+    console.error('Failed to load public memories for home page', e);
     return {
       publicMemories: [] as Memory[],
-      waitingListForm: await superValidate<WaitingListForm>({}, waitingListFormAdapter, { errors: false }),
+      waitingListForm,
     };
   }
 };
