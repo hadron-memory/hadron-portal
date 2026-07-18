@@ -49,16 +49,20 @@ export function composeNodeUrn(memoryUrn: string, value: string): string {
     throw new Error('composeNodeUrn: value is empty');
   }
 
-  // Accept canonical `hrn:memory:` and legacy `urn:memory:` (issue #239).
+  // Accept canonical `hrn:memory:`, legacy `urn:memory:` (issue #239), AND the
+  // grammar-v2 `hrn:mem:` type word (#697 emission flip — the server now emits
+  // `hrn:mem:<root>:<slug>` for memory URNs). All strip to the bare slug-path.
   let slugPath: string;
   const memScheme = normalizeScheme(memoryUrn);
   if (memScheme.startsWith('hrn:memory:')) {
     slugPath = memScheme.slice('hrn:memory:'.length);
+  } else if (memScheme.startsWith('hrn:mem:')) {
+    slugPath = memScheme.slice('hrn:mem:'.length);
   } else if (hasSchemePrefix(memoryUrn)) {
     // Wrong-type prefix — silent coercion is a security risk (the wrong
     // owner URN could resolve to an unauthorized resource downstream).
     throw new Error(
-      `composeNodeUrn: memoryUrn must start with 'hrn:memory:' (or legacy 'urn:memory:') or be a bare slug-path; got '${memoryUrn}'`,
+      `composeNodeUrn: memoryUrn must start with 'hrn:mem:'/'hrn:memory:' (or legacy 'urn:memory:') or be a bare slug-path; got '${memoryUrn}'`,
     );
   } else {
     slugPath = memoryUrn;

@@ -1,4 +1,10 @@
-import { UrnParseError, validateAtomShape, validateOrgSlug, validateUserSlug } from '$lib/urn/parse-urn';
+import {
+  UrnParseError,
+  parseUrnInput,
+  validateAtomShape,
+  validateOrgSlug,
+  validateUserSlug,
+} from '$lib/urn/parse-urn';
 
 type SlugValidator = (value: string) => void;
 
@@ -61,13 +67,21 @@ export function validateOrgSlugField(value: string): string | null {
 // updateMemory expects. The edit field is meant to hold just the slug, but a
 // user may paste a full or partial URN; normalize the common display forms so
 // validation and actions share one grammar.
+//
+// `parseUrnInput` strips the scheme + type word and normalizes the grammar-v2
+// `mem` type word to `memory` (#697 emission flip) — the old hand-rolled regex
+// missed `mem` and split only on `::`, so a pasted v2 memory URN
+// (`hrn:mem:<root>:<slug>`, single colon) fell through unstripped.
 export function toBareMemorySlugInput(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return '';
-  const withoutScheme = trimmed.replace(/^(?:hrn|urn):/, '');
-  const withoutType = withoutScheme.replace(/^(?:memory|agent|app|node|org):/, '');
-  if (withoutType.includes('::')) {
-    return withoutType.split('::')[1] ?? '';
+  const { value } = parseUrnInput(trimmed);
+  // v1 hierarchy grammar: `<org>::<slug>[::…]` — the memory slug is segment 2.
+  if (value.includes('::')) {
+    return value.split('::')[1] ?? '';
   }
-  return withoutType;
+  // v2 flat grammar: `<root>:<slug>` (the slug is a single terminal atom after
+  // the pool root). A bare single-atom slug (no root) is returned unchanged.
+  const atoms = value.split(':');
+  return atoms.length >= 2 ? (atoms[atoms.length - 1] ?? '') : value;
 }

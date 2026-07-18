@@ -32,6 +32,14 @@ describe('composeNodeUrn', () => {
       );
     });
 
+    it('accepts a grammar-v2 hrn:mem: memory URN (#697 emission flip)', () => {
+      // The server now emits `hrn:mem:<root>:<slug>`; the composer must strip it
+      // (was throwing on the `mem` type word → 500 on node-list/task pages).
+      expect(composeNodeUrn('hrn:mem:acme.com:mmdata', 'review:sort-imports')).toBe(
+        'hrn:node:acme.com::mmdata::review:sort-imports',
+      );
+    });
+
     it('preserves all loc segments when loc has multiple internal colons', () => {
       expect(composeNodeUrn('urn:memory:hadronmemory.com:dev', 'a:b:c:d:e')).toBe(
         'hrn:node:hadronmemory.com::dev::a:b:c:d:e',

@@ -31,7 +31,7 @@
     "@ai-sdk/openai": "^3.0.48",
     "@ai-sdk/svelte": "^4.0.140",
     "@ai-sdk/xai": "^3.0.74",
-    "@hadron-memory/urn-lib-js": "0.0.6",
+    "@hadron-memory/urn-lib-js": "0.0.9",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/table-core": "^8.21.3",
     "@xyflow/svelte": "^1.6.2",

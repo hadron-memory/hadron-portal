@@ -104,4 +104,27 @@ describe('cleanLocInput', () => {
       ).toBe('system');
     });
   });
+
+  // Grammar-v2 flat node URNs (#697): single colon, pool-rooted. The lib
+  // splitter extracts the loc across both root kinds — a dotted org root and
+  // an undotted user-handle root (the latter defeats the dotted-org heuristic).
+  describe('grammar v2 — flat node URNs (#697)', () => {
+    it('extracts the loc from a v2 node URN with a dotted org root', () => {
+      expect(
+        cleanLocInput('hrn:node:hadronmemory.com:dev:review:render-urn'),
+      ).toBe('review:render-urn');
+    });
+
+    it('extracts the loc from a v2 node URN with an undotted user-handle root', () => {
+      // The old dotted-org heuristic (parts[0].includes('.')) could NOT strip a
+      // user-handle root; the lib splitter does.
+      expect(
+        cleanLocInput('hrn:node:holger:notes:review:render-urn'),
+      ).toBe('review:render-urn');
+    });
+
+    it('extracts a single-atom loc from a v2 node URN', () => {
+      expect(cleanLocInput('hrn:node:holger:notes:notify')).toBe('notify');
+    });
+  });
 });
