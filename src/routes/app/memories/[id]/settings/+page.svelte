@@ -56,7 +56,7 @@
     clearOnSubmit: 'none',
   });
 
-  let isEditing = $state(untrack(() => !!form?.form && form.form.message !== 'Changes saved.'));
+  let isEditing = $state(untrack(() => !!form?.form && form.form.message?.type !== 'success'));
   let confirmDelete = $state(false);
 
   // #520: the memory-detail ⋯ menu deep-links here (?edit=1 / ?delete=1) to open
@@ -135,13 +135,13 @@
   }
 
   const settingsActionError = $derived(
-    typeof $settingsMessage === 'string' && $settingsMessage !== 'Changes saved.'
-      ? $settingsMessage
+    $settingsMessage?.type === 'error'
+      ? $settingsMessage.text
       : ($settingsAllErrors[0]?.messages[0] ?? null),
   );
 
   $effect(() => {
-    if ($settingsMessage === 'Changes saved.') isEditing = false;
+    if ($settingsMessage?.type === 'success') isEditing = false;
   });
 
   // ── Vector index (spec 033 §2/§3) ───────────────────────────────────
@@ -239,7 +239,10 @@
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
-  {#if form?.success}
+  {#if $settingsMessage?.type === 'success' && !isEditing}
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$settingsMessage.text}</div>
+  {:else if form?.success}
+    <!-- Vector-index actions still return plain SvelteKit success payloads. -->
     <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
   {/if}
 

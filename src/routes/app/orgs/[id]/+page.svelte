@@ -57,11 +57,11 @@
     clearOnSubmit: 'none',
   });
 
-  let isEditing = $state(untrack(() => !!form?.form && form.form.message !== 'Changes saved.'));
+  let isEditing = $state(untrack(() => !!form?.form && form.form.message?.type !== 'success'));
   const orgUrnError = $derived($profileErrors.urn?.[0] ?? null);
   const profileActionError = $derived(
-    typeof $profileMessage === 'string' && $profileMessage !== 'Changes saved.'
-      ? $profileMessage
+    $profileMessage?.type === 'error'
+      ? $profileMessage.text
       : ($profileAllErrors[0]?.messages[0] ?? null),
   );
 
@@ -73,7 +73,7 @@
   }
 
   $effect(() => {
-    if ($profileMessage === 'Changes saved.') isEditing = false;
+    if ($profileMessage?.type === 'success') isEditing = false;
   });
 </script>
 
@@ -81,7 +81,7 @@
 
 <div class="space-y-8">
   <!-- Action feedback -->
-  {#if $profileMessage === 'Changes saved.' && !isEditing}
+  {#if $profileMessage?.type === 'success' && !isEditing}
     <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{t('org-detail.profile.saved', 'Changes saved.')}</div>
   {/if}
 

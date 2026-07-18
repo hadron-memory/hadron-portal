@@ -59,8 +59,12 @@
   const labelInputClass = $derived(
     `${inputClass} ${labelError ? 'border-red-500 focus:border-red-500' : ''}`,
   );
+  // Keep the legacy action-level error path for auth failures; Superforms
+  // messages cover validation/mint failures after the form exists.
   const actionError = $derived(
-    form && 'error' in form && form.error ? form.error : $createMessage,
+    form && 'error' in form && form.error
+      ? form.error
+      : ($createMessage?.type === 'error' ? $createMessage.text : null),
   );
 
   // Cleared on the next navigation; persists across the post-mint render.

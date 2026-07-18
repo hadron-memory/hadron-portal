@@ -57,7 +57,7 @@ describe('account update action', () => {
     mockRequest.mockResolvedValueOnce({ updateMyProfile: { id: 'u1' } });
     const actions = await importActions();
     const result = await actions.update(actionEv({ name: 'Ada', handle: '', email: 'ada@example.com' }));
-    expect(superFormFrom(result)?.message).toBe('Profile updated.');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Profile updated.' });
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledOnce();
   });

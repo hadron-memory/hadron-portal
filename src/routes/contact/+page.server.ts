@@ -9,15 +9,14 @@ import { contactSchema } from './schema';
 
 const contactFormAdapter = zod4(contactSchema);
 type ContactForm = Infer<typeof contactSchema, 'zod4'>;
-type ContactMessage = { type: 'success' | 'error'; text: string };
 
 export const load: PageServerLoad = async () => ({
-  form: await superValidate<ContactForm, ContactMessage>({}, contactFormAdapter, { errors: false }),
+  form: await superValidate<ContactForm>({}, contactFormAdapter, { errors: false }),
 });
 
 export const actions: Actions = {
   default: async ({ request }) => {
-    const form = await superValidate<ContactForm, ContactMessage>(await request.formData(), contactFormAdapter);
+    const form = await superValidate<ContactForm>(await request.formData(), contactFormAdapter);
     if (!form.valid) return fail(400, { form });
 
     try {

@@ -36,7 +36,11 @@
   const iconUrlError = $derived($errors.iconUrl?.[0] ?? null);
   const heroUrlError = $derived($errors.heroUrl?.[0] ?? null);
   const sourceError = $derived($errors.source?.[0] ?? null);
-  const actionError = $derived($message ?? (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null));
+  const actionError = $derived(
+    $message?.type === 'error'
+      ? $message.text
+      : (submitAttempted ? ($allErrors[0]?.messages[0] ?? null) : null),
+  );
   // Spec 034: knowledge = org-shared (visibility-governed); personal/private =
   // owner-only (visibility is auto-derived server-side, so we hide that knob).
   const isOwnerOnly = $derived($formData.memoryClass === 'personal' || $formData.memoryClass === 'private');

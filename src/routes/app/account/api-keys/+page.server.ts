@@ -91,7 +91,7 @@ export const actions: Actions = {
         userApiKey: data.createUserApiKey.userApiKey,
       };
     } catch (e) {
-      return message(form, extractGqlError(e, 'Could not mint API key.'), { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Could not mint API key.') }, { status: 500 });
     }
   },
 

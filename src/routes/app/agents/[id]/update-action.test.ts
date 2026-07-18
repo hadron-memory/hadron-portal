@@ -53,7 +53,7 @@ function superFormFrom(result: unknown) {
 describe('agent update action (#488)', () => {
   it('OMITS systemMemoryId when the field is empty — never sends null', async () => {
     const result = await runUpdate({ name: 'Agent', urnSlug: 'agent', visibility: 'PUBLIC', systemMemoryId: '' });
-    expect(superFormFrom(result)?.message).toBe('Changes saved.');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Changes saved.' });
     expect(superFormFrom(result)?.valid).toBe(true);
     const vars = updateAgentVariables();
     expect(vars.visibility).toBe('PUBLIC');

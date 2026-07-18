@@ -32,7 +32,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       const msg = e instanceof Error ? e.message : 'Failed to create organization';
-      return message(form, msg, { status: 500 });
+      return message(form, { type: 'error', text: msg }, { status: 500 });
     }
   },
 };

@@ -148,6 +148,6 @@ describe('org members invite action', () => {
     const result = await runInvite({ name: 'Ada', email: '', memberRole: 'READER' });
 
     expect(result).toMatchObject({ status: 500 });
-    expect(superFormFrom(result)?.message).toBe('boom');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'boom' });
   });
 });

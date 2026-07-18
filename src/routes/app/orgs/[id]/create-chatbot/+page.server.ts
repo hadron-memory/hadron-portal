@@ -211,9 +211,9 @@ export const actions: Actions = {
         if (knowledgeMemorySlug && msg.includes(knowledgeMemorySlug)) {
           return setError(form, 'knowledgeMemorySlug', msg, { status: 409 });
         }
-        return message(form, msg, { status: 409 });
+        return message(form, { type: 'error', text: msg }, { status: 409 });
       }
-      return message(form, msg, { status: 500 });
+      return message(form, { type: 'error', text: msg }, { status: 500 });
     }
   },
 };

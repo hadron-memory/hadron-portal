@@ -48,7 +48,7 @@ export const actions: Actions = {
       if (isRedirect(e)) throw e;
       const msg = extractGqlError(e, 'Failed to create agent');
       if (/agent with URN/i.test(msg)) return setError(form, 'slug', msg, { status: 409 });
-      return message(form, msg, { status: 500 });
+      return message(form, { type: 'error', text: msg }, { status: 500 });
     }
   },
 };

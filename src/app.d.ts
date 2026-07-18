@@ -11,6 +11,9 @@ declare global {
       } | null;
       token: string | null;
     }
+    namespace Superforms {
+      type Message = { type: 'success' | 'error'; text: string };
+    }
     // interface Error {}
     // interface PageData {}
     // interface Platform {}

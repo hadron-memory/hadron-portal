@@ -92,7 +92,7 @@ export const actions: Actions = {
       if (/memory with URN/i.test(error)) {
         return setError(form, 'slug', error, { status: 409 });
       }
-      return message(form, error, { status: 500 });
+      return message(form, { type: 'error', text: error }, { status: 500 });
     }
   },
 };

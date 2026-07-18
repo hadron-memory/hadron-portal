@@ -98,7 +98,7 @@ describe('org-detail Profile update action (#394)', () => {
     // #609: even if an `isVisible` field is somehow present, it must not be
     // forwarded — the flag is system-managed, not user-editable here.
     const result = await actions.update(actionEv({ name: 'Renamed', urn: 'renamed.com', isVisible: 'on' }));
-    expect(superFormFrom(result)?.message).toBe('Changes saved.');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Changes saved.' });
     expect(superFormFrom(result)?.valid).toBe(true);
     const [, vars] = mockRequest.mock.calls[0];
     expect(vars).toMatchObject({ id: 'org-id-123', name: 'Renamed', urn: 'renamed.com' });
@@ -138,6 +138,6 @@ describe('org-detail Profile update action (#394)', () => {
     const { actions } = await importMod();
     const result = await actions.update(actionEv({ name: 'x', urn: 'y.com' }));
     expect(result).toMatchObject({ status: 500 });
-    expect(superFormFrom(result)?.message).toBe('boom');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'boom' });
   });
 });

@@ -175,9 +175,9 @@ export const actions: Actions = {
         // leaves the stored value untouched rather than forcing a default.
         visibility: form.data.visibility,
       });
-      return message(form, 'Changes saved.');
+      return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {
-      return message(form, e instanceof Error ? e.message : 'Failed to update', { status: 500 });
+      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to update' }, { status: 500 });
     }
   },
 

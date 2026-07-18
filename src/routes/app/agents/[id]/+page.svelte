@@ -175,7 +175,7 @@
     clearOnSubmit: 'none',
   });
 
-  let isEditing = $state(untrack(() => !!form?.form && form.form.message !== 'Changes saved.'));
+  let isEditing = $state(untrack(() => !!form?.form && form.form.message?.type !== 'success'));
   let confirmDelete = $state(false);
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
@@ -204,15 +204,15 @@
   }
 
   const agentSettingsActionError = $derived(
-    typeof $agentSettingsMessage === 'string' && $agentSettingsMessage !== 'Changes saved.'
-      ? $agentSettingsMessage
+    $agentSettingsMessage?.type === 'error'
+      ? $agentSettingsMessage.text
       : ($agentSettingsAllErrors[0]?.messages[0] ?? null),
   );
   const agentNameError = $derived($agentSettingsErrors.name?.[0] ?? null);
   const agentUrnError = $derived($agentSettingsErrors.urnSlug?.[0] ?? null);
 
   $effect(() => {
-    if ($agentSettingsMessage === 'Changes saved.') isEditing = false;
+    if ($agentSettingsMessage?.type === 'success') isEditing = false;
   });
 
   // Ordered most→least restrictive. Spec 034 added GROUP to memory visibility;
@@ -417,7 +417,10 @@
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
-  {#if form?.success || ($agentSettingsMessage === 'Changes saved.' && !isEditing)}
+  {#if $agentSettingsMessage?.type === 'success' && !isEditing}
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$agentSettingsMessage.text}</div>
+  {:else if form?.success}
+    <!-- Other page actions still return plain SvelteKit success payloads. -->
     <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
   {/if}
 
