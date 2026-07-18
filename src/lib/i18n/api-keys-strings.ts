@@ -34,12 +34,22 @@ export const apiKeysStrings = {
   labelInputHelp: (): string =>
     t('api-keys.mint.label-help', 'Optional. A name only you see — helps you remember which device/script uses this key.'),
 
+  /** Mint-form label length validation error. */
+  labelTooLong: (max: number): string =>
+    t('api-keys.mint.label-too-long', 'Name must be at most {max} characters.').replace(
+      '{max}',
+      String(max),
+    ),
+
   /** Mint submit-button label. Renamed from "Mint new key" to "Save"
    *  per #229. New i18n key so future translators are prompted to
    *  update — verb-changing rename ("Mint" → "Save") would
    *  otherwise hide behind a stale `api-keys.mint.button` translation
    *  in non-English locales (per gemini-bot review on PR #242). */
   mintButton: (): string => t('api-keys.mint.button-save', 'Save'),
+
+  /** Mint/revoke action auth fallback. */
+  notSignedIn: (): string => t('api-keys.error.not-signed-in', 'Not signed in.'),
 
   /** Mint section heading — distinct from the submit button. Renamed
    *  from "Mint a new API key" to "Create a new API key" per #229 —

@@ -17,7 +17,10 @@
   Constitution Principle III; no hardcoded copy.
 -->
 <script lang="ts">
-  import { enhance } from '$app/forms';
+  import { enhance as kitEnhance } from '$app/forms';
+  import { untrack } from 'svelte';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import {
     getCoreRowModel,
     getSortedRowModel,
@@ -30,10 +33,30 @@
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
   import type { UserApiKey } from '$lib/types';
   import type { PageData, ActionData } from './$types';
+  import { createUserApiKeySchema } from './schema';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const keys = $derived(data.keys);
   const loadError = $derived('loadError' in data ? data.loadError : undefined);
+  const initialCreateForm = untrack(() => form?.form ?? data.form);
+  const {
+    form: createFormData,
+    errors: createErrors,
+    constraints: createConstraints,
+    message: createMessage,
+    submitting: createSubmitting,
+    enhance: createEnhance,
+  } = superForm(initialCreateForm, {
+    validators: zod4Client(createUserApiKeySchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const labelError = $derived($createErrors.label?.[0] ?? null);
+  const actionError = $derived(
+    form && 'error' in form && form.error ? form.error : $createMessage,
+  );
 
   // Cleared on the next navigation; persists across the post-mint render.
   // Narrowing on the `success: 'mint'` discriminator (set by
@@ -175,8 +198,8 @@
   <!-- Action error (mint or revoke failure) — generic banner. `error`
        comes from `fail()` in +page.server.ts; success returns don't
        carry it, so `'error' in form` is the right discriminator here. -->
-  {#if form && 'error' in form && form.error}
-    <div class="max-w-3xl rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if actionError}
+    <div class="max-w-3xl rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
   {/if}
 
   <!-- One-shot reveal: shown after a successful mint, persists for one
@@ -228,7 +251,7 @@
          `max-w-xs` (~20rem) per the issue's "trim to half size" ask —
          the help sentence still fits comfortably on the row beneath
          because it spans the full form width. -->
-    <form method="POST" action="?/create" use:enhance class="space-y-1">
+    <form method="POST" action="?/create" use:createEnhance class="space-y-1" novalidate>
       <div class="flex items-end gap-2">
         <div class="max-w-xs flex-1">
           <!-- a11y: <label> is the field name (one short word); the
@@ -243,13 +266,19 @@
             name="label"
             type="text"
             placeholder={i18n.labelInputPlaceholder()}
-            maxlength="200"
-            aria-describedby="label-help"
-            class={inputClass}
+            bind:value={$createFormData.label}
+            aria-invalid={!!labelError}
+            aria-describedby={labelError ? 'label-error label-help' : 'label-help'}
+            {...$createConstraints.label}
+            class="{inputClass} {labelError ? 'border-red-500 focus:border-red-500' : ''}"
           />
+          {#if labelError}
+            <p id="label-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{labelError}</p>
+          {/if}
         </div>
         <button
           type="submit"
+          disabled={$createSubmitting}
           class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
         >
           {i18n.mintButton()}
@@ -331,7 +360,7 @@
       <form
         method="POST"
         action="?/revoke"
-        use:enhance={() => {
+        use:kitEnhance={() => {
           // Close the modal optimistically; SvelteKit re-runs `load`
           // after the action returns so the row's revokedAt populates
           // and the badge flips.
