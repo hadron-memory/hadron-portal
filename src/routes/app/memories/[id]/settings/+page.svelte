@@ -239,8 +239,11 @@
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
-  {#if form?.success || ($settingsMessage?.type === 'success' && !isEditing)}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$settingsMessage?.text ?? 'Changes saved.'}</div>
+  {#if $settingsMessage?.type === 'success' && !isEditing}
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$settingsMessage.text}</div>
+  {:else if form?.success}
+    <!-- Vector-index actions still return plain SvelteKit success payloads. -->
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
   {/if}
 
   <!-- Memory settings -->

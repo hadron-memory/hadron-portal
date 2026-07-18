@@ -82,7 +82,7 @@
 <div class="space-y-8">
   <!-- Action feedback -->
   {#if $profileMessage?.type === 'success' && !isEditing}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{t('org-detail.profile.saved', $profileMessage.text)}</div>
+    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{t('org-detail.profile.saved', 'Changes saved.')}</div>
   {/if}
 
   <!-- Organization properties (#394) -->

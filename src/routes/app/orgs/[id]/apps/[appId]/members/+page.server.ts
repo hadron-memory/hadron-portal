@@ -66,13 +66,13 @@ export const actions: Actions = {
         userId: form.data.userId,
         role: form.data.role,
       });
-      return message(form, { type: 'success' as const, text: t('app-member.add.success', 'Member added.') });
+      return message(form, { type: 'success', text: t('app-member.add.success', 'Member added.') });
     } catch (e: unknown) {
       const errorText = translateAppMemberError(e, 'Failed to save member');
       if (appMemberErrorCode(e) === 'InvalidRoleError') {
         return setError(form, 'role', errorText, { status: 400 });
       }
-      return message(form, { type: 'error' as const, text: errorText }, {
+      return message(form, { type: 'error', text: errorText }, {
         status: appMemberErrorStatus(e),
       });
     }
