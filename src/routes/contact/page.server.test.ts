@@ -67,6 +67,14 @@ describe('contact action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects omitted required fields before calling the API', async () => {
+    const result = await runContact({ email: 'ada@example.test', message: 'Hello' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'name')).toBe('Name is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('rejects invalid email before calling the API', async () => {
     const result = await runContact({ name: 'Ada', email: 'not-an-email', message: 'Hello' });
 

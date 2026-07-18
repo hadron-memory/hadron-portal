@@ -37,7 +37,7 @@
   <h1 class="mb-6 text-center text-3xl font-bold text-zinc-900 dark:text-white">Get in touch</h1>
 
   {#if successMessage}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300 text-center">
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300 text-center">
       {successMessage}
     </div>
   {:else}
