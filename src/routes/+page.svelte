@@ -1,10 +1,34 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PageData, ActionData } from './$types';
+  import { waitingListSchema } from './schema';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
-  const f = $derived(form as Record<string, unknown> | null);
+  const initialWaitingListForm = untrack(() => form?.form ?? data.waitingListForm);
+  const {
+    form: waitingListData,
+    errors: waitingListErrors,
+    constraints: waitingListConstraints,
+    message: waitingListMessage,
+    submitting: waitingListSubmitting,
+    enhance: waitingListEnhance,
+  } = superForm(initialWaitingListForm, {
+    validators: zod4Client(waitingListSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const waitingListEmailError = $derived($waitingListErrors.email?.[0] ?? null);
+  const waitingListActionError = $derived(
+    $waitingListMessage?.type === 'error' ? $waitingListMessage.text : null,
+  );
+  const waitingListSuccess = $derived(
+    $waitingListMessage?.type === 'success' ? $waitingListMessage.text : null,
+  );
 
   const brandColors = ['#8ecae6', '#219ebc', '#023047', '#ffb703', '#fb8500'];
 
@@ -330,25 +354,34 @@
     <h2 class="mb-2 text-xl font-semibold text-zinc-900 dark:text-white">Join the waiting list</h2>
     <p class="mb-6 text-sm text-zinc-500">Get notified when we open up access.</p>
 
-    {#if f?.waitingListSuccess}
-      <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-        You're on the list! We'll be in touch.
+    {#if waitingListSuccess}
+      <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+        {waitingListSuccess}
       </div>
     {:else}
-      {#if f?.waitingListError}
-        <div class="mb-4 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{f?.waitingListError}</div>
+      {#if waitingListActionError}
+        <div role="alert" class="mb-4 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{waitingListActionError}</div>
       {/if}
-      <form method="POST" action="?/waitingList" use:enhance class="space-y-3">
+      <form method="POST" action="?/waitingList" use:waitingListEnhance class="space-y-3" novalidate>
         <input
           type="email" name="email" required placeholder="you@example.com"
-          class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
+          bind:value={$waitingListData.email}
+          aria-invalid={!!waitingListEmailError}
+          aria-describedby={waitingListEmailError ? 'waitingListEmailError' : undefined}
+          {...$waitingListConstraints.email}
+          class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500 {waitingListEmailError ? 'border-red-500 focus:border-red-500' : ''}"
         />
+        {#if waitingListEmailError}
+          <p id="waitingListEmailError" class="text-left text-xs text-red-600 dark:text-red-400">{waitingListEmailError}</p>
+        {/if}
         <textarea
           name="requestedFeatures" rows="2" placeholder="What would you use Hadron for? (optional)"
+          bind:value={$waitingListData.requestedFeatures}
+          {...$waitingListConstraints.requestedFeatures}
           class="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         ></textarea>
-        <button type="submit" class="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white" style="background: #ffb703;">
-          Join waiting list
+        <button type="submit" disabled={$waitingListSubmitting} class="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50" style="background: #ffb703;">
+          {$waitingListSubmitting ? 'Joining...' : 'Join waiting list'}
         </button>
       </form>
     {/if}
