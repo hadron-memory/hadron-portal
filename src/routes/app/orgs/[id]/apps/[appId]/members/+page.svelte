@@ -1,7 +1,11 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
+  import { addAppMemberSchema } from './schema';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
@@ -21,6 +25,39 @@
 
   const memberIds = $derived(new Set(members.map((m) => m.userId)));
   const nonMembers = $derived(allUsers.filter((u) => !memberIds.has(u.id)));
+
+  function reseedAddForm(addedUserId: string, submittedRole: string) {
+    addForm.update(
+      (current) => ({
+        ...current,
+        userId: nonMembers.find((user) => user.id !== addedUserId)?.id ?? '',
+        role: memberRoles.includes(submittedRole) ? submittedRole : (memberRoles[0] ?? ''),
+      }),
+      { taint: false },
+    );
+  }
+
+  const initialAddForm = untrack(() => form?.form ?? data.addForm);
+  const {
+    form: addForm,
+    errors: addErrors,
+    constraints: addConstraints,
+    message: addMessage,
+    submitting: addSubmitting,
+    enhance: addEnhance,
+  } = superForm(initialAddForm, {
+    validators: zod4Client(addAppMemberSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: ({ form }) => {
+      if (form.message?.type === 'success') reseedAddForm(form.data.userId, form.data.role);
+    },
+  });
+  const addUserError = $derived($addErrors.userId?.[0] ?? null);
+  const addRoleError = $derived($addErrors.role?.[0] ?? null);
+  const addActionError = $derived($addMessage?.type === 'error' ? $addMessage.text : null);
 
   function submitOnChange(e: Event) {
     (e.currentTarget as HTMLSelectElement).form?.requestSubmit();
@@ -111,27 +148,46 @@
           This App is at the member limit set by the Agent ({memberLimit}). Remove a member or ask the Agent author to raise the cap.
         </p>
       {:else}
-        <form method="POST" action="?/ensure" use:enhance class="flex flex-wrap items-end gap-3">
+        <form method="POST" action="?/add" use:addEnhance class="flex flex-wrap items-start gap-3" novalidate>
+          {#if addActionError}
+            <div class="basis-full rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{addActionError}</div>
+          {/if}
           <div class="flex-1 min-w-[200px]">
             <label for="userId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">User</label>
             <select id="userId" name="userId"
+              bind:value={$addForm.userId}
+              aria-invalid={!!addUserError}
+              aria-describedby={addUserError ? 'addUserError' : undefined}
+              {...$addConstraints.userId}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <option value="" disabled>Select a user...</option>
               {#each nonMembers as u (u.id)}
                 <option value={u.id}>{userLabel(u)}{u.githubUsername ? ` (@${u.githubUsername})` : ''}</option>
               {/each}
             </select>
+            {#if addUserError}
+              <p id="addUserError" class="mt-1 text-xs text-red-600 dark:text-red-400">{addUserError}</p>
+            {/if}
           </div>
           <div>
             <label for="role" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
             <select id="role" name="role"
+              bind:value={$addForm.role}
+              aria-invalid={!!addRoleError}
+              aria-describedby={addRoleError ? 'addRoleError' : undefined}
+              {...$addConstraints.role}
               class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <option value="" disabled>Select a role...</option>
               {#each memberRoles as role}
                 <option value={role}>{role}</option>
               {/each}
             </select>
+            {#if addRoleError}
+              <p id="addRoleError" class="mt-1 text-xs text-red-600 dark:text-red-400">{addRoleError}</p>
+            {/if}
           </div>
-          <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
-            Add member
+          <button type="submit" disabled={$addSubmitting || !$addForm.userId || !$addForm.role} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
+            {$addSubmitting ? 'Adding...' : 'Add member'}
           </button>
         </form>
       {/if}

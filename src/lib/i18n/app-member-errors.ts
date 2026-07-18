@@ -79,7 +79,7 @@ export function translateAppMemberError(e: unknown, fallback: string): string {
  * conflict, forbidden); anything else is a true server error and
  * returns 500 so monitoring picks it up correctly.
  */
-export function appMemberErrorStatus(e: unknown): number {
+export function appMemberErrorStatus(e: unknown): 400 | 403 | 409 | 500 {
   switch (appMemberErrorCode(e)) {
     case 'InvalidRoleError':
       return 400;
