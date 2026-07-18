@@ -44,6 +44,19 @@ function actionEvent(token: string | null, formData: Record<string, string>) {
   >[0];
 }
 
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
+}
+
+function fieldError(result: unknown, field: string): string | undefined {
+  return superFormFrom(result)?.errors?.[field]?.[0];
+}
+
 // ── load() ──────────────────────────────────────────────────────────
 
 describe('load /app/account/api-keys', () => {
@@ -62,14 +75,14 @@ describe('load /app/account/api-keys', () => {
     mockRequest.mockResolvedValueOnce({ myUserApiKeys: sampleKeys });
     const { load } = await importMod();
     const result = await load(loadEvent('jwt-token'));
-    expect(result).toEqual({ keys: sampleKeys });
+    expect(result).toMatchObject({ keys: sampleKeys, form: { valid: true } });
     expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 
   it('returns empty list (no GraphQL call) when locals.token is missing', async () => {
     const { load } = await importMod();
     const result = await load(loadEvent(null));
-    expect(result).toEqual({ keys: [] });
+    expect(result).toMatchObject({ keys: [], form: { valid: true } });
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -146,9 +159,9 @@ describe('actions.create (mint)', () => {
     const { actions } = await importMod();
     const result = (await actions.create(
       actionEvent('jwt-token', { label: tooLong }),
-    )) as { status: number; data: { error: string } };
+    )) as { status: number };
     expect(result.status).toBe(400);
-    expect(result.data.error).toMatch(/200 characters/);
+    expect(fieldError(result, 'label')).toMatch(/200 characters/);
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -169,9 +182,9 @@ describe('actions.create (mint)', () => {
     const { actions } = await importMod();
     const result = (await actions.create(
       actionEvent('jwt-token', { label: 'cli' }),
-    )) as { status: number; data: { error: string } };
+    )) as { status: number };
     expect(result.status).toBe(500);
-    expect(result.data.error).toBe('rate limit exceeded');
+    expect(superFormFrom(result)?.message).toBe('rate limit exceeded');
   });
 });
 
@@ -211,8 +224,10 @@ describe('actions.revoke', () => {
     const { actions } = await importMod();
     const result = (await actions.revoke(actionEvent(null, { id: 'uak_1' }))) as {
       status: number;
+      data: { error: string };
     };
     expect(result.status).toBe(401);
+    expect(result.data.error).toBe('Not signed in.');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 

@@ -20,8 +20,11 @@
  */
 
 import { fail } from '@sveltejs/kit';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
+import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
 import {
   MY_USER_API_KEYS_QUERY,
   CREATE_USER_API_KEY_MUTATION,
@@ -29,37 +32,36 @@ import {
 } from '$lib/server/queries';
 import type { UserApiKey, UserApiKeyCreateResult } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { createUserApiKeySchema } from './schema';
+
+const createUserApiKeyFormAdapter = zod4(createUserApiKeySchema);
 
 export const load: PageServerLoad = async ({ locals }) => {
+  const form = await superValidate({}, createUserApiKeyFormAdapter, { errors: false });
   // Auth gate: locals.token is set by the +layout.server.ts auth flow;
   // a missing token means the user isn't signed in (the layout should
   // already have redirected). If we somehow get here without one, show
   // an empty list rather than blow up — the page renders the "no keys"
   // empty state, and the actions below 401 cleanly.
   if (!locals.token) {
-    return { keys: [] as UserApiKey[] };
+    return { keys: [] as UserApiKey[], form };
   }
   try {
     const data = await gqlClient(locals.token).request<{
       myUserApiKeys: UserApiKey[];
     }>(MY_USER_API_KEYS_QUERY);
-    return { keys: data.myUserApiKeys };
+    return { keys: data.myUserApiKeys, form };
   } catch (e) {
     // Same posture as other portal loaders: surface a friendly empty
     // state on transient failure rather than crashing the page. The
     // user can retry; nothing destructive happens.
     return {
       keys: [] as UserApiKey[],
+      form,
       loadError: extractGqlError(e, 'Could not load your API keys.'),
     };
   }
 };
-
-/** Length cap on the user-supplied label — matches the server's cap
- *  (`USER_API_KEY_LABEL_MAX_LEN = 200`, src/middleware/auth.ts). Caller-
- *  side check rejects oversized labels before the round-trip so the user
- *  gets immediate feedback. The server enforces independently. */
-const LABEL_MAX_LEN = 200;
 
 export const actions: Actions = {
   /**
@@ -68,17 +70,13 @@ export const actions: Actions = {
    * `form?.rawKey` and renders the one-shot reveal banner.
    */
   create: async ({ request, locals }) => {
+    const form = await superValidate(await request.formData(), createUserApiKeyFormAdapter);
     if (!locals.token) {
-      return fail(401, { error: 'Not signed in.' });
+      return fail(401, { form, error: i18n.notSignedIn() });
     }
-    const fd = await request.formData();
-    const rawLabel = String(fd.get('label') ?? '').trim();
-    const label = rawLabel.length > 0 ? rawLabel : null;
-    if (label !== null && label.length > LABEL_MAX_LEN) {
-      return fail(400, {
-        error: `Label must be at most ${LABEL_MAX_LEN} characters.`,
-      });
-    }
+    if (!form.valid) return fail(400, { form });
+
+    const label = form.data.label.length > 0 ? form.data.label : null;
     try {
       const data = await gqlClient(locals.token).request<{
         createUserApiKey: UserApiKeyCreateResult;
@@ -87,14 +85,13 @@ export const actions: Actions = {
       // client. The raw key flows through here EXACTLY ONCE; the page
       // renders it in a copy-now banner and then nothing recovers it.
       return {
+        form,
         success: 'mint' as const,
         rawKey: data.createUserApiKey.rawKey,
         userApiKey: data.createUserApiKey.userApiKey,
       };
     } catch (e) {
-      return fail(500, {
-        error: extractGqlError(e, 'Could not mint API key.'),
-      });
+      return message(form, extractGqlError(e, 'Could not mint API key.'), { status: 500 });
     }
   },
 
@@ -106,7 +103,7 @@ export const actions: Actions = {
    */
   revoke: async ({ request, locals }) => {
     if (!locals.token) {
-      return fail(401, { error: 'Not signed in.' });
+      return fail(401, { error: i18n.notSignedIn() });
     }
     const fd = await request.formData();
     const id = String(fd.get('id') ?? '').trim();
