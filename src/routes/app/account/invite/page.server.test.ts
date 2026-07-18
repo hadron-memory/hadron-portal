@@ -49,6 +49,15 @@ async function runInvite(fields: Record<string, string>) {
 }
 
 describe('account invite load()', () => {
+  it('seeds an empty prefill email when the query parameter is absent', async () => {
+    const { load } = await importMod();
+
+    const result = await load(loadEvent());
+
+    expect(result).toMatchObject({ prefillEmail: '' });
+    expect((result as { form: { data: Record<string, string> } }).form.data.inviteEmail).toBe('');
+  });
+
   it('seeds the invite form from the email query parameter without initial errors', async () => {
     const { load } = await importMod();
 
@@ -86,6 +95,7 @@ describe('account invite action', () => {
       invited: true,
       inviteUrl: 'https://portal.example.test/invite/invite-slug',
     });
+    expect(result).toHaveProperty('form');
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledWith(INVITE_USER_MUTATION, {
       name: 'Ada',
@@ -116,6 +126,19 @@ describe('account invite action', () => {
     const result = await runInvite({ inviteName: 'Ada', inviteEmail: '', inviteGithub: '' });
 
     expect(result).toMatchObject({ status: 500 });
-    expect(superFormFrom(result)?.message).toBe('boom');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'boom' });
+  });
+
+  it('surfaces the GraphQL response message instead of the raw ClientError message', async () => {
+    mockRequest.mockRejectedValueOnce(
+      Object.assign(new Error('raw ClientError payload with query text'), {
+        response: { errors: [{ message: 'Invitation already exists.' }] },
+      }),
+    );
+
+    const result = await runInvite({ inviteName: 'Ada', inviteEmail: '', inviteGithub: '' });
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Invitation already exists.' });
   });
 });

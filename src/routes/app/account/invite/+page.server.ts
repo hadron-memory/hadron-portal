@@ -36,7 +36,7 @@ export const actions: Actions = {
       const inviteUrl = `${url.origin}/invite/${data.inviteUser.slug}`;
       return { form, invited: true, inviteUrl };
     } catch (e: unknown) {
-      return message(form, extractGqlError(e, 'Failed to send invitation'), { status: 500 });
+      return message(form, { type: 'error' as const, text: extractGqlError(e, 'Failed to send invitation') }, { status: 500 });
     }
   },
 };

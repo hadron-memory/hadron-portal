@@ -32,6 +32,8 @@
   $effect(() => {
     const submitted = hasActionForm;
     const email = prefillEmail;
+    // SvelteKit clears ActionData on query-only navigations, so this refills
+    // `?email=` deep links without overwriting the just-submitted form result.
     if (!submitted) {
       inviteForm.update((current) => ({ ...current, inviteEmail: email }), {
         taint: false,
@@ -39,7 +41,7 @@
     }
   });
   const inviteEmailError = $derived($inviteErrors.inviteEmail?.[0] ?? null);
-  const actionError = $derived($inviteMessage ?? null);
+  const actionError = $derived($inviteMessage?.type === 'error' ? $inviteMessage.text : null);
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 </script>
