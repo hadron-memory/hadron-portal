@@ -38,6 +38,8 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const keys = $derived(data.keys);
   const loadError = $derived('loadError' in data ? data.loadError : undefined);
+  const inputClass =
+    'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
   const initialCreateForm = untrack(() => form?.form ?? data.form);
   const {
     form: createFormData,
@@ -54,6 +56,9 @@
     clearOnSubmit: 'none',
   });
   const labelError = $derived($createErrors.label?.[0] ?? null);
+  const labelInputClass = $derived(
+    `${inputClass} ${labelError ? 'border-red-500 focus:border-red-500' : ''}`,
+  );
   const actionError = $derived(
     form && 'error' in form && form.error ? form.error : $createMessage,
   );
@@ -181,8 +186,6 @@
     getPaginationRowModel: getPaginationRowModel(),
   });
 
-  const inputClass =
-    'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 </script>
 
 <svelte:head><title>API keys · Hadron</title></svelte:head>
@@ -270,7 +273,7 @@
             aria-invalid={!!labelError}
             aria-describedby={labelError ? 'label-error label-help' : 'label-help'}
             {...$createConstraints.label}
-            class="{inputClass} {labelError ? 'border-red-500 focus:border-red-500' : ''}"
+            class={labelInputClass}
           />
           {#if labelError}
             <p id="label-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{labelError}</p>

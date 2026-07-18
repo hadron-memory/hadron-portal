@@ -224,8 +224,10 @@ describe('actions.revoke', () => {
     const { actions } = await importMod();
     const result = (await actions.revoke(actionEvent(null, { id: 'uak_1' }))) as {
       status: number;
+      data: { error: string };
     };
     expect(result.status).toBe(401);
+    expect(result.data.error).toBe('Not signed in.');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 

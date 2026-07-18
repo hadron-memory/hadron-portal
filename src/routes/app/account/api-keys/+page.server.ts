@@ -103,7 +103,7 @@ export const actions: Actions = {
    */
   revoke: async ({ request, locals }) => {
     if (!locals.token) {
-      return fail(401, { error: 'Not signed in.' });
+      return fail(401, { error: i18n.notSignedIn() });
     }
     const fd = await request.formData();
     const id = String(fd.get('id') ?? '').trim();
