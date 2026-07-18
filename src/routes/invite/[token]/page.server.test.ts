@@ -133,6 +133,24 @@ describe('invite sendEmail action', () => {
     expect(result).toMatchObject({ status: 502 });
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Could not reach the server.' });
   });
+
+  it('passes through upstream 4xx and 5xx magic-link failure statuses', async () => {
+    mockStartBoundMagicLink.mockResolvedValueOnce({ ok: false, status: 503, error: 'Temporarily unavailable.' });
+
+    const result = await runSendEmail({ email: 'ada@example.test' });
+
+    expect(result).toMatchObject({ status: 503 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Temporarily unavailable.' });
+  });
+
+  it('falls back to 500 for non-error magic-link failure statuses', async () => {
+    mockStartBoundMagicLink.mockResolvedValueOnce({ ok: false, status: 302, error: 'Unexpected redirect.' });
+
+    const result = await runSendEmail({ email: 'ada@example.test' });
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Unexpected redirect.' });
+  });
 });
 
 describe('invite accept action', () => {

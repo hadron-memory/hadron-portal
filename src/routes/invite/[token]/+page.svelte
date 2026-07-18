@@ -95,11 +95,11 @@
 
             <form method="POST" action="?/sendEmail" use:emailEnhance class="space-y-3" novalidate>
               {#if emailActionError}
-                <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{emailActionError}</div>
+                <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{emailActionError}</div>
               {/if}
               <div>
                 <label for="email" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Email address</label>
-                <input id="email" name="email" type="email" required placeholder="you@example.com"
+                <input id="email" name="email" type="email" placeholder="you@example.com"
                   bind:value={$emailForm.email}
                   aria-invalid={!!emailError}
                   aria-describedby={emailError ? 'inviteEmailError' : undefined}
