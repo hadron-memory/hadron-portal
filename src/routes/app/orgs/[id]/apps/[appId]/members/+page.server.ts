@@ -1,5 +1,5 @@
 import { fail, error } from '@sveltejs/kit';
-import { message, superValidate } from 'sveltekit-superforms/server';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -11,7 +11,8 @@ import {
   ORGANIZATION_QUERY,
   USERS_QUERY,
 } from '$lib/server/queries';
-import { translateAppMemberError, appMemberErrorStatus } from '$lib/i18n/app-member-errors';
+import { appMemberErrorCode, translateAppMemberError, appMemberErrorStatus } from '$lib/i18n/app-member-errors';
+import { t } from '$lib/i18n/t';
 import type { App, AppMember, Organization, UserSummary } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { addAppMemberSchema } from './schema';
@@ -65,9 +66,13 @@ export const actions: Actions = {
         userId: form.data.userId,
         role: form.data.role,
       });
-      return message(form, 'Member added.');
+      return message(form, { type: 'success' as const, text: t('app-member.add.success', 'Member added.') });
     } catch (e: unknown) {
-      return message(form, translateAppMemberError(e, 'Failed to save member'), {
+      const errorText = translateAppMemberError(e, 'Failed to save member');
+      if (appMemberErrorCode(e) === 'InvalidRoleError') {
+        return setError(form, 'role', errorText, { status: 400 });
+      }
+      return message(form, { type: 'error' as const, text: errorText }, {
         status: appMemberErrorStatus(e),
       });
     }

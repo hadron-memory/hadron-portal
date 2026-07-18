@@ -26,6 +26,17 @@
   const memberIds = $derived(new Set(members.map((m) => m.userId)));
   const nonMembers = $derived(allUsers.filter((u) => !memberIds.has(u.id)));
 
+  function reseedAddForm(addedUserId: string, submittedRole: string) {
+    addForm.update(
+      (current) => ({
+        ...current,
+        userId: nonMembers.find((user) => user.id !== addedUserId)?.id ?? '',
+        role: memberRoles.includes(submittedRole) ? submittedRole : (memberRoles[0] ?? ''),
+      }),
+      { taint: false },
+    );
+  }
+
   const initialAddForm = untrack(() => form?.form ?? data.addForm);
   const {
     form: addForm,
@@ -40,12 +51,13 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onUpdated: ({ form }) => {
+      if (form.message?.type === 'success') reseedAddForm(form.data.userId, form.data.role);
+    },
   });
   const addUserError = $derived($addErrors.userId?.[0] ?? null);
   const addRoleError = $derived($addErrors.role?.[0] ?? null);
-  const addActionError = $derived(
-    typeof $addMessage === 'string' && $addMessage !== 'Member added.' ? $addMessage : null,
-  );
+  const addActionError = $derived($addMessage?.type === 'error' ? $addMessage.text : null);
 
   function submitOnChange(e: Event) {
     (e.currentTarget as HTMLSelectElement).form?.requestSubmit();

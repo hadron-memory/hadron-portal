@@ -89,7 +89,6 @@ function actionEv(fields: Record<string, string>, opts: { orgId?: string; appId?
 function superFormFrom(result: unknown) {
   return (result as {
     data?: { form?: { data?: Record<string, string>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
-    form?: { data?: Record<string, string>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
   } | undefined)?.data?.form ?? (result as {
     form?: { data?: Record<string, string>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
   } | undefined)?.form;
@@ -154,7 +153,7 @@ describe('app members add action', () => {
 
     const result = await runAdd({ userId: '  user-new  ', role: '  editor  ' });
 
-    expect(superFormFrom(result)?.message).toBe('Member added.');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member added.' });
     expect(superFormFrom(result)?.valid).toBe(true);
     expect(mockRequest).toHaveBeenCalledWith(ENSURE_APP_MEMBER_MUTATION, {
       appId: 'app-1',
@@ -169,8 +168,20 @@ describe('app members add action', () => {
     const result = await runAdd({ userId: 'user-new', role: 'reader' });
 
     expect(result).toMatchObject({ status: 409 });
-    expect(superFormFrom(result)?.message).toBe(
-      'This App is at the member limit set by the Agent author. Remove a member or ask the Agent author to raise the cap.',
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'error',
+      text: 'This App is at the member limit set by the Agent author. Remove a member or ask the Agent author to raise the cap.',
+    });
+  });
+
+  it('returns invalid roles as role field errors', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('InvalidRoleError'));
+
+    const result = await runAdd({ userId: 'user-new', role: 'admin' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'role')).toBe(
+      'That role isn’t permitted by this Agent. Pick one of the roles offered by the Agent author.',
     );
   });
 });
