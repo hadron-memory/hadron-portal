@@ -1,5 +1,8 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import {
     getCoreRowModel,
     getSortedRowModel,
@@ -15,6 +18,7 @@
   import { t } from '$lib/i18n/t';
   import type { OrgMember } from '$lib/types';
   import type { PageData, ActionData } from './$types';
+  import { inviteMemberSchema } from './schema';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
@@ -96,15 +100,30 @@
     (e.currentTarget as HTMLSelectElement).form?.requestSubmit();
   }
 
-  // Invite form: enable "Create invite link" only once there's something to
-  // identify the recipient — at least a name or email — and, when an email is
-  // given, that it's well-formed. Mirrors the "Add" button's disabled-until-valid.
-  let inviteName = $state('');
-  let inviteEmail = $state('');
-  const inviteEmailValid = $derived(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail.trim()));
+  const initialInviteForm = untrack(() => form?.form ?? data.inviteForm);
+  const {
+    form: inviteForm,
+    errors: inviteErrors,
+    constraints: inviteConstraints,
+    message: inviteMessage,
+    submitting: inviteSubmitting,
+    enhance: inviteEnhance,
+  } = superForm(initialInviteForm, {
+    validators: zod4Client(inviteMemberSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const inviteNameError = $derived($inviteErrors.name?.[0] ?? null);
+  const inviteEmailError = $derived($inviteErrors.email?.[0] ?? null);
+  const inviteFormError = $derived($inviteErrors._errors?.[0] ?? null);
+  const inviteActionError = $derived($inviteMessage ?? inviteFormError);
   const inviteValid = $derived(
-    (inviteName.trim() !== '' || inviteEmail.trim() !== '') &&
-      (inviteEmail.trim() === '' || inviteEmailValid),
+    ($inviteForm.name.trim() !== '' || $inviteForm.email.trim() !== '') &&
+      !inviteFormError &&
+      !inviteNameError &&
+      !inviteEmailError,
   );
 
   // Brief "Copied!" confirmation on the invite-link copy button.
@@ -264,27 +283,44 @@
         </div>
       </div>
     {:else}
-      <form method="POST" action="?/invite" use:enhance class="flex flex-wrap items-end gap-3">
+      <form method="POST" action="?/invite" use:inviteEnhance class="flex flex-wrap items-start gap-3" novalidate>
+        {#if inviteActionError}
+          <div class="basis-full rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{inviteActionError}</div>
+        {/if}
         <div class="flex-1 min-w-[200px]">
           <label for="inviteName" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Name <span class="text-zinc-600">(optional)</span></label>
-          <input id="inviteName" name="name" type="text" placeholder="Their name" bind:value={inviteName}
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+          <input id="inviteName" name="name" type="text" placeholder="Their name"
+            bind:value={$inviteForm.name}
+            aria-invalid={!!inviteNameError}
+            aria-describedby={inviteNameError ? 'inviteNameError' : undefined}
+            {...$inviteConstraints.name}
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none {inviteNameError ? 'border-red-500 focus:border-red-500' : ''}" />
+          {#if inviteNameError}
+            <p id="inviteNameError" class="mt-1 text-xs text-red-600 dark:text-red-400">{inviteNameError}</p>
+          {/if}
         </div>
         <div class="flex-1 min-w-[200px]">
           <label for="inviteEmail" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Email <span class="text-zinc-600">(optional)</span></label>
-          <input id="inviteEmail" name="email" type="email" placeholder="email@example.com" bind:value={inviteEmail}
-            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+          <input id="inviteEmail" name="email" type="email" placeholder="email@example.com"
+            bind:value={$inviteForm.email}
+            aria-invalid={!!inviteEmailError}
+            aria-describedby={inviteEmailError ? 'inviteEmailError' : undefined}
+            {...$inviteConstraints.email}
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none {inviteEmailError ? 'border-red-500 focus:border-red-500' : ''}" />
+          {#if inviteEmailError}
+            <p id="inviteEmailError" class="mt-1 text-xs text-red-600 dark:text-red-400">{inviteEmailError}</p>
+          {/if}
         </div>
         <div>
           <label for="inviteRole" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
-          <select id="inviteRole" name="memberRole" class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
+          <select id="inviteRole" name="memberRole" bind:value={$inviteForm.memberRole} class="rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white">
             <option value="READER">Reader</option>
             <option value="CONTRIBUTOR">Contributor</option>
             <option value="ADMIN">Admin</option>
             <option value="OWNER">Owner</option>
           </select>
         </div>
-        <button type="submit" disabled={!inviteValid} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">Create invite link</button>
+        <button type="submit" disabled={!inviteValid || $inviteSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">{$inviteSubmitting ? 'Creating...' : 'Create invite link'}</button>
       </form>
     {/if}
   </section>

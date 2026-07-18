@@ -1,5 +1,8 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATION_QUERY,
@@ -10,6 +13,9 @@ import {
 } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { inviteMemberSchema } from './schema';
+
+const inviteMemberFormAdapter = zod4(inviteMemberSchema);
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
@@ -23,6 +29,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   return {
     org: orgData.organization,
     currentUserId: locals.user?.id ?? null,
+    inviteForm: await superValidate({}, inviteMemberFormAdapter, { errors: false }),
   };
 };
 
@@ -61,10 +68,12 @@ export const actions: Actions = {
   },
 
   invite: async ({ request, params, locals, url }) => {
-    const fd = await request.formData();
-    const name = String(fd.get('name') ?? '').trim() || null;
-    const email = String(fd.get('email') ?? '').trim() || null;
-    const memberRole = String(fd.get('memberRole') ?? 'READER');
+    const form = await superValidate(await request.formData(), inviteMemberFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
+    const name = form.data.name || null;
+    const email = form.data.email || null;
+    const memberRole = form.data.memberRole;
 
     try {
       const data = await gqlClient(locals.token).request<{
@@ -80,9 +89,9 @@ export const actions: Actions = {
       const inviteUrl = `${url.origin}/invite/${data.createUserInvitation.slug}`;
       // Surface who the link is for so the success message can name them
       // (name preferred, email as fallback, null when neither was given).
-      return { inviteUrl, inviteName: name ?? email };
+      return { form, inviteUrl, inviteName: name ?? email };
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create invitation' });
+      return message(form, extractGqlError(e, 'Failed to create invitation'), { status: 500 });
     }
   },
 
