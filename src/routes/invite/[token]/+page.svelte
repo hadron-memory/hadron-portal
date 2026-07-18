@@ -1,6 +1,10 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PageData, ActionData } from './$types';
+  import { inviteEmailSchema } from './schema';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const inv = $derived(data.invitation as {
@@ -15,6 +19,25 @@
 
   const expired = $derived(inv?.expiresAt ? new Date(inv.expiresAt) < new Date() : false);
   const maxedOut = $derived(inv?.maxActivations ? inv.activationCount >= inv.maxActivations : false);
+
+  const initialEmailForm = untrack(() => form?.form ?? data.form);
+  const {
+    form: emailForm,
+    errors: emailErrors,
+    constraints: emailConstraints,
+    message: emailMessage,
+    submitting: emailSubmitting,
+    enhance: emailEnhance,
+  } = superForm(initialEmailForm, {
+    validators: zod4Client(inviteEmailSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const emailError = $derived($emailErrors.email?.[0] ?? null);
+  const emailActionError = $derived($emailMessage?.type === 'error' ? $emailMessage.text : null);
+  const emailSentMessage = $derived($emailMessage?.type === 'success' ? $emailMessage.text : null);
 </script>
 
 <svelte:head><title>Invitation · Hadron</title></svelte:head>
@@ -70,18 +93,27 @@
           <div class="mt-6 space-y-4">
             <p class="text-sm text-zinc-500">Sign in or create an account to accept this invitation.</p>
 
-            <form method="POST" action="?/sendEmail" use:enhance class="space-y-3">
+            <form method="POST" action="?/sendEmail" use:emailEnhance class="space-y-3" novalidate>
+              {#if emailActionError}
+                <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{emailActionError}</div>
+              {/if}
               <div>
                 <label for="email" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Email address</label>
-                <input id="email" name="email" type="email" required placeholder="you@example.com"
-                  value={inv.name ? '' : ''}
-                  class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+                <input id="email" name="email" type="email" placeholder="you@example.com"
+                  bind:value={$emailForm.email}
+                  aria-invalid={!!emailError}
+                  aria-describedby={emailError ? 'inviteEmailError' : undefined}
+                  {...$emailConstraints.email}
+                  class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none {emailError ? 'border-red-500 focus:border-red-500' : ''}" />
+                {#if emailError}
+                  <p id="inviteEmailError" class="mt-1 text-xs text-red-400">{emailError}</p>
+                {/if}
               </div>
-              <button type="submit" class="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600">
-                Continue with email
+              <button type="submit" disabled={$emailSubmitting} class="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
+                {$emailSubmitting ? 'Sending...' : 'Continue with email'}
               </button>
-              {#if form?.emailSent}
-                <p class="text-sm text-green-400">Check your inbox — we sent you a sign-in link.</p>
+              {#if emailSentMessage}
+                <p class="text-sm text-green-400">{emailSentMessage}</p>
               {/if}
             </form>
 
