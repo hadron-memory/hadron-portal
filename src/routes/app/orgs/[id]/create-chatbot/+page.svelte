@@ -46,7 +46,7 @@
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
   function canProceed(): boolean {
-    if (step === 1) return $formData.agentName.trim().length > 0;
+    if (step === 1) return $formData.agentName.trim().length > 0 && $formData.agentSlug.trim().length > 0 && !agentNameError && !agentSlugError;
     if (step === 2) return true; // system prompt is optional
     if (step === 3) return $formData.systemMemorySlug.trim().length > 0 && (!$formData.includeKnowledge || ($formData.knowledgeMemoryName.trim().length > 0 && $formData.knowledgeMemorySlug.trim().length > 0));
     return true;

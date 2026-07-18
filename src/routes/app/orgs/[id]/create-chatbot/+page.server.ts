@@ -1,5 +1,5 @@
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
-import { message, superValidate } from 'sveltekit-superforms/server';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
@@ -204,7 +204,16 @@ export const actions: Actions = {
       redirect(303, `/app/agents/${agentId}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      return message(form, extractGqlError(e, 'Failed to create chatbot agent'), { status: 500 });
+      const msg = extractGqlError(e, 'Failed to create chatbot agent');
+      if (/agent with URN/i.test(msg)) return setError(form, 'agentSlug', msg, { status: 409 });
+      if (/memory with URN/i.test(msg)) {
+        if (msg.includes(systemMemorySlug)) return setError(form, 'systemMemorySlug', msg, { status: 409 });
+        if (knowledgeMemorySlug && msg.includes(knowledgeMemorySlug)) {
+          return setError(form, 'knowledgeMemorySlug', msg, { status: 409 });
+        }
+        return message(form, msg, { status: 409 });
+      }
+      return message(form, msg, { status: 500 });
     }
   },
 };

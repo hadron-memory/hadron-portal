@@ -127,6 +127,19 @@ describe('create chatbot action', () => {
     expect(mockRequest).not.toHaveBeenCalledWith(ADD_MEMORY_TO_AGENT_MUTATION, expect.anything());
   });
 
+  it('ignores an invalid hidden knowledge memory slug when includeKnowledge is false', async () => {
+    const result = await runCreate({
+      ...baseFields,
+      includeKnowledge: 'false',
+      knowledgeMemoryName: '',
+      knowledgeMemorySlug: 'Bad Slug',
+    });
+
+    expect(result).toMatchObject({ status: 303, location: '/app/agents/agent-1' });
+    const createMemoryCalls = mockRequest.mock.calls.filter(([query]) => query === CREATE_MEMORY_MUTATION);
+    expect(createMemoryCalls).toHaveLength(1);
+  });
+
   it('rejects missing knowledge fields when includeKnowledge is true', async () => {
     const result = await runCreate({
       ...baseFields,
@@ -154,5 +167,44 @@ describe('create chatbot action', () => {
     expect(result).toMatchObject({ status: 400 });
     expect(fieldError(result, 'systemMemorySlug')).toBe('System memory URN is required.');
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('maps duplicate system memory URN failures to a 409 field error', async () => {
+    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
+      if (query === CREATE_MEMORY_MUTATION && vars.name === 'juno-system') {
+        throw {
+          response: {
+            errors: [{ message: 'A memory with URN "org:juno-system" already exists' }],
+          },
+        };
+      }
+      if (query === CREATE_MEMORY_MUTATION) return { createMemory: { id: 'memory-1' } };
+      if (query === CREATE_AGENT_MUTATION) return { createAgent: { id: 'agent-1' } };
+      return {};
+    });
+
+    const result = await runCreate(baseFields);
+
+    expect(result).toMatchObject({ status: 409 });
+    expect(fieldError(result, 'systemMemorySlug')).toBe('A memory with URN "org:juno-system" already exists');
+  });
+
+  it('maps duplicate agent URN failures to a 409 field error', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === CREATE_MEMORY_MUTATION) return { createMemory: { id: 'memory-1' } };
+      if (query === CREATE_AGENT_MUTATION) {
+        throw {
+          response: {
+            errors: [{ message: 'An agent with URN "org:juno" already exists' }],
+          },
+        };
+      }
+      return {};
+    });
+
+    const result = await runCreate(baseFields);
+
+    expect(result).toMatchObject({ status: 409 });
+    expect(fieldError(result, 'agentSlug')).toBe('An agent with URN "org:juno" already exists');
   });
 });

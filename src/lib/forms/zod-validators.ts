@@ -27,18 +27,6 @@ export function memorySlugField(requiredMessage = 'URN slug is required.') {
   return urnSlugField('Memory URN slug', requiredMessage);
 }
 
-export function optionalMemorySlugField() {
-  return z
-    .string()
-    .trim()
-    .default('')
-    .superRefine((slug, ctx) => {
-      if (!slug) return;
-      const error = validateMemorySlugField(slug);
-      if (error) ctx.addIssue({ code: 'custom', message: error });
-    });
-}
-
 export function agentSlugField(requiredMessage = 'Agent URN slug is required.') {
   return urnSlugField('Agent URN slug', requiredMessage);
 }
