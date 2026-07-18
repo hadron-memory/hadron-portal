@@ -6,7 +6,7 @@ export const inviteEmailSchema = z.object({
     .trim()
     .min(1, 'Email is required.')
     .email('Enter a valid email address.')
-    .default(''),
+    .prefault(''),
 });
 
 export type InviteEmailSchema = typeof inviteEmailSchema;

@@ -104,6 +104,14 @@ describe('invite sendEmail action', () => {
     expect(mockStartBoundMagicLink).not.toHaveBeenCalled();
   });
 
+  it('rejects an omitted email before starting the magic-link flow', async () => {
+    const result = await runSendEmail({});
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'email')).toBe('Email is required.');
+    expect(mockStartBoundMagicLink).not.toHaveBeenCalled();
+  });
+
   it('rejects an invalid email before starting the magic-link flow', async () => {
     const result = await runSendEmail({ email: 'not-an-email' });
 
