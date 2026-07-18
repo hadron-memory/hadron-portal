@@ -1,20 +1,30 @@
 import { fail } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms/adapters';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { SEND_CONTACT_MESSAGE_MUTATION } from '$lib/server/queries';
-import type { Actions } from './$types';
+import type { Actions, PageServerLoad } from './$types';
+import { contactSchema } from './schema';
+
+const contactFormAdapter = zod4(contactSchema);
+type ContactForm = Infer<typeof contactSchema, 'zod4'>;
+type ContactMessage = { type: 'success' | 'error'; text: string };
+
+export const load: PageServerLoad = async () => ({
+  form: await superValidate<ContactForm, ContactMessage>({}, contactFormAdapter, { errors: false }),
+});
 
 export const actions: Actions = {
   default: async ({ request }) => {
-    const fd = await request.formData();
-    const name = String(fd.get('name') ?? '').trim();
-    const email = String(fd.get('email') ?? '').trim();
-    const message = String(fd.get('message') ?? '').trim();
-    if (!name || !email || !message) return fail(400, { error: 'All fields are required' });
+    const form = await superValidate<ContactForm, ContactMessage>(await request.formData(), contactFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
     try {
-      await gqlClient().request(SEND_CONTACT_MESSAGE_MUTATION, { name, email, message });
-      return { success: true };
+      await gqlClient().request(SEND_CONTACT_MESSAGE_MUTATION, form.data);
+      return message(form, { type: 'success', text: "Message sent! We'll get back to you soon." });
     } catch {
-      return fail(500, { error: 'Failed to send message. Please try again.' });
+      return message(form, { type: 'error', text: 'Failed to send message. Please try again.' }, { status: 500 });
     }
   },
 };
