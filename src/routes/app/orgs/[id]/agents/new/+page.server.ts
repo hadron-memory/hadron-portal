@@ -1,9 +1,15 @@
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATION_QUERY, CREATE_AGENT_MUTATION, UPDATE_AGENT_MUTATION } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { createAgentSchema } from './schema';
+
+const createAgentFormAdapter = zod4(createAgentSchema);
 
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
@@ -13,19 +19,21 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   if (!data.organization) throw error(404, 'Organization not found');
   // #320: the header command bar (Create mode) can deep-link here with the
   // agent slug prefilled (`?slug=<slug>`).
-  return { org: data.organization, prefillSlug: (url.searchParams.get('slug') ?? '').trim() };
+  const prefillSlug = (url.searchParams.get('slug') ?? '').trim();
+  const form = await superValidate({ slug: prefillSlug }, createAgentFormAdapter, { errors: false });
+  return { org: data.organization, prefillSlug, form };
 };
 
 export const actions: Actions = {
   default: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const slug = String(fd.get('slug') ?? '').trim();
-    const displayName = String(fd.get('displayName') ?? '').trim();
-    const name = slug || displayName;
-    const description = String(fd.get('description') ?? '').trim() || null;
-    const systemPrompt = String(fd.get('systemPrompt') ?? '').trim() || null;
-    const visibility = String(fd.get('visibility') ?? '').trim() || undefined;
-    if (!name) return fail(400, { error: 'Name is required' });
+    const form = await superValidate(await request.formData(), createAgentFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
+    const name = form.data.slug;
+    const displayName = form.data.displayName;
+    const description = form.data.description || null;
+    const systemPrompt = form.data.systemPrompt || null;
+    const visibility = form.data.visibility;
     try {
       const result = await gqlClient(locals.token).request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
         orgId: params.id, name, description, systemPrompt, visibility,
@@ -38,7 +46,9 @@ export const actions: Actions = {
       redirect(303, `/app/orgs/${params.id}/agents`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create agent' });
+      const msg = extractGqlError(e, 'Failed to create agent');
+      if (/agent with URN/i.test(msg)) return setError(form, 'slug', msg, { status: 409 });
+      return message(form, msg, { status: 500 });
     }
   },
 };

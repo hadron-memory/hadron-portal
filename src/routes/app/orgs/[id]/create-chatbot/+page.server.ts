@@ -1,5 +1,8 @@
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATION_QUERY,
@@ -11,6 +14,9 @@ import {
 } from '$lib/server/queries';
 import type { Organization, Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { createChatbotSchema } from './schema';
+
+const createChatbotFormAdapter = zod4(createChatbotSchema);
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
@@ -18,36 +24,33 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     ORGANIZATION_QUERY, { id: params.id },
   ).catch(() => { throw error(404, 'Organization not found'); });
   if (!data.organization) throw error(404, 'Organization not found');
-  return { org: data.organization };
+  const form = await superValidate({}, createChatbotFormAdapter, { errors: false });
+  return { org: data.organization, form };
 };
 
 export const actions: Actions = {
   default: async ({ request, params, locals }) => {
-    const fd = await request.formData();
+    const form = await superValidate(await request.formData(), createChatbotFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
     const client = gqlClient(locals.token);
 
-    const agentName = String(fd.get('agentName') ?? '').trim();
-    const agentSlug = String(fd.get('agentSlug') ?? '').trim();
-    const agentDescription = String(fd.get('agentDescription') ?? '').trim() || null;
-    const systemPrompt = String(fd.get('systemPrompt') ?? '').trim() || null;
+    const agentName = form.data.agentName;
+    const agentSlug = form.data.agentSlug;
+    const agentDescription = form.data.agentDescription || null;
+    const systemPrompt = form.data.systemPrompt || null;
     // Spec 035: the form's visibility drives the AGENT (AgentVisibility:
     // PUBLIC | ORGANIZATION | PERSONAL). The memories it creates take
     // MemoryVisibility (no PERSONAL), so map PERSONAL -> ORGANIZATION for the
     // createMemory calls. (The system memory's visibility is moot — createAgent
     // nulls it when it promotes the memory to class='system'.)
-    const visibility = String(fd.get('visibility') ?? 'PERSONAL').trim();
+    const visibility = form.data.visibility;
     const memoryVisibility = visibility === 'PERSONAL' ? 'ORGANIZATION' : visibility;
 
-    const includeKnowledge = String(fd.get('includeKnowledge') ?? '') === 'true';
-    const knowledgeMemoryName = String(fd.get('knowledgeMemoryName') ?? '').trim();
-    const knowledgeMemorySlug = String(fd.get('knowledgeMemorySlug') ?? '').trim();
-    const systemMemorySlug = String(fd.get('systemMemorySlug') ?? '').trim();
-
-    if (!agentName) return fail(400, { error: 'Agent name is required' });
-    if (!systemMemorySlug) return fail(400, { error: 'System memory URN is required' });
-    if (includeKnowledge && (!knowledgeMemoryName || !knowledgeMemorySlug)) {
-      return fail(400, { error: 'Knowledge memory name and URN are required' });
-    }
+    const includeKnowledge = form.data.includeKnowledge;
+    const knowledgeMemoryName = form.data.knowledgeMemoryName;
+    const knowledgeMemorySlug = form.data.knowledgeMemorySlug;
+    const systemMemorySlug = form.data.systemMemorySlug;
 
     try {
       const systemDisplayName = `${agentName} System`;
@@ -201,7 +204,16 @@ export const actions: Actions = {
       redirect(303, `/app/agents/${agentId}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create chatbot agent' });
+      const msg = extractGqlError(e, 'Failed to create chatbot agent');
+      if (/agent with URN/i.test(msg)) return setError(form, 'agentSlug', msg, { status: 409 });
+      if (/memory with URN/i.test(msg)) {
+        if (msg.includes(systemMemorySlug)) return setError(form, 'systemMemorySlug', msg, { status: 409 });
+        if (knowledgeMemorySlug && msg.includes(knowledgeMemorySlug)) {
+          return setError(form, 'knowledgeMemorySlug', msg, { status: 409 });
+        }
+        return message(form, msg, { status: 409 });
+      }
+      return message(form, msg, { status: 500 });
     }
   },
 };
