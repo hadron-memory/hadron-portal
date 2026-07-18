@@ -1,0 +1,176 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  APP_WITH_MEMBERS_QUERY,
+  ENSURE_APP_MEMBER_MUTATION,
+  ORGANIZATION_QUERY,
+} from '$lib/server/queries';
+
+const mockRequest = vi.fn();
+const mockFetchAllItems = vi.fn();
+
+vi.mock('$lib/server/api', () => ({
+  gqlClient: () => ({ request: mockRequest }),
+}));
+
+vi.mock('$lib/server/paginate', () => ({
+  fetchAllItems: mockFetchAllItems,
+}));
+
+vi.mock('$lib/server/guards', () => ({
+  requireNonConsumer: vi.fn().mockResolvedValue(undefined),
+}));
+
+const fakeOrg = {
+  id: 'org-1',
+  name: 'Acme',
+  urn: 'hrn:org:acme',
+  members: [],
+  memories: [],
+  agents: [],
+  subscriptions: [],
+};
+
+const fakeUsers = [
+  { id: 'user-existing', handle: 'existing', githubUsername: 'existing', name: 'Existing', avatarUrl: null, email: null },
+  { id: 'user-new', handle: 'new', githubUsername: 'new', name: 'New User', avatarUrl: null, email: 'new@example.test' },
+];
+
+const fakeApp = {
+  id: 'app-1',
+  name: 'Digest',
+  urn: 'hrn:app:acme::digest',
+  organizationId: 'org-1',
+  members: [
+    {
+      appId: 'app-1',
+      userId: 'user-existing',
+      role: 'reader',
+      user: fakeUsers[0],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: null,
+    },
+  ],
+  agent: {
+    id: 'agent-1',
+    name: 'Digest Agent',
+    urn: 'hrn:agent:acme::digest',
+    installationPolicy: { memberRoles: ['reader', 'editor'], maxMembers: '10' },
+  },
+};
+
+beforeEach(() => {
+  mockRequest.mockReset();
+  mockFetchAllItems.mockReset();
+  mockFetchAllItems.mockResolvedValue(fakeUsers);
+});
+
+async function importMod() {
+  return import('./+page.server');
+}
+
+function loadEv(opts: { orgId?: string; appId?: string } = {}) {
+  return {
+    params: { id: opts.orgId ?? 'org-1', appId: opts.appId ?? 'app-1' },
+    locals: { token: 'test-token' },
+    parent: async () => ({}),
+  } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['load']>[0];
+}
+
+function actionEv(fields: Record<string, string>, opts: { orgId?: string; appId?: string } = {}) {
+  const fd = new FormData();
+  for (const [key, value] of Object.entries(fields)) fd.set(key, value);
+  return {
+    params: { id: opts.orgId ?? 'org-1', appId: opts.appId ?? 'app-1' },
+    locals: { token: 'test-token' },
+    request: { formData: async () => fd },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['actions']['add']>[0];
+}
+
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { data?: Record<string, string>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { data?: Record<string, string>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { data?: Record<string, string>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
+}
+
+function fieldError(result: unknown, field: string): string | undefined {
+  return superFormFrom(result)?.errors?.[field]?.[0];
+}
+
+async function runAdd(fields: Record<string, string>) {
+  const { actions } = await importMod();
+  return actions.add(actionEv(fields));
+}
+
+function gqlError(code: string, message = 'GraphQL failed') {
+  return {
+    response: {
+      errors: [{ message, extensions: { code } }],
+    },
+  };
+}
+
+describe('app members load()', () => {
+  it('loads app members and seeds the add form with the first non-member and first role', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ app: fakeApp })
+      .mockResolvedValueOnce({ organization: fakeOrg });
+
+    const { load } = await importMod();
+    const result = await load(loadEv());
+
+    expect(mockRequest).toHaveBeenNthCalledWith(1, APP_WITH_MEMBERS_QUERY, { id: 'app-1' });
+    expect(mockRequest).toHaveBeenNthCalledWith(2, ORGANIZATION_QUERY, { id: 'org-1' });
+    expect(result).toMatchObject({ app: fakeApp, org: fakeOrg, members: fakeApp.members, allUsers: fakeUsers });
+    expect((result as { addForm: { data: Record<string, string>; errors: Record<string, string[]> } }).addForm.data).toMatchObject({
+      userId: 'user-new',
+      role: 'reader',
+    });
+    expect((result as { addForm: { errors: Record<string, string[]> } }).addForm.errors).toEqual({});
+  });
+});
+
+describe('app members add action', () => {
+  it('rejects an empty user before calling the API', async () => {
+    const result = await runAdd({ userId: '', role: 'reader' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'userId')).toBe('User is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects an empty role before calling the API', async () => {
+    const result = await runAdd({ userId: 'user-new', role: '' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'role')).toBe('Role is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('adds the app member with trimmed form data', async () => {
+    mockRequest.mockResolvedValueOnce({ ensureAppMember: { appId: 'app-1', userId: 'user-new', role: 'editor' } });
+
+    const result = await runAdd({ userId: '  user-new  ', role: '  editor  ' });
+
+    expect(superFormFrom(result)?.message).toBe('Member added.');
+    expect(superFormFrom(result)?.valid).toBe(true);
+    expect(mockRequest).toHaveBeenCalledWith(ENSURE_APP_MEMBER_MUTATION, {
+      appId: 'app-1',
+      userId: 'user-new',
+      role: 'editor',
+    });
+  });
+
+  it('returns typed app-member failures as Superforms messages', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('MaxMembersExceededError'));
+
+    const result = await runAdd({ userId: 'user-new', role: 'reader' });
+
+    expect(result).toMatchObject({ status: 409 });
+    expect(superFormFrom(result)?.message).toBe(
+      'This App is at the member limit set by the Agent author. Remove a member or ask the Agent author to raise the cap.',
+    );
+  });
+});
