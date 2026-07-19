@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { enhance } from '$app/forms';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { deriveDefaultLoc } from '$lib/create-node/derive-default-loc';
@@ -8,12 +9,28 @@
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import type { PageData, ActionData } from './$types';
+  import { createNodeSchema } from './schema';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const memory = $derived(data.graph);
   const parentLoc = $derived(data.parentLoc);
   const existingLocs = $derived(data.existingLocs);
+  const initialForm = untrack(() => form?.form ?? data.form);
+  const {
+    form: formData,
+    errors,
+    constraints,
+    message,
+    submitting,
+    enhance,
+  } = superForm(initialForm, {
+    validators: zod4Client(createNodeSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
 
   // #260: org-less memory route. The owning-org crumbs are only included when
   // the user is a member of that org (org present); a non-member contributor
@@ -30,20 +47,17 @@
     { label: 'New node' },
   ]);
 
-  let name = $state('');
   // #320: a command-bar deep-link prefills the full loc; treat it as
   // manually-edited so name-derivation doesn't clobber it. untrack snapshots
   // the seed once (data won't change without a reload).
-  let loc = $state(untrack(() => data.prefillLoc ?? ''));
-  let locManuallyEdited = $state(untrack(() => !!data.prefillLoc));
-  let nodeType = $state<'info' | 'record' | 'system' | 'reference'>('info');
-  let description = $state('');
-  let abstract = $state('');
-  let content = $state('');
+  let locManuallyEdited = $state(untrack(() => !!data.prefillLoc || !!form?.form));
 
   const ABSTRACT_MAX = 2000;
-  let showAdvancedTypes = $state(false);
-  let saving = $state(false);
+  let showAdvancedTypes = $state(untrack(() => initialForm.data.nodeType === 'system' || initialForm.data.nodeType === 'reference'));
+  const nameError = $derived($errors.name?.[0] ?? null);
+  const locError = $derived($errors.loc?.[0] ?? null);
+  const nodeTypeError = $derived($errors.nodeType?.[0] ?? null);
+  const actionError = $derived($message?.type === 'error' ? $message.text : null);
 
   // Auto-derive loc from name until the user manually edits the loc field.
   // Once they do, name changes don't overwrite their choice. The loc field
@@ -51,19 +65,19 @@
   // that maps 1:1 to what gets submitted — no hidden composition.
   $effect(() => {
     if (locManuallyEdited) return;
-    if (!name) {
-      loc = '';
-      return;
-    }
-    const leaf = deriveDefaultLoc(name, parentLoc, existingLocs);
-    loc = parentLoc ? `${parentLoc}:${leaf}` : leaf;
+    const nextLoc = $formData.name
+      ? `${parentLoc ? `${parentLoc}:` : ''}${deriveDefaultLoc($formData.name, parentLoc, existingLocs)}`
+      : '';
+    formData.update((current) => (
+      current.loc === nextLoc ? current : { ...current, loc: nextLoc }
+    ), { taint: false });
   });
 
   // URN preview uses the SAME normalization the server action runs
   // (cleanLocInput) so the preview can't lie about what gets created.
   // Only render when both inputs are populated (R-1/R-2 pattern from
   // spec 010: composeNodeUrn throws on empty inputs).
-  const submittedLoc = $derived(cleanLocInput(loc));
+  const submittedLoc = $derived(cleanLocInput($formData.loc));
   const previewUrn = $derived(
     memory.urn && submittedLoc ? composeNodeUrn(memory.urn, submittedLoc) : '',
   );
@@ -73,7 +87,6 @@
 
   function onLocInput(e: Event) {
     locManuallyEdited = true;
-    loc = (e.target as HTMLInputElement).value;
   }
 
   // Toggling "advanced types" OFF while system/reference is selected
@@ -81,20 +94,10 @@
   // the bound value persists, leading to a hidden submit). Reset to
   // 'info' so the dropdown stays in sync with the visible options.
   $effect(() => {
-    if (!showAdvancedTypes && (nodeType === 'system' || nodeType === 'reference')) {
-      nodeType = 'info';
+    if (!showAdvancedTypes && ($formData.nodeType === 'system' || $formData.nodeType === 'reference')) {
+      formData.update((current) => ({ ...current, nodeType: 'info' }), { taint: false });
     }
   });
-
-  function savingEnhance(formEl: HTMLFormElement) {
-    return enhance(formEl, () => {
-      saving = true;
-      return async ({ update }) => {
-        saving = false;
-        await update();
-      };
-    });
-  }
 </script>
 
 <div class="mx-auto max-w-2xl space-y-4 p-4">
@@ -111,13 +114,13 @@
     {/if}
   </div>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200">
-      {form.error}
+  {#if actionError}
+    <div role="alert" class="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950/50 dark:text-red-200">
+      {actionError}
     </div>
   {/if}
 
-  <form method="POST" use:savingEnhance class="space-y-4">
+  <form method="POST" use:enhance class="space-y-4" novalidate>
     <div>
       <label for="name" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
         {createNodeStrings.fieldName()}
@@ -127,10 +130,16 @@
         name="name"
         type="text"
         required
-        bind:value={name}
-        class={inputClass}
+        bind:value={$formData.name}
+        aria-invalid={!!nameError}
+        aria-describedby={nameError ? 'nameError' : undefined}
+        {...$constraints.name}
+        class="{inputClass} {nameError ? 'border-red-500 focus:border-red-500' : ''}"
         placeholder="e.g. Sort imports"
       />
+      {#if nameError}
+        <p id="nameError" class="mt-1 text-xs text-red-600 dark:text-red-400">{nameError}</p>
+      {/if}
     </div>
 
     <div>
@@ -142,21 +151,35 @@
         name="loc"
         type="text"
         required
-        value={loc}
+        bind:value={$formData.loc}
         oninput={onLocInput}
-        class={inputClass}
+        aria-invalid={!!locError}
+        aria-describedby={locError ? 'locError locHint' : 'locHint'}
+        {...$constraints.loc}
+        class="{inputClass} {locError ? 'border-red-500 focus:border-red-500' : ''}"
         placeholder="e.g. sort-imports"
       />
-      <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+      <p id="locHint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {createNodeStrings.locHint()}
       </p>
+      {#if locError}
+        <p id="locError" class="mt-1 text-xs text-red-600 dark:text-red-400">{locError}</p>
+      {/if}
     </div>
 
     <div>
       <label for="nodeType" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
         {createNodeStrings.fieldNodeType()}
       </label>
-      <select id="nodeType" name="nodeType" bind:value={nodeType} class={inputClass}>
+      <select
+        id="nodeType"
+        name="nodeType"
+        bind:value={$formData.nodeType}
+        aria-invalid={!!nodeTypeError}
+        aria-describedby={nodeTypeError ? 'nodeTypeError' : undefined}
+        {...$constraints.nodeType}
+        class="{inputClass} {nodeTypeError ? 'border-red-500 focus:border-red-500' : ''}"
+      >
         <option value="info">info</option>
         <option value="record">record</option>
         {#if showAdvancedTypes}
@@ -168,30 +191,33 @@
         <input type="checkbox" bind:checked={showAdvancedTypes} class="h-3 w-3" />
         {createNodeStrings.advancedToggle()}
       </label>
+      {#if nodeTypeError}
+        <p id="nodeTypeError" class="mt-1 text-xs text-red-600 dark:text-red-400">{nodeTypeError}</p>
+      {/if}
     </div>
 
     <div>
       <label for="description" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
         {createNodeStrings.fieldDescription()}
       </label>
-      <input id="description" name="description" type="text" bind:value={description} class={inputClass} />
+      <input id="description" name="description" type="text" bind:value={$formData.description} class={inputClass} />
     </div>
 
     <div>
       <label for="abstract" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
         {createNodeStrings.fieldAbstract()}
       </label>
-      <textarea id="abstract" name="abstract" rows="3" bind:value={abstract} maxlength={ABSTRACT_MAX}
+      <textarea id="abstract" name="abstract" rows="3" bind:value={$formData.abstract} maxlength={ABSTRACT_MAX}
         placeholder="Paragraph-length summary — the default source for vector search."
         class={inputClass}></textarea>
-      <p class="mt-1 text-right text-xs {abstract.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-500 dark:text-zinc-400'}">{abstract.length} / {ABSTRACT_MAX}</p>
+      <p class="mt-1 text-right text-xs {$formData.abstract.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-500 dark:text-zinc-400'}">{$formData.abstract.length} / {ABSTRACT_MAX}</p>
     </div>
 
     <div>
       <label for="content" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
         {createNodeStrings.fieldContent()}
       </label>
-      <textarea id="content" name="content" rows="6" bind:value={content} class={inputClass}></textarea>
+      <textarea id="content" name="content" rows="6" bind:value={$formData.content} class={inputClass}></textarea>
     </div>
 
     {#if previewUrn}
@@ -210,10 +236,10 @@
       </a>
       <button
         type="submit"
-        disabled={saving || !name.trim() || !loc.trim()}
+        disabled={$submitting || !$formData.name.trim() || !$formData.loc.trim()}
         class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
       >
-        {saving ? createNodeStrings.submitting() : createNodeStrings.submit()}
+        {$submitting ? createNodeStrings.submitting() : createNodeStrings.submit()}
       </button>
     </div>
   </form>
