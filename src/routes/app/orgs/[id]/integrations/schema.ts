@@ -16,8 +16,6 @@ export const githubInstallationSchema = z.object({
     .trim()
     .min(1, 'Installation ID is required')
     .regex(/^[1-9]\d*$/, 'Installation ID must be a number')
+    .refine((value) => Number(value) <= 2147483647, 'Installation ID is too large')
     .prefault(''),
 });
-
-export type GithubAppCredentialsSchema = typeof githubAppCredentialsSchema;
-export type GithubInstallationSchema = typeof githubInstallationSchema;

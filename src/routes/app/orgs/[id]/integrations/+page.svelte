@@ -46,6 +46,8 @@
   }
 
   let showGithubConfig = $state(false);
+  // Native POST validation should reveal the submitted GitHub panel, but a
+  // later user close should not be forced by us unless another action arrives.
   $effect(() => {
     const kind = actionFormKind(form);
     if (kind === 'updateGithubApp' || kind === 'linkGithub') showGithubConfig = true;
@@ -492,7 +494,7 @@
               {...$githubAppConstraints.appId}
               class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none {githubAppIdError ? 'border-red-500 focus:border-red-500' : ''}" />
             {#if githubAppIdError}
-              <p id="appIdError" class="mt-1 text-xs text-red-600 dark:text-red-400">{githubAppIdError}</p>
+              <p id="appIdError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{githubAppIdError}</p>
             {/if}
           </div>
           <div>
@@ -506,7 +508,7 @@
               class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-xs text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none {githubPrivateKeyError ? 'border-red-500 focus:border-red-500' : ''}"></textarea>
             <p id="privateKeyHint" class="mt-1 text-xs text-zinc-500">Encrypted at rest. Never displayed after saving.</p>
             {#if githubPrivateKeyError}
-              <p id="privateKeyError" class="mt-1 text-xs text-red-600 dark:text-red-400">{githubPrivateKeyError}</p>
+              <p id="privateKeyError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{githubPrivateKeyError}</p>
             {/if}
           </div>
           <button type="submit" disabled={$githubAppSubmitting} class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">
@@ -533,7 +535,7 @@
               {...$githubInstallationConstraints.installationId}
               class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none {githubInstallationError ? 'border-red-500 focus:border-red-500' : ''}" />
             {#if githubInstallationError}
-              <p id="installationIdError" class="mt-1 text-xs text-red-600 dark:text-red-400">{githubInstallationError}</p>
+              <p id="installationIdError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{githubInstallationError}</p>
             {/if}
             {#if githubInstallationActionError}
               <p role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{githubInstallationActionError}</p>

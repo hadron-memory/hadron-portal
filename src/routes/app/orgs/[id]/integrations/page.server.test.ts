@@ -169,6 +169,15 @@ describe('linkGithub action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects installation ids larger than GraphQL Int before linking', async () => {
+    const result = (await runAction('linkGithub', {
+      installationId: '2147483648',
+    })) as { status: number; data: { form: { errors: { installationId?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.installationId?.[0]).toBe('Installation ID is too large');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('returns a typed error when linking fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('not allowed'));
     const result = (await runAction('linkGithub', {
@@ -217,6 +226,21 @@ describe('updateGithubApp action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects updateGithubApp POSTs with the wrong form discriminator and scrubs the key', async () => {
+    const result = (await runAction('updateGithubApp', {
+      _kind: 'linkGithub',
+      appId: '123456',
+      privateKey: 'secret',
+    })) as {
+      status: number;
+      data: { form: { data: { privateKey: string }; errors: { _kind?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.privateKey).toBe('');
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('scrubs the private key when saving credentials fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('bad key'));
     const result = (await runAction('updateGithubApp', {
@@ -229,5 +253,24 @@ describe('updateGithubApp action', () => {
     expect(result.status).toBe(500);
     expect(result.data.form.data.privateKey).toBe('');
     expect(result.data.form.message).toEqual({ type: 'error', text: 'bad key' });
+  });
+
+  it('redacts the private key if a credential save error echoes it', async () => {
+    mockRequest.mockRejectedValueOnce(
+      new Error('Invalid PEM: secret was rejected'),
+    );
+    const result = (await runAction('updateGithubApp', {
+      appId: '123456',
+      privateKey: 'secret',
+    })) as {
+      status: number;
+      data: { form: { data: { privateKey: string }; message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.data.privateKey).toBe('');
+    expect(result.data.form.message).toEqual({
+      type: 'error',
+      text: 'Invalid PEM: [redacted] was rejected',
+    });
   });
 });

@@ -32,6 +32,14 @@ function scrubPrivateKey<T extends { data: { privateKey: string } }>(form: T): T
   return form;
 }
 
+function redactSensitiveErrorText(e: unknown, fallback: string, sensitiveValues: string[]): string {
+  let text = extractGqlError(e, fallback);
+  for (const value of sensitiveValues) {
+    if (value) text = text.split(value).join('[redacted]');
+  }
+  return text;
+}
+
 // #336: Integrations tab — GitHub App + Microsoft Exchange + AI service configs,
 // previously split across the org dashboard (GitHub/Exchange) and the
 // /ai-configs route (which now redirects here).
@@ -106,9 +114,12 @@ export const actions: Actions = {
         text: t('org.integrations.github.credentialsSaved', 'GitHub App credentials saved.'),
       });
     } catch (e: unknown) {
+      const errorText = redactSensitiveErrorText(e, 'Failed to save GitHub App credentials', [
+        form.data.privateKey,
+      ]);
       return message(
         scrubPrivateKey(form),
-        { type: 'error', text: extractGqlError(e, 'Failed to save GitHub App credentials') },
+        { type: 'error', text: errorText },
         { status: 500 },
       );
     }
