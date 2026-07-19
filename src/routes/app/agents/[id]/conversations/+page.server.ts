@@ -7,7 +7,6 @@ import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
-import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
 import {
   buildConversationEdgeDetails,
   conversationEdgeInputsFromNodes,
@@ -25,6 +24,10 @@ import {
   conversationGoalsSchema,
   linesToGoalList,
 } from '$lib/flow/conversation-goals-form';
+import {
+  conversationPromptDefaults,
+  conversationPromptSchema,
+} from '$lib/flow/conversation-prompt-form';
 import {
   conversationStageExtractionDefaults,
   conversationStageExtractionSchema,
@@ -45,6 +48,7 @@ type AddEdgeForm = Infer<typeof addEdgeSchema, 'zod4'>;
 type AddStageForm = Infer<typeof addStageSchema, 'zod4'>;
 type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
 type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
+type ConversationPromptForm = Infer<typeof conversationPromptSchema, 'zod4'>;
 type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
 
 const addConversationFormAdapter = zod4(addConversationSchema);
@@ -52,6 +56,7 @@ const addEdgeFormAdapter = zod4(addEdgeSchema);
 const addStageFormAdapter = zod4(addStageSchema);
 const conversationEdgePanelFormAdapter = zod4(conversationEdgePanelSchema);
 const conversationGoalsFormAdapter = zod4(conversationGoalsSchema);
+const conversationPromptFormAdapter = zod4(conversationPromptSchema);
 const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionSchema);
 
 // cor:api:090 — scope to the agent's system memory. findNodes hides
@@ -118,6 +123,24 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // Prompts feed the stage panel's editor and the shared-partials section;
   // the canvas view-model derives everything else from systemNodes client-side.
   const prompts = systemNodes.filter((n) => n.loc.startsWith('prompts:'));
+  const promptByLoc = new Map(prompts.map((prompt) => [prompt.loc, prompt]));
+  const promptFormLocs = new Set(prompts.map((prompt) => prompt.loc));
+  for (const stage of systemNodes.filter((n) => isStageLoc(n.loc))) {
+    const data = (stage.data as Record<string, unknown>) ?? {};
+    if (typeof data.promptRef === 'string' && data.promptRef) promptFormLocs.add(data.promptRef);
+  }
+  const promptForms = Object.fromEntries(
+    await Promise.all(
+      Array.from(promptFormLocs).map(async (promptLoc) => [
+        promptLoc,
+        await superValidate<ConversationPromptForm>(
+          conversationPromptDefaults({ loc: promptLoc, content: promptByLoc.get(promptLoc)?.content ?? '' }, systemMemoryId),
+          conversationPromptFormAdapter,
+          { errors: false },
+        ),
+      ]),
+    ),
+  );
   const addConversationForm = await superValidate<AddConversationForm>(
     { systemMemoryId, name: '' },
     addConversationFormAdapter,
@@ -201,6 +224,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     systemNodes,
     addConversationForm,
     addStageForms,
+    promptForms,
     edgeForms,
     stageExtractionForms,
     conversationGoalForms,
@@ -337,11 +361,16 @@ export const actions: Actions = {
   },
 
   updatePrompt: async ({ request, locals }) => {
-    const fd = await request.formData();
+    const form = await superValidate<ConversationPromptForm>(
+      await request.formData(),
+      conversationPromptFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     const client = gqlClient(locals.token);
-    const systemMemoryId = String(fd.get('systemMemoryId') ?? '');
-    const loc = String(fd.get('loc') ?? '');
-    const content = String(fd.get('content') ?? '');
+    const systemMemoryId = form.data.systemMemoryId;
+    const loc = form.data.loc;
+    const content = form.data.content;
 
     try {
       // A stage's promptRef can dangle (the editor opens with empty content
@@ -367,8 +396,22 @@ export const actions: Actions = {
           }});
         }
       }
+      return message(form, {
+        type: 'success',
+        text: t('conversation.prompt.saved', 'Prompt saved.'),
+      });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
+      return message(
+        form,
+        {
+          type: 'error',
+          text: userFacingErrorMessage(
+            e,
+            t('conversation.prompt.updateFailed', 'Failed to update prompt'),
+          ),
+        },
+        { status: 500 },
+      );
     }
   },
 

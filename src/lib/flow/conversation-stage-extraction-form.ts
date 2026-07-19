@@ -16,6 +16,9 @@ const extractionSpecField = z.string().default('[]').superRefine((value, ctx) =>
 });
 
 export const conversationStageExtractionSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('updateExtractionSpec').default('updateExtractionSpec'),
   systemMemoryId: z.string().trim().min(1, 'Missing system memory id').prefault(''),
   stageLoc: z.string().trim().min(1, 'Missing stage loc').prefault(''),
   extractionSpec: extractionSpecField,
@@ -28,6 +31,7 @@ export function conversationStageExtractionDefaults(stage: {
   extractionSpec: unknown[];
 }, systemMemoryId: string) {
   return {
+    _kind: 'updateExtractionSpec' as const,
     systemMemoryId,
     stageLoc: stage.loc,
     extractionSpec: JSON.stringify(stage.extractionSpec, null, 2),

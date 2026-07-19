@@ -19,9 +19,11 @@
   import { addStageSchema } from '$lib/flow/conversation-add-stage-form';
   import { conversationEdgePanelSchema } from '$lib/flow/conversation-edge-panel-form';
   import { conversationGoalsSchema } from '$lib/flow/conversation-goals-form';
+  import { conversationPromptSchema } from '$lib/flow/conversation-prompt-form';
   import { conversationStageExtractionSchema } from '$lib/flow/conversation-stage-extraction-form';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
+  import PartialPromptForm from './PartialPromptForm.svelte';
   import { addConversationSchema, addEdgeSchema } from './schema';
 
   type AddConversationForm = Infer<typeof addConversationSchema, 'zod4'>;
@@ -29,6 +31,7 @@
   type AddStageForm = Infer<typeof addStageSchema, 'zod4'>;
   type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
   type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
+  type ConversationPromptForm = Infer<typeof conversationPromptSchema, 'zod4'>;
   type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
   type AddConversationActionResult = {
     form?: SuperValidated<AddConversationForm, App.Superforms.Message, AddConversationForm>;
@@ -47,6 +50,9 @@
   } | null;
   type UpdateGoalsActionResult = {
     form?: SuperValidated<ConversationGoalsForm, App.Superforms.Message, ConversationGoalsForm>;
+  } | null;
+  type UpdatePromptActionResult = {
+    form?: SuperValidated<ConversationPromptForm, App.Superforms.Message, ConversationPromptForm>;
   } | null;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -259,9 +265,7 @@
   const addConversationActionForm = $derived.by(() => {
     const actionForm = (form as AddConversationActionResult)?.form ?? null;
     if (!formIsLive || !actionForm) return null;
-    return 'systemMemoryId' in actionForm.data && 'name' in actionForm.data && !('edgeId' in actionForm.data)
-      ? actionForm
-      : null;
+    return actionForm.data._kind === 'addConversation' ? actionForm : null;
   });
   const initialAddConversationForm = untrack(() => addConversationActionForm ?? data.addConversationForm);
   const {
@@ -292,16 +296,12 @@
   const addStageForm = $derived.by(() => {
     const actionForm = (form as AddStageActionResult)?.form ?? null;
     if (!formIsLive || !actionForm) return null;
-    return 'conversationLoc' in actionForm.data && 'stageName' in actionForm.data
-      ? actionForm
-      : null;
+    return actionForm.data._kind === 'addStage' ? actionForm : null;
   });
   const addEdgeForm = $derived.by(() => {
     const actionForm = (form as AddEdgeActionResult)?.form ?? null;
     if (!formIsLive || !actionForm) return null;
-    return 'sourceNodeId' in actionForm.data && 'targetNodeId' in actionForm.data
-      ? actionForm
-      : null;
+    return actionForm.data._kind === 'addEdge' ? actionForm : null;
   });
   const addEdgeError = $derived.by(() => {
     if (!addEdgeForm) return null;
@@ -319,7 +319,7 @@
   });
   const updateForm = $derived.by(() => {
     const actionForm = (form as UpdateEdgeActionResult)?.form ?? null;
-    return actionForm && 'edgeId' in actionForm.data ? actionForm : null;
+    return actionForm?.data._kind === 'updateEdge' ? actionForm : null;
   });
   const edgePanelSaved = $derived.by(() => {
     if (!formIsLive || !updateForm) return false;
@@ -339,7 +339,7 @@
   });
   const extractionForm = $derived.by(() => {
     const actionForm = (form as UpdateExtractionSpecActionResult)?.form ?? null;
-    return actionForm && 'stageLoc' in actionForm.data ? actionForm : null;
+    return actionForm?.data._kind === 'updateExtractionSpec' ? actionForm : null;
   });
   const stageExtractionSaved = $derived.by(() => {
     if (!formIsLive || !extractionForm) return null;
@@ -361,9 +361,32 @@
       ? extractionForm
       : data.stageExtractionForms[selectedStage.id];
   });
+  const promptForm = $derived.by(() => {
+    const actionForm = (form as UpdatePromptActionResult)?.form ?? null;
+    if (!formIsLive || !actionForm) return null;
+    return actionForm.data._kind === 'updatePrompt' ? actionForm : null;
+  });
+  const stagePromptSaved = $derived.by(() => {
+    if (!formIsLive || !promptForm) return null;
+    return promptForm.message?.type === 'success' && promptForm.data?.loc === selectedStage?.promptRef
+      ? promptForm.message.text
+      : null;
+  });
+  const stagePromptError = $derived.by(() => {
+    if (!formIsLive || !promptForm) return null;
+    return promptForm.message?.type === 'error' && promptForm.data?.loc === selectedStage?.promptRef
+      ? promptForm.message.text
+      : null;
+  });
+  const selectedStagePromptForm = $derived.by(() => {
+    if (!selectedStage?.promptRef) return null;
+    return formIsLive && promptForm?.data?.loc === selectedStage.promptRef
+      ? promptForm
+      : (data.promptForms[selectedStage.promptRef] ?? null);
+  });
   const goalsForm = $derived.by(() => {
     const actionForm = (form as UpdateGoalsActionResult)?.form ?? null;
-    return actionForm && 'convLoc' in actionForm.data ? actionForm : null;
+    return actionForm?.data._kind === 'updateGoals' ? actionForm : null;
   });
   const conversationGoalsSaved = $derived.by(() => {
     if (!formIsLive || !goalsForm) return null;
@@ -458,7 +481,9 @@
 
   const partials = $derived(data.prompts.filter((p) => p.loc.startsWith('prompts:partials:')));
   let editingPartial = $state<string | null>(null);
-  let partialContents = $state<Record<string, string>>({});
+  function partialPromptFormFor(loc: string) {
+    return formIsLive && promptForm?.data?.loc === loc ? promptForm : data.promptForms[loc];
+  }
 </script>
 
 <svelte:head><title>Conversations · {agent.name} · Hadron</title></svelte:head>
@@ -647,6 +672,9 @@
       {#key selectedStage.id}
         <ConversationStagePanel
           stage={selectedStage}
+          promptForm={selectedStagePromptForm}
+          promptSaved={stagePromptSaved}
+          promptError={stagePromptError}
           extractionForm={selectedStageExtractionForm}
           extractionSaved={stageExtractionSaved}
           extractionError={stageExtractionError}
@@ -708,28 +736,21 @@
       </h2>
       <div class="space-y-2">
         {#each partials as partial (partial.id)}
+          {@const partialForm = partialPromptFormFor(partial.loc)}
           <div class="rounded border border-zinc-200 px-3 py-2 dark:border-zinc-800">
             <div class="flex items-center justify-between">
               <span class="font-mono text-xs text-zinc-600 dark:text-zinc-400">{partial.loc}</span>
-              <button onclick={() => { partialContents[partial.loc] = partial.content ?? ''; editingPartial = partial.loc; }}
+              <button onclick={() => { editingPartial = partial.loc; }}
                 class="text-xs text-indigo-500 hover:underline">
                 {t('conversation.editor.partials.edit', 'Edit')}
               </button>
             </div>
-            {#if editingPartial === partial.loc}
-              <form method="POST" action="?/updatePrompt" use:enhance={() => { return async ({ update }) => { editingPartial = null; await update(); }; }} class="mt-2">
-                <input type="hidden" name="systemMemoryId" value={data.systemMemoryId} />
-                <input type="hidden" name="loc" value={partial.loc} />
-                <textarea name="content" bind:value={partialContents[partial.loc]} rows="5" class="{inputClass} font-mono text-xs"></textarea>
-                <div class="mt-2 flex gap-2">
-                  <button type="submit" class="rounded px-3 py-1.5 text-xs font-medium text-white" style="background: #fb8500;">
-                    {t('conversation.editor.partials.save', 'Save')}
-                  </button>
-                  <button type="button" onclick={() => editingPartial = null} class="text-xs text-zinc-500">
-                    {t('conversation.editor.partials.cancel', 'Cancel')}
-                  </button>
-                </div>
-              </form>
+            {#if editingPartial === partial.loc && partialForm}
+              <PartialPromptForm
+                form={partialForm}
+                onCancel={() => editingPartial = null}
+                onSaved={() => editingPartial = null}
+              />
             {:else if partial.content}
               <pre class="mt-1 max-h-16 overflow-y-auto text-xs text-zinc-500">{partial.content.slice(0, 200)}{(partial.content?.length ?? 0) > 200 ? '...' : ''}</pre>
             {/if}

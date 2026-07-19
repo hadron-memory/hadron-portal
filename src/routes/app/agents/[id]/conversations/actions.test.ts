@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 
 async function runAction(
-  name: 'addConversation' | 'addStage' | 'updateEdge' | 'updateExtractionSpec' | 'updateGoals' | 'addEdge' | 'savePosition',
+  name: 'addConversation' | 'addStage' | 'updateEdge' | 'updateExtractionSpec' | 'updateGoals' | 'updatePrompt' | 'addEdge' | 'savePosition',
   fields: Record<string, string>,
 ) {
   const { actions } = await import('./+page.server');
@@ -225,6 +225,95 @@ describe('addStage', () => {
     expect(result.data.form.message).toEqual({
       type: 'error',
       text: 'Failed to add stage',
+    });
+  });
+});
+
+describe('updatePrompt', () => {
+  it('updates an existing prompt and returns a typed success', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('updatePrompt', {
+      systemMemoryId: 'mem-1',
+      loc: 'prompts:demo:start',
+      content: 'Updated prompt',
+    });
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'updatePrompt', loc: 'prompts:demo:start', content: 'Updated prompt' },
+        message: { type: 'success', text: 'Prompt saved.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0][1]).toEqual({
+      input: {
+        memoryId: 'mem-1',
+        loc: 'prompts:demo:start',
+        content: 'Updated prompt',
+      },
+    });
+  });
+
+  it('creates a missing prompt when update reports NODE_NOT_FOUND', async () => {
+    mockRequest
+      .mockRejectedValueOnce(gqlError('NODE_NOT_FOUND'))
+      .mockResolvedValueOnce({});
+    const result = await runAction('updatePrompt', {
+      systemMemoryId: 'mem-1',
+      loc: 'prompts:demo:start',
+      content: 'Created prompt',
+    });
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        message: { type: 'success', text: 'Prompt saved.' },
+      },
+    });
+    expect(mockRequest.mock.calls[1][1]).toEqual({
+      input: {
+        memoryId: 'mem-1',
+        loc: 'prompts:demo:start',
+        name: 'start',
+        nodeType: 'system',
+        content: 'Created prompt',
+      },
+    });
+  });
+
+  it('rejects missing prompt locs before any mutation', async () => {
+    const result = (await runAction('updatePrompt', {
+      systemMemoryId: 'mem-1',
+      content: 'Updated prompt',
+    })) as { status: number; data: { form: { data: { loc: string }; errors: { loc?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.loc).toBe('');
+    expect(result.data.form.errors.loc?.[0]).toBe('Missing prompt loc');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects updatePrompt POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('updatePrompt', {
+      _kind: 'addStage',
+      systemMemoryId: 'mem-1',
+      loc: 'prompts:demo:start',
+      content: 'Updated prompt',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed fallback error when prompt update fails', async () => {
+    mockRequest.mockRejectedValueOnce({});
+    const result = (await runAction('updatePrompt', {
+      systemMemoryId: 'mem-1',
+      loc: 'prompts:demo:start',
+      content: 'Updated prompt',
+    })) as { status: number; data: { form: { data: { loc: string }; message: { type: string; text: string } } } };
+    expect(result.status).toBe(500);
+    expect(result.data.form.data.loc).toBe('prompts:demo:start');
+    expect(result.data.form.message).toEqual({
+      type: 'error',
+      text: 'Failed to update prompt',
     });
   });
 });
@@ -536,7 +625,7 @@ describe('load', () => {
               loc: 'conversations:demo:start',
               name: 'start',
               description: 'Start',
-              data: {},
+              data: { promptRef: 'prompts:demo:start' },
               outgoingEdges: [
                 {
                   id: 'e1',
@@ -564,6 +653,7 @@ describe('load', () => {
               loc: 'prompts:demo:start',
               name: 'start',
               description: 'Start prompt',
+              content: 'Start content',
               data: {},
               outgoingEdges: [],
             },
@@ -575,7 +665,7 @@ describe('load', () => {
               loc: 'conversations:demo:end',
               name: 'end',
               description: 'End',
-              data: {},
+              data: { promptRef: 'prompts:demo:end' },
               outgoingEdges: [],
             },
           },
@@ -584,22 +674,37 @@ describe('load', () => {
     });
 
     const result = (await runLoad()) as {
-      addConversationForm: { data: { systemMemoryId: string; name: string } };
-      addStageForms: Record<string, { data: { systemMemoryId: string; conversationLoc: string; stageName: string } }>;
-      edgeForms: Record<string, { data: { edgeId: string; name: string; priority: string; condition: string; data: string } }>;
-      conversationGoalForms: Record<string, { data: { systemMemoryId: string; convLoc: string; goalDescriptionsText: string; goalSignalsText: string } }>;
-      stageExtractionForms: Record<string, { data: { systemMemoryId: string; stageLoc: string; extractionSpec: string } }>;
+      addConversationForm: { data: { _kind: string; systemMemoryId: string; name: string } };
+      addStageForms: Record<string, { data: { _kind: string; systemMemoryId: string; conversationLoc: string; stageName: string } }>;
+      promptForms: Record<string, { data: { _kind: string; systemMemoryId: string; loc: string; content: string } }>;
+      edgeForms: Record<string, { data: { _kind: string; edgeId: string; name: string; priority: string; condition: string; data: string } }>;
+      conversationGoalForms: Record<string, { data: { _kind: string; systemMemoryId: string; convLoc: string; goalDescriptionsText: string; goalSignalsText: string } }>;
+      stageExtractionForms: Record<string, { data: { _kind: string; systemMemoryId: string; stageLoc: string; extractionSpec: string } }>;
     };
 
-    expect(result.addConversationForm.data).toMatchObject({ systemMemoryId: 'mem-1', name: '' });
+    expect(result.addConversationForm.data).toMatchObject({ _kind: 'addConversation', systemMemoryId: 'mem-1', name: '' });
     expect(result.addStageForms['conv-1'].data).toMatchObject({
+      _kind: 'addStage',
       systemMemoryId: 'mem-1',
       conversationLoc: 'conversations:demo',
       stageName: '',
     });
     expect(result.addStageForms['prompt-1']).toBeUndefined();
+    expect(result.promptForms['prompts:demo:start'].data).toMatchObject({
+      _kind: 'updatePrompt',
+      systemMemoryId: 'mem-1',
+      loc: 'prompts:demo:start',
+      content: 'Start content',
+    });
+    expect(result.promptForms['prompts:demo:end'].data).toMatchObject({
+      _kind: 'updatePrompt',
+      systemMemoryId: 'mem-1',
+      loc: 'prompts:demo:end',
+      content: '',
+    });
     expect(Object.keys(result.edgeForms)).toEqual(['e1', 'e2']);
     expect(result.edgeForms.e1.data).toMatchObject({
+      _kind: 'updateEdge',
       edgeId: 'e1',
       name: 'needs profile',
       priority: '2',
@@ -621,6 +726,7 @@ describe('load', () => {
       behavior: 'transition',
     });
     expect(result.stageExtractionForms.n1.data).toMatchObject({
+      _kind: 'updateExtractionSpec',
       systemMemoryId: 'mem-1',
       stageLoc: 'conversations:demo:start',
       extractionSpec: '[]',
@@ -632,6 +738,7 @@ describe('load', () => {
     });
     expect(result.stageExtractionForms['prompt-1']).toBeUndefined();
     expect(result.conversationGoalForms['conv-1'].data).toMatchObject({
+      _kind: 'updateGoals',
       systemMemoryId: 'mem-1',
       convLoc: 'conversations:demo',
       goalDescriptionsText: 'Find a mentor',

@@ -16,7 +16,12 @@ const dataField = z.string().default('{}').superRefine((value, ctx) => {
 
 // Conversation routing-rule panel schema lives with the flow helpers because it
 // extends the shared edge panel fields and adds conversation-specific edge data.
-export const conversationEdgePanelSchema = flowEdgePanelSchema.extend({ data: dataField });
+export const conversationEdgePanelSchema = flowEdgePanelSchema.extend({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('updateEdge').default('updateEdge'),
+  data: dataField,
+});
 
 export type ConversationEdgePanelSchema = typeof conversationEdgePanelSchema;
 
@@ -31,6 +36,7 @@ export function conversationEdgePanelDefaults(edge: {
 }) {
   return {
     ...flowEdgePanelDefaults(edge),
+    _kind: 'updateEdge' as const,
     data: JSON.stringify({
       ...edge.data,
       timing: edge.timing ?? 'on_complete',
