@@ -3,13 +3,33 @@
   // merge-node (#395) at the memory level. Reuses the command-page framework's
   // multiselect (include strategy) + checkbox (deleteSourceMem) kinds.
   import { untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import CommandForm from '$lib/components/commands/CommandForm.svelte';
   import type { CommandField, CommandFieldValue } from '$lib/components/commands/command-field';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import type { ActionData, PageData } from './$types';
+  import { mergeMemorySchema } from './schema';
+
+  type MergeMemoryForm = Infer<typeof mergeMemorySchema, 'zod4'>;
+  type MergeMemorySuperform = SuperValidated<MergeMemoryForm, App.Superforms.Message, MergeMemoryForm>;
 
   let { form, data }: { form: ActionData; data: PageData } = $props();
+  const initialForm = untrack(() => (form?.form ?? data.form) as MergeMemorySuperform);
+  const {
+    form: commandForm,
+    errors: commandErrors,
+    message: commandMessage,
+    submitting: commandSubmitting,
+    enhance: commandEnhance,
+  } = superForm<MergeMemoryForm, App.Superforms.Message, MergeMemoryForm>(initialForm, {
+    validators: zod4Client(mergeMemorySchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
 
   // Per-field fold strategy for colliding-loc nodes (hadron-server NodeMergeField).
   const MERGE_FIELD_OPTIONS = [
@@ -25,10 +45,11 @@
   // Seed once at mount (see access-check for the untrack rationale).
   let values = $state<Record<string, CommandFieldValue>>(
     untrack(() => ({
-      source: form?.source ?? data.prefill.source,
-      target: form?.target ?? data.prefill.target,
-      include: form?.include ?? MERGE_FIELD_OPTIONS.map((o) => o.value),
-      deleteSourceMem: form?.deleteSourceMem ?? false,
+      _kind: $commandForm._kind,
+      source: $commandForm.source ?? data.prefill.source,
+      target: $commandForm.target ?? data.prefill.target,
+      include: $commandForm.include ?? data.prefill.include,
+      deleteSourceMem: $commandForm.deleteSourceMem ?? data.prefill.deleteSourceMem,
     })),
   );
 
@@ -65,19 +86,27 @@
   ];
 
   const result = $derived(form && 'result' in form ? form.result : null);
-  const error = $derived(form && 'error' in form ? form.error : null);
+  const error = $derived($commandMessage?.type === 'error' ? $commandMessage.text : null);
 </script>
 
-<CommandForm {fields} bind:values action="?/run" submitLabel={t('commands.merge-memory.submit', 'Merge memory')} />
+<CommandForm
+  {fields}
+  bind:values
+  action="?/run"
+  submitLabel={t('commands.merge-memory.submit', 'Merge memory')}
+  enhanceAction={commandEnhance}
+  errors={$commandErrors}
+  busy={$commandSubmitting}
+/>
 
 {#if error}
-  <div class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+  <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
     {error}
   </div>
 {/if}
 
 {#if result}
-  <section class="space-y-2 rounded-xl border border-green-300 bg-green-50 p-5 dark:border-green-800 dark:bg-green-950">
+  <section role="status" class="space-y-2 rounded-xl border border-green-300 bg-green-50 p-5 dark:border-green-800 dark:bg-green-950">
     <p class="text-sm text-green-800 dark:text-green-300">
       {t('commands.merge-memory.result.merged-into', 'Merged into')} <span class="font-medium">{result.name}</span>.
     </p>

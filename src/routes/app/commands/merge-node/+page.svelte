@@ -3,12 +3,32 @@
   // the command-page framework, exercising the multiselect (include) + checkbox
   // (deleteSource) field kinds. Renders a link to the surviving target node.
   import { untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import CommandForm from '$lib/components/commands/CommandForm.svelte';
   import type { CommandField, CommandFieldValue } from '$lib/components/commands/command-field';
   import { t } from '$lib/i18n/t';
   import type { ActionData, PageData } from './$types';
+  import { mergeNodeSchema } from './schema';
+
+  type MergeNodeForm = Infer<typeof mergeNodeSchema, 'zod4'>;
+  type MergeNodeSuperform = SuperValidated<MergeNodeForm, App.Superforms.Message, MergeNodeForm>;
 
   let { form, data }: { form: ActionData; data: PageData } = $props();
+  const initialForm = untrack(() => (form?.form ?? data.form) as MergeNodeSuperform);
+  const {
+    form: commandForm,
+    errors: commandErrors,
+    message: commandMessage,
+    submitting: commandSubmitting,
+    enhance: commandEnhance,
+  } = superForm<MergeNodeForm, App.Superforms.Message, MergeNodeForm>(initialForm, {
+    validators: zod4Client(mergeNodeSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
 
   // The foldable fields (hadron-server NodeMergeField), with friendly labels.
   const MERGE_FIELD_OPTIONS = [
@@ -26,10 +46,11 @@
   // submit it reflects the echoed selection.
   let values = $state<Record<string, CommandFieldValue>>(
     untrack(() => ({
-      source: form?.source ?? data.prefill.source,
-      target: form?.target ?? data.prefill.target,
-      include: form?.include ?? MERGE_FIELD_OPTIONS.map((o) => o.value),
-      deleteSource: form?.deleteSource ?? false,
+      _kind: $commandForm._kind,
+      source: $commandForm.source ?? data.prefill.source,
+      target: $commandForm.target ?? data.prefill.target,
+      include: $commandForm.include ?? data.prefill.include,
+      deleteSource: $commandForm.deleteSource ?? data.prefill.deleteSource,
     })),
   );
 
@@ -66,19 +87,27 @@
   ];
 
   const result = $derived(form && 'result' in form ? form.result : null);
-  const error = $derived(form && 'error' in form ? form.error : null);
+  const error = $derived($commandMessage?.type === 'error' ? $commandMessage.text : null);
 </script>
 
-<CommandForm {fields} bind:values action="?/run" submitLabel={t('commands.merge-node.submit', 'Merge node')} />
+<CommandForm
+  {fields}
+  bind:values
+  action="?/run"
+  submitLabel={t('commands.merge-node.submit', 'Merge node')}
+  enhanceAction={commandEnhance}
+  errors={$commandErrors}
+  busy={$commandSubmitting}
+/>
 
 {#if error}
-  <div class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+  <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
     {error}
   </div>
 {/if}
 
 {#if result}
-  <section class="space-y-2 rounded-xl border border-green-300 bg-green-50 p-5 dark:border-green-800 dark:bg-green-950">
+  <section role="status" class="space-y-2 rounded-xl border border-green-300 bg-green-50 p-5 dark:border-green-800 dark:bg-green-950">
     <p class="text-sm text-green-800 dark:text-green-300">
       {t('commands.merge-node.result.merged-into', 'Merged into')} <span class="font-medium">{result.name || result.loc}</span>.
     </p>
