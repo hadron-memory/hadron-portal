@@ -44,6 +44,7 @@
   });
   const nameError = $derived($installErrors.name?.[0] ?? null);
   const urnError = $derived($installErrors.urn?.[0] ?? null);
+  const appTypeError = $derived($installErrors.appType?.[0] ?? null);
   const installActionError = $derived($installMessage?.type === 'error' ? $installMessage.text : null);
 
   const inputClass =
@@ -142,7 +143,9 @@
           id="appType"
           name="appType"
           bind:value={$installForm.appType}
-          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+          aria-invalid={!!appTypeError}
+          aria-describedby={appTypeError ? 'installAppTypeError installAppTypeHelp' : 'installAppTypeHelp'}
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white {appTypeError ? 'border-red-500 focus:border-red-500' : ''}"
         >
           <option value="WORKSTATION">💻 Workstation</option>
           <option value="CHATBOT">💬 Chatbot</option>
@@ -151,9 +154,12 @@
           <option value="CLOUD">☁️ Cloud</option>
           <option value="IOT">📡 IoT</option>
         </select>
-        <p class="mt-1 text-xs text-zinc-400">
+        <p id="installAppTypeHelp" class="mt-1 text-xs text-zinc-400">
           {t('install.field.appType.help', 'Surface the App targets — affects which UX flows apply.')}
         </p>
+        {#if appTypeError}
+          <p id="installAppTypeError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{appTypeError}</p>
+        {/if}
       </div>
 
       <!-- 009-install-agent-flow FR-012: install form intentionally omits AI
