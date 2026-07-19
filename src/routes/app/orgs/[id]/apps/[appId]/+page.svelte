@@ -3,6 +3,8 @@
   import { goto } from '$app/navigation';
   import { env } from '$env/dynamic/public';
   import { untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -14,6 +16,14 @@
   import { t } from '$lib/i18n/t.js';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import type { PageData, ActionData } from './$types';
+  import { addAgentSchema, appSettingsSchema, createAppKeySchema } from './schema';
+
+  type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
+  type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
+  type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
+  type AddAgentSuperform = SuperValidated<AddAgentForm, App.Superforms.Message, AddAgentForm>;
+  type AppSettingsSuperform = SuperValidated<AppSettingsForm, App.Superforms.Message, AppSettingsForm>;
+  type CreateAppKeySuperform = SuperValidated<CreateAppKeyForm, App.Superforms.Message, CreateAppKeyForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
@@ -76,18 +86,98 @@
   }
 
   // ── Settings edit state ──────────────────────────────────────────────
-  const initialApp = untrack(() => app);
   let editMode = $state(false);
-  let name = $state(initialApp.name);
-  let appSlug = $state(slugOfUrn(initialApp.urn));
-  let appType = $state(initialApp.appType);
-  let role = $state(initialApp.role);
-  let description = $state(initialApp.description ?? '');
-  let systemPrompt = $state(initialApp.systemPrompt ?? '');
-  let createUserPermission = $state(initialApp.createUserPermission);
-  let identifyUserMethod = $state(initialApp.identifyUserMethod);
-  let sessionTimeoutSeconds = $state(initialApp.sessionTimeoutSeconds);
-  let anonymousTtlDays = $state(initialApp.anonymousTtlDays);
+
+  function actionFormKind(actionData: ActionData): string | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    const candidateData = candidate?.data;
+    return candidateData && typeof candidateData === 'object' && '_kind' in candidateData
+      ? String(candidateData._kind)
+      : null;
+  }
+
+  function submittedAppSettings(actionData: ActionData): AppSettingsSuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    return actionFormKind(actionData) === 'updateApp'
+      ? (candidate as AppSettingsSuperform)
+      : null;
+  }
+
+  function submittedAddAgent(actionData: ActionData): AddAgentSuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    return actionFormKind(actionData) === 'addAgent'
+      ? (candidate as AddAgentSuperform)
+      : null;
+  }
+
+  function submittedCreateKey(actionData: ActionData): CreateAppKeySuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    return actionFormKind(actionData) === 'createKey'
+      ? (candidate as CreateAppKeySuperform)
+      : null;
+  }
+
+  const initialAppSettingsForm = untrack(() => submittedAppSettings(form) ?? data.appSettingsForm);
+  const {
+    form: appSettingsForm,
+    errors: appSettingsErrors,
+    constraints: appSettingsConstraints,
+    message: appSettingsMessage,
+    submitting: appSettingsSubmitting,
+    enhance: appSettingsEnhance,
+  } = superForm<AppSettingsForm, App.Superforms.Message, AppSettingsForm>(initialAppSettingsForm, {
+    validators: zod4Client(appSettingsSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: ({ form }) => {
+      if (form.valid) editMode = false;
+    },
+  });
+
+  const initialAddAgentForm = untrack(() => submittedAddAgent(form) ?? data.addAgentForm);
+  const {
+    form: addAgentForm,
+    errors: addAgentErrors,
+    message: addAgentMessage,
+    submitting: addAgentSubmitting,
+    enhance: addAgentEnhance,
+  } = superForm<AddAgentForm, App.Superforms.Message, AddAgentForm>(initialAddAgentForm, {
+    validators: zod4Client(addAgentSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  const initialCreateKeyForm = untrack(() => submittedCreateKey(form) ?? data.createKeyForm);
+  const {
+    form: createKeyForm,
+    message: createKeyMessage,
+    submitting: createKeySubmitting,
+    enhance: createKeyEnhance,
+  } = superForm<CreateAppKeyForm, App.Superforms.Message, CreateAppKeyForm>(initialCreateKeyForm, {
+    validators: zod4Client(createAppKeySchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: ({ form }) => {
+      if (form.valid && form.message?.type !== 'error') createKeyForm.update((current) => ({ ...current, label: '' }), { taint: false });
+    },
+  });
+
+  const settingsNameError = $derived($appSettingsErrors.name?.[0] ?? null);
+  const settingsUrnError = $derived($appSettingsErrors.urn?.[0] ?? null);
+  const settingsSessionTimeoutError = $derived($appSettingsErrors.sessionTimeoutSeconds?.[0] ?? null);
+  const settingsAnonymousTtlError = $derived($appSettingsErrors.anonymousTtlDays?.[0] ?? null);
+  const settingsActionError = $derived($appSettingsMessage?.type === 'error' ? $appSettingsMessage.text : null);
+  const settingsActionSuccess = $derived($appSettingsMessage?.type === 'success' ? $appSettingsMessage.text : null);
+  const addAgentError = $derived($addAgentErrors.agentId?.[0] ?? null);
+  const addAgentActionError = $derived($addAgentMessage?.type === 'error' ? $addAgentMessage.text : null);
+  const addAgentActionSuccess = $derived($addAgentMessage?.type === 'success' ? $addAgentMessage.text : null);
+  const createKeyActionError = $derived($createKeyMessage?.type === 'error' ? $createKeyMessage.text : null);
 
   // The edit fields are $state snapshots seeded once at mount, so after a save
   // (enhance runs update() → re-loads + resets the form) they drift from the
@@ -95,20 +185,23 @@
   // (and on cancel) so Edit always reflects live data — fixes the empty/stale
   // fields on the second Edit after a save.
   function syncEditFields() {
-    name = app.name;
-    appSlug = slugOfUrn(app.urn);
-    appType = app.appType;
-    role = app.role;
-    description = app.description ?? '';
-    systemPrompt = app.systemPrompt ?? '';
-    createUserPermission = app.createUserPermission;
-    identifyUserMethod = app.identifyUserMethod;
-    sessionTimeoutSeconds = app.sessionTimeoutSeconds;
-    anonymousTtlDays = app.anonymousTtlDays;
+    appSettingsForm.update(
+      (current) => ({
+        ...current,
+        name: app.name,
+        urn: slugOfUrn(app.urn),
+        appType: app.appType,
+        role: app.role,
+        description: app.description ?? '',
+        systemPrompt: app.systemPrompt ?? '',
+        createUserPermission: app.createUserPermission,
+        identifyUserMethod: app.identifyUserMethod,
+        sessionTimeoutSeconds: String(app.sessionTimeoutSeconds),
+        anonymousTtlDays: String(app.anonymousTtlDays),
+      }),
+      { taint: false },
+    );
   }
-
-  let keyLabel = $state('');
-  let selectedAgentId = $state('');
 
   // 008-agent-installation: an App has at most one Agent (App.agent_id, a
   // direct FK; the AppAgent join was dropped). The "subscribable agents"
@@ -136,7 +229,8 @@
   const hasWritableMemory = $derived(effectiveMemories.some((m) => m.access === 'read-write'));
   const writableMemoryIds = $derived(effectiveMemories.filter((m) => m.access === 'read-write').map((m) => m.id));
 
-  const newRawKey = $derived(form?.rawKey as string | undefined);
+  const plainActionError = $derived(form && 'error' in form ? form.error : null);
+  const newRawKey = $derived(form && 'rawKey' in form ? form.rawKey : undefined);
 
   function formatDate(s: string | null | undefined): string {
     if (!s) return '—';
@@ -480,11 +574,13 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
     </div>
   </div>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if plainActionError}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{plainActionError}</div>
   {/if}
-  {#if form?.updated}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Saved.</div>
+  {#if settingsActionSuccess || addAgentActionSuccess}
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+      {settingsActionSuccess ?? addAgentActionSuccess}
+    </div>
   {/if}
 
   {#if newRawKey}
@@ -623,29 +719,54 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         </div>
 
         {#if editMode}
-          <form method="POST" action="?/update" use:enhance={() => {
-            return async ({ update }) => { editMode = false; await update(); };
-          }} class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+          <form method="POST" action="?/update" use:appSettingsEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
+            <input type="hidden" name="_kind" value={$appSettingsForm._kind} />
+            {#if settingsActionError}
+              <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{settingsActionError}</div>
+            {/if}
             <div>
               <label for="name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-              <input id="name" type="text" name="name" bind:value={name} class={inputClass} />
+              <input
+                id="name"
+                type="text"
+                name="name"
+                bind:value={$appSettingsForm.name}
+                aria-invalid={!!settingsNameError}
+                aria-describedby={settingsNameError ? 'nameError' : undefined}
+                {...$appSettingsConstraints.name}
+                class="{inputClass} {settingsNameError ? 'border-red-500 focus:border-red-500' : ''}"
+              />
+              {#if settingsNameError}
+                <p id="nameError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{settingsNameError}</p>
+              {/if}
             </div>
             <div>
               <label for="urn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
               <div class="flex items-stretch">
                 <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
-                <input id="urn" type="text" name="urn" bind:value={appSlug}
-                  class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+                <input
+                  id="urn"
+                  type="text"
+                  name="urn"
+                  bind:value={$appSettingsForm.urn}
+                  aria-invalid={!!settingsUrnError}
+                  aria-describedby={settingsUrnError ? 'urnError urnHint' : 'urnHint'}
+                  {...$appSettingsConstraints.urn}
+                  class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white {settingsUrnError ? 'border-red-500 focus:border-red-500' : ''}"
+                />
               </div>
-              <p class="mt-1 text-xs text-zinc-400">The slug must be unique within the organization. Changing this rewrites the URN.</p>
+              <p id="urnHint" class="mt-1 text-xs text-zinc-400">The slug must be unique within the organization. Changing this rewrites the URN.</p>
+              {#if settingsUrnError}
+                <p id="urnError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{settingsUrnError}</p>
+              {/if}
             </div>
             <div>
               <label for="description" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-              <input id="description" type="text" name="description" bind:value={description} placeholder="What this app is for" class={inputClass} />
+              <input id="description" type="text" name="description" bind:value={$appSettingsForm.description} placeholder="What this app is for" class={inputClass} />
             </div>
             <div>
               <label for="systemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-              <textarea id="systemPrompt" name="systemPrompt" rows="4" bind:value={systemPrompt}
+              <textarea id="systemPrompt" name="systemPrompt" rows="4" bind:value={$appSettingsForm.systemPrompt}
                 placeholder="Instructions for the LLM when using this app"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"></textarea>
               <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
@@ -653,7 +774,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <label for="appType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
-                <select id="appType" name="appType" bind:value={appType}
+                <select id="appType" name="appType" bind:value={$appSettingsForm.appType}
                   class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                   <option value="WORKSTATION">💻 Workstation</option>
                   <option value="CHATBOT">💬 Chatbot</option>
@@ -665,8 +786,9 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               </div>
               <div>
                 <label for="editRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Role</label>
-                <select id="editRole" name="role" bind:value={role}
+                <select id="editRole" name="role" bind:value={$appSettingsForm.role}
                   class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                  <option value="OWNER">Owner</option>
                   <option value="READER">Reader</option>
                   <option value="CONTRIBUTOR">Contributor</option>
                   <option value="ADMIN">Admin</option>
@@ -674,7 +796,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               </div>
               <div>
                 <label for="cup" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">User creation</label>
-                <select id="cup" name="createUserPermission" bind:value={createUserPermission}
+                <select id="cup" name="createUserPermission" bind:value={$appSettingsForm.createUserPermission}
                   class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                   <option value="DENY">DENY</option>
                   <option value="EXPLICIT">EXPLICIT</option>
@@ -683,7 +805,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               </div>
               <div>
                 <label for="ium" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Identify user by</label>
-                <select id="ium" name="identifyUserMethod" bind:value={identifyUserMethod}
+                <select id="ium" name="identifyUserMethod" bind:value={$appSettingsForm.identifyUserMethod}
                   class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                   <option value="USER_ID">USER_ID</option>
                   <option value="SECRET">SECRET</option>
@@ -691,17 +813,43 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               </div>
               <div>
                 <label for="timeout" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Session timeout (seconds)</label>
-                <input id="timeout" type="number" name="sessionTimeoutSeconds"
-                  bind:value={sessionTimeoutSeconds} min="60" max="86400" class={inputClass} />
+                <input
+                  id="timeout"
+                  type="text"
+                  inputmode="numeric"
+                  name="sessionTimeoutSeconds"
+                  bind:value={$appSettingsForm.sessionTimeoutSeconds}
+                  aria-invalid={!!settingsSessionTimeoutError}
+                  aria-describedby={settingsSessionTimeoutError ? 'timeoutError' : undefined}
+                  {...$appSettingsConstraints.sessionTimeoutSeconds}
+                  class="{inputClass} {settingsSessionTimeoutError ? 'border-red-500 focus:border-red-500' : ''}"
+                />
+                {#if settingsSessionTimeoutError}
+                  <p id="timeoutError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{settingsSessionTimeoutError}</p>
+                {/if}
               </div>
               <div>
                 <label for="anonttl" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Anonymous TTL (days)</label>
-                <input id="anonttl" type="number" name="anonymousTtlDays"
-                  bind:value={anonymousTtlDays} min="1" max="90" class={inputClass} />
+                <input
+                  id="anonttl"
+                  type="text"
+                  inputmode="numeric"
+                  name="anonymousTtlDays"
+                  bind:value={$appSettingsForm.anonymousTtlDays}
+                  aria-invalid={!!settingsAnonymousTtlError}
+                  aria-describedby={settingsAnonymousTtlError ? 'anonymousTtlError' : undefined}
+                  {...$appSettingsConstraints.anonymousTtlDays}
+                  class="{inputClass} {settingsAnonymousTtlError ? 'border-red-500 focus:border-red-500' : ''}"
+                />
+                {#if settingsAnonymousTtlError}
+                  <p id="anonymousTtlError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{settingsAnonymousTtlError}</p>
+                {/if}
               </div>
             </div>
             <div class="flex gap-2">
-              <button type="submit" class="rounded-lg px-4 py-2 text-sm font-semibold text-white" style="background: #fb8500;">Save</button>
+              <button type="submit" disabled={$appSettingsSubmitting} class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" style="background: #fb8500;">
+                {$appSettingsSubmitting ? 'Saving...' : 'Save'}
+              </button>
               <button type="button" onclick={() => { editMode = false; syncEditFields(); }}
                 class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">
                 Cancel
@@ -801,21 +949,34 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         {:else}
           <p class="mb-4 text-sm text-zinc-500">No agent linked yet.</p>
           {#if subscribableAgents.length > 0 || availableAgents.length > 0}
-            <form method="POST" action="?/addAgent" use:enhance class="flex flex-wrap items-end gap-3">
+            <form method="POST" action="?/addAgent" use:addAgentEnhance class="flex flex-wrap items-start gap-3" novalidate>
+              <input type="hidden" name="_kind" value={$addAgentForm._kind} />
               <div class="flex-1 min-w-[200px]">
                 <label for="agentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Link an agent</label>
-                <select id="agentId" name="agentId" bind:value={selectedAgentId}
-                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+                <select
+                  id="agentId"
+                  name="agentId"
+                  bind:value={$addAgentForm.agentId}
+                  aria-invalid={!!addAgentError}
+                  aria-describedby={addAgentError ? 'addAgentError' : undefined}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white {addAgentError ? 'border-red-500 focus:border-red-500' : ''}"
+                >
                   <option value="">Select…</option>
                   {#each (subscribableAgents.length > 0 ? subscribableAgents : availableAgents) as a (a.id)}
                     <option value={a.id}>{a.name} ({a.urn})</option>
                   {/each}
                 </select>
+                {#if addAgentError}
+                  <p id="addAgentError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{addAgentError}</p>
+                {/if}
+                {#if addAgentActionError}
+                  <p role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{addAgentActionError}</p>
+                {/if}
               </div>
-              <button type="submit" disabled={!selectedAgentId}
-                class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              <button type="submit" disabled={!$addAgentForm.agentId || $addAgentSubmitting}
+                class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                 style="background: #219ebc;">
-                Link
+                {$addAgentSubmitting ? 'Linking...' : 'Link'}
               </button>
             </form>
           {/if}
@@ -870,15 +1031,19 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           never in client-side code.
         </p>
 
-        <form method="POST" action="?/createKey" use:enhance class="mb-5 flex items-end gap-2">
+        <form method="POST" action="?/createKey" use:createKeyEnhance class="mb-5 flex items-start gap-2" novalidate>
+          <input type="hidden" name="_kind" value={$createKeyForm._kind} />
           <div class="flex-1">
             <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Label (optional)</label>
             <input id="label" type="text" name="label" placeholder="e.g. production-backend"
-              bind:value={keyLabel} class={inputClass} />
+              bind:value={$createKeyForm.label} class={inputClass} />
+            {#if createKeyActionError}
+              <p role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{createKeyActionError}</p>
+            {/if}
           </div>
-          <button type="submit"
-            class="rounded-lg px-4 py-2 text-sm font-semibold text-white" style="background: #fb8500;">
-            + Generate Key
+          <button type="submit" disabled={$createKeySubmitting}
+            class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" style="background: #fb8500;">
+            {$createKeySubmitting ? 'Generating...' : '+ Generate Key'}
           </button>
         </form>
 

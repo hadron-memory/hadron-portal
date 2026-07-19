@@ -1,8 +1,12 @@
 import { fail, error } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
+import { t } from '$lib/i18n/t';
 import {
   ORGANIZATION_QUERY,
   APP_QUERY,
@@ -18,6 +22,20 @@ import {
 } from '$lib/server/queries';
 import type { Organization, App, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { addAgentSchema, appSettingsSchema, createAppKeySchema } from './schema';
+
+type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
+type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
+type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
+
+const addAgentFormAdapter = zod4(addAgentSchema);
+const appSettingsFormAdapter = zod4(appSettingsSchema);
+const createAppKeyFormAdapter = zod4(createAppKeySchema);
+
+function slugOfUrn(urn: string): string {
+  const idx = urn.lastIndexOf(':');
+  return idx >= 0 ? urn.slice(idx + 1) : urn;
+}
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
@@ -88,66 +106,89 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     appConfigs: configsData ?? [],
     configsError: configsData === null,
     currentUserId: locals.user?.id ?? null,
+    appSettingsForm: await superValidate<AppSettingsForm>(
+      {
+        name: appData.app.name,
+        urn: slugOfUrn(appData.app.urn),
+        appType: appData.app.appType,
+        role: appData.app.role,
+        description: appData.app.description ?? '',
+        systemPrompt: appData.app.systemPrompt ?? '',
+        createUserPermission: appData.app.createUserPermission,
+        identifyUserMethod: appData.app.identifyUserMethod,
+        sessionTimeoutSeconds: String(appData.app.sessionTimeoutSeconds),
+        anonymousTtlDays: String(appData.app.anonymousTtlDays),
+      },
+      appSettingsFormAdapter,
+      { errors: false },
+    ),
+    addAgentForm: await superValidate<AddAgentForm>(
+      { agentId: availableAgents[0]?.id ?? '' },
+      addAgentFormAdapter,
+      { errors: false },
+    ),
+    createKeyForm: await superValidate<CreateAppKeyForm>(
+      { label: '' },
+      createAppKeyFormAdapter,
+      { errors: false },
+    ),
   };
 };
 
 export const actions: Actions = {
   update: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const name = String(fd.get('name') ?? '').trim() || undefined;
-    const urn = String(fd.get('urn') ?? '').trim() || undefined;
-    const appType = String(fd.get('appType') ?? '').trim() || undefined;
-    const role = String(fd.get('role') ?? '').trim() || undefined;
-    const description = fd.has('description')
-      ? (String(fd.get('description') ?? '').trim() || null)
-      : undefined;
-    const systemPrompt = fd.has('systemPrompt')
-      ? (String(fd.get('systemPrompt') ?? '').trim() || null)
-      : undefined;
-    const createUserPermission = String(fd.get('createUserPermission') ?? '').trim() || undefined;
-    const identifyUserMethod = String(fd.get('identifyUserMethod') ?? '').trim() || undefined;
-    const sessionTimeoutSeconds = fd.get('sessionTimeoutSeconds')
-      ? Number(fd.get('sessionTimeoutSeconds'))
-      : undefined;
-    const anonymousTtlDays = fd.get('anonymousTtlDays')
-      ? Number(fd.get('anonymousTtlDays'))
-      : undefined;
+    const form = await superValidate<AppSettingsForm>(
+      await request.formData(),
+      appSettingsFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(UPDATE_APP_MUTATION, {
         id: params.appId,
-        name,
-        urn,
-        appType,
-        role,
-        description,
-        systemPrompt,
-        createUserPermission,
-        identifyUserMethod,
-        sessionTimeoutSeconds,
-        anonymousTtlDays,
+        name: form.data.name,
+        urn: form.data.urn,
+        appType: form.data.appType,
+        role: form.data.role,
+        description: form.data.description || null,
+        systemPrompt: form.data.systemPrompt || null,
+        createUserPermission: form.data.createUserPermission,
+        identifyUserMethod: form.data.identifyUserMethod,
+        sessionTimeoutSeconds: Number(form.data.sessionTimeoutSeconds),
+        anonymousTtlDays: Number(form.data.anonymousTtlDays),
       });
-      return { updated: true };
+      return message(form, { type: 'success', text: t('app.settings.saved', 'Saved.') });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to update app') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to update app') },
+        { status: 500 },
+      );
     }
   },
 
   addAgent: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const agentId = String(fd.get('agentId') ?? '');
-    if (!agentId) return fail(400, { error: 'Missing agent' });
+    const form = await superValidate<AddAgentForm>(
+      await request.formData(),
+      addAgentFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
     // 008-agent-installation: addAgentToApp is now a setter on
     // App.agent_id; the legacy `role` arg is gone (system memory is
     // universally read-only from any App context). `trainingMode` is
     // forwarded only when the form submits it explicitly so the server
     // default applies otherwise.
-    const trainingModeRaw = fd.get('trainingMode');
-    const variables: Record<string, unknown> = { appId: params.appId, agentId };
-    if (typeof trainingModeRaw === 'string') variables.trainingMode = trainingModeRaw === 'true';
+    const variables: Record<string, unknown> = { appId: params.appId, agentId: form.data.agentId };
+    if (typeof form.data.trainingMode === 'string') variables.trainingMode = form.data.trainingMode === 'true';
     try {
       await gqlClient(locals.token).request(ADD_AGENT_TO_APP_MUTATION, variables);
+      return message(form, { type: 'success', text: t('app.agent.linked', 'Agent linked.') });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to add agent') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to add agent') },
+        { status: 500 },
+      );
     }
   },
 
@@ -179,18 +220,28 @@ export const actions: Actions = {
   },
 
   createKey: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const label = String(fd.get('label') ?? '').trim() || undefined;
+    const form = await superValidate<CreateAppKeyForm>(
+      await request.formData(),
+      createAppKeyFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
+    const label = form.data.label || undefined;
     try {
       const result = await gqlClient(locals.token).request<{
         createAppKey: { key: { id: string }; rawKey: string };
       }>(CREATE_APP_KEY_MUTATION, { appId: params.appId, label });
       return {
+        form,
         rawKey: result.createAppKey.rawKey,
         keyId: result.createAppKey.key.id,
       };
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to create key') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to create key') },
+        { status: 500 },
+      );
     }
   },
 
