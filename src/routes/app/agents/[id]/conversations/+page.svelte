@@ -16,12 +16,17 @@
     orderedStages,
   } from '$lib/flow/conversation-canvas';
   import { conversationEdgePanelSchema } from '$lib/flow/conversation-edge-panel-form';
+  import { conversationStageExtractionSchema } from '$lib/flow/conversation-stage-extraction-form';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
 
   type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
+  type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
   type UpdateEdgeActionResult = {
     form?: SuperValidated<ConversationEdgePanelForm, App.Superforms.Message, ConversationEdgePanelForm>;
+  } | null;
+  type UpdateExtractionSpecActionResult = {
+    form?: SuperValidated<ConversationStageExtractionForm, App.Superforms.Message, ConversationStageExtractionForm>;
   } | null;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -248,6 +253,27 @@
       ? updateForm
       : data.edgeForms[selectedEdge.id];
   });
+  const extractionForm = $derived((form as UpdateExtractionSpecActionResult)?.form ?? null);
+  const stageExtractionSaved = $derived.by(() => {
+    if (!formIsLive || !extractionForm) return null;
+    return extractionForm.message?.type === 'success' && extractionForm.data?.stageLoc === selectedStage?.loc
+      ? extractionForm.message.text
+      : null;
+  });
+  const stageExtractionError = $derived.by(() => {
+    if (!formIsLive || !extractionForm) return null;
+    return extractionForm.message?.type === 'error' && extractionForm.data?.stageLoc === selectedStage?.loc
+      ? extractionForm.message.text
+      : null;
+  });
+  const selectedStageExtractionForm = $derived.by(() => {
+    if (!selectedStage) return null;
+    // Load-time forms are keyed by node id; action echoes scope by stageLoc,
+    // the identifier the server receives from the submitted form.
+    return formIsLive && extractionForm?.data?.stageLoc === selectedStage.loc
+      ? extractionForm
+      : data.stageExtractionForms[selectedStage.id];
+  });
 
   // ── Drag-to-connect: SvelteFlow's connection fills this hidden form, which
   // posts to the addEdge action; on success the new rule is selected so its
@@ -468,10 +494,13 @@
           onClose={() => select(null)}
         />
       {/key}
-    {:else if selectedStage}
+    {:else if selectedStage && selectedStageExtractionForm}
       {#key selectedStage.id}
         <ConversationStagePanel
           stage={selectedStage}
+          extractionForm={selectedStageExtractionForm}
+          extractionSaved={stageExtractionSaved}
+          extractionError={stageExtractionError}
           rules={selectedStageRules}
           systemMemoryId={data.systemMemoryId}
           onClose={() => select(null)}

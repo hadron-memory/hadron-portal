@@ -1,14 +1,23 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
+  import type { Infer, SuperValidated } from 'sveltekit-superforms';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { ConversationEdgeDetail } from '$lib/flow/conversation-canvas';
+  import { conversationStageExtractionSchema } from '$lib/flow/conversation-stage-extraction-form';
   import { t } from '$lib/i18n/t';
+
+  type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
 
   // Stage side panel for the conversation canvas: prompt + extraction spec
   // (the per-stage editables) and the stage's outgoing routing rules. The
   // page keys this component by stage id, so editors seed at init.
   let {
     stage,
+    extractionForm,
+    extractionSaved,
+    extractionError,
     rules,
     systemMemoryId,
     onClose,
@@ -22,6 +31,13 @@
       promptContent: string;
       extractionSpec: unknown[];
     };
+    extractionForm: SuperValidated<
+      ConversationStageExtractionForm,
+      App.Superforms.Message,
+      ConversationStageExtractionForm
+    >;
+    extractionSaved: string | null;
+    extractionError: string | null;
     /** Rule edges leaving this stage. */
     rules: ConversationEdgeDetail[];
     systemMemoryId: string;
@@ -33,7 +49,23 @@
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 
   let promptContent = $state(untrack(() => stage.promptContent));
-  let specJson = $state(untrack(() => JSON.stringify(stage.extractionSpec, null, 2)));
+  const initialExtractionForm = untrack(() => extractionForm);
+  const {
+    form: extractionData,
+    errors: extractionErrors,
+    submitting: extractionSubmitting,
+    enhance: extractionEnhance,
+  } = superForm<ConversationStageExtractionForm, App.Superforms.Message, ConversationStageExtractionForm>(
+    initialExtractionForm,
+    {
+      validators: zod4Client(conversationStageExtractionSchema),
+      validationMethod: 'oninput',
+      scrollToError: 'smooth',
+      autoFocusOnError: 'detect',
+      clearOnSubmit: 'none',
+    },
+  );
+  const extractionSpecError = $derived($extractionErrors.extractionSpec?.[0] ?? null);
 </script>
 
 <aside
@@ -92,33 +124,58 @@
   <form
     method="POST"
     action="?/updateExtractionSpec"
-    use:enhance
+    use:extractionEnhance
     class="mt-4 space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800"
+    novalidate
   >
-    <input type="hidden" name="systemMemoryId" value={systemMemoryId} />
-    <input type="hidden" name="stageLoc" value={stage.loc} />
+    <input type="hidden" name="systemMemoryId" value={$extractionData.systemMemoryId} />
+    <input type="hidden" name="stageLoc" value={$extractionData.stageLoc} />
     <label for="stageSpec" class="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
       {t('conversation.stagePanel.extraction', 'Extraction spec')}
     </label>
+    {#if extractionError}
+      <div
+        role="alert"
+        class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+      >
+        {extractionError}
+      </div>
+    {/if}
+    {#if extractionSaved}
+      <div
+        role="status"
+        class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+      >
+        {extractionSaved}
+      </div>
+    {/if}
     <textarea
       id="stageSpec"
       name="extractionSpec"
-      bind:value={specJson}
+      bind:value={$extractionData.extractionSpec}
       rows="8"
-      class="{inputClass} font-mono text-xs"
+      aria-invalid={!!extractionSpecError}
+      aria-describedby={extractionSpecError ? 'stageSpecError stageSpecHint' : 'stageSpecHint'}
+      class="{inputClass} font-mono text-xs {extractionSpecError ? 'border-red-500 focus:border-red-500' : ''}"
     ></textarea>
-    <p class="text-[10px] text-zinc-400">
+    <p id="stageSpecHint" class="text-[10px] text-zinc-400">
       {t(
         'conversation.stagePanel.extraction.hint',
         'JSON array: [{ "field": "memory.name", "description": "User name", "shape": "string" }]',
       )}
     </p>
+    {#if extractionSpecError}
+      <p id="stageSpecError" class="text-xs text-red-600 dark:text-red-400">{extractionSpecError}</p>
+    {/if}
     <button
       type="submit"
-      class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+      disabled={$extractionSubmitting}
+      class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
       style="background: #fb8500;"
     >
-      {t('conversation.stagePanel.extraction.save', 'Save extraction')}
+      {$extractionSubmitting
+        ? t('conversation.stagePanel.extraction.saving', 'Saving...')
+        : t('conversation.stagePanel.extraction.save', 'Save extraction')}
     </button>
   </form>
 

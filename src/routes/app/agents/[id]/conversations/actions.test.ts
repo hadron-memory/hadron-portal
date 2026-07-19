@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 
 async function runAction(
-  name: 'updateEdge' | 'addEdge' | 'savePosition',
+  name: 'updateEdge' | 'updateExtractionSpec' | 'addEdge' | 'savePosition',
   fields: Record<string, string>,
 ) {
   const { actions } = await import('./+page.server');
@@ -156,6 +156,85 @@ describe('updateEdge', () => {
   });
 });
 
+describe('updateExtractionSpec', () => {
+  it('merges a valid extraction spec into the stage data and returns a typed success', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ node: { data: { promptRef: 'prompts:demo:start' } } })
+      .mockResolvedValueOnce({});
+    const result = await runAction('updateExtractionSpec', {
+      systemMemoryId: 'mem-1',
+      stageLoc: 'conversations:demo:start',
+      extractionSpec: JSON.stringify([{ field: 'memory.name', description: 'User name' }]),
+    });
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { stageLoc: 'conversations:demo:start' },
+        message: { type: 'success', text: 'Extraction saved.' },
+      },
+    });
+    expect(mockRequest.mock.calls[1][1]).toEqual({
+      input: {
+        memoryId: 'mem-1',
+        loc: 'conversations:demo:start',
+        data: {
+          promptRef: 'prompts:demo:start',
+          extractionSpec: [{ field: 'memory.name', description: 'User name' }],
+        },
+      },
+    });
+  });
+
+  it('rejects invalid extraction spec JSON before reading the stage node', async () => {
+    const result = (await runAction('updateExtractionSpec', {
+      systemMemoryId: 'mem-1',
+      stageLoc: 'conversations:demo:start',
+      extractionSpec: '{',
+    })) as { status: number; data: { form: { data: { stageLoc: string }; errors: { extractionSpec?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.stageLoc).toBe('conversations:demo:start');
+    expect(result.data.form.errors.extractionSpec?.[0]).toBe('Invalid JSON');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-array extraction spec JSON before reading the stage node', async () => {
+    const result = (await runAction('updateExtractionSpec', {
+      systemMemoryId: 'mem-1',
+      stageLoc: 'conversations:demo:start',
+      extractionSpec: '{}',
+    })) as { status: number; data: { form: { data: { stageLoc: string }; errors: { extractionSpec?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.stageLoc).toBe('conversations:demo:start');
+    expect(result.data.form.errors.extractionSpec?.[0]).toBe('Extraction spec must be a JSON array');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing stage loc before reading the stage node', async () => {
+    const result = (await runAction('updateExtractionSpec', {
+      systemMemoryId: 'mem-1',
+      extractionSpec: '[]',
+    })) as { status: number; data: { form: { data: { stageLoc: string }; errors: { stageLoc?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.stageLoc).toBe('');
+    expect(result.data.form.errors.stageLoc?.[0]).toBe('Missing stage loc');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed error message when the mutation fails', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ node: { data: {} } })
+      .mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('updateExtractionSpec', {
+      systemMemoryId: 'mem-1',
+      stageLoc: 'conversations:demo:start',
+      extractionSpec: '[]',
+    })) as { status: number; data: { form: { data: { stageLoc: string }; message: { type: string; text: string } } } };
+    expect(result.status).toBe(500);
+    expect(result.data.form.data.stageLoc).toBe('conversations:demo:start');
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+});
+
 describe('load', () => {
   it('seeds a Superform for each rendered conversation edge', async () => {
     mockFetchAllItems.mockResolvedValueOnce([
@@ -194,6 +273,17 @@ describe('load', () => {
           },
           {
             node: {
+              id: 'prompt-1',
+              memoryId: 'mem-1',
+              loc: 'prompts:demo:start',
+              name: 'start',
+              description: 'Start prompt',
+              data: {},
+              outgoingEdges: [],
+            },
+          },
+          {
+            node: {
               id: 'n2',
               memoryId: 'mem-1',
               loc: 'conversations:demo:end',
@@ -209,6 +299,7 @@ describe('load', () => {
 
     const result = (await runLoad()) as {
       edgeForms: Record<string, { data: { edgeId: string; name: string; priority: string; condition: string; data: string } }>;
+      stageExtractionForms: Record<string, { data: { systemMemoryId: string; stageLoc: string; extractionSpec: string } }>;
     };
 
     expect(Object.keys(result.edgeForms)).toEqual(['e1', 'e2']);
@@ -233,6 +324,17 @@ describe('load', () => {
       timing: 'on_complete',
       behavior: 'transition',
     });
+    expect(result.stageExtractionForms.n1.data).toMatchObject({
+      systemMemoryId: 'mem-1',
+      stageLoc: 'conversations:demo:start',
+      extractionSpec: '[]',
+    });
+    expect(result.stageExtractionForms.n2.data).toMatchObject({
+      systemMemoryId: 'mem-1',
+      stageLoc: 'conversations:demo:end',
+      extractionSpec: '[]',
+    });
+    expect(result.stageExtractionForms['prompt-1']).toBeUndefined();
   });
 
   it('returns an empty edgeForms object when the conversation has no rendered edges', async () => {
