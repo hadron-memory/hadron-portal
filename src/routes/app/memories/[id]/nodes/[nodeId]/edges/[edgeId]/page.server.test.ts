@@ -115,6 +115,40 @@ describe('edge detail update action Superforms validation', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('returns a data field error for oversized JSON before calling the API', async () => {
+    const actions = await importActions();
+    const result = await actions.update(actionEvent({
+      name: 'edge',
+      priority: '0',
+      condition: 'null',
+      data: JSON.stringify({ blob: 'x'.repeat(300_000) }),
+    }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'data')).toMatch(/too large/);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('defaults omitted priority to 0 and unchecked runnable to false', async () => {
+    mockRequest.mockResolvedValueOnce({ updateEdge: { id: 'edge-pk' } });
+
+    const actions = await importActions();
+    await actions.update(actionEvent({
+      name: 'edge',
+      condition: 'null',
+      data: '',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, {
+      priority: number;
+      isRunnable: boolean;
+      data: unknown;
+    }];
+    expect(vars.priority).toBe(0);
+    expect(vars.isRunnable).toBe(false);
+    expect(vars.data).toBeNull();
+  });
+
   it('returns update failures as typed Superforms messages', async () => {
     mockRequest.mockRejectedValueOnce(new Error('edge save exploded'));
 

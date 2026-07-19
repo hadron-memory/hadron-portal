@@ -1,6 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
-import { message, setError, superValidate } from 'sveltekit-superforms/server';
+import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
@@ -105,6 +105,18 @@ function formDefaults(edge: NodeEdge): EdgeUpdateForm {
   };
 }
 
+function parseValidatedPriority(value: string): number {
+  const parsed = parsePriorityField(value);
+  if (parsed.ok) return parsed.value;
+  throw new Error(`Validated priority failed to parse: ${parsed.error}`);
+}
+
+function parseValidatedCondition(value: string): unknown {
+  const parsed = parseConditionField(value);
+  if (parsed.ok) return parsed.value;
+  throw new Error(`Validated condition failed to parse: ${parsed.error}`);
+}
+
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // The host fetch overlaps parent() but is settled (not awaited raw) so a
   // failure can't surface before the consumer-mode guard redirects.
@@ -157,12 +169,10 @@ export const actions: Actions = {
     const name = form.data.name || null;
     const description = form.data.description || null;
 
-    const priority = parsePriorityField(form.data.priority === null ? null : String(form.data.priority));
-    if (!priority.ok) return setError(form, 'priority', priority.error, { status: 400 });
-
-    const condition = parseConditionField(form.data.condition);
-    if (!condition.ok) return setError(form, 'condition', condition.error, { status: 400 });
-
+    // The schema already validates these parser-backed fields; parse again only
+    // to produce the GraphQL payload values.
+    const priority = parseValidatedPriority(form.data.priority);
+    const condition = parseValidatedCondition(form.data.condition);
     const dataVal = parseEdgeDataText(form.data.data);
 
     try {
@@ -171,8 +181,8 @@ export const actions: Actions = {
         name,
         description,
         isRunnable: form.data.isRunnable,
-        condition: condition.value,
-        priority: priority.value,
+        condition,
+        priority,
         data: dataVal,
       });
       return message(form, { type: 'success', text: t('edge-editor.saved', 'Edge saved.') });

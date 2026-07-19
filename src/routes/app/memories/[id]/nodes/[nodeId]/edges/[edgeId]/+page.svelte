@@ -102,11 +102,19 @@
   const routingName = $derived(composedRouting.name);
   /** The name the form submits: generated in routing mode, free-text otherwise. */
   const effectiveName = $derived(isRouting ? routingName : String($formData.name ?? ''));
+  $effect(() => {
+    if (!isRouting) return;
+    formData.update((current) => (
+      current.name === routingName ? current : { ...current, name: routingName }
+    ), { taint: false });
+  });
 
   // Live firing order among the source node's routing edges — the walker's
   // exact ordering (priority asc → numeric index → loc), with THIS edge's
   // unsaved name/priority/condition substituted so the panel previews what
   // saving would do.
+  // bind:value on type="number" coerces $formData.priority to number|null
+  // after the first keystroke; every component read normalizes with String().
   const firingOrder = $derived.by(() =>
     previewFiringOrder(host.outgoingEdges, host.loc, {
       id: edge.id,
@@ -268,7 +276,7 @@
           </p>
         </div>
       </div>
-      <input type="hidden" name="name" value={routingName} />
+      <input type="hidden" name="name" value={$formData.name} />
     {:else}
       <div>
         <label for="edgeName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Relationship name</label>

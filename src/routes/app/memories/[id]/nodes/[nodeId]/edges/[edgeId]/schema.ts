@@ -11,6 +11,9 @@ const priorityField = z.preprocess(
   }),
 ).default('');
 
+// JSON null is the meaningful default here: omitted condition preserves the
+// pre-migration "always fires / clear condition" behavior. This is not a
+// required text field placeholder.
 const conditionField = z.string().default('null').superRefine((value, ctx) => {
   const parsed = parseConditionField(value);
   if (!parsed.ok) ctx.addIssue({ code: 'custom', message: parsed.error });
