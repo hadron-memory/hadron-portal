@@ -1,7 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
-  import { superForm } from 'sveltekit-superforms';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import {
     getCoreRowModel,
@@ -22,7 +22,12 @@
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
   import type { PageData, ActionData } from './$types';
-  import { agentSettingsSchema } from './schema';
+  import { addAgentMemorySchema, agentSettingsSchema } from './schema';
+
+  type AgentSettingsForm = Infer<typeof agentSettingsSchema, 'zod4'>;
+  type AddAgentMemoryForm = Infer<typeof addAgentMemorySchema, 'zod4'>;
+  type AgentSettingsSuperform = SuperValidated<AgentSettingsForm, App.Superforms.Message, AgentSettingsForm>;
+  type AddAgentMemorySuperform = SuperValidated<AddAgentMemoryForm, App.Superforms.Message, AddAgentMemoryForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const agent = $derived(data.agent);
@@ -158,7 +163,29 @@
     return systemNodes.find((n) => n.loc === loc);
   }
 
-  const initialAgentSettingsForm = untrack(() => form?.form ?? data.form);
+  function actionFormKind(actionData: ActionData): string | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    const candidateData = candidate?.data;
+    return candidateData && typeof candidateData === 'object' && '_kind' in candidateData
+      ? String(candidateData._kind)
+      : null;
+  }
+
+  function submittedAgentSettings(actionData: ActionData): AgentSettingsSuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    return actionFormKind(actionData) === 'agentSettings'
+      ? candidate as AgentSettingsSuperform
+      : null;
+  }
+
+  function submittedAddMemory(actionData: ActionData): AddAgentMemorySuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    return actionFormKind(actionData) === 'addMemory'
+      ? candidate as AddAgentMemorySuperform
+      : null;
+  }
+
+  const initialAgentSettingsForm = untrack(() => submittedAgentSettings(form) ?? data.form);
   const {
     form: agentSettingsForm,
     errors: agentSettingsErrors,
@@ -167,15 +194,37 @@
     allErrors: agentSettingsAllErrors,
     submitting: agentSettingsSubmitting,
     enhance: agentSettingsEnhance,
-  } = superForm(initialAgentSettingsForm, {
+  } = superForm<AgentSettingsForm, App.Superforms.Message, AgentSettingsForm>(initialAgentSettingsForm, {
     validators: zod4Client(agentSettingsSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
   });
+  const initialAddMemoryForm = untrack(() => submittedAddMemory(form) ?? data.addMemoryForm);
+  const {
+    form: addMemoryForm,
+    errors: addMemoryErrors,
+    message: addMemoryMessage,
+    submitting: addMemorySubmitting,
+    enhance: addMemoryEnhance,
+  } = superForm<AddAgentMemoryForm, App.Superforms.Message, AddAgentMemoryForm>(initialAddMemoryForm, {
+    validators: zod4Client(addAgentMemorySchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: ({ form }) => {
+      if (form.valid && form.message?.type !== 'error') {
+        addMemoryForm.update((current) => ({ ...current, memoryId: '' }), { taint: false });
+      }
+    },
+  });
 
-  let isEditing = $state(untrack(() => !!form?.form && form.form.message?.type !== 'success'));
+  let isEditing = $state(untrack(() => {
+    const submitted = submittedAgentSettings(form);
+    return !!submitted && submitted.message?.type !== 'success';
+  }));
   let confirmDelete = $state(false);
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
@@ -210,9 +259,18 @@
   );
   const agentNameError = $derived($agentSettingsErrors.name?.[0] ?? null);
   const agentUrnError = $derived($agentSettingsErrors.urnSlug?.[0] ?? null);
+  const addMemoryError = $derived($addMemoryErrors.memoryId?.[0] ?? null);
+  const addMemoryActionError = $derived($addMemoryMessage?.type === 'error' ? $addMemoryMessage.text : null);
+  const addMemoryActionSuccess = $derived($addMemoryMessage?.type === 'success' ? $addMemoryMessage.text : null);
 
   $effect(() => {
     if ($agentSettingsMessage?.type === 'success') isEditing = false;
+  });
+  $effect(() => {
+    const submitted = submittedAddMemory(form);
+    if (submitted && (!submitted.valid || submitted.message?.type === 'error')) {
+      activeTab = 'memories';
+    }
   });
 
   // Label for the agent's own visibility (PERSONAL/ORGANIZATION/PUBLIC).
@@ -222,8 +280,6 @@
   // and the warnings were confusing for the non-PUBLIC cases.
   const visibilityLabel: Record<string, string> = { PERSONAL: 'Personal', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
 
-  // Track selected add-memory id
-  let selectedAddMemoryId = $state('');
   let selectMemoryOpen = $state(false);
 
   const memoryIdsInAgent = $derived(new Set((agent.memoryItems ?? []).map((item) => item.memory.id)));
@@ -262,7 +318,7 @@
     agent.systemMemoryId ? allMemories.find((m) => m.id === agent.systemMemoryId) ?? null : null,
   );
   // The memory chosen in the "Add memory" picker — used to label the picker button.
-  const selectedAddMemory = $derived(allMemories.find((m) => m.id === selectedAddMemoryId));
+  const selectedAddMemory = $derived(allMemories.find((m) => m.id === $addMemoryForm.memoryId));
 
   // ── Memories tab grid (#371 follow-up) ────────────────────────────────
   // The attached-memories list migrated from a hand-rolled card list to the
@@ -383,10 +439,12 @@
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
   {#if $agentSettingsMessage?.type === 'success' && !isEditing}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$agentSettingsMessage.text}</div>
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$agentSettingsMessage.text}</div>
+  {:else if addMemoryActionSuccess}
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{addMemoryActionSuccess}</div>
   {:else if form?.success}
     <!-- Other page actions still return plain SvelteKit success payloads. -->
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
@@ -564,39 +622,43 @@
       {/if}
 
       {#if availableMemories.length > 0}
-        <form method="POST" action="?/addMemory" use:enhance={() => {
-          return async ({ update }) => {
-            await update();
-            selectedAddMemoryId = '';
-          };
-        }} class="space-y-2">
+        <form method="POST" action="?/addMemory" use:addMemoryEnhance class="space-y-2" novalidate>
+          <input type="hidden" name="_kind" value={$addMemoryForm._kind} />
           <div class="flex items-end gap-3">
           <div class="flex-1 max-w-md">
             <div id="agent-add-memory-label" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Add memory</div>
             <div class="flex gap-2">
               <button
                 type="button"
-                aria-describedby="agent-add-memory-label"
+                aria-describedby={addMemoryError ? 'agentAddMemoryError' : 'agent-add-memory-label'}
                 onclick={() => selectMemoryOpen = true}
-                class="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800"
+                class="flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800 {addMemoryError ? 'border-red-500' : ''}"
               >
-                {#if selectedAddMemoryId}
+                {#if $addMemoryForm.memoryId}
                   {selectedAddMemory?.name ?? 'Select a memory'}
                 {:else}
                   Select a memory
                 {/if}
               </button>
-              <input type="hidden" name="memoryId" value={selectedAddMemoryId} />
+              <input type="hidden" name="memoryId" value={$addMemoryForm.memoryId} />
             </div>
+            {#if addMemoryError}
+              <p id="agentAddMemoryError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{addMemoryError}</p>
+            {/if}
+            {#if addMemoryActionError}
+              <p role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{addMemoryActionError}</p>
+            {/if}
           </div>
           <div>
             <label for="memRole" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Access</label>
-            <select id="memRole" name="role" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+            <select id="memRole" name="role" bind:value={$addMemoryForm.role} class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
               <option value="read">Read</option>
               <option value="read-write">Read/Write</option>
             </select>
           </div>
-          <button type="submit" disabled={!selectedAddMemoryId} class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50">Add</button>
+          <button type="submit" disabled={!$addMemoryForm.memoryId || $addMemorySubmitting} class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50">
+            {$addMemorySubmitting ? 'Adding...' : 'Add'}
+          </button>
           </div>
         </form>
       {:else if allMemories.length === 0}
@@ -612,7 +674,7 @@
     memories={availableMemories}
     bind:open={selectMemoryOpen}
     onselect={(memory) => {
-      selectedAddMemoryId = memory.id;
+      addMemoryForm.update((current) => ({ ...current, memoryId: memory.id }));
     }}
   />
 
@@ -847,8 +909,9 @@
         {#if isEditing}
           <form method="POST" action="?/update" use:agentSettingsEnhance
             class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
+            <input type="hidden" name="_kind" value={$agentSettingsForm._kind} />
             {#if agentSettingsActionError}
-              <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{agentSettingsActionError}</div>
+              <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{agentSettingsActionError}</div>
             {/if}
             <div>
               <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
@@ -858,7 +921,7 @@
                 {...$agentSettingsConstraints.name}
                 class="{inputClass} {agentNameError ? 'border-red-500 focus:border-red-500' : ''}" />
               {#if agentNameError}
-                <p id="editNameError" class="mt-1 text-xs text-red-600 dark:text-red-400">{agentNameError}</p>
+                <p id="editNameError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{agentNameError}</p>
               {/if}
             </div>
             <div>
@@ -872,7 +935,7 @@
                   class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500 {agentUrnError ? 'border-red-500 focus:border-red-500' : ''}" />
               </div>
               {#if agentUrnError}
-                <p id="editUrnError" class="mt-1 text-xs text-red-600 dark:text-red-400">{agentUrnError}</p>
+                <p id="editUrnError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{agentUrnError}</p>
               {/if}
             </div>
             <div>

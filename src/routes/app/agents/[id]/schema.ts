@@ -20,6 +20,7 @@ function agentSlugField() {
 }
 
 export const agentSettingsSchema = z.object({
+  _kind: z.literal('agentSettings').default('agentSettings'),
   name: z.string().trim().min(1, 'Name is required.'),
   urnSlug: agentSlugField(),
   description: z.string().trim().default(''),
@@ -28,4 +29,11 @@ export const agentSettingsSchema = z.object({
   systemMemoryId: z.string().trim().default(''),
 });
 
+export const addAgentMemorySchema = z.object({
+  _kind: z.literal('addMemory').default('addMemory'),
+  memoryId: z.string().trim().min(1, 'Select a memory.').prefault(''),
+  role: z.enum(['read', 'read-write']).prefault('read'),
+});
+
 export type AgentSettingsSchema = typeof agentSettingsSchema;
+export type AddAgentMemorySchema = typeof addAgentMemorySchema;

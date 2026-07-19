@@ -15,6 +15,9 @@
  */
 
 import { error, fail, redirect } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
@@ -29,6 +32,11 @@ import { deriveDefaultName } from '$lib/install/derive-default-name';
 import { installStrings } from '$lib/i18n/install-strings';
 import type { Organization, Agent, App } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { installAgentSchema } from './schema';
+
+type InstallAgentForm = Infer<typeof installAgentSchema, 'zod4'>;
+
+const installAgentFormAdapter = zod4(installAgentSchema);
 
 // The slug is the LAST ':'-segment (PR-499 review): a canonical agent URN is
 // hrn:agent:<org>::<slug> — the first-colon slice this used to do returned
@@ -119,18 +127,26 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     ? defaultUrn.slice(org.urn.length + 1)
     : defaultUrn;
 
-  return { org, agent, defaultName, defaultUrnSlug };
+  return {
+    org,
+    agent,
+    defaultName,
+    defaultUrnSlug,
+    form: await superValidate<InstallAgentForm>(
+      { name: defaultName, urn: defaultUrnSlug, appType: 'WORKSTATION' },
+      installAgentFormAdapter,
+      { errors: false },
+    ),
+  };
 };
 
 export const actions: Actions = {
   install: async ({ request, params, locals }) => {
-    const data = await request.formData();
-    const name = (data.get('name') ?? '').toString().trim();
-    const urn = (data.get('urn') ?? '').toString().trim();
-    const appType = (data.get('appType') ?? 'WORKSTATION').toString();
-
-    if (!name) return fail(400, { error: 'Name is required.' });
-    if (!urn) return fail(400, { error: 'URN is required.' });
+    const form = await superValidate<InstallAgentForm>(
+      await request.formData(),
+      installAgentFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
     const client = gqlClient(locals.token);
 
@@ -140,12 +156,12 @@ export const actions: Actions = {
     const target = await resolveInstallTarget(client, params.id, params.aid);
     if (!target.ok) {
       if (target.reason === 'cross-org') {
-        return fail(403, { error: installStrings.errorCrossOrg() });
+        return message(form, { type: 'error', text: installStrings.errorCrossOrg() }, { status: 403 });
       }
       if (target.reason === 'agent-not-found') {
-        return fail(404, { error: installStrings.errorAgentNotFound() });
+        return message(form, { type: 'error', text: installStrings.errorAgentNotFound() }, { status: 404 });
       }
-      return fail(404, { error: 'Organization not found.' });
+      return message(form, { type: 'error', text: 'Organization not found.' }, { status: 404 });
     }
 
     // Derive surfaces from appType so the App manage page surfaces the
@@ -157,6 +173,7 @@ export const actions: Actions = {
     // (Memory/Settings/Client, not Chat). Surfaces are not currently
     // editable via the portal's UPDATE_APP_MUTATION; changing them later
     // requires the GraphQL API.
+    const { name, urn, appType } = form.data;
     const surfaces = appType === 'CHATBOT' ? ['chat'] : ['mcp'];
 
     let createdApp: App;
@@ -173,12 +190,12 @@ export const actions: Actions = {
     } catch (e) {
       const msg = extractGqlError(e, 'Install failed.');
       if (/already exists/i.test(msg)) {
-        return fail(409, { error: installStrings.errorUrnCollision() });
+        return setError(form, 'urn', installStrings.errorUrnCollision(), { status: 409 });
       }
       if (/Agent not found|deleted/i.test(msg)) {
-        return fail(404, { error: installStrings.errorAgentNotFound() });
+        return message(form, { type: 'error', text: installStrings.errorAgentNotFound() }, { status: 404 });
       }
-      return fail(400, { error: msg });
+      return message(form, { type: 'error', text: msg }, { status: 400 });
     }
 
     throw redirect(303, `/app/orgs/${params.id}/apps/${createdApp.id}`);
