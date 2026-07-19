@@ -18,6 +18,16 @@ beforeEach(() => {
   mockRequest.mockReset();
 });
 
+async function runLoad() {
+  const { load } = await import('./+page.server');
+  const event = {
+    params: { id: 'mem-1', nodeId: 'node-1' },
+    locals: { token: 'tok' },
+    parent: vi.fn().mockResolvedValue({ isConsumerMode: false }),
+  } as unknown as Parameters<typeof load>[0];
+  return load(event);
+}
+
 async function runAction(name: 'updateEdge' | 'createEdge', fields: Record<string, string>) {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
@@ -30,6 +40,57 @@ async function runAction(name: 'updateEdge' | 'createEdge', fields: Record<strin
   return actions[name](event);
 }
 
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { data?: Record<string, unknown>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { data?: Record<string, unknown>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { data?: Record<string, unknown>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
+}
+
+function fieldError(result: unknown, field: string): string | undefined {
+  return superFormFrom(result)?.errors?.[field]?.[0];
+}
+
+describe('load', () => {
+  it('seeds a Superforms panel form for each displayed edge', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'node-1',
+        memoryId: 'mem-1',
+        loc: 'classify',
+        name: 'Classify',
+        data: null,
+        memory: { id: 'mem-1', urn: 'acme.com::flows', name: 'Flows' },
+        outgoingEdges: [
+          {
+            id: 'edge-1',
+            name: 'next.1.high',
+            loc: 'classify:next-1-high:act',
+            priority: 2,
+            condition: { var: 'message.data.ready' },
+            target: { id: 'node-2', loc: 'act', name: 'Act' },
+          },
+        ],
+        incomingEdges: [],
+      },
+    });
+
+    const result = await runLoad() as {
+      edgeForms: Record<string, { data: Record<string, unknown>; errors: Record<string, string[]> }>;
+    };
+
+    expect(result.edgeForms['edge-1'].data).toMatchObject({
+      edgeId: 'edge-1',
+      name: 'next.1.high',
+      priority: '2',
+      condition: JSON.stringify({ var: 'message.data.ready' }),
+    });
+    expect(result.edgeForms['edge-1'].errors).toEqual({});
+  });
+});
+
 describe('updateEdge', () => {
   it('sends only the panel-edited variables (keeps description/data by omission)', async () => {
     mockRequest.mockResolvedValueOnce({});
@@ -39,7 +100,7 @@ describe('updateEdge', () => {
       priority: '5',
       condition: JSON.stringify({ '>': [{ var: 'message.data.confidence' }, 0.8] }),
     });
-    expect(result).toEqual({ saved: true, edgeId: 'e1' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Edge saved.' });
     expect(mockRequest.mock.calls[0][1]).toEqual({
       edgeId: 'e1',
       name: 'next.2.high',
@@ -62,7 +123,7 @@ describe('updateEdge', () => {
       condition: 'null',
     })) as { status: number; data: { error: string } };
     expect(result.status).toBe(400);
-    expect(result.data.error).toMatch(/whole number/);
+    expect(fieldError(result, 'priority')).toMatch(/whole number/);
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -74,6 +135,7 @@ describe('updateEdge', () => {
       condition: '{nope',
     })) as { status: number };
     expect(result.status).toBe(400);
+    expect(fieldError(result, 'condition')).toBe('Invalid condition expression');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -90,8 +152,8 @@ describe('updateEdge', () => {
       condition: 'null',
     })) as { status: number; data: { error: string; edgeId: string } };
     expect(result.status).toBe(500);
-    expect(result.data.error).toBe('Forbidden');
-    expect(result.data.edgeId).toBe('e1');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(superFormFrom(result)?.data?.edgeId).toBe('e1');
   });
 });
 

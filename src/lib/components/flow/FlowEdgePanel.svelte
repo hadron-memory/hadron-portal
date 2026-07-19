@@ -1,6 +1,8 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
+  import type { Infer, SuperValidated } from 'sveltekit-superforms';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import ConditionBuilder from '$lib/edge-conditions/ConditionBuilder.svelte';
   import { describeCondition } from '$lib/edge-conditions/describe';
   import type { UiCondition } from '$lib/edge-conditions/types';
@@ -15,8 +17,11 @@
     seedConditionState,
     seedRoutingState,
   } from '$lib/flow/edge-editing';
+  import { flowEdgePanelSchema } from '$lib/flow/edge-panel-form';
   import { isRoutingName } from '$lib/flow/routing';
   import { t } from '$lib/i18n/t';
+
+  type FlowEdgePanelForm = Infer<typeof flowEdgePanelSchema, 'zod4'>;
 
   // Edge editing side panel for the flow canvas (#510 increment 1). The
   // editable subset mirrors the edge editor page (routing name, priority,
@@ -25,6 +30,7 @@
   // never needs reseeding.
   let {
     edge,
+    form,
     siblings,
     flowFields,
     basePath,
@@ -33,6 +39,7 @@
     onClose,
   }: {
     edge: FlowEdgeDetail;
+    form: SuperValidated<FlowEdgePanelForm, App.Superforms.Message, FlowEdgePanelForm>;
     /** All displayed edges leaving the same source node (including this one). */
     siblings: FlowEdgeDetail[];
     flowFields: KnownVariable[];
@@ -52,9 +59,22 @@
   const seeded = untrack(() => seedConditionState(edge.condition));
   let condition = $state<UiCondition>(seeded.ui);
   const conditionError = seeded.error;
+  const initialForm = untrack(() => form);
+  const {
+    form: formData,
+    errors,
+    submitting,
+    enhance,
+  } = superForm<FlowEdgePanelForm, App.Superforms.Message, FlowEdgePanelForm>(initialForm, {
+    validators: zod4Client(flowEdgePanelSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
 
-  let name = $state(untrack(() => edge.name ?? ''));
-  let priority = $state(untrack(() => String(edge.priority ?? 0)));
+  const priorityError = $derived($errors.priority?.[0] ?? null);
+  const conditionFieldError = $derived($errors.condition?.[0] ?? null);
 
   const seededRouting = untrack(() => seedRoutingState(edge, edge.sourceLoc));
   let isRouting = $state(seededRouting.routing);
@@ -71,7 +91,7 @@
   function setRouting(on: boolean) {
     isRouting = on;
     if (!on) return;
-    const seed = routingToggleSeed(name, routingIndexTrimmed, siblings, edge.sourceLoc);
+    const seed = routingToggleSeed(String($formData.name ?? ''), routingIndexTrimmed, siblings, edge.sourceLoc);
     if (seed) {
       routingIndexText = seed.indexText;
       routingLabel = seed.label;
@@ -81,18 +101,31 @@
   const composedRouting = $derived(composeRoutingName(routingIndexTrimmed, routingLabel));
   const routingIndexValid = $derived(composedRouting.valid);
   const routingName = $derived(composedRouting.name);
-  const effectiveName = $derived(isRouting ? routingName : name);
+  const effectiveName = $derived(isRouting ? routingName : String($formData.name ?? ''));
+  $effect(() => {
+    if (!isRouting) return;
+    formData.update((current) => (
+      current.name === routingName ? current : { ...current, name: routingName }
+    ), { taint: false });
+  });
 
   const conditionJson = $derived(conditionJsonFor(conditionError, edge.condition, condition));
+  $effect(() => {
+    formData.update((current) => (
+      current.condition === conditionJson ? current : { ...current, condition: conditionJson }
+    ), { taint: false });
+  });
   const conditionPreview = $derived(conditionError ? null : describeCondition(condition));
 
   // Live firing order among the source node's edges with THIS edge's unsaved
   // values substituted — same preview the edge editor page shows.
+  // bind:value on type="number" coerces $formData.priority to number|null
+  // after the first keystroke; every component read normalizes with String().
   const firingOrder = $derived.by(() =>
     previewFiringOrder(siblings, edge.sourceLoc, {
       id: edge.id,
       name: effectiveName,
-      priorityText: priority,
+      priorityText: String($formData.priority ?? ''),
       condition,
       conditionError,
     }),
@@ -136,8 +169,8 @@
     </div>
   {/if}
 
-  <form method="POST" action="?/updateEdge" use:enhance class="space-y-4">
-    <input type="hidden" name="edgeId" value={edge.id} />
+  <form method="POST" action="?/updateEdge" use:enhance class="space-y-4" novalidate>
+    <input type="hidden" name="edgeId" value={$formData.edgeId} />
 
     <div>
       <label class="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -187,7 +220,7 @@
           {t('edge-editor.routing.order.invalid', 'Must be a whole number.')}
         {/if}
       </p>
-      <input type="hidden" name="name" value={routingName} />
+      <input type="hidden" name="name" value={$formData.name} />
     {:else}
       <div>
         <label for="panelEdgeName" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
@@ -197,11 +230,11 @@
           id="panelEdgeName"
           name="name"
           type="text"
-          bind:value={name}
+          bind:value={$formData.name}
           placeholder={t('flow.panel.name.placeholder', 'e.g. cites, depends_on')}
           class={inputClass}
         />
-        {#if isRoutingName(name)}
+        {#if isRoutingName(String($formData.name ?? ''))}
           <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">
             {t(
               'edge-editor.routing.name-warning',
@@ -216,8 +249,20 @@
       <label for="panelPriority" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">
         {t('flow.panel.priority', 'Priority')}
       </label>
-      <input id="panelPriority" name="priority" type="number" step="1" bind:value={priority} class={inputClass} />
-      <p class="mt-1 text-xs text-zinc-400">{t('flow.panel.priority.hint', 'Lower = earlier.')}</p>
+      <input
+        id="panelPriority"
+        name="priority"
+        type="number"
+        step="1"
+        bind:value={$formData.priority}
+        aria-invalid={!!priorityError}
+        aria-describedby={priorityError ? 'panelPriorityError panelPriorityHint' : 'panelPriorityHint'}
+        class="{inputClass} {priorityError ? 'border-red-500 focus:border-red-500' : ''}"
+      />
+      <p id="panelPriorityHint" class="mt-1 text-xs text-zinc-400">{t('flow.panel.priority.hint', 'Lower = earlier.')}</p>
+      {#if priorityError}
+        <p id="panelPriorityError" class="mt-1 text-xs text-red-600 dark:text-red-400">{priorityError}</p>
+      {/if}
     </div>
 
     <div>
@@ -242,17 +287,20 @@
           {/if}
         </p>
       {/if}
-      <input type="hidden" name="condition" value={conditionJson} />
+      <input type="hidden" name="condition" value={$formData.condition} />
+      {#if conditionFieldError}
+        <p class="mt-2 text-xs text-red-600 dark:text-red-400">{conditionFieldError}</p>
+      {/if}
     </div>
 
     <div class="flex items-center gap-3">
       <button
         type="submit"
-        disabled={isRouting && !routingIndexValid}
+        disabled={$submitting || (isRouting && !routingIndexValid)}
         class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
         style="background: #fb8500;"
       >
-        {t('flow.panel.save', 'Save edge')}
+        {$submitting ? t('flow.panel.saving', 'Saving...') : t('flow.panel.save', 'Save edge')}
       </button>
       <a
         href="{basePath}/nodes/{edge.sourceId}/edges/{edge.id}"

@@ -1,16 +1,29 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { CREATE_EDGE_MUTATION, EDGE_HOST_NODE_QUERY, UPDATE_EDGE_MUTATION } from '$lib/server/queries';
 import { buildFlowCanvas, edgeRoutes } from '$lib/flow/canvas';
 import type { FlowCanvasNodeInput, FlowEdgeDetail } from '$lib/flow/canvas';
-import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
+import {
+  flowEdgePanelDefaults,
+  flowEdgePanelSchema,
+  parseValidatedPanelCondition,
+  parseValidatedPanelPriority,
+} from '$lib/flow/edge-panel-form';
 import { extractionSpecOf } from '$lib/flow/fields';
 import type { FlowGraphNodeInput } from '$lib/flow/fields';
 import { buildRoutingName, nextFreeRoutingIndex, routingOrder } from '$lib/flow/routing';
+import { t } from '$lib/i18n/t';
 import type { NodeEdge } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+
+type FlowEdgePanelForm = Infer<typeof flowEdgePanelSchema, 'zod4'>;
+
+const flowEdgePanelFormAdapter = zod4(flowEdgePanelSchema);
 
 // Flow canvas (#509 spike, editing per #510). Walks the flow graph in BOTH
 // directions from the focus node — outgoing routing edges via each node's
@@ -203,10 +216,23 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       shape,
     })),
   }));
+  const edgeForms = Object.fromEntries(
+    await Promise.all(
+      edgeDetails.map(async (edge) => [
+        edge.id,
+        await superValidate<FlowEdgePanelForm>(
+          flowEdgePanelDefaults(edge),
+          flowEdgePanelFormAdapter,
+          { errors: false },
+        ),
+      ]),
+    ),
+  );
 
   return {
     canvas: buildFlowCanvas(nodeInputs, edgeDetails),
     edgeDetails,
+    edgeForms,
     fieldNodes,
     focusId: params.nodeId,
     focusName: focus.name || focus.loc,
@@ -226,24 +252,23 @@ export const actions: Actions = {
     const fd = await request.formData();
     const edgeId = String(fd.get('edgeId') ?? '').trim();
     if (!edgeId) return fail(400, { error: 'Missing edge id' });
-    const name = String(fd.get('name') ?? '').trim() || null;
+    const form = await superValidate<FlowEdgePanelForm>(fd, flowEdgePanelFormAdapter);
+    if (!form.valid) return fail(400, { form });
 
-    const priority = parsePriorityField(fd.get('priority'));
-    if (!priority.ok) return fail(400, { edgeId, error: priority.error });
-
-    const condition = parseConditionField(fd.get('condition'));
-    if (!condition.ok) return fail(400, { edgeId, error: condition.error });
+    const name = form.data.name || null;
+    const priority = parseValidatedPanelPriority(form.data.priority);
+    const condition = parseValidatedPanelCondition(form.data.condition);
 
     try {
       await gqlClient(locals.token).request(UPDATE_EDGE_MUTATION, {
         edgeId,
         name,
-        condition: condition.value,
-        priority: priority.value,
+        condition,
+        priority,
       });
-      return { saved: true, edgeId };
+      return message(form, { type: 'success', text: t('flow.panel.saved', 'Edge saved.') });
     } catch (e: unknown) {
-      return fail(500, { edgeId, error: extractGqlError(e, 'Failed to update edge') });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update edge') }, { status: 500 });
     }
   },
 

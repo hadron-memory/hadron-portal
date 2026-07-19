@@ -45,15 +45,22 @@
   // missing-edge-id 400s) out of the panel — with both sides undefined the
   // bare comparison would be true and silently swallow the page banner.
   const formIsLive = $derived(form != null && form !== acknowledgedForm);
+  const updateForm = $derived((form as { form?: { data?: { edgeId?: string }; message?: App.Superforms.Message } } | null)?.form ?? null);
   const panelSaved = $derived.by(() => {
-    if (!formIsLive || !form) return false;
-    const { saved, edgeId } = form as { saved?: boolean; edgeId?: string };
-    return !!saved && edgeId != null && edgeId === selectedEdge?.id;
+    if (!formIsLive || !updateForm) return false;
+    return updateForm.message?.type === 'success' && updateForm.data?.edgeId === selectedEdge?.id;
   });
   const panelError = $derived.by(() => {
-    if (!formIsLive || !form) return null;
-    const { error, edgeId } = form as { error?: string; edgeId?: string };
-    return error != null && edgeId != null && edgeId === selectedEdge?.id ? error : null;
+    if (!formIsLive || !updateForm) return null;
+    return updateForm.message?.type === 'error' && updateForm.data?.edgeId === selectedEdge?.id
+      ? updateForm.message.text
+      : null;
+  });
+  const selectedEdgeForm = $derived.by(() => {
+    if (!selectedEdge) return null;
+    return formIsLive && updateForm?.data?.edgeId === selectedEdge.id
+      ? updateForm
+      : data.edgeForms[selectedEdge.id];
   });
 
   // ── Drag-to-connect (#510): SvelteFlow's onconnect fills this hidden form,
@@ -152,10 +159,11 @@
         onConnect={handleConnect}
       />
     </div>
-    {#if selectedEdge}
+    {#if selectedEdge && selectedEdgeForm}
       {#key selectedEdge.id}
         <FlowEdgePanel
           edge={selectedEdge}
+          form={selectedEdgeForm}
           siblings={selectedSiblings}
           flowFields={selectedFlowFields}
           {basePath}
