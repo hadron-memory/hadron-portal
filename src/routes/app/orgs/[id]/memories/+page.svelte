@@ -43,14 +43,21 @@
   let subTab = $state<'personal' | 'org' | 'subscriptions'>(untrack(() => data.initialTab));
   const subscriptions = $derived(org.subscriptions ?? []);
 
+  function submittedSubscribe(actionData: ActionData): OrgMemorySubscribeSuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    const candidateData = candidate?.data;
+    const kind = candidateData && typeof candidateData === 'object' && '_kind' in candidateData
+      ? String(candidateData._kind)
+      : null;
+    return kind === 'subscribeMemory'
+      ? candidate as OrgMemorySubscribeSuperform
+      : null;
+  }
+
   // Subscribe form: the memory <select> is replaced by the SelectMemory modal
   // picker (searchable, paginated) — same pattern as the agent detail page.
   let subscribeMemoryOpen = $state(false);
-  const initialSubscribeForm = untrack(() => (
-    form && 'form' in form
-      ? form.form as OrgMemorySubscribeSuperform
-      : data.subscribeForm as OrgMemorySubscribeSuperform
-  ));
+  const initialSubscribeForm = untrack(() => submittedSubscribe(form) ?? data.subscribeForm);
   const {
     form: subscribeForm,
     errors: subscribeErrors,
@@ -75,6 +82,12 @@
   const subscribeMemoryError = $derived($subscribeErrors.memoryId?.[0] ?? null);
   const subscribeActionError = $derived($subscribeMessage?.type === 'error' ? $subscribeMessage.text : null);
   const subscribeActionSuccess = $derived($subscribeMessage?.type === 'success' ? $subscribeMessage.text : null);
+  $effect(() => {
+    const submitted = submittedSubscribe(form);
+    if (submitted && (!submitted.valid || submitted.message?.type === 'error')) {
+      subTab = 'subscriptions';
+    }
+  });
 
   // 'personal' = the user-owned section (spans the personal + private memory
   // classes); the class itself is carried in `badge` (Personal vs Private).
@@ -306,6 +319,8 @@
     </button>
   </div>
 
+  <!-- Plain-action failures from delete/sync/unsubscribe use form.error;
+       subscribe failures use the Superforms message inside the subscribe form. -->
   {#if form && 'error' in form}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}

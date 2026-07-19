@@ -119,6 +119,15 @@ describe('memories-list load() — initialTab (#556)', () => {
     const result = (await load(ev({ tab: 'bogus' }))) as { initialTab: string };
     expect(result.initialTab).toBe('org');
   });
+
+  it('seeds the subscribe form with an explicit empty memory and reader role', async () => {
+    routeMock([]);
+    const load = await importLoad();
+    const result = (await load(ev())) as {
+      subscribeForm: { data: { memoryId: string; role: string } };
+    };
+    expect(result.subscribeForm.data).toMatchObject({ memoryId: '', role: 'READER' });
+  });
 });
 
 describe('memories-list subscribe action', () => {
@@ -160,6 +169,17 @@ describe('memories-list subscribe action', () => {
 
     expect(result.status).toBe(400);
     expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects elevated role tampering before mutation', async () => {
+    const result = (await runSubscribe({
+      memoryId: 'mem-1',
+      role: 'OWNER',
+    })) as { status: number; data: { form: { errors: { role?: string[] } } } };
+
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.role).toBeDefined();
     expect(mockRequest).not.toHaveBeenCalled();
   });
 

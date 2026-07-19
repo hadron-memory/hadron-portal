@@ -48,15 +48,22 @@
   // ── Tabs (#486): the org's own agents vs its subscriptions ───────────
   let activeTab = $state<'own' | 'subscribed'>('own');
 
+  function submittedSubscribe(actionData: ActionData): OrgAgentSubscribeSuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    const candidateData = candidate?.data;
+    const kind = candidateData && typeof candidateData === 'object' && '_kind' in candidateData
+      ? String(candidateData._kind)
+      : null;
+    return kind === 'subscribeAgent'
+      ? candidate as OrgAgentSubscribeSuperform
+      : null;
+  }
+
   // Subscribe picker: selecting a public agent submits the explicit grant
   // mutation through a SvelteKit action; no App is installed (#649).
   let subscribeOpen = $state(false);
   let subscribeForm: HTMLFormElement;
-  const initialSubscribeForm = untrack(() => (
-    form && 'form' in form
-      ? form.form as OrgAgentSubscribeSuperform
-      : data.subscribeForm as OrgAgentSubscribeSuperform
-  ));
+  const initialSubscribeForm = untrack(() => submittedSubscribe(form) ?? data.subscribeForm);
   const {
     form: subscribeFormData,
     errors: subscribeErrors,
@@ -78,6 +85,7 @@
   });
   const subscribeAgentError = $derived($subscribeErrors.agentId?.[0] ?? null);
   const subscribeActionError = $derived($subscribeMessage?.type === 'error' ? $subscribeMessage.text : null);
+  const subscribeActionSuccess = $derived($subscribeMessage?.type === 'success' ? $subscribeMessage.text : null);
 
   // Row-level unsubscribe state keeps the rest of the table usable while a
   // grant is being revoked and leaves lifecycle history visible afterward.
@@ -311,6 +319,12 @@
   {#if subscribeActionError || subscribeAgentError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
       {subscribeActionError ?? subscribeAgentError}
+    </div>
+  {/if}
+
+  {#if subscribeActionSuccess}
+    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+      {subscribeActionSuccess}
     </div>
   {/if}
 
