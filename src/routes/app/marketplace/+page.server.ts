@@ -1,4 +1,7 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { fail, isRedirect, redirect } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import {
@@ -9,27 +12,48 @@ import {
 import { filterToMemberOrgs, resolveActiveOrg } from '$lib/server/active-org';
 import type { Memory, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { addMarketplaceMemorySchema } from './schema';
+
+const addMarketplaceMemoryFormAdapter = zod4(addMarketplaceMemorySchema);
+type AddMarketplaceMemoryForm = Infer<typeof addMarketplaceMemorySchema, 'zod4'>;
 
 export const load: PageServerLoad = async ({ locals }) => {
+  const form = await superValidate<AddMarketplaceMemoryForm>(
+    { memoryId: '' },
+    addMarketplaceMemoryFormAdapter,
+    { errors: false },
+  );
+
   try {
     const memories = await fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories');
-    return { memories };
+    return {
+      memories,
+      form,
+    };
   } catch {
-    return { memories: [] as Memory[] };
+    return {
+      memories: [] as Memory[],
+      form,
+    };
   }
 };
 
 export const actions: Actions = {
   addToMyMemories: async ({ request, locals }) => {
-    const fd = await request.formData();
-    const memoryId = String(fd.get('memoryId') ?? '');
+    const form = await superValidate<AddMarketplaceMemoryForm>(
+      await request.formData(),
+      addMarketplaceMemoryFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
     if (!locals.token) {
-      redirect(303, `/signup?memory=${memoryId}`);
+      redirect(303, `/signup?memory=${encodeURIComponent(form.data.memoryId)}`);
     }
 
     try {
-      await gqlClient(locals.token).request(ADD_TO_MY_MEMORIES_MUTATION, { memoryId });
+      await gqlClient(locals.token).request(ADD_TO_MY_MEMORIES_MUTATION, {
+        memoryId: form.data.memoryId,
+      });
       // Resolve the active org and redirect straight to /app/orgs/<id>/
       // to avoid the /app/dashboard 303→302 chain. One extra GQL call
       // server-side is cheaper than a full browser redirect hop.
@@ -45,8 +69,12 @@ export const actions: Actions = {
       });
       redirect(303, activeOrgId ? `/app/orgs/${activeOrgId}/` : '/app/orgs/');
     } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'status' in e) throw e;
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to add memory' });
+      if (isRedirect(e)) throw e;
+      return message(
+        form,
+        { type: 'error', text: e instanceof Error ? e.message : 'Failed to add memory' },
+        { status: 500 },
+      );
     }
   },
 };
