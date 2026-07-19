@@ -8,12 +8,21 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
 import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
-import { buildConversationEdgeDetails, conversationEdgeInputsFromNodes } from '$lib/flow/conversation-canvas';
+import {
+  buildConversationEdgeDetails,
+  conversationEdgeInputsFromNodes,
+  isStageLoc,
+} from '$lib/flow/conversation-canvas';
 import {
   conversationEdgePanelDefaults,
   conversationEdgePanelSchema,
   parseValidatedConversationEdgeData,
 } from '$lib/flow/conversation-edge-panel-form';
+import {
+  conversationStageExtractionDefaults,
+  conversationStageExtractionSchema,
+  parseValidatedExtractionSpec,
+} from '$lib/flow/conversation-stage-extraction-form';
 import {
   parseValidatedPanelCondition,
   parseValidatedPanelPriority,
@@ -24,8 +33,10 @@ import type { Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
+type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
 
 const conversationEdgePanelFormAdapter = zod4(conversationEdgePanelSchema);
+const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionSchema);
 
 // cor:api:090 — scope to the agent's system memory. findNodes hides
 // class:'system' memories on a broad (no-memoryIds) call, so the system-memory
@@ -105,8 +116,26 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       ]),
     ),
   );
+  const stageExtractionForms = Object.fromEntries(
+    await Promise.all(
+      systemNodes
+        .filter((n) => isStageLoc(n.loc))
+        .map(async (stage) => {
+          const data = (stage.data as Record<string, unknown>) ?? {};
+          const extractionSpec = Array.isArray(data.extractionSpec) ? data.extractionSpec : [];
+          return [
+            stage.id,
+            await superValidate<ConversationStageExtractionForm>(
+              conversationStageExtractionDefaults({ loc: stage.loc, extractionSpec }, systemMemoryId),
+              conversationStageExtractionFormAdapter,
+              { errors: false },
+            ),
+          ];
+        }),
+    ),
+  );
 
-  return { agent, org, systemMemoryId, prompts, systemNodes, edgeForms };
+  return { agent, org, systemMemoryId, prompts, systemNodes, edgeForms, stageExtractionForms };
 };
 
 export const actions: Actions = {
@@ -230,14 +259,16 @@ export const actions: Actions = {
   },
 
   updateExtractionSpec: async ({ request, locals }) => {
-    const fd = await request.formData();
-    const client = gqlClient(locals.token);
-    const systemMemoryId = String(fd.get('systemMemoryId') ?? '');
-    const stageLoc = String(fd.get('stageLoc') ?? '');
-    const specJson = String(fd.get('extractionSpec') ?? '[]');
+    const form = await superValidate<ConversationStageExtractionForm>(
+      await request.formData(),
+      conversationStageExtractionFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
-    let spec: unknown[];
-    try { spec = JSON.parse(specJson); } catch { return fail(400, { error: 'Invalid JSON' }); }
+    const systemMemoryId = form.data.systemMemoryId;
+    const stageLoc = form.data.stageLoc;
+    const spec = parseValidatedExtractionSpec(form.data.extractionSpec);
+    const client = gqlClient(locals.token);
 
     try {
       const stageNode = await client.request<{ node: { data: unknown } | null }>(
@@ -248,8 +279,16 @@ export const actions: Actions = {
       await client.request(UPDATE, { input: {
         memoryId: systemMemoryId, loc: stageLoc, data: { ...stageData, extractionSpec: spec },
       }});
+      return message(form, {
+        type: 'success',
+        text: t('conversation.stagePanel.extraction.saved', 'Extraction saved.'),
+      });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
+      return message(
+        form,
+        { type: 'error', text: e instanceof Error ? e.message : 'Failed' },
+        { status: 500 },
+      );
     }
   },
 
