@@ -1,10 +1,14 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { env as publicEnv } from '$env/dynamic/public';
+import type { Infer } from 'sveltekit-superforms';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
+import { t } from '$lib/i18n/t';
 import {
   AI_SERVICE_CONFIGS_QUERY,
   LINK_GITHUB_APP_MUTATION,
@@ -15,15 +19,36 @@ import {
 } from '$lib/server/queries';
 import type { AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { githubAppCredentialsSchema, githubInstallationSchema } from './schema';
+
+type GithubAppCredentialsForm = Infer<typeof githubAppCredentialsSchema, 'zod4'>;
+type GithubInstallationForm = Infer<typeof githubInstallationSchema, 'zod4'>;
+
+const githubAppCredentialsFormAdapter = zod4(githubAppCredentialsSchema);
+const githubInstallationFormAdapter = zod4(githubInstallationSchema);
+
+function scrubPrivateKey<T extends { data: { privateKey: string } }>(form: T): T {
+  form.data.privateKey = '';
+  return form;
+}
+
+function redactSensitiveErrorText(e: unknown, fallback: string, sensitiveValues: string[]): string {
+  let text = extractGqlError(e, fallback);
+  for (const value of sensitiveValues) {
+    if (value) text = text.split(value).join('[redacted]');
+  }
+  return text;
+}
 
 // #336: Integrations tab — GitHub App + Microsoft Exchange + AI service configs,
 // previously split across the org dashboard (GitHub/Exchange) and the
 // /ai-configs route (which now redirects here).
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  await requireNonConsumer(parent);
+  const parentDataPromise = parent();
+  await requireNonConsumer(() => parentDataPromise);
   // The org (incl. 404 handling) is already loaded by +layout.server.ts; pull
   // it from parent() instead of re-issuing ORGANIZATION_QUERY.
-  const { org } = await parent();
+  const { org } = await parentDataPromise;
   // The registry list is org-ADMIN gated server-side; non-admin members get a
   // GraphQL error here — surface it as an empty/error state, not a 500.
   const configsData = await fetchAllItems<AiServiceConfig>(
@@ -35,43 +60,68 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     configs: configsData ?? [],
     configsError: configsData === null,
     currentUserId: locals.user?.id ?? null,
+    githubAppForm: await superValidate<GithubAppCredentialsForm>(
+      { appId: org.githubAppId ?? '', privateKey: '' },
+      githubAppCredentialsFormAdapter,
+      { errors: false },
+    ),
+    githubInstallationForm: await superValidate<GithubInstallationForm>(
+      { installationId: org.githubInstallationId ? String(org.githubInstallationId) : '' },
+      githubInstallationFormAdapter,
+      { errors: false },
+    ),
   };
 };
 
 export const actions: Actions = {
   linkGithub: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const installationId = parseInt(String(fd.get('installationId') ?? ''), 10);
-    if (!installationId || isNaN(installationId)) {
-      return fail(400, { error: 'Installation ID must be a number' });
-    }
+    const form = await superValidate<GithubInstallationForm>(
+      await request.formData(),
+      githubInstallationFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(LINK_GITHUB_APP_MUTATION, {
         orgId: params.id,
-        installationId,
+        installationId: Number(form.data.installationId),
       });
-      return { githubLinked: true };
+      return message(form, { type: 'success', text: t('org.integrations.github.linked', 'GitHub App installation linked.') });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to link GitHub App') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to link GitHub App') },
+        { status: 500 },
+      );
     }
   },
 
   updateGithubApp: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const appId = String(fd.get('appId') ?? '').trim();
-    const privateKey = String(fd.get('privateKey') ?? '').trim();
-    if (!appId || !privateKey) {
-      return fail(400, { error: 'App ID and Private Key are required' });
-    }
+    const form = await superValidate<GithubAppCredentialsForm>(
+      await request.formData(),
+      githubAppCredentialsFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form: scrubPrivateKey(form) });
+
     try {
       await gqlClient(locals.token).request(UPDATE_ORG_GITHUB_APP_MUTATION, {
         orgId: params.id,
-        appId,
-        privateKey,
+        appId: form.data.appId,
+        privateKey: form.data.privateKey,
       });
-      return { githubAppSaved: true };
+      return message(scrubPrivateKey(form), {
+        type: 'success',
+        text: t('org.integrations.github.credentialsSaved', 'GitHub App credentials saved.'),
+      });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to save GitHub App credentials') });
+      const errorText = redactSensitiveErrorText(e, 'Failed to save GitHub App credentials', [
+        form.data.privateKey,
+      ]);
+      return message(
+        scrubPrivateKey(form),
+        { type: 'error', text: errorText },
+        { status: 500 },
+      );
     }
   },
 
