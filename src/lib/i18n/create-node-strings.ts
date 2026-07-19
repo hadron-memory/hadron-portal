@@ -17,6 +17,8 @@ interface GqlErrorLike {
   };
 }
 
+export type CreateNodeErrorStatus = 400 | 403 | 404 | 409 | 500;
+
 export const createNodeStrings = {
   /** Affordance label on memory-detail and node-detail pages. */
   newNodeButton: (): string => t('create-node.button.new-node', '+ New node'),
@@ -143,7 +145,7 @@ export function translateCreateNodeError(e: unknown): string {
 /**
  * HTTP status for a SvelteKit `fail(...)` based on the typed error.
  */
-export function createNodeErrorStatus(e: unknown): number {
+export function createNodeErrorStatus(e: unknown): CreateNodeErrorStatus {
   switch (createNodeErrorCode(e)) {
     case 'NodeLocConflictError':
       return 409;

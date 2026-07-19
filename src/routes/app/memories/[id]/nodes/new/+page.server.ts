@@ -1,14 +1,23 @@
 import { fail, redirect } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { CREATE_NODE_MUTATION } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import {
   createNodeStrings,
+  createNodeErrorCode,
   createNodeErrorStatus,
   translateCreateNodeError,
 } from '$lib/i18n/create-node-strings';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { createNodeSchema } from './schema';
+
+type CreateNodeForm = Infer<typeof createNodeSchema, 'zod4'>;
+
+const createNodeFormAdapter = zod4(createNodeSchema);
 
 export const load: PageServerLoad = async ({ url, parent }) => {
   // Single parent() call: reuse the layout data for the consumer-mode
@@ -45,28 +54,27 @@ export const load: PageServerLoad = async ({ url, parent }) => {
     .map((n) => cleanLocInput(n.loc))
     .filter((s) => s !== '');
 
-  return { parentLoc, prefillLoc, existingLocs };
+  const form = await superValidate<CreateNodeForm>(
+    { loc: prefillLoc },
+    createNodeFormAdapter,
+    { errors: false },
+  );
+
+  return { parentLoc, prefillLoc, existingLocs, form };
 };
 
 export const actions: Actions = {
   default: async ({ request, params, locals }) => {
-    const fd = await request.formData();
+    const form = await superValidate<CreateNodeForm>(
+      await request.formData(),
+      createNodeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
-    const name = String(fd.get('name') ?? '').trim();
-    const rawLoc = String(fd.get('loc') ?? '').trim();
-    const nodeType = String(fd.get('nodeType') ?? 'info').trim();
-    const description = String(fd.get('description') ?? '').trim() || null;
-    const abstract = String(fd.get('abstract') ?? '').trim() || null;
-    const content = String(fd.get('content') ?? '').trim() || null;
-
-    if (!name) {
-      return fail(400, { error: createNodeStrings.errorNameRequired() });
-    }
-
-    const loc = cleanLocInput(rawLoc);
-    if (!loc) {
-      return fail(400, { error: createNodeStrings.errorLocRequired() });
-    }
+    const loc = cleanLocInput(form.data.loc);
+    const description = form.data.description || null;
+    const abstract = form.data.abstract || null;
+    const content = form.data.content || null;
 
     let newId: string | undefined;
     try {
@@ -81,8 +89,8 @@ export const actions: Actions = {
         input: {
           memoryId: params.id,
           loc,
-          name,
-          nodeType,
+          name: form.data.name,
+          nodeType: form.data.nodeType,
           description,
           abstract,
           content,
@@ -91,13 +99,17 @@ export const actions: Actions = {
       });
       newId = result.createNode.id;
     } catch (e: unknown) {
-      return fail(createNodeErrorStatus(e), {
-        error: translateCreateNodeError(e),
-      });
+      const error = translateCreateNodeError(e);
+      const status = createNodeErrorStatus(e);
+      const code = createNodeErrorCode(e);
+      if (code === 'NodeLocConflictError' || code === 'InvalidLocError') {
+        return setError(form, 'loc', error, { status });
+      }
+      return message(form, { type: 'error', text: error }, { status });
     }
 
     if (!newId) {
-      return fail(500, { error: createNodeStrings.genericError() });
+      return message(form, { type: 'error', text: createNodeStrings.genericError() }, { status: 500 });
     }
 
     redirect(303, `/app/memories/${params.id}/nodes/${newId}`);
