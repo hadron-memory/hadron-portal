@@ -286,7 +286,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: e instanceof Error ? e.message : 'Failed' },
+        { type: 'error', text: userFacingErrorMessage(e, 'Failed to update extraction spec') },
         { status: 500 },
       );
     }

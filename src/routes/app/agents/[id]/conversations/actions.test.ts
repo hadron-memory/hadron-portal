@@ -219,6 +219,20 @@ describe('updateExtractionSpec', () => {
     expect(result.data.form.errors.stageLoc?.[0]).toBe('Missing stage loc');
     expect(mockRequest).not.toHaveBeenCalled();
   });
+
+  it('returns a typed error message when the mutation fails', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ node: { data: {} } })
+      .mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('updateExtractionSpec', {
+      systemMemoryId: 'mem-1',
+      stageLoc: 'conversations:demo:start',
+      extractionSpec: '[]',
+    })) as { status: number; data: { form: { data: { stageLoc: string }; message: { type: string; text: string } } } };
+    expect(result.status).toBe(500);
+    expect(result.data.form.data.stageLoc).toBe('conversations:demo:start');
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
 });
 
 describe('load', () => {
@@ -255,6 +269,17 @@ describe('load', () => {
                   target: { id: 'n2', loc: 'conversations:demo:end', name: 'end' },
                 },
               ],
+            },
+          },
+          {
+            node: {
+              id: 'prompt-1',
+              memoryId: 'mem-1',
+              loc: 'prompts:demo:start',
+              name: 'start',
+              description: 'Start prompt',
+              data: {},
+              outgoingEdges: [],
             },
           },
           {
@@ -309,6 +334,7 @@ describe('load', () => {
       stageLoc: 'conversations:demo:end',
       extractionSpec: '[]',
     });
+    expect(result.stageExtractionForms['prompt-1']).toBeUndefined();
   });
 
   it('returns an empty edgeForms object when the conversation has no rendered edges', async () => {

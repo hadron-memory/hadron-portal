@@ -36,7 +36,7 @@
       App.Superforms.Message,
       ConversationStageExtractionForm
     >;
-    extractionSaved: boolean;
+    extractionSaved: string | null;
     extractionError: string | null;
     /** Rule edges leaving this stage. */
     rules: ConversationEdgeDetail[];
@@ -134,13 +134,19 @@
       {t('conversation.stagePanel.extraction', 'Extraction spec')}
     </label>
     {#if extractionError}
-      <div class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+      <div
+        role="alert"
+        class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+      >
         {extractionError}
       </div>
     {/if}
     {#if extractionSaved}
-      <div class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-        {t('conversation.stagePanel.extraction.saved', 'Extraction saved.')}
+      <div
+        role="status"
+        class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+      >
+        {extractionSaved}
       </div>
     {/if}
     <textarea

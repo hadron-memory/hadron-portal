@@ -255,8 +255,10 @@
   });
   const extractionForm = $derived((form as UpdateExtractionSpecActionResult)?.form ?? null);
   const stageExtractionSaved = $derived.by(() => {
-    if (!formIsLive || !extractionForm) return false;
-    return extractionForm.message?.type === 'success' && extractionForm.data?.stageLoc === selectedStage?.loc;
+    if (!formIsLive || !extractionForm) return null;
+    return extractionForm.message?.type === 'success' && extractionForm.data?.stageLoc === selectedStage?.loc
+      ? extractionForm.message.text
+      : null;
   });
   const stageExtractionError = $derived.by(() => {
     if (!formIsLive || !extractionForm) return null;
@@ -266,6 +268,8 @@
   });
   const selectedStageExtractionForm = $derived.by(() => {
     if (!selectedStage) return null;
+    // Load-time forms are keyed by node id; action echoes scope by stageLoc,
+    // the identifier the server receives from the submitted form.
     return formIsLive && extractionForm?.data?.stageLoc === selectedStage.loc
       ? extractionForm
       : data.stageExtractionForms[selectedStage.id];
