@@ -1,10 +1,17 @@
 import { fail } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { MERGE_NODES_MUTATION } from '$lib/server/queries';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { mergeNodeFields, mergeNodeSchema } from './schema';
+
+const mergeNodeFormAdapter = zod4(mergeNodeSchema);
+type MergeNodeForm = Infer<typeof mergeNodeSchema, 'zod4'>;
 
 // #395 — "Merge node" command page. Web equivalent of the CLI `hadron node
 // merge`: folds a source node into a target, backed by the mergeNodes mutation.
@@ -29,46 +36,45 @@ const COMMAND = {
 
 // NodeMergeField enum (hadron-server) — the foldable fields. Local (not
 // exported): a SvelteKit +page.server.ts may only export load/actions/etc.
-const MERGE_FIELDS = ['CONTENT', 'ABSTRACT', 'DESCRIPTION', 'TAGS', 'DATA', 'PROPERTIES', 'EDGES'] as const;
+const MERGE_FIELDS = mergeNodeFields;
 
-export const load: PageServerLoad = ({ url }) => ({
-  command: COMMAND,
-  // Deep-link prefill (e.g. ?source=…&target=…).
-  prefill: {
+export const load: PageServerLoad = async ({ url }) => {
+  const prefill = {
     source: (url.searchParams.get('source') ?? '').trim(),
     target: (url.searchParams.get('target') ?? '').trim(),
-  },
-});
+    include: [...MERGE_FIELDS],
+    deleteSource: false,
+  };
+  return {
+    command: COMMAND,
+    // Deep-link prefill (e.g. ?source=…&target=…).
+    prefill,
+    form: await superValidate<MergeNodeForm>(prefill, mergeNodeFormAdapter, { errors: false }),
+  };
+};
 
 export const actions: Actions = {
   run: async ({ request, locals }) => {
-    const fd = await request.formData();
-    const source = String(fd.get('source') ?? '').trim();
-    const target = String(fd.get('target') ?? '').trim();
-    // Dedupe before the length check below — duplicate/tampered entries must not
-    // inflate the count past MERGE_FIELDS.length and flip the "all selected" test.
-    const include = [...new Set(fd.getAll('include').map(String))].filter(
-      (f): f is (typeof MERGE_FIELDS)[number] => (MERGE_FIELDS as readonly string[]).includes(f),
+    const form = await superValidate<MergeNodeForm>(
+      await request.formData(),
+      mergeNodeFormAdapter,
     );
-    const deleteSource = fd.get('deleteSource') === 'true';
+    if (!form.valid) return fail(400, { form });
 
-    // Echo the inputs back so the form stays populated on re-render.
-    const submitted = { source, target, include, deleteSource };
-
-    if (!source || !target) {
-      return fail(400, {
-        ...submitted,
-        error: t('commands.merge-node.error.missing', 'Enter both a source and a target node.'),
-      });
-    }
+    const { source, target, deleteSource } = form.data;
+    const include = [...new Set(form.data.include)];
     // Fast-path the obvious identical-ref case — saves a round-trip. The server
     // still catches two *different* refs that resolve to the same node
     // (MERGE_SOURCE_EQUALS_TARGET), which this string check can't see.
     if (source === target) {
-      return fail(400, {
-        ...submitted,
-        error: t('commands.merge-node.error.same', 'Source and target are the same node — pick two different nodes.'),
-      });
+      return message(
+        form,
+        {
+          type: 'error',
+          text: t('commands.merge-node.error.same', 'Source and target are the same node — pick two different nodes.'),
+        },
+        { status: 400 },
+      );
     }
 
     // Only omit `include` when EVERY field is selected (server's "omitted =
@@ -83,32 +89,46 @@ export const actions: Actions = {
         MERGE_NODES_MUTATION,
         { input: { source, target, include: includeArg, deleteSource } },
       );
-      return { ...submitted, result: mergeNodes };
+      return {
+        result: mergeNodes,
+        ...message(form, { type: 'success', text: t('commands.merge-node.success', 'Node merged.') }),
+      };
     } catch (e) {
       const code = extractGqlErrorCode(e);
       if (code === 'FORBIDDEN') {
-        return fail(403, {
-          ...submitted,
-          error: t('commands.merge-node.error.forbidden', 'You need write access to the target node (and the source, when deleting it or moving edges) to merge.'),
-        });
+        return message(form, {
+          type: 'error',
+          text: t('commands.merge-node.error.forbidden', 'You need write access to the target node (and the source, when deleting it or moving edges) to merge.'),
+        }, { status: 403 });
       }
       if (code === 'MERGE_SOURCE_EQUALS_TARGET') {
-        return fail(400, {
-          ...submitted,
-          error: t('commands.merge-node.error.same', 'Source and target are the same node — pick two different nodes.'),
-        });
+        return message(form, {
+          type: 'error',
+          text: t('commands.merge-node.error.same', 'Source and target are the same node — pick two different nodes.'),
+        }, { status: 400 });
       }
       if (code === 'URN_NOT_QUALIFIED') {
-        return fail(400, {
-          ...submitted,
-          error: t('commands.merge-node.error.unqualified', 'That doesn’t look like a fully-qualified node reference. Use a node id or a hrn:node:… URN (copy it from the node’s page).'),
-        });
+        return message(form, {
+          type: 'error',
+          text: t('commands.merge-node.error.unqualified', 'That doesn’t look like a fully-qualified node reference. Use a node id or a hrn:node:… URN (copy it from the node’s page).'),
+        }, { status: 400 });
       }
       if (code === 'NODE_NOT_FOUND') {
         // The server says which one ("Source node not found" / "Target node not found").
-        return fail(404, { ...submitted, error: `${extractGqlError(e, t('commands.merge-node.error.not-found', 'Node not found'))}.` });
+        return message(
+          form,
+          {
+            type: 'error',
+            text: `${extractGqlError(e, t('commands.merge-node.error.not-found', 'Node not found'))}.`,
+          },
+          { status: 404 },
+        );
       }
-      return fail(500, { ...submitted, error: extractGqlError(e, t('commands.merge-node.error.failed', 'Merge failed.')) });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, t('commands.merge-node.error.failed', 'Merge failed.')) },
+        { status: 500 },
+      );
     }
   },
 };

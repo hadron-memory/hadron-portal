@@ -3,13 +3,33 @@
   // effectiveAccess result (capability matrix + grants), mirroring the CLI's
   // `hadron access check` output. Form chrome + submit live in CommandForm.
   import { untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import CommandForm from '$lib/components/commands/CommandForm.svelte';
   import type { CommandField, CommandFieldValue } from '$lib/components/commands/command-field';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import type { ActionData, PageData } from './$types';
+  import { accessCheckSchema } from './schema';
+
+  type AccessCheckForm = Infer<typeof accessCheckSchema, 'zod4'>;
+  type AccessCheckSuperform = SuperValidated<AccessCheckForm, App.Superforms.Message, AccessCheckForm>;
 
   let { form, data }: { form: ActionData; data: PageData } = $props();
+  const initialForm = untrack(() => (form?.form ?? data.form) as AccessCheckSuperform);
+  const {
+    form: commandForm,
+    errors: commandErrors,
+    message: commandMessage,
+    submitting: commandSubmitting,
+    enhance: commandEnhance,
+  } = superForm<AccessCheckForm, App.Superforms.Message, AccessCheckForm>(initialForm, {
+    validators: zod4Client(accessCheckSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
 
   // Seed once at mount. Prefer the action's echoed values (`form`) so a NO-JS
   // POST repopulates the form after submit; otherwise fall back to the deep-link
@@ -19,8 +39,9 @@
   // read-initial-value-only (the Svelte-documented fix for state_referenced_locally).
   let values = $state<Record<string, CommandFieldValue>>(
     untrack(() => ({
-      user: form?.user ?? data.prefill.user,
-      resource: form?.resource ?? data.prefill.resource,
+      _kind: $commandForm._kind,
+      user: $commandForm.user ?? data.prefill.user,
+      resource: $commandForm.resource ?? data.prefill.resource,
     })),
   );
 
@@ -43,8 +64,20 @@
     },
   ];
 
+  const textValue = (value: CommandFieldValue | undefined): string =>
+    typeof value === 'string' ? value : '';
+
+  function syncCommandForm(next: Record<string, CommandFieldValue>) {
+    commandForm.update((current) => ({
+      ...current,
+      _kind: 'accessCheck',
+      user: textValue(next.user),
+      resource: textValue(next.resource),
+    }));
+  }
+
   const result = $derived(form && 'result' in form ? form.result : null);
-  const error = $derived(form && 'error' in form ? form.error : null);
+  const error = $derived($commandMessage?.type === 'error' ? $commandMessage.text : null);
 
   const CAPS = [
     { key: 'canRead', label: t('commands.access-check.cap.read', 'READ') },
@@ -58,16 +91,25 @@
   );
 </script>
 
-<CommandForm {fields} bind:values action="?/run" submitLabel={t('commands.access-check.submit', 'Check access')} />
+<CommandForm
+  {fields}
+  bind:values
+  action="?/run"
+  submitLabel={t('commands.access-check.submit', 'Check access')}
+  enhanceAction={commandEnhance}
+  errors={$commandErrors}
+  busy={$commandSubmitting}
+  onValueChange={syncCommandForm}
+/>
 
 {#if error}
-  <div class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+  <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
     {error}
   </div>
 {/if}
 
 {#if result}
-  <section class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+  <section role="status" class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
     <!-- Subject + resource -->
     <div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
       <span class="font-medium text-zinc-900 dark:text-white">{subjectName}</span>
