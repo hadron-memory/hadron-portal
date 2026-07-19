@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 
 async function runAction(
-  name: 'updateEdge' | 'updateExtractionSpec' | 'addEdge' | 'savePosition',
+  name: 'updateEdge' | 'updateExtractionSpec' | 'updateGoals' | 'addEdge' | 'savePosition',
   fields: Record<string, string>,
 ) {
   const { actions } = await import('./+page.server');
@@ -235,6 +235,96 @@ describe('updateExtractionSpec', () => {
   });
 });
 
+describe('updateGoals', () => {
+  it('normalizes goal textareas into arrays, merges conversation data, and returns a typed success', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ node: { data: { stageOrder: ['start'] } } })
+      .mockResolvedValueOnce({});
+    const result = await runAction('updateGoals', {
+      systemMemoryId: 'mem-1',
+      convLoc: 'conversations:demo',
+      goalDescriptionsText: ' Find a mentor \n\nAnswer questions ',
+      goalSignalsText: 'I need help\r\n  find someone  ',
+    });
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { convLoc: 'conversations:demo' },
+        message: { type: 'success', text: 'Goals saved.' },
+      },
+    });
+    expect(mockRequest.mock.calls[1][1]).toEqual({
+      input: {
+        memoryId: 'mem-1',
+        loc: 'conversations:demo',
+        data: {
+          stageOrder: ['start'],
+          goalDescriptions: ['Find a mentor', 'Answer questions'],
+          goalSignals: ['I need help', 'find someone'],
+        },
+      },
+    });
+  });
+
+  it('rejects missing conversation loc before reading the conversation node', async () => {
+    const result = (await runAction('updateGoals', {
+      systemMemoryId: 'mem-1',
+      goalDescriptionsText: 'Find a mentor',
+      goalSignalsText: 'I need help',
+    })) as { status: number; data: { form: { data: { convLoc: string }; errors: { convLoc?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.convLoc).toBe('');
+    expect(result.data.form.errors.convLoc?.[0]).toBe('Missing conversation loc');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-conversation locs before reading the conversation node', async () => {
+    const result = (await runAction('updateGoals', {
+      systemMemoryId: 'mem-1',
+      convLoc: 'conversations:demo:start',
+      goalDescriptionsText: 'Find a mentor',
+      goalSignalsText: 'I need help',
+    })) as { status: number; data: { form: { data: { convLoc: string }; errors: { convLoc?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.convLoc).toBe('conversations:demo:start');
+    expect(result.data.form.errors.convLoc?.[0]).toBe('Invalid conversation loc');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed error message when the mutation fails', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ node: { data: {} } })
+      .mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('updateGoals', {
+      systemMemoryId: 'mem-1',
+      convLoc: 'conversations:demo',
+      goalDescriptionsText: '',
+      goalSignalsText: '',
+    })) as { status: number; data: { form: { data: { convLoc: string }; message: { type: string; text: string } } } };
+    expect(result.status).toBe(500);
+    expect(result.data.form.data.convLoc).toBe('conversations:demo');
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+
+  it('returns the translated fallback when the mutation error has no message', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ node: { data: {} } })
+      .mockRejectedValueOnce({});
+    const result = (await runAction('updateGoals', {
+      systemMemoryId: 'mem-1',
+      convLoc: 'conversations:demo',
+      goalDescriptionsText: '',
+      goalSignalsText: '',
+    })) as { status: number; data: { form: { data: { convLoc: string }; message: { type: string; text: string } } } };
+    expect(result.status).toBe(500);
+    expect(result.data.form.data.convLoc).toBe('conversations:demo');
+    expect(result.data.form.message).toEqual({
+      type: 'error',
+      text: 'Failed to update goals',
+    });
+  });
+});
+
 describe('load', () => {
   it('seeds a Superform for each rendered conversation edge', async () => {
     mockFetchAllItems.mockResolvedValueOnce([
@@ -243,6 +333,21 @@ describe('load', () => {
     mockRequest.mockResolvedValueOnce({
       findNodes: {
         hits: [
+          {
+            node: {
+              id: 'conv-1',
+              memoryId: 'mem-1',
+              loc: 'conversations:demo',
+              name: 'demo',
+              description: 'Demo',
+              data: {
+                goalDescriptions: ['Find a mentor'],
+                goalSignals: ['I need help'],
+                stageOrder: ['start', 'end'],
+              },
+              outgoingEdges: [],
+            },
+          },
           {
             node: {
               id: 'n1',
@@ -299,6 +404,7 @@ describe('load', () => {
 
     const result = (await runLoad()) as {
       edgeForms: Record<string, { data: { edgeId: string; name: string; priority: string; condition: string; data: string } }>;
+      conversationGoalForms: Record<string, { data: { systemMemoryId: string; convLoc: string; goalDescriptionsText: string; goalSignalsText: string } }>;
       stageExtractionForms: Record<string, { data: { systemMemoryId: string; stageLoc: string; extractionSpec: string } }>;
     };
 
@@ -335,6 +441,13 @@ describe('load', () => {
       extractionSpec: '[]',
     });
     expect(result.stageExtractionForms['prompt-1']).toBeUndefined();
+    expect(result.conversationGoalForms['conv-1'].data).toMatchObject({
+      systemMemoryId: 'mem-1',
+      convLoc: 'conversations:demo',
+      goalDescriptionsText: 'Find a mentor',
+      goalSignalsText: 'I need help',
+    });
+    expect(result.conversationGoalForms['prompt-1']).toBeUndefined();
   });
 
   it('returns an empty edgeForms object when the conversation has no rendered edges', async () => {

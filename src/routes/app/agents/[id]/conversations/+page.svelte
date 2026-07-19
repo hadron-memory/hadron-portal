@@ -16,17 +16,22 @@
     orderedStages,
   } from '$lib/flow/conversation-canvas';
   import { conversationEdgePanelSchema } from '$lib/flow/conversation-edge-panel-form';
+  import { conversationGoalsSchema } from '$lib/flow/conversation-goals-form';
   import { conversationStageExtractionSchema } from '$lib/flow/conversation-stage-extraction-form';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
 
   type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
+  type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
   type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
   type UpdateEdgeActionResult = {
     form?: SuperValidated<ConversationEdgePanelForm, App.Superforms.Message, ConversationEdgePanelForm>;
   } | null;
   type UpdateExtractionSpecActionResult = {
     form?: SuperValidated<ConversationStageExtractionForm, App.Superforms.Message, ConversationStageExtractionForm>;
+  } | null;
+  type UpdateGoalsActionResult = {
+    form?: SuperValidated<ConversationGoalsForm, App.Superforms.Message, ConversationGoalsForm>;
   } | null;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -274,6 +279,27 @@
       ? extractionForm
       : data.stageExtractionForms[selectedStage.id];
   });
+  const goalsForm = $derived((form as UpdateGoalsActionResult)?.form ?? null);
+  const conversationGoalsSaved = $derived.by(() => {
+    if (!formIsLive || !goalsForm) return null;
+    return goalsForm.message?.type === 'success' && goalsForm.data?.convLoc === selectedConversation?.loc
+      ? goalsForm.message.text
+      : null;
+  });
+  const conversationGoalsError = $derived.by(() => {
+    if (!formIsLive || !goalsForm) return null;
+    return goalsForm.message?.type === 'error' && goalsForm.data?.convLoc === selectedConversation?.loc
+      ? goalsForm.message.text
+      : null;
+  });
+  const selectedConversationGoalsForm = $derived.by(() => {
+    if (!selectedConversation) return null;
+    // Load-time forms are keyed by node id; action echoes scope by convLoc,
+    // the identifier the server receives from the submitted form.
+    return formIsLive && goalsForm?.data?.convLoc === selectedConversation.loc
+      ? goalsForm
+      : data.conversationGoalForms[selectedConversation.id];
+  });
 
   // ── Drag-to-connect: SvelteFlow's connection fills this hidden form, which
   // posts to the addEdge action; on success the new rule is selected so its
@@ -507,10 +533,13 @@
           onSelectEdge={select}
         />
       {/key}
-    {:else if selectedConversation}
+    {:else if selectedConversation && selectedConversationGoalsForm}
       {#key selectedConversation.id}
         <ConversationInfoPanel
           conversation={selectedConversation}
+          goalsForm={selectedConversationGoalsForm}
+          goalsSaved={conversationGoalsSaved}
+          goalsError={conversationGoalsError}
           systemMemoryId={data.systemMemoryId}
           onClose={() => select(null)}
           onSelectNode={select}
