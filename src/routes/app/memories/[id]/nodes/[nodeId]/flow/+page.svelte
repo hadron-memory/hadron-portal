@@ -1,11 +1,18 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { tick } from 'svelte';
+  import type { Infer, SuperValidated } from 'sveltekit-superforms';
   import { t } from '$lib/i18n/t';
   import FlowCanvas from '$lib/components/flow/FlowCanvas.svelte';
   import FlowEdgePanel from '$lib/components/flow/FlowEdgePanel.svelte';
+  import { flowEdgePanelSchema } from '$lib/flow/edge-panel-form';
   import { collectFlowFieldsFor } from '$lib/flow/fields';
   import type { PageData, ActionData } from './$types';
+
+  type FlowEdgePanelForm = Infer<typeof flowEdgePanelSchema, 'zod4'>;
+  type UpdateEdgeActionResult = {
+    form?: SuperValidated<FlowEdgePanelForm, App.Superforms.Message, FlowEdgePanelForm>;
+  } | null;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -45,7 +52,7 @@
   // missing-edge-id 400s) out of the panel — with both sides undefined the
   // bare comparison would be true and silently swallow the page banner.
   const formIsLive = $derived(form != null && form !== acknowledgedForm);
-  const updateForm = $derived((form as { form?: { data?: { edgeId?: string }; message?: App.Superforms.Message } } | null)?.form ?? null);
+  const updateForm = $derived((form as UpdateEdgeActionResult)?.form ?? null);
   const panelSaved = $derived.by(() => {
     if (!formIsLive || !updateForm) return false;
     return updateForm.message?.type === 'success' && updateForm.data?.edgeId === selectedEdge?.id;

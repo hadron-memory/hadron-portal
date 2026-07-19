@@ -249,12 +249,13 @@ export const actions: Actions = {
   // them — updateEdge treats an absent variable as "keep" and an explicit
   // null as CLEAR (same contract the conversations editor relies on).
   updateEdge: async ({ request, locals }) => {
-    const fd = await request.formData();
-    const edgeId = String(fd.get('edgeId') ?? '').trim();
-    if (!edgeId) return fail(400, { error: 'Missing edge id' });
-    const form = await superValidate<FlowEdgePanelForm>(fd, flowEdgePanelFormAdapter);
+    const form = await superValidate<FlowEdgePanelForm>(
+      await request.formData(),
+      flowEdgePanelFormAdapter,
+    );
     if (!form.valid) return fail(400, { form });
 
+    const edgeId = form.data.edgeId;
     const name = form.data.name || null;
     const priority = parseValidatedPanelPriority(form.data.priority);
     const condition = parseValidatedPanelCondition(form.data.condition);

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { parseConditionField, parsePriorityField } from './edge-form';
 
+// Shared with the flow-canvas side panel because it composes the flow domain
+// parsers here; duplicating it route-locally would drift from these helpers.
 export const flowEdgePanelSchema = z.object({
   edgeId: z.string().trim().min(1, 'Missing edge id').prefault(''),
   name: z.string().trim().default(''),

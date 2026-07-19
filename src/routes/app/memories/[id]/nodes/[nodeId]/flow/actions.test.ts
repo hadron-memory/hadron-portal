@@ -72,6 +72,14 @@ describe('load', () => {
             condition: { var: 'message.data.ready' },
             target: { id: 'node-2', loc: 'act', name: 'Act' },
           },
+          {
+            id: 'edge-2',
+            name: null,
+            loc: 'classify:documents:spec',
+            priority: null,
+            condition: null,
+            target: { id: 'node-3', loc: 'spec', name: 'Spec' },
+          },
         ],
         incomingEdges: [],
       },
@@ -81,13 +89,21 @@ describe('load', () => {
       edgeForms: Record<string, { data: Record<string, unknown>; errors: Record<string, string[]> }>;
     };
 
+    expect(Object.keys(result.edgeForms)).toEqual(['edge-1', 'edge-2']);
     expect(result.edgeForms['edge-1'].data).toMatchObject({
       edgeId: 'edge-1',
       name: 'next.1.high',
       priority: '2',
       condition: JSON.stringify({ var: 'message.data.ready' }),
     });
+    expect(result.edgeForms['edge-2'].data).toMatchObject({
+      edgeId: 'edge-2',
+      name: '',
+      priority: '0',
+      condition: 'null',
+    });
     expect(result.edgeForms['edge-1'].errors).toEqual({});
+    expect(result.edgeForms['edge-2'].errors).toEqual({});
   });
 });
 
@@ -124,6 +140,17 @@ describe('updateEdge', () => {
     })) as { status: number; data: { error: string } };
     expect(result.status).toBe(400);
     expect(fieldError(result, 'priority')).toMatch(/whole number/);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing edge id through the Superforms field error path', async () => {
+    const result = (await runAction('updateEdge', {
+      name: 'next',
+      priority: '0',
+      condition: 'null',
+    })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(fieldError(result, 'edgeId')).toBe('Missing edge id');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
