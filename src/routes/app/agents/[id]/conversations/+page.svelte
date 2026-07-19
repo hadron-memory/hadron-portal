@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { tick } from 'svelte';
+  import type { Infer, SuperValidated } from 'sveltekit-superforms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ConversationCanvas from '$lib/components/flow/ConversationCanvas.svelte';
   import ConversationEdgePanel from '$lib/components/flow/ConversationEdgePanel.svelte';
@@ -14,8 +15,14 @@
     orderedStages,
   } from '$lib/flow/conversation-canvas';
   import type { ConversationGraphEdgeInput } from '$lib/flow/conversation-canvas';
+  import { conversationEdgePanelSchema } from '$lib/flow/conversation-edge-panel-form';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
+
+  type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
+  type UpdateEdgeActionResult = {
+    form?: SuperValidated<ConversationEdgePanelForm, App.Superforms.Message, ConversationEdgePanelForm>;
+  } | null;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const agent = $derived(data.agent);
@@ -238,17 +245,25 @@
   }
 
   // updateEdge results are scoped to the edge they were submitted for; the
-  // edgeId != null guard keeps edgeId-less results out of the panel.
+  // edgeId != null guard keeps edgeId-less results (addEdge failures,
+  // missing-edge-id 400s) out of the panel.
   const formIsLive = $derived(form != null && form !== acknowledgedForm);
+  const updateForm = $derived((form as UpdateEdgeActionResult)?.form ?? null);
   const edgePanelSaved = $derived.by(() => {
-    if (!formIsLive || !form) return false;
-    const { saved, edgeId } = form as { saved?: boolean; edgeId?: string };
-    return !!saved && edgeId != null && edgeId === selectedEdge?.id;
+    if (!formIsLive || !updateForm) return false;
+    return updateForm.message?.type === 'success' && updateForm.data?.edgeId === selectedEdge?.id;
   });
   const edgePanelError = $derived.by(() => {
-    if (!formIsLive || !form) return null;
-    const { error, edgeId } = form as { error?: string; edgeId?: string };
-    return error != null && edgeId != null && edgeId === selectedEdge?.id ? error : null;
+    if (!formIsLive || !updateForm) return null;
+    return updateForm.message?.type === 'error' && updateForm.data?.edgeId === selectedEdge?.id
+      ? updateForm.message.text
+      : null;
+  });
+  const selectedEdgeForm = $derived.by(() => {
+    if (!selectedEdge) return null;
+    return formIsLive && updateForm?.data?.edgeId === selectedEdge.id
+      ? updateForm
+      : data.edgeForms[selectedEdge.id];
   });
 
   // ── Drag-to-connect: SvelteFlow's connection fills this hidden form, which
@@ -460,10 +475,11 @@
         />
       {/if}
     </div>
-    {#if selectedEdge}
+    {#if selectedEdge && selectedEdgeForm}
       {#key selectedEdge.id}
         <ConversationEdgePanel
           edge={selectedEdge}
+          form={selectedEdgeForm}
           saved={edgePanelSaved}
           error={edgePanelError}
           onClose={() => select(null)}

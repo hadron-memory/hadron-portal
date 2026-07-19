@@ -7,8 +7,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRequest = vi.fn();
+const mockFetchAllItems = vi.fn();
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
+}));
+vi.mock('$lib/server/paginate', () => ({
+  fetchAllItems: mockFetchAllItems,
 }));
 vi.mock('$lib/server/guards', () => ({
   requireNonConsumer: vi.fn().mockResolvedValue(undefined),
@@ -16,6 +20,7 @@ vi.mock('$lib/server/guards', () => ({
 
 beforeEach(() => {
   mockRequest.mockReset();
+  mockFetchAllItems.mockReset();
 });
 
 async function runAction(
@@ -33,6 +38,16 @@ async function runAction(
   return actions[name](event);
 }
 
+async function runLoad() {
+  const { load } = await import('./+page.server');
+  const event = {
+    params: { id: 'agent-1' },
+    locals: { token: 'tok' },
+    parent: async () => ({}),
+  } as unknown as Parameters<typeof load>[0];
+  return load(event);
+}
+
 describe('updateEdge', () => {
   it('sends name, priority, condition, and data; reports the saved edge id', async () => {
     mockRequest.mockResolvedValueOnce({});
@@ -43,7 +58,13 @@ describe('updateEdge', () => {
       condition: JSON.stringify({ missing: ['memory.name'] }),
       data: JSON.stringify({ timing: 'on_enter', behavior: 'detour', custom: 'kept' }),
     });
-    expect(result).toEqual({ saved: true, edgeId: 'e1' });
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { edgeId: 'e1' },
+        message: { type: 'success', text: 'Rule saved.' },
+      },
+    });
     expect(mockRequest.mock.calls[0][1]).toEqual({
       edgeId: 'e1',
       name: 'needs profile',
@@ -72,10 +93,132 @@ describe('updateEdge', () => {
       priority: '1.5',
       condition: 'null',
       data: '{}',
-    })) as { status: number; data: { edgeId: string; error: string } };
+    })) as { status: number; data: { form: { data: { edgeId: string }; errors: { priority?: string[] } } } };
     expect(result.status).toBe(400);
-    expect(result.data.edgeId).toBe('e1');
+    expect(result.data.form.data.edgeId).toBe('e1');
+    expect(result.data.form.errors.priority?.[0]).toBe('Priority must be a whole number');
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing edge ids before any mutation', async () => {
+    const result = (await runAction('updateEdge', {
+      name: 'x',
+      priority: '1',
+      condition: 'null',
+      data: '{}',
+    })) as { status: number; data: { form: { data: { edgeId: string }; errors: { edgeId?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.edgeId).toBe('');
+    expect(result.data.form.errors.edgeId?.[0]).toBe('Missing edge id');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid data JSON before any mutation, scoped to the edge', async () => {
+    const result = (await runAction('updateEdge', {
+      edgeId: 'e1',
+      name: 'x',
+      priority: '1',
+      condition: 'null',
+      data: '{',
+    })) as { status: number; data: { form: { data: { edgeId: string }; errors: { data?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.edgeId).toBe('e1');
+    expect(result.data.form.errors.data?.[0]).toBe('Invalid JSON');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed error message when the mutation fails', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('updateEdge', {
+      edgeId: 'e1',
+      name: 'x',
+      priority: '1',
+      condition: 'null',
+      data: '{}',
+    })) as { status: number; data: { form: { data: { edgeId: string }; message: { type: string; text: string } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.edgeId).toBe('e1');
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+});
+
+describe('load', () => {
+  it('seeds a Superform for each rendered conversation edge', async () => {
+    mockFetchAllItems.mockResolvedValueOnce([
+      { id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] },
+    ]);
+    mockRequest.mockResolvedValueOnce({
+      findNodes: {
+        hits: [
+          {
+            node: {
+              id: 'n1',
+              memoryId: 'mem-1',
+              loc: 'conversations:demo:start',
+              name: 'start',
+              description: 'Start',
+              data: {},
+              outgoingEdges: [
+                {
+                  id: 'e1',
+                  name: 'needs profile',
+                  priority: 2,
+                  condition: { missing: ['memory.name'] },
+                  data: { timing: 'on_enter', behavior: 'detour', custom: 'kept' },
+                  target: { id: 'n2', loc: 'conversations:demo:end', name: 'end' },
+                },
+                {
+                  id: 'e2',
+                  name: null,
+                  priority: null,
+                  condition: null,
+                  data: {},
+                  target: { id: 'n2', loc: 'conversations:demo:end', name: 'end' },
+                },
+              ],
+            },
+          },
+          {
+            node: {
+              id: 'n2',
+              memoryId: 'mem-1',
+              loc: 'conversations:demo:end',
+              name: 'end',
+              description: 'End',
+              data: {},
+              outgoingEdges: [],
+            },
+          },
+        ],
+      },
+    });
+
+    const result = (await runLoad()) as {
+      edgeForms: Record<string, { data: { edgeId: string; name: string; priority: string; condition: string; data: string } }>;
+    };
+
+    expect(Object.keys(result.edgeForms)).toEqual(['e1', 'e2']);
+    expect(result.edgeForms.e1.data).toMatchObject({
+      edgeId: 'e1',
+      name: 'needs profile',
+      priority: '2',
+      condition: JSON.stringify({ missing: ['memory.name'] }),
+    });
+    expect(JSON.parse(result.edgeForms.e1.data.data)).toEqual({
+      timing: 'on_enter',
+      behavior: 'detour',
+      custom: 'kept',
+    });
+    expect(result.edgeForms.e2.data).toMatchObject({
+      edgeId: 'e2',
+      name: '',
+      priority: '0',
+      condition: 'null',
+    });
+    expect(JSON.parse(result.edgeForms.e2.data.data)).toEqual({
+      timing: 'on_complete',
+      behavior: 'transition',
+    });
   });
 });
 
