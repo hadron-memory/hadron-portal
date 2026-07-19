@@ -1,13 +1,31 @@
 import { fail, error } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
 import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
+import { buildConversationEdgeDetails, conversationEdgeInputsFromNodes } from '$lib/flow/conversation-canvas';
+import {
+  conversationEdgePanelDefaults,
+  conversationEdgePanelSchema,
+  parseValidatedConversationEdgeData,
+} from '$lib/flow/conversation-edge-panel-form';
+import {
+  parseValidatedPanelCondition,
+  parseValidatedPanelPriority,
+} from '$lib/flow/edge-panel-form';
 import { createNodeErrorCode } from '$lib/i18n/create-node-strings';
+import { t } from '$lib/i18n/t';
 import type { Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+
+type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
+
+const conversationEdgePanelFormAdapter = zod4(conversationEdgePanelSchema);
 
 // cor:api:090 — scope to the agent's system memory. findNodes hides
 // class:'system' memories on a broad (no-memoryIds) call, so the system-memory
@@ -73,8 +91,22 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // Prompts feed the stage panel's editor and the shared-partials section;
   // the canvas view-model derives everything else from systemNodes client-side.
   const prompts = systemNodes.filter((n) => n.loc.startsWith('prompts:'));
+  const edgeInputs = conversationEdgeInputsFromNodes(systemNodes);
+  const edgeDetails = buildConversationEdgeDetails(systemNodes, edgeInputs);
+  const edgeForms = Object.fromEntries(
+    await Promise.all(
+      edgeDetails.map(async (edge) => [
+        edge.id,
+        await superValidate<ConversationEdgePanelForm>(
+          conversationEdgePanelDefaults(edge),
+          conversationEdgePanelFormAdapter,
+          { errors: false },
+        ),
+      ]),
+    ),
+  );
 
-  return { agent, org, systemMemoryId, prompts, systemNodes };
+  return { agent, org, systemMemoryId, prompts, systemNodes, edgeForms };
 };
 
 export const actions: Actions = {
@@ -289,33 +321,33 @@ export const actions: Actions = {
   // (timing/behavior — the panel merges them into the stored data object,
   // since the data variable REPLACES the whole value server-side).
   updateEdge: async ({ request, locals }) => {
-    const fd = await request.formData();
-    const client = gqlClient(locals.token);
-    const edgeId = String(fd.get('edgeId') ?? '');
-    const name = String(fd.get('name') ?? '').trim() || null;
-    const dataJson = String(fd.get('data') ?? '{}');
+    const form = await superValidate<ConversationEdgePanelForm>(
+      await request.formData(),
+      conversationEdgePanelFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
-    if (!edgeId) return fail(400, { error: 'edgeId is required' });
-
-    const priority = parsePriorityField(fd.get('priority'));
-    if (!priority.ok) return fail(400, { edgeId, error: priority.error });
-    const condition = parseConditionField(fd.get('condition'));
-    if (!condition.ok) return fail(400, { edgeId, error: condition.error });
-
-    let data: Record<string, unknown>;
-    try { data = JSON.parse(dataJson); } catch { return fail(400, { edgeId, error: 'Invalid JSON' }); }
+    const edgeId = form.data.edgeId;
+    const name = form.data.name || null;
+    const priority = parseValidatedPanelPriority(form.data.priority);
+    const condition = parseValidatedPanelCondition(form.data.condition);
+    const data = parseValidatedConversationEdgeData(form.data.data);
 
     try {
-      await client.request(UPDATE_EDGE_MUTATION, {
+      await gqlClient(locals.token).request(UPDATE_EDGE_MUTATION, {
         edgeId,
         name,
-        condition: condition.value,
-        priority: priority.value,
+        condition,
+        priority,
         data,
       });
-      return { saved: true, edgeId };
+      return message(form, { type: 'success', text: t('conversation.edgePanel.saved', 'Rule saved.') });
     } catch (e: unknown) {
-      return fail(400, { edgeId, error: userFacingErrorMessage(e, 'Failed to update edge') });
+      return message(
+        form,
+        { type: 'error', text: userFacingErrorMessage(e, 'Failed to update edge') },
+        { status: 500 },
+      );
     }
   },
 

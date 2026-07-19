@@ -72,29 +72,33 @@ The `speckit.hadron.capture` hook (bound at `after_plan` and `after_implement`) 
 - **Branch naming**: Use `feature/`, `fix/`, `refactor/`, or `docs/` prefixes (e.g., `feature/node-detail-redesign`)
 - **Commit messages**: Lead with the conventional type (e.g., `feat:`, `fix:`, `refactor:`, `docs:`). Include *why* the change, not just what.
 - **PRs**: Always link to related issues and include a test plan. If your change touches Hadron memory, note what was captured.
-- **Review**: Run `/code-review` before pushing. Portal-specific review criteria live in `hadronmemory.com::hadron-portal::review` — check those before opening a PR.
+- **Review**: Run `/code-review` before pushing. Portal-specific review criteria live at `hrn:node:hadronmemory.com:hadron-portal:review` — check the incoming `Applies when …` review nodes before opening a PR.
 
 ## Portal review criteria
 
 Portal code is reviewed against project-specific criteria stored in Hadron as a
 **review checklist tree**: each criterion is a child node under the
-`hadronmemory.com::hadron-portal::review` parent, and every child carries an
+`hrn:node:hadronmemory.com:hadron-portal:review` parent, and every child carries an
 `Applies when …` edge **back** to that parent. So the canonical way to discover
-the criteria is to read the parent and scan its **Referenced by** list — each
-entry is one check plus the condition it applies to.
+the criteria is to read the review parent and scan its incoming edges in the
+**Referenced by** list — each entry is one review node plus the condition it
+applies to.
 
 ```bash
 hadron_set_active_memory hadronmemory.com::hadron-portal
+# `hadron_set_active_memory` takes a memory URN. Review-node reads below use
+# the explicit hrn:node form.
 
-# The canonical index: read the review parent, scan its "Referenced by" list.
-hadron_get_node hadronmemory.com::hadron-portal::review
+# The canonical index: read the review parent, scan its incoming
+# "Referenced by" edges.
+hadron_get_node hrn:node:hadronmemory.com:hadron-portal:review
 
 # Or browse/search the children directly (scope by memoryUrn, NOT a query: arg).
 hadron_list_nodes parentRel:"review"
 hadron_find_nodes "aria" memoryUrn:"hadronmemory.com::hadron-portal"
 
 # Then read the specific check by its URN.
-hadron_get_node hadronmemory.com::hadron-portal::review:<name>
+hadron_get_node hrn:node:hadronmemory.com:hadron-portal:review:<name>
 ```
 
 Before opening a PR, read the checks whose `Applies when …` condition matches

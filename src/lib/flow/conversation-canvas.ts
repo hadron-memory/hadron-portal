@@ -32,6 +32,18 @@ export interface ConversationGraphEdgeInput {
   data?: unknown;
 }
 
+export interface ConversationGraphEdgeSourceInput {
+  id: string;
+  outgoingEdges?: Array<{
+    id: string;
+    name: string | null;
+    target?: { id: string } | null;
+    priority?: number | null;
+    condition?: unknown;
+    data?: unknown;
+  }> | null;
+}
+
 export interface ConversationCanvasNode {
   id: string;
   loc: string;
@@ -119,6 +131,27 @@ function savedPosition(data: Record<string, unknown>): { x: number; y: number } 
 
 function labelOf(node: ConversationGraphNodeInput): string {
   return node.description || node.name || node.loc;
+}
+
+export function conversationEdgeInputsFromNodes(
+  nodes: readonly ConversationGraphEdgeSourceInput[],
+): ConversationGraphEdgeInput[] {
+  const edges: ConversationGraphEdgeInput[] = [];
+  for (const n of nodes) {
+    for (const e of n.outgoingEdges ?? []) {
+      if (!e.target) continue;
+      edges.push({
+        id: e.id,
+        name: e.name,
+        sourceId: n.id,
+        targetId: e.target.id,
+        priority: e.priority ?? null,
+        condition: e.condition ?? null,
+        data: e.data ?? {},
+      });
+    }
+  }
+  return edges;
 }
 
 function segments(loc: string): string[] {
