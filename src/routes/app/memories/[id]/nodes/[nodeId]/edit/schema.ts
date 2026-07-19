@@ -10,6 +10,8 @@ function normalizedLoc(value: string, ctx: z.RefinementCtx): string {
       code: 'custom',
       message: 'Invalid loc.',
     });
+    // z.NEVER is Zod's transform sentinel after addIssue; the cast keeps the
+    // output type narrow while preventing the bad value from propagating.
     return z.NEVER as never;
   }
 }

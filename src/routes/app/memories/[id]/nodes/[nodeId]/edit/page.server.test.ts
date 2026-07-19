@@ -248,6 +248,59 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     expect(fieldError(result, 'loc')).toMatch(/already occupies/);
   });
 
+  it('keeps the current loc without moving when a manual POST omits loc', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'current-loc', name: 'a',
+        memory: { id: 'mem-B', urn: 'acme.com::brain', name: 'Brain' },
+        nodeType: 'info', alias: null, description: null, content: 'old',
+        tokens: null, tags: ['x'], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
+
+    const actions = await importActions();
+    try {
+      await actions.default(actionEvent({
+        gid: 'mem-A',
+        nodeId: 'pk',
+        form: { name: 'new' },
+      }));
+    } catch { /* redirect at end */ }
+
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { loc: string } }];
+    expect(vars.input.loc).toBe('current-loc');
+  });
+
+  it('returns a typed message instead of silently dropping corrupt edges JSON', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: 'old',
+        tokens: null, tags: ['x'], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+
+    const actions = await importActions();
+    const result = await actions.default(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk',
+      form: { name: 'new', loc: 'a', edges: '{not json' },
+    }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'error',
+      text: 'Edges payload was corrupt. Please refresh and try again.',
+    });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
   it('normalizes invalid numeric seq to null, preserving the legacy action behavior', async () => {
     mockRequest.mockResolvedValueOnce({
       node: {

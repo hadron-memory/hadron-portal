@@ -30,6 +30,11 @@ function formDefaults(node: MemoryNode): EditNodeForm {
   };
 }
 
+function parseEdgesPayload(value: string): { targetId: string; name: string }[] | undefined {
+  if (!value) return undefined;
+  return JSON.parse(value) as { targetId: string; name: string }[];
+}
+
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
@@ -77,10 +82,11 @@ export const actions: Actions = {
     const content = form.data.content || null;
     const tags = form.data.tags ? form.data.tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
 
-    // Parse edges from JSON
     let edges: { targetId: string; name: string }[] | undefined;
-    if (form.data.edges) {
-      try { edges = JSON.parse(form.data.edges); } catch { /* ignore */ }
+    try {
+      edges = parseEdgesPayload(form.data.edges);
+    } catch {
+      return message(form, { type: 'error', text: 'Edges payload was corrupt. Please refresh and try again.' }, { status: 400 });
     }
 
     // #237: route every mutation through the node's actual memoryId, not
@@ -90,6 +96,8 @@ export const actions: Actions = {
     // #564 (#501): moveNode takes sourceRef (the PK) + targetUrn composed
     // from the node's OWN memory urn — a stale URL can't redirect the move.
     // An occupied destination fails loudly with NODE_ALREADY_EXISTS.
+    // Empty loc means "keep the current loc"; the page seeds loc in load, so
+    // empty only appears on malformed/manual POSTs and should not move a node.
     const loc = form.data.loc && form.data.loc !== currentNode.loc ? form.data.loc : currentNode.loc;
     if (loc !== currentNode.loc) {
       if (!currentNode.memory?.urn) {

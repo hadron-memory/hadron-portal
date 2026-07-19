@@ -15,6 +15,7 @@
     errors,
     constraints,
     message,
+    submitting,
     enhance,
   } = superForm(initialForm, {
     validators: zod4Client(editNodeSchema),
@@ -202,7 +203,13 @@
 
     <!-- Actions -->
     <div class="flex items-center gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-      <button type="submit" class="rounded-lg bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
+      <button
+        type="submit"
+        disabled={$submitting}
+        class="rounded-lg bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {$submitting ? 'Saving...' : 'Save'}
+      </button>
       <a href="{basePath}/nodes/{node.id}" class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</a>
     </div>
   </form>
