@@ -10,11 +10,11 @@
   import {
     buildConversationCanvas,
     buildConversationEdgeDetails,
+    conversationEdgeInputsFromNodes,
     isConversationLoc,
     isStageLoc,
     orderedStages,
   } from '$lib/flow/conversation-canvas';
-  import type { ConversationGraphEdgeInput } from '$lib/flow/conversation-canvas';
   import { conversationEdgePanelSchema } from '$lib/flow/conversation-edge-panel-form';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
@@ -157,24 +157,7 @@
 
   // ── Canvas model (derived against the CURRENT load payload, so saves that
   // invalidate the load re-render the graph) ──
-  const edgeInputs = $derived.by(() => {
-    const edges: ConversationGraphEdgeInput[] = [];
-    for (const n of data.systemNodes) {
-      for (const e of n.outgoingEdges ?? []) {
-        if (!e.target) continue;
-        edges.push({
-          id: e.id,
-          name: e.name,
-          sourceId: n.id,
-          targetId: e.target.id,
-          priority: e.priority ?? null,
-          condition: e.condition ?? null,
-          data: e.data ?? {},
-        });
-      }
-    }
-    return edges;
-  });
+  const edgeInputs = $derived(conversationEdgeInputsFromNodes(data.systemNodes));
   const canvasModel = $derived(buildConversationCanvas(data.systemNodes, edgeInputs));
   const edgeDetails = $derived(buildConversationEdgeDetails(data.systemNodes, edgeInputs));
 

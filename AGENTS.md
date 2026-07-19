@@ -86,6 +86,8 @@ applies to.
 
 ```bash
 hadron_set_active_memory hadronmemory.com::hadron-portal
+# `hadron_set_active_memory` takes a memory URN. Review-node reads below use
+# the explicit hrn:node form.
 
 # The canonical index: read the review parent, scan its incoming
 # "Referenced by" edges.

@@ -1,30 +1,22 @@
 import { z } from 'zod';
-import { parseConditionField, parsePriorityField } from './edge-form';
+import { flowEdgePanelDefaults, flowEdgePanelSchema } from './edge-panel-form';
 
-// Conversation routing-rule panel schema. It composes the shared flow-domain
-// parsers so validation stays aligned with addEdge and the edge editor.
-export const conversationEdgePanelSchema = z.object({
-  edgeId: z.string().trim().min(1, 'Missing edge id').prefault(''),
-  name: z.string().trim().default(''),
-  priority: z.preprocess(
-    (value) => String(value ?? '').trim(),
-    z.string().superRefine((value, ctx) => {
-      const parsed = parsePriorityField(value);
-      if (!parsed.ok) ctx.addIssue({ code: 'custom', message: parsed.error });
-    }),
-  ).default(''),
-  condition: z.string().default('null').superRefine((value, ctx) => {
-    const parsed = parseConditionField(value);
-    if (!parsed.ok) ctx.addIssue({ code: 'custom', message: parsed.error });
-  }),
-  data: z.string().default('{}').superRefine((value, ctx) => {
-    try {
-      JSON.parse(value);
-    } catch {
-      ctx.addIssue({ code: 'custom', message: 'Invalid JSON' });
-    }
-  }),
+const dataField = z.string().default('{}').superRefine((value, ctx) => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    ctx.addIssue({ code: 'custom', message: 'Invalid JSON' });
+    return;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    ctx.addIssue({ code: 'custom', message: 'Data must be a JSON object' });
+  }
 });
+
+// Conversation routing-rule panel schema lives with the flow helpers because it
+// extends the shared edge panel fields and adds conversation-specific edge data.
+export const conversationEdgePanelSchema = flowEdgePanelSchema.extend({ data: dataField });
 
 export type ConversationEdgePanelSchema = typeof conversationEdgePanelSchema;
 
@@ -38,10 +30,7 @@ export function conversationEdgePanelDefaults(edge: {
   behavior: string | null;
 }) {
   return {
-    edgeId: edge.id,
-    name: edge.name ?? '',
-    priority: String(edge.priority ?? 0),
-    condition: JSON.stringify(edge.condition ?? null),
+    ...flowEdgePanelDefaults(edge),
     data: JSON.stringify({
       ...edge.data,
       timing: edge.timing ?? 'on_complete',
@@ -50,6 +39,17 @@ export function conversationEdgePanelDefaults(edge: {
   };
 }
 
-export function parseValidatedConversationEdgeData(value: string): unknown {
-  return JSON.parse(value);
+export function parseValidatedConversationEdgeData(value: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (e) {
+    throw new Error(
+      `Validated conversation edge data failed to parse: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  }
+  if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+    return parsed as Record<string, unknown>;
+  }
+  throw new Error('Validated conversation edge data was not a JSON object');
 }

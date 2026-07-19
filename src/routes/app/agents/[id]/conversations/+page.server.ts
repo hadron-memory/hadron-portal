@@ -8,7 +8,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
 import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
-import { buildConversationEdgeDetails } from '$lib/flow/conversation-canvas';
+import { buildConversationEdgeDetails, conversationEdgeInputsFromNodes } from '$lib/flow/conversation-canvas';
 import {
   conversationEdgePanelDefaults,
   conversationEdgePanelSchema,
@@ -91,19 +91,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // Prompts feed the stage panel's editor and the shared-partials section;
   // the canvas view-model derives everything else from systemNodes client-side.
   const prompts = systemNodes.filter((n) => n.loc.startsWith('prompts:'));
-  const edgeInputs = systemNodes.flatMap((n) =>
-    (n.outgoingEdges ?? [])
-      .filter((e) => e.target)
-      .map((e) => ({
-        id: e.id,
-        name: e.name,
-        sourceId: n.id,
-        targetId: e.target.id,
-        priority: e.priority ?? null,
-        condition: e.condition ?? null,
-        data: e.data ?? {},
-      })),
-  );
+  const edgeInputs = conversationEdgeInputsFromNodes(systemNodes);
   const edgeDetails = buildConversationEdgeDetails(systemNodes, edgeInputs);
   const edgeForms = Object.fromEntries(
     await Promise.all(
@@ -358,7 +346,7 @@ export const actions: Actions = {
       return message(
         form,
         { type: 'error', text: userFacingErrorMessage(e, 'Failed to update edge') },
-        { status: 400 },
+        { status: 500 },
       );
     }
   },

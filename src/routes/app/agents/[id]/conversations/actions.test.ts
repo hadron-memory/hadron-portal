@@ -127,6 +127,20 @@ describe('updateEdge', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects non-object data JSON before any mutation, scoped to the edge', async () => {
+    const result = (await runAction('updateEdge', {
+      edgeId: 'e1',
+      name: 'x',
+      priority: '1',
+      condition: 'null',
+      data: '"hello"',
+    })) as { status: number; data: { form: { data: { edgeId: string }; errors: { data?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.edgeId).toBe('e1');
+    expect(result.data.form.errors.data?.[0]).toBe('Data must be a JSON object');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('returns a typed error message when the mutation fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('updateEdge', {
@@ -136,7 +150,7 @@ describe('updateEdge', () => {
       condition: 'null',
       data: '{}',
     })) as { status: number; data: { form: { data: { edgeId: string }; message: { type: string; text: string } } } };
-    expect(result.status).toBe(400);
+    expect(result.status).toBe(500);
     expect(result.data.form.data.edgeId).toBe('e1');
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
   });
@@ -219,6 +233,69 @@ describe('load', () => {
       timing: 'on_complete',
       behavior: 'transition',
     });
+  });
+
+  it('returns an empty edgeForms object when the conversation has no rendered edges', async () => {
+    mockFetchAllItems.mockResolvedValueOnce([
+      { id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] },
+    ]);
+    mockRequest.mockResolvedValueOnce({
+      findNodes: {
+        hits: [
+          {
+            node: {
+              id: 'n1',
+              memoryId: 'mem-1',
+              loc: 'conversations:demo:start',
+              name: 'start',
+              description: 'Start',
+              data: {},
+              outgoingEdges: [],
+            },
+          },
+        ],
+      },
+    });
+
+    const result = (await runLoad()) as { edgeForms: Record<string, unknown> };
+
+    expect(result.edgeForms).toEqual({});
+  });
+
+  it('does not seed a form for an edge whose target is missing', async () => {
+    mockFetchAllItems.mockResolvedValueOnce([
+      { id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] },
+    ]);
+    mockRequest.mockResolvedValueOnce({
+      findNodes: {
+        hits: [
+          {
+            node: {
+              id: 'n1',
+              memoryId: 'mem-1',
+              loc: 'conversations:demo:start',
+              name: 'start',
+              description: 'Start',
+              data: {},
+              outgoingEdges: [
+                {
+                  id: 'missing-target-edge',
+                  name: 'orphaned',
+                  priority: 0,
+                  condition: null,
+                  data: {},
+                  target: null,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    const result = (await runLoad()) as { edgeForms: Record<string, unknown> };
+
+    expect(result.edgeForms).toEqual({});
   });
 });
 
