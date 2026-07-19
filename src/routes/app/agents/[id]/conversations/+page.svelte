@@ -16,19 +16,28 @@
     isStageLoc,
     orderedStages,
   } from '$lib/flow/conversation-canvas';
+  import { addStageSchema } from '$lib/flow/conversation-add-stage-form';
   import { conversationEdgePanelSchema } from '$lib/flow/conversation-edge-panel-form';
   import { conversationGoalsSchema } from '$lib/flow/conversation-goals-form';
   import { conversationStageExtractionSchema } from '$lib/flow/conversation-stage-extraction-form';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
-  import { addConversationSchema } from './schema';
+  import { addConversationSchema, addEdgeSchema } from './schema';
 
   type AddConversationForm = Infer<typeof addConversationSchema, 'zod4'>;
+  type AddEdgeForm = Infer<typeof addEdgeSchema, 'zod4'>;
+  type AddStageForm = Infer<typeof addStageSchema, 'zod4'>;
   type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
   type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
   type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
   type AddConversationActionResult = {
     form?: SuperValidated<AddConversationForm, App.Superforms.Message, AddConversationForm>;
+  } | null;
+  type AddEdgeActionResult = {
+    form?: SuperValidated<AddEdgeForm, App.Superforms.Message, AddEdgeForm>;
+  } | null;
+  type AddStageActionResult = {
+    form?: SuperValidated<AddStageForm, App.Superforms.Message, AddStageForm>;
   } | null;
   type UpdateEdgeActionResult = {
     form?: SuperValidated<ConversationEdgePanelForm, App.Superforms.Message, ConversationEdgePanelForm>;
@@ -280,6 +289,34 @@
   const addConversationSaved = $derived(
     $addConversationMessage?.type === 'success' ? $addConversationMessage.text : null,
   );
+  const addStageForm = $derived.by(() => {
+    const actionForm = (form as AddStageActionResult)?.form ?? null;
+    if (!formIsLive || !actionForm) return null;
+    return 'conversationLoc' in actionForm.data && 'stageName' in actionForm.data
+      ? actionForm
+      : null;
+  });
+  const addEdgeForm = $derived.by(() => {
+    const actionForm = (form as AddEdgeActionResult)?.form ?? null;
+    if (!formIsLive || !actionForm) return null;
+    return 'sourceNodeId' in actionForm.data && 'targetNodeId' in actionForm.data
+      ? actionForm
+      : null;
+  });
+  const addEdgeError = $derived.by(() => {
+    if (!addEdgeForm) return null;
+    if (addEdgeForm.message?.type === 'error') return addEdgeForm.message.text;
+    return addEdgeForm.errors.sourceNodeId?.[0]
+      ?? addEdgeForm.errors.targetNodeId?.[0]
+      ?? addEdgeForm.errors.condition?.[0]
+      ?? addEdgeForm.errors.priority?.[0]
+      ?? addEdgeForm.errors.data?.[0]
+      ?? null;
+  });
+  const plainActionError = $derived.by(() => {
+    if (!formIsLive || !form || !('error' in form)) return null;
+    return typeof form.error === 'string' ? form.error : null;
+  });
   const updateForm = $derived.by(() => {
     const actionForm = (form as UpdateEdgeActionResult)?.form ?? null;
     return actionForm && 'edgeId' in actionForm.data ? actionForm : null;
@@ -347,6 +384,26 @@
     return formIsLive && goalsForm?.data?.convLoc === selectedConversation.loc
       ? goalsForm
       : data.conversationGoalForms[selectedConversation.id];
+  });
+  const conversationAddStageSaved = $derived.by(() => {
+    if (!formIsLive || !addStageForm) return null;
+    return addStageForm.message?.type === 'success' && addStageForm.data?.conversationLoc === selectedConversation?.loc
+      ? addStageForm.message.text
+      : null;
+  });
+  const conversationAddStageError = $derived.by(() => {
+    if (!formIsLive || !addStageForm) return null;
+    return addStageForm.message?.type === 'error' && addStageForm.data?.conversationLoc === selectedConversation?.loc
+      ? addStageForm.message.text
+      : null;
+  });
+  const selectedConversationAddStageForm = $derived.by(() => {
+    if (!selectedConversation) return null;
+    // Load-time forms are keyed by node id; action echoes scope by conversationLoc,
+    // the identifier the server receives from the submitted form.
+    return formIsLive && addStageForm?.data?.conversationLoc === selectedConversation.loc
+      ? addStageForm
+      : data.addStageForms[selectedConversation.id];
   });
 
   // ── Drag-to-connect: SvelteFlow's connection fills this hidden form, which
@@ -537,11 +594,13 @@
     </div>
   {/if}
 
-  <!-- Errors not tied to the edge panel (addConversation, addStage, prompt/spec
-       saves, addEdge failures) surface here. -->
-  {#if formIsLive && form?.error != null && !edgePanelError}
-    <div class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-      {form.error}
+  <!-- Drag-to-connect and remaining native-form failures surface here. -->
+  {#if addEdgeError || plainActionError}
+    <div
+      role="alert"
+      class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+    >
+      {addEdgeError ?? plainActionError}
     </div>
   {/if}
 
@@ -597,14 +656,16 @@
           onSelectEdge={select}
         />
       {/key}
-    {:else if selectedConversation && selectedConversationGoalsForm}
+    {:else if selectedConversation && selectedConversationGoalsForm && selectedConversationAddStageForm}
       {#key selectedConversation.id}
         <ConversationInfoPanel
           conversation={selectedConversation}
           goalsForm={selectedConversationGoalsForm}
           goalsSaved={conversationGoalsSaved}
           goalsError={conversationGoalsError}
-          systemMemoryId={data.systemMemoryId}
+          addStageForm={selectedConversationAddStageForm}
+          addStageSaved={conversationAddStageSaved}
+          addStageError={conversationAddStageError}
           onClose={() => select(null)}
           onSelectNode={select}
         />

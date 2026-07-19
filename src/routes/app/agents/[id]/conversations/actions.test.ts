@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 
 async function runAction(
-  name: 'addConversation' | 'updateEdge' | 'updateExtractionSpec' | 'updateGoals' | 'addEdge' | 'savePosition',
+  name: 'addConversation' | 'addStage' | 'updateEdge' | 'updateExtractionSpec' | 'updateGoals' | 'addEdge' | 'savePosition',
   fields: Record<string, string>,
 ) {
   const { actions } = await import('./+page.server');
@@ -120,6 +120,111 @@ describe('addConversation', () => {
     expect(result.data.form.message).toEqual({
       type: 'error',
       text: 'Failed to add conversation',
+    });
+  });
+});
+
+describe('addStage', () => {
+  it('creates a stage and prompt, updates stage order, and returns a typed success', async () => {
+    mockRequest
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ node: { data: { stageOrder: ['start'] } } })
+      .mockResolvedValueOnce({});
+    const result = await runAction('addStage', {
+      systemMemoryId: 'mem-1',
+      conversationLoc: 'conversations:demo',
+      stageName: 'Gather Details',
+    });
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { conversationLoc: 'conversations:demo', stageName: 'Gather Details' },
+        message: { type: 'success', text: 'Stage added.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0][1]).toEqual({
+      input: {
+        memoryId: 'mem-1',
+        loc: 'conversations:demo:gather-details',
+        name: 'gather-details',
+        nodeType: 'system',
+        description: 'Gather Details',
+        data: {
+          promptRef: 'prompts:demo:gather-details',
+          extractionSpec: [],
+        },
+      },
+    });
+    expect(mockRequest.mock.calls[1][1]).toEqual({
+      input: {
+        memoryId: 'mem-1',
+        loc: 'prompts:demo:gather-details',
+        name: 'gather-details',
+        nodeType: 'system',
+        content: 'Stage: Gather Details\n\n[Edit this prompt]',
+      },
+    });
+    expect(mockRequest.mock.calls[3][1]).toEqual({
+      input: {
+        memoryId: 'mem-1',
+        loc: 'conversations:demo',
+        data: { stageOrder: ['start', 'gather-details'] },
+      },
+    });
+  });
+
+  it('rejects missing stage names before creating nodes', async () => {
+    const result = (await runAction('addStage', {
+      systemMemoryId: 'mem-1',
+      conversationLoc: 'conversations:demo',
+    })) as { status: number; data: { form: { data: { stageName: string }; errors: { stageName?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.stageName).toBe('');
+    expect(result.data.form.errors.stageName?.[0]).toBe('Stage name is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-conversation locs before creating nodes', async () => {
+    const result = (await runAction('addStage', {
+      systemMemoryId: 'mem-1',
+      conversationLoc: 'conversations:demo:start',
+      stageName: 'Gather Details',
+    })) as { status: number; data: { form: { data: { conversationLoc: string }; errors: { conversationLoc?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.conversationLoc).toBe('conversations:demo:start');
+    expect(result.data.form.errors.conversationLoc?.[0]).toBe('Invalid conversation loc');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('maps duplicate stage slugs to a stageName field error', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('NodeLocConflictError'));
+    const result = (await runAction('addStage', {
+      systemMemoryId: 'mem-1',
+      conversationLoc: 'conversations:demo',
+      stageName: 'Gather Details',
+    })) as { status: number; data: { form: { data: { stageName: string }; errors: { stageName?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.stageName).toBe('Gather Details');
+    expect(result.data.form.errors.stageName?.[0]).toBe('A stage with this name already exists in this conversation');
+  });
+
+  it('returns a typed fallback error when updating stage order fails', async () => {
+    mockRequest
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ node: { data: { stageOrder: [] } } })
+      .mockRejectedValueOnce({});
+    const result = (await runAction('addStage', {
+      systemMemoryId: 'mem-1',
+      conversationLoc: 'conversations:demo',
+      stageName: 'Gather Details',
+    })) as { status: number; data: { form: { data: { conversationLoc: string }; message: { type: string; text: string } } } };
+    expect(result.status).toBe(500);
+    expect(result.data.form.data.conversationLoc).toBe('conversations:demo');
+    expect(result.data.form.message).toEqual({
+      type: 'error',
+      text: 'Failed to add stage',
     });
   });
 });
@@ -480,12 +585,19 @@ describe('load', () => {
 
     const result = (await runLoad()) as {
       addConversationForm: { data: { systemMemoryId: string; name: string } };
+      addStageForms: Record<string, { data: { systemMemoryId: string; conversationLoc: string; stageName: string } }>;
       edgeForms: Record<string, { data: { edgeId: string; name: string; priority: string; condition: string; data: string } }>;
       conversationGoalForms: Record<string, { data: { systemMemoryId: string; convLoc: string; goalDescriptionsText: string; goalSignalsText: string } }>;
       stageExtractionForms: Record<string, { data: { systemMemoryId: string; stageLoc: string; extractionSpec: string } }>;
     };
 
     expect(result.addConversationForm.data).toMatchObject({ systemMemoryId: 'mem-1', name: '' });
+    expect(result.addStageForms['conv-1'].data).toMatchObject({
+      systemMemoryId: 'mem-1',
+      conversationLoc: 'conversations:demo',
+      stageName: '',
+    });
+    expect(result.addStageForms['prompt-1']).toBeUndefined();
     expect(Object.keys(result.edgeForms)).toEqual(['e1', 'e2']);
     expect(result.edgeForms.e1.data).toMatchObject({
       edgeId: 'e1',
@@ -603,7 +715,15 @@ describe('addEdge', () => {
       priority: '3',
       data: JSON.stringify({ timing: 'on_complete', behavior: 'transition' }),
     });
-    expect(result).toEqual({ created: true, edgeId: 'e-new' });
+    expect(result).toMatchObject({
+      created: true,
+      edgeId: 'e-new',
+      form: {
+        valid: true,
+        data: { sourceNodeId: 'n1', targetNodeId: 'n2' },
+        message: { type: 'success', text: 'Rule added.' },
+      },
+    });
     expect(mockRequest.mock.calls[0][1]).toMatchObject({ condition: null, priority: 3 });
   });
 
@@ -615,9 +735,53 @@ describe('addEdge', () => {
       condition: 'null',
       priority: '1.5',
       data: '{}',
-    })) as { status: number };
+    })) as { status: number; data: { form: { errors: { priority?: string[] } } } };
     expect(result.status).toBe(400);
+    expect(result.data.form.errors.priority?.[0]).toBe('Priority must be a whole number');
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing endpoints before any mutation', async () => {
+    const result = (await runAction('addEdge', {
+      condition: 'null',
+      priority: '0',
+      data: '{}',
+    })) as { status: number; data: { form: { errors: { sourceNodeId?: string[]; targetNodeId?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.sourceNodeId?.[0]).toBe('Source is required');
+    expect(result.data.form.errors.targetNodeId?.[0]).toBe('Target is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-object edge data before any mutation', async () => {
+    const result = (await runAction('addEdge', {
+      sourceNodeId: 'n1',
+      targetNodeId: 'n2',
+      name: 'x',
+      condition: 'null',
+      priority: '0',
+      data: '[]',
+    })) as { status: number; data: { form: { errors: { data?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.data?.[0]).toBe('Edge data must be a JSON object');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed error message when edge creation fails', async () => {
+    mockRequest.mockRejectedValueOnce({});
+    const result = (await runAction('addEdge', {
+      sourceNodeId: 'n1',
+      targetNodeId: 'n2',
+      name: 'x',
+      condition: 'null',
+      priority: '0',
+      data: '{}',
+    })) as { status: number; data: { form: { message: { type: string; text: string } } } };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({
+      type: 'error',
+      text: 'Failed to create edge',
+    });
   });
 });
 

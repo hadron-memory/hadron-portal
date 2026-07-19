@@ -1,12 +1,13 @@
 <script lang="ts">
-  import { enhance as kitEnhance } from '$app/forms';
   import { untrack } from 'svelte';
   import type { Infer, SuperValidated } from 'sveltekit-superforms';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import { addStageSchema } from '$lib/flow/conversation-add-stage-form';
   import { conversationGoalsSchema } from '$lib/flow/conversation-goals-form';
   import { t } from '$lib/i18n/t';
 
+  type AddStageForm = Infer<typeof addStageSchema, 'zod4'>;
   type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
 
   // Conversation side panel for the conversation canvas: goals & signals
@@ -17,7 +18,9 @@
     goalsForm,
     goalsSaved,
     goalsError,
-    systemMemoryId,
+    addStageForm,
+    addStageSaved,
+    addStageError,
     onClose,
     onSelectNode,
   }: {
@@ -34,7 +37,9 @@
     goalsForm: SuperValidated<ConversationGoalsForm, App.Superforms.Message, ConversationGoalsForm>;
     goalsSaved: string | null;
     goalsError: string | null;
-    systemMemoryId: string;
+    addStageForm: SuperValidated<AddStageForm, App.Superforms.Message, AddStageForm>;
+    addStageSaved: string | null;
+    addStageError: string | null;
     onClose: () => void;
     onSelectNode: (nodeId: string) => void;
   } = $props();
@@ -42,7 +47,6 @@
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 
-  let newStageName = $state('');
   const initialGoalsForm = untrack(() => goalsForm);
   const {
     form: goalsData,
@@ -61,6 +65,26 @@
   );
   const identityError = $derived(
     $goalsErrors.systemMemoryId?.[0] ?? $goalsErrors.convLoc?.[0] ?? null,
+  );
+  const initialAddStageForm = untrack(() => addStageForm);
+  const {
+    form: addStageData,
+    errors: addStageErrors,
+    submitting: addStageSubmitting,
+    enhance: addStageEnhance,
+  } = superForm<AddStageForm, App.Superforms.Message, AddStageForm>(
+    initialAddStageForm,
+    {
+      validators: zod4Client(addStageSchema),
+      validationMethod: 'oninput',
+      scrollToError: 'smooth',
+      autoFocusOnError: 'detect',
+      clearOnSubmit: 'none',
+      resetForm: true,
+    },
+  );
+  const addStageIdentityError = $derived(
+    $addStageErrors.systemMemoryId?.[0] ?? $addStageErrors.conversationLoc?.[0] ?? null,
   );
 </script>
 
@@ -197,24 +221,53 @@
       </ol>
     {/if}
 
-    <form method="POST" action="?/addStage" use:kitEnhance class="mt-3 flex items-end gap-2">
-      <input type="hidden" name="systemMemoryId" value={systemMemoryId} />
-      <input type="hidden" name="conversationLoc" value={conversation.loc} />
-      <input
-        type="text"
-        name="stageName"
-        bind:value={newStageName}
-        placeholder={t('conversation.infoPanel.addStage.placeholder', 'New stage name…')}
-        aria-label={t('conversation.infoPanel.addStage.placeholder', 'New stage name…')}
-        class="{inputClass} text-xs"
-      />
-      <button
-        type="submit"
-        disabled={!newStageName.trim()}
-        class="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-      >
-        {t('conversation.infoPanel.addStage', '+ Add stage')}
-      </button>
+    <form method="POST" action="?/addStage" use:addStageEnhance class="mt-3 space-y-2" novalidate>
+      <input type="hidden" name="systemMemoryId" value={$addStageData.systemMemoryId} />
+      <input type="hidden" name="conversationLoc" value={$addStageData.conversationLoc} />
+      {#if addStageError || addStageIdentityError}
+        <div
+          role="alert"
+          class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+        >
+          {addStageError ?? addStageIdentityError}
+        </div>
+      {/if}
+      {#if addStageSaved}
+        <div
+          role="status"
+          class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+        >
+          {addStageSaved}
+        </div>
+      {/if}
+      <div class="flex items-start gap-2">
+        <div class="min-w-0 flex-1">
+          <input
+            type="text"
+            name="stageName"
+            bind:value={$addStageData.stageName}
+            placeholder={t('conversation.infoPanel.addStage.placeholder', 'New stage name…')}
+            aria-label={t('conversation.infoPanel.addStage.placeholder', 'New stage name…')}
+            aria-invalid={$addStageErrors.stageName?.[0] ? 'true' : undefined}
+            aria-describedby={$addStageErrors.stageName?.[0] ? 'add-stage-name-error' : undefined}
+            class="{inputClass} text-xs"
+          />
+          {#if $addStageErrors.stageName?.[0]}
+            <p id="add-stage-name-error" class="mt-1 text-xs text-red-600 dark:text-red-400">
+              {$addStageErrors.stageName[0]}
+            </p>
+          {/if}
+        </div>
+        <button
+          type="submit"
+          disabled={!$addStageData.stageName.trim() || $addStageSubmitting}
+          class="shrink-0 rounded-lg border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          {$addStageSubmitting
+            ? t('conversation.infoPanel.addStage.saving', 'Adding...')
+            : t('conversation.infoPanel.addStage', '+ Add stage')}
+        </button>
+      </div>
     </form>
   </div>
 </aside>
