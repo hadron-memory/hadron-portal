@@ -13,6 +13,12 @@ const addPublicMemoryFormAdapter = zod4(addPublicMemorySchema);
 type AddPublicMemoryForm = Infer<typeof addPublicMemorySchema, 'zod4'>;
 
 export const load: PageServerLoad = async ({ locals, url }) => {
+  const form = await superValidate<AddPublicMemoryForm>(
+    { memoryId: '' },
+    addPublicMemoryFormAdapter,
+    { errors: false },
+  );
+
   // Handle addMemory param (returning from sign-up with intent)
   const addMemoryId = url.searchParams.get('addGraph') ?? url.searchParams.get('addMemory');
   if (addMemoryId && locals.token) {
@@ -30,21 +36,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     return {
       memories,
       isAuthenticated: !!locals.user,
-      form: await superValidate<AddPublicMemoryForm>(
-        { memoryId: '' },
-        addPublicMemoryFormAdapter,
-        { errors: false },
-      ),
+      form,
     };
   } catch {
     return {
       memories: [] as Memory[],
       isAuthenticated: !!locals.user,
-      form: await superValidate<AddPublicMemoryForm>(
-        { memoryId: '' },
-        addPublicMemoryFormAdapter,
-        { errors: false },
-      ),
+      form,
     };
   }
 };
@@ -58,7 +56,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     if (!locals.token) {
-      redirect(303, `/signup?memory=${form.data.memoryId}`);
+      redirect(303, `/signup?memory=${encodeURIComponent(form.data.memoryId)}`);
     }
 
     try {

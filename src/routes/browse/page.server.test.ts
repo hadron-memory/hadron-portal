@@ -64,11 +64,11 @@ describe('public browse add-to-my-memories action', () => {
 
   it('redirects unauthenticated users to signup with the selected memory', async () => {
     const result = await runAdd(
-      { _kind: 'addPublicMemory', memoryId: 'memory-1' },
+      { _kind: 'addPublicMemory', memoryId: 'memory=1&next=/bad' },
       { token: null },
     );
 
-    expect(result).toMatchObject({ status: 303, location: '/signup?memory=memory-1' });
+    expect(result).toMatchObject({ status: 303, location: '/signup?memory=memory%3D1%26next%3D%2Fbad' });
     expect(mockRequest).not.toHaveBeenCalled();
   });
 

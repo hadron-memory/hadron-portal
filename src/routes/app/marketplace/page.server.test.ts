@@ -59,6 +59,23 @@ async function runAdd(fields: Record<string, string>, opts: { token?: string | n
 }
 
 describe('marketplace add-to-my-memories action', () => {
+  it('redirects to the resolved active org after adding', async () => {
+    mockFetchAllItems.mockResolvedValueOnce([
+      {
+        id: 'org-1',
+        name: 'Personal',
+        urn: 'hadronmemory.com:personal',
+        isVisible: false,
+        members: [{ user: { id: 'user-1' } }],
+      },
+    ]);
+
+    const result = await runAdd({ _kind: 'addMarketplaceMemory', memoryId: 'memory-1' });
+
+    expect(result).toMatchObject({ status: 303, location: '/app/orgs/org-1/' });
+    expect(mockRequest).toHaveBeenCalledWith(ADD_TO_MY_MEMORIES_MUTATION, { memoryId: 'memory-1' });
+  });
+
   it('adds a selected memory and redirects to the orgs fallback when no active org resolves', async () => {
     const result = await runAdd({ _kind: 'addMarketplaceMemory', memoryId: 'memory-1' });
 
@@ -69,11 +86,11 @@ describe('marketplace add-to-my-memories action', () => {
 
   it('redirects unauthenticated users to signup with the selected memory', async () => {
     const result = await runAdd(
-      { _kind: 'addMarketplaceMemory', memoryId: 'memory-1' },
+      { _kind: 'addMarketplaceMemory', memoryId: 'memory=1&next=/bad' },
       { token: null },
     );
 
-    expect(result).toMatchObject({ status: 303, location: '/signup?memory=memory-1' });
+    expect(result).toMatchObject({ status: 303, location: '/signup?memory=memory%3D1%26next%3D%2Fbad' });
     expect(mockRequest).not.toHaveBeenCalled();
     expect(mockFetchAllItems).not.toHaveBeenCalled();
   });

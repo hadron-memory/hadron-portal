@@ -13,7 +13,7 @@
   let search = $state('');
   let pendingMemoryId = $state<string | null>(null);
 
-  const initialAddForm = untrack(() => (form?.form ?? data.form) as AddPublicMemorySuperform);
+  const initialAddForm = untrack(() => submittedAdd(form) ?? (data.form as AddPublicMemorySuperform));
   const {
     form: addForm,
     errors: addErrors,
@@ -28,6 +28,15 @@
     clearOnSubmit: 'none',
   });
 
+  function submittedAdd(actionData: ActionData): AddPublicMemorySuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    const candidateData = candidate?.data;
+    const kind = candidateData && typeof candidateData === 'object' && '_kind' in candidateData
+      ? String(candidateData._kind)
+      : null;
+    return kind === 'addPublicMemory' ? candidate as AddPublicMemorySuperform : null;
+  }
+
   const filtered = $derived(
     data.memories.filter((m) => {
       if (!search) return true;
@@ -38,7 +47,7 @@
   const addError = $derived(
     $addMessage?.type === 'error'
       ? $addMessage.text
-      : $addErrors.memoryId?.[0] ?? null,
+      : $addErrors.memoryId?.[0] ?? $addErrors._kind?.[0] ?? null,
   );
 
   function prepareAdd(memoryId: string) {
@@ -99,6 +108,8 @@
           </div>
 
           {#if data.isAuthenticated}
+            <!-- Keep both handlers: onclick updates before client validation for button activation;
+                 onsubmit covers keyboard/requestSubmit paths. -->
             <form method="POST" action="?/addToMyMemories" use:addEnhance onsubmit={() => prepareAdd(memory.id)} novalidate>
               <input type="hidden" name="_kind" value={$addForm._kind} />
               <input type="hidden" name="memoryId" value={memory.id} />

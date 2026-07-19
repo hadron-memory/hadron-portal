@@ -18,24 +18,22 @@ const addMarketplaceMemoryFormAdapter = zod4(addMarketplaceMemorySchema);
 type AddMarketplaceMemoryForm = Infer<typeof addMarketplaceMemorySchema, 'zod4'>;
 
 export const load: PageServerLoad = async ({ locals }) => {
+  const form = await superValidate<AddMarketplaceMemoryForm>(
+    { memoryId: '' },
+    addMarketplaceMemoryFormAdapter,
+    { errors: false },
+  );
+
   try {
     const memories = await fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories');
     return {
       memories,
-      form: await superValidate<AddMarketplaceMemoryForm>(
-        { memoryId: '' },
-        addMarketplaceMemoryFormAdapter,
-        { errors: false },
-      ),
+      form,
     };
   } catch {
     return {
       memories: [] as Memory[],
-      form: await superValidate<AddMarketplaceMemoryForm>(
-        { memoryId: '' },
-        addMarketplaceMemoryFormAdapter,
-        { errors: false },
-      ),
+      form,
     };
   }
 };
@@ -49,7 +47,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     if (!locals.token) {
-      redirect(303, `/signup?memory=${form.data.memoryId}`);
+      redirect(303, `/signup?memory=${encodeURIComponent(form.data.memoryId)}`);
     }
 
     try {
