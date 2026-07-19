@@ -1,4 +1,7 @@
 import { error, fail } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
@@ -14,6 +17,11 @@ import {
 } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { orgAgentSubscribeSchema } from './schema';
+
+type OrgAgentSubscribeForm = Infer<typeof orgAgentSubscribeSchema, 'zod4'>;
+
+const orgAgentSubscribeFormAdapter = zod4(orgAgentSubscribeSchema);
 
 type AppInstall = { id: string; name: string; agentId: string | null };
 
@@ -104,35 +112,48 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     (a) => a.organizationId !== params.id && !grantedAgentIds.has(a.id),
   );
 
-  return { org: data.organization, installedByAgent, subscribedGrants, subscribablePublicAgents };
+  return {
+    org: data.organization,
+    installedByAgent,
+    subscribedGrants,
+    subscribablePublicAgents,
+    subscribeForm: await superValidate<OrgAgentSubscribeForm>(
+      { agentId: '' },
+      orgAgentSubscribeFormAdapter,
+      { errors: false },
+    ),
+  };
 };
 
 export const actions: Actions = {
   subscribe: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const agentId = String(fd.get('agentId') ?? '').trim();
-    if (!agentId) {
-      return fail(400, {
-        subscribeError: t(
-          'org-agents.subscribed.error.no-selection',
-          'Select a public agent to subscribe to.',
-        ),
-      });
-    }
+    const form = await superValidate<OrgAgentSubscribeForm>(
+      await request.formData(),
+      orgAgentSubscribeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
     try {
       await gqlClient(locals.token).request(CREATE_AGENT_ORG_GRANT_MUTATION, {
-        agentRef: agentId,
+        agentRef: form.data.agentId,
         orgRef: params.id,
       });
-      return { subscribed: true };
-    } catch (e: unknown) {
-      return fail(500, {
-        subscribeError: extractGqlError(
-          e,
-          t('org-agents.subscribed.error', 'Failed to subscribe to the agent.'),
-        ),
+      return message(form, {
+        type: 'success',
+        text: t('org-agents.subscribed.added', 'Subscribed to agent.'),
       });
+    } catch (e: unknown) {
+      return message(
+        form,
+        {
+          type: 'error',
+          text: extractGqlError(
+            e,
+            t('org-agents.subscribed.error', 'Failed to subscribe to the agent.'),
+          ),
+        },
+        { status: 500 },
+      );
     }
   },
   unsubscribe: async ({ request, params, locals }) => {

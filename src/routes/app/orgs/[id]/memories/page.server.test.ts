@@ -12,6 +12,7 @@ import {
   ORG_SYSTEM_MEMORIES_QUERY,
   PUBLIC_MEMORIES_QUERY,
   MEMORIES_QUERY,
+  CREATE_MEMORY_SUBSCRIPTION_MUTATION,
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -30,6 +31,17 @@ beforeEach(() => {
 async function importLoad() {
   const mod = await import('./+page.server');
   return mod.load;
+}
+
+async function runSubscribe(fields: Record<string, string>) {
+  const { actions } = await import('./+page.server');
+  const fd = new FormData();
+  for (const [key, value] of Object.entries(fields)) fd.set(key, value);
+  return actions.subscribe({
+    params: { id: 'org-1' },
+    locals: { token: 'test-token' },
+    request: { formData: async () => fd },
+  } as never);
 }
 
 function ev(opts: { orgId?: string; userId?: string; tab?: string } = {}) {
@@ -106,5 +118,79 @@ describe('memories-list load() — initialTab (#556)', () => {
     const load = await importLoad();
     const result = (await load(ev({ tab: 'bogus' }))) as { initialTab: string };
     expect(result.initialTab).toBe('org');
+  });
+
+  it('seeds the subscribe form with an explicit empty memory and reader role', async () => {
+    routeMock([]);
+    const load = await importLoad();
+    const result = (await load(ev())) as {
+      subscribeForm: { data: { memoryId: string; role: string } };
+    };
+    expect(result.subscribeForm.data).toMatchObject({ memoryId: '', role: 'READER' });
+  });
+});
+
+describe('memories-list subscribe action', () => {
+  it('subscribes to a public memory from a validated Superform', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runSubscribe({ memoryId: 'mem-1', role: 'CONTRIBUTOR' });
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'subscribeMemory', memoryId: 'mem-1', role: 'CONTRIBUTOR' },
+        message: { type: 'success', text: 'Subscribed to memory.' },
+      },
+    });
+    expect(mockRequest).toHaveBeenCalledWith(CREATE_MEMORY_SUBSCRIPTION_MUTATION, {
+      memoryId: 'mem-1',
+      orgId: 'org-1',
+      role: 'CONTRIBUTOR',
+    });
+  });
+
+  it('rejects omitted memory ids before mutation', async () => {
+    const result = (await runSubscribe({ role: 'READER' })) as {
+      status: number;
+      data: { form: { errors: { memoryId?: string[] } } };
+    };
+
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.memoryId?.[0]).toBe('Select a public memory.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects subscribe POSTs with the wrong form discriminator', async () => {
+    const result = (await runSubscribe({
+      _kind: 'unsubscribe',
+      memoryId: 'mem-1',
+      role: 'READER',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects elevated role tampering before mutation', async () => {
+    const result = (await runSubscribe({
+      memoryId: 'mem-1',
+      role: 'OWNER',
+    })) as { status: number; data: { form: { errors: { role?: string[] } } } };
+
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.role).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed error when subscription fails', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runSubscribe({ memoryId: 'mem-1', role: 'READER' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
   });
 });

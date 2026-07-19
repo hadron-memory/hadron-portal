@@ -12,6 +12,8 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { enhance } from '$app/forms';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import {
     getCoreRowModel,
     getSortedRowModel,
@@ -26,6 +28,10 @@
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
+  import { orgMemorySubscribeSchema } from './schema';
+
+  type OrgMemorySubscribeForm = Infer<typeof orgMemorySubscribeSchema, 'zod4'>;
+  type OrgMemorySubscribeSuperform = SuperValidated<OrgMemorySubscribeForm, App.Superforms.Message, OrgMemorySubscribeForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
@@ -37,13 +43,51 @@
   let subTab = $state<'personal' | 'org' | 'subscriptions'>(untrack(() => data.initialTab));
   const subscriptions = $derived(org.subscriptions ?? []);
 
+  function submittedSubscribe(actionData: ActionData): OrgMemorySubscribeSuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    const candidateData = candidate?.data;
+    const kind = candidateData && typeof candidateData === 'object' && '_kind' in candidateData
+      ? String(candidateData._kind)
+      : null;
+    return kind === 'subscribeMemory'
+      ? candidate as OrgMemorySubscribeSuperform
+      : null;
+  }
+
   // Subscribe form: the memory <select> is replaced by the SelectMemory modal
   // picker (searchable, paginated) — same pattern as the agent detail page.
   let subscribeMemoryOpen = $state(false);
-  let selectedSubscribeMemoryId = $state('');
+  const initialSubscribeForm = untrack(() => submittedSubscribe(form) ?? data.subscribeForm);
+  const {
+    form: subscribeForm,
+    errors: subscribeErrors,
+    message: subscribeMessage,
+    submitting: subscribeSubmitting,
+    enhance: subscribeEnhance,
+  } = superForm<OrgMemorySubscribeForm, App.Superforms.Message, OrgMemorySubscribeForm>(initialSubscribeForm, {
+    validators: zod4Client(orgMemorySubscribeSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: ({ form }) => {
+      if (form.valid && form.message?.type !== 'error') {
+        subscribeForm.update((current) => ({ ...current, memoryId: '' }), { taint: false });
+      }
+    },
+  });
   const selectedSubscribeMemory = $derived(
-    data.availableMemories.find((m) => m.id === selectedSubscribeMemoryId),
+    data.availableMemories.find((m) => m.id === $subscribeForm.memoryId),
   );
+  const subscribeMemoryError = $derived($subscribeErrors.memoryId?.[0] ?? null);
+  const subscribeActionError = $derived($subscribeMessage?.type === 'error' ? $subscribeMessage.text : null);
+  const subscribeActionSuccess = $derived($subscribeMessage?.type === 'success' ? $subscribeMessage.text : null);
+  $effect(() => {
+    const submitted = submittedSubscribe(form);
+    if (submitted && (!submitted.valid || submitted.message?.type === 'error')) {
+      subTab = 'subscriptions';
+    }
+  });
 
   // 'personal' = the user-owned section (spans the personal + private memory
   // classes); the class itself is carried in `badge` (Personal vs Private).
@@ -275,14 +319,16 @@
     </button>
   </div>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  <!-- Plain-action failures from delete/sync/unsubscribe use form.error;
+       subscribe failures use the Superforms message inside the subscribe form. -->
+  {#if form && 'error' in form}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
   {/if}
   {#if form?.synced}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">All memories synced.</div>
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">All memories synced.</div>
   {/if}
-  {#if form?.subscribed}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Subscribed to memory.</div>
+  {#if subscribeActionSuccess}
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{subscribeActionSuccess}</div>
   {/if}
 
   <!-- #555: shared cell renderer — reused by the Personal and Org grids. The
@@ -427,13 +473,8 @@
       {#if data.availableMemories.length === 0}
         <p class="text-sm text-zinc-500">No public memories available to subscribe to.</p>
       {:else}
-        <form method="POST" action="?/subscribe" use:enhance={() => {
-          return async ({ result, update }) => {
-            await update();
-            // Keep the selection on failure so the user can retry without re-picking.
-            if (result.type === 'success') selectedSubscribeMemoryId = '';
-          };
-        }} class="flex items-end gap-3 max-w-lg">
+        <form method="POST" action="?/subscribe" use:subscribeEnhance class="flex items-start gap-3 max-w-lg" novalidate>
+          <input type="hidden" name="_kind" value={$subscribeForm._kind} />
           <div class="flex-1">
             <label for="subscribe-memory-button" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Public memory</label>
             <button
@@ -442,26 +483,37 @@
               onclick={() => (subscribeMemoryOpen = true)}
               aria-haspopup="dialog"
               aria-expanded={subscribeMemoryOpen}
-              class="w-full truncate rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800"
+              aria-describedby={subscribeMemoryError ? 'subscribeMemoryError' : undefined}
+              class="w-full truncate rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm text-zinc-900 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:hover:bg-zinc-800 {subscribeMemoryError ? 'border-red-500' : ''}"
             >
               {selectedSubscribeMemory ? selectedSubscribeMemory.name : 'Select a memory...'}
             </button>
-            <input type="hidden" name="memoryId" value={selectedSubscribeMemoryId} />
+            <input type="hidden" name="memoryId" value={$subscribeForm.memoryId} />
+            {#if subscribeMemoryError}
+              <p id="subscribeMemoryError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{subscribeMemoryError}</p>
+            {/if}
+            {#if subscribeActionError}
+              <p role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{subscribeActionError}</p>
+            {/if}
           </div>
           <div>
             <label for="subRole" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
-            <select id="subRole" name="role" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+            <select id="subRole" name="role" bind:value={$subscribeForm.role} class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
               <option value="READER">Reader</option>
               <option value="CONTRIBUTOR">Contributor</option>
             </select>
           </div>
-          <button type="submit" disabled={!selectedSubscribeMemoryId} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">Subscribe</button>
+          <button type="submit" disabled={!$subscribeForm.memoryId || $subscribeSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
+            {$subscribeSubmitting
+              ? t('org-memories.subscriptions.subscribing', 'Subscribing...')
+              : t('org-memories.subscriptions.subscribe', 'Subscribe')}
+          </button>
         </form>
 
         <SelectMemory
           memories={data.availableMemories}
           bind:open={subscribeMemoryOpen}
-          onselect={(memory) => (selectedSubscribeMemoryId = memory.id)}
+          onselect={(memory) => subscribeForm.update((current) => ({ ...current, memoryId: memory.id }))}
         />
       {/if}
     </div>
