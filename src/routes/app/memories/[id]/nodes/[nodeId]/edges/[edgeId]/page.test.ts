@@ -1,12 +1,36 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
+import { superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 
 // The page imports $app/forms (enhance); portal vitest skips the SvelteKit
 // plugin, so the virtual must be mocked (conventions:vitest-mocks-sveltekit-
 // virtuals). enhance is a use: action — inert during SSR.
 vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
+vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: '' }));
+vi.mock('$app/navigation', () => ({
+  beforeNavigate: () => {},
+  goto: vi.fn(),
+  invalidateAll: vi.fn(),
+}));
+vi.mock('$app/stores', () => ({
+  page: {
+    subscribe: (run: (value: unknown) => void) => {
+      run({
+        data: {},
+        form: null,
+        params: {},
+        route: { id: null },
+        status: 200,
+        url: new URL('https://hadron.test/app'),
+      });
+      return () => {};
+    },
+  },
+}));
 
 import Page from './+page.svelte';
+import { edgeUpdateSchema } from './schema';
 
 // Flow-authoring surface (#478): the edge editor for a routing edge shows the
 // generated next.<index>.<label> name, the plain-English condition preview,
@@ -77,15 +101,24 @@ const flowFields = [
   { path: 'message.data.intent', label: 'intent — extracted by “Classify” (string)' },
 ];
 
-function renderPage(edge: (typeof host.outgoingEdges)[number]) {
+async function renderPage(edge: (typeof host.outgoingEdges)[number]) {
+  const form = await superValidate({
+    name: edge.name ?? '',
+    description: edge.description ?? '',
+    isRunnable: edge.isRunnable ?? false,
+    priority: String(edge.priority ?? 0),
+    condition: JSON.stringify(edge.condition ?? null),
+    data: edge.data != null ? JSON.stringify(edge.data, null, 2) : '',
+  }, zod4(edgeUpdateSchema), { errors: false });
+
   return render(Page, {
-    props: { data: { graph, host, edge, flowFields } as never, form: null },
+    props: { data: { graph, host, edge, flowFields, form } as never, form: null },
   }).body;
 }
 
 describe('edge editor flow authoring (#478)', () => {
-  it('shows routing mode with the generated name for a next.* edge', () => {
-    const body = renderPage(highConfidence);
+  it('shows routing mode with the generated name for a next.* edge', async () => {
+    const body = await renderPage(highConfidence);
     expect(body).toContain('Flow routing edge');
     expect(body).toContain('next.1.high');
     // Order + label editors are seeded from the parsed name.
@@ -93,13 +126,13 @@ describe('edge editor flow authoring (#478)', () => {
     expect(body).toMatch(/value="high"/);
   });
 
-  it('renders the plain-English preview of the edited condition', () => {
-    const body = renderPage(highConfidence);
+  it('renders the plain-English preview of the edited condition', async () => {
+    const body = await renderPage(highConfidence);
     expect(body).toContain('when confidence is greater than 0.8');
   });
 
-  it('renders the firing order with fall-through and unreachable markers', () => {
-    const body = renderPage(highConfidence);
+  it('renders the firing order with fall-through and unreachable markers', async () => {
+    const body = await renderPage(highConfidence);
     expect(body).toContain('Flow routing from');
     // documents edge is not a routing candidate
     expect(body).not.toContain('classify:documents:spec');
@@ -113,14 +146,14 @@ describe('edge editor flow authoring (#478)', () => {
     expect(body).toContain('never reached');
   });
 
-  it('offers the flow envelope fields in the variable picker', () => {
-    const body = renderPage(highConfidence);
+  it('offers the flow envelope fields in the variable picker', async () => {
+    const body = await renderPage(highConfidence);
     expect(body).toContain('message.data.confidence');
     expect(body).toContain('extracted by “Classify”');
   });
 
-  it('keeps the free-text name input for reference edges', () => {
-    const body = renderPage(host.outgoingEdges[3]);
+  it('keeps the free-text name input for reference edges', async () => {
+    const body = await renderPage(host.outgoingEdges[3]);
     expect(body).toContain('Relationship name');
     expect(body).toContain('value="documents"');
     // No generated-name line — routing mode is off for a reference edge.

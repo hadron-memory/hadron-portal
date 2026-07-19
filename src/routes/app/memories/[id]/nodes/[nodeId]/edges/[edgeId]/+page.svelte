@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
+  import { superForm } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import ConditionBuilder from '$lib/edge-conditions/ConditionBuilder.svelte';
@@ -19,12 +20,34 @@
   import { t } from '$lib/i18n/t';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { PageData, ActionData } from './$types';
+  import { edgeUpdateSchema } from './schema';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const edge = $derived(data.edge);
   const host = $derived(data.host);
   const basePath = $derived(`/app/memories/${data.graph.id}`);
+  const initialForm = untrack(() => (form as { form?: typeof data.form } | null)?.form ?? data.form);
+  const {
+    form: formData,
+    errors,
+    message,
+    submitting,
+    enhance,
+  } = superForm(initialForm, {
+    validators: zod4Client(edgeUpdateSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  const plainActionError = $derived((form as { error?: string } | null)?.error ?? null);
+  const actionError = $derived($message?.type === 'error' ? $message.text : plainActionError);
+  const actionSuccess = $derived($message?.type === 'success' ? $message.text : null);
+  const priorityError = $derived($errors.priority?.[0] ?? null);
+  const conditionFieldError = $derived($errors.condition?.[0] ?? null);
+  const dataFieldError = $derived($errors.data?.[0] ?? null);
 
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
@@ -46,13 +69,8 @@
   // effect below reseeds when the edge changes). untrack also silences the
   // state_referenced_locally warning for reading the `edge` derived here.
   const seeded = untrack(() => seedConditionState(edge.condition));
-  let name = $state(untrack(() => edge.name ?? ''));
-  let description = $state(untrack(() => edge.description ?? ''));
-  let isRunnable = $state(untrack(() => !!edge.isRunnable));
-  let priority = $state(untrack(() => String(edge.priority ?? 0)));
   let condition = $state<UiCondition>(seeded.ui);
   let conditionError = $state<string | null>(seeded.error);
-  let dataText = $state(untrack(() => (edge.data != null ? JSON.stringify(edge.data, null, 2) : '')));
   let confirmDelete = $state(false);
 
   // ── Flow routing (#478) ───────────────────────────────────────────────────
@@ -72,7 +90,7 @@
   function setRouting(on: boolean) {
     isRouting = on;
     if (!on) return;
-    const seed = routingToggleSeed(name, routingIndexTrimmed, host.outgoingEdges, host.loc);
+    const seed = routingToggleSeed(String($formData.name ?? ''), routingIndexTrimmed, host.outgoingEdges, host.loc);
     if (seed) {
       routingIndexText = seed.indexText;
       routingLabel = seed.label;
@@ -83,7 +101,7 @@
   const routingIndexValid = $derived(composedRouting.valid);
   const routingName = $derived(composedRouting.name);
   /** The name the form submits: generated in routing mode, free-text otherwise. */
-  const effectiveName = $derived(isRouting ? routingName : name);
+  const effectiveName = $derived(isRouting ? routingName : String($formData.name ?? ''));
 
   // Live firing order among the source node's routing edges — the walker's
   // exact ordering (priority asc → numeric index → loc), with THIS edge's
@@ -93,7 +111,7 @@
     previewFiringOrder(host.outgoingEdges, host.loc, {
       id: edge.id,
       name: effectiveName,
-      priorityText: priority,
+      priorityText: String($formData.priority ?? ''),
       condition,
       conditionError,
     }),
@@ -112,14 +130,17 @@
   $effect(() => {
     if (edge.id === seededFor) return;
     seededFor = edge.id;
-    name = edge.name ?? '';
-    description = edge.description ?? '';
-    isRunnable = !!edge.isRunnable;
-    priority = String(edge.priority ?? 0);
+    formData.update((current) => ({
+      ...current,
+      name: edge.name ?? '',
+      description: edge.description ?? '',
+      isRunnable: !!edge.isRunnable,
+      priority: String(edge.priority ?? 0),
+      data: edge.data != null ? JSON.stringify(edge.data, null, 2) : '',
+    }), { taint: false });
     const s = seedConditionState(edge.condition);
     condition = s.ui;
     conditionError = s.error;
-    dataText = edge.data != null ? JSON.stringify(edge.data, null, 2) : '';
     confirmDelete = false;
     const r = seedRoutingState(edge, host.loc);
     isRouting = r.routing;
@@ -131,9 +152,14 @@
   // submit the ORIGINAL JSONLogic unchanged (preserve); otherwise serialize the
   // builder. null = always fires → CLEAR on save. (Mirrors the conv. editor.)
   const conditionJson = $derived(conditionJsonFor(conditionError, edge.condition, condition));
+  $effect(() => {
+    formData.update((current) => (
+      current.condition === conditionJson ? current : { ...current, condition: conditionJson }
+    ), { taint: false });
+  });
 
   // Client-side JSON validity hint for the data field (server re-validates).
-  const dataTrimmed = $derived(dataText.trim());
+  const dataTrimmed = $derived($formData.data.trim());
   const dataValid = $derived.by(() => {
     if (dataTrimmed === '') return true; // empty clears
     try {
@@ -178,15 +204,15 @@
     </div>
   </section>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if actionError}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
   {/if}
-  {#if form?.saved}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Edge saved.</div>
+  {#if actionSuccess}
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{actionSuccess}</div>
   {/if}
 
   <!-- Edit form -->
-  <form method="POST" action="?/update" use:enhance class="max-w-2xl space-y-5 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+  <form method="POST" action="?/update" use:enhance class="max-w-2xl space-y-5 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" novalidate>
     <div>
       <label class="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
         <input
@@ -246,9 +272,9 @@
     {:else}
       <div>
         <label for="edgeName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Relationship name</label>
-        <input id="edgeName" name="name" type="text" bind:value={name} placeholder="e.g. cites, depends_on" class={inputClass} />
+        <input id="edgeName" name="name" type="text" bind:value={$formData.name} placeholder="e.g. cites, depends_on" class={inputClass} />
         <p class="mt-1 text-xs text-zinc-400">Optional free-form label. The edge's identity is its <span class="font-mono">loc</span> ({edge.loc}), which isn't editable here.</p>
-        {#if isRoutingName(name)}
+        {#if isRoutingName(String($formData.name ?? ''))}
           <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">
             {t(
               'edge-editor.routing.name-warning',
@@ -261,17 +287,29 @@
 
     <div>
       <label for="edgeDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-      <textarea id="edgeDescription" name="description" rows="2" bind:value={description} placeholder="What this relationship means" class={inputClass}></textarea>
+      <textarea id="edgeDescription" name="description" rows="2" bind:value={$formData.description} placeholder="What this relationship means" class={inputClass}></textarea>
     </div>
 
     <div class="flex flex-wrap items-end gap-6">
       <div class="w-32">
         <label for="edgePriority" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Priority</label>
-        <input id="edgePriority" name="priority" type="number" step="1" bind:value={priority} class={inputClass} />
-        <p class="mt-1 text-xs text-zinc-400">Lower = earlier.</p>
+        <input
+          id="edgePriority"
+          name="priority"
+          type="number"
+          step="1"
+          bind:value={$formData.priority}
+          aria-invalid={!!priorityError}
+          aria-describedby={priorityError ? 'edgePriorityError edgePriorityHint' : 'edgePriorityHint'}
+          class="{inputClass} {priorityError ? 'border-red-500 focus:border-red-500' : ''}"
+        />
+        <p id="edgePriorityHint" class="mt-1 text-xs text-zinc-400">Lower = earlier.</p>
+        {#if priorityError}
+          <p id="edgePriorityError" class="mt-1 text-xs text-red-600 dark:text-red-400">{priorityError}</p>
+        {/if}
       </div>
       <label class="flex items-center gap-2 pb-2 text-sm text-zinc-700 dark:text-zinc-300">
-        <input type="checkbox" name="isRunnable" value="true" bind:checked={isRunnable}
+        <input type="checkbox" name="isRunnable" value="true" bind:checked={$formData.isRunnable}
           class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
         Runnable
       </label>
@@ -291,7 +329,10 @@
       {:else}
         <ConditionBuilder bind:value={condition} extraVariables={data.flowFields} />
       {/if}
-      <input type="hidden" name="condition" value={conditionJson} />
+      <input type="hidden" name="condition" value={$formData.condition} />
+      {#if conditionFieldError}
+        <p class="mt-2 text-xs text-red-600 dark:text-red-400">{conditionFieldError}</p>
+      {/if}
       {#if !conditionError}
         <p class="mt-2 text-xs italic text-zinc-500 dark:text-zinc-400">
           {#if conditionPreview}
@@ -305,16 +346,24 @@
 
     <div>
       <label for="edgeData" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Data (JSON)</label>
-      <textarea id="edgeData" name="data" rows="6" bind:value={dataText} placeholder="{'{ }'}"
-        class="w-full rounded-lg border bg-zinc-50 p-3 font-mono text-xs text-zinc-800 focus:outline-none dark:bg-zinc-950 dark:text-zinc-300 {dataValid ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"></textarea>
-      <p class="mt-1 text-xs {dataValid ? 'text-zinc-400' : 'text-red-500'}">
-        {dataValid ? 'Free-form JSON payload. Leave empty to clear.' : 'Invalid JSON.'}
+      <textarea
+        id="edgeData"
+        name="data"
+        rows="6"
+        bind:value={$formData.data}
+        placeholder="{'{ }'}"
+        aria-invalid={!!dataFieldError || !dataValid}
+        aria-describedby="edgeDataHint"
+        class="w-full rounded-lg border bg-zinc-50 p-3 font-mono text-xs text-zinc-800 focus:outline-none dark:bg-zinc-950 dark:text-zinc-300 {dataValid && !dataFieldError ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
+      ></textarea>
+      <p id="edgeDataHint" class="mt-1 text-xs {dataValid && !dataFieldError ? 'text-zinc-400' : 'text-red-500'}">
+        {dataFieldError ?? (dataValid ? 'Free-form JSON payload. Leave empty to clear.' : 'Invalid JSON.')}
       </p>
     </div>
 
     <div class="flex items-center gap-3">
-      <button type="submit" disabled={!dataValid || (isRouting && !routingIndexValid)} class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" style="background: #fb8500;">
-        Save edge
+      <button type="submit" disabled={$submitting || !dataValid || (isRouting && !routingIndexValid)} class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" style="background: #fb8500;">
+        {$submitting ? t('edge-editor.saving', 'Saving...') : t('edge-editor.save', 'Save edge')}
       </button>
       <a href="{basePath}/nodes/{host.id}" class="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">Back to node</a>
     </div>

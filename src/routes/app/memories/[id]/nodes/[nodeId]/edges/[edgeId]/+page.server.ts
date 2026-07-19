@@ -1,4 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
@@ -10,8 +13,14 @@ import {
 import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
 import { collectFlowFields, type FlowFieldNode } from '$lib/flow/fields';
 import { isRoutingName, routingNameOf } from '$lib/flow/routing';
+import { t } from '$lib/i18n/t';
 import type { NodeEdge } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { edgeUpdateSchema, parseEdgeDataText } from './schema';
+
+type EdgeUpdateForm = Infer<typeof edgeUpdateSchema, 'zod4'>;
+
+const edgeUpdateFormAdapter = zod4(edgeUpdateSchema);
 
 // The edge detail page (#350). The server has no single-edge query, so we load
 // the edge's HOST node (= its source — every edge is owned by its source node)
@@ -85,9 +94,16 @@ async function loadFlowFields(token: string | null | undefined, host: HostNode) 
   return collectFlowFields(tree);
 }
 
-// Mirrors the node Data tab cap — keeps a pathological paste from hitting the
-// adapter-node body limit with an opaque error.
-const DATA_MAX = 262144; // 256 KB
+function formDefaults(edge: NodeEdge): EdgeUpdateForm {
+  return {
+    name: edge.name ?? '',
+    description: edge.description ?? '',
+    isRunnable: edge.isRunnable ?? false,
+    priority: String(edge.priority ?? 0),
+    condition: JSON.stringify(edge.condition ?? null),
+    data: edge.data != null ? JSON.stringify(edge.data, null, 2) : '',
+  };
+}
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // The host fetch overlaps parent() but is settled (not awaited raw) so a
@@ -117,8 +133,13 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   }
 
   const flowFields = await loadFlowFields(locals.token, host);
+  const form = await superValidate<EdgeUpdateForm>(
+    formDefaults(edge),
+    edgeUpdateFormAdapter,
+    { errors: false },
+  );
 
-  return { host, edge, flowFields };
+  return { host, edge, flowFields, form };
 };
 
 export const actions: Actions = {
@@ -127,44 +148,36 @@ export const actions: Actions = {
   // condition/data as CLEAR and a null priority as "keep" — so we always send
   // an explicit priority, and send null for an emptied condition/data to clear.
   update: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const name = String(fd.get('name') ?? '').trim() || null;
-    const description = String(fd.get('description') ?? '').trim() || null;
-    const isRunnable = fd.get('isRunnable') === 'true';
+    const form = await superValidate<EdgeUpdateForm>(
+      await request.formData(),
+      edgeUpdateFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
-    const priority = parsePriorityField(fd.get('priority'));
-    if (!priority.ok) return fail(400, { error: priority.error });
+    const name = form.data.name || null;
+    const description = form.data.description || null;
 
-    const condition = parseConditionField(fd.get('condition'));
-    if (!condition.ok) return fail(400, { error: condition.error });
+    const priority = parsePriorityField(form.data.priority === null ? null : String(form.data.priority));
+    if (!priority.ok) return setError(form, 'priority', priority.error, { status: 400 });
 
-    // Free-form JSON payload. Empty → null (clear). Non-empty must parse.
-    const dataRaw = String(fd.get('data') ?? '').trim();
-    let dataVal: unknown = null;
-    if (dataRaw !== '') {
-      if (dataRaw.length > DATA_MAX) {
-        return fail(400, { error: `JSON too large (max ${DATA_MAX / 1024} KB)` });
-      }
-      try {
-        dataVal = JSON.parse(dataRaw);
-      } catch (e) {
-        return fail(400, { error: e instanceof Error ? `Invalid JSON: ${e.message}` : 'Invalid JSON' });
-      }
-    }
+    const condition = parseConditionField(form.data.condition);
+    if (!condition.ok) return setError(form, 'condition', condition.error, { status: 400 });
+
+    const dataVal = parseEdgeDataText(form.data.data);
 
     try {
       await gqlClient(locals.token).request(UPDATE_EDGE_MUTATION, {
         edgeId: params.edgeId,
         name,
         description,
-        isRunnable,
+        isRunnable: form.data.isRunnable,
         condition: condition.value,
         priority: priority.value,
         data: dataVal,
       });
-      return { saved: true };
+      return message(form, { type: 'success', text: t('edge-editor.saved', 'Edge saved.') });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to update edge' });
+      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to update edge' }, { status: 500 });
     }
   },
 
