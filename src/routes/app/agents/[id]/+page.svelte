@@ -215,26 +215,14 @@
     if ($agentSettingsMessage?.type === 'success') isEditing = false;
   });
 
-  // Ordered most→least restrictive. Spec 034 added GROUP to memory visibility;
-  // spec 035: agent.visibility is one of PERSONAL/ORGANIZATION/PUBLIC (its own
-  // AgentVisibility enum). PERSONAL (agent, creator-only) and a null memory
-  // visibility (owner-only) are both the most restrictive, rank 0.
-  const visibilityRank: Record<string, number> = { PERSONAL: 0, GROUP: 1, ORGANIZATION: 2, PUBLIC: 3 };
+  // Label for the agent's own visibility (PERSONAL/ORGANIZATION/PUBLIC).
+  // The old "mixed visibility" warnings (agent vs more-restrictive memory) were
+  // removed with #610: the Agent-PUBLIC congruence invariant (cor:acl:080:03) is
+  // now enforced server-side, so an incongruent PUBLIC state can't be reached,
+  // and the warnings were confusing for the non-PUBLIC cases.
   const visibilityLabel: Record<string, string> = { PERSONAL: 'Personal', GROUP: 'Group', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
-  // Spec 034: a memory's visibility is now nullable (null = owner-only
-  // personal/private — the most restrictive) and may be GROUP. Route every
-  // memory-visibility read through these so null/GROUP rank and label safely.
-  const memVisRank = (v: string | null) => (v == null ? 0 : (visibilityRank[v] ?? 0));
-  const memVisLabel = (v: string | null) => (v == null ? 'Only you' : (visibilityLabel[v] ?? v));
 
-  // Check if any attached memory is more restrictive than the agent
-  const restrictiveMemories = $derived(
-    (agent.memoryItems ?? []).filter((item) =>
-      memVisRank(item.memory.visibility) < visibilityRank[agent.visibility]
-    )
-  );
-
-  // Track selected add-memory id for warning
+  // Track selected add-memory id
   let selectedAddMemoryId = $state('');
   let selectMemoryOpen = $state(false);
 
@@ -273,16 +261,8 @@
   const systemMemory = $derived(
     agent.systemMemoryId ? allMemories.find((m) => m.id === agent.systemMemoryId) ?? null : null,
   );
-
-  const selectedAddMemory = $derived(
-    allMemories.find((m) => m.id === selectedAddMemoryId)
-  );
-  const addMemoryWarning = $derived.by(() => {
-    if (!selectedAddMemory || !('visibility' in selectedAddMemory)) return '';
-    const memVis = (selectedAddMemory as { visibility?: string | null }).visibility ?? null;
-    if (memVisRank(memVis) >= visibilityRank[agent.visibility]) return '';
-    return `This memory is ${memVisLabel(memVis)} but the agent is ${visibilityLabel[agent.visibility]}. The effective access will be ${memVisLabel(memVis)}.`;
-  });
+  // The memory chosen in the "Add memory" picker — used to label the picker button.
+  const selectedAddMemory = $derived(allMemories.find((m) => m.id === selectedAddMemoryId));
 
   // ── Memories tab grid (#371 follow-up) ────────────────────────────────
   // The attached-memories list migrated from a hand-rolled card list to the
@@ -295,8 +275,6 @@
     urn: string;
     role: string;
     visibility: string | null;
-    /** Memory is more restrictive than the agent — show the amber badge. */
-    restrictive: boolean;
   }
 
   const memoryRows = $derived<AgentMemoryRow[]>(
@@ -306,7 +284,6 @@
       urn: item.memory.urn,
       role: item.role,
       visibility: item.memory.visibility,
-      restrictive: memVisRank(item.memory.visibility) < visibilityRank[agent.visibility],
     })),
   );
 
@@ -385,16 +362,6 @@
       {installStrings.buttonLabel()}
     </a>
   </div>
-
-  {#if restrictiveMemories.length > 0}
-    <div class="rounded-lg border border-amber-700 bg-amber-950 px-4 py-3 text-sm text-amber-300">
-      Visibility mismatch: this agent is <strong>{visibilityLabel[agent.visibility]}</strong> but
-      {restrictiveMemories.length === 1 ? 'memory' : 'memories'}
-      {restrictiveMemories.map((m) => m.memory.name).join(', ')}
-      {restrictiveMemories.length === 1 ? 'is' : 'are'} more restrictive.
-      Effective access will be limited to the most restrictive level.
-    </div>
-  {/if}
 
   <!-- Tabs -->
   <div class="flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
@@ -574,9 +541,6 @@
                     <span title="Read only" class="shrink-0"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-zinc-400"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></span>
                   {/if}
                   <a href="/app/memories/{m.memoryId}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{m.name}</a>
-                  {#if m.restrictive}
-                    <span class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300" title="More restrictive than agent">{memVisLabel(m.visibility)}</span>
-                  {/if}
                 </div>
               {:else if cell.column.id === 'urn'}
                 <Urn value={m.urn} type="memory" size={10} />
@@ -636,9 +600,6 @@
           </div>
           <button type="submit" disabled={!selectedAddMemoryId} class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600 disabled:cursor-not-allowed disabled:opacity-50">Add</button>
           </div>
-          {#if addMemoryWarning}
-            <p class="text-xs text-amber-600 dark:text-amber-400">{addMemoryWarning}</p>
-          {/if}
         </form>
       {:else if allMemories.length === 0}
         <p class="text-xs text-zinc-500">No memories available. Create a memory first.</p>
