@@ -278,6 +278,19 @@ describe('updateGoals', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects non-conversation locs before reading the conversation node', async () => {
+    const result = (await runAction('updateGoals', {
+      systemMemoryId: 'mem-1',
+      convLoc: 'conversations:demo:start',
+      goalDescriptionsText: 'Find a mentor',
+      goalSignalsText: 'I need help',
+    })) as { status: number; data: { form: { data: { convLoc: string }; errors: { convLoc?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.convLoc).toBe('conversations:demo:start');
+    expect(result.data.form.errors.convLoc?.[0]).toBe('Invalid conversation loc');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('returns a typed error message when the mutation fails', async () => {
     mockRequest
       .mockResolvedValueOnce({ node: { data: {} } })
@@ -291,6 +304,24 @@ describe('updateGoals', () => {
     expect(result.status).toBe(500);
     expect(result.data.form.data.convLoc).toBe('conversations:demo');
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+
+  it('returns the translated fallback when the mutation error has no message', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ node: { data: {} } })
+      .mockRejectedValueOnce({});
+    const result = (await runAction('updateGoals', {
+      systemMemoryId: 'mem-1',
+      convLoc: 'conversations:demo',
+      goalDescriptionsText: '',
+      goalSignalsText: '',
+    })) as { status: number; data: { form: { data: { convLoc: string }; message: { type: string; text: string } } } };
+    expect(result.status).toBe(500);
+    expect(result.data.form.data.convLoc).toBe('conversations:demo');
+    expect(result.data.form.message).toEqual({
+      type: 'error',
+      text: 'Failed to update goals',
+    });
   });
 });
 

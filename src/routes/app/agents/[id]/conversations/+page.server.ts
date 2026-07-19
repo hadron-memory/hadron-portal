@@ -352,7 +352,13 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: userFacingErrorMessage(e, 'Failed to update goals') },
+        {
+          type: 'error',
+          text: userFacingErrorMessage(
+            e,
+            t('conversation.infoPanel.goals.updateFailed', 'Failed to update goals'),
+          ),
+        },
         { status: 500 },
       );
     }
