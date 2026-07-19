@@ -17,7 +17,9 @@
   } from '@tanstack/table-core';
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -27,9 +29,13 @@
   import { installStrings } from '$lib/i18n/install-strings';
   import type { Agent } from '$lib/types';
   import type { AgentGrant, PublicAgent } from './+page.server';
-  import type { PageData } from './$types';
+  import type { ActionData, PageData } from './$types';
+  import { orgAgentSubscribeSchema } from './schema';
 
-  let { data }: { data: PageData } = $props();
+  type OrgAgentSubscribeForm = Infer<typeof orgAgentSubscribeSchema, 'zod4'>;
+  type OrgAgentSubscribeSuperform = SuperValidated<OrgAgentSubscribeForm, App.Superforms.Message, OrgAgentSubscribeForm>;
+
+  let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
   const agents = $derived(org.agents ?? []);
   // agentId → the App it's installed as (id + name), for the "Open" affordance.
@@ -45,10 +51,33 @@
   // Subscribe picker: selecting a public agent submits the explicit grant
   // mutation through a SvelteKit action; no App is installed (#649).
   let subscribeOpen = $state(false);
-  let subscribeAgentId = $state('');
-  let subscribePending = $state(false);
-  let subscribeError = $state<string | null>(null);
   let subscribeForm: HTMLFormElement;
+  const initialSubscribeForm = untrack(() => (
+    form && 'form' in form
+      ? form.form as OrgAgentSubscribeSuperform
+      : data.subscribeForm as OrgAgentSubscribeSuperform
+  ));
+  const {
+    form: subscribeFormData,
+    errors: subscribeErrors,
+    message: subscribeMessage,
+    submitting: subscribeSubmitting,
+    enhance: subscribeEnhance,
+  } = superForm<OrgAgentSubscribeForm, App.Superforms.Message, OrgAgentSubscribeForm>(initialSubscribeForm, {
+    validators: zod4Client(orgAgentSubscribeSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: ({ form }) => {
+      if (form.valid && form.message?.type !== 'error') {
+        subscribeFormData.update((current) => ({ ...current, agentId: '' }), { taint: false });
+        activeTab = 'subscribed';
+      }
+    },
+  });
+  const subscribeAgentError = $derived($subscribeErrors.agentId?.[0] ?? null);
+  const subscribeActionError = $derived($subscribeMessage?.type === 'error' ? $subscribeMessage.text : null);
 
   // Row-level unsubscribe state keeps the rest of the table usable while a
   // grant is being revoked and leaves lifecycle history visible afterward.
@@ -58,9 +87,8 @@
   let unsubscribeForm: HTMLFormElement;
 
   async function subscribeTo(agent: Pick<PublicAgent, 'id'>) {
-    if (subscribePending) return;
-    subscribeError = null;
-    subscribeAgentId = agent.id;
+    if ($subscribeSubmitting) return;
+    subscribeFormData.update((current) => ({ ...current, agentId: agent.id }));
     await tick();
     subscribeForm.requestSubmit();
   }
@@ -218,11 +246,11 @@
         <button
           type="button"
           onclick={() => (subscribeOpen = true)}
-          disabled={subscribePending}
+          disabled={$subscribeSubmitting}
           class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-50"
           style="background: #fb8500;"
         >
-          {subscribePending
+          {$subscribeSubmitting
             ? t('org-agents.subscribed.subscribing', 'Subscribing...')
             : t('org-agents.subscribed.subscribe', 'Subscribe to Public Agent')}
         </button>
@@ -235,27 +263,11 @@
     method="POST"
     action="?/subscribe"
     class="hidden"
-    use:enhance={() => {
-      subscribePending = true;
-      return async ({ result, update }) => {
-        try {
-          if (result.type === 'failure') {
-            subscribeError = typeof result.data?.subscribeError === 'string'
-              ? result.data.subscribeError
-              : t('org-agents.subscribed.error', 'Failed to subscribe to the agent.');
-          } else if (result.type === 'success') {
-            subscribeAgentId = '';
-            subscribeError = null;
-          }
-          await update({ reset: false });
-          if (result.type === 'success') activeTab = 'subscribed';
-        } finally {
-          subscribePending = false;
-        }
-      };
-    }}
+    use:subscribeEnhance
+    novalidate
   >
-    <input type="hidden" name="agentId" value={subscribeAgentId} />
+    <input type="hidden" name="_kind" value={$subscribeFormData._kind} />
+    <input type="hidden" name="agentId" value={$subscribeFormData.agentId} />
   </form>
 
   <form
@@ -296,9 +308,9 @@
     onselect={subscribeTo}
   />
 
-  {#if subscribeError}
+  {#if subscribeActionError || subscribeAgentError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-      {subscribeError}
+      {subscribeActionError ?? subscribeAgentError}
     </div>
   {/if}
 

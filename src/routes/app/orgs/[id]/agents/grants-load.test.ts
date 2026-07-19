@@ -72,6 +72,7 @@ async function runLoad() {
   } as never)) as {
     subscribedGrants: unknown[] | null;
     subscribablePublicAgents: Array<{ id: string }>;
+    subscribeForm: { data: { agentId: string } };
   };
 }
 
@@ -133,6 +134,12 @@ describe('org agents loader — subscribed grants (#486)', () => {
     const result = await runLoad();
     expect(result.subscribablePublicAgents.map((a) => a.id)).toEqual(['fresh']);
   });
+
+  it('seeds the subscribe form with an explicit empty choice', async () => {
+    route({});
+    const result = await runLoad();
+    expect(result.subscribeForm.data.agentId).toBe('');
+  });
 });
 
 describe('org agents subscribe action (#649)', () => {
@@ -141,7 +148,13 @@ describe('org agents subscribe action (#649)', () => {
       createAgentOrgGrant: { orgId: ORG_ID, agentId: 'foreign-agent', isActive: true },
     });
 
-    await expect(runSubscribe()).resolves.toEqual({ subscribed: true });
+    await expect(runSubscribe()).resolves.toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'subscribeAgent', agentId: 'foreign-agent' },
+        message: { type: 'success', text: 'Subscribed to agent.' },
+      },
+    });
     expect(mockRequest).toHaveBeenCalledOnce();
     expect(mockRequest).toHaveBeenCalledWith(CREATE_AGENT_ORG_GRANT_MUTATION, {
       agentRef: 'foreign-agent',
@@ -152,7 +165,24 @@ describe('org agents subscribe action (#649)', () => {
   it('rejects an empty selection without calling GraphQL', async () => {
     await expect(runSubscribe('')).resolves.toMatchObject({
       status: 400,
-      data: { subscribeError: expect.any(String) },
+      data: { form: { errors: { agentId: expect.any(Array) } } },
+    });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects subscribe POSTs with the wrong form discriminator', async () => {
+    const fd = new FormData();
+    fd.set('_kind', 'unsubscribe');
+    fd.set('agentId', 'foreign-agent');
+    const { actions } = await import('./+page.server');
+
+    await expect(actions.subscribe!({
+      params: { id: ORG_ID },
+      locals: { token: 'tok' },
+      request: { formData: async () => fd },
+    } as never)).resolves.toMatchObject({
+      status: 400,
+      data: { form: { errors: { _kind: expect.any(Array) } } },
     });
     expect(mockRequest).not.toHaveBeenCalled();
   });
@@ -164,7 +194,11 @@ describe('org agents subscribe action (#649)', () => {
 
     await expect(runSubscribe()).resolves.toMatchObject({
       status: 500,
-      data: { subscribeError: 'Only PUBLIC agents can be subscribed to.' },
+      data: {
+        form: {
+          message: { type: 'error', text: 'Only PUBLIC agents can be subscribed to.' },
+        },
+      },
     });
   });
 });

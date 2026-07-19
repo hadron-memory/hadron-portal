@@ -1,7 +1,12 @@
 import { error, fail } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
+import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
+import { t } from '$lib/i18n/t';
 import {
   ORGANIZATION_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
@@ -14,6 +19,11 @@ import {
 } from '$lib/server/queries';
 import type { Organization, Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { orgMemorySubscribeSchema } from './schema';
+
+type OrgMemorySubscribeForm = Infer<typeof orgMemorySubscribeSchema, 'zod4'>;
+
+const orgMemorySubscribeFormAdapter = zod4(orgMemorySubscribeSchema);
 
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
@@ -61,6 +71,11 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     availableMemories,
     personalMemories,
     initialTab,
+    subscribeForm: await superValidate<OrgMemorySubscribeForm>(
+      { memoryId: '', role: 'READER' },
+      orgMemorySubscribeFormAdapter,
+      { errors: false },
+    ),
   };
 };
 
@@ -96,19 +111,25 @@ export const actions: Actions = {
   },
 
   subscribe: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const memoryId = String(fd.get('memoryId') ?? '');
-    const role = String(fd.get('role') ?? 'READER');
-    if (!memoryId) return fail(400, { error: 'Memory ID is required' });
+    const form = await superValidate<OrgMemorySubscribeForm>(
+      await request.formData(),
+      orgMemorySubscribeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(CREATE_MEMORY_SUBSCRIPTION_MUTATION, {
-        memoryId,
+        memoryId: form.data.memoryId,
         orgId: params.id,
-        role,
+        role: form.data.role,
       });
-      return { subscribed: true };
+      return message(form, { type: 'success', text: t('org-memories.subscriptions.added', 'Subscribed to memory.') });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to subscribe' });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to subscribe') },
+        { status: 500 },
+      );
     }
   },
 
