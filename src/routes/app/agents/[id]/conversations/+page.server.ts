@@ -11,6 +11,7 @@ import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
 import {
   buildConversationEdgeDetails,
   conversationEdgeInputsFromNodes,
+  isConversationLoc,
   isStageLoc,
 } from '$lib/flow/conversation-canvas';
 import {
@@ -18,6 +19,11 @@ import {
   conversationEdgePanelSchema,
   parseValidatedConversationEdgeData,
 } from '$lib/flow/conversation-edge-panel-form';
+import {
+  conversationGoalsDefaults,
+  conversationGoalsSchema,
+  linesToGoalList,
+} from '$lib/flow/conversation-goals-form';
 import {
   conversationStageExtractionDefaults,
   conversationStageExtractionSchema,
@@ -33,9 +39,11 @@ import type { Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 
 type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
+type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
 type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
 
 const conversationEdgePanelFormAdapter = zod4(conversationEdgePanelSchema);
+const conversationGoalsFormAdapter = zod4(conversationGoalsSchema);
 const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionSchema);
 
 // cor:api:090 — scope to the agent's system memory. findNodes hides
@@ -134,8 +142,31 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
         }),
     ),
   );
+  const conversationGoalForms = Object.fromEntries(
+    await Promise.all(
+      systemNodes
+        .filter((n) => isConversationLoc(n.loc))
+        .map(async (conversation) => {
+          const data = (conversation.data as Record<string, unknown>) ?? {};
+          const goalDescriptions = Array.isArray(data.goalDescriptions)
+            ? data.goalDescriptions.filter((g): g is string => typeof g === 'string')
+            : [];
+          const goalSignals = Array.isArray(data.goalSignals)
+            ? data.goalSignals.filter((g): g is string => typeof g === 'string')
+            : [];
+          return [
+            conversation.id,
+            await superValidate<ConversationGoalsForm>(
+              conversationGoalsDefaults({ loc: conversation.loc, goalDescriptions, goalSignals }, systemMemoryId),
+              conversationGoalsFormAdapter,
+              { errors: false },
+            ),
+          ];
+        }),
+    ),
+  );
 
-  return { agent, org, systemMemoryId, prompts, systemNodes, edgeForms, stageExtractionForms };
+  return { agent, org, systemMemoryId, prompts, systemNodes, edgeForms, stageExtractionForms, conversationGoalForms };
 };
 
 export const actions: Actions = {
@@ -293,21 +324,17 @@ export const actions: Actions = {
   },
 
   updateGoals: async ({ request, locals }) => {
-    const fd = await request.formData();
-    const client = gqlClient(locals.token);
-    const systemMemoryId = String(fd.get('systemMemoryId') ?? '');
-    const convLoc = String(fd.get('convLoc') ?? '');
-    const goalsJson = String(fd.get('goalDescriptions') ?? '[]');
-    const signalsJson = String(fd.get('goalSignals') ?? '[]');
+    const form = await superValidate<ConversationGoalsForm>(
+      await request.formData(),
+      conversationGoalsFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
-    let goalDescriptions: string[];
-    let goalSignals: string[];
-    try {
-      goalDescriptions = JSON.parse(goalsJson);
-      goalSignals = JSON.parse(signalsJson);
-    } catch {
-      return fail(400, { error: 'Invalid JSON' });
-    }
+    const client = gqlClient(locals.token);
+    const systemMemoryId = form.data.systemMemoryId;
+    const convLoc = form.data.convLoc;
+    const goalDescriptions = linesToGoalList(form.data.goalDescriptionsText);
+    const goalSignals = linesToGoalList(form.data.goalSignalsText);
 
     try {
       const convNode = await client.request<{ node: { data: unknown } | null }>(
@@ -318,8 +345,16 @@ export const actions: Actions = {
       await client.request(UPDATE, { input: {
         memoryId: systemMemoryId, loc: convLoc, data: { ...convData, goalDescriptions, goalSignals },
       }});
+      return message(form, {
+        type: 'success',
+        text: t('conversation.infoPanel.goals.saved', 'Goals saved.'),
+      });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
+      return message(
+        form,
+        { type: 'error', text: userFacingErrorMessage(e, 'Failed to update goals') },
+        { status: 500 },
+      );
     }
   },
 
