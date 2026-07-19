@@ -85,6 +85,24 @@
     },
   ];
 
+  const textValue = (value: CommandFieldValue | undefined): string =>
+    typeof value === 'string' ? value : '';
+  const setValue = (value: CommandFieldValue | undefined): string[] =>
+    Array.isArray(value) ? value : [];
+  const boolValue = (value: CommandFieldValue | undefined): boolean =>
+    typeof value === 'boolean' ? value : false;
+
+  function syncCommandForm(next: Record<string, CommandFieldValue>) {
+    commandForm.update((current) => ({
+      ...current,
+      _kind: 'mergeMemory',
+      source: textValue(next.source),
+      target: textValue(next.target),
+      include: setValue(next.include) as MergeMemoryForm['include'],
+      deleteSourceMem: boolValue(next.deleteSourceMem),
+    }));
+  }
+
   const result = $derived(form && 'result' in form ? form.result : null);
   const error = $derived($commandMessage?.type === 'error' ? $commandMessage.text : null);
 </script>
@@ -97,6 +115,7 @@
   enhanceAction={commandEnhance}
   errors={$commandErrors}
   busy={$commandSubmitting}
+  onValueChange={syncCommandForm}
 />
 
 {#if error}

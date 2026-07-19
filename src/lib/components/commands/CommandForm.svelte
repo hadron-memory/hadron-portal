@@ -21,6 +21,7 @@
     busy = $bindable(false),
     enhanceAction = null,
     errors = {},
+    onValueChange = () => {},
   }: {
     fields: CommandField[];
     values?: Record<string, CommandFieldValue>;
@@ -29,6 +30,7 @@
     busy?: boolean;
     enhanceAction?: Action<HTMLFormElement> | null;
     errors?: Record<string, unknown>;
+    onValueChange?: (values: Record<string, CommandFieldValue>) => void;
   } = $props();
 
   // Seed any field not present in `values` at init (NOT in an $effect, which
@@ -47,9 +49,14 @@
   const asSet = (v: CommandFieldValue | undefined): string[] =>
     Array.isArray(v) ? v : [];
 
+  function setValue(name: string, value: CommandFieldValue) {
+    values[name] = value;
+    onValueChange(values);
+  }
+
   function toggleMulti(name: string, option: string, checked: boolean) {
     const current = asSet(values[name]);
-    values[name] = checked ? [...current, option] : current.filter((o) => o !== option);
+    setValue(name, checked ? [...current, option] : current.filter((o) => o !== option));
   }
 
   function fallbackEnhance(node: HTMLFormElement) {
@@ -112,7 +119,7 @@
             name={field.name}
             value="true"
             checked={values[field.name] === true}
-            onchange={(e) => (values[field.name] = e.currentTarget.checked)}
+            onchange={(e) => setValue(field.name, e.currentTarget.checked)}
             aria-invalid={!!errorFor(field.name)}
             aria-describedby={describedBy(field)}
             class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900"
@@ -137,7 +144,7 @@
             id={`cmd-${field.name}`}
             name={field.name}
             value={asText(values[field.name])}
-            onchange={(e) => (values[field.name] = e.currentTarget.value)}
+            onchange={(e) => setValue(field.name, e.currentTarget.value)}
             aria-invalid={!!errorFor(field.name)}
             aria-describedby={describedBy(field)}
             class="{inputClass} {errorFor(field.name) ? 'border-red-500 focus:border-red-500' : ''}"
@@ -172,7 +179,7 @@
             autocomplete="off"
             spellcheck="false"
             value={asText(values[field.name])}
-            oninput={(e) => (values[field.name] = e.currentTarget.value)}
+            oninput={(e) => setValue(field.name, e.currentTarget.value)}
             placeholder={field.placeholder}
             aria-invalid={!!errorFor(field.name)}
             aria-describedby={describedBy(field)}

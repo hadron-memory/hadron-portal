@@ -64,6 +64,18 @@
     },
   ];
 
+  const textValue = (value: CommandFieldValue | undefined): string =>
+    typeof value === 'string' ? value : '';
+
+  function syncCommandForm(next: Record<string, CommandFieldValue>) {
+    commandForm.update((current) => ({
+      ...current,
+      _kind: 'accessCheck',
+      user: textValue(next.user),
+      resource: textValue(next.resource),
+    }));
+  }
+
   const result = $derived(form && 'result' in form ? form.result : null);
   const error = $derived($commandMessage?.type === 'error' ? $commandMessage.text : null);
 
@@ -87,6 +99,7 @@
   enhanceAction={commandEnhance}
   errors={$commandErrors}
   busy={$commandSubmitting}
+  onValueChange={syncCommandForm}
 />
 
 {#if error}
