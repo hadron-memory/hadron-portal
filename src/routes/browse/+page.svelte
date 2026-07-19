@@ -1,10 +1,32 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PageData, ActionData } from './$types';
+  import { addPublicMemorySchema } from './schema';
+
+  type AddPublicMemoryForm = Infer<typeof addPublicMemorySchema, 'zod4'>;
+  type AddPublicMemorySuperform = SuperValidated<AddPublicMemoryForm, App.Superforms.Message, AddPublicMemoryForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   let search = $state('');
+  let pendingMemoryId = $state<string | null>(null);
+
+  const initialAddForm = untrack(() => (form?.form ?? data.form) as AddPublicMemorySuperform);
+  const {
+    form: addForm,
+    errors: addErrors,
+    message: addMessage,
+    submitting: addSubmitting,
+    enhance: addEnhance,
+  } = superForm<AddPublicMemoryForm, App.Superforms.Message, AddPublicMemoryForm>(initialAddForm, {
+    validators: zod4Client(addPublicMemorySchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
 
   const filtered = $derived(
     data.memories.filter((m) => {
@@ -13,6 +35,16 @@
       return m.name.toLowerCase().includes(q);
     })
   );
+  const addError = $derived(
+    $addMessage?.type === 'error'
+      ? $addMessage.text
+      : $addErrors.memoryId?.[0] ?? null,
+  );
+
+  function prepareAdd(memoryId: string) {
+    pendingMemoryId = memoryId;
+    addForm.update((current) => ({ ...current, _kind: 'addPublicMemory', memoryId }), { taint: false });
+  }
 </script>
 
 <svelte:head>
@@ -25,8 +57,8 @@
     <p class="mt-2 text-zinc-500 dark:text-zinc-400">Find AI knowledge memories for any purpose.</p>
   </div>
 
-  {#if form?.error}
-    <div class="mb-6 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if addError}
+    <div role="alert" class="mb-6 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{addError}</div>
   {/if}
 
   <div class="mb-6">
@@ -67,10 +99,16 @@
           </div>
 
           {#if data.isAuthenticated}
-            <form method="POST" action="?/addToMyMemories" use:enhance>
+            <form method="POST" action="?/addToMyMemories" use:addEnhance onsubmit={() => prepareAdd(memory.id)} novalidate>
+              <input type="hidden" name="_kind" value={$addForm._kind} />
               <input type="hidden" name="memoryId" value={memory.id} />
-              <button type="submit" class="w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
-                Use this memory
+              <button
+                type="submit"
+                disabled={$addSubmitting}
+                onclick={() => prepareAdd(memory.id)}
+                class="w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {$addSubmitting && pendingMemoryId === memory.id ? 'Adding...' : 'Use this memory'}
               </button>
             </form>
           {/if}
