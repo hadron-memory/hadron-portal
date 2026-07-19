@@ -1,4 +1,5 @@
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
@@ -19,9 +20,12 @@ import {
 import { requireNonConsumer } from '$lib/server/guards';
 import type { Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { agentSettingsSchema } from './schema';
+import { addAgentMemorySchema, agentSettingsSchema } from './schema';
 
 const agentSettingsFormAdapter = zod4(agentSettingsSchema);
+const addAgentMemoryFormAdapter = zod4(addAgentMemorySchema);
+
+type AddAgentMemoryForm = Infer<typeof addAgentMemorySchema, 'zod4'>;
 
 function urnSlug(urn: string): string {
   const idx = urn.lastIndexOf(':');
@@ -138,6 +142,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
     }, agentSettingsFormAdapter, { errors: false }),
+    addMemoryForm: await superValidate<AddAgentMemoryForm>(
+      { memoryId: '', role: 'read' },
+      addAgentMemoryFormAdapter,
+      { errors: false },
+    ),
   };
 };
 
@@ -251,16 +260,25 @@ export const actions: Actions = {
   },
 
   addMemory: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const memoryId = String(fd.get('memoryId') ?? '');
-    const role = String(fd.get('role') ?? 'read');
+    const form = await superValidate<AddAgentMemoryForm>(
+      await request.formData(),
+      addAgentMemoryFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(ADD_MEMORY_TO_AGENT_MUTATION, {
-        agentId: params.id, memoryId, role,
+        agentId: params.id,
+        memoryId: form.data.memoryId,
+        role: form.data.role,
       });
-      return { success: true };
+      return message(form, { type: 'success', text: 'Memory added.' });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to add memory') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to add memory') },
+        { status: 500 },
+      );
     }
   },
 
