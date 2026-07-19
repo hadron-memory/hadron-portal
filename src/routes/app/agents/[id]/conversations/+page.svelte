@@ -313,6 +313,10 @@
       ?? addEdgeForm.errors.data?.[0]
       ?? null;
   });
+  const plainActionError = $derived.by(() => {
+    if (!formIsLive || !form || !('error' in form)) return null;
+    return typeof form.error === 'string' ? form.error : null;
+  });
   const updateForm = $derived.by(() => {
     const actionForm = (form as UpdateEdgeActionResult)?.form ?? null;
     return actionForm && 'edgeId' in actionForm.data ? actionForm : null;
@@ -590,13 +594,13 @@
     </div>
   {/if}
 
-  <!-- Drag-to-connect failures are not tied to the edge panel yet. -->
-  {#if addEdgeError}
+  <!-- Drag-to-connect and remaining native-form failures surface here. -->
+  {#if addEdgeError || plainActionError}
     <div
       role="alert"
       class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
     >
-      {addEdgeError}
+      {addEdgeError ?? plainActionError}
     </div>
   {/if}
 

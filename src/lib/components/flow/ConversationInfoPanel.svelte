@@ -222,8 +222,8 @@
     {/if}
 
     <form method="POST" action="?/addStage" use:addStageEnhance class="mt-3 space-y-2" novalidate>
-      <input type="hidden" name="systemMemoryId" bind:value={$addStageData.systemMemoryId} />
-      <input type="hidden" name="conversationLoc" bind:value={$addStageData.conversationLoc} />
+      <input type="hidden" name="systemMemoryId" value={$addStageData.systemMemoryId} />
+      <input type="hidden" name="conversationLoc" value={$addStageData.conversationLoc} />
       {#if addStageError || addStageIdentityError}
         <div
           role="alert"

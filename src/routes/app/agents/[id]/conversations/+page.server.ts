@@ -455,17 +455,17 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     const client = gqlClient(locals.token);
-    const condition = parseConditionField(form.data.condition);
-    const priority = parsePriorityField(form.data.priority);
-    const data = JSON.parse(form.data.data) as Record<string, unknown>;
+    const condition = parseValidatedPanelCondition(form.data.condition);
+    const priority = parseValidatedPanelPriority(form.data.priority);
+    const data = parseValidatedConversationEdgeData(form.data.data);
 
     try {
       const res = await client.request<{ createEdge: { id: string } }>(CREATE_EDGE_MUTATION, {
         sourceNodeId: form.data.sourceNodeId,
         targetNodeId: form.data.targetNodeId,
         name: form.data.name || 'edge',
-        condition: condition.ok ? condition.value : null,
-        priority: priority.ok ? priority.value : 0,
+        condition,
+        priority,
         data,
       });
       // The canvas selects the fresh edge so its rule can be refined.

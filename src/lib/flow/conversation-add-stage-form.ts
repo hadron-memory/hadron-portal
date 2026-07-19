@@ -7,7 +7,15 @@ export const addStageSchema = z.object({
   conversationLoc: z.string()
     .trim()
     .min(1, 'Missing conversation loc')
-    .refine((loc) => isConversationLoc(loc), 'Invalid conversation loc')
+    .superRefine((loc, ctx) => {
+      try {
+        if (!isConversationLoc(loc)) {
+          ctx.addIssue({ code: 'custom', message: 'Invalid conversation loc' });
+        }
+      } catch {
+        ctx.addIssue({ code: 'custom', message: 'Invalid conversation loc' });
+      }
+    })
     .prefault(''),
   stageName: z.string().trim().min(1, 'Stage name is required').prefault(''),
 });
