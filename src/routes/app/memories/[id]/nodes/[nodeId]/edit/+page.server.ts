@@ -1,12 +1,39 @@
 import { fail, redirect } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION } from '$lib/server/queries';
-import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { editNodeSchema } from './schema';
+
+type EditNodeForm = Infer<typeof editNodeSchema, 'zod4'>;
+
+const editNodeFormAdapter = zod4(editNodeSchema);
+
+function formDefaults(node: MemoryNode): EditNodeForm {
+  return {
+    name: node.name,
+    loc: node.loc,
+    description: node.description ?? '',
+    alias: node.alias ?? '',
+    abstract: node.abstract ?? '',
+    content: node.content ?? '',
+    seq: node.seq ?? null,
+    tags: (node.tags ?? []).join(', '),
+    isRunnable: node.isRunnable ?? false,
+    edges: JSON.stringify((node.outgoingEdges ?? []).map((e) => ({ targetId: e.target.id, name: e.name ?? '' }))),
+  };
+}
+
+function parseEdgesPayload(value: string): { targetId: string; name: string }[] | undefined {
+  if (!value) return undefined;
+  return JSON.parse(value) as { targetId: string; name: string }[];
+}
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
@@ -22,12 +49,21 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   if (data.node.memoryId !== params.id) {
     redirect(303, `/app/memories/${data.node.memoryId}/nodes/${params.nodeId}/edit`);
   }
-  return { node: data.node };
+  const form = await superValidate<EditNodeForm>(
+    formDefaults(data.node),
+    editNodeFormAdapter,
+    { errors: false },
+  );
+  return { node: data.node, form };
 };
 
 export const actions: Actions = {
   default: async ({ request, params, locals }) => {
-    const fd = await request.formData();
+    const form = await superValidate<EditNodeForm>(
+      await request.formData(),
+      editNodeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
     const client = gqlClient(locals.token);
 
@@ -35,38 +71,23 @@ export const actions: Actions = {
     const { node: currentNode } = await client.request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
     );
-    if (!currentNode) return fail(404, { error: 'Node not found' });
+    if (!currentNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
 
-    const name = String(fd.get('name') ?? '').trim();
-    const description = String(fd.get('description') ?? '').trim() || null;
-    const alias = String(fd.get('alias') ?? '').trim() || null;
+    const description = form.data.description || null;
+    const alias = form.data.alias || null;
     // Empty/whitespace-only → null so the server clears the abstract rather
     // than storing an empty string (it normalizes the same way, but being
     // explicit keeps the mutation payload honest). Cap is enforced server-side.
-    const abstract = String(fd.get('abstract') ?? '').trim() || null;
-    const content = String(fd.get('content') ?? '').trim() || null;
-    const seqVal = fd.get('seq');
-    const seqRaw = seqVal != null ? String(seqVal).trim() : '';
-    const seqParsed = seqRaw !== '' ? parseInt(seqRaw, 10) : null;
-    const seq = seqParsed !== null && Number.isNaN(seqParsed) ? null : seqParsed;
-    const tagsStr = String(fd.get('tags') ?? '').trim();
-    const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [];
-    // Checkbox: present (value "true") when checked, absent when unchecked.
-    // This form rewrites the full field set, so send an explicit boolean
-    // either way (updateNode preserves omitted fields — an absent checkbox
-    // would otherwise never uncheck).
-    const isRunnable = fd.get('isRunnable') === 'true';
-    const rawLoc = String(fd.get('loc') ?? '').trim();
-    const newLoc = cleanLocInput(rawLoc);
+    const abstract = form.data.abstract || null;
+    const content = form.data.content || null;
+    const tags = form.data.tags ? form.data.tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
 
-    // Parse edges from JSON
     let edges: { targetId: string; name: string }[] | undefined;
-    const edgesJson = String(fd.get('edges') ?? '');
-    if (edgesJson) {
-      try { edges = JSON.parse(edgesJson); } catch { /* ignore */ }
+    try {
+      edges = parseEdgesPayload(form.data.edges);
+    } catch {
+      return message(form, { type: 'error', text: 'Edges payload was corrupt. Please refresh and try again.' }, { status: 400 });
     }
-
-    if (!name) return fail(400, { error: 'Name is required' });
 
     // #237: route every mutation through the node's actual memoryId, not
     // the URL's gid. Form actions run BEFORE `load`, so the URL guard
@@ -75,10 +96,12 @@ export const actions: Actions = {
     // #564 (#501): moveNode takes sourceRef (the PK) + targetUrn composed
     // from the node's OWN memory urn — a stale URL can't redirect the move.
     // An occupied destination fails loudly with NODE_ALREADY_EXISTS.
-    const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
+    // Empty loc means "keep the current loc"; the page seeds loc in load, so
+    // empty only appears on malformed/manual POSTs and should not move a node.
+    const loc = form.data.loc && form.data.loc !== currentNode.loc ? form.data.loc : currentNode.loc;
     if (loc !== currentNode.loc) {
       if (!currentNode.memory?.urn) {
-        return fail(500, { error: 'Node has no memory URN to move by.' });
+        return message(form, { type: 'error', text: 'Node has no memory URN to move by.' }, { status: 500 });
       }
       try {
         await client.request(MOVE_NODE_MUTATION, {
@@ -89,7 +112,10 @@ export const actions: Actions = {
         // Occupied destination → 409 Conflict, matching the detail page +
         // the /api/nodes/move endpoint.
         const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
-        return fail(status, { error: extractGqlError(e, 'Failed to move node') });
+        const error = extractGqlError(e, 'Failed to move node');
+        return status === 409
+          ? setError(form, 'loc', error, { status })
+          : message(form, { type: 'error', text: error }, { status });
       }
     }
 
@@ -98,19 +124,19 @@ export const actions: Actions = {
         input: {
           memoryId: currentNode.memoryId,
           loc,
-          name,
+          name: form.data.name,
           description,
           alias,
           abstract,
           content,
-          seq,
+          seq: form.data.seq,
           tags,
-          isRunnable,
+          isRunnable: form.data.isRunnable,
           edges,
         },
       });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to save' });
+      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to save' }, { status: 500 });
     }
 
     // Redirect to the actual memory's detail URL, not the URL's gid.
