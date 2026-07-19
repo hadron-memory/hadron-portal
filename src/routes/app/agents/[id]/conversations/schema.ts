@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
 
 export const addConversationSchema = z.object({
+  _kind: z.literal('addConversation').default('addConversation'),
   systemMemoryId: z.string().trim().min(1, 'Missing system memory id').prefault(''),
   name: z.string().trim().min(1, 'Name is required').prefault(''),
 });
@@ -10,6 +11,7 @@ export const addConversationSchema = z.object({
 export type AddConversationSchema = typeof addConversationSchema;
 
 export const addEdgeSchema = z.object({
+  _kind: z.literal('addEdge').default('addEdge'),
   sourceNodeId: z.string().trim().min(1, 'Source is required').prefault(''),
   targetNodeId: z.string().trim().min(1, 'Target is required').prefault(''),
   name: z.string().default(''),

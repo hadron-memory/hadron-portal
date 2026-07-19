@@ -1,13 +1,14 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
   import type { Infer, SuperValidated } from 'sveltekit-superforms';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { ConversationEdgeDetail } from '$lib/flow/conversation-canvas';
+  import { conversationPromptDefaults, conversationPromptSchema } from '$lib/flow/conversation-prompt-form';
   import { conversationStageExtractionSchema } from '$lib/flow/conversation-stage-extraction-form';
   import { t } from '$lib/i18n/t';
 
+  type ConversationPromptForm = Infer<typeof conversationPromptSchema, 'zod4'>;
   type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
 
   // Stage side panel for the conversation canvas: prompt + extraction spec
@@ -15,6 +16,9 @@
   // page keys this component by stage id, so editors seed at init.
   let {
     stage,
+    promptForm,
+    promptSaved,
+    promptError,
     extractionForm,
     extractionSaved,
     extractionError,
@@ -31,6 +35,9 @@
       promptContent: string;
       extractionSpec: unknown[];
     };
+    promptForm: SuperValidated<ConversationPromptForm, App.Superforms.Message, ConversationPromptForm> | null;
+    promptSaved: string | null;
+    promptError: string | null;
     extractionForm: SuperValidated<
       ConversationStageExtractionForm,
       App.Superforms.Message,
@@ -48,7 +55,27 @@
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 
-  let promptContent = $state(untrack(() => stage.promptContent));
+  const initialPromptForm = untrack(
+    () => promptForm ?? conversationPromptDefaults({ loc: stage.promptRef ?? '', content: stage.promptContent }, systemMemoryId),
+  );
+  const {
+    form: promptData,
+    errors: promptErrors,
+    submitting: promptSubmitting,
+    enhance: promptEnhance,
+  } = superForm<ConversationPromptForm, App.Superforms.Message, ConversationPromptForm>(
+    initialPromptForm,
+    {
+      validators: zod4Client(conversationPromptSchema),
+      validationMethod: 'oninput',
+      scrollToError: 'smooth',
+      autoFocusOnError: 'detect',
+      clearOnSubmit: 'none',
+    },
+  );
+  const promptIdentityError = $derived(
+    $promptErrors.systemMemoryId?.[0] ?? $promptErrors.loc?.[0] ?? null,
+  );
   const initialExtractionForm = untrack(() => extractionForm);
   const {
     form: extractionData,
@@ -87,17 +114,34 @@
     </button>
   </div>
 
-  {#if stage.promptRef}
-    <form method="POST" action="?/updatePrompt" use:enhance class="space-y-2">
-      <input type="hidden" name="systemMemoryId" value={systemMemoryId} />
-      <input type="hidden" name="loc" value={stage.promptRef} />
+  {#if stage.promptRef && promptForm}
+    <form method="POST" action="?/updatePrompt" use:promptEnhance class="space-y-2" novalidate>
+      <input type="hidden" name="_kind" value={$promptData._kind} />
+      <input type="hidden" name="systemMemoryId" value={$promptData.systemMemoryId} />
+      <input type="hidden" name="loc" value={$promptData.loc} />
       <label for="stagePrompt" class="block text-xs font-medium text-zinc-700 dark:text-zinc-300">
         {t('conversation.stagePanel.prompt', 'Prompt')}
       </label>
+      {#if promptError || promptIdentityError}
+        <div
+          role="alert"
+          class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+        >
+          {promptError ?? promptIdentityError}
+        </div>
+      {/if}
+      {#if promptSaved}
+        <div
+          role="status"
+          class="rounded-lg border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300"
+        >
+          {promptSaved}
+        </div>
+      {/if}
       <textarea
         id="stagePrompt"
         name="content"
-        bind:value={promptContent}
+        bind:value={$promptData.content}
         rows="10"
         class="{inputClass} font-mono text-xs"
       ></textarea>
@@ -109,10 +153,13 @@
       </p>
       <button
         type="submit"
-        class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+        disabled={$promptSubmitting}
+        class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
         style="background: #fb8500;"
       >
-        {t('conversation.stagePanel.prompt.save', 'Save prompt')}
+        {$promptSubmitting
+          ? t('conversation.stagePanel.prompt.saving', 'Saving...')
+          : t('conversation.stagePanel.prompt.save', 'Save prompt')}
       </button>
     </form>
   {:else}
