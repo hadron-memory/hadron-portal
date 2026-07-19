@@ -382,7 +382,7 @@
     if (!selectedStage?.promptRef) return null;
     return formIsLive && promptForm?.data?.loc === selectedStage.promptRef
       ? promptForm
-      : data.promptForms[selectedStage.promptRef];
+      : (data.promptForms[selectedStage.promptRef] ?? null);
   });
   const goalsForm = $derived.by(() => {
     const actionForm = (form as UpdateGoalsActionResult)?.form ?? null;

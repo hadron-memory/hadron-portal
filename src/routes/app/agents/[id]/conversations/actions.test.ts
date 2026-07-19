@@ -290,6 +290,18 @@ describe('updatePrompt', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects updatePrompt POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('updatePrompt', {
+      _kind: 'addStage',
+      systemMemoryId: 'mem-1',
+      loc: 'prompts:demo:start',
+      content: 'Updated prompt',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('returns a typed fallback error when prompt update fails', async () => {
     mockRequest.mockRejectedValueOnce({});
     const result = (await runAction('updatePrompt', {
@@ -613,7 +625,7 @@ describe('load', () => {
               loc: 'conversations:demo:start',
               name: 'start',
               description: 'Start',
-              data: {},
+              data: { promptRef: 'prompts:demo:start' },
               outgoingEdges: [
                 {
                   id: 'e1',
@@ -653,7 +665,7 @@ describe('load', () => {
               loc: 'conversations:demo:end',
               name: 'end',
               description: 'End',
-              data: {},
+              data: { promptRef: 'prompts:demo:end' },
               outgoingEdges: [],
             },
           },
@@ -683,6 +695,12 @@ describe('load', () => {
       systemMemoryId: 'mem-1',
       loc: 'prompts:demo:start',
       content: 'Start content',
+    });
+    expect(result.promptForms['prompts:demo:end'].data).toMatchObject({
+      _kind: 'updatePrompt',
+      systemMemoryId: 'mem-1',
+      loc: 'prompts:demo:end',
+      content: '',
     });
     expect(Object.keys(result.edgeForms)).toEqual(['e1', 'e2']);
     expect(result.edgeForms.e1.data).toMatchObject({

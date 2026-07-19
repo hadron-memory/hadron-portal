@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { isConversationLoc } from './conversation-canvas';
 
 export const addStageSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
   _kind: z.literal('addStage').default('addStage'),
   systemMemoryId: z.string().trim().min(1, 'Missing system memory id').prefault(''),
   conversationLoc: z.string()

@@ -123,12 +123,18 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // Prompts feed the stage panel's editor and the shared-partials section;
   // the canvas view-model derives everything else from systemNodes client-side.
   const prompts = systemNodes.filter((n) => n.loc.startsWith('prompts:'));
+  const promptByLoc = new Map(prompts.map((prompt) => [prompt.loc, prompt]));
+  const promptFormLocs = new Set(prompts.map((prompt) => prompt.loc));
+  for (const stage of systemNodes.filter((n) => isStageLoc(n.loc))) {
+    const data = (stage.data as Record<string, unknown>) ?? {};
+    if (typeof data.promptRef === 'string' && data.promptRef) promptFormLocs.add(data.promptRef);
+  }
   const promptForms = Object.fromEntries(
     await Promise.all(
-      prompts.map(async (prompt) => [
-        prompt.loc,
+      Array.from(promptFormLocs).map(async (promptLoc) => [
+        promptLoc,
         await superValidate<ConversationPromptForm>(
-          conversationPromptDefaults({ loc: prompt.loc, content: prompt.content ?? '' }, systemMemoryId),
+          conversationPromptDefaults({ loc: promptLoc, content: promptByLoc.get(promptLoc)?.content ?? '' }, systemMemoryId),
           conversationPromptFormAdapter,
           { errors: false },
         ),

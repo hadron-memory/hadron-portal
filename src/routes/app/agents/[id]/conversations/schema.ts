@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
 
+// Defaulted _kind accepts omitted hidden inputs while still rejecting a defined
+// discriminator from the wrong action.
 export const addConversationSchema = z.object({
   _kind: z.literal('addConversation').default('addConversation'),
   systemMemoryId: z.string().trim().min(1, 'Missing system memory id').prefault(''),
@@ -10,6 +12,8 @@ export const addConversationSchema = z.object({
 
 export type AddConversationSchema = typeof addConversationSchema;
 
+// Defaulted _kind accepts omitted hidden inputs while still rejecting a defined
+// discriminator from the wrong action.
 export const addEdgeSchema = z.object({
   _kind: z.literal('addEdge').default('addEdge'),
   sourceNodeId: z.string().trim().min(1, 'Source is required').prefault(''),

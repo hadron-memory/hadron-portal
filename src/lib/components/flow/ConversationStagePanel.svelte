@@ -114,7 +114,7 @@
     </button>
   </div>
 
-  {#if stage.promptRef && promptForm}
+  {#if stage.promptRef}
     <form method="POST" action="?/updatePrompt" use:promptEnhance class="space-y-2" novalidate>
       <input type="hidden" name="_kind" value={$promptData._kind} />
       <input type="hidden" name="systemMemoryId" value={$promptData.systemMemoryId} />
@@ -124,6 +124,7 @@
       </label>
       {#if promptError || promptIdentityError}
         <div
+          id="stagePromptError"
           role="alert"
           class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
         >
@@ -143,9 +144,11 @@
         name="content"
         bind:value={$promptData.content}
         rows="10"
-        class="{inputClass} font-mono text-xs"
+        aria-invalid={!!(promptError || promptIdentityError)}
+        aria-describedby={(promptError || promptIdentityError) ? 'stagePromptError stagePromptHint' : 'stagePromptHint'}
+        class="{inputClass} font-mono text-xs {(promptError || promptIdentityError) ? 'border-red-500 focus:border-red-500' : ''}"
       ></textarea>
-      <p class="text-[10px] text-zinc-400">
+      <p id="stagePromptHint" class="text-[10px] text-zinc-400">
         {t(
           'conversation.stagePanel.prompt.hint',
           'Supports Mustache: {{var}}, {{node.field}}, {{> partial}}, {{#flag}}...{{/flag}}',
@@ -175,6 +178,7 @@
     class="mt-4 space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800"
     novalidate
   >
+    <input type="hidden" name="_kind" value={$extractionData._kind} />
     <input type="hidden" name="systemMemoryId" value={$extractionData.systemMemoryId} />
     <input type="hidden" name="stageLoc" value={$extractionData.stageLoc} />
     <label for="stageSpec" class="block text-xs font-medium text-zinc-700 dark:text-zinc-300">

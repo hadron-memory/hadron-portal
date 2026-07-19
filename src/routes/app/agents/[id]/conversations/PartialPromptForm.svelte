@@ -54,6 +54,7 @@
   <input type="hidden" name="loc" value={$promptData.loc} />
   {#if actionError}
     <div
+      id="partialPromptError"
       role="alert"
       class="mb-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
     >
@@ -64,7 +65,9 @@
     name="content"
     bind:value={$promptData.content}
     rows="5"
-    class="{inputClass} font-mono text-xs"
+    aria-invalid={!!actionError}
+    aria-describedby={actionError ? 'partialPromptError' : undefined}
+    class="{inputClass} font-mono text-xs {actionError ? 'border-red-500 focus:border-red-500' : ''}"
   ></textarea>
   <div class="mt-2 flex gap-2">
     <button

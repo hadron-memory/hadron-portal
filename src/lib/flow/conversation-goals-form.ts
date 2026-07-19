@@ -5,6 +5,8 @@ import { isConversationLoc } from './conversation-canvas';
 // Conversation goals schema lives with the flow helpers because the reusable
 // conversation panel lives under $lib/components/flow.
 export const conversationGoalsSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
   _kind: z.literal('updateGoals').default('updateGoals'),
   systemMemoryId: z.string().trim().min(1, 'Missing system memory id').prefault(''),
   convLoc: z.string()
