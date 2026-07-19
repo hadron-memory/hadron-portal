@@ -132,7 +132,7 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
     onUpdated: ({ form }) => {
-      if (form.valid) editMode = false;
+      if (form.valid && form.message?.type !== 'error') editMode = false;
     },
   });
 
@@ -179,11 +179,16 @@
   const addAgentActionSuccess = $derived($addAgentMessage?.type === 'success' ? $addAgentMessage.text : null);
   const createKeyActionError = $derived($createKeyMessage?.type === 'error' ? $createKeyMessage.text : null);
 
-  // The edit fields are $state snapshots seeded once at mount, so after a save
-  // (enhance runs update() → re-loads + resets the form) they drift from the
-  // refreshed `app`. Re-seed from the current `app` every time the form opens
-  // (and on cancel) so Edit always reflects live data — fixes the empty/stale
-  // fields on the second Edit after a save.
+  $effect(() => {
+    const submitted = submittedAppSettings(form);
+    if (submitted && (!submitted.valid || submitted.message?.type === 'error')) {
+      activeTab = 'settings';
+      editMode = true;
+    }
+  });
+
+  // Re-seed the Superform store from the current `app` every time the form
+  // opens (and on cancel) so Edit reflects live data after enhanced saves.
   function syncEditFields() {
     appSettingsForm.update(
       (current) => ({
@@ -788,7 +793,9 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                 <label for="editRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Role</label>
                 <select id="editRole" name="role" bind:value={$appSettingsForm.role}
                   class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-                  <option value="OWNER">Owner</option>
+                  {#if $appSettingsForm.role === 'OWNER'}
+                    <option value="OWNER">Owner</option>
+                  {/if}
                   <option value="READER">Reader</option>
                   <option value="CONTRIBUTOR">Contributor</option>
                   <option value="ADMIN">Admin</option>

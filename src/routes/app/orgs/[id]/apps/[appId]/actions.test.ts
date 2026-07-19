@@ -1,13 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ADD_AGENT_TO_APP_MUTATION,
+  APP_NODES_QUERY,
+  APP_QUERY,
   CREATE_APP_KEY_MUTATION,
+  ORGANIZATION_QUERY,
   UPDATE_APP_MUTATION,
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
+const mockFetchAllItems = vi.fn();
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
+}));
+vi.mock('$lib/server/paginate', () => ({
+  fetchAllItems: mockFetchAllItems,
 }));
 vi.mock('$lib/server/guards', () => ({
   requireNonConsumer: vi.fn().mockResolvedValue(undefined),
@@ -15,6 +22,7 @@ vi.mock('$lib/server/guards', () => ({
 
 beforeEach(() => {
   mockRequest.mockReset();
+  mockFetchAllItems.mockReset();
 });
 
 async function runAction(
@@ -44,6 +52,54 @@ const validSettings = {
   sessionTimeoutSeconds: '3600',
   anonymousTtlDays: '14',
 };
+
+describe('load', () => {
+  it('seeds the link-agent form with an explicit empty choice', async () => {
+    mockFetchAllItems.mockResolvedValueOnce([]);
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) {
+        return Promise.resolve({
+          app: {
+            id: 'app-1',
+            name: 'Demo App',
+            urn: 'hadronmemory.com:demo-org:demo-app',
+            appType: 'CHATBOT',
+            role: 'ADMIN',
+            description: null,
+            systemPrompt: null,
+            createUserPermission: 'DENY',
+            identifyUserMethod: 'USER_ID',
+            sessionTimeoutSeconds: 3600,
+            anonymousTtlDays: 14,
+            agentId: null,
+            agent: null,
+          },
+        });
+      }
+      if (query === ORGANIZATION_QUERY) {
+        return Promise.resolve({
+          organization: {
+            id: 'org-1',
+            urn: 'hadronmemory.com:demo-org',
+            name: 'Demo Org',
+            agents: [{ id: 'agent-1', name: 'Agent One', urn: 'agent:one' }],
+          },
+        });
+      }
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      throw new Error('Unexpected query');
+    });
+
+    const { load } = await import('./+page.server');
+    const result = (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+    } as unknown as Parameters<typeof load>[0])) as { addAgentForm: { data: { agentId: string } } };
+
+    expect(result.addAgentForm.data.agentId).toBe('');
+  });
+});
 
 describe('update action', () => {
   it('updates app settings from a validated Superform and returns a typed success', async () => {
@@ -112,6 +168,16 @@ describe('update action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects update POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('update', {
+      ...validSettings,
+      _kind: 'addAgent',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('returns a typed error when app update fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('update', validSettings)) as {
@@ -156,6 +222,26 @@ describe('addAgent action', () => {
     };
     expect(result.status).toBe(400);
     expect(result.data.form.errors.agentId?.[0]).toBe('Agent is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects addAgent POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('addAgent', {
+      _kind: 'createKey',
+      agentId: 'agent-1',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid training mode values before mutation', async () => {
+    const result = (await runAction('addAgent', {
+      agentId: 'agent-1',
+      trainingMode: 'sometimes',
+    })) as { status: number; data: { form: { errors: { trainingMode?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.trainingMode).toBeDefined();
     expect(mockRequest).not.toHaveBeenCalled();
   });
 });

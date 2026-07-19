@@ -123,7 +123,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       { errors: false },
     ),
     addAgentForm: await superValidate<AddAgentForm>(
-      { agentId: availableAgents[0]?.id ?? '' },
+      { agentId: '' },
       addAgentFormAdapter,
       { errors: false },
     ),
