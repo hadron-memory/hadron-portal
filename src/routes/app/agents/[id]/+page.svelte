@@ -220,7 +220,7 @@
   // removed with #610: the Agent-PUBLIC congruence invariant (cor:acl:080:03) is
   // now enforced server-side, so an incongruent PUBLIC state can't be reached,
   // and the warnings were confusing for the non-PUBLIC cases.
-  const visibilityLabel: Record<string, string> = { PERSONAL: 'Personal', GROUP: 'Group', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
+  const visibilityLabel: Record<string, string> = { PERSONAL: 'Personal', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
 
   // Track selected add-memory id
   let selectedAddMemoryId = $state('');
@@ -274,7 +274,6 @@
     name: string;
     urn: string;
     role: string;
-    visibility: string | null;
   }
 
   const memoryRows = $derived<AgentMemoryRow[]>(
@@ -283,7 +282,6 @@
       name: item.memory.name,
       urn: item.memory.urn,
       role: item.role,
-      visibility: item.memory.visibility,
     })),
   );
 
