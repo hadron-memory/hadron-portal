@@ -5,9 +5,26 @@
   import { page } from '$app/stores';
   import { enhance } from '$app/forms';
   import { env } from '$env/dynamic/public';
+  import { untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
+  import { githubAppCredentialsSchema, githubInstallationSchema } from './schema';
+
+  type GithubAppCredentialsForm = Infer<typeof githubAppCredentialsSchema, 'zod4'>;
+  type GithubInstallationForm = Infer<typeof githubInstallationSchema, 'zod4'>;
+  type GithubAppCredentialsSuperform = SuperValidated<
+    GithubAppCredentialsForm,
+    App.Superforms.Message,
+    GithubAppCredentialsForm
+  >;
+  type GithubInstallationSuperform = SuperValidated<
+    GithubInstallationForm,
+    App.Superforms.Message,
+    GithubInstallationForm
+  >;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
@@ -19,7 +36,20 @@
   let showSetupGuide = $state(false);
   let selectedIntegration = $state('');
   const hasGithubConfigured = $derived(!!org.githubInstallationId || isUsingCustomApp);
+
+  function actionFormKind(actionData: ActionData): string | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    const candidateData = candidate?.data;
+    return candidateData && typeof candidateData === 'object' && '_kind' in candidateData
+      ? String(candidateData._kind)
+      : null;
+  }
+
   let showGithubConfig = $state(false);
+  $effect(() => {
+    const kind = actionFormKind(form);
+    if (kind === 'updateGithubApp' || kind === 'linkGithub') showGithubConfig = true;
+  });
 
   // Exchange integration state
   let showExchangeSetup = $state(false);
@@ -32,6 +62,73 @@
 
   // Show success after callback redirect
   const justInstalled = $derived($page.url.searchParams.get('githubInstalled') === '1');
+
+  function submittedGithubApp(actionData: ActionData): GithubAppCredentialsSuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    return actionFormKind(actionData) === 'updateGithubApp'
+      ? (candidate as GithubAppCredentialsSuperform)
+      : null;
+  }
+
+  function submittedGithubInstallation(actionData: ActionData): GithubInstallationSuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    return actionFormKind(actionData) === 'linkGithub'
+      ? (candidate as GithubInstallationSuperform)
+      : null;
+  }
+
+  const submittedGithubAppForm = $derived(submittedGithubApp(form));
+  const submittedGithubInstallationForm = $derived(submittedGithubInstallation(form));
+
+  function afterGithubFormUpdate() {
+    showSetupGuide = false;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  const initialGithubAppForm = untrack(() => submittedGithubAppForm ?? data.githubAppForm);
+  const {
+    form: githubAppForm,
+    errors: githubAppErrors,
+    constraints: githubAppConstraints,
+    message: githubAppMessage,
+    submitting: githubAppSubmitting,
+    enhance: githubAppEnhance,
+  } = superForm<GithubAppCredentialsForm, App.Superforms.Message, GithubAppCredentialsForm>(initialGithubAppForm, {
+    validators: zod4Client(githubAppCredentialsSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: afterGithubFormUpdate,
+  });
+  const githubAppIdError = $derived($githubAppErrors.appId?.[0] ?? null);
+  const githubPrivateKeyError = $derived($githubAppErrors.privateKey?.[0] ?? null);
+  const githubAppActionError = $derived($githubAppMessage?.type === 'error' ? $githubAppMessage.text : null);
+  const githubAppActionSuccess = $derived($githubAppMessage?.type === 'success' ? $githubAppMessage.text : null);
+
+  const initialGithubInstallationForm = untrack(() => submittedGithubInstallationForm ?? data.githubInstallationForm);
+  const {
+    form: githubInstallationForm,
+    errors: githubInstallationErrors,
+    constraints: githubInstallationConstraints,
+    message: githubInstallationMessage,
+    submitting: githubInstallationSubmitting,
+    enhance: githubInstallationEnhance,
+  } = superForm<GithubInstallationForm, App.Superforms.Message, GithubInstallationForm>(initialGithubInstallationForm, {
+    validators: zod4Client(githubInstallationSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: afterGithubFormUpdate,
+  });
+  const githubInstallationError = $derived($githubInstallationErrors.installationId?.[0] ?? null);
+  const githubInstallationActionError = $derived(
+    $githubInstallationMessage?.type === 'error' ? $githubInstallationMessage.text : null,
+  );
+  const githubInstallationActionSuccess = $derived(
+    $githubInstallationMessage?.type === 'success' ? $githubInstallationMessage.text : null,
+  );
 
   // Scroll to top and collapse guide after successful form actions
   function scrollEnhance(formEl: HTMLFormElement) {
@@ -55,11 +152,11 @@
     {#if form?.error}
       <div class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
     {/if}
-    {#if form?.githubLinked}
-      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">GitHub App installation linked.</div>
+    {#if githubInstallationActionSuccess}
+      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{githubInstallationActionSuccess}</div>
     {/if}
-    {#if form?.githubAppSaved}
-      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">GitHub App credentials saved.</div>
+    {#if githubAppActionSuccess}
+      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{githubAppActionSuccess}</div>
     {/if}
     {#if form?.githubUnlinked}
       <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">GitHub App disconnected.</div>
@@ -380,23 +477,40 @@
             <span class="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300">Missing private key</span>
           </p>
         {/if}
-        <form method="POST" action="?/updateGithubApp" use:scrollEnhance class="max-w-lg space-y-3">
+        <form method="POST" action="?/updateGithubApp" use:githubAppEnhance class="max-w-lg space-y-3" novalidate>
+          <input type="hidden" name="_kind" value={$githubAppForm._kind} />
+          {#if githubAppActionError}
+            <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{githubAppActionError}</div>
+          {/if}
           <div>
             <label for="appId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">App ID</label>
-            <input id="appId" name="appId" type="text" required
-              value={org.githubAppId ?? ''}
+            <input id="appId" name="appId" type="text"
+              bind:value={$githubAppForm.appId}
               placeholder="e.g. 123456"
-              class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+              aria-invalid={!!githubAppIdError}
+              aria-describedby={githubAppIdError ? 'appIdError' : undefined}
+              {...$githubAppConstraints.appId}
+              class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none {githubAppIdError ? 'border-red-500 focus:border-red-500' : ''}" />
+            {#if githubAppIdError}
+              <p id="appIdError" class="mt-1 text-xs text-red-600 dark:text-red-400">{githubAppIdError}</p>
+            {/if}
           </div>
           <div>
             <label for="privateKey" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Private Key (PEM)</label>
-            <textarea id="privateKey" name="privateKey" required rows="6"
+            <textarea id="privateKey" name="privateKey" rows="6"
+              bind:value={$githubAppForm.privateKey}
               placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
-              class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-xs text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none"></textarea>
-            <p class="mt-1 text-xs text-zinc-500">Encrypted at rest. Never displayed after saving.</p>
+              aria-invalid={!!githubPrivateKeyError}
+              aria-describedby={githubPrivateKeyError ? 'privateKeyError privateKeyHint' : 'privateKeyHint'}
+              {...$githubAppConstraints.privateKey}
+              class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-xs text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none {githubPrivateKeyError ? 'border-red-500 focus:border-red-500' : ''}"></textarea>
+            <p id="privateKeyHint" class="mt-1 text-xs text-zinc-500">Encrypted at rest. Never displayed after saving.</p>
+            {#if githubPrivateKeyError}
+              <p id="privateKeyError" class="mt-1 text-xs text-red-600 dark:text-red-400">{githubPrivateKeyError}</p>
+            {/if}
           </div>
-          <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">
-            {org.githubAppId ? 'Update Credentials' : 'Save Credentials'}
+          <button type="submit" disabled={$githubAppSubmitting} class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">
+            {$githubAppSubmitting ? 'Saving...' : org.githubAppId ? 'Update Credentials' : 'Save Credentials'}
           </button>
         </form>
       </div>
@@ -407,16 +521,26 @@
         {#if org.githubInstallationId}
           <p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">Current: <code class="font-mono text-zinc-900 dark:text-zinc-200">{org.githubInstallationId}</code></p>
         {/if}
-        <form method="POST" action="?/linkGithub" use:scrollEnhance class="flex items-end gap-3 max-w-md">
+        <form method="POST" action="?/linkGithub" use:githubInstallationEnhance class="flex items-start gap-3 max-w-md" novalidate>
+          <input type="hidden" name="_kind" value={$githubInstallationForm._kind} />
           <div class="flex-1">
             <label for="installationId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Installation ID</label>
-            <input id="installationId" name="installationId" type="number" required
-              value={org.githubInstallationId ?? ''}
+            <input id="installationId" name="installationId" type="text" inputmode="numeric"
+              bind:value={$githubInstallationForm.installationId}
               placeholder="e.g. 12345678"
-              class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+              aria-invalid={!!githubInstallationError}
+              aria-describedby={githubInstallationError ? 'installationIdError' : undefined}
+              {...$githubInstallationConstraints.installationId}
+              class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none {githubInstallationError ? 'border-red-500 focus:border-red-500' : ''}" />
+            {#if githubInstallationError}
+              <p id="installationIdError" class="mt-1 text-xs text-red-600 dark:text-red-400">{githubInstallationError}</p>
+            {/if}
+            {#if githubInstallationActionError}
+              <p role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{githubInstallationActionError}</p>
+            {/if}
           </div>
-          <button type="submit" class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">
-            {org.githubInstallationId ? 'Update' : 'Save'}
+          <button type="submit" disabled={$githubInstallationSubmitting} class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">
+            {$githubInstallationSubmitting ? 'Saving...' : org.githubInstallationId ? 'Update' : 'Save'}
           </button>
         </form>
       </div>
