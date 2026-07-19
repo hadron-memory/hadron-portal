@@ -1,6 +1,6 @@
 import { fail, error } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
-import { message, superValidate } from 'sveltekit-superforms/server';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -37,11 +37,14 @@ import { createNodeErrorCode } from '$lib/i18n/create-node-strings';
 import { t } from '$lib/i18n/t';
 import type { Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { addConversationSchema } from './schema';
 
+type AddConversationForm = Infer<typeof addConversationSchema, 'zod4'>;
 type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
 type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
 type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
 
+const addConversationFormAdapter = zod4(addConversationSchema);
 const conversationEdgePanelFormAdapter = zod4(conversationEdgePanelSchema);
 const conversationGoalsFormAdapter = zod4(conversationGoalsSchema);
 const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionSchema);
@@ -110,6 +113,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // Prompts feed the stage panel's editor and the shared-partials section;
   // the canvas view-model derives everything else from systemNodes client-side.
   const prompts = systemNodes.filter((n) => n.loc.startsWith('prompts:'));
+  const addConversationForm = await superValidate<AddConversationForm>(
+    { systemMemoryId, name: '' },
+    addConversationFormAdapter,
+    { errors: false },
+  );
   const edgeInputs = conversationEdgeInputsFromNodes(systemNodes);
   const edgeDetails = buildConversationEdgeDetails(systemNodes, edgeInputs);
   const edgeForms = Object.fromEntries(
@@ -166,17 +174,20 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     ),
   );
 
-  return { agent, org, systemMemoryId, prompts, systemNodes, edgeForms, stageExtractionForms, conversationGoalForms };
+  return { agent, org, systemMemoryId, prompts, systemNodes, addConversationForm, edgeForms, stageExtractionForms, conversationGoalForms };
 };
 
 export const actions: Actions = {
-  addConversation: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const client = gqlClient(locals.token);
-    const systemMemoryId = String(fd.get('systemMemoryId') ?? '');
-    const name = String(fd.get('name') ?? '').trim();
-    if (!name) return fail(400, { error: 'Name is required' });
+  addConversation: async ({ request, locals }) => {
+    const form = await superValidate<AddConversationForm>(
+      await request.formData(),
+      addConversationFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
+    const client = gqlClient(locals.token);
+    const systemMemoryId = form.data.systemMemoryId;
+    const name = form.data.name;
     const slug = name.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').toLowerCase();
 
     try {
@@ -186,11 +197,30 @@ export const actions: Actions = {
         memoryId: systemMemoryId, loc: `conversations:${slug}`, name: slug, nodeType: 'system',
         description: name, data: { stageOrder: [] },
       }});
+      return message(form, {
+        type: 'success',
+        text: t('conversation.editor.addConversation.saved', 'Conversation added.'),
+      });
     } catch (e: unknown) {
       if (createNodeErrorCode(e) === 'NodeLocConflictError') {
-        return fail(400, { error: 'A conversation with this name already exists' });
+        return setError(
+          form,
+          'name',
+          t('conversation.editor.addConversation.duplicate', 'A conversation with this name already exists'),
+          { status: 400 },
+        );
       }
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
+      return message(
+        form,
+        {
+          type: 'error',
+          text: userFacingErrorMessage(
+            e,
+            t('conversation.editor.addConversation.failed', 'Failed to add conversation'),
+          ),
+        },
+        { status: 500 },
+      );
     }
   },
 

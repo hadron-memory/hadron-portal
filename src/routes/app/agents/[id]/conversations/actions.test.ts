@@ -24,7 +24,7 @@ beforeEach(() => {
 });
 
 async function runAction(
-  name: 'updateEdge' | 'updateExtractionSpec' | 'updateGoals' | 'addEdge' | 'savePosition',
+  name: 'addConversation' | 'updateEdge' | 'updateExtractionSpec' | 'updateGoals' | 'addEdge' | 'savePosition',
   fields: Record<string, string>,
 ) {
   const { actions } = await import('./+page.server');
@@ -47,6 +47,82 @@ async function runLoad() {
   } as unknown as Parameters<typeof load>[0];
   return load(event);
 }
+
+function gqlError(code: string) {
+  return { response: { errors: [{ extensions: { code } }] } };
+}
+
+describe('addConversation', () => {
+  it('creates a conversation from a validated name and returns a typed success', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('addConversation', {
+      systemMemoryId: 'mem-1',
+      name: 'Demo Conversation',
+    });
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { systemMemoryId: 'mem-1', name: 'Demo Conversation' },
+        message: { type: 'success', text: 'Conversation added.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0][1]).toEqual({
+      input: {
+        memoryId: 'mem-1',
+        loc: 'conversations:demo-conversation',
+        name: 'demo-conversation',
+        nodeType: 'system',
+        description: 'Demo Conversation',
+        data: { stageOrder: [] },
+      },
+    });
+  });
+
+  it('rejects missing conversation names before creating a node', async () => {
+    const result = (await runAction('addConversation', {
+      systemMemoryId: 'mem-1',
+    })) as { status: number; data: { form: { data: { name: string }; errors: { name?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.name).toBe('');
+    expect(result.data.form.errors.name?.[0]).toBe('Name is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects missing system memory ids before creating a node', async () => {
+    const result = (await runAction('addConversation', {
+      name: 'Demo Conversation',
+    })) as { status: number; data: { form: { data: { systemMemoryId: string }; errors: { systemMemoryId?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.systemMemoryId).toBe('');
+    expect(result.data.form.errors.systemMemoryId?.[0]).toBe('Missing system memory id');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('maps duplicate conversation slugs to a name field error', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('NodeLocConflictError'));
+    const result = (await runAction('addConversation', {
+      systemMemoryId: 'mem-1',
+      name: 'Demo Conversation',
+    })) as { status: number; data: { form: { data: { name: string }; errors: { name?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.data.name).toBe('Demo Conversation');
+    expect(result.data.form.errors.name?.[0]).toBe('A conversation with this name already exists');
+  });
+
+  it('returns a typed fallback error when creation fails without a message', async () => {
+    mockRequest.mockRejectedValueOnce({});
+    const result = (await runAction('addConversation', {
+      systemMemoryId: 'mem-1',
+      name: 'Demo Conversation',
+    })) as { status: number; data: { form: { data: { name: string }; message: { type: string; text: string } } } };
+    expect(result.status).toBe(500);
+    expect(result.data.form.data.name).toBe('Demo Conversation');
+    expect(result.data.form.message).toEqual({
+      type: 'error',
+      text: 'Failed to add conversation',
+    });
+  });
+});
 
 describe('updateEdge', () => {
   it('sends name, priority, condition, and data; reports the saved edge id', async () => {
@@ -403,11 +479,13 @@ describe('load', () => {
     });
 
     const result = (await runLoad()) as {
+      addConversationForm: { data: { systemMemoryId: string; name: string } };
       edgeForms: Record<string, { data: { edgeId: string; name: string; priority: string; condition: string; data: string } }>;
       conversationGoalForms: Record<string, { data: { systemMemoryId: string; convLoc: string; goalDescriptionsText: string; goalSignalsText: string } }>;
       stageExtractionForms: Record<string, { data: { systemMemoryId: string; stageLoc: string; extractionSpec: string } }>;
     };
 
+    expect(result.addConversationForm.data).toMatchObject({ systemMemoryId: 'mem-1', name: '' });
     expect(Object.keys(result.edgeForms)).toEqual(['e1', 'e2']);
     expect(result.edgeForms.e1.data).toMatchObject({
       edgeId: 'e1',

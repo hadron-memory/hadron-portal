@@ -1,7 +1,8 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { tick } from 'svelte';
-  import type { Infer, SuperValidated } from 'sveltekit-superforms';
+  import { tick, untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ConversationCanvas from '$lib/components/flow/ConversationCanvas.svelte';
   import ConversationEdgePanel from '$lib/components/flow/ConversationEdgePanel.svelte';
@@ -20,10 +21,15 @@
   import { conversationStageExtractionSchema } from '$lib/flow/conversation-stage-extraction-form';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
+  import { addConversationSchema } from './schema';
 
+  type AddConversationForm = Infer<typeof addConversationSchema, 'zod4'>;
   type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
   type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
   type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
+  type AddConversationActionResult = {
+    form?: SuperValidated<AddConversationForm, App.Superforms.Message, AddConversationForm>;
+  } | null;
   type UpdateEdgeActionResult = {
     form?: SuperValidated<ConversationEdgePanelForm, App.Superforms.Message, ConversationEdgePanelForm>;
   } | null;
@@ -241,7 +247,43 @@
   // edgeId != null guard keeps edgeId-less results (addEdge failures,
   // missing-edge-id 400s) out of the panel.
   const formIsLive = $derived(form != null && form !== acknowledgedForm);
-  const updateForm = $derived((form as UpdateEdgeActionResult)?.form ?? null);
+  const addConversationActionForm = $derived.by(() => {
+    const actionForm = (form as AddConversationActionResult)?.form ?? null;
+    if (!formIsLive || !actionForm) return null;
+    return 'systemMemoryId' in actionForm.data && 'name' in actionForm.data && !('edgeId' in actionForm.data)
+      ? actionForm
+      : null;
+  });
+  const initialAddConversationForm = untrack(() => addConversationActionForm ?? data.addConversationForm);
+  const {
+    form: addConversationData,
+    errors: addConversationErrors,
+    message: addConversationMessage,
+    enhance: addConversationEnhance,
+    submitting: addConversationSubmitting,
+  } = superForm<AddConversationForm, App.Superforms.Message, AddConversationForm>(
+    initialAddConversationForm,
+    {
+      validators: zod4Client(addConversationSchema),
+      validationMethod: 'oninput',
+      scrollToError: 'smooth',
+      autoFocusOnError: 'detect',
+      clearOnSubmit: 'none',
+      resetForm: true,
+    },
+  );
+  const addConversationError = $derived(
+    $addConversationMessage?.type === 'error'
+      ? $addConversationMessage.text
+      : ($addConversationErrors.systemMemoryId?.[0] ?? null),
+  );
+  const addConversationSaved = $derived(
+    $addConversationMessage?.type === 'success' ? $addConversationMessage.text : null,
+  );
+  const updateForm = $derived.by(() => {
+    const actionForm = (form as UpdateEdgeActionResult)?.form ?? null;
+    return actionForm && 'edgeId' in actionForm.data ? actionForm : null;
+  });
   const edgePanelSaved = $derived.by(() => {
     if (!formIsLive || !updateForm) return false;
     return updateForm.message?.type === 'success' && updateForm.data?.edgeId === selectedEdge?.id;
@@ -258,7 +300,10 @@
       ? updateForm
       : data.edgeForms[selectedEdge.id];
   });
-  const extractionForm = $derived((form as UpdateExtractionSpecActionResult)?.form ?? null);
+  const extractionForm = $derived.by(() => {
+    const actionForm = (form as UpdateExtractionSpecActionResult)?.form ?? null;
+    return actionForm && 'stageLoc' in actionForm.data ? actionForm : null;
+  });
   const stageExtractionSaved = $derived.by(() => {
     if (!formIsLive || !extractionForm) return null;
     return extractionForm.message?.type === 'success' && extractionForm.data?.stageLoc === selectedStage?.loc
@@ -279,7 +324,10 @@
       ? extractionForm
       : data.stageExtractionForms[selectedStage.id];
   });
-  const goalsForm = $derived((form as UpdateGoalsActionResult)?.form ?? null);
+  const goalsForm = $derived.by(() => {
+    const actionForm = (form as UpdateGoalsActionResult)?.form ?? null;
+    return actionForm && 'convLoc' in actionForm.data ? actionForm : null;
+  });
   const conversationGoalsSaved = $derived.by(() => {
     if (!formIsLive || !goalsForm) return null;
     return goalsForm.message?.type === 'success' && goalsForm.data?.convLoc === selectedConversation?.loc
@@ -349,9 +397,6 @@
     }).catch((err) => console.warn('[conversation-canvas] position save failed:', err));
   }
 
-  // ── Add conversation ──
-  let newConversationName = $state('');
-
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
   const partials = $derived(data.prompts.filter((p) => p.loc.startsWith('prompts:partials:')));
@@ -399,19 +444,38 @@
     <div class="flex-1"></div>
 
     <!-- Add conversation -->
-    <form method="POST" action="?/addConversation" use:enhance={() => {
-      return async ({ update }) => { newConversationName = ''; await update(); };
-    }} class="flex items-center gap-1">
-      <input type="hidden" name="systemMemoryId" value={data.systemMemoryId} />
-      <input type="text" name="name" bind:value={newConversationName}
-        placeholder={t('conversation.editor.addConversation.placeholder', 'New conversation…')}
-        aria-label={t('conversation.editor.addConversation.placeholder', 'New conversation…')}
-        class="w-44 rounded border border-zinc-300 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-white" />
-      <button type="submit" disabled={!newConversationName.trim()}
-        class="rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50" style="background: #219ebc;">
-        {t('conversation.editor.addConversation', '+ Conversation')}
-      </button>
-    </form>
+    <div class="flex flex-col items-start gap-1">
+      <form method="POST" action="?/addConversation" use:addConversationEnhance class="flex items-center gap-1" novalidate>
+        <input type="hidden" name="systemMemoryId" bind:value={$addConversationData.systemMemoryId} />
+        <input
+          type="text"
+          name="name"
+          bind:value={$addConversationData.name}
+          placeholder={t('conversation.editor.addConversation.placeholder', 'New conversation…')}
+          aria-label={t('conversation.editor.addConversation.placeholder', 'New conversation…')}
+          aria-invalid={$addConversationErrors.name?.[0] ? 'true' : undefined}
+          aria-describedby={$addConversationErrors.name?.[0] ? 'add-conversation-name-error' : undefined}
+          class="w-44 rounded border border-zinc-300 px-2 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+        />
+        <button
+          type="submit"
+          disabled={!$addConversationData.name.trim() || $addConversationSubmitting}
+          class="rounded-md px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          style="background: #219ebc;"
+        >
+          {$addConversationSubmitting
+            ? t('conversation.editor.addConversation.saving', 'Adding...')
+            : t('conversation.editor.addConversation', '+ Conversation')}
+        </button>
+      </form>
+      {#if $addConversationErrors.name?.[0]}
+        <span id="add-conversation-name-error" class="text-xs text-red-600 dark:text-red-400">{$addConversationErrors.name[0]}</span>
+      {:else if addConversationError}
+        <span role="alert" class="text-xs text-red-600 dark:text-red-400">{addConversationError}</span>
+      {:else if addConversationSaved}
+        <span role="status" class="text-xs text-green-600 dark:text-green-400">{addConversationSaved}</span>
+      {/if}
+    </div>
 
     <button type="button" onclick={saveRevision} disabled={revisionsBusy || !!lockBlockedBy}
       class="rounded-md bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-200 disabled:opacity-50 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
