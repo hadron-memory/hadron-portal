@@ -78,6 +78,14 @@ describe('edit-node load — #237 PK-mismatch guard', () => {
     // void half is the redirect path. Happy path here returns data.
     expect(result).toBeDefined();
     expect((result as { node: { id: string } }).node.id).toBe('leaf-pk');
+    expect((result as { form: { data: Record<string, unknown>; errors: Record<string, string[]> } }).form.data).toMatchObject({
+      name: 'foo',
+      loc: 'foo',
+      seq: null,
+      tags: '',
+      isRunnable: false,
+    });
+    expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
   });
 });
 
@@ -108,7 +116,48 @@ function actionEvent(opts: {
   } as unknown as Parameters<Actions[keyof Actions]>[0];
 }
 
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { data?: Record<string, unknown>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { data?: Record<string, unknown>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { data?: Record<string, unknown>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
+}
+
+function fieldError(result: unknown, field: string): string | undefined {
+  return superFormFrom(result)?.errors?.[field]?.[0];
+}
+
 describe('edit-node default action — derives memoryId from fetched node (#237)', () => {
+  it('rejects an empty name before loading the node', async () => {
+    const actions = await importActions();
+
+    const result = await actions.default(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk',
+      form: { name: '', loc: 'node' },
+    }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'name')).toBe('Name is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects an omitted name before loading the node', async () => {
+    const actions = await importActions();
+
+    const result = await actions.default(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk',
+      form: { loc: 'node' },
+    }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'name')).toBe('Name is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it("update input.memoryId is the node's actual memoryId, not params.gid", async () => {
     // Stale URL says mem-A; the node lives in mem-B. The update must
     // commit into mem-B so the user's edit lands on the right row.
@@ -194,8 +243,57 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     const actions = await importActions();
     const result = (await actions.default(actionEvent({
       gid: 'mem-A', nodeId: 'pk', form: { name: 'a', loc: 'new-loc' },
-    }))) as { status: number; data: { error: string } };
+    }))) as { status: number };
     expect(result.status).toBe(409);
-    expect(result.data.error).toMatch(/already occupies/);
+    expect(fieldError(result, 'loc')).toMatch(/already occupies/);
+  });
+
+  it('normalizes invalid numeric seq to null, preserving the legacy action behavior', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: 'old',
+        tokens: null, tags: ['x'], seq: 3, data: null, ownerRepo: null,
+        isRunnable: true, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
+
+    const actions = await importActions();
+    try {
+      await actions.default(actionEvent({
+        gid: 'mem-A',
+        nodeId: 'pk',
+        form: { name: 'new', loc: 'a', seq: 'not-a-number' },
+      }));
+    } catch { /* redirect at end */ }
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { seq: unknown; isRunnable: unknown } }];
+    expect(vars.input.seq).toBeNull();
+    expect(vars.input.isRunnable).toBe(false);
+  });
+
+  it('returns update failures as typed Superforms messages', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: 'old',
+        tokens: null, tags: ['x'], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockRejectedValueOnce(new Error('save exploded'));
+
+    const actions = await importActions();
+    const result = await actions.default(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk',
+      form: { name: 'new', loc: 'a' },
+    }));
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'save exploded' });
   });
 });
