@@ -1,8 +1,40 @@
 import { z } from 'zod';
 
+import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
+
 export const addConversationSchema = z.object({
   systemMemoryId: z.string().trim().min(1, 'Missing system memory id').prefault(''),
   name: z.string().trim().min(1, 'Name is required').prefault(''),
 });
 
 export type AddConversationSchema = typeof addConversationSchema;
+
+export const addEdgeSchema = z.object({
+  sourceNodeId: z.string().trim().min(1, 'Source is required').prefault(''),
+  targetNodeId: z.string().trim().min(1, 'Target is required').prefault(''),
+  name: z.string().default(''),
+  condition: z.string().default('null'),
+  priority: z.string().prefault('0'),
+  data: z.string().default('{}'),
+}).superRefine((data, ctx) => {
+  const condition = parseConditionField(data.condition);
+  if (!condition.ok) {
+    ctx.addIssue({ code: 'custom', path: ['condition'], message: condition.error });
+  }
+
+  const priority = parsePriorityField(data.priority);
+  if (!priority.ok) {
+    ctx.addIssue({ code: 'custom', path: ['priority'], message: priority.error });
+  }
+
+  try {
+    const parsedData = JSON.parse(data.data);
+    if (!parsedData || typeof parsedData !== 'object' || Array.isArray(parsedData)) {
+      ctx.addIssue({ code: 'custom', path: ['data'], message: 'Edge data must be a JSON object' });
+    }
+  } catch {
+    ctx.addIssue({ code: 'custom', path: ['data'], message: 'Invalid JSON in edge data' });
+  }
+});
+
+export type AddEdgeSchema = typeof addEdgeSchema;

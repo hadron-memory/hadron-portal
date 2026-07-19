@@ -1,0 +1,23 @@
+import { z } from 'zod';
+
+import { isConversationLoc } from './conversation-canvas';
+
+export const addStageSchema = z.object({
+  systemMemoryId: z.string().trim().min(1, 'Missing system memory id').prefault(''),
+  conversationLoc: z.string()
+    .trim()
+    .min(1, 'Missing conversation loc')
+    .refine((loc) => isConversationLoc(loc), 'Invalid conversation loc')
+    .prefault(''),
+  stageName: z.string().trim().min(1, 'Stage name is required').prefault(''),
+});
+
+export type AddStageSchema = typeof addStageSchema;
+
+export function addStageDefaults(conversation: { loc: string }, systemMemoryId: string) {
+  return {
+    systemMemoryId,
+    conversationLoc: conversation.loc,
+    stageName: '',
+  };
+}

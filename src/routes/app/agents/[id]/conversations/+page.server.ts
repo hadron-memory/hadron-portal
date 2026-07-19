@@ -14,6 +14,7 @@ import {
   isConversationLoc,
   isStageLoc,
 } from '$lib/flow/conversation-canvas';
+import { addStageDefaults, addStageSchema } from '$lib/flow/conversation-add-stage-form';
 import {
   conversationEdgePanelDefaults,
   conversationEdgePanelSchema,
@@ -37,14 +38,18 @@ import { createNodeErrorCode } from '$lib/i18n/create-node-strings';
 import { t } from '$lib/i18n/t';
 import type { Organization, MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { addConversationSchema } from './schema';
+import { addConversationSchema, addEdgeSchema } from './schema';
 
 type AddConversationForm = Infer<typeof addConversationSchema, 'zod4'>;
+type AddEdgeForm = Infer<typeof addEdgeSchema, 'zod4'>;
+type AddStageForm = Infer<typeof addStageSchema, 'zod4'>;
 type ConversationEdgePanelForm = Infer<typeof conversationEdgePanelSchema, 'zod4'>;
 type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
 type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
 
 const addConversationFormAdapter = zod4(addConversationSchema);
+const addEdgeFormAdapter = zod4(addEdgeSchema);
+const addStageFormAdapter = zod4(addStageSchema);
 const conversationEdgePanelFormAdapter = zod4(conversationEdgePanelSchema);
 const conversationGoalsFormAdapter = zod4(conversationGoalsSchema);
 const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionSchema);
@@ -118,6 +123,20 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     addConversationFormAdapter,
     { errors: false },
   );
+  const addStageForms = Object.fromEntries(
+    await Promise.all(
+      systemNodes
+        .filter((n) => isConversationLoc(n.loc))
+        .map(async (conversation) => [
+          conversation.id,
+          await superValidate<AddStageForm>(
+            addStageDefaults({ loc: conversation.loc }, systemMemoryId),
+            addStageFormAdapter,
+            { errors: false },
+          ),
+        ]),
+    ),
+  );
   const edgeInputs = conversationEdgeInputsFromNodes(systemNodes);
   const edgeDetails = buildConversationEdgeDetails(systemNodes, edgeInputs);
   const edgeForms = Object.fromEntries(
@@ -174,7 +193,18 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     ),
   );
 
-  return { agent, org, systemMemoryId, prompts, systemNodes, addConversationForm, edgeForms, stageExtractionForms, conversationGoalForms };
+  return {
+    agent,
+    org,
+    systemMemoryId,
+    prompts,
+    systemNodes,
+    addConversationForm,
+    addStageForms,
+    edgeForms,
+    stageExtractionForms,
+    conversationGoalForms,
+  };
 };
 
 export const actions: Actions = {
@@ -225,12 +255,16 @@ export const actions: Actions = {
   },
 
   addStage: async ({ request, locals }) => {
-    const fd = await request.formData();
+    const form = await superValidate<AddStageForm>(
+      await request.formData(),
+      addStageFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     const client = gqlClient(locals.token);
-    const systemMemoryId = String(fd.get('systemMemoryId') ?? '');
-    const conversationLoc = String(fd.get('conversationLoc') ?? '');
-    const stageName = String(fd.get('stageName') ?? '').trim();
-    if (!stageName) return fail(400, { error: 'Stage name is required' });
+    const systemMemoryId = form.data.systemMemoryId;
+    const conversationLoc = form.data.conversationLoc;
+    const stageName = form.data.stageName;
 
     const slug = stageName.replace(/[^a-zA-Z0-9]/g, '-').replace(/-+/g, '-').toLowerCase();
 
@@ -246,7 +280,12 @@ export const actions: Actions = {
         }});
       } catch (e: unknown) {
         if (createNodeErrorCode(e) === 'NodeLocConflictError') {
-          return fail(400, { error: 'A stage with this name already exists in this conversation' });
+          return setError(
+            form,
+            'stageName',
+            t('conversation.infoPanel.addStage.duplicate', 'A stage with this name already exists in this conversation'),
+            { status: 400 },
+          );
         }
         throw e;
       }
@@ -278,8 +317,22 @@ export const actions: Actions = {
       await client.request(UPDATE, { input: {
         memoryId: systemMemoryId, loc: conversationLoc, data: { ...convData, stageOrder },
       }});
+      return message(form, {
+        type: 'success',
+        text: t('conversation.infoPanel.addStage.saved', 'Stage added.'),
+      });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed' });
+      return message(
+        form,
+        {
+          type: 'error',
+          text: userFacingErrorMessage(
+            e,
+            t('conversation.infoPanel.addStage.failed', 'Failed to add stage'),
+          ),
+        },
+        { status: 500 },
+      );
     }
   },
 
@@ -395,35 +448,47 @@ export const actions: Actions = {
   },
 
   addEdge: async ({ request, locals }) => {
-    const fd = await request.formData();
+    const form = await superValidate<AddEdgeForm>(
+      await request.formData(),
+      addEdgeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     const client = gqlClient(locals.token);
-    const sourceNodeId = String(fd.get('sourceNodeId') ?? '');
-    const targetNodeId = String(fd.get('targetNodeId') ?? '');
-    const name = String(fd.get('name') ?? '');
-    const dataJson = String(fd.get('data') ?? '{}');
-
-    if (!sourceNodeId || !targetNodeId) return fail(400, { error: 'Source and target are required' });
-
-    let data: Record<string, unknown>;
-    try { data = JSON.parse(dataJson); } catch { return fail(400, { error: 'Invalid JSON in edge data' }); }
-    const condition = parseConditionField(fd.get('condition'));
-    if (!condition.ok) return fail(400, { error: condition.error });
-    const priority = parsePriorityField(fd.get('priority'));
-    if (!priority.ok) return fail(400, { error: priority.error });
+    const condition = parseConditionField(form.data.condition);
+    const priority = parsePriorityField(form.data.priority);
+    const data = JSON.parse(form.data.data) as Record<string, unknown>;
 
     try {
       const res = await client.request<{ createEdge: { id: string } }>(CREATE_EDGE_MUTATION, {
-        sourceNodeId,
-        targetNodeId,
-        name: name || 'edge',
-        condition: condition.value,
-        priority: priority.value,
+        sourceNodeId: form.data.sourceNodeId,
+        targetNodeId: form.data.targetNodeId,
+        name: form.data.name || 'edge',
+        condition: condition.ok ? condition.value : null,
+        priority: priority.ok ? priority.value : 0,
         data,
       });
       // The canvas selects the fresh edge so its rule can be refined.
-      return { created: true, edgeId: res.createEdge.id };
+      return {
+        created: true,
+        edgeId: res.createEdge.id,
+        ...message(form, {
+          type: 'success',
+          text: t('conversation.edge.added', 'Rule added.'),
+        }),
+      };
     } catch (e: unknown) {
-      return fail(400, { error: userFacingErrorMessage(e, 'Failed to create edge') });
+      return message(
+        form,
+        {
+          type: 'error',
+          text: userFacingErrorMessage(
+            e,
+            t('conversation.edge.addFailed', 'Failed to create edge'),
+          ),
+        },
+        { status: 500 },
+      );
     }
   },
 
