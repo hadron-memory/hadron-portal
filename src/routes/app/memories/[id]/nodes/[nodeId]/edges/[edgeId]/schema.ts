@@ -42,6 +42,9 @@ const dataField = z.string().default('').superRefine((value, ctx) => {
 });
 
 export const edgeUpdateSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('updateEdge').default('updateEdge'),
   name: z.string().trim().default(''),
   description: z.string().trim().default(''),
   isRunnable: z.preprocess((value) => value === true || value === 'true' || value === 'on', z.boolean()).default(false),
@@ -50,4 +53,11 @@ export const edgeUpdateSchema = z.object({
   data: dataField,
 });
 
+export const edgeDeleteSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('deleteEdge').default('deleteEdge'),
+});
+
 export type EdgeUpdateSchema = typeof edgeUpdateSchema;
+export type EdgeDeleteSchema = typeof edgeDeleteSchema;

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import type { Actions } from './$types';
 
 const mockRequest = vi.fn();
@@ -129,6 +130,21 @@ describe('edge detail update action Superforms validation', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects a tampered form discriminator before calling the API', async () => {
+    const actions = await importActions();
+    const result = await actions.update(actionEvent({
+      _kind: 'deleteEdge',
+      name: 'edge',
+      priority: '0',
+      condition: 'null',
+      data: '',
+    }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeTruthy();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('defaults omitted priority to 0 and unchecked runnable to false', async () => {
     mockRequest.mockResolvedValueOnce({ updateEdge: { id: 'edge-pk' } });
 
@@ -162,5 +178,44 @@ describe('edge detail update action Superforms validation', () => {
 
     expect(result).toMatchObject({ status: 500 });
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'edge save exploded' });
+  });
+});
+
+describe('edge detail delete action Superforms validation', () => {
+  it('deletes the edge and redirects to the source node', async () => {
+    mockRequest.mockResolvedValueOnce({ deleteEdge: true });
+
+    const actions = await importActions();
+    let result: unknown;
+    try {
+      result = await actions.delete(actionEvent({ _kind: 'deleteEdge' }));
+    } catch (e: unknown) {
+      result = e;
+    }
+
+    expect(mockRequest).toHaveBeenCalledWith(DELETE_EDGE_MUTATION, { edgeId: 'edge-pk' });
+    expect(result).toMatchObject({
+      status: 303,
+      location: '/app/memories/mem-A/nodes/source-pk',
+    });
+  });
+
+  it('rejects a tampered form discriminator before calling the API', async () => {
+    const actions = await importActions();
+    const result = await actions.delete(actionEvent({ _kind: 'updateEdge' }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeTruthy();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns delete failures as typed Superforms messages', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('edge delete exploded'));
+
+    const actions = await importActions();
+    const result = await actions.delete(actionEvent({ _kind: 'deleteEdge' }));
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'edge delete exploded' });
   });
 });
