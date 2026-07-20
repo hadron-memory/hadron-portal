@@ -3,9 +3,9 @@ import { render } from 'svelte/server';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 
-// The page imports $app/forms (enhance); portal vitest skips the SvelteKit
-// plugin, so the virtual must be mocked (conventions:vitest-mocks-sveltekit-
-// virtuals). enhance is a use: action — inert during SSR.
+// The page uses Superforms; portal vitest skips the SvelteKit plugin, so the
+// SvelteKit virtual modules Superforms imports must be mocked. enhance is a
+// use: action — inert during SSR.
 vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: '' }));
 vi.mock('$app/navigation', () => ({

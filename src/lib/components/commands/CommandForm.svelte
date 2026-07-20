@@ -9,7 +9,6 @@
   // (string | string[] | boolean) that a single `bind:` can't satisfy.
   import type { Action } from 'svelte/action';
   import { untrack } from 'svelte';
-  import { enhance } from '$app/forms';
   import { t } from '$lib/i18n/t';
   import { missingRequired, defaultValue, type CommandField, type CommandFieldValue } from './command-field';
 
@@ -19,7 +18,7 @@
     action = '?/run',
     submitLabel = t('commands.form.run', 'Run'),
     busy = $bindable(false),
-    enhanceAction = null,
+    enhanceAction,
     errors = {},
     onValueChange = () => {},
   }: {
@@ -28,7 +27,8 @@
     action?: string;
     submitLabel?: string;
     busy?: boolean;
-    enhanceAction?: Action<HTMLFormElement> | null;
+    /** Superforms enhance action returned by the caller's `superForm(...)`. */
+    enhanceAction: Action<HTMLFormElement>;
     errors?: Record<string, unknown>;
     onValueChange?: (values: Record<string, CommandFieldValue>) => void;
   } = $props();
@@ -59,23 +59,6 @@
     setValue(name, checked ? [...current, option] : current.filter((o) => o !== option));
   }
 
-  function fallbackEnhance(node: HTMLFormElement) {
-    return enhance(node, () => {
-      busy = true;
-      // Keep the typed values on screen while the result renders (don't reset).
-      // try/finally so a thrown update() (network error, abort) still clears busy
-      // — otherwise the submit button would stay disabled forever.
-      return async ({ update }) => {
-        try {
-          await update({ reset: false });
-        } finally {
-          busy = false;
-        }
-      };
-    });
-  }
-
-  const formEnhance = $derived(enhanceAction ?? fallbackEnhance);
   const errorFor = (name: string): string | null => {
     const fieldErrors = errors[name];
     if (Array.isArray(fieldErrors)) return fieldErrors[0] ?? null;
@@ -103,7 +86,7 @@
 <form
   method="POST"
   {action}
-  use:formEnhance
+  use:enhanceAction
   class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900"
   novalidate
 >
