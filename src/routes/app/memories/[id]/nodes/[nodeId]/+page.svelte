@@ -38,6 +38,7 @@
   import type { NodeEdge, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import {
+    isFullyQualifiedNodeUrnInput,
     nodeDeleteSchema,
     nodeMoveSchema,
     nodeTestFlowSchema,
@@ -365,7 +366,7 @@
     );
   });
   const outputWriteToValid = $derived(
-    outputWriteTo.trim() === '' || outputWriteTo.includes('::'),
+    outputWriteTo.trim() === '' || isFullyQualifiedNodeUrnInput(outputWriteTo),
   );
   const hasFlowConfig = $derived(
     rowsFromNodeData(node.data).length > 0 || outputFromNodeData(node.data) !== null,
@@ -394,9 +395,15 @@
   });
 
   $effect(() => {
-    $flowFormData.extractionRows = flowRowsJson;
-    $flowFormData.outputWriteTo = outputWriteTo.trim();
-    $flowFormData.outputMode = outputMode;
+    const rowsJson = flowRowsJson;
+    const writeToTrim = outputWriteTo.trim();
+    const mode = outputMode;
+    flowFormData.update((current) => ({
+      ...current,
+      extractionRows: rowsJson,
+      outputWriteTo: writeToTrim,
+      outputMode: mode,
+    }), { taint: false });
   });
 
   // ── Test flow (#478 phase 3) ─────────────────────────────────────────
@@ -829,7 +836,11 @@
   });
 
   $effect(() => {
-    $edgesFormData.edges = editableEdgesJson;
+    const edgesJson = editableEdgesJson;
+    edgesFormData.update((current) => ({
+      ...current,
+      edges: edgesJson,
+    }), { taint: false });
   });
 
   const edgesActionError = $derived(scopedActionError<NodeUpdateEdgesForm>(
@@ -1783,10 +1794,10 @@
         </a>
 
         {#if flowActionError}
-          <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{flowActionError}</div>
+          <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{flowActionError}</div>
         {/if}
         {#if flowActionSuccess}
-          <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+          <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
             {flowActionSuccess}
           </div>
         {/if}
@@ -2013,10 +2024,10 @@
         {/if}
       </div>
       {#if edgesActionError}
-        <div class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{edgesActionError}</div>
+        <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{edgesActionError}</div>
       {/if}
       {#if edgesActionSuccess && !editingEdges}
-        <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{edgesActionSuccess}</div>
+        <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{edgesActionSuccess}</div>
       {/if}
 
       {#if !editingEdges}

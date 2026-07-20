@@ -106,14 +106,17 @@ describe('updateFlow', () => {
   });
 
   it('rejects a non-URN output target', async () => {
-    const result = (await runUpdateFlow({
-      extractionRows: '[]',
-      outputWriteTo: 'not-a-urn',
-      outputMode: 'replace',
-    }));
-    expect((result as { status: number }).status).toBe(400);
-    expect(superFormFrom(result)?.errors?.outputWriteTo?.[0]).toMatch(/fully-qualified/);
-    expect(mockRequest).not.toHaveBeenCalled();
+    for (const outputWriteTo of ['not-a-urn', '::foo', 'a::', '::::::']) {
+      mockRequest.mockReset();
+      const result = (await runUpdateFlow({
+        extractionRows: '[]',
+        outputWriteTo,
+        outputMode: 'replace',
+      }));
+      expect((result as { status: number }).status).toBe(400);
+      expect(superFormFrom(result)?.errors?.outputWriteTo?.[0]).toMatch(/fully-qualified/);
+      expect(mockRequest).not.toHaveBeenCalled();
+    }
   });
 
   it('rejects tampered action discriminators before any mutation', async () => {
@@ -126,5 +129,32 @@ describe('updateFlow', () => {
     expect((result as { status: number }).status).toBe(400);
     expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed 404 message when the node is missing', async () => {
+    mockRequest.mockResolvedValueOnce({ node: null });
+
+    const result = await runUpdateFlow({
+      extractionRows: '[]',
+      outputWriteTo: '',
+      outputMode: 'replace',
+    });
+
+    expect((result as { status: number }).status).toBe(404);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Node not found' });
+  });
+
+  it('returns update failures as typed Superforms messages', async () => {
+    mockRequest.mockResolvedValueOnce(nodeFixture({ other: true }));
+    mockRequest.mockRejectedValueOnce(new Error('flow save exploded'));
+
+    const result = await runUpdateFlow({
+      extractionRows: '[]',
+      outputWriteTo: '',
+      outputMode: 'replace',
+    });
+
+    expect((result as { status: number }).status).toBe(500);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'flow save exploded' });
   });
 });

@@ -9,6 +9,12 @@ import {
 
 type ParsedEdges = Array<{ targetId: string; name?: string | null }>;
 
+export function isFullyQualifiedNodeUrnInput(value: string): boolean {
+  const bare = value.trim().replace(/^(?:hrn|urn):node:/, '');
+  const parts = bare.split('::');
+  return parts.length >= 3 && parts.every((part) => part.trim() !== '');
+}
+
 function normalizedFlowRows(value: string): { ok: true; rows: ExtractionRow[] } | { ok: false; message: string } {
   let parsed: unknown;
   try {
@@ -118,7 +124,7 @@ export const nodeUpdateFlowSchema = z.object({
     if (!parsed.ok) ctx.addIssue({ code: 'custom', message: parsed.message });
   }),
   outputWriteTo: z.string().trim().default('').superRefine((value, ctx) => {
-    if (value !== '' && !value.includes('::')) {
+    if (value !== '' && !isFullyQualifiedNodeUrnInput(value)) {
       ctx.addIssue({
         code: 'custom',
         message: 'Output target must be a fully-qualified node URN (org::memory::loc).',
