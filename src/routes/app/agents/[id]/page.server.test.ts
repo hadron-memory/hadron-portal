@@ -13,6 +13,8 @@ import {
   ORG_SYSTEM_MEMORIES_QUERY,
   GRAPH_NODES_QUERY,
   AGENT_APPS_QUERY,
+  REMOVE_MEMORY_FROM_AGENT_MUTATION,
+  UPDATE_AGENT_MEMORY_ROLE_MUTATION,
 } from '$lib/server/queries';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
@@ -37,6 +39,10 @@ async function importLoad() {
   return mod.load;
 }
 
+async function importMod() {
+  return import('./+page.server');
+}
+
 function ev(opts: { agentId?: string; token?: string | null } = {}) {
   const url = new URL('http://test/app/agents/' + (opts.agentId ?? 'agent-id-123'));
   return {
@@ -45,6 +51,38 @@ function ev(opts: { agentId?: string; token?: string | null } = {}) {
     parent: async () => ({}),
     url,
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+}
+
+function actionEv(fields: Record<string, string>, opts: { agentId?: string; token?: string | null } = {}) {
+  const fd = new FormData();
+  for (const [key, value] of Object.entries(fields)) fd.set(key, value);
+  return {
+    params: { id: opts.agentId ?? 'agent-id-123' },
+    locals: { token: opts.token === undefined ? 'test-token' : opts.token },
+    request: { formData: async () => fd },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['actions']['updateMemoryRole']>[0];
+}
+
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { data?: Record<string, string>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { data?: Record<string, string>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
+}
+
+function fieldError(result: unknown, field: string): string | undefined {
+  return superFormFrom(result)?.errors?.[field]?.[0];
+}
+
+async function runUpdateMemoryRole(fields: Record<string, string>) {
+  const { actions } = await importMod();
+  return actions.updateMemoryRole(actionEv(fields));
+}
+
+async function runRemoveMemory(fields: Record<string, string>) {
+  const { actions } = await importMod();
+  return actions.removeMemory(actionEv(fields));
 }
 
 /**
@@ -258,5 +296,82 @@ describe('/app/agents/[id] loader', () => {
     };
     expect(result.agent.id).toBe('agent-bbb');
     expect(result.org.id).toBe('org-b');
+  });
+});
+
+describe('/app/agents/[id] memory actions', () => {
+  it('updates an attached memory role with trimmed Superforms data', async () => {
+    mockRequest.mockResolvedValueOnce({ updateAgentMemoryRole: true });
+
+    const result = await runUpdateMemoryRole({ memoryId: ' memory-1 ', role: 'read-write' });
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Memory role updated.' });
+    expect(mockRequest).toHaveBeenCalledWith(UPDATE_AGENT_MEMORY_ROLE_MUTATION, {
+      agentId: 'agent-id-123',
+      memoryId: 'memory-1',
+      role: 'read-write',
+    });
+  });
+
+  it('rejects memory role updates with the wrong action discriminator', async () => {
+    const result = await runUpdateMemoryRole({ _kind: 'removeMemory', memoryId: 'memory-1', role: 'read' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects memory role updates with an omitted memory before calling the API', async () => {
+    const result = await runUpdateMemoryRole({ role: 'read' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'memoryId')).toBe('Select a memory.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns memory role update GraphQL failures as Superforms messages', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('role update failed'));
+
+    const result = await runUpdateMemoryRole({ memoryId: 'memory-1', role: 'read' });
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'role update failed' });
+  });
+
+  it('removes an attached memory with typed Superforms feedback', async () => {
+    mockRequest.mockResolvedValueOnce({ removeMemoryFromAgent: true });
+
+    const result = await runRemoveMemory({ memoryId: ' memory-1 ' });
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Memory removed.' });
+    expect(mockRequest).toHaveBeenCalledWith(REMOVE_MEMORY_FROM_AGENT_MUTATION, {
+      agentId: 'agent-id-123',
+      memoryId: 'memory-1',
+    });
+  });
+
+  it('rejects remove-memory payloads with the wrong action discriminator', async () => {
+    const result = await runRemoveMemory({ _kind: 'updateMemoryRole', memoryId: 'memory-1' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects remove-memory payloads with an omitted memory before calling the API', async () => {
+    const result = await runRemoveMemory({});
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'memoryId')).toBe('Select a memory.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns remove-memory GraphQL failures as Superforms messages', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('remove failed'));
+
+    const result = await runRemoveMemory({ memoryId: 'memory-1' });
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'remove failed' });
   });
 });
