@@ -1,4 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { message, superValidate } from 'sveltekit-superforms';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
@@ -7,6 +9,7 @@ import { flowRoots, type FlowGraphNode } from '$lib/flow/flows';
 import { RUN_STATUSES, type AppRun, type AppRunStatus } from '$lib/flow/runs';
 import type { App } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { runAppFlowSchema } from './schema';
 
 // The runs audit list (#478 phase 3): what ran, why, what it cost, and the
 // entry into the detail/kill-switch page. Server-paginated — a busy app's
@@ -45,6 +48,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   ]);
   if (!appData.app) throw error(404, 'App not found');
 
+  const runForm = await superValidate(zod4(runAppFlowSchema));
+
   return {
     app: appData.app,
     runs: runsData.appRuns.items,
@@ -53,6 +58,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     pageSize: PAGE_SIZE,
     status,
     flows: flowRoots(nodesData.appNodes),
+    runForm,
   };
 };
 
@@ -61,20 +67,19 @@ export const actions: Actions = {
   // runTask(urn, appRef:) — same backend as the node page's "Test flow",
   // without the payload escape hatch (that lives on the node page).
   run: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const entryUrn = String(fd.get('entryUrn') ?? '').trim();
-    if (!entryUrn) return fail(400, { runError: 'Missing flow entry node.' });
+    const form = await superValidate(await request.formData(), zod4(runAppFlowSchema));
+    if (!form.valid) return fail(400, { form });
 
     let runId: string;
     try {
       const res = await gqlClient(locals.token).request<{ runTask: string }>(RUN_TASK_APP_MUTATION, {
-        urn: entryUrn,
+        urn: form.data.entryUrn,
         appRef: params.appId,
         runAsSelf: false,
       });
       runId = res.runTask;
     } catch (e: unknown) {
-      return fail(500, { runError: extractGqlError(e, 'Failed to start the flow') });
+      return message(form, { type: 'error' as const, text: extractGqlError(e, 'Failed to start the flow') }, { status: 500 });
     }
     redirect(303, `/app/orgs/${params.id}/apps/${params.appId}/runs/${runId}`);
   },

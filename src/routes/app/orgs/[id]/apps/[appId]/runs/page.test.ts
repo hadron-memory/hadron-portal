@@ -4,11 +4,33 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
+import { superValidate } from 'sveltekit-superforms';
+import { zod4 } from 'sveltekit-superforms/adapters';
+import { runAppFlowSchema } from './schema';
 
-// The page imports $app/forms (enhance) for the Run form; portal vitest skips
-// the SvelteKit plugin, so the virtual must be mocked (conventions:vitest-
-// mocks-sveltekit-virtuals). enhance is a use: action — inert during SSR.
+// The page uses Superforms; portal vitest skips the SvelteKit plugin, so the
+// SvelteKit virtual modules Superforms imports must be mocked.
 vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
+vi.mock('$app/navigation', () => ({
+  beforeNavigate: () => {},
+  goto: vi.fn(),
+  invalidateAll: vi.fn(),
+}));
+vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
+vi.mock('$app/stores', async () => {
+  const { readable } = await import('svelte/store');
+  return {
+    page: readable({
+      url: new URL('https://example.test/app/orgs/org-1/apps/app-1/runs'),
+      params: {},
+      route: { id: null },
+      status: 200,
+      error: null,
+      data: {},
+      form: null,
+    }),
+  };
+});
 
 import Page from './+page.svelte';
 
@@ -51,18 +73,19 @@ const flow = {
   stepCount: 3,
 };
 
-function renderPage(runs: unknown[], status: string | null = null, flows: unknown[] = []) {
+async function renderPage(runs: unknown[], status: string | null = null, flows: unknown[] = []) {
+  const runForm = await superValidate(zod4(runAppFlowSchema));
   return render(Page, {
     props: {
-      data: { app, runs, total: runs.length, page: 1, pageSize: 25, status, flows } as never,
+      data: { app, runs, total: runs.length, page: 1, pageSize: 25, status, flows, runForm } as never,
       form: null,
     },
   }).body;
 }
 
 describe('runs list (#478)', () => {
-  it('renders status, trigger, entry loc, duration, and failure code', () => {
-    const body = renderPage([
+  it('renders status, trigger, entry loc, duration, and failure code', async () => {
+    const body = await renderPage([
       baseRun,
       {
         ...baseRun,
@@ -82,21 +105,21 @@ describe('runs list (#478)', () => {
     expect(body).toContain('/app/orgs/org-1/apps/app-1/runs/run-2');
   });
 
-  it('teaches triggers in the unfiltered empty state', () => {
-    const body = renderPage([]);
+  it('teaches triggers in the unfiltered empty state', async () => {
+    const body = await renderPage([]);
     expect(body).toContain('No runs yet');
     expect(body).toContain('schedule');
     expect(body).toContain('Test flow');
   });
 
-  it('keeps the empty state terse when a status filter is active', () => {
-    const body = renderPage([], 'FAILED');
+  it('keeps the empty state terse when a status filter is active', async () => {
+    const body = await renderPage([], 'FAILED');
     expect(body).toContain('No runs with this status yet');
     expect(body).not.toContain('No runs yet.');
   });
 
-  it('lists derived flows with step/branch counts and a Run form (#483)', () => {
-    const body = renderPage([], null, [flow]);
+  it('lists derived flows with step/branch counts and a Run form (#483)', async () => {
+    const body = await renderPage([], null, [flow]);
     expect(body).toContain('Flow One');
     expect(body).toContain('3 steps');
     expect(body).toContain('2 branches');
@@ -107,8 +130,8 @@ describe('runs list (#478)', () => {
     expect(body).toContain('hit Run on a flow above');
   });
 
-  it('hides the Flows section when none are derivable', () => {
-    const body = renderPage([]);
+  it('hides the Flows section when none are derivable', async () => {
+    const body = await renderPage([]);
     expect(body).not.toContain('action="?/run"');
   });
 });

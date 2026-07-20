@@ -1,7 +1,11 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import { scopedActionError } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import {
     RUN_STATUSES,
@@ -12,11 +16,30 @@
     statusChipClass,
   } from '$lib/flow/runs';
   import type { PageData, ActionData } from './$types';
+  import { runAppFlowSchema } from './schema';
+
+  type RunAppFlowForm = Infer<typeof runAppFlowSchema, 'zod4'>;
+  type RunAppFlowSuperform = SuperValidated<RunAppFlowForm, App.Superforms.Message, RunAppFlowForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const basePath = $derived(`/app/orgs/${data.app.organizationId}/apps/${data.app.id}`);
   const totalPages = $derived(Math.max(1, Math.ceil(data.total / data.pageSize)));
+  const initialRunForm = untrack(() => submittedForm<RunAppFlowForm>(form, 'runFlow') as RunAppFlowSuperform | null ?? data.runForm);
+  const {
+    form: runFormData,
+    errors: runErrors,
+    message: runMessage,
+    submitting: runSubmitting,
+    enhance: runEnhance,
+  } = superForm<RunAppFlowForm, App.Superforms.Message, RunAppFlowForm>(initialRunForm, {
+    validators: zod4Client(runAppFlowSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const runActionError = $derived(scopedActionError<RunAppFlowForm>(form, 'runFlow', $runMessage, $runErrors, ['entryUrn', '_kind']));
 
   function pageHref(page: number, status: string | null): string {
     const qs = new URLSearchParams();
@@ -30,6 +53,10 @@
   function entryLabel(urn: string): string {
     const sep = urn.lastIndexOf('::');
     return sep >= 0 ? urn.slice(sep + 2) : urn;
+  }
+
+  function prepareRun(entryUrn: string) {
+    runFormData.update((current) => ({ ...current, entryUrn }), { taint: false });
   }
 </script>
 
@@ -62,8 +89,8 @@
       <p class="mt-1 text-xs text-zinc-400">
         {t('flows.explainer', 'Runnable entry nodes with routing edges in this app’s memories. Run one here, or open the node to run it with a test payload.')}
       </p>
-      {#if form?.runError}
-        <div class="mt-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.runError}</div>
+      {#if runActionError}
+        <div role="alert" class="mt-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{runActionError}</div>
       {/if}
       <ul class="mt-3 divide-y divide-zinc-100 dark:divide-zinc-800">
         {#each data.flows as flow (flow.entry.id)}
@@ -78,11 +105,15 @@
             <span class="text-xs text-zinc-500 dark:text-zinc-400">
               {flow.stepCount} {t('flows.steps', 'steps')}{#if flow.branchCount > 1} · {flow.branchCount} {t('flows.branches', 'branches')}{/if}
             </span>
-            <form method="POST" action="?/run" use:enhance>
+            <!-- Click updates before Superforms client validation; submit covers keyboard/requestSubmit paths. -->
+            <form method="POST" action="?/run" use:runEnhance onsubmit={() => prepareRun(flow.entry.urn)} novalidate>
+              <input type="hidden" name="_kind" value={$runFormData._kind} />
               <input type="hidden" name="entryUrn" value={flow.entry.urn} />
               <button
                 type="submit"
-                class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+                disabled={$runSubmitting}
+                onclick={() => prepareRun(flow.entry.urn)}
+                class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
               >▶ {t('flows.run', 'Run')}</button>
             </form>
           </li>
