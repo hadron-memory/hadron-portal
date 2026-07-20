@@ -144,14 +144,24 @@
     isEditing = true;
   }
 
-  const settingsActionError = $derived(
-    $settingsMessage?.type === 'error'
-      ? $settingsMessage.text
-      : ($settingsAllErrors[0]?.messages[0] ?? null),
-  );
+  const settingsActionError = $derived.by(() => {
+    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
+    const message = $settingsMessage;
+    const allErrors = $settingsAllErrors;
+    if (!submitted) return null;
+    return message?.type === 'error'
+      ? message.text
+      : (allErrors[0]?.messages[0] ?? null);
+  });
+  const settingsActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
+    const message = $settingsMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
 
   $effect(() => {
-    if ($settingsMessage?.type === 'success') isEditing = false;
+    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
+    if (submitted && $settingsMessage?.type === 'success') isEditing = false;
   });
 
   // ── Vector index (spec 033 §2/§3) ───────────────────────────────────
@@ -167,6 +177,7 @@
   const initialVectorForm = untrack(() => submittedForm<VectorIndexSettingsForm>(form, 'updateVectorIndex') as VectorIndexSettingsSuperform | null ?? data.vectorForm);
   const {
     form: vectorForm,
+    errors: vectorErrors,
     message: vectorMessage,
     submitting: vectorSubmitting,
     enhance: vectorEnhance,
@@ -242,13 +253,34 @@
   // Turning the index OFF on an encrypted memory that currently has it on —
   // the server drops stored vectors, so confirm first.
   const viIsRevoking = $derived(!!g.isEncrypted && !$vectorForm.vectorIndexEnabled && (g.vectorIndexEnabled ?? false));
-  const vectorActionError = $derived($vectorMessage?.type === 'error' ? $vectorMessage.text : null);
-  const vectorActionSuccess = $derived($vectorMessage?.type === 'success' ? $vectorMessage.text : null);
-  const deleteActionError = $derived(
-    $deleteMessage?.type === 'error'
-      ? $deleteMessage.text
-      : $deleteErrors._kind?.[0] ?? null,
-  );
+  const vectorActionError = $derived.by(() => {
+    const submitted = submittedForm<VectorIndexSettingsForm>(form, 'updateVectorIndex');
+    const message = $vectorMessage;
+    const errors = $vectorErrors;
+    if (!submitted) return null;
+    return message?.type === 'error'
+      ? message.text
+      : errors._kind?.[0] ??
+          errors.vectorIndexEnabled?.[0] ??
+          errors.embeddingSource?.[0] ??
+          errors.forceFixedSize?.[0] ??
+          errors.acknowledgeVectorInversionRisk?.[0] ??
+          null;
+  });
+  const vectorActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<VectorIndexSettingsForm>(form, 'updateVectorIndex');
+    const message = $vectorMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
+  const deleteActionError = $derived.by(() => {
+    const submitted = submittedForm<DeleteMemoryForm>(form, 'deleteMemory');
+    const message = $deleteMessage;
+    const errors = $deleteErrors;
+    if (!submitted) return null;
+    return message?.type === 'error'
+      ? message.text
+      : errors._kind?.[0] ?? null;
+  });
 
   function attemptVectorSave() {
     if (viNeedsAck && !$vectorForm.acknowledgeVectorInversionRisk) { showDisclosure = true; return; }
@@ -260,8 +292,8 @@
 <svelte:head><title>{g.name} &middot; Settings &middot; Hadron</title></svelte:head>
 
 <div class="space-y-8">
-  {#if $settingsMessage?.type === 'success' && !isEditing}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$settingsMessage.text}</div>
+  {#if settingsActionSuccess && !isEditing}
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{settingsActionSuccess}</div>
   {/if}
 
   <!-- Memory settings -->
@@ -277,7 +309,7 @@
       <form id="graph-settings" method="POST" action="?/update" use:settingsEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
         <input type="hidden" name="_kind" value={$settingsForm._kind} />
         {#if settingsActionError}
-          <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{settingsActionError}</div>
+          <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{settingsActionError}</div>
         {/if}
         {#if isAgentSystem}
           <p class="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
@@ -476,9 +508,9 @@
       <input type="hidden" name="acknowledgeVectorInversionRisk" value={String($vectorForm.acknowledgeVectorInversionRisk)} />
 
       {#if vectorActionError}
-        <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{vectorActionError}</div>
+        <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{vectorActionError}</div>
       {:else if vectorActionSuccess}
-        <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{vectorActionSuccess}</div>
+        <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{vectorActionSuccess}</div>
       {/if}
 
       <label class="flex items-start gap-3">
@@ -604,7 +636,7 @@
           <input type="hidden" name="_kind" value={$deleteForm._kind} />
           <input type="hidden" name="organizationId" value={$deleteForm.organizationId} />
           {#if deleteActionError}
-            <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{deleteActionError}</div>
+            <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{deleteActionError}</div>
           {/if}
           <div class="flex items-center gap-2">
             <span class="text-sm text-red-500">{deleteMemoryStrings.confirmPrompt(g.name)}</span>

@@ -2,10 +2,12 @@ import { z } from 'zod';
 import { optionalHttpUrl } from '$lib/forms/zod-validators';
 import { toBareMemorySlugInput, validateMemorySlugField } from '$lib/urn/form-validation';
 
-const booleanString = z.preprocess((value) => {
-  if (typeof value === 'boolean') return value;
-  return String(value ?? '').trim() === 'true';
-}, z.boolean());
+const booleanString = z
+  .union([
+    z.boolean(),
+    z.string().trim().pipe(z.enum(['true', 'false'])),
+  ])
+  .transform((value) => value === true || value === 'true');
 
 export const memorySettingsSchema = z
   .object({

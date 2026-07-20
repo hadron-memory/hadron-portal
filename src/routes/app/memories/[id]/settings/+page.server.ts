@@ -210,8 +210,10 @@ export const actions: Actions = {
   // metadata `update` above) so a memory-wide re-index only fires when these
   // fields actually change, never on an unrelated name/tag edit.
   updateVectorIndex: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const hasEmbeddingSource = fd.has('embeddingSource');
     const form = await superValidate<VectorIndexSettingsForm>(
-      await request.formData(),
+      fd,
       vectorIndexSettingsFormAdapter,
     );
     if (!form.valid) return fail(400, { form });
@@ -225,7 +227,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
         id: params.id,
         vectorIndexEnabled: form.data.vectorIndexEnabled,
-        embeddingSource: form.data.embeddingSource,
+        embeddingSource: hasEmbeddingSource ? form.data.embeddingSource : undefined,
         acknowledgeVectorInversionRisk,
         chunkTokens: intDial(form.data.chunkTokens),
         chunkOverlap: intDial(form.data.chunkOverlap),
@@ -237,11 +239,14 @@ export const actions: Actions = {
       // the page can render the acknowledgement panel even if the client-side
       // proactive check was bypassed.
       if (isEncryptedAckError(e)) {
-        form.valid = false;
-        form.message = {
-          type: 'error',
-          text: 'This encrypted memory requires acknowledging the vector-inversion disclosure before enabling the index.',
-        };
+        message(
+          form,
+          {
+            type: 'error',
+            text: 'This encrypted memory requires acknowledging the vector-inversion disclosure before enabling the index.',
+          },
+          { status: 400 },
+        );
         return fail(400, {
           form,
           needsEncryptedAck: true,
@@ -269,7 +274,7 @@ export const actions: Actions = {
     const orgId = form.data.organizationId;
     try {
       await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { id: params.id });
-      redirect(303, orgId ? `/app/orgs/${orgId}/memories` : '/app/memories');
+      redirect(303, orgId ? `/app/orgs/${encodeURIComponent(orgId)}/memories` : '/app/memories');
     } catch (e: unknown) {
       // Re-throw SvelteKit's redirect-as-thrown-exception so it isn't
       // swallowed by the catch and surfaced as "Failed to delete".

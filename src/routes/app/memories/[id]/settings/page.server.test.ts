@@ -102,6 +102,22 @@ describe("memory-detail `delete` action (spec 013)", () => {
     expect(vars).toEqual({ id: 'mem-y' });
   });
 
+  it('encodes the submitted org id before building the redirect path', async () => {
+    mockRequest.mockResolvedValueOnce(true);
+    const actions = await importActions();
+
+    let thrown: unknown;
+    try {
+      await actions.delete(ev({ memId: 'mem-y', orgId: 'org/with space' }));
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect(thrown).toBeDefined();
+    expect((thrown as { status: number }).status).toBe(303);
+    expect((thrown as { location: string }).location).toBe('/app/orgs/org%2Fwith%20space/memories');
+  });
+
   it('GraphQL transport error — returns fail(500) with the extracted error message', async () => {
     // Shape: graphql-request style error with response.errors[0].message
     const gqlError = Object.assign(new Error('outer'), {
@@ -232,6 +248,34 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
     expect(vars.forceFixedSize).toBe(false);
     // Never send `false` — only assert acknowledgement when truly accepted.
     expect(vars.acknowledgeVectorInversionRisk).toBeUndefined();
+  });
+
+  it('rejects unexpected boolean strings before calling the API', async () => {
+    const actions = await importActions();
+
+    const result = await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'on',
+      embeddingSource: 'abstract',
+      forceFixedSize: 'false',
+    }));
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(fieldError(result, 'vectorIndexEnabled')).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('omits embeddingSource when the field was not submitted so disabling does not reset it', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'false',
+      forceFixedSize: 'false',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.vectorIndexEnabled).toBe(false);
+    expect(vars.embeddingSource).toBeUndefined();
   });
 
   it('sends acknowledgeVectorInversionRisk: true when the disclosure was accepted', async () => {
