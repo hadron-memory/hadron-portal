@@ -244,6 +244,18 @@ describe('app members ensure/remove actions', () => {
     });
   });
 
+  it('returns typed ensure failures as Superforms messages', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('MaxMembersExceededError'));
+
+    const result = await runEnsure({ userId: 'user-existing', role: 'editor' });
+
+    expect(result).toMatchObject({ status: 409 });
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'error',
+      text: 'This App is at the member limit set by the Agent author. Remove a member or ask the Agent author to raise the cap.',
+    });
+  });
+
   it('returns invalid ensure roles as role field errors', async () => {
     mockRequest.mockRejectedValueOnce(gqlError('InvalidRoleError'));
 
@@ -281,5 +293,14 @@ describe('app members ensure/remove actions', () => {
       appId: 'app-1',
       userId: 'user-existing',
     });
+  });
+
+  it('returns typed remove failures as Superforms messages', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('Forbidden', 'nope'));
+
+    const result = await runRemove({ userId: 'user-existing' });
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'nope' });
   });
 });

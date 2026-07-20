@@ -43,27 +43,32 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const memberIds = new Set(members.map((member) => member.userId));
   const firstNonMember = usersData.find((user) => !memberIds.has(user.id));
   const firstRole = appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '';
+  const [addForm, ensureForm, removeForm] = await Promise.all([
+    superValidate(
+      { userId: firstNonMember?.id ?? '', role: firstRole },
+      addAppMemberFormAdapter,
+      { errors: false },
+    ),
+    superValidate(
+      { userId: '', role: firstRole },
+      ensureAppMemberFormAdapter,
+      { errors: false },
+    ),
+    superValidate(
+      { userId: '' },
+      removeAppMemberFormAdapter,
+      { errors: false },
+    ),
+  ]);
 
   return {
     app: appData.app,
     org: orgData.organization,
     members,
     allUsers: usersData,
-    addForm: await superValidate(
-      { userId: firstNonMember?.id ?? '', role: firstRole },
-      addAppMemberFormAdapter,
-      { errors: false },
-    ),
-    ensureForm: await superValidate(
-      { userId: '', role: firstRole },
-      ensureAppMemberFormAdapter,
-      { errors: false },
-    ),
-    removeForm: await superValidate(
-      { userId: '' },
-      removeAppMemberFormAdapter,
-      { errors: false },
-    ),
+    addForm,
+    ensureForm,
+    removeForm,
   };
 };
 

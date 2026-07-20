@@ -14,6 +14,7 @@
   import SelectUser from '$lib/components/SelectUser.svelte';
   import { type SearchUser, userLabel } from '$lib/users/search-user';
   import Urn from '$lib/components/Urn.svelte';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { OrgMember } from '$lib/types';
   import type { PageData, ActionData } from './$types';
@@ -126,25 +127,10 @@
     select.form?.requestSubmit();
   }
 
-  function submittedForm<T extends { _kind?: string }>(
-    actionData: ActionData,
-    kind: T['_kind'],
-  ): SuperValidated<T, App.Superforms.Message, T> | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    const candidateData = candidate?.data;
-    const candidateKind = candidateData && typeof candidateData === 'object' && '_kind' in candidateData
-      ? String(candidateData._kind)
-      : null;
-    return candidateKind === kind
-      ? candidate as unknown as SuperValidated<T, App.Superforms.Message, T>
-      : null;
-  }
-
   const initialAddForm = untrack(() => submittedForm<AddOrgMemberForm>(form, 'addOrgMember') as AddOrgMemberSuperform | null ?? data.addForm);
   const {
     form: addForm,
     errors: addErrors,
-    constraints: addConstraints,
     message: addMessage,
     submitting: addSubmitting,
     enhance: addEnhance,
@@ -176,6 +162,7 @@
     form: updateForm,
     errors: updateErrors,
     message: updateMessage,
+    submitting: updateSubmitting,
     enhance: updateEnhance,
   } = superForm<UpdateOrgMemberForm, App.Superforms.Message, UpdateOrgMemberForm>(initialUpdateForm, {
     validators: zod4Client(updateOrgMemberSchema),
@@ -196,6 +183,7 @@
     form: removeForm,
     errors: removeErrors,
     message: removeMessage,
+    submitting: removeSubmitting,
     enhance: removeEnhance,
   } = superForm<RemoveOrgMemberForm, App.Superforms.Message, RemoveOrgMemberForm>(initialRemoveForm, {
     validators: zod4Client(removeOrgMemberSchema),
@@ -244,6 +232,7 @@
   const {
     errors: leaveErrors,
     message: leaveMessage,
+    submitting: leaveSubmitting,
     enhance: leaveEnhance,
   } = superForm<LeaveOrgForm, App.Superforms.Message, LeaveOrgForm>(initialLeaveForm, {
     validators: zod4Client(leaveOrgSchema),
@@ -293,11 +282,11 @@
   <h1 class="sr-only">Team</h1>
 
   {#if updateActionError || removeActionError || leaveActionError}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
       {updateActionError ?? removeActionError ?? leaveActionError}
     </div>
   {:else if updateActionSuccess || removeActionSuccess}
-    <div class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
       {updateActionSuccess ?? removeActionSuccess}
     </div>
   {/if}
@@ -339,7 +328,7 @@
               <input type="hidden" name="_kind" value="updateOrgMember" />
               <input type="hidden" name="userId" value={m.user.id} />
               <label class="sr-only" for="role-{m.id}">Role for {memberName(m)}</label>
-              <select id="role-{m.id}" name="role" value={m.role} data-user-id={m.user.id} onchange={submitOnChange}
+              <select id="role-{m.id}" name="role" value={m.role} data-user-id={m.user.id} onchange={submitOnChange} disabled={$updateSubmitting}
                 class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
                 {#each ROLES as role}
                   <option value={role}>{role}</option>
@@ -355,12 +344,15 @@
                  onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
             <form method="POST" action="?/remove" use:removeEnhance
               onsubmit={(e) => {
+                if (!confirm(`Remove ${memberName(m)} from "${org.name}"?`)) {
+                  e.preventDefault();
+                  return;
+                }
                 setRemoveUser(m.user.id);
-                if (!confirm(`Remove ${memberName(m)} from "${org.name}"?`)) e.preventDefault();
               }}>
               <input type="hidden" name="_kind" value="removeOrgMember" />
               <input type="hidden" name="userId" value={m.user.id} />
-              <button type="submit" onclick={() => setRemoveUser(m.user.id)} class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">Remove</button>
+              <button type="submit" disabled={$removeSubmitting} onclick={() => setRemoveUser(m.user.id)} class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">Remove</button>
             </form>
           {/if}
         {/if}
@@ -390,7 +382,7 @@
           {selectedUser ? selectedUserLabel : 'Find a user...'}
         </button>
         <input type="hidden" name="_kind" value="addOrgMember" />
-        <input type="hidden" name="userId" bind:value={$addForm.userId} {...$addConstraints.userId} />
+        <input type="hidden" name="userId" bind:value={$addForm.userId} />
         {#if addUserError}
           <p class="mt-1 text-xs text-red-600 dark:text-red-400">{addUserError}</p>
         {/if}
@@ -502,7 +494,7 @@
         if (!confirm(msg)) e.preventDefault();
       }}>
         <input type="hidden" name="_kind" value="leaveOrg" />
-        <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+        <button type="submit" disabled={$leaveSubmitting} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
           {isOnlyMember ? 'Leave and delete organization' : 'Leave organization'}
         </button>
       </form>

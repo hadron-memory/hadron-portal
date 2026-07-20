@@ -36,14 +36,21 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const orgData = await client.request<{ organization: Organization }>(ORGANIZATION_QUERY, {
     id: params.id,
   });
+  const [addForm, updateForm, removeForm, inviteForm, leaveForm] = await Promise.all([
+    superValidate({}, addOrgMemberFormAdapter, { errors: false }),
+    superValidate({}, updateOrgMemberFormAdapter, { errors: false }),
+    superValidate({}, removeOrgMemberFormAdapter, { errors: false }),
+    superValidate({}, inviteMemberFormAdapter, { errors: false }),
+    superValidate({}, leaveOrgFormAdapter, { errors: false }),
+  ]);
   return {
     org: orgData.organization,
     currentUserId: locals.user?.id ?? null,
-    addForm: await superValidate({}, addOrgMemberFormAdapter, { errors: false }),
-    updateForm: await superValidate({}, updateOrgMemberFormAdapter, { errors: false }),
-    removeForm: await superValidate({}, removeOrgMemberFormAdapter, { errors: false }),
-    inviteForm: await superValidate({}, inviteMemberFormAdapter, { errors: false }),
-    leaveForm: await superValidate({}, leaveOrgFormAdapter, { errors: false }),
+    addForm,
+    updateForm,
+    removeForm,
+    inviteForm,
+    leaveForm,
   };
 };
 
@@ -125,8 +132,8 @@ export const actions: Actions = {
 
   leave: async ({ request, params, locals }) => {
     const form = await superValidate(await request.formData(), leaveOrgFormAdapter);
-    if (!form.valid) return fail(400, { form });
     if (!locals.user?.id) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
+    if (!form.valid) return fail(400, { form });
 
     try {
       await gqlClient(locals.token).request(REMOVE_MEMBER_MUTATION, { orgId: params.id, userId: locals.user.id });

@@ -135,6 +135,15 @@ describe('org members add/update/remove/leave actions', () => {
     });
   });
 
+  it('returns add GraphQL failures as Superforms messages', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('add failed'));
+
+    const result = await runAdd({ userId: 'user-2', role: 'ADMIN' });
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'add failed' });
+  });
+
   it('rejects add payloads with the wrong action discriminator', async () => {
     const result = await runAdd({ _kind: 'removeOrgMember', userId: 'user-2', role: 'ADMIN' });
 
@@ -162,6 +171,15 @@ describe('org members add/update/remove/leave actions', () => {
       userId: 'user-2',
       role: 'CONTRIBUTOR',
     });
+  });
+
+  it('returns update GraphQL failures as Superforms messages', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('update failed'));
+
+    const result = await runUpdate({ userId: 'user-2', role: 'CONTRIBUTOR' });
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'update failed' });
   });
 
   it('rejects remove without a selected user before calling the API', async () => {
@@ -192,6 +210,15 @@ describe('org members add/update/remove/leave actions', () => {
     });
   });
 
+  it('returns remove GraphQL failures as Superforms messages', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('remove failed'));
+
+    const result = await runRemove({ userId: 'user-2' });
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'remove failed' });
+  });
+
   it('leaves the organization as the current user', async () => {
     mockRequest.mockResolvedValueOnce({ removeOrganizationMember: true });
 
@@ -210,6 +237,23 @@ describe('org members add/update/remove/leave actions', () => {
     expect(result).toMatchObject({ status: 401 });
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Not authenticated' });
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 for unauthenticated leave even when the body is invalid', async () => {
+    const result = await runLeave({ _kind: 'removeOrgMember' }, { userId: null });
+
+    expect(result).toMatchObject({ status: 401 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Not authenticated' });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns leave GraphQL failures as Superforms messages', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('leave failed'));
+
+    const result = await runLeave({ _kind: 'leaveOrg' }, { userId: 'user-self' });
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'leave failed' });
   });
 });
 
