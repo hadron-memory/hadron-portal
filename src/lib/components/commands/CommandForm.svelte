@@ -27,6 +27,7 @@
     action?: string;
     submitLabel?: string;
     busy?: boolean;
+    /** Superforms enhance action returned by the caller's `superForm(...)`. */
     enhanceAction: Action<HTMLFormElement>;
     errors?: Record<string, unknown>;
     onValueChange?: (values: Record<string, CommandFieldValue>) => void;
