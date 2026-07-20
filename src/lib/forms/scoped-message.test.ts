@@ -16,6 +16,8 @@ describe('scoped Superforms action messages', () => {
 
     expect(scopedActionError<ExampleForm>(actionData(), 'example', message)).toBe('Failed.');
     expect(scopedActionError<ExampleForm>(actionData('other'), 'example', message)).toBeNull();
+    expect(scopedActionError<ExampleForm>(null, 'example', message)).toBeNull();
+    expect(scopedActionError<ExampleForm>(undefined, 'example', message)).toBeNull();
   });
 
   it('falls back to field errors for the submitted kind', () => {
@@ -26,6 +28,23 @@ describe('scoped Superforms action messages', () => {
       { id: ['Missing id.'], _kind: ['Wrong action.'] },
       ['id', '_kind'],
     )).toBe('Missing id.');
+    expect(scopedActionError<ExampleForm>(
+      actionData(),
+      'example',
+      null,
+      { _kind: ['Wrong action.'] },
+    )).toBe('Wrong action.');
+  });
+
+  it('returns null when no error source applies', () => {
+    expect(scopedActionError<ExampleForm>(actionData(), 'example', null, {})).toBeNull();
+    expect(scopedActionError<ExampleForm>(
+      actionData(),
+      'example',
+      null,
+      { id: ['Missing id.'] },
+      [],
+    )).toBeNull();
   });
 
   it('returns a success message only for the submitted kind', () => {
@@ -33,6 +52,19 @@ describe('scoped Superforms action messages', () => {
 
     expect(scopedActionSuccess<ExampleForm>(actionData(), 'example', message)).toBe('Saved.');
     expect(scopedActionSuccess<ExampleForm>(actionData('other'), 'example', message)).toBeNull();
+    expect(scopedActionSuccess<ExampleForm>(null, 'example', message)).toBeNull();
+    expect(scopedActionSuccess<ExampleForm>(undefined, 'example', message)).toBeNull();
     expect(scopedActionSuccess<ExampleForm>(actionData(), 'example', { type: 'error', text: 'Nope.' })).toBeNull();
+  });
+
+  it('prefers error messages but can fall through from success messages to field errors', () => {
+    expect(scopedActionError<ExampleForm>(actionData(), 'example', { type: 'error', text: 'Failed.' }, null)).toBe('Failed.');
+    expect(scopedActionError<ExampleForm>(
+      actionData(),
+      'example',
+      { type: 'success', text: 'Saved.' },
+      { id: ['Still invalid.'] },
+      ['id'],
+    )).toBe('Still invalid.');
   });
 });

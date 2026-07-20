@@ -1,6 +1,8 @@
 import { submittedForm } from './submitted-form';
 
 type FormField<T> = Extract<keyof T, string> | '_kind';
+// Flat field-error maps only. Keep nested schema errors local at the call site
+// until a route needs shared nested-path handling.
 type FormErrors<T> = Partial<Record<FormField<T>, string[] | undefined>>;
 
 export function scopedActionError<T extends { _kind?: string }>(
