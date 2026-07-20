@@ -129,6 +129,7 @@ describe('actions.create (mint)', () => {
       rawKey: created.rawKey,
       userApiKey: created.userApiKey,
     });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'API key minted.' });
     // The mutation must carry the trimmed label as a String, not the
     // raw form value.
     expect(mockRequest).toHaveBeenCalledWith(expect.anything(), { label: 'cli' });
@@ -169,9 +170,9 @@ describe('actions.create (mint)', () => {
     const { actions } = await importMod();
     const result = (await actions.create(actionEvent(null, { label: 'x' }))) as {
       status: number;
-      data: { error: string };
     };
     expect(result.status).toBe(401);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Not signed in.' });
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -205,7 +206,8 @@ describe('actions.revoke', () => {
     });
     const { actions } = await importMod();
     const result = await actions.revoke(actionEvent('jwt-token', { id: 'uak_1' }));
-    expect(result).toEqual({ success: 'revoke' });
+    expect(result).toMatchObject({ success: 'revoke' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'API key revoked.' });
     expect(mockRequest).toHaveBeenCalledWith(expect.anything(), { id: 'uak_1' });
   });
 
@@ -213,10 +215,9 @@ describe('actions.revoke', () => {
     const { actions } = await importMod();
     const result = (await actions.revoke(actionEvent('jwt-token', {}))) as {
       status: number;
-      data: { error: string };
     };
     expect(result.status).toBe(400);
-    expect(result.data.error).toMatch(/Missing key id/);
+    expect(fieldError(result, 'id')).toBe('Missing key id.');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -224,10 +225,9 @@ describe('actions.revoke', () => {
     const { actions } = await importMod();
     const result = (await actions.revoke(actionEvent(null, { id: 'uak_1' }))) as {
       status: number;
-      data: { error: string };
     };
     expect(result.status).toBe(401);
-    expect(result.data.error).toBe('Not signed in.');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Not signed in.' });
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -242,8 +242,8 @@ describe('actions.revoke', () => {
     const { actions } = await importMod();
     const result = (await actions.revoke(
       actionEvent('jwt-token', { id: 'uak_belongs_to_other_user' }),
-    )) as { status: number; data: { error: string } };
+    )) as { status: number };
     expect(result.status).toBe(500);
-    expect(result.data.error).toBe('NOT_FOUND');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'NOT_FOUND' });
   });
 });

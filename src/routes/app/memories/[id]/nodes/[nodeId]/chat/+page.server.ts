@@ -1,9 +1,15 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY, CREATE_NODE_MUTATION, NODES_BY_LOC_PREFIX_QUERY } from '$lib/server/queries';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { sendChatMessageSchema } from './schema';
+
+const sendChatMessageFormAdapter = zod4(sendChatMessageSchema);
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   let parentData: any = {};
@@ -107,26 +113,27 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
         nodeData: { loc: msg.loc },
       };
     }),
+    form: await superValidate({}, sendChatMessageFormAdapter, { errors: false }),
   };
 };
 
 export const actions: Actions = {
   sendMessage: async ({ request, params, locals }) => {
-    const formData = await request.formData();
-    const content = formData.get('content')?.toString().trim();
-
-    if (!content) return fail(400, { error: 'Message cannot be empty' });
+    const form = await superValidate(await request.formData(), sendChatMessageFormAdapter);
+    if (!form.valid) return fail(400, { form });
 
     try {
       // Fetch the parent node to get its loc
       const { node } = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
         NODE_BY_ID_QUERY, { id: params.nodeId },
       );
-      if (!node) return fail(404, { error: 'Chat node not found' });
+      if (!node) {
+        return message(form, { type: 'error', text: 'Chat node not found' }, { status: 404 });
+      }
 
       // Get current user from JWT (available in locals)
       const user = locals.user;
-      if (!user) return fail(401, { error: 'Not authenticated' });
+      if (!user) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
 
       // Create a new message node at: {chat.loc}:messages:{timestamp}-{sender}
       // Use ISO timestamp for consistent, sortable message IDs
@@ -152,14 +159,22 @@ export const actions: Actions = {
           loc: messageLoc,
           name: username,
           nodeType: 'message',
-          data: { body: content, author: username },
+          data: { body: form.data.content, author: username },
         },
       });
 
-      return { success: true, message: createNode };
+      return {
+        sent: true,
+        messageNode: createNode,
+        ...message(form, { type: 'success', text: 'Message sent.' }),
+      };
     } catch (error) {
       console.error('Failed to send message:', error);
-      return fail(500, { error: 'Failed to send message' });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(error, 'Failed to send message') },
+        { status: 500 },
+      );
     }
   },
 };

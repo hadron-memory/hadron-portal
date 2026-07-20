@@ -1,14 +1,20 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import type { MemoryNode } from '$lib/types';
+  import type { ActionData, PageData } from './$types';
+  import { sendChatMessageSchema } from './schema';
 
-  let { data, form }: { data: any; form: any } = $props();
+  type SendChatMessageForm = Infer<typeof sendChatMessageSchema, 'zod4'>;
+  type SendChatMessageSuperform = SuperValidated<SendChatMessageForm, App.Superforms.Message, SendChatMessageForm>;
+
+  let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const node = $derived(data?.node);
   const messages = $derived(data?.messages ?? []);
@@ -50,13 +56,37 @@
     return items;
   });
 
-  let input = $state('');
-  let sending = $state(false);
   let messagesEl: HTMLDivElement | null = $state(null);
-  let error = $state<string | null>(null);
   let hoveredMessageId = $state<string | null>(null);
   let reloading = $state(false);
   let isBrowser = $state(false);
+
+  function submittedSendForm(actionData: ActionData): SendChatMessageSuperform | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    return candidate?.data?._kind === 'sendChatMessage' ? candidate as SendChatMessageSuperform : null;
+  }
+
+  const initialSendForm = untrack(() => submittedSendForm(form) ?? data.form);
+  const {
+    form: sendFormData,
+    errors: sendErrors,
+    message: sendMessage,
+    submitting: sendSubmitting,
+    enhance: sendEnhance,
+  } = superForm<SendChatMessageForm, App.Superforms.Message, SendChatMessageForm>(initialSendForm, {
+    validators: zod4Client(sendChatMessageSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    invalidateAll: true,
+    clearOnSubmit: 'none',
+    resetForm: true,
+  });
+  const sendError = $derived(
+    $sendMessage?.type === 'error'
+      ? $sendMessage.text
+      : ($sendErrors.content?.[0] ?? null),
+  );
 
   async function reloadChat() {
     reloading = true;
@@ -98,29 +128,11 @@
     }
   });
 
-  // Handle form errors
-  $effect(() => {
-    if (form?.error) {
-      error = form.error;
-      setTimeout(() => {
-        error = null;
-      }, 3000);
-    }
-  });
-
-  async function handleSubmit() {
-    if (!input.trim() || sending) return;
-
-    // Clear input immediately for responsiveness
-    const message = input;
-    input = '';
-  }
-
   // Handle keyboard submit (Ctrl+Enter or Cmd+Enter)
   function handleKeydown(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
       e.preventDefault();
-      handleSubmit();
+      (e.currentTarget as HTMLTextAreaElement).form?.requestSubmit();
     }
   }
 
@@ -251,38 +263,33 @@
   </div>
 
   <!-- Error banner -->
-  {#if error}
+  {#if sendError}
     <div class="mx-6 mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-      {error}
+      {sendError}
     </div>
   {/if}
 
   <!-- Input area -->
   <div class="border-t border-zinc-200 dark:border-zinc-800 px-6 py-4 bg-zinc-50 dark:bg-zinc-900">
-    <form method="POST" action="?/sendMessage" use:enhance={() => {
-      sending = true;
-      return async ({ update }) => {
-        sending = false;
-        await invalidateAll();
-        input = '';
-      };
-    }}>
+    <form method="POST" action="?/sendMessage" use:sendEnhance novalidate>
+      <input type="hidden" name="_kind" value={$sendFormData._kind} />
       <div class="flex gap-3">
         <textarea
           name="content"
-          bind:value={input}
+          bind:value={$sendFormData.content}
           placeholder="Type your message... (Ctrl+Enter to send)"
           rows="3"
-          disabled={sending}
+          disabled={$sendSubmitting}
           onkeydown={handleKeydown}
+          aria-invalid={!!sendError}
           class="flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         ></textarea>
         <button
           type="submit"
-          disabled={!input.trim() || sending}
+          disabled={!$sendFormData.content.trim() || $sendSubmitting}
           class="self-end rounded-lg bg-indigo-600 px-4 py-3 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-indigo-500 dark:hover:bg-indigo-600"
         >
-          {sending ? 'Sending...' : 'Send'}
+          {$sendSubmitting ? 'Sending...' : 'Send'}
         </button>
       </div>
     </form>
