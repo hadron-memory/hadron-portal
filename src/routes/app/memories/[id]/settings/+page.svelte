@@ -6,6 +6,7 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import type { PageData, ActionData } from './$types';
   import { deleteMemorySchema, memorySettingsSchema, vectorIndexSettingsSchema } from './schema';
@@ -153,11 +154,7 @@
       ? message.text
       : (allErrors[0]?.messages[0] ?? null);
   });
-  const settingsActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
-    const message = $settingsMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
+  const settingsActionSuccess = $derived(scopedActionSuccess<MemorySettingsForm>(form, 'updateMemorySettings', $settingsMessage));
 
   $effect(() => {
     const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
@@ -253,34 +250,15 @@
   // Turning the index OFF on an encrypted memory that currently has it on —
   // the server drops stored vectors, so confirm first.
   const viIsRevoking = $derived(!!g.isEncrypted && !$vectorForm.vectorIndexEnabled && (g.vectorIndexEnabled ?? false));
-  const vectorActionError = $derived.by(() => {
-    const submitted = submittedForm<VectorIndexSettingsForm>(form, 'updateVectorIndex');
-    const message = $vectorMessage;
-    const errors = $vectorErrors;
-    if (!submitted) return null;
-    return message?.type === 'error'
-      ? message.text
-      : errors._kind?.[0] ??
-          errors.vectorIndexEnabled?.[0] ??
-          errors.embeddingSource?.[0] ??
-          errors.forceFixedSize?.[0] ??
-          errors.acknowledgeVectorInversionRisk?.[0] ??
-          null;
-  });
-  const vectorActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<VectorIndexSettingsForm>(form, 'updateVectorIndex');
-    const message = $vectorMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
-  const deleteActionError = $derived.by(() => {
-    const submitted = submittedForm<DeleteMemoryForm>(form, 'deleteMemory');
-    const message = $deleteMessage;
-    const errors = $deleteErrors;
-    if (!submitted) return null;
-    return message?.type === 'error'
-      ? message.text
-      : errors._kind?.[0] ?? null;
-  });
+  const vectorActionError = $derived(scopedActionError<VectorIndexSettingsForm>(
+    form,
+    'updateVectorIndex',
+    $vectorMessage,
+    $vectorErrors,
+    ['_kind', 'vectorIndexEnabled', 'embeddingSource', 'forceFixedSize', 'acknowledgeVectorInversionRisk'],
+  ));
+  const vectorActionSuccess = $derived(scopedActionSuccess<VectorIndexSettingsForm>(form, 'updateVectorIndex', $vectorMessage));
+  const deleteActionError = $derived(scopedActionError<DeleteMemoryForm>(form, 'deleteMemory', $deleteMessage, $deleteErrors));
 
   function attemptVectorSave() {
     if (viNeedsAck && !$vectorForm.acknowledgeVectorInversionRisk) { showDisclosure = true; return; }

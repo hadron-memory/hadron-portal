@@ -21,6 +21,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import { installStrings } from '$lib/i18n/install-strings';
@@ -48,18 +49,8 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
   });
-  const deleteActionError = $derived.by(() => {
-    const submitted = submittedForm<DeleteOrgAppForm>(form, 'deleteApp');
-    const message = $deleteMessage;
-    const errors = $deleteErrors;
-    if (!submitted) return null;
-    return message?.type === 'error' ? message.text : errors.id?.[0] ?? errors._kind?.[0] ?? null;
-  });
-  const deleteActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<DeleteOrgAppForm>(form, 'deleteApp');
-    const message = $deleteMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
+  const deleteActionError = $derived(scopedActionError<DeleteOrgAppForm>(form, 'deleteApp', $deleteMessage, $deleteErrors, ['id', '_kind']));
+  const deleteActionSuccess = $derived(scopedActionSuccess<DeleteOrgAppForm>(form, 'deleteApp', $deleteMessage));
 
   function activeKeyCount(app: HadronApp): number {
     return app.keys.filter((k) => !k.revokedAt).length;

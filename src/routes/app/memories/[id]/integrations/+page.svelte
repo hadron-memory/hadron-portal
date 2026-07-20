@@ -5,6 +5,7 @@
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import type { PageData, ActionData } from './$types';
   import {
@@ -65,33 +66,17 @@
   const sourceError = $derived($integrationErrors.source?.[0] ?? null);
   const readBranchError = $derived($integrationErrors.readBranch?.[0] ?? null);
   const writeBranchError = $derived($integrationErrors.writeBranch?.[0] ?? null);
-  const actionError = $derived.by(() => {
-    const submitted = submittedForm<MemoryIntegrationForm>(form, 'updateIntegration');
-    const message = $integrationMessage;
-    return submitted && message?.type === 'error' ? message.text : null;
-  });
-  const actionSuccess = $derived.by(() => {
-    const submitted = submittedForm<MemoryIntegrationForm>(form, 'updateIntegration');
-    const message = $integrationMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
+  const actionError = $derived(scopedActionError<MemoryIntegrationForm>(form, 'updateIntegration', $integrationMessage));
+  const actionSuccess = $derived(scopedActionSuccess<MemoryIntegrationForm>(form, 'updateIntegration', $integrationMessage));
   const commandError = $derived.by(() => {
-    const submittedSync = submittedForm<SyncMemoryIntegrationForm>(form, 'syncMemory');
-    const submittedPush = submittedForm<PushMemoryIntegrationForm>(form, 'pushMemory');
-    const sync = $syncMessage;
-    const push = $pushMessage;
-    if (submittedSync && sync?.type === 'error') return sync.text;
-    if (submittedPush && push?.type === 'error') return push.text;
-    return null;
+    const sync = scopedActionError<SyncMemoryIntegrationForm>(form, 'syncMemory', $syncMessage);
+    const push = scopedActionError<PushMemoryIntegrationForm>(form, 'pushMemory', $pushMessage);
+    return sync ?? push;
   });
   const commandSuccess = $derived.by(() => {
-    const submittedSync = submittedForm<SyncMemoryIntegrationForm>(form, 'syncMemory');
-    const submittedPush = submittedForm<PushMemoryIntegrationForm>(form, 'pushMemory');
-    const sync = $syncMessage;
-    const push = $pushMessage;
-    if (submittedSync && sync?.type === 'success') return sync.text;
-    if (submittedPush && push?.type === 'success') return push.text;
-    return null;
+    const sync = scopedActionSuccess<SyncMemoryIntegrationForm>(form, 'syncMemory', $syncMessage);
+    const push = scopedActionSuccess<PushMemoryIntegrationForm>(form, 'pushMemory', $pushMessage);
+    return sync ?? push;
   });
   const successMessage = $derived(commandSuccess ?? actionSuccess);
 
