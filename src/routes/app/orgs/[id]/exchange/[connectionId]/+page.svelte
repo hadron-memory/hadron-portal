@@ -1,17 +1,101 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import DOMPurify from 'dompurify';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import type { PageData, ActionData } from './$types';
+  import {
+    moveExchangeMessageSchema,
+    replyComposerMessageId,
+    replyExchangeMessageSchema,
+  } from './schema';
+
+  type ReplyExchangeMessageForm = Infer<typeof replyExchangeMessageSchema, 'zod4'>;
+  type MoveExchangeMessageForm = Infer<typeof moveExchangeMessageSchema, 'zod4'>;
+  type ReplyExchangeMessageSuperform = SuperValidated<
+    ReplyExchangeMessageForm,
+    App.Superforms.Message,
+    ReplyExchangeMessageForm
+  >;
+  type MoveExchangeMessageSuperform = SuperValidated<
+    MoveExchangeMessageForm,
+    App.Superforms.Message,
+    MoveExchangeMessageForm
+  >;
+
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
   const connection = $derived(data.connection);
   const messages = $derived(data.messages);
+  const submittedReply = untrack(() => submittedForm<ReplyExchangeMessageForm>(form, 'reply'));
+  const submittedReplyMessageId = replyComposerMessageId(submittedReply);
 
-  let expandedId = $state<string | null>(null);
-  let replyingTo = $state<string | null>(null);
-  let replyBody = $state('');
+  let expandedId = $state<string | null>(submittedReplyMessageId);
+  let replyingTo = $state<string | null>(submittedReplyMessageId);
+
+  const initialReplyForm = untrack(() => submittedReply as ReplyExchangeMessageSuperform | null ?? data.replyForm);
+  const {
+    form: replyForm,
+    errors: replyErrors,
+    constraints: replyConstraints,
+    message: replyMessage,
+    submitting: replySubmitting,
+    enhance: replyEnhance,
+  } = superForm<ReplyExchangeMessageForm, App.Superforms.Message, ReplyExchangeMessageForm>(initialReplyForm, {
+    validators: zod4Client(replyExchangeMessageSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated({ form }) {
+      if (form.message?.type === 'success') cancelReply();
+    },
+  });
+  const initialMoveForm = untrack(() => submittedForm<MoveExchangeMessageForm>(form, 'move') as MoveExchangeMessageSuperform | null ?? data.moveForm);
+  const {
+    form: moveForm,
+    errors: moveErrors,
+    message: moveMessage,
+    submitting: moveSubmitting,
+    enhance: moveEnhance,
+  } = superForm<MoveExchangeMessageForm, App.Superforms.Message, MoveExchangeMessageForm>(initialMoveForm, {
+    validators: zod4Client(moveExchangeMessageSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const replyBodyError = $derived($replyErrors.body?.[0] ?? null);
+  const replyActionError = $derived.by(() => {
+    const submitted = submittedForm<ReplyExchangeMessageForm>(form, 'reply');
+    const message = $replyMessage;
+    const errors = $replyErrors;
+    if (!submitted) return null;
+    return message?.type === 'error'
+      ? message.text
+      : errors.body?.[0] ?? errors.messageId?.[0] ?? errors._kind?.[0] ?? null;
+  });
+  const replyActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<ReplyExchangeMessageForm>(form, 'reply');
+    const message = $replyMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
+  const moveActionError = $derived.by(() => {
+    const submitted = submittedForm<MoveExchangeMessageForm>(form, 'move');
+    const message = $moveMessage;
+    const errors = $moveErrors;
+    if (!submitted) return null;
+    return message?.type === 'error'
+      ? message.text
+      : errors.messageId?.[0] ?? errors.folderId?.[0] ?? errors._kind?.[0] ?? null;
+  });
+  const moveActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<MoveExchangeMessageForm>(form, 'move');
+    const message = $moveMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
 
   function toggleExpand(id: string) {
     expandedId = expandedId === id ? null : id;
@@ -20,12 +104,20 @@
 
   function startReply(id: string) {
     replyingTo = id;
-    replyBody = '';
+    replyForm.update((current) => ({ ...current, messageId: id, body: '' }), { taint: false });
   }
 
   function cancelReply() {
     replyingTo = null;
-    replyBody = '';
+    replyForm.update((current) => ({ ...current, messageId: '', body: '' }), { taint: false });
+  }
+
+  function prepareReply(messageId: string) {
+    replyForm.update((current) => ({ ...current, messageId }), { taint: false });
+  }
+
+  function prepareMove(messageId: string, folderId: string) {
+    moveForm.update((current) => ({ ...current, messageId, folderId }), { taint: false });
   }
 
   // Exchange message bodies are attacker-controlled HTML (any sender), so they
@@ -52,15 +144,6 @@
     return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
   }
 
-  function replyEnhance(formEl: HTMLFormElement) {
-    return enhance(formEl, () => {
-      return async ({ update }) => {
-        await update();
-        replyingTo = null;
-        replyBody = '';
-      };
-    });
-  }
 </script>
 
 <svelte:head><title>Inbox · {connection.mailboxEmail} · Hadron</title></svelte:head>
@@ -79,17 +162,18 @@
     </div>
   </div>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if replyActionError}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{replyActionError}</div>
+  {:else if replyActionSuccess}
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{replyActionSuccess}</div>
   {/if}
-  {#if form?.replySent}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Reply sent successfully.</div>
-  {/if}
-  {#if form?.moved}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Email moved.</div>
+  {#if moveActionError}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{moveActionError}</div>
+  {:else if moveActionSuccess}
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{moveActionSuccess}</div>
   {/if}
   {#if data.loadError}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{data.loadError}</div>
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{data.loadError}</div>
   {/if}
 
   <!-- Email list -->
@@ -161,10 +245,12 @@
                   </button>
                 {/if}
 
-                <form method="POST" action="?/move" use:enhance class="inline">
+                <!-- Click updates before Superforms client validation; submit covers keyboard/requestSubmit paths. -->
+                <form method="POST" action="?/move" use:moveEnhance onsubmit={() => prepareMove(msg.id, 'Archive')} class="inline" novalidate>
+                  <input type="hidden" name="_kind" value={$moveForm._kind} />
                   <input type="hidden" name="messageId" value={msg.id} />
                   <input type="hidden" name="folderId" value="Archive" />
-                  <button type="submit" class="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+                  <button type="submit" disabled={$moveSubmitting} onclick={() => prepareMove(msg.id, 'Archive')} class="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
                     Archive
                   </button>
                 </form>
@@ -172,23 +258,29 @@
 
               <!-- Reply form -->
               {#if isReplying}
-                <form method="POST" action="?/reply" use:replyEnhance class="mt-4 space-y-3">
+                <form method="POST" action="?/reply" use:replyEnhance onsubmit={() => prepareReply(msg.id)} class="mt-4 space-y-3" novalidate>
+                  <input type="hidden" name="_kind" value={$replyForm._kind} />
                   <input type="hidden" name="messageId" value={msg.id} />
                   <div>
                     <label for="replyBody-{msg.id}" class="mb-1 block text-xs text-zinc-500">Reply to {msg.from}</label>
                     <textarea
                       id="replyBody-{msg.id}"
                       name="body"
-                      bind:value={replyBody}
+                      bind:value={$replyForm.body}
                       rows="5"
-                      required
                       placeholder="Type your reply..."
-                      class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
+                      aria-invalid={!!replyBodyError}
+                      aria-describedby={replyBodyError ? `replyBodyError-${msg.id}` : undefined}
+                      {...$replyConstraints.body}
+                      class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500 {replyBodyError ? 'border-red-500 focus:border-red-500' : ''}"
                     ></textarea>
+                    {#if replyBodyError}
+                      <p id="replyBodyError-{msg.id}" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{replyBodyError}</p>
+                    {/if}
                   </div>
                   <div class="flex items-center gap-2">
-                    <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
-                      Send Reply
+                    <button type="submit" disabled={$replySubmitting} onclick={() => prepareReply(msg.id)} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
+                      {$replySubmitting ? 'Sending...' : 'Send Reply'}
                     </button>
                     <button type="button" onclick={cancelReply}
                       class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
