@@ -1196,7 +1196,9 @@
                   type="submit"
                   disabled={!$testFlowFormData.appId || !testFlowPayloadValid || $testFlowSubmitting}
                   class="w-full rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >{$testFlowSubmitting ? 'Starting...' : 'Start test run'}</button>
+                >{$testFlowSubmitting
+                  ? t('node-actions.test-flow.starting', 'Starting...')
+                  : 'Start test run'}</button>
               </form>
             </div>
           {/if}
@@ -1344,7 +1346,7 @@
                   type="submit"
                   disabled={!$moveFormData.target.trim() || $moveFormData.target.trim() === fullUrn || $moveSubmitting}
                   class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >{$moveSubmitting ? 'Moving...' : 'Move node'}</button>
+                >{$moveSubmitting ? t('node-actions.move.moving', 'Moving...') : 'Move node'}</button>
                 <button type="button" onclick={() => (moveOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
               </div>
             </form>
@@ -1392,7 +1394,9 @@
                   disabled={$deleteSubmitting}
                   class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {$deleteSubmitting ? 'Deleting...' : $deleteFormData.hard ? 'Delete permanently' : 'Delete'}
+                  {$deleteSubmitting
+                    ? t('node-actions.delete.deleting', 'Deleting...')
+                    : $deleteFormData.hard ? 'Delete permanently' : 'Delete'}
                 </button>
                 <button type="button" onclick={() => (deleteOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
               </div>
@@ -2290,7 +2294,7 @@
                 type="submit"
                 disabled={$deleteSubmitting}
                 class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >{$deleteSubmitting ? 'Deleting...' : 'Yes, delete'}</button>
+              >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
               <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
             </form>
             {#if deleteActionError}

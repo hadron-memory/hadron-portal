@@ -92,6 +92,31 @@ describe('move action (#503 / #489)', () => {
     expect(moveVars()).toBeUndefined();
   });
 
+  it('no-ops when the target uses the canonical hrn:node prefix', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === NODE_BY_ID_QUERY) return { node };
+      throw new Error('unexpected query');
+    });
+
+    const result = await runMove('hrn:node:acme.com::flows::flows:classify');
+
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'success' });
+    expect(moveVars()).toBeUndefined();
+  });
+
+  it('returns a typed 404 message when the node cannot be found', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === NODE_BY_ID_QUERY) return { node: null };
+      throw new Error('unexpected query');
+    });
+
+    const result = (await runMove('flows:renamed')) as { status: number };
+
+    expect(result.status).toBe(404);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Node not found' });
+    expect(moveVars()).toBeUndefined();
+  });
+
   it('returns 409 when the destination is occupied', async () => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === NODE_BY_ID_QUERY) return { node };

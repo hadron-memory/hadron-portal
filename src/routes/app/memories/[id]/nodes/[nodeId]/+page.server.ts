@@ -24,6 +24,15 @@ const nodeMoveFormAdapter = zod4(nodeMoveSchema);
 const nodeTestFlowFormAdapter = zod4(nodeTestFlowSchema);
 const nodeDeleteFormAdapter = zod4(nodeDeleteSchema);
 
+function parseValidatedFlowPayload(value: string): Record<string, unknown> | undefined {
+  if (value === '') return undefined;
+  try {
+    return JSON.parse(value) as Record<string, unknown>;
+  } catch (e) {
+    throw new Error(`Validated flow payload failed to parse: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 // Soft cap on the Node.data payload, mirrored client-side in +page.svelte.
 // Keeps a pathological paste from hitting the adapter-node 512KB body limit
 // (an opaque error) and gives a clean 400 instead. 256KB is far above any
@@ -454,12 +463,7 @@ export const actions: Actions = {
     // Optional trigger payload — reaches conditions/templates at
     // message.data.<field>, so it must be a JSON OBJECT (named fields).
     const appId = form.data.appId;
-    const payloadRaw = form.data.payload;
-    let args: Record<string, unknown> | undefined;
-    if (payloadRaw !== '') {
-      const parsed = JSON.parse(payloadRaw) as Record<string, unknown>;
-      args = parsed as Record<string, unknown>;
-    }
+    const args = parseValidatedFlowPayload(form.data.payload);
 
     // The redirect target's org segment comes from the form (the page only
     // offers the button when the org is known). A stale/wrong value is

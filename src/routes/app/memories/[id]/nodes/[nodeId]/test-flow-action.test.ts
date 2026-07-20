@@ -81,6 +81,31 @@ describe('testFlow action Superforms validation', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects a missing app id before looking up the node', async () => {
+    const result = (await runTestFlow({
+      _kind: 'testFlow',
+      orgId: 'org-1',
+      payload: '',
+    })) as { status: number };
+
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?.appId?.[0]).toBe('Pick an App to run as.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-object JSON payloads before looking up the node', async () => {
+    const result = (await runTestFlow({
+      _kind: 'testFlow',
+      appId: 'app-1',
+      orgId: 'org-1',
+      payload: '[]',
+    })) as { status: number };
+
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?.payload?.[0]).toBe('The test payload must be a JSON object of named fields.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('rejects a tampered form discriminator before looking up the node', async () => {
     const result = (await runTestFlow({
       _kind: 'moveNode',
