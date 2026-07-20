@@ -458,6 +458,8 @@
   let connectPending = $state(false);
 
   async function handleConnect(sourceId: string, targetId: string) {
+    // connectPending guards the pre-submit setup window; $addEdgeSubmitting
+    // takes over once the submit event reaches Superforms' enhance handler.
     if (connectPending || $addEdgeSubmitting || sourceId === targetId) return;
     // Claimed HERE, not in the enhance callback — the await below yields, and
     // a second connect in that window would overwrite the form fields.
