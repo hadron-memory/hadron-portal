@@ -17,11 +17,13 @@ import {
 } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { orgAgentSubscribeSchema } from './schema';
+import { orgAgentSubscribeSchema, orgAgentUnsubscribeSchema } from './schema';
 
 type OrgAgentSubscribeForm = Infer<typeof orgAgentSubscribeSchema, 'zod4'>;
+type OrgAgentUnsubscribeForm = Infer<typeof orgAgentUnsubscribeSchema, 'zod4'>;
 
 const orgAgentSubscribeFormAdapter = zod4(orgAgentSubscribeSchema);
+const orgAgentUnsubscribeFormAdapter = zod4(orgAgentUnsubscribeSchema);
 
 type AppInstall = { id: string; name: string; agentId: string | null };
 
@@ -112,16 +114,26 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     (a) => a.organizationId !== params.id && !grantedAgentIds.has(a.id),
   );
 
+  const [subscribeForm, unsubscribeForm] = await Promise.all([
+    superValidate<OrgAgentSubscribeForm>(
+      { agentId: '' },
+      orgAgentSubscribeFormAdapter,
+      { errors: false },
+    ),
+    superValidate<OrgAgentUnsubscribeForm>(
+      { agentId: '' },
+      orgAgentUnsubscribeFormAdapter,
+      { errors: false },
+    ),
+  ]);
+
   return {
     org: data.organization,
     installedByAgent,
     subscribedGrants,
     subscribablePublicAgents,
-    subscribeForm: await superValidate<OrgAgentSubscribeForm>(
-      { agentId: '' },
-      orgAgentSubscribeFormAdapter,
-      { errors: false },
-    ),
+    subscribeForm,
+    unsubscribeForm,
   };
 };
 
@@ -157,33 +169,36 @@ export const actions: Actions = {
     }
   },
   unsubscribe: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const agentId = String(fd.get('agentId') ?? '').trim();
-    if (!agentId) {
-      return fail(400, {
-        unsubscribeError: t(
-          'org-agents.subscribed.unsubscribe.error.no-selection',
-          'Select an agent subscription to remove.',
-        ),
-      });
-    }
+    const form = await superValidate<OrgAgentUnsubscribeForm>(
+      await request.formData(),
+      orgAgentUnsubscribeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
     try {
       await gqlClient(locals.token).request(REVOKE_AGENT_ORG_GRANT_MUTATION, {
-        agentRef: agentId,
+        agentRef: form.data.agentId,
         orgRef: params.id,
       });
-      return { unsubscribed: true };
-    } catch (e: unknown) {
-      return fail(500, {
-        unsubscribeError: extractGqlError(
-          e,
-          t(
-            'org-agents.subscribed.unsubscribe.error',
-            'Failed to remove the agent subscription.',
-          ),
-        ),
+      return message(form, {
+        type: 'success',
+        text: t('org-agents.subscribed.unsubscribe.success', 'Unsubscribed from agent.'),
       });
+    } catch (e: unknown) {
+      return message(
+        form,
+        {
+          type: 'error',
+          text: extractGqlError(
+            e,
+            t(
+              'org-agents.subscribed.unsubscribe.error',
+              'Failed to remove the agent subscription.',
+            ),
+          ),
+        },
+        { status: 500 },
+      );
     }
   },
 };
