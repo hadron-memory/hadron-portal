@@ -1,13 +1,24 @@
 import { error, fail } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
+import { t } from '$lib/i18n/t';
 import {
   ORGANIZATION_QUERY,
   EXCHANGE_CONNECTION_FIELDS,
 } from '$lib/server/queries';
 import type { Organization, ExchangeConnection } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { moveExchangeMessageSchema, replyExchangeMessageSchema } from './schema';
+
+type ReplyExchangeMessageForm = Infer<typeof replyExchangeMessageSchema, 'zod4'>;
+type MoveExchangeMessageForm = Infer<typeof moveExchangeMessageSchema, 'zod4'>;
+
+const replyExchangeMessageFormAdapter = zod4(replyExchangeMessageSchema);
+const moveExchangeMessageFormAdapter = zod4(moveExchangeMessageSchema);
 
 interface ExchangeMessage {
   id: string;
@@ -77,50 +88,79 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     loadError = extractGqlError(e, 'Failed to load emails');
   }
 
+  const [replyForm, moveForm] = await Promise.all([
+    superValidate<ReplyExchangeMessageForm>(
+      { messageId: '', body: '' },
+      replyExchangeMessageFormAdapter,
+      { errors: false },
+    ),
+    superValidate<MoveExchangeMessageForm>(
+      { messageId: '', folderId: 'Archive' },
+      moveExchangeMessageFormAdapter,
+      { errors: false },
+    ),
+  ]);
+
   return {
     org: orgData.organization,
     connection,
     messages,
     loadError,
+    replyForm,
+    moveForm,
   };
 };
 
 export const actions: Actions = {
   reply: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const messageId = String(fd.get('messageId') ?? '').trim();
-    const body = String(fd.get('body') ?? '').trim();
-    if (!messageId || !body) {
-      return fail(400, { error: 'Message ID and reply body are required' });
-    }
+    const form = await superValidate<ReplyExchangeMessageForm>(
+      await request.formData(),
+      replyExchangeMessageFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(EXCHANGE_REPLY_MUTATION, {
         connectionId: params.connectionId,
-        messageId,
-        body,
+        messageId: form.data.messageId,
+        body: form.data.body,
       });
-      return { replySent: true, repliedMessageId: messageId };
+      return message(form, {
+        type: 'success',
+        text: t('org.exchange.reply.sent', 'Reply sent successfully.'),
+      });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to send reply') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to send reply') },
+        { status: 500 },
+      );
     }
   },
 
   move: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const messageId = String(fd.get('messageId') ?? '').trim();
-    const folderId = String(fd.get('folderId') ?? '').trim();
-    if (!messageId || !folderId) {
-      return fail(400, { error: 'Message ID and folder are required' });
-    }
+    const form = await superValidate<MoveExchangeMessageForm>(
+      await request.formData(),
+      moveExchangeMessageFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(EXCHANGE_MOVE_MUTATION, {
         connectionId: params.connectionId,
-        messageId,
-        folderId,
+        messageId: form.data.messageId,
+        folderId: form.data.folderId,
       });
-      return { moved: true };
+      return message(form, {
+        type: 'success',
+        text: t('org.exchange.move.moved', 'Email moved.'),
+      });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to move email') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to move email') },
+        { status: 500 },
+      );
     }
   },
 };
