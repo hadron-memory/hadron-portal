@@ -1,9 +1,80 @@
 import { z } from 'zod';
+import { checkboxBoolean } from '$lib/forms/checkbox-boolean';
+import {
+  EXTRACTION_SHAPES,
+  extractionRowsError,
+  type ExtractionRow,
+  type ExtractionShape,
+} from '$lib/flow/extraction';
 
-const checkboxBoolean = z.preprocess(
-  (value) => value === true || value === 'true' || value === 'on',
-  z.boolean(),
-).default(false);
+type ParsedEdges = Array<{ targetId: string; name?: string | null }>;
+
+function normalizedFlowRows(value: string): { ok: true; rows: ExtractionRow[] } | { ok: false; message: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return { ok: false, message: 'Invalid extraction rows' };
+  }
+  if (!Array.isArray(parsed)) return { ok: false, message: 'Invalid extraction rows' };
+
+  const rows: ExtractionRow[] = parsed.map((row) => {
+    const record = row !== null && typeof row === 'object' && !Array.isArray(row)
+      ? row as Record<string, unknown>
+      : {};
+    const shape = record.shape;
+    return {
+      field: typeof record.field === 'string' ? record.field : '',
+      shape: EXTRACTION_SHAPES.includes(shape as ExtractionShape) ? shape as ExtractionShape : 'string',
+      description: typeof record.description === 'string' ? record.description : '',
+    };
+  });
+  const rowsError = extractionRowsError(rows);
+  return rowsError ? { ok: false, message: rowsError.message } : { ok: true, rows };
+}
+
+function normalizedEdges(value: string): { ok: true; edges: ParsedEdges } | { ok: false; message: string } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return { ok: false, message: 'Invalid edges JSON' };
+  }
+  if (!Array.isArray(parsed)) return { ok: false, message: 'Edges must be an array' };
+
+  const edges: ParsedEdges = [];
+  for (const edge of parsed) {
+    if (edge === null || typeof edge !== 'object' || Array.isArray(edge)) {
+      return { ok: false, message: 'Edges must contain objects' };
+    }
+    const targetId = (edge as Record<string, unknown>).targetId;
+    const name = (edge as Record<string, unknown>).name;
+    if (typeof targetId !== 'string' || targetId.trim() === '') {
+      return { ok: false, message: 'Each edge needs a target node' };
+    }
+    if (name !== undefined && name !== null && typeof name !== 'string') {
+      return { ok: false, message: 'Edge names must be text' };
+    }
+    edges.push({ targetId, name: name ?? null });
+  }
+  return { ok: true, edges };
+}
+
+export function parseValidatedFlowRows(value: string): ExtractionRow[] {
+  const parsed = normalizedFlowRows(value);
+  if (!parsed.ok) {
+    throw new Error(`Validated flow rows failed to parse: ${parsed.message}`);
+  }
+  return parsed.rows;
+}
+
+export function parseValidatedEdges(value: string): ParsedEdges {
+  const parsed = normalizedEdges(value);
+  if (!parsed.ok) {
+    throw new Error(`Validated edges failed to parse: ${parsed.message}`);
+  }
+  return parsed.edges;
+}
 
 // Defaulted _kind accepts omitted hidden inputs while still rejecting a
 // defined discriminator from the wrong action.
@@ -35,9 +106,40 @@ export const nodeTestFlowSchema = z.object({
 // defined discriminator from the wrong action.
 export const nodeDeleteSchema = z.object({
   _kind: z.literal('deleteNode').default('deleteNode'),
-  hard: checkboxBoolean,
+  hard: checkboxBoolean.default(false),
+});
+
+// Defaulted _kind accepts omitted hidden inputs while still rejecting a
+// defined discriminator from the wrong action.
+export const nodeUpdateFlowSchema = z.object({
+  _kind: z.literal('updateFlow').default('updateFlow'),
+  extractionRows: z.string().default('[]').superRefine((value, ctx) => {
+    const parsed = normalizedFlowRows(value);
+    if (!parsed.ok) ctx.addIssue({ code: 'custom', message: parsed.message });
+  }),
+  outputWriteTo: z.string().trim().default('').superRefine((value, ctx) => {
+    if (value !== '' && !value.includes('::')) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Output target must be a fully-qualified node URN (org::memory::loc).',
+      });
+    }
+  }),
+  outputMode: z.enum(['replace', 'append']).default('replace'),
+});
+
+// Defaulted _kind accepts omitted hidden inputs while still rejecting a
+// defined discriminator from the wrong action.
+export const nodeUpdateEdgesSchema = z.object({
+  _kind: z.literal('updateEdges').default('updateEdges'),
+  edges: z.string().default('[]').superRefine((value, ctx) => {
+    const parsed = normalizedEdges(value);
+    if (!parsed.ok) ctx.addIssue({ code: 'custom', message: parsed.message });
+  }),
 });
 
 export type NodeMoveSchema = typeof nodeMoveSchema;
 export type NodeTestFlowSchema = typeof nodeTestFlowSchema;
 export type NodeDeleteSchema = typeof nodeDeleteSchema;
+export type NodeUpdateFlowSchema = typeof nodeUpdateFlowSchema;
+export type NodeUpdateEdgesSchema = typeof nodeUpdateEdgesSchema;

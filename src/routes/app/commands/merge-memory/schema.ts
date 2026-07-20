@@ -1,9 +1,9 @@
 import { z } from 'zod';
+import { checkboxBoolean } from '$lib/forms/checkbox-boolean';
 
 export const mergeMemoryFields = ['CONTENT', 'ABSTRACT', 'DESCRIPTION', 'TAGS', 'DATA', 'PROPERTIES', 'EDGES'] as const;
 
 const mergeField = z.enum(mergeMemoryFields);
-const boolCheckbox = z.preprocess((value) => value === true || value === 'true', z.boolean());
 const includeField = z.preprocess(
   (value) => value === undefined ? [] : (Array.isArray(value) ? value : [value]),
   z.array(mergeField),
@@ -14,5 +14,5 @@ export const mergeMemorySchema = z.object({
   source: z.string().trim().min(1, 'Enter a source memory.').prefault(''),
   target: z.string().trim().min(1, 'Enter a target memory.').prefault(''),
   include: includeField.prefault([]),
-  deleteSourceMem: boolCheckbox.prefault(false),
+  deleteSourceMem: checkboxBoolean.prefault(false),
 });

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { checkboxBoolean } from '$lib/forms/checkbox-boolean';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 
 function normalizedLoc(value: string, ctx: z.RefinementCtx): string {
@@ -32,7 +33,7 @@ export const editNodeSchema = z.object({
   content: z.string().trim().default(''),
   seq: seqField,
   tags: z.string().trim().default(''),
-  isRunnable: z.preprocess((value) => value === true || value === 'true' || value === 'on', z.boolean()).default(false),
+  isRunnable: checkboxBoolean.default(false),
   edges: z.string().default(''),
 });
 

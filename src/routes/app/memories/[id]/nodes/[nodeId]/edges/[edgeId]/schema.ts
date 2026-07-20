@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseConditionField, parsePriorityField } from '$lib/flow/edge-form';
+import { checkboxBoolean } from '$lib/forms/checkbox-boolean';
 
 export const EDGE_DATA_MAX = 262144; // 256 KB
 
@@ -47,7 +48,7 @@ export const edgeUpdateSchema = z.object({
   _kind: z.literal('updateEdge').default('updateEdge'),
   name: z.string().trim().default(''),
   description: z.string().trim().default(''),
-  isRunnable: z.preprocess((value) => value === true || value === 'true' || value === 'on', z.boolean()).default(false),
+  isRunnable: checkboxBoolean.default(false),
   priority: priorityField,
   condition: conditionField,
   data: dataField,
