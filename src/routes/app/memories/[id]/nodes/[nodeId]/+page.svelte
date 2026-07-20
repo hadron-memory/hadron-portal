@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { enhance as kitEnhance } from '$app/forms';
   import { invalidateAll, goto } from '$app/navigation';
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -39,21 +38,33 @@
   import type { PageData, ActionData } from './$types';
   import {
     isFullyQualifiedNodeUrnInput,
+    nodeConvertToTaskSchema,
+    nodeCreateParentSchema,
     nodeDeleteSchema,
+    nodeDuplicateSchema,
     nodeMoveSchema,
     nodeTestFlowSchema,
     nodeUpdateEdgesSchema,
     nodeUpdateFlowSchema,
+    nodeUpdateMetaSchema,
   } from './schema';
 
   type NodeMoveForm = Infer<typeof nodeMoveSchema, 'zod4'>;
   type NodeTestFlowForm = Infer<typeof nodeTestFlowSchema, 'zod4'>;
   type NodeDeleteForm = Infer<typeof nodeDeleteSchema, 'zod4'>;
+  type NodeCreateParentForm = Infer<typeof nodeCreateParentSchema, 'zod4'>;
+  type NodeUpdateMetaForm = Infer<typeof nodeUpdateMetaSchema, 'zod4'>;
+  type NodeDuplicateForm = Infer<typeof nodeDuplicateSchema, 'zod4'>;
+  type NodeConvertToTaskForm = Infer<typeof nodeConvertToTaskSchema, 'zod4'>;
   type NodeUpdateFlowForm = Infer<typeof nodeUpdateFlowSchema, 'zod4'>;
   type NodeUpdateEdgesForm = Infer<typeof nodeUpdateEdgesSchema, 'zod4'>;
   type NodeMoveSuperform = SuperValidated<NodeMoveForm, App.Superforms.Message, NodeMoveForm>;
   type NodeTestFlowSuperform = SuperValidated<NodeTestFlowForm, App.Superforms.Message, NodeTestFlowForm>;
   type NodeDeleteSuperform = SuperValidated<NodeDeleteForm, App.Superforms.Message, NodeDeleteForm>;
+  type NodeCreateParentSuperform = SuperValidated<NodeCreateParentForm, App.Superforms.Message, NodeCreateParentForm>;
+  type NodeUpdateMetaSuperform = SuperValidated<NodeUpdateMetaForm, App.Superforms.Message, NodeUpdateMetaForm>;
+  type NodeDuplicateSuperform = SuperValidated<NodeDuplicateForm, App.Superforms.Message, NodeDuplicateForm>;
+  type NodeConvertToTaskSuperform = SuperValidated<NodeConvertToTaskForm, App.Superforms.Message, NodeConvertToTaskForm>;
   type NodeUpdateFlowSuperform = SuperValidated<NodeUpdateFlowForm, App.Superforms.Message, NodeUpdateFlowForm>;
   type NodeUpdateEdgesSuperform = SuperValidated<NodeUpdateEdgesForm, App.Superforms.Message, NodeUpdateEdgesForm>;
 
@@ -463,6 +474,80 @@
     clearOnSubmit: 'none',
   });
 
+  const initialCreateParentForm = untrack(() => submittedForm<NodeCreateParentForm>(form, 'createParent') as NodeCreateParentSuperform | null ?? data.createParentForm);
+  const {
+    errors: createParentErrors,
+    message: createParentMessage,
+    enhance: createParentEnhance,
+  } = superForm<NodeCreateParentForm, App.Superforms.Message, NodeCreateParentForm>(initialCreateParentForm, {
+    validators: zod4Client(nodeCreateParentSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  const initialUpdateMetaForm = untrack(() => submittedForm<NodeUpdateMetaForm>(form, 'updateMeta') as NodeUpdateMetaSuperform | null ?? data.updateMetaForm);
+  const {
+    form: updateMetaFormData,
+    errors: updateMetaErrors,
+    message: updateMetaMessage,
+    submitting: updateMetaSubmitting,
+    enhance: updateMetaEnhance,
+  } = superForm<NodeUpdateMetaForm, App.Superforms.Message, NodeUpdateMetaForm>(initialUpdateMetaForm, {
+    validators: zod4Client(nodeUpdateMetaSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onResult: ({ result }) => {
+      if (result.type !== 'failure') isEditing = false;
+    },
+  });
+
+  let updateMetaNodeId = $state(untrack(() => node.id));
+  $effect(() => {
+    if (updateMetaNodeId === node.id) return;
+    updateMetaNodeId = node.id;
+    updateMetaFormData.update((current) => ({
+      ...current,
+      name: node.name ?? '',
+      nodeType: node.nodeType ?? '',
+      description: node.description ?? '',
+      alias: node.alias ?? '',
+      seq: node.seq ?? null,
+      tags: (node.tags ?? []).join(', '),
+      isRunnable: node.isRunnable ?? false,
+      loc: node.loc,
+    }), { taint: false });
+  });
+
+  const initialDuplicateForm = untrack(() => submittedForm<NodeDuplicateForm>(form, 'duplicateNode') as NodeDuplicateSuperform | null ?? data.duplicateForm);
+  const {
+    errors: duplicateErrors,
+    message: duplicateMessage,
+    enhance: duplicateEnhance,
+  } = superForm<NodeDuplicateForm, App.Superforms.Message, NodeDuplicateForm>(initialDuplicateForm, {
+    validators: zod4Client(nodeDuplicateSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  const initialConvertToTaskForm = untrack(() => submittedForm<NodeConvertToTaskForm>(form, 'convertToTask') as NodeConvertToTaskSuperform | null ?? data.convertToTaskForm);
+  const {
+    errors: convertToTaskErrors,
+    message: convertToTaskMessage,
+    enhance: convertToTaskEnhance,
+  } = superForm<NodeConvertToTaskForm, App.Superforms.Message, NodeConvertToTaskForm>(initialConvertToTaskForm, {
+    validators: zod4Client(nodeConvertToTaskSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
   const testFlowPayloadValid = $derived.by(() => {
     const raw = $testFlowFormData.payload.trim();
     if (raw === '') return true;
@@ -504,6 +589,37 @@
     'deleteNode',
     $deleteMessage,
     $deleteErrors,
+  ));
+  const createParentActionError = $derived(scopedActionError<NodeCreateParentForm>(
+    form,
+    'createParent',
+    $createParentMessage,
+    $createParentErrors,
+    ['_kind', 'loc', 'name'],
+  ));
+  const updateMetaActionError = $derived(scopedActionError<NodeUpdateMetaForm>(
+    form,
+    'updateMeta',
+    $updateMetaMessage,
+    $updateMetaErrors,
+    ['_kind', 'name', 'loc', 'nodeType', 'description', 'alias', 'seq', 'tags', 'isRunnable'],
+  ));
+  const updateMetaActionSuccess = $derived(scopedActionSuccess<NodeUpdateMetaForm>(
+    form,
+    'updateMeta',
+    $updateMetaMessage,
+  ));
+  const duplicateActionError = $derived(scopedActionError<NodeDuplicateForm>(
+    form,
+    'duplicateNode',
+    $duplicateMessage,
+    $duplicateErrors,
+  ));
+  const convertToTaskActionError = $derived(scopedActionError<NodeConvertToTaskForm>(
+    form,
+    'convertToTask',
+    $convertToTaskMessage,
+    $convertToTaskErrors,
   ));
 
   // ── Actions menu (#503) ─────────────────────────────────────────────
@@ -1090,9 +1206,6 @@
   // full seq rewrite, so a race could land a stale order.
   let reordering = $state(false);
 
-  // URN slug for edit form
-  const urnSlug = $derived(node.loc);
-
   type NodeTab = 'content' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'history' | 'settings';
 
   // Content / Abstract / Data / Properties / Flow / Edges / Settings are always
@@ -1180,9 +1293,13 @@
     { label: node.name },
   ]} />
   <!-- Create missing parent nodes -->
+  {#if createParentActionError}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{createParentActionError}</div>
+  {/if}
   {#each data.breadcrumb.slice(0, -1) as seg}
     {#if !seg.nodeId}
-      <form method="POST" action="?/createParent" use:kitEnhance class="inline">
+      <form method="POST" action="?/createParent" use:createParentEnhance novalidate class="inline">
+        <input type="hidden" name="_kind" value="createParent" />
         <input type="hidden" name="loc" value={seg.path} />
         <input type="hidden" name="name" value={seg.label} />
         <button type="submit" class="text-xs text-indigo-500 hover:text-indigo-400">
@@ -1223,12 +1340,21 @@
       <NodeActionsMenu actions={menuActions} onselect={onMenuSelect} label={`Actions for ${node.name}`} />
       <!-- Hidden form the menu's Duplicate item submits (requestSubmit fires
            the submit event use:enhance intercepts, unlike .submit()). -->
-      <form bind:this={duplicateForm} method="POST" action="?/duplicate" use:kitEnhance class="hidden"></form>
+      <form bind:this={duplicateForm} method="POST" action="?/duplicate" use:duplicateEnhance novalidate class="hidden">
+        <input type="hidden" name="_kind" value="duplicateNode" />
+      </form>
       <!-- Convert-to-task: flips isRunnable on; enhance re-runs load so the
            menu item disappears once the node is a task (#503). -->
-      <form bind:this={convertForm} method="POST" action="?/convertToTask" use:kitEnhance class="hidden"></form>
+      <form bind:this={convertForm} method="POST" action="?/convertToTask" use:convertToTaskEnhance novalidate class="hidden">
+        <input type="hidden" name="_kind" value="convertToTask" />
+      </form>
       <!-- Panels/dialogs opened from the actions menu, anchored to the header. -->
       <div class="relative">
+          {#if duplicateActionError || convertToTaskActionError}
+            <div role="alert" class="absolute right-0 z-20 mt-2 w-80 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+              {duplicateActionError ?? convertToTaskActionError}
+            </div>
+          {/if}
           {#if testFlowOpen}
             <button
               type="button"
@@ -2255,17 +2381,24 @@
               </div>
             {/if}
           </div>
+          {#if updateMetaActionSuccess && !isEditing}
+            <div role="status" class="mb-4 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{updateMetaActionSuccess}</div>
+          {/if}
 
           {#if isEditing}
-            <form method="POST" action="?/updateMeta" use:kitEnhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
+            <form method="POST" action="?/updateMeta" use:updateMetaEnhance novalidate
               class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+              <input type="hidden" name="_kind" bind:value={$updateMetaFormData._kind} />
+              {#if updateMetaActionError}
+                <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{updateMetaActionError}</div>
+              {/if}
               <div>
                 <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
-                <input id="editName" name="name" type="text" required value={node.name} class={inputClass} />
+                <input id="editName" name="name" type="text" required bind:value={$updateMetaFormData.name} class={inputClass} />
               </div>
               <div>
                 <label for="editNodeType" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Type</label>
-                <select id="editNodeType" name="nodeType" value={node.nodeType} class={inputClass}>
+                <select id="editNodeType" name="nodeType" bind:value={$updateMetaFormData.nodeType} class={inputClass}>
                   {#if !isCanonicalNodeType(node.nodeType)}
                     <option value={node.nodeType}>{node.nodeType}</option>
                   {/if}
@@ -2278,35 +2411,37 @@
                 <label for="editLoc" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN <span class="text-zinc-500">(changing this moves the node)</span></label>
                 <div class="flex items-stretch">
                   <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{data.graph.urn}:</span>
-                  <input id="editLoc" name="loc" type="text" value={urnSlug}
+                  <input id="editLoc" name="loc" type="text" bind:value={$updateMetaFormData.loc}
                     class="w-full rounded-r-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
                 </div>
               </div>
               <div>
                 <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
-                <textarea id="editDescription" name="description" rows="3" value={node.description ?? ''} placeholder="Short caption" class={inputClass}></textarea>
+                <textarea id="editDescription" name="description" rows="3" bind:value={$updateMetaFormData.description} placeholder="Short caption" class={inputClass}></textarea>
               </div>
               <div>
                 <label for="editAlias" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Alias</label>
-                <input id="editAlias" name="alias" type="text" value={node.alias ?? ''} placeholder="Optional" class={inputClass} />
+                <input id="editAlias" name="alias" type="text" bind:value={$updateMetaFormData.alias} placeholder="Optional" class={inputClass} />
               </div>
               <div>
                 <label for="editSeq" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Seq <span class="text-zinc-500">(sort order)</span></label>
-                <input id="editSeq" name="seq" type="number" value={node.seq ?? ''} placeholder="Optional" class={inputClass} />
+                <input id="editSeq" name="seq" type="number" bind:value={$updateMetaFormData.seq} placeholder="Optional" class={inputClass} />
               </div>
               <div>
                 <label for="editTags" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Tags <span class="text-zinc-500">(comma-separated)</span></label>
-                <input id="editTags" name="tags" type="text" value={node.tags.join(', ')} class={inputClass} />
+                <input id="editTags" name="tags" type="text" bind:value={$updateMetaFormData.tags} class={inputClass} />
               </div>
               <div>
                 <label class="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  <input id="editIsRunnable" name="isRunnable" type="checkbox" value="true" checked={node.isRunnable ?? false}
+                  <input id="editIsRunnable" name="isRunnable" type="checkbox" value="true" bind:checked={$updateMetaFormData.isRunnable}
                     class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
                   Is Runnable <span class="font-normal text-zinc-500">(can be run as a task by hadron_run_task)</span>
                 </label>
               </div>
               <div class="flex gap-3">
-                <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">Save</button>
+                <button type="submit" disabled={$updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
+                  {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : t('node.meta.save', 'Save')}
+                </button>
                 <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
               </div>
             </form>

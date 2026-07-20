@@ -15,11 +15,15 @@ import { t } from '$lib/i18n/t';
 import type { MemoryNode, NodeRevision } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
+  nodeConvertToTaskSchema,
+  nodeCreateParentSchema,
   nodeDeleteSchema,
+  nodeDuplicateSchema,
   nodeMoveSchema,
   nodeTestFlowSchema,
   nodeUpdateEdgesSchema,
   nodeUpdateFlowSchema,
+  nodeUpdateMetaSchema,
   parseValidatedEdges,
   parseValidatedFlowRows,
 } from './schema';
@@ -27,12 +31,20 @@ import {
 type NodeMoveForm = Infer<typeof nodeMoveSchema, 'zod4'>;
 type NodeTestFlowForm = Infer<typeof nodeTestFlowSchema, 'zod4'>;
 type NodeDeleteForm = Infer<typeof nodeDeleteSchema, 'zod4'>;
+type NodeCreateParentForm = Infer<typeof nodeCreateParentSchema, 'zod4'>;
+type NodeUpdateMetaForm = Infer<typeof nodeUpdateMetaSchema, 'zod4'>;
+type NodeDuplicateForm = Infer<typeof nodeDuplicateSchema, 'zod4'>;
+type NodeConvertToTaskForm = Infer<typeof nodeConvertToTaskSchema, 'zod4'>;
 type NodeUpdateFlowForm = Infer<typeof nodeUpdateFlowSchema, 'zod4'>;
 type NodeUpdateEdgesForm = Infer<typeof nodeUpdateEdgesSchema, 'zod4'>;
 
 const nodeMoveFormAdapter = zod4(nodeMoveSchema);
 const nodeTestFlowFormAdapter = zod4(nodeTestFlowSchema);
 const nodeDeleteFormAdapter = zod4(nodeDeleteSchema);
+const nodeCreateParentFormAdapter = zod4(nodeCreateParentSchema);
+const nodeUpdateMetaFormAdapter = zod4(nodeUpdateMetaSchema);
+const nodeDuplicateFormAdapter = zod4(nodeDuplicateSchema);
+const nodeConvertToTaskFormAdapter = zod4(nodeConvertToTaskSchema);
 const nodeUpdateFlowFormAdapter = zod4(nodeUpdateFlowSchema);
 const nodeUpdateEdgesFormAdapter = zod4(nodeUpdateEdgesSchema);
 
@@ -156,7 +168,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const flowRows = rowsFromNodeData(node.data);
   const output = outputFromNodeData(node.data);
   const outgoingEdges = node.outgoingEdges.map((e) => ({ targetId: e.target.id, name: e.name ?? null }));
-  const [moveForm, testFlowForm, deleteForm, flowForm, edgesForm] = await Promise.all([
+  const [moveForm, testFlowForm, deleteForm, createParentForm, updateMetaForm, duplicateForm, convertToTaskForm, flowForm, edgesForm] = await Promise.all([
     superValidate<NodeMoveForm>({ target: '' }, nodeMoveFormAdapter, { errors: false }),
     superValidate<NodeTestFlowForm>(
       { appId: '', orgId: org?.id ?? '', payload: '' },
@@ -164,6 +176,19 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       { errors: false },
     ),
     superValidate<NodeDeleteForm>({ hard: false }, nodeDeleteFormAdapter, { errors: false }),
+    superValidate<NodeCreateParentForm>({ loc: '', name: '' }, nodeCreateParentFormAdapter, { errors: false }),
+    superValidate<NodeUpdateMetaForm>({
+      name: node.name ?? '',
+      nodeType: node.nodeType ?? '',
+      description: node.description ?? '',
+      alias: node.alias ?? '',
+      seq: node.seq ?? null,
+      tags: (node.tags ?? []).join(', '),
+      isRunnable: node.isRunnable ?? false,
+      loc: node.loc,
+    }, nodeUpdateMetaFormAdapter, { errors: false }),
+    superValidate<NodeDuplicateForm>({}, nodeDuplicateFormAdapter, { errors: false }),
+    superValidate<NodeConvertToTaskForm>({}, nodeConvertToTaskFormAdapter, { errors: false }),
     superValidate<NodeUpdateFlowForm>({
       extractionRows: JSON.stringify(flowRows),
       outputWriteTo: output?.writeTo ?? '',
@@ -174,7 +199,22 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }, nodeUpdateEdgesFormAdapter, { errors: false }),
   ]);
 
-  return { node, breadcrumb, testFlowApps, memories, revisions, moveForm, testFlowForm, deleteForm, flowForm, edgesForm };
+  return {
+    node,
+    breadcrumb,
+    testFlowApps,
+    memories,
+    revisions,
+    moveForm,
+    testFlowForm,
+    deleteForm,
+    createParentForm,
+    updateMetaForm,
+    duplicateForm,
+    convertToTaskForm,
+    flowForm,
+    edgesForm,
+  };
 };
 
 export const actions: Actions = {
@@ -188,60 +228,62 @@ export const actions: Actions = {
   // and the post-action navigation re-runs `load`, whose redirect then
   // fixes the URL on screen.
   createParent: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const loc = String(fd.get('loc') ?? '').trim();
-    const name = String(fd.get('name') ?? '').trim();
-    if (!loc || !name) return fail(400, { error: 'Missing loc or name' });
+    const form = await superValidate<NodeCreateParentForm>(
+      await request.formData(),
+      nodeCreateParentFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+    const { loc, name } = form.data;
     const client = gqlClient(locals.token);
     // #237: derive memoryId from the anchor (URL) node so a stale URL
     // doesn't write the new parent into the wrong memory.
     const { node: anchorNode } = await client.request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
     );
-    if (!anchorNode) return fail(404, { error: 'Node not found' });
+    if (!anchorNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
     try {
       const res = await client.request<{ createNode: { id: string } }>(CREATE_NODE_MUTATION, {
         input: { memoryId: anchorNode.memoryId, loc, name, nodeType: 'info' },
       });
-      return { createdParentId: res.createNode.id };
+      return {
+        createdParentId: res.createNode.id,
+        ...message(form, { type: 'success', text: t('node.create-parent.saved', 'Parent node created.') }),
+      };
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to create parent node' });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to create parent node') }, { status: 500 });
     }
   },
 
   updateMeta: async ({ request, params, locals }) => {
-    const fd = await request.formData();
+    const form = await superValidate<NodeUpdateMetaForm>(
+      await request.formData(),
+      nodeUpdateMetaFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
     const client = gqlClient(locals.token);
 
     const { node: currentNode } = await client.request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
     );
-    if (!currentNode) return fail(404, { error: 'Node not found' });
+    if (!currentNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
 
-    const name = String(fd.get('name') ?? '').trim();
+    const name = form.data.name;
     // Accept only a canonical type or the node's existing one — otherwise keep
     // the current type. Guards against a crafted POST writing an arbitrary
     // nodeType (the dropdown only offers canonical values), and a blank field
     // never clears it.
-    const submittedType = String(fd.get('nodeType') ?? '').trim();
+    const submittedType = form.data.nodeType;
     const nodeType =
       isCanonicalNodeType(submittedType) || submittedType === currentNode.nodeType
         ? submittedType
         : currentNode.nodeType;
-    const description = String(fd.get('description') ?? '').trim() || null;
-    const alias = String(fd.get('alias') ?? '').trim() || null;
-    const seqRaw = String(fd.get('seq') ?? '').trim();
-    const seq = seqRaw !== '' ? parseInt(seqRaw, 10) : null;
-    const tagsStr = String(fd.get('tags') ?? '').trim();
+    const description = form.data.description || null;
+    const alias = form.data.alias || null;
+    const seq = form.data.seq;
+    const tagsStr = form.data.tags;
     const tags = tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : [];
-    // Checkbox: present (value "true") when checked, absent when unchecked.
-    // updateMeta rewrites the full meta set, so send an explicit boolean
-    // either way (updateNode preserves omitted fields — an absent checkbox
-    // would otherwise never uncheck).
-    const isRunnable = fd.get('isRunnable') === 'true';
-    const newLoc = cleanLocInput(String(fd.get('loc') ?? ''));
-
-    if (!name) return fail(400, { error: 'Name is required' });
+    const isRunnable = form.data.isRunnable;
+    const newLoc = form.data.loc;
 
     // Move if loc changed. #237: route the move through the node's OWN
     // identity — #564 reshaped moveNode to sourceRef (the PK) + targetUrn
@@ -251,7 +293,7 @@ export const actions: Actions = {
     const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
     if (loc !== currentNode.loc) {
       if (!currentNode.memory?.urn) {
-        return fail(500, { error: 'Node has no memory URN to move by.' });
+        return message(form, { type: 'error', text: 'Node has no memory URN to move by.' }, { status: 500 });
       }
       try {
         await client.request(MOVE_NODE_MUTATION, {
@@ -262,7 +304,9 @@ export const actions: Actions = {
         // An occupied destination is a 409 Conflict, not a 500 — matches the
         // /api/nodes/move endpoint and keeps it out of error monitoring.
         const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
-        return fail(status, { error: extractGqlError(e, 'Failed to move node') });
+        return status === 409
+          ? setError(form, 'loc', extractGqlError(e, 'Failed to move node'), { status })
+          : message(form, { type: 'error', text: extractGqlError(e, 'Failed to move node') }, { status });
       }
     }
 
@@ -270,8 +314,9 @@ export const actions: Actions = {
       await client.request(UPDATE_NODE_MUTATION, {
         input: { memoryId: currentNode.memoryId, loc, name, nodeType, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable },
       });
+      return message(form, { type: 'success', text: t('node.meta.saved', 'Node settings saved.') });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to save' });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
     }
   },
 
@@ -500,11 +545,18 @@ export const actions: Actions = {
   // the original, stepping to -copy-2… when the slot is taken (cloneNode
   // fails loudly with NODE_ALREADY_EXISTS — never overwrites). Redirects to
   // the new node's page.
-  duplicate: async ({ params, locals }) => {
+  duplicate: async ({ request, params, locals }) => {
+    const form = await superValidate<NodeDuplicateForm>(
+      await request.formData(),
+      nodeDuplicateFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
     const client = gqlClient(locals.token);
     const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
-    if (!node) return fail(404, { error: 'Node not found' });
-    if (!node.memory?.urn) return fail(500, { error: 'Node has no memory URN to clone by.' });
+    if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
+    if (!node.memory?.urn) {
+      return message(form, { type: 'error', text: 'Node has no memory URN to clone by.' }, { status: 500 });
+    }
 
     // Normalize the source loc first (PR-502 review): a legacy stored loc can
     // carry a URN prefix, and appending `-copy` to that then composing a URN
@@ -523,12 +575,12 @@ export const actions: Actions = {
         // An occupied -copy slot just means "try the next suffix"; anything
         // else surfaces as-is.
         if (extractGqlErrorCode(e) !== 'NODE_ALREADY_EXISTS') {
-          return fail(500, { error: extractGqlError(e, 'Failed to duplicate node') });
+          return message(form, { type: 'error', text: extractGqlError(e, 'Failed to duplicate node') }, { status: 500 });
         }
       }
     }
     if (clonedId === null) {
-      return fail(409, { error: 'Too many copies of this node already exist — rename one first.' });
+      return message(form, { type: 'error', text: 'Too many copies of this node already exist — rename one first.' }, { status: 409 });
     }
     redirect(303, `/app/memories/${node.memoryId}/nodes/${clonedId}`);
   },
@@ -583,10 +635,15 @@ export const actions: Actions = {
   // Convert to task (#503): flip isRunnable on so the node can be run headless.
   // updateNode preserves omitted fields, so this is a minimal patch — no
   // redirect; enhance re-runs load and the menu item drops off once it's a task.
-  convertToTask: async ({ params, locals }) => {
+  convertToTask: async ({ request, params, locals }) => {
+    const form = await superValidate<NodeConvertToTaskForm>(
+      await request.formData(),
+      nodeConvertToTaskFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
     const client = gqlClient(locals.token);
     const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
-    if (!node) return fail(404, { error: 'Node not found' });
+    if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
     try {
       await client.request(UPDATE_NODE_MUTATION, {
         input: {
@@ -597,9 +654,12 @@ export const actions: Actions = {
           isRunnable: true,
         },
       });
-      return { convertedToTask: true };
+      return {
+        convertedToTask: true,
+        ...message(form, { type: 'success', text: t('node-actions.convert-to-task.saved', 'Node converted to a task.') }),
+      };
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to convert node to a task') });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to convert node to a task') }, { status: 500 });
     }
   },
 
