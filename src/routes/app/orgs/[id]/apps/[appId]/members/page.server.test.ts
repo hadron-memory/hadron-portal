@@ -3,6 +3,7 @@ import {
   APP_WITH_MEMBERS_QUERY,
   ENSURE_APP_MEMBER_MUTATION,
   ORGANIZATION_QUERY,
+  REMOVE_APP_MEMBER_MUTATION,
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -103,6 +104,16 @@ async function runAdd(fields: Record<string, string>) {
   return actions.add(actionEv(fields));
 }
 
+async function runEnsure(fields: Record<string, string>) {
+  const { actions } = await importMod();
+  return actions.ensure(actionEv(fields));
+}
+
+async function runRemove(fields: Record<string, string>) {
+  const { actions } = await importMod();
+  return actions.remove(actionEv(fields));
+}
+
 function gqlError(code: string, message = 'GraphQL failed') {
   return {
     response: {
@@ -124,6 +135,7 @@ describe('app members load()', () => {
     expect(mockRequest).toHaveBeenNthCalledWith(2, ORGANIZATION_QUERY, { id: 'org-1' });
     expect(result).toMatchObject({ app: fakeApp, org: fakeOrg, members: fakeApp.members, allUsers: fakeUsers });
     expect((result as { addForm: { data: Record<string, string>; errors: Record<string, string[]> } }).addForm.data).toMatchObject({
+      _kind: 'addAppMember',
       userId: 'user-new',
       role: 'reader',
     });
@@ -132,8 +144,24 @@ describe('app members load()', () => {
 });
 
 describe('app members add action', () => {
+  it('rejects add payloads with the wrong action discriminator', async () => {
+    const result = await runAdd({ _kind: 'ensureAppMember', userId: 'user-new', role: 'reader' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('rejects an empty user before calling the API', async () => {
     const result = await runAdd({ userId: '', role: 'reader' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'userId')).toBe('User is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects an omitted user before calling the API', async () => {
+    const result = await runAdd({ role: 'reader' });
 
     expect(result).toMatchObject({ status: 400 });
     expect(fieldError(result, 'userId')).toBe('User is required.');
@@ -183,5 +211,75 @@ describe('app members add action', () => {
     expect(fieldError(result, 'role')).toBe(
       'That role isn’t permitted by this Agent. Pick one of the roles offered by the Agent author.',
     );
+  });
+});
+
+describe('app members ensure/remove actions', () => {
+  it('rejects ensure payloads with the wrong action discriminator', async () => {
+    const result = await runEnsure({ _kind: 'removeAppMember', userId: 'user-existing', role: 'editor' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects ensure payloads with an omitted role before calling the API', async () => {
+    const result = await runEnsure({ userId: 'user-existing' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'role')).toBe('Role is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('updates an app member role with trimmed Superforms data', async () => {
+    mockRequest.mockResolvedValueOnce({ ensureAppMember: { appId: 'app-1', userId: 'user-existing', role: 'editor' } });
+
+    const result = await runEnsure({ userId: ' user-existing ', role: ' editor ' });
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member updated.' });
+    expect(mockRequest).toHaveBeenCalledWith(ENSURE_APP_MEMBER_MUTATION, {
+      appId: 'app-1',
+      userId: 'user-existing',
+      role: 'editor',
+    });
+  });
+
+  it('returns invalid ensure roles as role field errors', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('InvalidRoleError'));
+
+    const result = await runEnsure({ userId: 'user-existing', role: 'admin' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'role')).toBe(
+      'That role isn’t permitted by this Agent. Pick one of the roles offered by the Agent author.',
+    );
+  });
+
+  it('rejects remove without a selected user before calling the API', async () => {
+    const result = await runRemove({ userId: '' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'userId')).toBe('User is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects remove with an omitted user before calling the API', async () => {
+    const result = await runRemove({});
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'userId')).toBe('User is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('removes an app member with a typed success message', async () => {
+    mockRequest.mockResolvedValueOnce({ removeAppMember: true });
+
+    const result = await runRemove({ userId: 'user-existing' });
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member removed.' });
+    expect(mockRequest).toHaveBeenCalledWith(REMOVE_APP_MEMBER_MUTATION, {
+      appId: 'app-1',
+      userId: 'user-existing',
+    });
   });
 });

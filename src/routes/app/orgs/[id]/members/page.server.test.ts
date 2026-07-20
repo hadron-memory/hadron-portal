@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CREATE_USER_INVITATION_MUTATION } from '$lib/server/queries';
+import {
+  ADD_MEMBER_MUTATION,
+  CREATE_USER_INVITATION_MUTATION,
+  REMOVE_MEMBER_MUTATION,
+  UPDATE_MEMBER_MUTATION,
+} from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -39,12 +44,18 @@ function loadEv(opts: { orgId?: string; userId?: string | null } = {}) {
   } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['load']>[0];
 }
 
-function actionEv(fields: Record<string, string>, opts: { orgId?: string; origin?: string } = {}) {
+function actionEv(
+  fields: Record<string, string>,
+  opts: { orgId?: string; origin?: string; userId?: string | null } = {},
+) {
   const fd = new FormData();
   for (const [key, value] of Object.entries(fields)) fd.set(key, value);
   return {
     params: { id: opts.orgId ?? 'org-id-123' },
-    locals: { token: 'test-token' },
+    locals: {
+      token: 'test-token',
+      user: opts.userId === undefined ? { id: 'user-1' } : opts.userId ? { id: opts.userId } : null,
+    },
     request: { formData: async () => fd },
     url: new URL(opts.origin ?? 'https://portal.example.test/app/orgs/org-id-123/members'),
   } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['actions']['invite']>[0];
@@ -72,6 +83,26 @@ async function runInvite(fields: Record<string, string>) {
   return actions.invite(actionEv(fields));
 }
 
+async function runAdd(fields: Record<string, string>) {
+  const { actions } = await importMod();
+  return actions.add(actionEv(fields));
+}
+
+async function runUpdate(fields: Record<string, string>) {
+  const { actions } = await importMod();
+  return actions.update(actionEv(fields));
+}
+
+async function runRemove(fields: Record<string, string>) {
+  const { actions } = await importMod();
+  return actions.remove(actionEv(fields));
+}
+
+async function runLeave(fields: Record<string, string>, opts: { userId?: string | null } = {}) {
+  const { actions } = await importMod();
+  return actions.leave(actionEv(fields, opts));
+}
+
 describe('org members load()', () => {
   it('loads the organization, current user, and quiet empty invite form', async () => {
     mockRequest.mockResolvedValueOnce({ organization: fakeOrg });
@@ -81,6 +112,7 @@ describe('org members load()', () => {
 
     expect(result).toMatchObject({ org: fakeOrg, currentUserId: 'user-1' });
     expect((result as { inviteForm: { data: Record<string, string> } }).inviteForm.data).toMatchObject({
+      _kind: 'inviteOrgMember',
       name: '',
       email: '',
       memberRole: 'READER',
@@ -89,7 +121,107 @@ describe('org members load()', () => {
   });
 });
 
+describe('org members add/update/remove/leave actions', () => {
+  it('adds an existing org member with trimmed form data', async () => {
+    mockRequest.mockResolvedValueOnce({ addOrganizationMember: true });
+
+    const result = await runAdd({ userId: '  user-2  ', role: 'ADMIN' });
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member added.' });
+    expect(mockRequest).toHaveBeenCalledWith(ADD_MEMBER_MUTATION, {
+      orgId: 'org-id-123',
+      userId: 'user-2',
+      role: 'ADMIN',
+    });
+  });
+
+  it('rejects add payloads with the wrong action discriminator', async () => {
+    const result = await runAdd({ _kind: 'removeOrgMember', userId: 'user-2', role: 'ADMIN' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects add payloads with an omitted user before calling the API', async () => {
+    const result = await runAdd({ role: 'ADMIN' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'userId')).toBe('User is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('updates a member role with Superforms validation', async () => {
+    mockRequest.mockResolvedValueOnce({ updateOrganizationMember: true });
+
+    const result = await runUpdate({ userId: 'user-2', role: 'CONTRIBUTOR' });
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member updated.' });
+    expect(mockRequest).toHaveBeenCalledWith(UPDATE_MEMBER_MUTATION, {
+      orgId: 'org-id-123',
+      userId: 'user-2',
+      role: 'CONTRIBUTOR',
+    });
+  });
+
+  it('rejects remove without a selected user before calling the API', async () => {
+    const result = await runRemove({ userId: '' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'userId')).toBe('User is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects remove with an omitted user before calling the API', async () => {
+    const result = await runRemove({});
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'userId')).toBe('User is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('removes a member with a typed success message', async () => {
+    mockRequest.mockResolvedValueOnce({ removeOrganizationMember: true });
+
+    const result = await runRemove({ userId: 'user-2' });
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Member removed.' });
+    expect(mockRequest).toHaveBeenCalledWith(REMOVE_MEMBER_MUTATION, {
+      orgId: 'org-id-123',
+      userId: 'user-2',
+    });
+  });
+
+  it('leaves the organization as the current user', async () => {
+    mockRequest.mockResolvedValueOnce({ removeOrganizationMember: true });
+
+    await expect(runLeave({ _kind: 'leaveOrg' }, { userId: 'user-self' }))
+      .rejects
+      .toMatchObject({ status: 303, location: '/app/orgs' });
+    expect(mockRequest).toHaveBeenCalledWith(REMOVE_MEMBER_MUTATION, {
+      orgId: 'org-id-123',
+      userId: 'user-self',
+    });
+  });
+
+  it('returns unauthenticated leave failures as Superforms messages', async () => {
+    const result = await runLeave({ _kind: 'leaveOrg' }, { userId: null });
+
+    expect(result).toMatchObject({ status: 401 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Not authenticated' });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+});
+
 describe('org members invite action', () => {
+  it('rejects invite payloads with the wrong action discriminator', async () => {
+    const result = await runInvite({ _kind: 'addOrgMember', name: 'Ada', email: '', memberRole: 'READER' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('rejects an empty recipient before calling the API', async () => {
     const result = await runInvite({ name: '', email: '', memberRole: 'READER' });
 

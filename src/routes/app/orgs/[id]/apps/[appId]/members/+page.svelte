@@ -1,11 +1,17 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
-  import { superForm } from 'sveltekit-superforms';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
-  import { addAppMemberSchema } from './schema';
+  import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
+
+  type AddAppMemberForm = Infer<typeof addAppMemberSchema, 'zod4'>;
+  type EnsureAppMemberForm = Infer<typeof ensureAppMemberSchema, 'zod4'>;
+  type RemoveAppMemberForm = Infer<typeof removeAppMemberSchema, 'zod4'>;
+  type AddAppMemberSuperform = SuperValidated<AddAppMemberForm, App.Superforms.Message, AddAppMemberForm>;
+  type EnsureAppMemberSuperform = SuperValidated<EnsureAppMemberForm, App.Superforms.Message, EnsureAppMemberForm>;
+  type RemoveAppMemberSuperform = SuperValidated<RemoveAppMemberForm, App.Superforms.Message, RemoveAppMemberForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
@@ -37,7 +43,21 @@
     );
   }
 
-  const initialAddForm = untrack(() => form?.form ?? data.addForm);
+  function submittedForm<T extends { _kind?: string }>(
+    actionData: ActionData,
+    kind: T['_kind'],
+  ): SuperValidated<T, App.Superforms.Message, T> | null {
+    const candidate = actionData && 'form' in actionData ? actionData.form : null;
+    const candidateData = candidate?.data;
+    const candidateKind = candidateData && typeof candidateData === 'object' && '_kind' in candidateData
+      ? String(candidateData._kind)
+      : null;
+    return candidateKind === kind
+      ? candidate as unknown as SuperValidated<T, App.Superforms.Message, T>
+      : null;
+  }
+
+  const initialAddForm = untrack(() => submittedForm<AddAppMemberForm>(form, 'addAppMember') as AddAppMemberSuperform | null ?? data.addForm);
   const {
     form: addForm,
     errors: addErrors,
@@ -57,10 +77,68 @@
   });
   const addUserError = $derived($addErrors.userId?.[0] ?? null);
   const addRoleError = $derived($addErrors.role?.[0] ?? null);
-  const addActionError = $derived($addMessage?.type === 'error' ? $addMessage.text : null);
+  const addActionError = $derived(
+    $addMessage?.type === 'error'
+      ? $addMessage.text
+      : $addErrors._kind?.[0] ?? null,
+  );
+
+  const initialEnsureForm = untrack(() => submittedForm<EnsureAppMemberForm>(form, 'ensureAppMember') as EnsureAppMemberSuperform | null ?? data.ensureForm);
+  const {
+    form: ensureForm,
+    errors: ensureErrors,
+    message: ensureMessage,
+    enhance: ensureEnhance,
+  } = superForm<EnsureAppMemberForm, App.Superforms.Message, EnsureAppMemberForm>(initialEnsureForm, {
+    validators: zod4Client(ensureAppMemberSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const ensureActionError = $derived(
+    $ensureMessage?.type === 'error'
+      ? $ensureMessage.text
+      : $ensureErrors.userId?.[0] ?? $ensureErrors.role?.[0] ?? $ensureErrors._kind?.[0] ?? null,
+  );
+  const ensureActionSuccess = $derived($ensureMessage?.type === 'success' ? $ensureMessage.text : null);
+
+  const initialRemoveForm = untrack(() => submittedForm<RemoveAppMemberForm>(form, 'removeAppMember') as RemoveAppMemberSuperform | null ?? data.removeForm);
+  const {
+    form: removeForm,
+    errors: removeErrors,
+    message: removeMessage,
+    enhance: removeEnhance,
+  } = superForm<RemoveAppMemberForm, App.Superforms.Message, RemoveAppMemberForm>(initialRemoveForm, {
+    validators: zod4Client(removeAppMemberSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const removeActionError = $derived(
+    $removeMessage?.type === 'error'
+      ? $removeMessage.text
+      : $removeErrors.userId?.[0] ?? $removeErrors._kind?.[0] ?? null,
+  );
+  const removeActionSuccess = $derived($removeMessage?.type === 'success' ? $removeMessage.text : null);
 
   function submitOnChange(e: Event) {
-    (e.currentTarget as HTMLSelectElement).form?.requestSubmit();
+    const select = e.currentTarget as HTMLSelectElement;
+    const userId = select.dataset.userId ?? '';
+    ensureForm.update(
+      (current) => ({
+        ...current,
+        userId,
+        role: select.value,
+      }),
+      { taint: false },
+    );
+    select.form?.requestSubmit();
+  }
+
+  function setRemoveUser(userId: string) {
+    removeForm.update((current) => ({ ...current, userId }), { taint: false });
   }
 
   function userLabel(u: { name: string | null; githubUsername: string | null; email?: string | null }): string {
@@ -93,8 +171,14 @@
     {/if}
   </div>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{form.error}</div>
+  {#if ensureActionError || removeActionError}
+    <div class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+      {ensureActionError ?? removeActionError}
+    </div>
+  {:else if ensureActionSuccess || removeActionSuccess}
+    <div class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+      {ensureActionSuccess ?? removeActionSuccess}
+    </div>
   {/if}
 
   <!-- Member list -->
@@ -115,9 +199,10 @@
           </div>
 
           {#if memberRoles.length > 0}
-            <form method="POST" action="?/ensure" use:enhance class="flex items-center gap-2">
+            <form method="POST" action="?/ensure" use:ensureEnhance class="flex items-center gap-2">
+              <input type="hidden" name="_kind" value="ensureAppMember" />
               <input type="hidden" name="userId" value={m.userId} />
-              <select name="role" onchange={submitOnChange}
+              <select name="role" data-user-id={m.userId} onchange={submitOnChange}
                 class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white">
                 {#each memberRoles as role}
                   <option value={role} selected={m.role === role}>{role}</option>
@@ -128,9 +213,12 @@
             <span class="text-xs text-zinc-500">{m.role}</span>
           {/if}
 
-          <form method="POST" action="?/remove" use:enhance>
+          <!-- Keep both handlers: onclick updates before client validation for button activation;
+               onsubmit covers keyboard/requestSubmit paths. -->
+          <form method="POST" action="?/remove" use:removeEnhance onsubmit={() => setRemoveUser(m.userId)}>
+            <input type="hidden" name="_kind" value="removeAppMember" />
             <input type="hidden" name="userId" value={m.userId} />
-            <button type="submit" class="text-xs text-red-500 hover:text-red-400 dark:text-red-400 dark:hover:text-red-300">Remove</button>
+            <button type="submit" onclick={() => setRemoveUser(m.userId)} class="text-xs text-red-500 hover:text-red-400 dark:text-red-400 dark:hover:text-red-300">Remove</button>
           </form>
         </div>
       {/each}
@@ -149,6 +237,7 @@
         </p>
       {:else}
         <form method="POST" action="?/add" use:addEnhance class="flex flex-wrap items-start gap-3" novalidate>
+          <input type="hidden" name="_kind" value="addAppMember" />
           {#if addActionError}
             <div class="basis-full rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{addActionError}</div>
           {/if}
