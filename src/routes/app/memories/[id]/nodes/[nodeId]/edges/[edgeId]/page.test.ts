@@ -30,7 +30,7 @@ vi.mock('$app/stores', () => ({
 }));
 
 import Page from './+page.svelte';
-import { edgeUpdateSchema } from './schema';
+import { edgeDeleteSchema, edgeUpdateSchema } from './schema';
 
 // Flow-authoring surface (#478): the edge editor for a routing edge shows the
 // generated next.<index>.<label> name, the plain-English condition preview,
@@ -103,6 +103,7 @@ const flowFields = [
 
 async function renderPage(edge: (typeof host.outgoingEdges)[number]) {
   const form = await superValidate({
+    _kind: 'updateEdge',
     name: edge.name ?? '',
     description: edge.description ?? '',
     isRunnable: edge.isRunnable ?? false,
@@ -110,9 +111,10 @@ async function renderPage(edge: (typeof host.outgoingEdges)[number]) {
     condition: JSON.stringify(edge.condition ?? null),
     data: edge.data != null ? JSON.stringify(edge.data, null, 2) : '',
   }, zod4(edgeUpdateSchema), { errors: false });
+  const deleteForm = await superValidate({}, zod4(edgeDeleteSchema), { errors: false });
 
   return render(Page, {
-    props: { data: { graph, host, edge, flowFields, form } as never, form: null },
+    props: { data: { graph, host, edge, flowFields, form, deleteForm } as never, form: null },
   }).body;
 }
 

@@ -16,11 +16,13 @@ import { isRoutingName, routingNameOf } from '$lib/flow/routing';
 import { t } from '$lib/i18n/t';
 import type { NodeEdge } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { edgeUpdateSchema, parseEdgeDataText } from './schema';
+import { edgeDeleteSchema, edgeUpdateSchema, parseEdgeDataText } from './schema';
 
 type EdgeUpdateForm = Infer<typeof edgeUpdateSchema, 'zod4'>;
+type EdgeDeleteForm = Infer<typeof edgeDeleteSchema, 'zod4'>;
 
 const edgeUpdateFormAdapter = zod4(edgeUpdateSchema);
+const edgeDeleteFormAdapter = zod4(edgeDeleteSchema);
 
 // The edge detail page (#350). The server has no single-edge query, so we load
 // the edge's HOST node (= its source — every edge is owned by its source node)
@@ -96,6 +98,7 @@ async function loadFlowFields(token: string | null | undefined, host: HostNode) 
 
 function formDefaults(edge: NodeEdge): EdgeUpdateForm {
   return {
+    _kind: 'updateEdge',
     name: edge.name ?? '',
     description: edge.description ?? '',
     isRunnable: edge.isRunnable ?? false,
@@ -150,8 +153,13 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     edgeUpdateFormAdapter,
     { errors: false },
   );
+  const deleteForm = await superValidate<EdgeDeleteForm>(
+    {},
+    edgeDeleteFormAdapter,
+    { errors: false },
+  );
 
-  return { host, edge, flowFields, form };
+  return { host, edge, flowFields, form, deleteForm };
 };
 
 export const actions: Actions = {
@@ -191,11 +199,21 @@ export const actions: Actions = {
     }
   },
 
-  delete: async ({ params, locals }) => {
+  delete: async ({ request, params, locals }) => {
+    const form = await superValidate<EdgeDeleteForm>(
+      await request.formData(),
+      edgeDeleteFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(DELETE_EDGE_MUTATION, { edgeId: params.edgeId });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete edge' });
+      return message(
+        form,
+        { type: 'error', text: e instanceof Error ? e.message : 'Failed to delete edge' },
+        { status: 500 },
+      );
     }
     // Back to the source node — its Edges tab is where the edge lived.
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);

@@ -1,10 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { superForm } from 'sveltekit-superforms';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import ConditionBuilder from '$lib/edge-conditions/ConditionBuilder.svelte';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { describeCondition } from '$lib/edge-conditions/describe';
   import type { UiCondition } from '$lib/edge-conditions/types';
   import {
@@ -20,14 +22,19 @@
   import { t } from '$lib/i18n/t';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { PageData, ActionData } from './$types';
-  import { edgeUpdateSchema } from './schema';
+  import { edgeDeleteSchema, edgeUpdateSchema } from './schema';
+
+  type EdgeUpdateForm = Infer<typeof edgeUpdateSchema, 'zod4'>;
+  type EdgeDeleteForm = Infer<typeof edgeDeleteSchema, 'zod4'>;
+  type EdgeUpdateSuperform = SuperValidated<EdgeUpdateForm, App.Superforms.Message, EdgeUpdateForm>;
+  type EdgeDeleteSuperform = SuperValidated<EdgeDeleteForm, App.Superforms.Message, EdgeDeleteForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const edge = $derived(data.edge);
   const host = $derived(data.host);
   const basePath = $derived(`/app/memories/${data.graph.id}`);
-  const initialForm = untrack(() => (form as { form?: typeof data.form } | null)?.form ?? data.form);
+  const initialForm = untrack(() => submittedForm<EdgeUpdateForm>(form, 'updateEdge') as EdgeUpdateSuperform | null ?? data.form);
   const {
     form: formData,
     errors,
@@ -41,10 +48,36 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
   });
+  const initialDeleteForm = untrack(() => submittedForm<EdgeDeleteForm>(form, 'deleteEdge') as EdgeDeleteSuperform | null ?? data.deleteForm);
+  const {
+    form: deleteFormData,
+    errors: deleteErrors,
+    message: deleteMessage,
+    submitting: deleteSubmitting,
+    enhance: deleteEnhance,
+  } = superForm<EdgeDeleteForm, App.Superforms.Message, EdgeDeleteForm>(initialDeleteForm, {
+    validators: zod4Client(edgeDeleteSchema),
+    validationMethod: 'onsubmit',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
 
-  const plainActionError = $derived((form as { error?: string } | null)?.error ?? null);
-  const actionError = $derived($message?.type === 'error' ? $message.text : plainActionError);
-  const actionSuccess = $derived($message?.type === 'success' ? $message.text : null);
+  const updateActionError = $derived(scopedActionError<EdgeUpdateForm>(
+    form,
+    'updateEdge',
+    $message,
+    $errors,
+    ['_kind', 'priority', 'condition', 'data'],
+  ));
+  const deleteActionError = $derived(scopedActionError<EdgeDeleteForm>(
+    form,
+    'deleteEdge',
+    $deleteMessage,
+    $deleteErrors,
+  ));
+  const actionError = $derived(updateActionError ?? deleteActionError);
+  const actionSuccess = $derived(scopedActionSuccess<EdgeUpdateForm>(form, 'updateEdge', $message));
   const priorityError = $derived($errors.priority?.[0] ?? null);
   const conditionFieldError = $derived($errors.condition?.[0] ?? null);
   const dataFieldError = $derived($errors.data?.[0] ?? null);
@@ -221,6 +254,7 @@
 
   <!-- Edit form -->
   <form method="POST" action="?/update" use:enhance class="max-w-2xl space-y-5 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" novalidate>
+    <input type="hidden" name="_kind" value={$formData._kind} />
     <div>
       <label class="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
         <input
@@ -439,9 +473,12 @@
         Delete edge
       </button>
     {:else}
-      <form method="POST" action="?/delete" use:enhance class="flex items-center gap-2">
+      <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
+        <input type="hidden" name="_kind" value={$deleteFormData._kind} />
         <span class="text-sm text-red-500">Delete this edge? This cannot be undone.</span>
-        <button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500">Yes, delete</button>
+        <button type="submit" disabled={$deleteSubmitting} class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:opacity-50">
+          {$deleteSubmitting ? 'Deleting...' : 'Yes, delete'}
+        </button>
         <button type="button" onclick={() => (confirmDelete = false)} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
       </form>
     {/if}
