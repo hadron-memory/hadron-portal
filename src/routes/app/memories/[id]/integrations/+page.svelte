@@ -1,21 +1,29 @@
 <script lang="ts">
   // #266: Integrations tab — GitHub source + branches and the sync/push actions,
   // split out of the Settings page.
-  import { enhance } from '$app/forms';
   import { t } from '$lib/i18n/t';
   import { untrack } from 'svelte';
-  import { superForm } from 'sveltekit-superforms';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import type { PageData, ActionData } from './$types';
-  import { memoryIntegrationSchema } from './schema';
+  import {
+    memoryIntegrationSchema,
+    pushMemoryIntegrationSchema,
+    syncMemoryIntegrationSchema,
+  } from './schema';
+
+  type MemoryIntegrationForm = Infer<typeof memoryIntegrationSchema, 'zod4'>;
+  type PushMemoryIntegrationForm = Infer<typeof pushMemoryIntegrationSchema, 'zod4'>;
+  type SyncMemoryIntegrationForm = Infer<typeof syncMemoryIntegrationSchema, 'zod4'>;
+  type MemoryIntegrationSuperform = SuperValidated<MemoryIntegrationForm, App.Superforms.Message, MemoryIntegrationForm>;
+  type PushMemoryIntegrationSuperform = SuperValidated<PushMemoryIntegrationForm, App.Superforms.Message, PushMemoryIntegrationForm>;
+  type SyncMemoryIntegrationSuperform = SuperValidated<SyncMemoryIntegrationForm, App.Superforms.Message, SyncMemoryIntegrationForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const g = $derived(data.graph);
 
-  let syncing = $state(false);
-  let pushing = $state(false);
-
-  const initialIntegrationForm = untrack(() => form?.form ?? data.form);
+  const initialIntegrationForm = untrack(() => submittedForm<MemoryIntegrationForm>(form, 'updateIntegration') as MemoryIntegrationSuperform | null ?? data.form);
   const {
     form: integrationForm,
     errors: integrationErrors,
@@ -30,29 +38,65 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
   });
+  const initialSyncForm = untrack(() => submittedForm<SyncMemoryIntegrationForm>(form, 'syncMemory') as SyncMemoryIntegrationSuperform | null ?? data.syncForm);
+  const {
+    message: syncMessage,
+    submitting: syncSubmitting,
+    enhance: syncEnhance,
+  } = superForm<SyncMemoryIntegrationForm, App.Superforms.Message, SyncMemoryIntegrationForm>(initialSyncForm, {
+    validators: zod4Client(syncMemoryIntegrationSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const initialPushForm = untrack(() => submittedForm<PushMemoryIntegrationForm>(form, 'pushMemory') as PushMemoryIntegrationSuperform | null ?? data.pushForm);
+  const {
+    message: pushMessage,
+    submitting: pushSubmitting,
+    enhance: pushEnhance,
+  } = superForm<PushMemoryIntegrationForm, App.Superforms.Message, PushMemoryIntegrationForm>(initialPushForm, {
+    validators: zod4Client(pushMemoryIntegrationSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
   const sourceError = $derived($integrationErrors.source?.[0] ?? null);
   const readBranchError = $derived($integrationErrors.readBranch?.[0] ?? null);
   const writeBranchError = $derived($integrationErrors.writeBranch?.[0] ?? null);
-  const actionError = $derived($integrationMessage?.type === 'error' ? $integrationMessage.text : null);
-  const actionSuccess = $derived($integrationMessage?.type === 'success' ? $integrationMessage.text : null);
-  const commandSuccess = $derived(
-    form && 'synced' in form
-      ? t('integrations.synced', 'Memory synced.')
-      : form && 'pushed' in form
-        ? t('integrations.pushed', 'Pushed to Git.')
-        : null
-  );
+  const actionError = $derived.by(() => {
+    const submitted = submittedForm<MemoryIntegrationForm>(form, 'updateIntegration');
+    const message = $integrationMessage;
+    return submitted && message?.type === 'error' ? message.text : null;
+  });
+  const actionSuccess = $derived.by(() => {
+    const submitted = submittedForm<MemoryIntegrationForm>(form, 'updateIntegration');
+    const message = $integrationMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
+  const commandError = $derived.by(() => {
+    const submittedSync = submittedForm<SyncMemoryIntegrationForm>(form, 'syncMemory');
+    const submittedPush = submittedForm<PushMemoryIntegrationForm>(form, 'pushMemory');
+    const sync = $syncMessage;
+    const push = $pushMessage;
+    if (submittedSync && sync?.type === 'error') return sync.text;
+    if (submittedPush && push?.type === 'error') return push.text;
+    return null;
+  });
+  const commandSuccess = $derived.by(() => {
+    const submittedSync = submittedForm<SyncMemoryIntegrationForm>(form, 'syncMemory');
+    const submittedPush = submittedForm<PushMemoryIntegrationForm>(form, 'pushMemory');
+    const sync = $syncMessage;
+    const push = $pushMessage;
+    if (submittedSync && sync?.type === 'success') return sync.text;
+    if (submittedPush && push?.type === 'success') return push.text;
+    return null;
+  });
   const successMessage = $derived(commandSuccess ?? actionSuccess);
 
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
-
-  function syncingEnhance(el: HTMLFormElement) {
-    return enhance(el, () => { syncing = true; return async ({ update }) => { syncing = false; await update(); }; });
-  }
-  function pushingEnhance(el: HTMLFormElement) {
-    return enhance(el, () => { pushing = true; return async ({ update }) => { pushing = false; await update(); }; });
-  }
 
   function fmtDate(s: string | null | undefined): string {
     if (!s) return '—';
@@ -64,9 +108,8 @@
 <svelte:head><title>{g.name} &middot; Integrations &middot; Hadron</title></svelte:head>
 
 <div class="max-w-lg space-y-8">
-  <!-- form.error surfaces plain sync/push failures; actionError surfaces the Superforms update path. -->
-  {#if form?.error}
-    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if commandError}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{commandError}</div>
   {/if}
   {#if successMessage}
     <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
@@ -77,6 +120,7 @@
   <section>
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('integrations.github', 'GitHub')}</h2>
     <form method="POST" action="?/update" use:integrationEnhance class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" novalidate>
+      <input type="hidden" name="_kind" value={$integrationForm._kind} />
       {#if actionError}
         <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
       {/if}
@@ -148,14 +192,16 @@
       </div>
     </div>
     <div class="mt-4 flex gap-3">
-      <form method="POST" action="?/sync" use:syncingEnhance>
-        <button type="submit" disabled={syncing} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
-          {syncing ? t('integrations.syncing', 'Syncing...') : t('integrations.sync-from-git', 'Sync from Git')}
+      <form method="POST" action="?/sync" use:syncEnhance novalidate>
+        <input type="hidden" name="_kind" value="syncMemory" />
+        <button type="submit" disabled={$syncSubmitting} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
+          {$syncSubmitting ? t('integrations.syncing', 'Syncing...') : t('integrations.sync-from-git', 'Sync from Git')}
         </button>
       </form>
-      <form method="POST" action="?/pushToGit" use:pushingEnhance>
-        <button type="submit" disabled={pushing} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
-          {pushing ? t('integrations.pushing', 'Pushing...') : t('integrations.push-to-git', 'Push to Git')}
+      <form method="POST" action="?/pushToGit" use:pushEnhance novalidate>
+        <input type="hidden" name="_kind" value="pushMemory" />
+        <button type="submit" disabled={$pushSubmitting} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
+          {$pushSubmitting ? t('integrations.pushing', 'Pushing...') : t('integrations.push-to-git', 'Push to Git')}
         </button>
       </form>
     </div>

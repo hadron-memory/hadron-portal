@@ -72,10 +72,13 @@ function actionEvent(fields: Record<string, string>) {
   } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['actions']['update']>[0];
 }
 
-function commandEvent() {
+function commandEvent(fields: Record<string, string> = {}) {
+  const fd = new FormData();
+  for (const [key, value] of Object.entries(fields)) fd.set(key, value);
   return {
     params: { id: 'memory-1' },
     locals: { token: 'test-token' },
+    request: { formData: async () => fd },
   } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['actions']['sync']>[0];
 }
 
@@ -104,10 +107,18 @@ describe('memory integrations load()', () => {
     expect((result as {
       form: { data: Record<string, string>; errors: Record<string, string[]> };
     }).form.data).toEqual({
+      _kind: 'updateIntegration',
       source: 'https://github.com/acme/memory.git',
       readBranch: 'main',
       writeBranch: 'hadron-updates',
     });
+    expect((result as {
+      syncForm: { data: Record<string, string>; errors: Record<string, string[]> };
+      pushForm: { data: Record<string, string>; errors: Record<string, string[]> };
+    }).syncForm.data).toEqual({ _kind: 'syncMemory' });
+    expect((result as {
+      pushForm: { data: Record<string, string>; errors: Record<string, string[]> };
+    }).pushForm.data).toEqual({ _kind: 'pushMemory' });
     expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
   });
 
@@ -121,6 +132,7 @@ describe('memory integrations load()', () => {
     }));
 
     expect((result as { form: { data: Record<string, string> } }).form.data).toEqual({
+      _kind: 'updateIntegration',
       source: '',
       readBranch: '',
       writeBranch: '',
@@ -199,6 +211,19 @@ describe('memory integrations update action', () => {
       text: 'Only owners can update integrations',
     });
   });
+
+  it('rejects update POSTs with the wrong form discriminator', async () => {
+    const result = await runUpdate({
+      _kind: 'syncMemory',
+      source: 'https://github.com/acme/memory.git',
+      readBranch: 'main',
+      writeBranch: 'hadron-updates',
+    });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
 });
 
 describe('memory integrations command actions', () => {
@@ -208,18 +233,28 @@ describe('memory integrations command actions', () => {
     const { actions } = await importMod();
     const result = await actions.sync(commandEvent());
 
-    expect(result).toEqual({ synced: true });
+    expect(superFormFrom(result)?.valid).toBe(true);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Memory synced.' });
     expect(mockRequest).toHaveBeenCalledWith(SYNC_MEMORY_MUTATION, { id: 'memory-1' });
   });
 
-  it('returns sync failures as form errors', async () => {
+  it('rejects sync POSTs with the wrong form discriminator', async () => {
+    const { actions } = await importMod();
+    const result = await actions.sync(commandEvent({ _kind: 'pushMemory' }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns sync failures as Superforms messages', async () => {
     mockRequest.mockRejectedValueOnce(new Error('rate limit'));
 
     const { actions } = await importMod();
     const result = await actions.sync(commandEvent());
 
     expect(result).toMatchObject({ status: 500 });
-    expect((result as { data: { error: string } }).data.error).toBe('rate limit');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'rate limit' });
   });
 
   it('pushes the memory to Git', async () => {
@@ -228,17 +263,27 @@ describe('memory integrations command actions', () => {
     const { actions } = await importMod();
     const result = await actions.pushToGit(commandEvent());
 
-    expect(result).toEqual({ pushed: true });
+    expect(superFormFrom(result)?.valid).toBe(true);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Pushed to Git.' });
     expect(mockRequest).toHaveBeenCalledWith(PUSH_MEMORY_TO_GIT_MUTATION, { id: 'memory-1' });
   });
 
-  it('returns push failures as form errors', async () => {
+  it('rejects push POSTs with the wrong form discriminator', async () => {
+    const { actions } = await importMod();
+    const result = await actions.pushToGit(commandEvent({ _kind: 'syncMemory' }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns push failures as Superforms messages', async () => {
     mockRequest.mockRejectedValueOnce(new Error('push rejected'));
 
     const { actions } = await importMod();
     const result = await actions.pushToGit(commandEvent());
 
     expect(result).toMatchObject({ status: 500 });
-    expect((result as { data: { error: string } }).data.error).toBe('push rejected');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'push rejected' });
   });
 });

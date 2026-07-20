@@ -4,7 +4,10 @@ import {
   APP_NODES_QUERY,
   APP_QUERY,
   CREATE_APP_KEY_MUTATION,
+  DELETE_APP_MUTATION,
   ORGANIZATION_QUERY,
+  REMOVE_AGENT_FROM_APP_MUTATION,
+  REVOKE_APP_KEY_MUTATION,
   UPDATE_APP_MUTATION,
 } from '$lib/server/queries';
 
@@ -26,12 +29,18 @@ beforeEach(() => {
 });
 
 async function runAction(
-  name: 'update' | 'addAgent' | 'createKey',
-  fields: Record<string, string>,
+  name: 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey' | 'revokeKey' | 'deleteApp',
+  fields: Record<string, string | string[]>,
 ) {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
-  for (const [key, value] of Object.entries(fields)) fd.set(key, value);
+  for (const [key, value] of Object.entries(fields)) {
+    if (Array.isArray(value)) {
+      for (const item of value) fd.append(key, item);
+    } else {
+      fd.set(key, value);
+    }
+  }
   const event = {
     request: { formData: async () => fd },
     params: { id: 'org-1', appId: 'app-1' },
@@ -284,6 +293,188 @@ describe('createKey action', () => {
   it('returns a typed error when key creation fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runAction('createKey', { label: 'production' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+});
+
+describe('removeAgent action', () => {
+  it('unlinks an agent with trimmed Superforms data', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('removeAgent', { agentId: ' agent-1 ' });
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'removeAgent', agentId: 'agent-1' },
+        message: { type: 'success', text: 'Agent unlinked.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      REMOVE_AGENT_FROM_APP_MUTATION,
+      { appId: 'app-1', agentId: 'agent-1' },
+    ]);
+  });
+
+  it('rejects removeAgent POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('removeAgent', {
+      _kind: 'addAgent',
+      agentId: 'agent-1',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects removeAgent POSTs with an omitted agent before mutation', async () => {
+    const result = (await runAction('removeAgent', {})) as {
+      status: number;
+      data: { form: { errors: { agentId?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.agentId?.[0]).toBe('Agent is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns typed removeAgent errors', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('removeAgent', { agentId: 'agent-1' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+});
+
+describe('updateAgentTools action', () => {
+  it('saves repeated agent tool inputs as an array', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('updateAgentTools', {
+      agentTools: ['CLAUDE_CODE', 'MCP_INSPECTOR'],
+    });
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'updateAgentTools', agentTools: ['CLAUDE_CODE', 'MCP_INSPECTOR'] },
+        message: { type: 'success', text: 'Client tools saved.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      UPDATE_APP_MUTATION,
+      { id: 'app-1', agentTools: ['CLAUDE_CODE', 'MCP_INSPECTOR'] },
+    ]);
+  });
+
+  it('saves an empty agent tools list when no tools are selected', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    await runAction('updateAgentTools', {});
+
+    expect(mockRequest.mock.calls[0]).toEqual([
+      UPDATE_APP_MUTATION,
+      { id: 'app-1', agentTools: [] },
+    ]);
+  });
+
+  it('rejects updateAgentTools POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('updateAgentTools', {
+      _kind: 'deleteApp',
+      agentTools: 'CLAUDE_CODE',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns typed updateAgentTools errors', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('updateAgentTools', { agentTools: 'CLAUDE_CODE' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+});
+
+describe('revokeKey action', () => {
+  it('revokes an app key with trimmed Superforms data', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('revokeKey', { keyId: ' key-1 ' });
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'revokeKey', keyId: 'key-1' },
+        message: { type: 'success', text: 'Key revoked.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      REVOKE_APP_KEY_MUTATION,
+      { id: 'key-1' },
+    ]);
+  });
+
+  it('rejects revokeKey POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('revokeKey', {
+      _kind: 'createKey',
+      keyId: 'key-1',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects revokeKey POSTs with an omitted key before mutation', async () => {
+    const result = (await runAction('revokeKey', {})) as {
+      status: number;
+      data: { form: { errors: { keyId?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.keyId?.[0]).toBe('Key is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns typed revokeKey errors', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('revokeKey', { keyId: 'key-1' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+});
+
+describe('deleteApp action', () => {
+  it('deletes the app and redirects to the app list', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    await expect(runAction('deleteApp', {})).rejects.toMatchObject({
+      status: 303,
+      location: '/app/orgs/org-1/apps',
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      DELETE_APP_MUTATION,
+      { id: 'app-1' },
+    ]);
+  });
+
+  it('rejects deleteApp POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('deleteApp', {
+      _kind: 'revokeKey',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns typed deleteApp errors', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('deleteApp', {})) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };

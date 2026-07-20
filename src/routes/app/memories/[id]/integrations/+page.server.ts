@@ -13,10 +13,18 @@ import {
 } from '$lib/server/queries';
 import type { Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { memoryIntegrationSchema } from './schema';
+import {
+  memoryIntegrationSchema,
+  pushMemoryIntegrationSchema,
+  syncMemoryIntegrationSchema,
+} from './schema';
 
 const memoryIntegrationFormAdapter = zod4(memoryIntegrationSchema);
+const pushMemoryIntegrationFormAdapter = zod4(pushMemoryIntegrationSchema);
+const syncMemoryIntegrationFormAdapter = zod4(syncMemoryIntegrationSchema);
 type MemoryIntegrationForm = Infer<typeof memoryIntegrationSchema, 'zod4'>;
+type PushMemoryIntegrationForm = Infer<typeof pushMemoryIntegrationSchema, 'zod4'>;
+type SyncMemoryIntegrationForm = Infer<typeof syncMemoryIntegrationSchema, 'zod4'>;
 
 function integrationFormDefaults(memory: Memory) {
   return {
@@ -38,12 +46,27 @@ export const load: PageServerLoad = async ({ parent }) => {
   const parentDataPromise = parent();
   await requireNonConsumer(() => parentDataPromise);
   const { graph } = await parentDataPromise;
-  return {
-    form: await superValidate<MemoryIntegrationForm>(
+  const [form, syncForm, pushForm] = await Promise.all([
+    superValidate<MemoryIntegrationForm>(
       integrationFormDefaults(graph),
       memoryIntegrationFormAdapter,
       { errors: false },
     ),
+    superValidate<SyncMemoryIntegrationForm>(
+      {},
+      syncMemoryIntegrationFormAdapter,
+      { errors: false },
+    ),
+    superValidate<PushMemoryIntegrationForm>(
+      {},
+      pushMemoryIntegrationFormAdapter,
+      { errors: false },
+    ),
+  ]);
+  return {
+    form,
+    syncForm,
+    pushForm,
   };
 };
 
@@ -76,21 +99,41 @@ export const actions: Actions = {
     }
   },
 
-  sync: async ({ params, locals }) => {
+  sync: async ({ request, params, locals }) => {
+    const form = await superValidate<SyncMemoryIntegrationForm>(
+      await request.formData(),
+      syncMemoryIntegrationFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(SYNC_MEMORY_MUTATION, { id: params.id });
-      return { synced: true };
+      return message(form, { type: 'success', text: t('integrations.synced', 'Memory synced.') });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Sync failed') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Sync failed') },
+        { status: 500 },
+      );
     }
   },
 
-  pushToGit: async ({ params, locals }) => {
+  pushToGit: async ({ request, params, locals }) => {
+    const form = await superValidate<PushMemoryIntegrationForm>(
+      await request.formData(),
+      pushMemoryIntegrationFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(PUSH_MEMORY_TO_GIT_MUTATION, { id: params.id });
-      return { pushed: true };
+      return message(form, { type: 'success', text: t('integrations.pushed', 'Pushed to Git.') });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Push to Git failed') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Push to Git failed') },
+        { status: 500 },
+      );
     }
   },
 };

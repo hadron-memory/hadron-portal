@@ -8,11 +8,14 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  DELETE_MEMORY_MUTATION,
+  DELETE_MEMORY_SUBSCRIPTION_MUTATION,
   ORGANIZATION_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   PUBLIC_MEMORIES_QUERY,
   MEMORIES_QUERY,
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
+  SYNC_MEMORY_MUTATION,
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -34,10 +37,17 @@ async function importLoad() {
 }
 
 async function runSubscribe(fields: Record<string, string>) {
+  return runAction('subscribe', fields);
+}
+
+async function runAction(
+  name: 'delete' | 'syncAll' | 'subscribe' | 'unsubscribe',
+  fields: Record<string, string> = {},
+) {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
   for (const [key, value] of Object.entries(fields)) fd.set(key, value);
-  return actions.subscribe({
+  return actions[name]({
     params: { id: 'org-1' },
     locals: { token: 'test-token' },
     request: { formData: async () => fd },
@@ -120,13 +130,144 @@ describe('memories-list load() — initialTab (#556)', () => {
     expect(result.initialTab).toBe('org');
   });
 
-  it('seeds the subscribe form with an explicit empty memory and reader role', async () => {
+  it('seeds the action forms with explicit defaults', async () => {
     routeMock([]);
     const load = await importLoad();
     const result = (await load(ev())) as {
       subscribeForm: { data: { memoryId: string; role: string } };
+      deleteForm: { data: { id: string } };
+      syncAllForm: { data: { _kind: string } };
+      unsubscribeForm: { data: { memoryId: string } };
     };
     expect(result.subscribeForm.data).toMatchObject({ memoryId: '', role: 'READER' });
+    expect(result.deleteForm.data.id).toBe('');
+    expect(result.syncAllForm.data._kind).toBe('syncMemories');
+    expect(result.unsubscribeForm.data.memoryId).toBe('');
+  });
+});
+
+describe('memories-list delete action', () => {
+  it('deletes a memory from a validated Superform', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('delete', { id: ' mem-1 ' });
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'deleteMemory', id: 'mem-1' },
+        message: { type: 'success', text: 'Memory deleted.' },
+      },
+    });
+    expect(mockRequest).toHaveBeenCalledWith(DELETE_MEMORY_MUTATION, { id: 'mem-1' });
+  });
+
+  it('rejects omitted delete ids before mutation', async () => {
+    const result = (await runAction('delete', {})) as {
+      status: number;
+      data: { form: { errors: { id?: string[] } } };
+    };
+
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.id?.[0]).toBe('Memory is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects delete POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('delete', {
+      _kind: 'subscribeMemory',
+      id: 'mem-1',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns typed delete errors', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('delete', { id: 'mem-1' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+});
+
+describe('memories-list syncAll action', () => {
+  it('syncs only source-backed memories and returns typed feedback', async () => {
+    mockRequest.mockResolvedValueOnce({
+      organization: {
+        memories: [
+          { id: 'mem-1', name: 'Git One', source: { type: 'git' } },
+          { id: 'mem-2', name: 'Database Only', source: null },
+          { id: 'mem-3', name: 'Git Two', source: { type: 'git' } },
+        ],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({});
+    mockRequest.mockResolvedValueOnce({});
+
+    const result = await runAction('syncAll', {});
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'syncMemories' },
+        message: { type: 'success', text: 'All memories synced.' },
+      },
+    });
+    expect(mockRequest.mock.calls).toEqual([
+      [ORGANIZATION_QUERY, { id: 'org-1' }],
+      [SYNC_MEMORY_MUTATION, { id: 'mem-1' }],
+      [SYNC_MEMORY_MUTATION, { id: 'mem-3' }],
+    ]);
+  });
+
+  it('rejects syncAll POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('syncAll', {
+      _kind: 'deleteMemory',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns typed aggregate sync errors', async () => {
+    mockRequest.mockResolvedValueOnce({
+      organization: {
+        memories: [
+          { id: 'mem-1', name: 'Git One', source: { type: 'git' } },
+          { id: 'mem-2', name: 'Git Two', source: { type: 'git' } },
+        ],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({});
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+
+    const result = (await runAction('syncAll', {})) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'Sync errors: Git Two: nope' });
+  });
+
+  it('returns a typed error when listing sync candidates fails', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+
+    const result = (await runAction('syncAll', {})) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenCalledWith(ORGANIZATION_QUERY, { id: 'org-1' });
   });
 });
 
@@ -186,6 +327,58 @@ describe('memories-list subscribe action', () => {
   it('returns a typed error when subscription fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
     const result = (await runSubscribe({ memoryId: 'mem-1', role: 'READER' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+});
+
+describe('memories-list unsubscribe action', () => {
+  it('unsubscribes from a memory with validated Superforms data', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('unsubscribe', { memoryId: ' mem-1 ' });
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'unsubscribeMemory', memoryId: 'mem-1' },
+        message: { type: 'success', text: 'Unsubscribed from memory.' },
+      },
+    });
+    expect(mockRequest).toHaveBeenCalledWith(DELETE_MEMORY_SUBSCRIPTION_MUTATION, {
+      memoryId: 'mem-1',
+      orgId: 'org-1',
+    });
+  });
+
+  it('rejects omitted unsubscribe memory ids before mutation', async () => {
+    const result = (await runAction('unsubscribe', {})) as {
+      status: number;
+      data: { form: { errors: { memoryId?: string[] } } };
+    };
+
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.memoryId?.[0]).toBe('Memory is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsubscribe POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('unsubscribe', {
+      _kind: 'deleteMemory',
+      memoryId: 'mem-1',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns typed unsubscribe errors', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('unsubscribe', { memoryId: 'mem-1' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };

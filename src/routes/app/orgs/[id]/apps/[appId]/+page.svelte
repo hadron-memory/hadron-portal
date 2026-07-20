@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
-  import { goto } from '$app/navigation';
   import { env } from '$env/dynamic/public';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -13,17 +11,34 @@
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t.js';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import type { PageData, ActionData } from './$types';
-  import { addAgentSchema, appSettingsSchema, createAppKeySchema } from './schema';
+  import {
+    addAgentSchema,
+    appSettingsSchema,
+    createAppKeySchema,
+    deleteAppSchema,
+    removeAppAgentSchema,
+    revokeAppKeySchema,
+    updateAppAgentToolsSchema,
+  } from './schema';
 
   type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
   type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
   type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
+  type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
+  type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
+  type RevokeAppKeyForm = Infer<typeof revokeAppKeySchema, 'zod4'>;
+  type UpdateAppAgentToolsForm = Infer<typeof updateAppAgentToolsSchema, 'zod4'>;
   type AddAgentSuperform = SuperValidated<AddAgentForm, App.Superforms.Message, AddAgentForm>;
   type AppSettingsSuperform = SuperValidated<AppSettingsForm, App.Superforms.Message, AppSettingsForm>;
   type CreateAppKeySuperform = SuperValidated<CreateAppKeyForm, App.Superforms.Message, CreateAppKeyForm>;
+  type DeleteAppSuperform = SuperValidated<DeleteAppForm, App.Superforms.Message, DeleteAppForm>;
+  type RemoveAppAgentSuperform = SuperValidated<RemoveAppAgentForm, App.Superforms.Message, RemoveAppAgentForm>;
+  type RevokeAppKeySuperform = SuperValidated<RevokeAppKeyForm, App.Superforms.Message, RevokeAppKeyForm>;
+  type UpdateAppAgentToolsSuperform = SuperValidated<UpdateAppAgentToolsForm, App.Superforms.Message, UpdateAppAgentToolsForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
@@ -88,36 +103,7 @@
   // ── Settings edit state ──────────────────────────────────────────────
   let editMode = $state(false);
 
-  function actionFormKind(actionData: ActionData): string | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    const candidateData = candidate?.data;
-    return candidateData && typeof candidateData === 'object' && '_kind' in candidateData
-      ? String(candidateData._kind)
-      : null;
-  }
-
-  function submittedAppSettings(actionData: ActionData): AppSettingsSuperform | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    return actionFormKind(actionData) === 'updateApp'
-      ? (candidate as AppSettingsSuperform)
-      : null;
-  }
-
-  function submittedAddAgent(actionData: ActionData): AddAgentSuperform | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    return actionFormKind(actionData) === 'addAgent'
-      ? (candidate as AddAgentSuperform)
-      : null;
-  }
-
-  function submittedCreateKey(actionData: ActionData): CreateAppKeySuperform | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    return actionFormKind(actionData) === 'createKey'
-      ? (candidate as CreateAppKeySuperform)
-      : null;
-  }
-
-  const initialAppSettingsForm = untrack(() => submittedAppSettings(form) ?? data.appSettingsForm);
+  const initialAppSettingsForm = untrack(() => submittedForm<AppSettingsForm>(form, 'updateApp') as AppSettingsSuperform | null ?? data.appSettingsForm);
   const {
     form: appSettingsForm,
     errors: appSettingsErrors,
@@ -136,7 +122,7 @@
     },
   });
 
-  const initialAddAgentForm = untrack(() => submittedAddAgent(form) ?? data.addAgentForm);
+  const initialAddAgentForm = untrack(() => submittedForm<AddAgentForm>(form, 'addAgent') as AddAgentSuperform | null ?? data.addAgentForm);
   const {
     form: addAgentForm,
     errors: addAgentErrors,
@@ -151,7 +137,7 @@
     clearOnSubmit: 'none',
   });
 
-  const initialCreateKeyForm = untrack(() => submittedCreateKey(form) ?? data.createKeyForm);
+  const initialCreateKeyForm = untrack(() => submittedForm<CreateAppKeyForm>(form, 'createKey') as CreateAppKeySuperform | null ?? data.createKeyForm);
   const {
     form: createKeyForm,
     message: createKeyMessage,
@@ -168,6 +154,65 @@
     },
   });
 
+  const initialRemoveAgentForm = untrack(() => submittedForm<RemoveAppAgentForm>(form, 'removeAgent') as RemoveAppAgentSuperform | null ?? data.removeAgentForm);
+  const {
+    form: removeAgentForm,
+    errors: removeAgentErrors,
+    message: removeAgentMessage,
+    submitting: removeAgentSubmitting,
+    enhance: removeAgentEnhance,
+  } = superForm<RemoveAppAgentForm, App.Superforms.Message, RemoveAppAgentForm>(initialRemoveAgentForm, {
+    validators: zod4Client(removeAppAgentSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  const initialUpdateAgentToolsForm = untrack(() => submittedForm<UpdateAppAgentToolsForm>(form, 'updateAgentTools') as UpdateAppAgentToolsSuperform | null ?? data.updateAgentToolsForm);
+  const {
+    form: updateAgentToolsForm,
+    errors: updateAgentToolsErrors,
+    message: updateAgentToolsMessage,
+    enhance: updateAgentToolsEnhance,
+  } = superForm<UpdateAppAgentToolsForm, App.Superforms.Message, UpdateAppAgentToolsForm>(initialUpdateAgentToolsForm, {
+    validators: zod4Client(updateAppAgentToolsSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    resetForm: false,
+  });
+
+  const initialRevokeKeyForm = untrack(() => submittedForm<RevokeAppKeyForm>(form, 'revokeKey') as RevokeAppKeySuperform | null ?? data.revokeKeyForm);
+  const {
+    form: revokeKeyForm,
+    errors: revokeKeyErrors,
+    message: revokeKeyMessage,
+    submitting: revokeKeySubmitting,
+    enhance: revokeKeyEnhance,
+  } = superForm<RevokeAppKeyForm, App.Superforms.Message, RevokeAppKeyForm>(initialRevokeKeyForm, {
+    validators: zod4Client(revokeAppKeySchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  const initialDeleteAppForm = untrack(() => submittedForm<DeleteAppForm>(form, 'deleteApp') as DeleteAppSuperform | null ?? data.deleteAppForm);
+  const {
+    errors: deleteAppErrors,
+    message: deleteAppMessage,
+    submitting: deleteAppSubmitting,
+    enhance: deleteAppEnhance,
+  } = superForm<DeleteAppForm, App.Superforms.Message, DeleteAppForm>(initialDeleteAppForm, {
+    validators: zod4Client(deleteAppSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
   const settingsNameError = $derived($appSettingsErrors.name?.[0] ?? null);
   const settingsUrnError = $derived($appSettingsErrors.urn?.[0] ?? null);
   const settingsSessionTimeoutError = $derived($appSettingsErrors.sessionTimeoutSeconds?.[0] ?? null);
@@ -178,12 +223,46 @@
   const addAgentActionError = $derived($addAgentMessage?.type === 'error' ? $addAgentMessage.text : null);
   const addAgentActionSuccess = $derived($addAgentMessage?.type === 'success' ? $addAgentMessage.text : null);
   const createKeyActionError = $derived($createKeyMessage?.type === 'error' ? $createKeyMessage.text : null);
+  const removeAgentActionError = $derived(
+    $removeAgentMessage?.type === 'error'
+      ? $removeAgentMessage.text
+      : $removeAgentErrors.agentId?.[0] ?? $removeAgentErrors._kind?.[0] ?? null,
+  );
+  const removeAgentActionSuccess = $derived($removeAgentMessage?.type === 'success' ? $removeAgentMessage.text : null);
+  const updateAgentToolsActionError = $derived(
+    $updateAgentToolsMessage?.type === 'error'
+      ? $updateAgentToolsMessage.text
+      : $updateAgentToolsErrors._kind?.[0] ?? $updateAgentToolsErrors.agentTools?.[0] ?? null,
+  );
+  const updateAgentToolsActionSuccess = $derived($updateAgentToolsMessage?.type === 'success' ? $updateAgentToolsMessage.text : null);
+  const revokeKeyActionError = $derived(
+    $revokeKeyMessage?.type === 'error'
+      ? $revokeKeyMessage.text
+      : $revokeKeyErrors.keyId?.[0] ?? $revokeKeyErrors._kind?.[0] ?? null,
+  );
+  const revokeKeyActionSuccess = $derived($revokeKeyMessage?.type === 'success' ? $revokeKeyMessage.text : null);
+  const deleteAppActionError = $derived($deleteAppMessage?.type === 'error' ? $deleteAppMessage.text : $deleteAppErrors._kind?.[0] ?? null);
 
   $effect(() => {
-    const submitted = submittedAppSettings(form);
+    const submitted = submittedForm<AppSettingsForm>(form, 'updateApp') as AppSettingsSuperform | null;
     if (submitted && (!submitted.valid || submitted.message?.type === 'error')) {
       activeTab = 'settings';
       editMode = true;
+    }
+  });
+  $effect(() => {
+    if (
+      submittedForm<AddAgentForm>(form, 'addAgent') ||
+      submittedForm<RemoveAppAgentForm>(form, 'removeAgent') ||
+      submittedForm<RevokeAppKeyForm>(form, 'revokeKey') ||
+      submittedForm<DeleteAppForm>(form, 'deleteApp')
+    ) {
+      activeTab = 'settings';
+    }
+  });
+  $effect(() => {
+    if (submittedForm<UpdateAppAgentToolsForm>(form, 'updateAgentTools')) {
+      activeTab = 'client';
     }
   });
 
@@ -234,7 +313,6 @@
   const hasWritableMemory = $derived(effectiveMemories.some((m) => m.access === 'read-write'));
   const writableMemoryIds = $derived(effectiveMemories.filter((m) => m.access === 'read-write').map((m) => m.id));
 
-  const plainActionError = $derived(form && 'error' in form ? form.error : null);
   const newRawKey = $derived(form && 'rawKey' in form ? form.rawKey : undefined);
 
   function formatDate(s: string | null | undefined): string {
@@ -291,7 +369,16 @@
   function toggleTool(value: string) {
     if (selectedTools.has(value)) { selectedTools.delete(value); } else { selectedTools.add(value); }
     selectedTools = new Set(selectedTools);
+    updateAgentToolsForm.update((current) => ({ ...current, agentTools: [...selectedTools] }), { taint: false });
     setTimeout(() => agentToolsForm?.requestSubmit(), 0);
+  }
+
+  function setRemoveAgent(agentId: string) {
+    removeAgentForm.update((current) => ({ ...current, agentId }), { taint: false });
+  }
+
+  function setRevokeKey(keyId: string) {
+    revokeKeyForm.update((current) => ({ ...current, keyId }), { taint: false });
   }
 
   // ── Per-tool MCP config generators ────────────────────────────────────
@@ -579,12 +666,14 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
     </div>
   </div>
 
-  {#if plainActionError}
-    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{plainActionError}</div>
+  {#if removeAgentActionError || updateAgentToolsActionError || revokeKeyActionError || deleteAppActionError}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+      {removeAgentActionError ?? updateAgentToolsActionError ?? revokeKeyActionError ?? deleteAppActionError}
+    </div>
   {/if}
-  {#if settingsActionSuccess || addAgentActionSuccess}
+  {#if settingsActionSuccess || addAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
     <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {settingsActionSuccess ?? addAgentActionSuccess}
+      {settingsActionSuccess ?? addAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
     </div>
   {/if}
 
@@ -947,9 +1036,12 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                   <span>Surfaces: {(app.surfaces ?? []).join(', ')}</span>
                 {/if}
               </div>
-              <form method="POST" action="?/removeAgent" use:enhance class="shrink-0">
+              <!-- Keep both handlers: onclick updates before client validation for button activation;
+                   onsubmit covers keyboard/requestSubmit paths. -->
+              <form method="POST" action="?/removeAgent" use:removeAgentEnhance onsubmit={() => setRemoveAgent(app.agent?.id ?? '')} class="shrink-0" novalidate>
+                <input type="hidden" name="_kind" value="removeAgent" />
                 <input type="hidden" name="agentId" value={app.agent.id} />
-                <button type="submit" class="text-xs text-red-400 hover:text-red-300">Unlink</button>
+                <button type="submit" disabled={$removeAgentSubmitting} onclick={() => setRemoveAgent(app.agent?.id ?? '')} class="text-xs text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50">Unlink</button>
               </form>
             </div>
           </div>
@@ -1078,11 +1170,24 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                     {#if key.revokedAt}
                       <span class="text-xs text-red-500">revoked</span>
                     {:else}
-                      <form method="POST" action="?/revokeKey" use:enhance
-                        onsubmit={(e) => { if (!confirm('Revoke this key? This cannot be undone.')) e.preventDefault(); }}>
-                        <input type="hidden" name="id" value={key.id} />
+                      <!-- Keep both handlers: onclick updates before client validation for button activation;
+                           onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
+                      <form method="POST" action="?/revokeKey" use:revokeKeyEnhance
+                        onsubmit={(e) => {
+                          if (!confirm('Revoke this key? This cannot be undone.')) {
+                            e.preventDefault();
+                            setRevokeKey('');
+                            return;
+                          }
+                          setRevokeKey(key.id);
+                        }}
+                        novalidate>
+                        <input type="hidden" name="_kind" value="revokeKey" />
+                        <input type="hidden" name="keyId" value={key.id} />
                         <button type="submit"
-                          class="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
+                          disabled={$revokeKeySubmitting}
+                          onclick={() => setRevokeKey(key.id)}
+                          class="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
                           Revoke
                         </button>
                       </form>
@@ -1098,15 +1203,11 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       <!-- Danger zone -->
       <section class="max-w-lg border-t border-zinc-200 pt-6 dark:border-zinc-800">
         <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
-        <form method="POST" action="?/deleteApp" use:enhance={() => {
-          return async ({ result, update }) => {
-            if (result.type === 'success') goto(`/app/orgs/${org.id}/apps`);
-            else await update();
-          };
-        }} onsubmit={(e) => {
+        <form method="POST" action="?/deleteApp" use:deleteAppEnhance onsubmit={(e) => {
           if (!confirm(`Delete app "${app.name}"? The API key will stop working immediately. This cannot be undone.`)) e.preventDefault();
-        }}>
-          <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+        }} novalidate>
+          <input type="hidden" name="_kind" value="deleteApp" />
+          <button type="submit" disabled={$deleteAppSubmitting} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
             Delete app
           </button>
         </form>
@@ -1140,11 +1241,19 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                     {/if}
                   </p>
                 </div>
-                <form method="POST" action="?/revokeKey" use:enhance onsubmit={(e) => {
-                  if (!confirm(`Revoke key "${key.label ?? 'Unnamed key'}"? It will stop working immediately.`)) e.preventDefault();
-                }}>
-                  <input type="hidden" name="id" value={key.id} />
-                  <button type="submit" class="text-xs text-red-400 hover:text-red-300">Revoke</button>
+                <!-- Keep both handlers: onclick updates before client validation for button activation;
+                     onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
+                <form method="POST" action="?/revokeKey" use:revokeKeyEnhance onsubmit={(e) => {
+                  if (!confirm(`Revoke key "${key.label ?? 'Unnamed key'}"? It will stop working immediately.`)) {
+                    e.preventDefault();
+                    setRevokeKey('');
+                    return;
+                  }
+                  setRevokeKey(key.id);
+                }} novalidate>
+                  <input type="hidden" name="_kind" value="revokeKey" />
+                  <input type="hidden" name="keyId" value={key.id} />
+                  <button type="submit" disabled={$revokeKeySubmitting} onclick={() => setRevokeKey(key.id)} class="text-xs text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50">Revoke</button>
                 </form>
               </div>
             {/each}
@@ -1183,8 +1292,10 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 
             <div>
               <span class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Include plugins</span>
-              <form method="POST" action="?/updateAgentTools" use:enhance={() => { return async ({ update }) => { await update({ reset: false }); }; }}
+              <form method="POST" action="?/updateAgentTools" use:updateAgentToolsEnhance
+                novalidate
                 bind:this={agentToolsForm}>
+                <input type="hidden" name="_kind" value="updateAgentTools" />
                 {#each [...selectedTools] as tool}
                   <input type="hidden" name="agentTools" value={tool} />
                 {/each}

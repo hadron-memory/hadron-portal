@@ -1,4 +1,4 @@
-import { fail, error } from '@sveltejs/kit';
+import { fail, error, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -22,15 +22,31 @@ import {
 } from '$lib/server/queries';
 import type { Organization, App, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { addAgentSchema, appSettingsSchema, createAppKeySchema } from './schema';
+import {
+  addAgentSchema,
+  appSettingsSchema,
+  createAppKeySchema,
+  deleteAppSchema,
+  removeAppAgentSchema,
+  revokeAppKeySchema,
+  updateAppAgentToolsSchema,
+} from './schema';
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
 type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
 type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
+type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
+type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
+type RevokeAppKeyForm = Infer<typeof revokeAppKeySchema, 'zod4'>;
+type UpdateAppAgentToolsForm = Infer<typeof updateAppAgentToolsSchema, 'zod4'>;
 
 const addAgentFormAdapter = zod4(addAgentSchema);
 const appSettingsFormAdapter = zod4(appSettingsSchema);
 const createAppKeyFormAdapter = zod4(createAppKeySchema);
+const deleteAppFormAdapter = zod4(deleteAppSchema);
+const removeAppAgentFormAdapter = zod4(removeAppAgentSchema);
+const revokeAppKeyFormAdapter = zod4(revokeAppKeySchema);
+const updateAppAgentToolsFormAdapter = zod4(updateAppAgentToolsSchema);
 
 function slugOfUrn(urn: string): string {
   const idx = urn.lastIndexOf(':');
@@ -97,16 +113,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const availableAgents = appData.app.agentId
     ? []
     : (orgData.organization.agents ?? []);
-  return {
-    app: appData.app,
-    org: orgData.organization,
-    availableAgents,
-    appNodes: nodesData.appNodes,
-    chatConfigs,
-    appConfigs: configsData ?? [],
-    configsError: configsData === null,
-    currentUserId: locals.user?.id ?? null,
-    appSettingsForm: await superValidate<AppSettingsForm>(
+  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm] = await Promise.all([
+    superValidate<AppSettingsForm>(
       {
         name: appData.app.name,
         urn: slugOfUrn(appData.app.urn),
@@ -122,16 +130,53 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       appSettingsFormAdapter,
       { errors: false },
     ),
-    addAgentForm: await superValidate<AddAgentForm>(
+    superValidate<AddAgentForm>(
       { agentId: '' },
       addAgentFormAdapter,
       { errors: false },
     ),
-    createKeyForm: await superValidate<CreateAppKeyForm>(
+    superValidate<CreateAppKeyForm>(
       { label: '' },
       createAppKeyFormAdapter,
       { errors: false },
     ),
+    superValidate<RemoveAppAgentForm>(
+      { agentId: '' },
+      removeAppAgentFormAdapter,
+      { errors: false },
+    ),
+    superValidate<UpdateAppAgentToolsForm>(
+      { agentTools: appData.app.agentTools ?? [] },
+      updateAppAgentToolsFormAdapter,
+      { errors: false },
+    ),
+    superValidate<RevokeAppKeyForm>(
+      { keyId: '' },
+      revokeAppKeyFormAdapter,
+      { errors: false },
+    ),
+    superValidate<DeleteAppForm>(
+      {},
+      deleteAppFormAdapter,
+      { errors: false },
+    ),
+  ]);
+  return {
+    app: appData.app,
+    org: orgData.organization,
+    availableAgents,
+    appNodes: nodesData.appNodes,
+    chatConfigs,
+    appConfigs: configsData ?? [],
+    configsError: configsData === null,
+    currentUserId: locals.user?.id ?? null,
+    appSettingsForm,
+    addAgentForm,
+    createKeyForm,
+    removeAgentForm,
+    updateAgentToolsForm,
+    revokeKeyForm,
+    deleteAppForm,
   };
 };
 
@@ -193,29 +238,46 @@ export const actions: Actions = {
   },
 
   removeAgent: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const agentId = String(fd.get('agentId') ?? '');
-    if (!agentId) return fail(400, { error: 'Missing agent' });
+    const form = await superValidate<RemoveAppAgentForm>(
+      await request.formData(),
+      removeAppAgentFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(REMOVE_AGENT_FROM_APP_MUTATION, {
         appId: params.appId,
-        agentId,
+        agentId: form.data.agentId,
       });
+      return message(form, { type: 'success', text: t('app.agent.unlinked', 'Agent unlinked.') });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to remove agent') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to remove agent') },
+        { status: 500 },
+      );
     }
   },
 
   updateAgentTools: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const agentTools = fd.getAll('agentTools').map(String);
+    const form = await superValidate<UpdateAppAgentToolsForm>(
+      await request.formData(),
+      updateAppAgentToolsFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(UPDATE_APP_MUTATION, {
         id: params.appId,
-        agentTools,
+        agentTools: form.data.agentTools,
       });
+      return message(form, { type: 'success', text: t('app.agent-tools.saved', 'Client tools saved.') });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to update agent tools') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to update agent tools') },
+        { status: 500 },
+      );
     }
   },
 
@@ -246,22 +308,40 @@ export const actions: Actions = {
   },
 
   revokeKey: async ({ request, locals }) => {
-    const fd = await request.formData();
-    // Accept either `id` (legacy form name) or `keyId` to keep template flexibility.
-    const id = String(fd.get('id') ?? fd.get('keyId') ?? '');
-    if (!id) return fail(400, { error: 'Missing id' });
+    const form = await superValidate<RevokeAppKeyForm>(
+      await request.formData(),
+      revokeAppKeyFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
-      await gqlClient(locals.token).request(REVOKE_APP_KEY_MUTATION, { id });
+      await gqlClient(locals.token).request(REVOKE_APP_KEY_MUTATION, { id: form.data.keyId });
+      return message(form, { type: 'success', text: t('app.key.revoked', 'Key revoked.') });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to revoke key') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to revoke key') },
+        { status: 500 },
+      );
     }
   },
 
-  deleteApp: async ({ params, locals }) => {
+  deleteApp: async ({ request, params, locals }) => {
+    const form = await superValidate<DeleteAppForm>(
+      await request.formData(),
+      deleteAppFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(DELETE_APP_MUTATION, { id: params.appId });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to delete app') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to delete app') },
+        { status: 500 },
+      );
     }
+    redirect(303, `/app/orgs/${params.id}/apps`);
   },
 };
