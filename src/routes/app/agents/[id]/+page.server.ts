@@ -20,12 +20,22 @@ import {
 import { requireNonConsumer } from '$lib/server/guards';
 import type { Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { addAgentMemorySchema, agentSettingsSchema } from './schema';
+import {
+  addAgentMemorySchema,
+  agentSettingsSchema,
+  deleteAgentSchema,
+  removeAgentMemorySchema,
+  updateAgentMemoryRoleSchema,
+} from './schema';
 
 const agentSettingsFormAdapter = zod4(agentSettingsSchema);
 const addAgentMemoryFormAdapter = zod4(addAgentMemorySchema);
+const updateAgentMemoryRoleFormAdapter = zod4(updateAgentMemoryRoleSchema);
+const removeAgentMemoryFormAdapter = zod4(removeAgentMemorySchema);
+const deleteAgentFormAdapter = zod4(deleteAgentSchema);
 
 type AddAgentMemoryForm = Infer<typeof addAgentMemorySchema, 'zod4'>;
+type DeleteAgentForm = Infer<typeof deleteAgentSchema, 'zod4'>;
 
 function urnSlug(urn: string): string {
   const idx = urn.lastIndexOf(':');
@@ -123,6 +133,36 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));
   }
   orgSystemMemories = sysMemResult;
+  const [form, addMemoryForm, updateMemoryRoleForm, removeMemoryForm, deleteForm] = await Promise.all([
+    superValidate({
+      name: agent.name ?? '',
+      urnSlug: urnSlug(agent.urn),
+      description: agent.description ?? '',
+      systemPrompt: agent.systemPrompt ?? '',
+      visibility: agent.visibility ?? 'ORGANIZATION',
+      systemMemoryId: '',
+    }, agentSettingsFormAdapter, { errors: false }),
+    superValidate<AddAgentMemoryForm>(
+      { memoryId: '', role: 'read' },
+      addAgentMemoryFormAdapter,
+      { errors: false },
+    ),
+    superValidate(
+      { memoryId: '', role: 'read' },
+      updateAgentMemoryRoleFormAdapter,
+      { errors: false },
+    ),
+    superValidate(
+      { memoryId: '' },
+      removeAgentMemoryFormAdapter,
+      { errors: false },
+    ),
+    superValidate<DeleteAgentForm>(
+      {},
+      deleteAgentFormAdapter,
+      { errors: false },
+    ),
+  ]);
 
   return {
     agent,
@@ -134,19 +174,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     agentConfigs: configsResult ?? [],
     configsError: configsResult === null,
     currentUserId: locals.user?.id ?? null,
-    form: await superValidate({
-      name: agent.name ?? '',
-      urnSlug: urnSlug(agent.urn),
-      description: agent.description ?? '',
-      systemPrompt: agent.systemPrompt ?? '',
-      visibility: agent.visibility ?? 'ORGANIZATION',
-      systemMemoryId: '',
-    }, agentSettingsFormAdapter, { errors: false }),
-    addMemoryForm: await superValidate<AddAgentMemoryForm>(
-      { memoryId: '', role: 'read' },
-      addAgentMemoryFormAdapter,
-      { errors: false },
-    ),
+    form,
+    addMemoryForm,
+    updateMemoryRoleForm,
+    removeMemoryForm,
+    deleteForm,
   };
 };
 
@@ -249,13 +281,23 @@ export const actions: Actions = {
     }
   },
 
-  delete: async ({ params, locals }) => {
+  delete: async ({ request, params, locals }) => {
+    const form = await superValidate<DeleteAgentForm>(
+      await request.formData(),
+      deleteAgentFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(DELETE_AGENT_MUTATION, { id: params.id });
       redirect(303, '/app/agents');
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      return fail(500, { error: extractGqlError(e, 'Failed to delete agent') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to delete agent') },
+        { status: 500 },
+      );
     }
   },
 
@@ -283,29 +325,33 @@ export const actions: Actions = {
   },
 
   updateMemoryRole: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const memoryId = String(fd.get('memoryId') ?? '');
-    const role = String(fd.get('role') ?? 'read');
+    const form = await superValidate(await request.formData(), updateAgentMemoryRoleFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MEMORY_ROLE_MUTATION, {
-        agentId: params.id, memoryId, role,
+        agentId: params.id,
+        memoryId: form.data.memoryId,
+        role: form.data.role,
       });
-      return { success: true };
+      return message(form, { type: 'success', text: 'Memory role updated.' });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to update memory role') });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update memory role') }, { status: 500 });
     }
   },
 
   removeMemory: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const memoryId = String(fd.get('memoryId') ?? '');
+    const form = await superValidate(await request.formData(), removeAgentMemoryFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(REMOVE_MEMORY_FROM_AGENT_MUTATION, {
-        agentId: params.id, memoryId,
+        agentId: params.id,
+        memoryId: form.data.memoryId,
       });
-      return { success: true };
+      return message(form, { type: 'success', text: 'Memory removed.' });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to remove memory') });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to remove memory') }, { status: 500 });
     }
   },
 
