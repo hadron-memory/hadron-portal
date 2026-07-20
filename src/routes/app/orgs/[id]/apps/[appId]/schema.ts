@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+const agentToolsField = z.preprocess(
+  (value) => value === undefined ? [] : (Array.isArray(value) ? value : [value]),
+  z.array(z.string().trim().min(1)),
+);
+
 export const appSettingsSchema = z.object({
   // Defaulted _kind accepts omitted hidden inputs while still rejecting a
   // defined discriminator from the wrong action.
@@ -39,4 +44,31 @@ export const createAppKeySchema = z.object({
   // defined discriminator from the wrong action.
   _kind: z.literal('createKey').default('createKey'),
   label: z.string().trim().default(''),
+});
+
+export const removeAppAgentSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('removeAgent').default('removeAgent'),
+  agentId: z.string().trim().min(1, 'Agent is required').prefault(''),
+});
+
+export const updateAppAgentToolsSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('updateAgentTools').default('updateAgentTools'),
+  agentTools: agentToolsField.prefault([]),
+});
+
+export const revokeAppKeySchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('revokeKey').default('revokeKey'),
+  keyId: z.string().trim().min(1, 'Key is required').prefault(''),
+});
+
+export const deleteAppSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('deleteApp').default('deleteApp'),
 });
