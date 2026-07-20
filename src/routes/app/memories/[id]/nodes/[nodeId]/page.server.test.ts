@@ -10,7 +10,7 @@
  * `graphNodes` instead of issuing a memory-blind GraphQL lookup.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { MOVE_NODE_MUTATION, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -693,6 +693,43 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     expect(result.status).toBe(400);
     expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('updateMeta: surfaces a loc move conflict as a field error', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk-r5', memoryId: 'mem-A', loc: 'source', name: 'source',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: false, createdAt: '', updatedAt: '',
+        memory: { urn: 'hadronmemory.com::portal-test' },
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockImplementationOnce(async (query: string) => {
+      expect(query).toBe(MOVE_NODE_MUTATION);
+      throw {
+        response: {
+          errors: [
+            {
+              message: 'Target loc is already occupied',
+              extensions: { code: 'NODE_ALREADY_EXISTS' },
+            },
+          ],
+        },
+      };
+    });
+
+    const actions = await importActions();
+    const result = (await actions.updateMeta(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-r5',
+      form: { name: 'source', loc: 'target' },
+    }))) as { status: number };
+
+    expect(result.status).toBe(409);
+    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe('Target loc is already occupied');
+    expect(mockRequest).toHaveBeenCalledTimes(2);
   });
 });
 

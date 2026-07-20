@@ -19,9 +19,10 @@ beforeEach(() => {
 
 const node = { id: 'pk', memoryId: 'mem-1', loc: 'classify', name: 'Classify', tags: ['keep'] };
 
-async function runConvert() {
+async function runConvert(form: Record<string, string> = {}) {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
+  for (const [key, value] of Object.entries(form)) fd.set(key, value);
   return actions.convertToTask({
     request: { formData: async () => fd },
     params: { id: 'mem-1', nodeId: 'pk' },
@@ -61,5 +62,13 @@ describe('convertToTask action (#503)', () => {
     expect(result.status).toBe(404);
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Node not found' });
     expect(mockRequest.mock.calls.some(([q]) => q === UPDATE_NODE_MUTATION)).toBe(false);
+  });
+
+  it('rejects a tampered form discriminator before looking up the node', async () => {
+    const result = (await runConvert({ _kind: 'moveNode' })) as { status: number };
+
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 });

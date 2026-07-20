@@ -39,9 +39,10 @@ const conflictError = () => ({
   },
 });
 
-async function runDuplicate() {
+async function runDuplicate(form: Record<string, string> = {}) {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
+  for (const [key, value] of Object.entries(form)) fd.set(key, value);
   return actions.duplicate({
     request: { formData: async () => fd },
     params: { id: 'mem-1', nodeId: 'pk' },
@@ -125,5 +126,13 @@ describe('duplicate action (#501)', () => {
     expect(result.status).toBe(500);
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Forbidden' });
     expect(cloneCalls()).toHaveLength(1);
+  });
+
+  it('rejects a tampered form discriminator before looking up the node', async () => {
+    const result = (await runDuplicate({ _kind: 'moveNode' })) as { status: number };
+
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 });
