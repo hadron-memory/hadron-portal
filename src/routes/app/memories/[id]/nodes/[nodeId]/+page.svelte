@@ -21,7 +21,7 @@
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
-  import { scopedActionError } from '$lib/forms/scoped-message';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { t } from '$lib/i18n/t';
@@ -37,14 +37,25 @@
   } from '$lib/flow/extraction';
   import type { NodeEdge, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
-  import { nodeDeleteSchema, nodeMoveSchema, nodeTestFlowSchema } from './schema';
+  import {
+    isFullyQualifiedNodeUrnInput,
+    nodeDeleteSchema,
+    nodeMoveSchema,
+    nodeTestFlowSchema,
+    nodeUpdateEdgesSchema,
+    nodeUpdateFlowSchema,
+  } from './schema';
 
   type NodeMoveForm = Infer<typeof nodeMoveSchema, 'zod4'>;
   type NodeTestFlowForm = Infer<typeof nodeTestFlowSchema, 'zod4'>;
   type NodeDeleteForm = Infer<typeof nodeDeleteSchema, 'zod4'>;
+  type NodeUpdateFlowForm = Infer<typeof nodeUpdateFlowSchema, 'zod4'>;
+  type NodeUpdateEdgesForm = Infer<typeof nodeUpdateEdgesSchema, 'zod4'>;
   type NodeMoveSuperform = SuperValidated<NodeMoveForm, App.Superforms.Message, NodeMoveForm>;
   type NodeTestFlowSuperform = SuperValidated<NodeTestFlowForm, App.Superforms.Message, NodeTestFlowForm>;
   type NodeDeleteSuperform = SuperValidated<NodeDeleteForm, App.Superforms.Message, NodeDeleteForm>;
+  type NodeUpdateFlowSuperform = SuperValidated<NodeUpdateFlowForm, App.Superforms.Message, NodeUpdateFlowForm>;
+  type NodeUpdateEdgesSuperform = SuperValidated<NodeUpdateEdgesForm, App.Superforms.Message, NodeUpdateEdgesForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -355,7 +366,7 @@
     );
   });
   const outputWriteToValid = $derived(
-    outputWriteTo.trim() === '' || outputWriteTo.includes('::'),
+    outputWriteTo.trim() === '' || isFullyQualifiedNodeUrnInput(outputWriteTo),
   );
   const hasFlowConfig = $derived(
     rowsFromNodeData(node.data).length > 0 || outputFromNodeData(node.data) !== null,
@@ -367,6 +378,33 @@
       .filter((n) => n.memoryId === data.graph.id && n.id !== node.id)
       .map((n) => ({ urn: data.graph.urn ? composeNodeUrn(data.graph.urn, n.loc) : n.loc, name: n.name ?? n.loc })),
   );
+
+  const initialFlowForm = untrack(() => submittedForm<NodeUpdateFlowForm>(form, 'updateFlow') as NodeUpdateFlowSuperform | null ?? data.flowForm);
+  const {
+    form: flowFormData,
+    errors: flowErrors,
+    message: flowMessage,
+    submitting: flowSubmitting,
+    enhance: flowEnhance,
+  } = superForm<NodeUpdateFlowForm, App.Superforms.Message, NodeUpdateFlowForm>(initialFlowForm, {
+    validators: zod4Client(nodeUpdateFlowSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  $effect(() => {
+    const rowsJson = flowRowsJson;
+    const writeToTrim = outputWriteTo.trim();
+    const mode = outputMode;
+    flowFormData.update((current) => ({
+      ...current,
+      extractionRows: rowsJson,
+      outputWriteTo: writeToTrim,
+      outputMode: mode,
+    }), { taint: false });
+  });
 
   // ── Test flow (#478 phase 3) ─────────────────────────────────────────
   // Runnable node + org member ⇒ offer minting a MANUAL headless run via
@@ -441,6 +479,18 @@
     $testFlowMessage,
     $testFlowErrors,
     ['_kind', 'appId', 'orgId', 'payload'],
+  ));
+  const flowActionError = $derived(scopedActionError<NodeUpdateFlowForm>(
+    form,
+    'updateFlow',
+    $flowMessage,
+    $flowErrors,
+    ['_kind', 'extractionRows', 'outputWriteTo', 'outputMode'],
+  ));
+  const flowActionSuccess = $derived(scopedActionSuccess<NodeUpdateFlowForm>(
+    form,
+    'updateFlow',
+    $flowMessage,
   ));
   const moveActionError = $derived(scopedActionError<NodeMoveForm>(
     form,
@@ -766,6 +816,44 @@
   let addEdgeError = $state<string | null>(null);
   const editableEdgesJson = $derived(JSON.stringify(
     editableEdges.map((e) => ({ targetId: e.targetId, name: e.name || null })),
+  ));
+  const initialEdgesForm = untrack(() => submittedForm<NodeUpdateEdgesForm>(form, 'updateEdges') as NodeUpdateEdgesSuperform | null ?? data.edgesForm);
+  const {
+    form: edgesFormData,
+    errors: edgesErrors,
+    message: edgesMessage,
+    submitting: edgesSubmitting,
+    enhance: edgesEnhance,
+  } = superForm<NodeUpdateEdgesForm, App.Superforms.Message, NodeUpdateEdgesForm>(initialEdgesForm, {
+    validators: zod4Client(nodeUpdateEdgesSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onResult: ({ result }) => {
+      if (result.type !== 'failure') editingEdges = false;
+    },
+  });
+
+  $effect(() => {
+    const edgesJson = editableEdgesJson;
+    edgesFormData.update((current) => ({
+      ...current,
+      edges: edgesJson,
+    }), { taint: false });
+  });
+
+  const edgesActionError = $derived(scopedActionError<NodeUpdateEdgesForm>(
+    form,
+    'updateEdges',
+    $edgesMessage,
+    $edgesErrors,
+    ['_kind', 'edges'],
+  ));
+  const edgesActionSuccess = $derived(scopedActionSuccess<NodeUpdateEdgesForm>(
+    form,
+    'updateEdges',
+    $edgesMessage,
   ));
 
   // ── Edges tab grid (#350; “References” renamed #490) ────────────────────────────────────────
@@ -1705,16 +1793,16 @@
           {t('node.flow.openCanvas', 'Open flow canvas')} →
         </a>
 
-        {#if form && 'flowError' in form && form.flowError}
-          <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.flowError}</div>
+        {#if flowActionError}
+          <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{flowActionError}</div>
         {/if}
-        {#if form && 'flowSaved' in form && form.flowSaved}
-          <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-            {t('node.flow.saved', 'Flow settings saved.')}
+        {#if flowActionSuccess}
+          <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+            {flowActionSuccess}
           </div>
         {/if}
 
-        <form method="POST" action="?/updateFlow" use:kitEnhance class="space-y-6">
+        <form method="POST" action="?/updateFlow" use:flowEnhance novalidate class="space-y-6">
           <!-- Extraction -->
           <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
             <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">
@@ -1846,16 +1934,17 @@
             </div>
           </section>
 
-          <input type="hidden" name="extractionRows" value={flowRowsJson} />
-          <input type="hidden" name="outputWriteTo" value={outputWriteTo.trim()} />
-          <input type="hidden" name="outputMode" value={outputMode} />
+          <input type="hidden" name="_kind" bind:value={$flowFormData._kind} />
+          <input type="hidden" name="extractionRows" bind:value={$flowFormData.extractionRows} />
+          <input type="hidden" name="outputWriteTo" bind:value={$flowFormData.outputWriteTo} />
+          <input type="hidden" name="outputMode" bind:value={$flowFormData.outputMode} />
 
           <div class="flex items-center gap-3">
             <button
               type="submit"
-              disabled={!flowDirty || flowRowsError !== null || !outputWriteToValid}
+              disabled={$flowSubmitting || !flowDirty || flowRowsError !== null || !outputWriteToValid}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40"
-            >{t('node.flow.save', 'Save flow settings')}</button>
+            >{$flowSubmitting ? t('node.flow.saving', 'Saving...') : t('node.flow.save', 'Save flow settings')}</button>
             {#if flowRowsError !== null && flowRows.some((r) => r.field.trim() !== '')}
               <span class="text-xs text-red-500">{flowRowsError.message}</span>
             {/if}
@@ -1934,6 +2023,12 @@
           </button>
         {/if}
       </div>
+      {#if edgesActionError}
+        <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{edgesActionError}</div>
+      {/if}
+      {#if edgesActionSuccess && !editingEdges}
+        <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{edgesActionSuccess}</div>
+      {/if}
 
       {#if !editingEdges}
         {#if edgeRows.length > 0}
@@ -1966,10 +2061,9 @@
         {/if}
       {:else}
         <!-- Edit mode: list with remove buttons, add form, save/cancel -->
-        <form method="POST" action="?/updateEdges" use:kitEnhance={() => {
-          return async ({ update }) => { editingEdges = false; await update(); };
-        }}>
-          <input type="hidden" name="edges" value={editableEdgesJson} />
+        <form method="POST" action="?/updateEdges" use:edgesEnhance novalidate>
+          <input type="hidden" name="_kind" bind:value={$edgesFormData._kind} />
+          <input type="hidden" name="edges" bind:value={$edgesFormData.edges} />
 
           {#if editableEdges.length > 0}
             <div class="space-y-1">
@@ -2017,8 +2111,8 @@
           </div>
 
           <div class="mt-4 flex items-center gap-2">
-            <button type="submit" class="rounded-lg px-4 py-2 text-xs font-semibold text-white" style="background: #fb8500;">
-              Save edges
+            <button type="submit" disabled={$edgesSubmitting} class="rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" style="background: #fb8500;">
+              {$edgesSubmitting ? t('node.edges.saving', 'Saving...') : t('node.edges.save', 'Save edges')}
             </button>
             <button type="button" onclick={cancelEditEdges}
               class="rounded-lg border border-zinc-300 px-4 py-2 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">

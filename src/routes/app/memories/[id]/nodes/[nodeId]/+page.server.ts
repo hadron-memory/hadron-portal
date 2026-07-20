@@ -10,19 +10,31 @@ import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATIO
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { isCanonicalNodeType } from '$lib/node-types';
-import { extractionRowsError, rowsToSpec, EXTRACTION_SHAPES, type ExtractionRow, type ExtractionShape } from '$lib/flow/extraction';
+import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
 import type { MemoryNode, NodeRevision } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { nodeDeleteSchema, nodeMoveSchema, nodeTestFlowSchema } from './schema';
+import {
+  nodeDeleteSchema,
+  nodeMoveSchema,
+  nodeTestFlowSchema,
+  nodeUpdateEdgesSchema,
+  nodeUpdateFlowSchema,
+  parseValidatedEdges,
+  parseValidatedFlowRows,
+} from './schema';
 
 type NodeMoveForm = Infer<typeof nodeMoveSchema, 'zod4'>;
 type NodeTestFlowForm = Infer<typeof nodeTestFlowSchema, 'zod4'>;
 type NodeDeleteForm = Infer<typeof nodeDeleteSchema, 'zod4'>;
+type NodeUpdateFlowForm = Infer<typeof nodeUpdateFlowSchema, 'zod4'>;
+type NodeUpdateEdgesForm = Infer<typeof nodeUpdateEdgesSchema, 'zod4'>;
 
 const nodeMoveFormAdapter = zod4(nodeMoveSchema);
 const nodeTestFlowFormAdapter = zod4(nodeTestFlowSchema);
 const nodeDeleteFormAdapter = zod4(nodeDeleteSchema);
+const nodeUpdateFlowFormAdapter = zod4(nodeUpdateFlowSchema);
+const nodeUpdateEdgesFormAdapter = zod4(nodeUpdateEdgesSchema);
 
 function parseValidatedFlowPayload(value: string): Record<string, unknown> | undefined {
   if (value === '') return undefined;
@@ -141,7 +153,10 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }
   })();
 
-  const [moveForm, testFlowForm, deleteForm] = await Promise.all([
+  const flowRows = rowsFromNodeData(node.data);
+  const output = outputFromNodeData(node.data);
+  const outgoingEdges = node.outgoingEdges.map((e) => ({ targetId: e.target.id, name: e.name ?? null }));
+  const [moveForm, testFlowForm, deleteForm, flowForm, edgesForm] = await Promise.all([
     superValidate<NodeMoveForm>({ target: '' }, nodeMoveFormAdapter, { errors: false }),
     superValidate<NodeTestFlowForm>(
       { appId: '', orgId: org?.id ?? '', payload: '' },
@@ -149,9 +164,17 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       { errors: false },
     ),
     superValidate<NodeDeleteForm>({ hard: false }, nodeDeleteFormAdapter, { errors: false }),
+    superValidate<NodeUpdateFlowForm>({
+      extractionRows: JSON.stringify(flowRows),
+      outputWriteTo: output?.writeTo ?? '',
+      outputMode: output?.mode ?? 'replace',
+    }, nodeUpdateFlowFormAdapter, { errors: false }),
+    superValidate<NodeUpdateEdgesForm>({
+      edges: JSON.stringify(outgoingEdges),
+    }, nodeUpdateEdgesFormAdapter, { errors: false }),
   ]);
 
-  return { node, breadcrumb, testFlowApps, memories, revisions, moveForm, testFlowForm, deleteForm };
+  return { node, breadcrumb, testFlowApps, memories, revisions, moveForm, testFlowForm, deleteForm, flowForm, edgesForm };
 };
 
 export const actions: Actions = {
@@ -392,39 +415,19 @@ export const actions: Actions = {
   // __-prefix) with human messages — the server re-validates at save and run
   // time; this is the earlier, friendlier gate the issue asks for.
   updateFlow: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-
-    // Extraction rows arrive as a JSON array of { field, shape, description }.
-    const rowsRaw = String(fd.get('extractionRows') ?? '[]');
-    let rowsParsed: unknown;
-    try {
-      rowsParsed = JSON.parse(rowsRaw);
-    } catch {
-      return fail(400, { flowError: 'Invalid extraction rows' });
-    }
-    if (!Array.isArray(rowsParsed)) return fail(400, { flowError: 'Invalid extraction rows' });
-    const rows: ExtractionRow[] = rowsParsed.map((r) => ({
-      field: typeof r?.field === 'string' ? r.field : '',
-      shape: EXTRACTION_SHAPES.includes(r?.shape) ? (r.shape as ExtractionShape) : 'string',
-      description: typeof r?.description === 'string' ? r.description : '',
-    }));
-    const rowsError = extractionRowsError(rows);
-    if (rowsError) return fail(400, { flowError: rowsError.message });
-
-    // Output spec: empty writeTo = no output spec (the flow's LAST node then
-    // writes the default run record beside itself).
-    const writeTo = String(fd.get('outputWriteTo') ?? '').trim();
-    const mode = String(fd.get('outputMode') ?? 'replace') === 'append' ? 'append' : 'replace';
-    if (writeTo !== '' && !writeTo.includes('::')) {
-      return fail(400, {
-        flowError: 'Output target must be a fully-qualified node URN (org::memory::loc).',
-      });
-    }
+    const form = await superValidate<NodeUpdateFlowForm>(
+      await request.formData(),
+      nodeUpdateFlowFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+    const rows = parseValidatedFlowRows(form.data.extractionRows);
+    const writeTo = form.data.outputWriteTo;
+    const mode = form.data.outputMode;
 
     const client = gqlClient(locals.token);
     try {
       const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
-      if (!node) return fail(404, { flowError: 'Node not found' });
+      if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
 
       const merged: Record<string, unknown> = {
         ...(node.data && typeof node.data === 'object' && !Array.isArray(node.data) ? node.data : {}),
@@ -444,9 +447,9 @@ export const actions: Actions = {
           data: merged,
         },
       });
-      return { flowSaved: true };
+      return message(form, { type: 'success', text: t('node.flow.saved', 'Flow settings saved.') });
     } catch (e: unknown) {
-      return fail(500, { flowError: e instanceof Error ? e.message : 'Save failed' });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Save failed') }, { status: 500 });
     }
   },
 
@@ -604,22 +607,19 @@ export const actions: Actions = {
     // Replaces the full set of outgoing edges on this node. The client sends
     // a JSON-encoded array of { targetId, name } — we pass it through the
     // updateNode mutation, which replaces all outgoing edges atomically.
-    const fd = await request.formData();
-    const edgesJson = String(fd.get('edges') ?? '[]');
-    let edges: Array<{ targetId: string; name?: string | null }>;
-    try {
-      edges = JSON.parse(edgesJson);
-    } catch {
-      return fail(400, { error: 'Invalid edges JSON' });
-    }
-    if (!Array.isArray(edges)) return fail(400, { error: 'Edges must be an array' });
+    const form = await superValidate<NodeUpdateEdgesForm>(
+      await request.formData(),
+      nodeUpdateEdgesFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+    const edges = parseValidatedEdges(form.data.edges);
 
     const client = gqlClient(locals.token);
     try {
       const { node } = await client.request<{ node: MemoryNode | null }>(
         NODE_BY_ID_QUERY, { id: params.nodeId },
       );
-      if (!node) return fail(404, { error: 'Node not found' });
+      if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
       await client.request(UPDATE_NODE_MUTATION, {
         input: {
           // #237: memoryId from the node, not the URL.
@@ -634,9 +634,9 @@ export const actions: Actions = {
           })),
         },
       });
-      return { edgesUpdated: true };
+      return message(form, { type: 'success', text: t('node.edges.saved', 'Edges saved.') });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to update edges' });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update edges') }, { status: 500 });
     }
   },
 

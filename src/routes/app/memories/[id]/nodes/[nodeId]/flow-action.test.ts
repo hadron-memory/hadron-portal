@@ -30,6 +30,15 @@ async function runUpdateFlow(fields: Record<string, string>) {
   return actions.updateFlow(event);
 }
 
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
+}
+
 const nodeFixture = (data: unknown) => ({
   node: {
     id: 'node-1',
@@ -55,7 +64,7 @@ describe('updateFlow', () => {
       outputMode: 'append',
     });
 
-    expect(result).toEqual({ flowSaved: true });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Flow settings saved.' });
     const input = mockRequest.mock.calls[1][1].input;
     expect(input.memoryId).toBe('mem-1');
     expect(input.tags).toEqual(['keep-me']);
@@ -89,21 +98,63 @@ describe('updateFlow', () => {
         extractionRows: JSON.stringify([{ field, shape: 'string', description: '' }]),
         outputWriteTo: '',
         outputMode: 'replace',
-      })) as { status: number; data: { flowError: string } };
-      expect(result.status).toBe(400);
-      expect(result.data.flowError).toMatch(/reserved/);
+      }));
+      expect((result as { status: number }).status).toBe(400);
+      expect(superFormFrom(result)?.errors?.extractionRows?.[0]).toMatch(/reserved/);
       expect(mockRequest).not.toHaveBeenCalled();
     }
   });
 
   it('rejects a non-URN output target', async () => {
+    for (const outputWriteTo of ['not-a-urn', '::foo', 'a::', '::::::']) {
+      mockRequest.mockReset();
+      const result = (await runUpdateFlow({
+        extractionRows: '[]',
+        outputWriteTo,
+        outputMode: 'replace',
+      }));
+      expect((result as { status: number }).status).toBe(400);
+      expect(superFormFrom(result)?.errors?.outputWriteTo?.[0]).toMatch(/fully-qualified/);
+      expect(mockRequest).not.toHaveBeenCalled();
+    }
+  });
+
+  it('rejects tampered action discriminators before any mutation', async () => {
     const result = (await runUpdateFlow({
+      _kind: 'testFlow',
       extractionRows: '[]',
-      outputWriteTo: 'not-a-urn',
+      outputWriteTo: '',
       outputMode: 'replace',
-    })) as { status: number; data: { flowError: string } };
-    expect(result.status).toBe(400);
-    expect(result.data.flowError).toMatch(/fully-qualified/);
+    }));
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed 404 message when the node is missing', async () => {
+    mockRequest.mockResolvedValueOnce({ node: null });
+
+    const result = await runUpdateFlow({
+      extractionRows: '[]',
+      outputWriteTo: '',
+      outputMode: 'replace',
+    });
+
+    expect((result as { status: number }).status).toBe(404);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Node not found' });
+  });
+
+  it('returns update failures as typed Superforms messages', async () => {
+    mockRequest.mockResolvedValueOnce(nodeFixture({ other: true }));
+    mockRequest.mockRejectedValueOnce(new Error('flow save exploded'));
+
+    const result = await runUpdateFlow({
+      extractionRows: '[]',
+      outputWriteTo: '',
+      outputMode: 'replace',
+    });
+
+    expect((result as { status: number }).status).toBe(500);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'flow save exploded' });
   });
 });

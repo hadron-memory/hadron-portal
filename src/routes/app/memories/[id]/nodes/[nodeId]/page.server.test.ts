@@ -479,6 +479,91 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     expect(vars.input.edges).toEqual([{ targetId: 'pk-target', name: 'uses' }]);
   });
 
+  it('updateEdges: returns a typed success message', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk-edge-success', memoryId: 'mem-A', loc: 'src', name: 'src',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-edge-success' } });
+
+    const actions = await importActions();
+    const result = await actions.updateEdges(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-edge-success',
+      form: { edges: '[]' },
+    }));
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Edges saved.' });
+  });
+
+  it('updateEdges: returns field errors for corrupt edges JSON', async () => {
+    const actions = await importActions();
+    const result = await actions.updateEdges(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-edge-json',
+      form: { edges: '{' },
+    }));
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?.edges?.[0]).toBe('Invalid edges JSON');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('updateEdges: rejects tampered action discriminators before any mutation', async () => {
+    const actions = await importActions();
+    const result = await actions.updateEdges(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-edge-kind',
+      form: { _kind: 'updateFlow', edges: '[]' },
+    }));
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('updateEdges: returns a typed 404 message when the node is missing', async () => {
+    mockRequest.mockResolvedValueOnce({ node: null });
+
+    const actions = await importActions();
+    const result = await actions.updateEdges(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'missing-edge-node',
+      form: { edges: '[]' },
+    }));
+
+    expect((result as { status: number }).status).toBe(404);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Node not found' });
+  });
+
+  it('updateEdges: returns update failures as typed Superforms messages', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk-edge-fail', memoryId: 'mem-A', loc: 'src', name: 'src',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockRejectedValueOnce(new Error('edge save exploded'));
+
+    const actions = await importActions();
+    const result = await actions.updateEdges(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-edge-fail',
+      form: { edges: '[]' },
+    }));
+
+    expect((result as { status: number }).status).toBe(500);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'edge save exploded' });
+  });
+
   it("reorder: each per-loc update preserves the matching node's tags", async () => {
     // reorder iterates updates and updates each one. Each updateNode must
     // carry its own node's tags (NOT a shared blob, NOT empty).
