@@ -32,6 +32,20 @@ export const createNodeStrings = {
   fieldAbstract: (): string => t('create-node.field.abstract', 'Abstract'),
   fieldContent: (): string => t('create-node.field.content', 'Content'),
   fieldParent: (): string => t('create-node.field.parent', 'Parent'),
+  // #588 (server #725): structured storage authoring.
+  fieldObjectType: (): string => t('create-node.field.object-type', 'Object type'),
+  fieldProperties: (): string => t('create-node.field.properties', 'Properties'),
+  objectTypeNone: (): string => t('create-node.object-type.none', 'None (ordinary node)'),
+  objectTypeHintDeclared: (): string =>
+    t(
+      'create-node.hint.object-type-declared',
+      "Which of this memory's declared collections the node belongs to. Its properties are validated against the collection's fields.",
+    ),
+  objectTypeHintFreeform: (): string =>
+    t(
+      'create-node.hint.object-type-freeform',
+      'Optional collection tag (e.g. "competitor"). This memory has no schema, so any value is accepted.',
+    ),
 
   /** Hint text shown under the loc field. */
   locHint: (): string =>

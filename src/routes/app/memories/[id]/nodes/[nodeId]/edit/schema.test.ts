@@ -38,4 +38,41 @@ describe('editNodeSchema', () => {
       expect(result.error.flatten().fieldErrors.loc?.[0]).toBe('Invalid loc.');
     }
   });
+
+  // #588: structured storage fields.
+  it('defaults objectType and propertiesJson to empty', async () => {
+    const { editNodeSchema } = await import('./schema');
+    const result = editNodeSchema.safeParse({ name: 'Node', loc: 'node' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.objectType).toBe('');
+      expect(result.data.propertiesJson).toBe('');
+    }
+  });
+
+  it('converts a propertiesJson parse failure into a field error', async () => {
+    const { editNodeSchema } = await import('./schema');
+    const result = editNodeSchema.safeParse({
+      name: 'Node',
+      loc: 'node',
+      propertiesJson: '{ not json',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.propertiesJson?.[0]).toBe('Not valid JSON.');
+    }
+  });
+
+  it('rejects a non-object propertiesJson payload', async () => {
+    const { editNodeSchema } = await import('./schema');
+    const result = editNodeSchema.safeParse({
+      name: 'Node',
+      loc: 'node',
+      propertiesJson: '"scalar"',
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.flatten().fieldErrors.propertiesJson?.[0]).toMatch(/JSON object/);
+    }
+  });
 });

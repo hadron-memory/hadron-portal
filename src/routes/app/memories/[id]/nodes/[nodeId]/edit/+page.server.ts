@@ -26,6 +26,8 @@ function formDefaults(node: MemoryNode): EditNodeForm {
     seq: node.seq ?? null,
     tags: (node.tags ?? []).join(', '),
     isRunnable: node.isRunnable ?? false,
+    objectType: node.objectType ?? '',
+    propertiesJson: node.properties != null ? JSON.stringify(node.properties, null, 2) : '',
     edges: JSON.stringify((node.outgoingEdges ?? []).map((e) => ({ targetId: e.target.id, name: e.name ?? '' }))),
   };
 }
@@ -81,6 +83,16 @@ export const actions: Actions = {
     const abstract = form.data.abstract || null;
     const content = form.data.content || null;
     const tags = form.data.tags ? form.data.tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
+    // #588: '' → null clears (updateNode: omit = preserve, null = clear; the
+    // resolver maps a null properties through jsonOrDbNull). The zod schema
+    // already proved propertiesJson parses to an object; re-parse only to
+    // produce the typed payload. The server validates objectType/properties
+    // against the memory schema (BAD_USER_INPUT on a violation).
+    const objectType = form.data.objectType || null;
+    const propertiesTrimmed = form.data.propertiesJson.trim();
+    const properties = propertiesTrimmed
+      ? (JSON.parse(propertiesTrimmed) as Record<string, unknown>)
+      : null;
 
     let edges: { targetId: string; name: string }[] | undefined;
     try {
@@ -132,11 +144,20 @@ export const actions: Actions = {
           seq: form.data.seq,
           tags,
           isRunnable: form.data.isRunnable,
+          objectType,
+          properties,
           edges,
         },
       });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to save' }, { status: 500 });
+      const text = extractGqlError(e, 'Failed to save');
+      // #588: a memory-schema violation (undeclared collection, missing
+      // required field, wrong type, unknown key under strict) — surface the
+      // server's verdict verbatim on the properties field.
+      if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
+        return setError(form, 'propertiesJson', text, { status: 400 });
+      }
+      return message(form, { type: 'error', text }, { status: 500 });
     }
 
     // Redirect to the actual memory's detail URL, not the URL's gid.

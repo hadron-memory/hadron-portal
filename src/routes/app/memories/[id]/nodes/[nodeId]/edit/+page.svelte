@@ -2,6 +2,9 @@
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import PropertiesEditor from '$lib/components/PropertiesEditor.svelte';
+  import { createNodeStrings } from '$lib/i18n/create-node-strings';
+  import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { PageData, ActionData } from './$types';
   import { editNodeSchema } from './schema';
 
@@ -28,6 +31,19 @@
   const nameError = $derived($errors.name?.[0] ?? null);
   const locError = $derived($errors.loc?.[0] ?? null);
   const actionError = $derived($message?.type === 'error' ? $message.text : null);
+
+  // #588 (server #725): structured storage. With a memory schema, objectType
+  // is a picker over the declared collections; without one it's free text.
+  // A pre-schema node may carry an objectType that is no longer declared —
+  // keep it selectable (marked) so the bound value isn't orphaned.
+  const memorySchema = $derived(readMemorySchema(data.graph.schema));
+  const collectionNames = $derived(objectTypeNames(memorySchema));
+  const declaredCollection = $derived(declaredObjectType(memorySchema, $formData.objectType || null));
+  const undeclaredCurrent = $derived(
+    $formData.objectType && !collectionNames.includes($formData.objectType) ? $formData.objectType : null,
+  );
+  const propertiesError = $derived($errors.propertiesJson?.[0] ?? null);
+  let propertiesInvalid = $state(false);
 
   const ABSTRACT_MAX = 2000;
 
@@ -158,6 +174,49 @@
       </div>
     </section>
 
+    <!-- #588 (server #725): collection discriminator + typed properties. -->
+    <section class="space-y-4">
+      <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Structured storage</h2>
+
+      <div>
+        <label for="objectType" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">{createNodeStrings.fieldObjectType()}</label>
+        {#if collectionNames.length > 0 || undeclaredCurrent}
+          <select id="objectType" name="objectType" bind:value={$formData.objectType}
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none">
+            <option value="">{createNodeStrings.objectTypeNone()}</option>
+            {#each collectionNames as name (name)}
+              <option value={name}>{name}</option>
+            {/each}
+            {#if undeclaredCurrent}
+              <option value={undeclaredCurrent}>{undeclaredCurrent} (not declared)</option>
+            {/if}
+          </select>
+          <p class="mt-1 text-xs text-zinc-500">{createNodeStrings.objectTypeHintDeclared()}</p>
+        {:else}
+          <input id="objectType" name="objectType" type="text" bind:value={$formData.objectType}
+            placeholder="e.g. competitor"
+            class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+          <p class="mt-1 text-xs text-zinc-500">{createNodeStrings.objectTypeHintFreeform()}</p>
+        {/if}
+      </div>
+
+      <div>
+        <span class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">{createNodeStrings.fieldProperties()}</span>
+        <input type="hidden" name="propertiesJson" value={$formData.propertiesJson} />
+        <!-- Re-mount on objectType change so typed field state re-seeds. -->
+        {#key $formData.objectType}
+          <PropertiesEditor
+            declared={declaredCollection}
+            bind:value={$formData.propertiesJson}
+            bind:invalid={propertiesInvalid}
+          />
+        {/key}
+        {#if propertiesError}
+          <p class="mt-1 text-xs text-red-600 dark:text-red-400">{propertiesError}</p>
+        {/if}
+      </div>
+    </section>
+
     <!-- Edges (was “References” — #490) -->
     <section class="space-y-3">
       <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Edges</h2>
@@ -205,7 +264,7 @@
     <div class="flex items-center gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
       <button
         type="submit"
-        disabled={$submitting}
+        disabled={$submitting || propertiesInvalid}
         class="rounded-lg bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {$submitting ? 'Saving...' : 'Save'}

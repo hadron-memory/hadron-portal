@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { checkboxBoolean } from '$lib/forms/checkbox-boolean';
+import { jsonObjectField } from '$lib/forms/zod-validators';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 
 function normalizedLoc(value: string, ctx: z.RefinementCtx): string {
@@ -34,6 +35,10 @@ export const editNodeSchema = z.object({
   seq: seqField,
   tags: z.string().trim().default(''),
   isRunnable: checkboxBoolean.default(false),
+  // #588 (server #725): collection discriminator ('' → null clears it) and the
+  // typed properties record as one serialized JSON string ('' → null clears).
+  objectType: z.string().trim().default(''),
+  propertiesJson: jsonObjectField('Properties'),
   edges: z.string().default(''),
 });
 

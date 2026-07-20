@@ -4,7 +4,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   UPDATE_MEMORY_MUTATION,
@@ -15,13 +15,20 @@ import {
 import { toBareMemorySlugInput } from '$lib/urn/form-validation';
 import type { Memory, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { deleteMemorySchema, memorySettingsSchema, vectorIndexSettingsSchema } from './schema';
+import {
+  deleteMemorySchema,
+  memorySchemaSettingsSchema,
+  memorySettingsSchema,
+  vectorIndexSettingsSchema,
+} from './schema';
 
 const memorySettingsFormAdapter = zod4(memorySettingsSchema);
 const vectorIndexSettingsFormAdapter = zod4(vectorIndexSettingsSchema);
+const memorySchemaSettingsFormAdapter = zod4(memorySchemaSettingsSchema);
 const deleteMemoryFormAdapter = zod4(deleteMemorySchema);
 type MemorySettingsForm = Infer<typeof memorySettingsSchema, 'zod4'>;
 type VectorIndexSettingsForm = Infer<typeof vectorIndexSettingsSchema, 'zod4'>;
+type MemorySchemaSettingsForm = Infer<typeof memorySchemaSettingsSchema, 'zod4'>;
 type DeleteMemoryForm = Infer<typeof deleteMemorySchema, 'zod4'>;
 
 // FR-026: enabling the vector index on an encrypted memory without
@@ -83,7 +90,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
   const { graph } = await parent();
   const allOrgs = await fetchAllItems<Organization>(gqlClient(locals.token), ORGANIZATIONS_QUERY, 'organizations')
     .catch(() => [] as Organization[]);
-  const [form, vectorForm, deleteForm] = await Promise.all([
+  const [form, vectorForm, schemaForm, deleteForm] = await Promise.all([
     superValidate<MemorySettingsForm>(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false }),
     superValidate<VectorIndexSettingsForm>(
       {
@@ -97,13 +104,18 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
       vectorIndexSettingsFormAdapter,
       { errors: false },
     ),
+    superValidate<MemorySchemaSettingsForm>(
+      { schemaJson: graph.schema != null ? JSON.stringify(graph.schema, null, 2) : '' },
+      memorySchemaSettingsFormAdapter,
+      { errors: false },
+    ),
     superValidate<DeleteMemoryForm>(
       { organizationId: graph.organizationId ?? '' },
       deleteMemoryFormAdapter,
       { errors: false },
     ),
   ]);
-  return { allOrgs, form, vectorForm, deleteForm };
+  return { allOrgs, form, vectorForm, schemaForm, deleteForm };
 };
 
 export const actions: Actions = {
@@ -257,6 +269,41 @@ export const actions: Actions = {
         { type: 'error', text: extractGqlError(e, 'Failed to update vector index') },
         { status: 500 },
       );
+    }
+  },
+
+  // #588 (server #725): the memory property schema lives in its own action so
+  // a schema edit can't clobber unrelated metadata (and vice versa). Empty
+  // editor → schema: null (the server clears the column); the server
+  // re-validates well-formedness and rejects a malformed schema with
+  // BAD_USER_INPUT — surfaced verbatim as a field error on the editor.
+  updateSchema: async ({ request, params, locals }) => {
+    const form = await superValidate<MemorySchemaSettingsForm>(
+      await request.formData(),
+      memorySchemaSettingsFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
+    const trimmed = form.data.schemaJson.trim();
+    // The zod schema already proved non-empty input parses; re-parse only to
+    // produce the typed mutation payload.
+    const schema = trimmed ? (JSON.parse(trimmed) as Record<string, unknown>) : null;
+
+    try {
+      await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
+        id: params.id,
+        schema,
+      });
+      return message(form, {
+        type: 'success',
+        text: schema ? 'Schema saved.' : 'Schema removed.',
+      });
+    } catch (e: unknown) {
+      const text = extractGqlError(e, 'Failed to update schema');
+      if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
+        return setError(form, 'schemaJson', text, { status: 400 });
+      }
+      return message(form, { type: 'error', text }, { status: 500 });
     }
   },
 

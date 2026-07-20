@@ -349,4 +349,97 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     expect(result).toMatchObject({ status: 500 });
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'save exploded' });
   });
+  // #588: structured storage — objectType + properties forwarding.
+  it('forwards objectType and parsed properties, and seeds them from the node', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        memory: { id: 'mem-B', urn: 'acme.com::brain', name: 'Brain' },
+        nodeType: 'record', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        objectType: 'competitor', properties: { name: 'Old' },
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
+
+    const actions = await importActions();
+    try {
+      await actions.default(actionEvent({
+        gid: 'mem-B',
+        nodeId: 'pk',
+        form: {
+          name: 'a', loc: 'a',
+          objectType: 'competitor',
+          propertiesJson: '{"name": "Acme", "fundingUsd": 5}',
+        },
+      }));
+    } catch { /* redirect at end */ }
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
+    expect(vars.input.objectType).toBe('competitor');
+    expect(vars.input.properties).toEqual({ name: 'Acme', fundingUsd: 5 });
+  });
+
+  it('clears objectType and properties with null when submitted empty', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        memory: { id: 'mem-B', urn: 'acme.com::brain', name: 'Brain' },
+        nodeType: 'record', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        objectType: 'competitor', properties: { name: 'Old' },
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
+
+    const actions = await importActions();
+    try {
+      await actions.default(actionEvent({
+        gid: 'mem-B',
+        nodeId: 'pk',
+        form: { name: 'a', loc: 'a', objectType: '', propertiesJson: '' },
+      }));
+    } catch { /* redirect at end */ }
+
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
+    // null (not undefined) — updateNode treats omit as preserve, null as
+    // clear; the resolver maps null properties through jsonOrDbNull.
+    expect(vars.input.objectType).toBeNull();
+    expect(vars.input.properties).toBeNull();
+  });
+
+  it('maps schema violations (BAD_USER_INPUT) to a propertiesJson field error (#588)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        memory: { id: 'mem-B', urn: 'acme.com::brain', name: 'Brain' },
+        nodeType: 'record', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockRejectedValueOnce({
+      response: {
+        errors: [{
+          message: 'properties.name: required field missing',
+          extensions: { code: 'BAD_USER_INPUT' },
+        }],
+      },
+    });
+
+    const actions = await importActions();
+    const result = await actions.default(actionEvent({
+      gid: 'mem-B',
+      nodeId: 'pk',
+      form: { name: 'a', loc: 'a', objectType: 'competitor', propertiesJson: '{"fundingUsd": 5}' },
+    }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'propertiesJson')).toBe('properties.name: required field missing');
+  });
 });

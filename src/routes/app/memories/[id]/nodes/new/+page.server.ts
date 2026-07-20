@@ -75,6 +75,15 @@ export const actions: Actions = {
     const description = form.data.description || null;
     const abstract = form.data.abstract || null;
     const content = form.data.content || null;
+    // #588: empty → omit (ordinary node / no properties). The zod schema
+    // already proved propertiesJson parses to an object; re-parse only to
+    // produce the typed payload. The server validates both against the
+    // memory schema (BAD_USER_INPUT on a violation).
+    const objectType = form.data.objectType || undefined;
+    const propertiesTrimmed = form.data.propertiesJson.trim();
+    const properties = propertiesTrimmed
+      ? (JSON.parse(propertiesTrimmed) as Record<string, unknown>)
+      : undefined;
 
     let newId: string | undefined;
     try {
@@ -91,9 +100,11 @@ export const actions: Actions = {
           loc,
           name: form.data.name,
           nodeType: form.data.nodeType,
+          objectType,
           description,
           abstract,
           content,
+          properties,
           tags: [],
         },
       });
@@ -104,6 +115,12 @@ export const actions: Actions = {
       const code = createNodeErrorCode(e);
       if (code === 'NodeLocConflictError' || code === 'InvalidLocError') {
         return setError(form, 'loc', error, { status });
+      }
+      // #588: a memory-schema violation (undeclared collection, missing
+      // required field, wrong type, unknown key under strict) — surface the
+      // server's verdict verbatim on the properties field.
+      if (code === 'BAD_USER_INPUT') {
+        return setError(form, 'propertiesJson', error, { status: 400 });
       }
       return message(form, { type: 'error', text: error }, { status });
     }

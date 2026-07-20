@@ -97,6 +97,8 @@ describe('new node load()', () => {
       description: '',
       abstract: '',
       content: '',
+      objectType: '',
+      propertiesJson: '',
     });
     expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
   });
@@ -184,6 +186,58 @@ describe('new node create action', () => {
         content: null,
       }),
     }));
+  });
+
+  // #588: structured storage — objectType + properties forwarding.
+  it('forwards objectType and the parsed properties payload', async () => {
+    mockRequest.mockResolvedValueOnce({ createNode: { id: 'node-3' } });
+
+    await runCreate({
+      name: 'Acme',
+      loc: 'acme',
+      nodeType: 'record',
+      objectType: 'competitor',
+      propertiesJson: '{"name": "Acme", "fundingUsd": 5}',
+    });
+
+    expect(mockRequest).toHaveBeenCalledWith(CREATE_NODE_MUTATION, expect.objectContaining({
+      input: expect.objectContaining({
+        objectType: 'competitor',
+        properties: { name: 'Acme', fundingUsd: 5 },
+      }),
+    }));
+  });
+
+  it('omits objectType and properties when empty', async () => {
+    mockRequest.mockResolvedValueOnce({ createNode: { id: 'node-4' } });
+
+    await runCreate({ name: 'Node', loc: 'node', nodeType: 'info' });
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, { input: Record<string, unknown> }];
+    expect(vars.input.objectType).toBeUndefined();
+    expect(vars.input.properties).toBeUndefined();
+  });
+
+  it('maps schema violations (BAD_USER_INPUT) to a propertiesJson field error (#588)', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: {
+        errors: [{
+          message: 'properties.name: required field missing',
+          extensions: { code: 'BAD_USER_INPUT' },
+        }],
+      },
+    });
+
+    const result = await runCreate({
+      name: 'Acme',
+      loc: 'acme',
+      nodeType: 'record',
+      objectType: 'competitor',
+      propertiesJson: '{"fundingUsd": 5}',
+    });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'propertiesJson')).toBe('properties.name: required field missing');
   });
 
   it('maps loc conflicts to field errors', async () => {

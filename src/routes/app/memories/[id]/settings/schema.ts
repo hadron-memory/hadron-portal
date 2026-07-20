@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { optionalHttpUrl } from '$lib/forms/zod-validators';
+import { MemorySchemaError, parseMemorySchema } from '$lib/schema/memory-schema';
 import { toBareMemorySlugInput, validateMemorySlugField } from '$lib/urn/form-validation';
 
 const booleanString = z
@@ -68,6 +69,54 @@ export const vectorIndexSettingsSchema = z.object({
   acknowledgeVectorInversionRisk: booleanString.default(false),
 });
 
+// #588: mirror of the node-detail Data tab's soft size cap — keeps a
+// pathological paste from hitting the adapter-node body limit's opaque error.
+export const SCHEMA_JSON_MAX = 256 * 1024;
+
+// #588 (server #725): the memory property schema, edited as raw JSON (v1).
+// Empty = clear the schema (the action sends null). The client-side
+// parseMemorySchema mirror gives field-level feedback; the server's
+// BAD_USER_INPUT verdict is the source of truth and is surfaced verbatim.
+export const memorySchemaSettingsSchema = z
+  .object({
+    // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+    // defined discriminator from the wrong action.
+    _kind: z.literal('updateSchema').default('updateSchema'),
+    schemaJson: z.string().default(''),
+  })
+  .superRefine((data, ctx) => {
+    const trimmed = data.schemaJson.trim();
+    if (!trimmed) return; // empty clears the schema
+    if (data.schemaJson.length > SCHEMA_JSON_MAX) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['schemaJson'],
+        message: `Schema is too large (${Math.round(data.schemaJson.length / 1024)} KB / ${SCHEMA_JSON_MAX / 1024} KB max).`,
+      });
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['schemaJson'],
+        message: 'Not valid JSON.',
+      });
+      return;
+    }
+    try {
+      parseMemorySchema(parsed);
+    } catch (e) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['schemaJson'],
+        message: e instanceof MemorySchemaError ? e.message : 'Not a valid memory schema.',
+      });
+    }
+  });
+
 export const deleteMemorySchema = z.object({
   // Defaulted _kind accepts omitted hidden inputs while still rejecting a
   // defined discriminator from the wrong action.
@@ -77,4 +126,5 @@ export const deleteMemorySchema = z.object({
 
 export type MemorySettingsSchema = typeof memorySettingsSchema;
 export type VectorIndexSettingsSchema = typeof vectorIndexSettingsSchema;
+export type MemorySchemaSettingsSchema = typeof memorySchemaSettingsSchema;
 export type DeleteMemorySchema = typeof deleteMemorySchema;
