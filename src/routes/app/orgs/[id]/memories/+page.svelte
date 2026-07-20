@@ -11,7 +11,6 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { enhance } from '$app/forms';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import {
@@ -26,12 +25,24 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
-  import { orgMemorySubscribeSchema } from './schema';
+  import {
+    deleteOrgMemorySchema,
+    orgMemorySubscribeSchema,
+    syncOrgMemoriesSchema,
+    unsubscribeOrgMemorySchema,
+  } from './schema';
 
+  type DeleteOrgMemoryForm = Infer<typeof deleteOrgMemorySchema, 'zod4'>;
   type OrgMemorySubscribeForm = Infer<typeof orgMemorySubscribeSchema, 'zod4'>;
+  type SyncOrgMemoriesForm = Infer<typeof syncOrgMemoriesSchema, 'zod4'>;
+  type UnsubscribeOrgMemoryForm = Infer<typeof unsubscribeOrgMemorySchema, 'zod4'>;
+  type DeleteOrgMemorySuperform = SuperValidated<DeleteOrgMemoryForm, App.Superforms.Message, DeleteOrgMemoryForm>;
   type OrgMemorySubscribeSuperform = SuperValidated<OrgMemorySubscribeForm, App.Superforms.Message, OrgMemorySubscribeForm>;
+  type SyncOrgMemoriesSuperform = SuperValidated<SyncOrgMemoriesForm, App.Superforms.Message, SyncOrgMemoriesForm>;
+  type UnsubscribeOrgMemorySuperform = SuperValidated<UnsubscribeOrgMemoryForm, App.Superforms.Message, UnsubscribeOrgMemoryForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
@@ -43,21 +54,10 @@
   let subTab = $state<'personal' | 'org' | 'subscriptions'>(untrack(() => data.initialTab));
   const subscriptions = $derived(org.subscriptions ?? []);
 
-  function submittedSubscribe(actionData: ActionData): OrgMemorySubscribeSuperform | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    const candidateData = candidate?.data;
-    const kind = candidateData && typeof candidateData === 'object' && '_kind' in candidateData
-      ? String(candidateData._kind)
-      : null;
-    return kind === 'subscribeMemory'
-      ? candidate as OrgMemorySubscribeSuperform
-      : null;
-  }
-
   // Subscribe form: the memory <select> is replaced by the SelectMemory modal
   // picker (searchable, paginated) — same pattern as the agent detail page.
   let subscribeMemoryOpen = $state(false);
-  const initialSubscribeForm = untrack(() => submittedSubscribe(form) ?? data.subscribeForm);
+  const initialSubscribeForm = untrack(() => submittedForm<OrgMemorySubscribeForm>(form, 'subscribeMemory') as OrgMemorySubscribeSuperform | null ?? data.subscribeForm);
   const {
     form: subscribeForm,
     errors: subscribeErrors,
@@ -76,18 +76,93 @@
       }
     },
   });
+  const initialDeleteForm = untrack(() => submittedForm<DeleteOrgMemoryForm>(form, 'deleteMemory') as DeleteOrgMemorySuperform | null ?? data.deleteForm);
+  const {
+    form: deleteForm,
+    errors: deleteErrors,
+    message: deleteMessage,
+    submitting: deleteSubmitting,
+    enhance: deleteEnhance,
+  } = superForm<DeleteOrgMemoryForm, App.Superforms.Message, DeleteOrgMemoryForm>(initialDeleteForm, {
+    validators: zod4Client(deleteOrgMemorySchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const initialSyncAllForm = untrack(() => submittedForm<SyncOrgMemoriesForm>(form, 'syncMemories') as SyncOrgMemoriesSuperform | null ?? data.syncAllForm);
+  const {
+    message: syncAllMessage,
+    submitting: syncAllSubmitting,
+    enhance: syncAllEnhance,
+  } = superForm<SyncOrgMemoriesForm, App.Superforms.Message, SyncOrgMemoriesForm>(initialSyncAllForm, {
+    validators: zod4Client(syncOrgMemoriesSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const initialUnsubscribeForm = untrack(() => submittedForm<UnsubscribeOrgMemoryForm>(form, 'unsubscribeMemory') as UnsubscribeOrgMemorySuperform | null ?? data.unsubscribeForm);
+  const {
+    form: unsubscribeForm,
+    errors: unsubscribeErrors,
+    message: unsubscribeMessage,
+    submitting: unsubscribeSubmitting,
+    enhance: unsubscribeEnhance,
+  } = superForm<UnsubscribeOrgMemoryForm, App.Superforms.Message, UnsubscribeOrgMemoryForm>(initialUnsubscribeForm, {
+    validators: zod4Client(unsubscribeOrgMemorySchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
   const selectedSubscribeMemory = $derived(
     data.availableMemories.find((m) => m.id === $subscribeForm.memoryId),
   );
   const subscribeMemoryError = $derived($subscribeErrors.memoryId?.[0] ?? null);
   const subscribeActionError = $derived($subscribeMessage?.type === 'error' ? $subscribeMessage.text : null);
   const subscribeActionSuccess = $derived($subscribeMessage?.type === 'success' ? $subscribeMessage.text : null);
+  const deleteActionError = $derived(
+    $deleteMessage?.type === 'error'
+      ? $deleteMessage.text
+      : $deleteErrors.id?.[0] ?? $deleteErrors._kind?.[0] ?? null,
+  );
+  const deleteActionSuccess = $derived($deleteMessage?.type === 'success' ? $deleteMessage.text : null);
+  const syncAllActionError = $derived($syncAllMessage?.type === 'error' ? $syncAllMessage.text : null);
+  const syncAllActionSuccess = $derived($syncAllMessage?.type === 'success' ? $syncAllMessage.text : null);
+  const unsubscribeActionError = $derived(
+    $unsubscribeMessage?.type === 'error'
+      ? $unsubscribeMessage.text
+      : $unsubscribeErrors.memoryId?.[0] ?? $unsubscribeErrors._kind?.[0] ?? null,
+  );
+  const unsubscribeActionSuccess = $derived($unsubscribeMessage?.type === 'success' ? $unsubscribeMessage.text : null);
   $effect(() => {
-    const submitted = submittedSubscribe(form);
+    const submitted = submittedForm<OrgMemorySubscribeForm>(form, 'subscribeMemory') as OrgMemorySubscribeSuperform | null;
     if (submitted && (!submitted.valid || submitted.message?.type === 'error')) {
       subTab = 'subscriptions';
     }
   });
+  $effect(() => {
+    if (submittedForm<UnsubscribeOrgMemoryForm>(form, 'unsubscribeMemory')) {
+      subTab = 'subscriptions';
+    }
+  });
+  $effect(() => {
+    if (
+      submittedForm<DeleteOrgMemoryForm>(form, 'deleteMemory') ||
+      submittedForm<SyncOrgMemoriesForm>(form, 'syncMemories')
+    ) {
+      subTab = 'org';
+    }
+  });
+
+  function setDeleteMemory(id: string) {
+    deleteForm.update((current) => ({ ...current, id }), { taint: false });
+  }
+
+  function setUnsubscribeMemory(memoryId: string) {
+    unsubscribeForm.update((current) => ({ ...current, memoryId }), { taint: false });
+  }
 
   // 'personal' = the user-owned section (spans the personal + private memory
   // classes); the class itself is carried in `badge` (Personal vs Private).
@@ -319,16 +394,15 @@
     </button>
   </div>
 
-  <!-- Plain-action failures from delete/sync/unsubscribe use form.error;
-       subscribe failures use the Superforms message inside the subscribe form. -->
-  {#if form && 'error' in form}
-    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if deleteActionError || syncAllActionError || unsubscribeActionError}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+      {deleteActionError ?? syncAllActionError ?? unsubscribeActionError}
+    </div>
   {/if}
-  {#if form?.synced}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">All memories synced.</div>
-  {/if}
-  {#if subscribeActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{subscribeActionSuccess}</div>
+  {#if deleteActionSuccess || syncAllActionSuccess || unsubscribeActionSuccess || subscribeActionSuccess}
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+      {deleteActionSuccess ?? syncAllActionSuccess ?? unsubscribeActionSuccess ?? subscribeActionSuccess}
+    </div>
   {/if}
 
   <!-- #555: shared cell renderer — reused by the Personal and Org grids. The
@@ -357,9 +431,19 @@
       <div class="flex items-center gap-3">
         <a href="/app/memories/{m.id}" class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Edit</a>
         {#if m.section === 'org'}
-          <form method="POST" action="?/delete" use:enhance onsubmit={(e) => { if (!confirm(`Delete "${m.name}"?`)) e.preventDefault(); }}>
+          <!-- Keep both handlers: onclick updates before client validation for button activation;
+               onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
+          <form method="POST" action="?/delete" use:deleteEnhance onsubmit={(e) => {
+            if (!confirm(`Delete "${m.name}"?`)) {
+              e.preventDefault();
+              setDeleteMemory('');
+              return;
+            }
+            setDeleteMemory(m.id);
+          }} novalidate>
+            <input type="hidden" name="_kind" value="deleteMemory" />
             <input type="hidden" name="id" value={m.id} />
-            <button type="submit" class="text-red-400 hover:text-red-300">Delete</button>
+            <button type="submit" disabled={$deleteSubmitting} onclick={() => setDeleteMemory(m.id)} class="text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50">Delete</button>
           </form>
         {/if}
       </div>
@@ -420,9 +504,10 @@
       <a href="/app/orgs/{org.id}/memories/new" class="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">
         + Add memory
       </a>
-      <form method="POST" action="?/syncAll" use:enhance>
-        <button type="submit" class="cursor-pointer rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
-          Sync all
+      <form method="POST" action="?/syncAll" use:syncAllEnhance novalidate>
+        <input type="hidden" name="_kind" value="syncMemories" />
+        <button type="submit" disabled={$syncAllSubmitting} class="cursor-pointer rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-zinc-500 dark:hover:text-white">
+          {$syncAllSubmitting ? t('org-memories.syncing', 'Syncing...') : t('org-memories.sync-all', 'Sync all')}
         </button>
       </form>
     </div>
@@ -455,9 +540,19 @@
                 </td>
                 <td class="px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{s.memory.organization?.name ?? t('org-memories.unknown', 'unknown')}</td>
                 <td class="px-4 py-2.5 text-right">
-                  <form method="POST" action="?/unsubscribe" use:enhance onsubmit={(e) => { if (!confirm(`Unsubscribe from "${s.memory.name}"?`)) e.preventDefault(); }}>
+                  <!-- Keep both handlers: onclick updates before client validation for button activation;
+                       onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
+                  <form method="POST" action="?/unsubscribe" use:unsubscribeEnhance onsubmit={(e) => {
+                    if (!confirm(`Unsubscribe from "${s.memory.name}"?`)) {
+                      e.preventDefault();
+                      setUnsubscribeMemory('');
+                      return;
+                    }
+                    setUnsubscribeMemory(s.memory.id);
+                  }} novalidate>
+                    <input type="hidden" name="_kind" value="unsubscribeMemory" />
                     <input type="hidden" name="memoryId" value={s.memory.id} />
-                    <button type="submit" class="text-red-400 hover:text-red-300">Unsubscribe</button>
+                    <button type="submit" disabled={$unsubscribeSubmitting} onclick={() => setUnsubscribeMemory(s.memory.id)} class="text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50">Unsubscribe</button>
                   </form>
                 </td>
               </tr>
