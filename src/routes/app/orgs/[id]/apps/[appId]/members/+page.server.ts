@@ -15,9 +15,11 @@ import { appMemberErrorCode, translateAppMemberError, appMemberErrorStatus } fro
 import { t } from '$lib/i18n/t';
 import type { App, AppMember, Organization, UserSummary } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { addAppMemberSchema } from './schema';
+import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
 
 const addAppMemberFormAdapter = zod4(addAppMemberSchema);
+const ensureAppMemberFormAdapter = zod4(ensureAppMemberSchema);
+const removeAppMemberFormAdapter = zod4(removeAppMemberSchema);
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
@@ -41,17 +43,32 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const memberIds = new Set(members.map((member) => member.userId));
   const firstNonMember = usersData.find((user) => !memberIds.has(user.id));
   const firstRole = appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '';
+  const [addForm, ensureForm, removeForm] = await Promise.all([
+    superValidate(
+      { userId: firstNonMember?.id ?? '', role: firstRole },
+      addAppMemberFormAdapter,
+      { errors: false },
+    ),
+    superValidate(
+      { userId: '', role: firstRole },
+      ensureAppMemberFormAdapter,
+      { errors: false },
+    ),
+    superValidate(
+      { userId: '' },
+      removeAppMemberFormAdapter,
+      { errors: false },
+    ),
+  ]);
 
   return {
     app: appData.app,
     org: orgData.organization,
     members,
     allUsers: usersData,
-    addForm: await superValidate(
-      { userId: firstNonMember?.id ?? '', role: firstRole },
-      addAppMemberFormAdapter,
-      { errors: false },
-    ),
+    addForm,
+    ensureForm,
+    removeForm,
   };
 };
 
@@ -79,38 +96,40 @@ export const actions: Actions = {
   },
 
   ensure: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const userId = String(fd.get('userId') ?? '');
-    const role = String(fd.get('role') ?? '').trim();
-    if (!userId) return fail(400, { error: 'User is required' });
-    if (!role) return fail(400, { error: 'Role is required' });
+    const form = await superValidate(await request.formData(), ensureAppMemberFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(ENSURE_APP_MEMBER_MUTATION, {
         appId: params.appId,
-        userId,
-        role,
+        userId: form.data.userId,
+        role: form.data.role,
       });
-      return { ensured: true };
+      return message(form, { type: 'success', text: t('app-member.update.success', 'Member updated.') });
     } catch (e: unknown) {
-      return fail(appMemberErrorStatus(e), {
-        error: translateAppMemberError(e, 'Failed to save member'),
+      const errorText = translateAppMemberError(e, 'Failed to save member');
+      if (appMemberErrorCode(e) === 'InvalidRoleError') {
+        return setError(form, 'role', errorText, { status: 400 });
+      }
+      return message(form, { type: 'error', text: errorText }, {
+        status: appMemberErrorStatus(e),
       });
     }
   },
 
   remove: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const userId = String(fd.get('userId') ?? '');
-    if (!userId) return fail(400, { error: 'User is required' });
+    const form = await superValidate(await request.formData(), removeAppMemberFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(REMOVE_APP_MEMBER_MUTATION, {
         appId: params.appId,
-        userId,
+        userId: form.data.userId,
       });
-      return { removed: true };
+      return message(form, { type: 'success', text: t('app-member.remove.success', 'Member removed.') });
     } catch (e: unknown) {
-      return fail(appMemberErrorStatus(e), {
-        error: translateAppMemberError(e, 'Failed to remove member'),
+      return message(form, { type: 'error', text: translateAppMemberError(e, 'Failed to remove member') }, {
+        status: appMemberErrorStatus(e),
       });
     }
   },

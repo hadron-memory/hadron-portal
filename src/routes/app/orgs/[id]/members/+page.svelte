@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
-  import { superForm } from 'sveltekit-superforms';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import {
     getCoreRowModel,
@@ -15,10 +14,28 @@
   import SelectUser from '$lib/components/SelectUser.svelte';
   import { type SearchUser, userLabel } from '$lib/users/search-user';
   import Urn from '$lib/components/Urn.svelte';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { OrgMember } from '$lib/types';
   import type { PageData, ActionData } from './$types';
-  import { inviteMemberSchema } from './schema';
+  import {
+    addOrgMemberSchema,
+    inviteMemberSchema,
+    leaveOrgSchema,
+    removeOrgMemberSchema,
+    updateOrgMemberSchema,
+  } from './schema';
+
+  type AddOrgMemberForm = Infer<typeof addOrgMemberSchema, 'zod4'>;
+  type UpdateOrgMemberForm = Infer<typeof updateOrgMemberSchema, 'zod4'>;
+  type RemoveOrgMemberForm = Infer<typeof removeOrgMemberSchema, 'zod4'>;
+  type InviteMemberForm = Infer<typeof inviteMemberSchema, 'zod4'>;
+  type LeaveOrgForm = Infer<typeof leaveOrgSchema, 'zod4'>;
+  type AddOrgMemberSuperform = SuperValidated<AddOrgMemberForm, App.Superforms.Message, AddOrgMemberForm>;
+  type UpdateOrgMemberSuperform = SuperValidated<UpdateOrgMemberForm, App.Superforms.Message, UpdateOrgMemberForm>;
+  type RemoveOrgMemberSuperform = SuperValidated<RemoveOrgMemberForm, App.Superforms.Message, RemoveOrgMemberForm>;
+  type InviteMemberSuperform = SuperValidated<InviteMemberForm, App.Superforms.Message, InviteMemberForm>;
+  type LeaveOrgSuperform = SuperValidated<LeaveOrgForm, App.Superforms.Message, LeaveOrgForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
@@ -97,10 +114,92 @@
   }
 
   function submitOnChange(e: Event) {
-    (e.currentTarget as HTMLSelectElement).form?.requestSubmit();
+    const select = e.currentTarget as HTMLSelectElement;
+    const userId = select.dataset.userId ?? '';
+    updateForm.update(
+      (current) => ({
+        ...current,
+        userId,
+        role: select.value as UpdateOrgMemberForm['role'],
+      }),
+      { taint: false },
+    );
+    select.form?.requestSubmit();
   }
 
-  const initialInviteForm = untrack(() => form?.form ?? data.inviteForm);
+  const initialAddForm = untrack(() => submittedForm<AddOrgMemberForm>(form, 'addOrgMember') as AddOrgMemberSuperform | null ?? data.addForm);
+  const {
+    form: addForm,
+    errors: addErrors,
+    message: addMessage,
+    submitting: addSubmitting,
+    enhance: addEnhance,
+  } = superForm<AddOrgMemberForm, App.Superforms.Message, AddOrgMemberForm>(initialAddForm, {
+    validators: zod4Client(addOrgMemberSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: ({ form }) => {
+      if (form.message?.type === 'success') {
+        selectedUser = null;
+        addForm.update((current) => ({ ...current, userId: '' }), { taint: false });
+      }
+    },
+  });
+  const addUserError = $derived($addErrors.userId?.[0] ?? null);
+  const addRoleError = $derived($addErrors.role?.[0] ?? null);
+  const addKindError = $derived($addErrors._kind?.[0] ?? null);
+  const addActionError = $derived(
+    $addMessage?.type === 'error'
+      ? $addMessage.text
+      : addUserError ?? addRoleError ?? addKindError,
+  );
+  const addActionSuccess = $derived($addMessage?.type === 'success' ? $addMessage.text : null);
+
+  const initialUpdateForm = untrack(() => submittedForm<UpdateOrgMemberForm>(form, 'updateOrgMember') as UpdateOrgMemberSuperform | null ?? data.updateForm);
+  const {
+    form: updateForm,
+    errors: updateErrors,
+    message: updateMessage,
+    submitting: updateSubmitting,
+    enhance: updateEnhance,
+  } = superForm<UpdateOrgMemberForm, App.Superforms.Message, UpdateOrgMemberForm>(initialUpdateForm, {
+    validators: zod4Client(updateOrgMemberSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const updateActionError = $derived(
+    $updateMessage?.type === 'error'
+      ? $updateMessage.text
+      : $updateErrors.userId?.[0] ?? $updateErrors.role?.[0] ?? $updateErrors._kind?.[0] ?? null,
+  );
+  const updateActionSuccess = $derived($updateMessage?.type === 'success' ? $updateMessage.text : null);
+
+  const initialRemoveForm = untrack(() => submittedForm<RemoveOrgMemberForm>(form, 'removeOrgMember') as RemoveOrgMemberSuperform | null ?? data.removeForm);
+  const {
+    form: removeForm,
+    errors: removeErrors,
+    message: removeMessage,
+    submitting: removeSubmitting,
+    enhance: removeEnhance,
+  } = superForm<RemoveOrgMemberForm, App.Superforms.Message, RemoveOrgMemberForm>(initialRemoveForm, {
+    validators: zod4Client(removeOrgMemberSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const removeActionError = $derived(
+    $removeMessage?.type === 'error'
+      ? $removeMessage.text
+      : $removeErrors.userId?.[0] ?? $removeErrors._kind?.[0] ?? null,
+  );
+  const removeActionSuccess = $derived($removeMessage?.type === 'success' ? $removeMessage.text : null);
+
+  const initialInviteForm = untrack(() => submittedForm<InviteMemberForm>(form, 'inviteOrgMember') as InviteMemberSuperform | null ?? data.inviteForm);
   const {
     form: inviteForm,
     errors: inviteErrors,
@@ -117,9 +216,10 @@
   });
   const inviteNameError = $derived($inviteErrors.name?.[0] ?? null);
   const inviteEmailError = $derived($inviteErrors.email?.[0] ?? null);
+  const inviteKindError = $derived($inviteErrors._kind?.[0] ?? null);
   const inviteFormError = $derived($inviteErrors._errors?.[0] ?? null);
   const inviteActionError = $derived(
-    $inviteMessage?.type === 'error' ? $inviteMessage.text : inviteFormError,
+    $inviteMessage?.type === 'error' ? $inviteMessage.text : inviteFormError ?? inviteKindError,
   );
   const inviteValid = $derived(
     ($inviteForm.name.trim() !== '' || $inviteForm.email.trim() !== '') &&
@@ -127,6 +227,32 @@
       !inviteNameError &&
       !inviteEmailError,
   );
+
+  const initialLeaveForm = untrack(() => submittedForm<LeaveOrgForm>(form, 'leaveOrg') as LeaveOrgSuperform | null ?? data.leaveForm);
+  const {
+    errors: leaveErrors,
+    message: leaveMessage,
+    submitting: leaveSubmitting,
+    enhance: leaveEnhance,
+  } = superForm<LeaveOrgForm, App.Superforms.Message, LeaveOrgForm>(initialLeaveForm, {
+    validators: zod4Client(leaveOrgSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const leaveActionError = $derived(
+    $leaveMessage?.type === 'error' ? $leaveMessage.text : $leaveErrors._kind?.[0] ?? null,
+  );
+
+  function selectAddUser(user: SearchUser) {
+    selectedUser = user;
+    addForm.update((current) => ({ ...current, userId: user.id }), { taint: false });
+  }
+
+  function setRemoveUser(userId: string) {
+    removeForm.update((current) => ({ ...current, userId }), { taint: false });
+  }
 
   // Brief "Copied!" confirmation on the invite-link copy button.
   let inviteCopied = $state(false);
@@ -155,8 +281,14 @@
        document outline (per the caption-ownership convention; PR #378). -->
   <h1 class="sr-only">Team</h1>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if updateActionError || removeActionError || leaveActionError}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+      {updateActionError ?? removeActionError ?? leaveActionError}
+    </div>
+  {:else if updateActionSuccess || removeActionSuccess}
+    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+      {updateActionSuccess ?? removeActionSuccess}
+    </div>
   {/if}
 
   <!-- Member list — TanStack grid, same chrome as the org apps/agents lists. -->
@@ -192,10 +324,11 @@
           {/if}
         {:else if cell.column.id === 'role'}
           {#if isOwner && m.user.id !== data.currentUserId}
-            <form method="POST" action="?/update" use:enhance>
+            <form method="POST" action="?/update" use:updateEnhance>
+              <input type="hidden" name="_kind" value="updateOrgMember" />
               <input type="hidden" name="userId" value={m.user.id} />
               <label class="sr-only" for="role-{m.id}">Role for {memberName(m)}</label>
-              <select id="role-{m.id}" name="role" value={m.role} onchange={submitOnChange}
+              <select id="role-{m.id}" name="role" value={m.role} data-user-id={m.user.id} onchange={submitOnChange} disabled={$updateSubmitting}
                 class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
                 {#each ROLES as role}
                   <option value={role}>{role}</option>
@@ -207,10 +340,19 @@
           {/if}
         {:else if cell.column.id === 'actions'}
           {#if isOwner && m.user.id !== data.currentUserId}
-            <form method="POST" action="?/remove" use:enhance
-              onsubmit={(e) => { if (!confirm(`Remove ${memberName(m)} from "${org.name}"?`)) e.preventDefault(); }}>
+            <!-- Keep both handlers: onclick updates before client validation for button activation;
+                 onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
+            <form method="POST" action="?/remove" use:removeEnhance
+              onsubmit={(e) => {
+                if (!confirm(`Remove ${memberName(m)} from "${org.name}"?`)) {
+                  e.preventDefault();
+                  return;
+                }
+                setRemoveUser(m.user.id);
+              }}>
+              <input type="hidden" name="_kind" value="removeOrgMember" />
               <input type="hidden" name="userId" value={m.user.id} />
-              <button type="submit" class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">Remove</button>
+              <button type="submit" disabled={$removeSubmitting} onclick={() => setRemoveUser(m.user.id)} class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">Remove</button>
             </form>
           {/if}
         {/if}
@@ -221,13 +363,12 @@
   <!-- Add existing user -->
   <section class="max-w-2xl">
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Add existing user</h2>
-    <form method="POST" action="?/add" use:enhance={() => {
-      return async ({ result, update }) => {
-        await update();
-        // Clear the picked user only on success so a failed add keeps the selection.
-        if (result.type === 'success') selectedUser = null;
-      };
-    }} class="flex items-end gap-3">
+    <form method="POST" action="?/add" use:addEnhance class="flex flex-wrap items-start gap-3" novalidate>
+      {#if addActionError}
+        <div class="basis-full rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{addActionError}</div>
+      {:else if addActionSuccess}
+        <div class="basis-full rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">{addActionSuccess}</div>
+      {/if}
       <div class="flex-1">
         <label for="add-user-button" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">User</label>
         <button
@@ -240,24 +381,35 @@
         >
           {selectedUser ? selectedUserLabel : 'Find a user...'}
         </button>
-        <input type="hidden" name="userId" value={selectedUser?.id ?? ''} />
+        <input type="hidden" name="_kind" value="addOrgMember" />
+        <input type="hidden" name="userId" bind:value={$addForm.userId} />
+        {#if addUserError}
+          <p class="mt-1 text-xs text-red-600 dark:text-red-400">{addUserError}</p>
+        {/if}
       </div>
       <div>
           <label for="role" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
-          <select id="role" name="role" class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+          <select id="role" name="role"
+            bind:value={$addForm.role}
+            aria-invalid={!!addRoleError}
+            aria-describedby={addRoleError ? 'addRoleError' : undefined}
+            class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
             <option value="READER">Reader</option>
             <option value="CONTRIBUTOR">Contributor</option>
             <option value="ADMIN">Admin</option>
             <option value="OWNER">Owner</option>
           </select>
+          {#if addRoleError}
+            <p id="addRoleError" class="mt-1 text-xs text-red-600 dark:text-red-400">{addRoleError}</p>
+          {/if}
         </div>
-        <button type="submit" disabled={!selectedUser} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">Add</button>
+        <button type="submit" disabled={$addSubmitting || !selectedUser} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">{$addSubmitting ? 'Adding...' : 'Add'}</button>
       </form>
 
       <SelectUser
         search={searchUsers}
         bind:open={selectUserOpen}
-        onselect={(user) => (selectedUser = user)}
+        onselect={selectAddUser}
       />
   </section>
 
@@ -286,6 +438,7 @@
       </div>
     {:else}
       <form method="POST" action="?/invite" use:inviteEnhance class="flex flex-wrap items-start gap-3" novalidate>
+        <input type="hidden" name="_kind" value="inviteOrgMember" />
         {#if inviteActionError}
           <div class="basis-full rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{inviteActionError}</div>
         {/if}
@@ -334,13 +487,14 @@
       {#if isOnlyMember}
         <p class="mb-3 text-xs text-red-400">You are the only member. Leaving will delete the organization and all its content.</p>
       {/if}
-      <form method="POST" action="?/leave" use:enhance onsubmit={(e) => {
+      <form method="POST" action="?/leave" use:leaveEnhance onsubmit={(e) => {
         const msg = isOnlyMember
           ? `Leave and DELETE "${org.name}"? This will remove all memories, agents, and data. This cannot be undone.`
           : `Leave "${org.name}"? You will lose access to this organization.`;
         if (!confirm(msg)) e.preventDefault();
       }}>
-        <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+        <input type="hidden" name="_kind" value="leaveOrg" />
+        <button type="submit" disabled={$leaveSubmitting} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
           {isOnlyMember ? 'Leave and delete organization' : 'Leave organization'}
         </button>
       </form>

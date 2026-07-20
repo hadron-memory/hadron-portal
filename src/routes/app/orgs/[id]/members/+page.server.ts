@@ -13,8 +13,18 @@ import {
 } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { inviteMemberSchema } from './schema';
+import {
+  addOrgMemberSchema,
+  inviteMemberSchema,
+  leaveOrgSchema,
+  removeOrgMemberSchema,
+  updateOrgMemberSchema,
+} from './schema';
 
+const addOrgMemberFormAdapter = zod4(addOrgMemberSchema);
+const updateOrgMemberFormAdapter = zod4(updateOrgMemberSchema);
+const removeOrgMemberFormAdapter = zod4(removeOrgMemberSchema);
+const leaveOrgFormAdapter = zod4(leaveOrgSchema);
 const inviteMemberFormAdapter = zod4(inviteMemberSchema);
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
@@ -26,44 +36,69 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const orgData = await client.request<{ organization: Organization }>(ORGANIZATION_QUERY, {
     id: params.id,
   });
+  const [addForm, updateForm, removeForm, inviteForm, leaveForm] = await Promise.all([
+    superValidate({}, addOrgMemberFormAdapter, { errors: false }),
+    superValidate({}, updateOrgMemberFormAdapter, { errors: false }),
+    superValidate({}, removeOrgMemberFormAdapter, { errors: false }),
+    superValidate({}, inviteMemberFormAdapter, { errors: false }),
+    superValidate({}, leaveOrgFormAdapter, { errors: false }),
+  ]);
   return {
     org: orgData.organization,
     currentUserId: locals.user?.id ?? null,
-    inviteForm: await superValidate({}, inviteMemberFormAdapter, { errors: false }),
+    addForm,
+    updateForm,
+    removeForm,
+    inviteForm,
+    leaveForm,
   };
 };
 
 export const actions: Actions = {
   add: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const userId = String(fd.get('userId') ?? '');
-    const role = String(fd.get('role') ?? 'READER');
-    if (!userId) return fail(400, { error: 'User is required' });
+    const form = await superValidate(await request.formData(), addOrgMemberFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
     try {
-      await gqlClient(locals.token).request(ADD_MEMBER_MUTATION, { orgId: params.id, userId, role });
+      await gqlClient(locals.token).request(ADD_MEMBER_MUTATION, {
+        orgId: params.id,
+        userId: form.data.userId,
+        role: form.data.role,
+      });
+      return message(form, { type: 'success', text: 'Member added.' });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to add member' });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to add member') }, { status: 500 });
     }
   },
 
   update: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const userId = String(fd.get('userId') ?? '');
-    const role = String(fd.get('role') ?? 'READER');
+    const form = await superValidate(await request.formData(), updateOrgMemberFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
     try {
-      await gqlClient(locals.token).request(UPDATE_MEMBER_MUTATION, { orgId: params.id, userId, role });
+      await gqlClient(locals.token).request(UPDATE_MEMBER_MUTATION, {
+        orgId: params.id,
+        userId: form.data.userId,
+        role: form.data.role,
+      });
+      return message(form, { type: 'success', text: 'Member updated.' });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to update member' });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update member') }, { status: 500 });
     }
   },
 
   remove: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const userId = String(fd.get('userId') ?? '');
+    const form = await superValidate(await request.formData(), removeOrgMemberFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
     try {
-      await gqlClient(locals.token).request(REMOVE_MEMBER_MUTATION, { orgId: params.id, userId });
+      await gqlClient(locals.token).request(REMOVE_MEMBER_MUTATION, {
+        orgId: params.id,
+        userId: form.data.userId,
+      });
+      return message(form, { type: 'success', text: 'Member removed.' });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to remove member' });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to remove member') }, { status: 500 });
     }
   },
 
@@ -95,12 +130,15 @@ export const actions: Actions = {
     }
   },
 
-  leave: async ({ params, locals }) => {
-    if (!locals.user?.id) return fail(401, { error: 'Not authenticated' });
+  leave: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), leaveOrgFormAdapter);
+    if (!locals.user?.id) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(REMOVE_MEMBER_MUTATION, { orgId: params.id, userId: locals.user.id });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to leave organization' });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to leave organization') }, { status: 500 });
     }
     redirect(303, '/app/orgs');
   },
