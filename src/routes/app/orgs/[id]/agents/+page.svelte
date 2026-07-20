@@ -29,6 +29,7 @@
   import type { Agent } from '$lib/types';
   import type { AgentGrant, PublicAgent } from './+page.server';
   import type { ActionData, PageData } from './$types';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { orgAgentSubscribeSchema, orgAgentUnsubscribeSchema } from './schema';
 
@@ -75,16 +76,8 @@
     },
   });
   const subscribeAgentError = $derived($subscribeErrors.agentId?.[0] ?? null);
-  const subscribeActionError = $derived.by(() => {
-    const submitted = submittedForm<OrgAgentSubscribeForm>(form, 'subscribeAgent');
-    const message = $subscribeMessage;
-    return submitted && message?.type === 'error' ? message.text : null;
-  });
-  const subscribeActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<OrgAgentSubscribeForm>(form, 'subscribeAgent');
-    const message = $subscribeMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
+  const subscribeActionError = $derived(scopedActionError<OrgAgentSubscribeForm>(form, 'subscribeAgent', $subscribeMessage));
+  const subscribeActionSuccess = $derived(scopedActionSuccess<OrgAgentSubscribeForm>(form, 'subscribeAgent', $subscribeMessage));
 
   // Row-level unsubscribe state keeps the rest of the table usable while a
   // grant is being revoked and leaves lifecycle history visible afterward.
@@ -111,18 +104,8 @@
       }
     },
   });
-  const unsubscribeActionError = $derived.by(() => {
-    const submitted = submittedForm<OrgAgentUnsubscribeForm>(form, 'unsubscribeAgent');
-    const message = $unsubscribeMessage;
-    const errors = $unsubscribeErrors;
-    if (!submitted) return null;
-    return message?.type === 'error' ? message.text : errors.agentId?.[0] ?? errors._kind?.[0] ?? null;
-  });
-  const unsubscribeActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<OrgAgentUnsubscribeForm>(form, 'unsubscribeAgent');
-    const message = $unsubscribeMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
+  const unsubscribeActionError = $derived(scopedActionError<OrgAgentUnsubscribeForm>(form, 'unsubscribeAgent', $unsubscribeMessage, $unsubscribeErrors, ['agentId', '_kind']));
+  const unsubscribeActionSuccess = $derived(scopedActionSuccess<OrgAgentUnsubscribeForm>(form, 'unsubscribeAgent', $unsubscribeMessage));
 
   async function subscribeTo(agent: Pick<PublicAgent, 'id'>) {
     if ($subscribeSubmitting) return;

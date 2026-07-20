@@ -4,6 +4,7 @@
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import type { PageData, ActionData } from './$types';
   import {
@@ -68,34 +69,10 @@
     clearOnSubmit: 'none',
   });
   const replyBodyError = $derived($replyErrors.body?.[0] ?? null);
-  const replyActionError = $derived.by(() => {
-    const submitted = submittedForm<ReplyExchangeMessageForm>(form, 'reply');
-    const message = $replyMessage;
-    const errors = $replyErrors;
-    if (!submitted) return null;
-    return message?.type === 'error'
-      ? message.text
-      : errors.body?.[0] ?? errors.messageId?.[0] ?? errors._kind?.[0] ?? null;
-  });
-  const replyActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<ReplyExchangeMessageForm>(form, 'reply');
-    const message = $replyMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
-  const moveActionError = $derived.by(() => {
-    const submitted = submittedForm<MoveExchangeMessageForm>(form, 'move');
-    const message = $moveMessage;
-    const errors = $moveErrors;
-    if (!submitted) return null;
-    return message?.type === 'error'
-      ? message.text
-      : errors.messageId?.[0] ?? errors.folderId?.[0] ?? errors._kind?.[0] ?? null;
-  });
-  const moveActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<MoveExchangeMessageForm>(form, 'move');
-    const message = $moveMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
+  const replyActionError = $derived(scopedActionError<ReplyExchangeMessageForm>(form, 'reply', $replyMessage, $replyErrors, ['body', 'messageId', '_kind']));
+  const replyActionSuccess = $derived(scopedActionSuccess<ReplyExchangeMessageForm>(form, 'reply', $replyMessage));
+  const moveActionError = $derived(scopedActionError<MoveExchangeMessageForm>(form, 'move', $moveMessage, $moveErrors, ['messageId', 'folderId', '_kind']));
+  const moveActionSuccess = $derived(scopedActionSuccess<MoveExchangeMessageForm>(form, 'move', $moveMessage));
 
   function toggleExpand(id: string) {
     expandedId = expandedId === id ? null : id;

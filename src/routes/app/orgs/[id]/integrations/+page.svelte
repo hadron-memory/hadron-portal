@@ -8,6 +8,7 @@
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
@@ -99,16 +100,8 @@
   });
   const githubAppIdError = $derived($githubAppErrors.appId?.[0] ?? null);
   const githubPrivateKeyError = $derived($githubAppErrors.privateKey?.[0] ?? null);
-  const githubAppActionError = $derived.by(() => {
-    const submitted = submittedForm<GithubAppCredentialsForm>(form, 'updateGithubApp');
-    const message = $githubAppMessage;
-    return submitted && message?.type === 'error' ? message.text : null;
-  });
-  const githubAppActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<GithubAppCredentialsForm>(form, 'updateGithubApp');
-    const message = $githubAppMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
+  const githubAppActionError = $derived(scopedActionError<GithubAppCredentialsForm>(form, 'updateGithubApp', $githubAppMessage));
+  const githubAppActionSuccess = $derived(scopedActionSuccess<GithubAppCredentialsForm>(form, 'updateGithubApp', $githubAppMessage));
 
   const initialGithubInstallationForm = untrack(() => submittedForm<GithubInstallationForm>(form, 'linkGithub') as GithubInstallationSuperform | null ?? data.githubInstallationForm);
   const {
@@ -127,16 +120,8 @@
     onUpdated: afterIntegrationFormUpdate,
   });
   const githubInstallationError = $derived($githubInstallationErrors.installationId?.[0] ?? null);
-  const githubInstallationActionError = $derived.by(() => {
-    const submitted = submittedForm<GithubInstallationForm>(form, 'linkGithub');
-    const message = $githubInstallationMessage;
-    return submitted && message?.type === 'error' ? message.text : null;
-  });
-  const githubInstallationActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<GithubInstallationForm>(form, 'linkGithub');
-    const message = $githubInstallationMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
+  const githubInstallationActionError = $derived(scopedActionError<GithubInstallationForm>(form, 'linkGithub', $githubInstallationMessage));
+  const githubInstallationActionSuccess = $derived(scopedActionSuccess<GithubInstallationForm>(form, 'linkGithub', $githubInstallationMessage));
 
   const initialUnlinkGithubForm = untrack(() => submittedForm<UnlinkGithubForm>(form, 'unlinkGithub') as UnlinkGithubSuperform | null ?? data.unlinkGithubForm);
   const {
@@ -207,49 +192,13 @@
     deleteExchangeConnectionForm.update((current) => ({ ...current, connectionId }), { taint: false });
   }
 
-  const unlinkGithubActionError = $derived.by(() => {
-    const submitted = submittedForm<UnlinkGithubForm>(form, 'unlinkGithub');
-    const message = $unlinkGithubMessage;
-    const errors = $unlinkGithubErrors;
-    if (!submitted) return null;
-    return message?.type === 'error' ? message.text : errors._kind?.[0] ?? null;
-  });
-  const unlinkGithubActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<UnlinkGithubForm>(form, 'unlinkGithub');
-    const message = $unlinkGithubMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
-  const connectExchangeActionError = $derived.by(() => {
-    const submitted = submittedForm<ConnectExchangeForm>(form, 'connectExchange');
-    const message = $connectExchangeMessage;
-    const errors = $connectExchangeErrors;
-    if (!submitted) return null;
-    return message?.type === 'error' ? message.text : errors._kind?.[0] ?? null;
-  });
-  const testExchangeConnectionActionError = $derived.by(() => {
-    const submitted = submittedForm<TestExchangeConnectionForm>(form, 'testExchangeConnection');
-    const message = $testExchangeConnectionMessage;
-    const errors = $testExchangeConnectionErrors;
-    if (!submitted) return null;
-    return message?.type === 'error' ? message.text : errors.connectionId?.[0] ?? errors._kind?.[0] ?? null;
-  });
-  const testExchangeConnectionActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<TestExchangeConnectionForm>(form, 'testExchangeConnection');
-    const message = $testExchangeConnectionMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
-  const deleteExchangeConnectionActionError = $derived.by(() => {
-    const submitted = submittedForm<DeleteExchangeConnectionForm>(form, 'deleteExchangeConnection');
-    const message = $deleteExchangeConnectionMessage;
-    const errors = $deleteExchangeConnectionErrors;
-    if (!submitted) return null;
-    return message?.type === 'error' ? message.text : errors.connectionId?.[0] ?? errors._kind?.[0] ?? null;
-  });
-  const deleteExchangeConnectionActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<DeleteExchangeConnectionForm>(form, 'deleteExchangeConnection');
-    const message = $deleteExchangeConnectionMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
+  const unlinkGithubActionError = $derived(scopedActionError<UnlinkGithubForm>(form, 'unlinkGithub', $unlinkGithubMessage, $unlinkGithubErrors));
+  const unlinkGithubActionSuccess = $derived(scopedActionSuccess<UnlinkGithubForm>(form, 'unlinkGithub', $unlinkGithubMessage));
+  const connectExchangeActionError = $derived(scopedActionError<ConnectExchangeForm>(form, 'connectExchange', $connectExchangeMessage, $connectExchangeErrors));
+  const testExchangeConnectionActionError = $derived(scopedActionError<TestExchangeConnectionForm>(form, 'testExchangeConnection', $testExchangeConnectionMessage, $testExchangeConnectionErrors, ['connectionId', '_kind']));
+  const testExchangeConnectionActionSuccess = $derived(scopedActionSuccess<TestExchangeConnectionForm>(form, 'testExchangeConnection', $testExchangeConnectionMessage));
+  const deleteExchangeConnectionActionError = $derived(scopedActionError<DeleteExchangeConnectionForm>(form, 'deleteExchangeConnection', $deleteExchangeConnectionMessage, $deleteExchangeConnectionErrors, ['connectionId', '_kind']));
+  const deleteExchangeConnectionActionSuccess = $derived(scopedActionSuccess<DeleteExchangeConnectionForm>(form, 'deleteExchangeConnection', $deleteExchangeConnectionMessage));
 </script>
 
 <svelte:head><title>Integrations · {org.name} · Hadron</title></svelte:head>

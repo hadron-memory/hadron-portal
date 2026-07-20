@@ -4,6 +4,7 @@
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import type { PageData, ActionData } from './$types';
   import { memorySubscriptionSchema, memoryUnsubscribeSchema } from './schema';
@@ -47,28 +48,10 @@
     clearOnSubmit: 'none',
   });
   const orgIdError = $derived($subscriptionErrors.orgId?.[0] ?? null);
-  const actionError = $derived.by(() => {
-    const submitted = submittedForm<MemorySubscriptionForm>(form, 'subscribeMemory');
-    const message = $subscriptionMessage;
-    return submitted && message?.type === 'error' ? message.text : null;
-  });
-  const actionSuccess = $derived.by(() => {
-    const submitted = submittedForm<MemorySubscriptionForm>(form, 'subscribeMemory');
-    const message = $subscriptionMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
-  const unsubscribeActionError = $derived.by(() => {
-    const submitted = submittedForm<MemoryUnsubscribeForm>(form, 'unsubscribeMemory');
-    const message = $unsubscribeMessage;
-    const fieldError = $unsubscribeErrors.orgId?.[0] ?? $unsubscribeErrors._kind?.[0] ?? null;
-    if (!submitted) return null;
-    return message?.type === 'error' ? message.text : fieldError;
-  });
-  const unsubscribeActionSuccess = $derived.by(() => {
-    const submitted = submittedForm<MemoryUnsubscribeForm>(form, 'unsubscribeMemory');
-    const message = $unsubscribeMessage;
-    return submitted && message?.type === 'success' ? message.text : null;
-  });
+  const actionError = $derived(scopedActionError<MemorySubscriptionForm>(form, 'subscribeMemory', $subscriptionMessage));
+  const actionSuccess = $derived(scopedActionSuccess<MemorySubscriptionForm>(form, 'subscribeMemory', $subscriptionMessage));
+  const unsubscribeActionError = $derived(scopedActionError<MemoryUnsubscribeForm>(form, 'unsubscribeMemory', $unsubscribeMessage, $unsubscribeErrors, ['orgId', '_kind']));
+  const unsubscribeActionSuccess = $derived(scopedActionSuccess<MemoryUnsubscribeForm>(form, 'unsubscribeMemory', $unsubscribeMessage));
 
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
