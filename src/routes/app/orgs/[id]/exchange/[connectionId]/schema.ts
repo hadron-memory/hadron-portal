@@ -15,3 +15,13 @@ export const moveExchangeMessageSchema = z.object({
   messageId: z.string().trim().min(1, 'Message ID is required').prefault(''),
   folderId: z.string().trim().min(1, 'Folder is required').prefault(''),
 });
+
+export function replyComposerMessageId(
+  submittedReply: {
+    data?: { messageId?: string | null };
+    message?: App.Superforms.Message;
+  } | null | undefined,
+): string | null {
+  if (!submittedReply || submittedReply.message?.type === 'success') return null;
+  return submittedReply.data?.messageId || null;
+}

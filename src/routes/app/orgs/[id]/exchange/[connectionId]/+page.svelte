@@ -6,7 +6,11 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
   import type { PageData, ActionData } from './$types';
-  import { moveExchangeMessageSchema, replyExchangeMessageSchema } from './schema';
+  import {
+    moveExchangeMessageSchema,
+    replyComposerMessageId,
+    replyExchangeMessageSchema,
+  } from './schema';
 
   type ReplyExchangeMessageForm = Infer<typeof replyExchangeMessageSchema, 'zod4'>;
   type MoveExchangeMessageForm = Infer<typeof moveExchangeMessageSchema, 'zod4'>;
@@ -26,7 +30,7 @@
   const connection = $derived(data.connection);
   const messages = $derived(data.messages);
   const submittedReply = untrack(() => submittedForm<ReplyExchangeMessageForm>(form, 'reply'));
-  const submittedReplyMessageId = submittedReply?.data.messageId || null;
+  const submittedReplyMessageId = replyComposerMessageId(submittedReply);
 
   let expandedId = $state<string | null>(submittedReplyMessageId);
   let replyingTo = $state<string | null>(submittedReplyMessageId);
