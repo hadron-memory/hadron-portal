@@ -264,6 +264,26 @@ export const ADD_TO_MY_MEMORIES_MUTATION = /* GraphQL */ `
   }
 `;
 
+// cor:acl:080:04 — the marketplace catalogue: listedOnMarketplace + publicly
+// accessible orgs / agents / memories, as sanitized flat refs. One request
+// fetches the first page of each section (browse landing).
+export const MARKETPLACE_QUERY = /* GraphQL */ `
+  query Marketplace($limit: Int, $offset: Int) {
+    marketplaceOrganizations(limit: $limit, offset: $offset) {
+      items { id name urn description }
+      total
+    }
+    marketplaceAgents(limit: $limit, offset: $offset) {
+      items { id name urn description }
+      total
+    }
+    marketplaceMemories(limit: $limit, offset: $offset) {
+      items { id name urn description }
+      total
+    }
+  }
+`;
+
 // hadron-server#473: myOrganizations is now the uniform organizations() list
 // (the caller's memberships). NOTE: a platform ADMIN/OWNER now receives EVERY
 // live org, not just their memberships — the admin unscoped reach. That is

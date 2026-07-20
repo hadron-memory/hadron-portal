@@ -14,6 +14,7 @@
     ? [
         { href: `/app/orgs/${data.activeOrgId}`,          label: t('app.nav.dashboard', 'Dashboard'),   match: 'exact' as const },
         { href: `/app/search`,                            label: t('app.nav.search', 'Search'),         match: 'prefix' as const },
+        { href: `/app/marketplace`,                       label: t('app.nav.marketplace', 'Marketplace'), match: 'prefix' as const },
         { href: `/app/orgs/${data.activeOrgId}/memories`, label: t('app.nav.memories', 'Memories'),     match: 'prefix' as const },
         { href: `/app/orgs/${data.activeOrgId}/tasks`,    label: t('app.nav.task-nodes', 'Task Nodes'), match: 'prefix' as const },
       ]
@@ -24,6 +25,7 @@
     ? [
         { href: `/app/orgs/${data.activeOrgId}`,          label: t('app.nav.dashboard', 'Dashboard'),   match: 'exact' as const },
         { href: `/app/search`,                            label: t('app.nav.search', 'Search'),         match: 'prefix' as const },
+        { href: `/app/marketplace`,                       label: t('app.nav.marketplace', 'Marketplace'), match: 'prefix' as const },
         { href: `/app/orgs/${data.activeOrgId}/memories`, label: t('app.nav.memories', 'Memories'),     match: 'prefix' as const },
         { href: `/app/orgs/${data.activeOrgId}/tasks`,    label: t('app.nav.task-nodes', 'Task Nodes'), match: 'prefix' as const },
         { href: `/app/orgs/${data.activeOrgId}/agents`,   label: t('app.nav.agents', 'Agents'),         match: 'prefix' as const },

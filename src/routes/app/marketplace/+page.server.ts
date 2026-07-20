@@ -5,18 +5,35 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import {
-  PUBLIC_MEMORIES_QUERY,
+  MARKETPLACE_QUERY,
   ADD_TO_MY_MEMORIES_MUTATION,
   ORGANIZATIONS_NAV_QUERY,
 } from '$lib/server/queries';
 import { filterToMemberOrgs, resolveActiveOrg } from '$lib/server/active-org';
-import type { Memory, Organization } from '$lib/types';
+import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { addMarketplaceMemorySchema } from './schema';
 
 const addMarketplaceMemoryFormAdapter = zod4(addMarketplaceMemorySchema);
 type AddMarketplaceMemoryForm = Infer<typeof addMarketplaceMemorySchema, 'zod4'>;
 
+/** A sanitized marketplace ref (cor:acl:080:02/04). */
+export interface MarketplaceRef {
+  id: string;
+  name: string;
+  urn: string;
+  description: string | null;
+}
+interface MarketplaceSection {
+  items: MarketplaceRef[];
+  total: number;
+}
+const EMPTY: MarketplaceSection = { items: [], total: 0 };
+
+// cor:acl:080:04 — browse the marketplace catalogue (listedOnMarketplace +
+// publicly accessible orgs / agents / memories). Public; a token is forwarded
+// when present but the server queries require no membership. Loads the first
+// page of each section.
 export const load: PageServerLoad = async ({ locals }) => {
   const form = await superValidate<AddMarketplaceMemoryForm>(
     { memoryId: '' },
@@ -25,16 +42,19 @@ export const load: PageServerLoad = async ({ locals }) => {
   );
 
   try {
-    const memories = await fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories');
+    const data = await gqlClient(locals.token).request<{
+      marketplaceOrganizations: MarketplaceSection;
+      marketplaceAgents: MarketplaceSection;
+      marketplaceMemories: MarketplaceSection;
+    }>(MARKETPLACE_QUERY, { limit: 60 });
     return {
-      memories,
+      organizations: data.marketplaceOrganizations,
+      agents: data.marketplaceAgents,
+      memories: data.marketplaceMemories,
       form,
     };
   } catch {
-    return {
-      memories: [] as Memory[],
-      form,
-    };
+    return { organizations: EMPTY, agents: EMPTY, memories: EMPTY, form };
   }
 };
 
