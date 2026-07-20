@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { message, superValidate } from 'sveltekit-superforms';
+import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
@@ -54,7 +54,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     console.warn(`[run-detail] envelope fetch failed for ${params.runId} (server without #534?):`, e);
   }
 
-  const cancelForm = await superValidate(zod4(cancelAppRunSchema));
+  const cancelForm = await superValidate(zod4(cancelAppRunSchema), { errors: false });
 
   return { app: appData.app, run, envelope, envelopeSupported, cancelForm };
 };

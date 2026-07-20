@@ -1,5 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { message, superValidate } from 'sveltekit-superforms';
+import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
@@ -48,7 +48,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   ]);
   if (!appData.app) throw error(404, 'App not found');
 
-  const runForm = await superValidate(zod4(runAppFlowSchema));
+  const runForm = await superValidate(zod4(runAppFlowSchema), { errors: false });
 
   return {
     app: appData.app,
