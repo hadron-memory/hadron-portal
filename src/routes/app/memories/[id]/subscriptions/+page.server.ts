@@ -11,21 +11,32 @@ import {
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
 } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
-import { memorySubscriptionSchema } from './schema';
+import { memorySubscriptionSchema, memoryUnsubscribeSchema } from './schema';
 
 const memorySubscriptionFormAdapter = zod4(memorySubscriptionSchema);
+const memoryUnsubscribeFormAdapter = zod4(memoryUnsubscribeSchema);
 type MemorySubscriptionForm = Infer<typeof memorySubscriptionSchema, 'zod4'>;
+type MemoryUnsubscribeForm = Infer<typeof memoryUnsubscribeSchema, 'zod4'>;
 
 // Subscribe/unsubscribe mutate, so — like /settings — keep consumer-mode users
 // out of this tab.
 export const load: PageServerLoad = async ({ parent }) => {
   await requireNonConsumer(parent);
-  return {
-    form: await superValidate<MemorySubscriptionForm>(
-      { role: 'READER' },
+  const [form, unsubscribeForm] = await Promise.all([
+    superValidate<MemorySubscriptionForm>(
+      { orgId: '', role: 'READER' },
       memorySubscriptionFormAdapter,
       { errors: false },
     ),
+    superValidate<MemoryUnsubscribeForm>(
+      { orgId: '' },
+      memoryUnsubscribeFormAdapter,
+      { errors: false },
+    ),
+  ]);
+  return {
+    form,
+    unsubscribeForm,
   };
 };
 
@@ -55,13 +66,24 @@ export const actions: Actions = {
   },
 
   unsubscribe: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const orgId = String(fd.get('orgId') ?? '').trim();
-    if (!orgId) return fail(400, { error: 'Organization ID is required.' });
+    const form = await superValidate<MemoryUnsubscribeForm>(
+      await request.formData(),
+      memoryUnsubscribeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
-      await gqlClient(locals.token).request(DELETE_MEMORY_SUBSCRIPTION_MUTATION, { memoryId: params.id, orgId });
+      await gqlClient(locals.token).request(DELETE_MEMORY_SUBSCRIPTION_MUTATION, {
+        memoryId: params.id,
+        orgId: form.data.orgId,
+      });
+      return message(form, { type: 'success', text: t('subscriptions.removed', 'Subscription removed.') });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to remove subscription') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to remove subscription') },
+        { status: 500 },
+      );
     }
   },
 };

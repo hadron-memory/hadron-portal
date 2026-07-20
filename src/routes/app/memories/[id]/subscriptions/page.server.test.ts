@@ -85,8 +85,15 @@ describe('memory subscriptions load()', () => {
     expect((result as {
       form: { data: Record<string, string>; errors: Record<string, string[]> };
     }).form.data).toEqual({
+      _kind: 'subscribeMemory',
       orgId: '',
       role: 'READER',
+    });
+    expect((result as {
+      unsubscribeForm: { data: Record<string, string>; errors: Record<string, string[]> };
+    }).unsubscribeForm.data).toEqual({
+      _kind: 'unsubscribeMemory',
+      orgId: '',
     });
     expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
   });
@@ -164,14 +171,28 @@ describe('memory subscriptions subscribe action', () => {
       text: 'Subscription already exists',
     });
   });
+
+  it('rejects subscribe POSTs with the wrong form discriminator', async () => {
+    const result = await runSubscribe({
+      _kind: 'unsubscribeMemory',
+      orgId: 'org-1',
+      role: 'READER',
+    });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
 });
 
 describe('memory subscriptions unsubscribe action', () => {
   it('removes a subscription', async () => {
     mockRequest.mockResolvedValueOnce({ deleteMemorySubscription: true });
 
-    await runUnsubscribe({ orgId: '  org-1  ' });
+    const result = await runUnsubscribe({ orgId: '  org-1  ' });
 
+    expect(superFormFrom(result)?.valid).toBe(true);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Subscription removed.' });
     expect(mockRequest).toHaveBeenCalledWith(DELETE_MEMORY_SUBSCRIPTION_MUTATION, {
       memoryId: 'memory-1',
       orgId: 'org-1',
@@ -182,16 +203,27 @@ describe('memory subscriptions unsubscribe action', () => {
     const result = await runUnsubscribe({ orgId: '' });
 
     expect(result).toMatchObject({ status: 400 });
-    expect((result as { data: { error: string } }).data.error).toBe('Organization ID is required.');
+    expect(fieldError(result, 'orgId')).toBe('Organization ID is required.');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns GraphQL failures as form errors', async () => {
+  it('rejects unsubscribe POSTs with the wrong form discriminator', async () => {
+    const result = await runUnsubscribe({
+      _kind: 'subscribeMemory',
+      orgId: 'org-1',
+    });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns GraphQL failures as Superforms messages', async () => {
     mockRequest.mockRejectedValueOnce(new Error('remove failed'));
 
     const result = await runUnsubscribe({ orgId: 'org-1' });
 
     expect(result).toMatchObject({ status: 500 });
-    expect((result as { data: { error: string } }).data.error).toBe('remove failed');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'remove failed' });
   });
 });
