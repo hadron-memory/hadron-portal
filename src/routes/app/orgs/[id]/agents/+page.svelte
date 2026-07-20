@@ -103,10 +103,12 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    onUpdated: () => {
-      unsubscribeFormData.update((current) => ({ ...current, agentId: '' }), { taint: false });
+    onUpdated: ({ form }) => {
       unsubscribePendingAgentId = null;
-      activeTab = 'subscribed';
+      if (form.message?.type === 'success') {
+        unsubscribeFormData.update((current) => ({ ...current, agentId: '' }), { taint: false });
+        activeTab = 'subscribed';
+      }
     },
   });
   const unsubscribeActionError = $derived.by(() => {

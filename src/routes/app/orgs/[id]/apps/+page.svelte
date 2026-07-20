@@ -167,7 +167,14 @@
             </a>
             <!-- Click updates before Superforms client validation; submit covers keyboard/requestSubmit paths. -->
             <form method="POST" action="?/delete" use:deleteEnhance novalidate
-              onsubmit={(e) => { prepareDeleteApp(app.id); if (!confirm(`Delete app "${app.name}"? Active keys will be revoked and sessions invalidated.`)) e.preventDefault(); }}>
+              onsubmit={(e) => {
+                if (!confirm(`Delete app "${app.name}"? Active keys will be revoked and sessions invalidated.`)) {
+                  e.preventDefault();
+                  prepareDeleteApp('');
+                  return;
+                }
+                prepareDeleteApp(app.id);
+              }}>
               <input type="hidden" name="_kind" value={$deleteForm._kind} />
               <input type="hidden" name="id" value={app.id} />
               <button type="submit" disabled={$deleteSubmitting} onclick={() => prepareDeleteApp(app.id)} class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
