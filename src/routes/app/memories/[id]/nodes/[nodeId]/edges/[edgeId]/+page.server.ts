@@ -147,17 +147,19 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     redirect(303, `/app/memories/${host.memoryId}/nodes/${params.nodeId}/edges/${params.edgeId}`);
   }
 
-  const flowFields = await loadFlowFields(locals.token, host);
-  const form = await superValidate<EdgeUpdateForm>(
-    formDefaults(edge),
-    edgeUpdateFormAdapter,
-    { errors: false },
-  );
-  const deleteForm = await superValidate<EdgeDeleteForm>(
-    {},
-    edgeDeleteFormAdapter,
-    { errors: false },
-  );
+  const [flowFields, form, deleteForm] = await Promise.all([
+    loadFlowFields(locals.token, host),
+    superValidate<EdgeUpdateForm>(
+      formDefaults(edge),
+      edgeUpdateFormAdapter,
+      { errors: false },
+    ),
+    superValidate<EdgeDeleteForm>(
+      {},
+      edgeDeleteFormAdapter,
+      { errors: false },
+    ),
+  ]);
 
   return { host, edge, flowFields, form, deleteForm };
 };

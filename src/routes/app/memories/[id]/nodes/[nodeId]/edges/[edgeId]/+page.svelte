@@ -57,6 +57,8 @@
     enhance: deleteEnhance,
   } = superForm<EdgeDeleteForm, App.Superforms.Message, EdgeDeleteForm>(initialDeleteForm, {
     validators: zod4Client(edgeDeleteSchema),
+    // The delete form has no editable fields, so submit-only validation avoids
+    // the oninput cadence used by forms with user-entered values.
     validationMethod: 'onsubmit',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',

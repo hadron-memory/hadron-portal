@@ -42,6 +42,8 @@ const dataField = z.string().default('').superRefine((value, ctx) => {
 });
 
 export const edgeUpdateSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
   _kind: z.literal('updateEdge').default('updateEdge'),
   name: z.string().trim().default(''),
   description: z.string().trim().default(''),
@@ -52,6 +54,8 @@ export const edgeUpdateSchema = z.object({
 });
 
 export const edgeDeleteSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
   _kind: z.literal('deleteEdge').default('deleteEdge'),
 });
 
