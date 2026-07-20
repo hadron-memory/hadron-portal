@@ -5,6 +5,8 @@
   import { t } from '$lib/i18n/t';
   import FlowCanvas from '$lib/components/flow/FlowCanvas.svelte';
   import FlowEdgePanel from '$lib/components/flow/FlowEdgePanel.svelte';
+  import { scopedActionError } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { flowEdgePanelSchema } from '$lib/flow/edge-panel-form';
   import { collectFlowFieldsFor } from '$lib/flow/fields';
   import type { PageData, ActionData } from './$types';
@@ -15,11 +17,6 @@
   type UpdateEdgeActionResult = {
     form?: SuperValidated<FlowEdgePanelForm, App.Superforms.Message, FlowEdgePanelForm>;
   } | null;
-  type CreateEdgeActionResult = {
-    edgeId?: string;
-    form?: SuperValidated<CreateFlowEdgeForm, App.Superforms.Message, CreateFlowEdgeForm>;
-  } | null;
-
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   let canvasHeight = $state(480);
@@ -60,9 +57,8 @@
   const formIsLive = $derived(form != null && form !== acknowledgedForm);
   const updateForm = $derived((form as UpdateEdgeActionResult)?.form ?? null);
   const createEdgeActionForm = $derived.by(() => {
-    const actionForm = (form as CreateEdgeActionResult)?.form ?? null;
-    if (!formIsLive || !actionForm) return null;
-    return actionForm.data._kind === 'createFlowEdge' ? actionForm : null;
+    if (!formIsLive) return null;
+    return submittedForm<CreateFlowEdgeForm>(form, 'createFlowEdge');
   });
   const panelSaved = $derived.by(() => {
     if (!formIsLive || !updateForm) return false;
@@ -111,9 +107,13 @@
     },
   });
   const createEdgeError = $derived(
-    $createEdgeMessage?.type === 'error'
-      ? $createEdgeMessage.text
-      : ($createEdgeErrors.sourceId?.[0] ?? $createEdgeErrors.targetId?.[0] ?? null),
+    scopedActionError<CreateFlowEdgeForm>(
+      form,
+      'createFlowEdge',
+      $createEdgeMessage,
+      $createEdgeErrors,
+      ['sourceId', 'targetId', '_kind'],
+    ),
   );
 
   async function handleConnect(sourceId: string, targetId: string) {
@@ -172,6 +172,7 @@
   <!-- Errors not tied to the panel's edge (createEdge failures) surface here. -->
   {#if createEdgeError && !panelError}
     <div
+      role="alert"
       class="mb-3 rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
     >
       {createEdgeError}

@@ -7,6 +7,8 @@
   import DOMPurify from 'dompurify';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import { scopedActionError } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import type { MemoryNode } from '$lib/types';
   import type { ActionData, PageData } from './$types';
   import { sendChatMessageSchema } from './schema';
@@ -61,12 +63,7 @@
   let reloading = $state(false);
   let isBrowser = $state(false);
 
-  function submittedSendForm(actionData: ActionData): SendChatMessageSuperform | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    return candidate?.data?._kind === 'sendChatMessage' ? candidate as SendChatMessageSuperform : null;
-  }
-
-  const initialSendForm = untrack(() => submittedSendForm(form) ?? data.form);
+  const initialSendForm = untrack(() => submittedForm<SendChatMessageForm>(form, 'sendChatMessage') as SendChatMessageSuperform | null ?? data.form);
   const {
     form: sendFormData,
     errors: sendErrors,
@@ -83,9 +80,13 @@
     resetForm: true,
   });
   const sendError = $derived(
-    $sendMessage?.type === 'error'
-      ? $sendMessage.text
-      : ($sendErrors.content?.[0] ?? null),
+    scopedActionError<SendChatMessageForm>(
+      form,
+      'sendChatMessage',
+      $sendMessage,
+      $sendErrors,
+      ['content', '_kind'],
+    ),
   );
 
   async function reloadChat() {
@@ -264,7 +265,7 @@
 
   <!-- Error banner -->
   {#if sendError}
-    <div class="mx-6 mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+    <div role="alert" class="mx-6 mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
       {sendError}
     </div>
   {/if}

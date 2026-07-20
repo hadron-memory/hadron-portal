@@ -243,6 +243,17 @@ describe('createEdge', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects a tampered form discriminator before calling GraphQL', async () => {
+    const result = (await runAction('createEdge', {
+      _kind: 'updateEdge',
+      sourceId: 'n1',
+      targetId: 'n4',
+    })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(fieldError(result, '_kind')).toBeTruthy();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('404s when the source node cannot be loaded', async () => {
     mockRequest.mockResolvedValueOnce({ node: null });
     const result = (await runAction('createEdge', { sourceId: 'n1', targetId: 'n4' })) as {

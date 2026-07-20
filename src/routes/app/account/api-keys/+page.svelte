@@ -29,6 +29,8 @@
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import { scopedActionError } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
   import type { UserApiKey } from '$lib/types';
   import type { PageData, ActionData } from './$types';
@@ -45,21 +47,11 @@
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 
-  function actionFormByKind<T extends { _kind: string }>(
-    actionData: ActionData,
-    kind: T['_kind'],
-  ): SuperValidated<T, App.Superforms.Message, T> | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    return candidate?.data?._kind === kind
-      ? candidate as unknown as SuperValidated<T, App.Superforms.Message, T>
-      : null;
-  }
-
   const createActionForm = $derived(
-    actionFormByKind<CreateUserApiKeyForm>(form, 'createUserApiKey'),
+    submittedForm<CreateUserApiKeyForm>(form, 'createUserApiKey'),
   );
   const revokeActionForm = $derived(
-    actionFormByKind<RevokeUserApiKeyForm>(form, 'revokeUserApiKey'),
+    submittedForm<RevokeUserApiKeyForm>(form, 'revokeUserApiKey'),
   );
 
   const initialCreateForm = untrack(() => createActionForm ?? data.form) as CreateUserApiKeySuperform;
@@ -98,17 +90,22 @@
     },
   });
   const labelError = $derived($createErrors.label?.[0] ?? null);
-  const revokeError = $derived(
-    $revokeMessage?.type === 'error'
-      ? $revokeMessage.text
-      : ($revokeErrors.id?.[0] ?? null),
+  const createActionError = $derived(
+    scopedActionError<CreateUserApiKeyForm>(form, 'createUserApiKey', $createMessage, $createErrors),
+  );
+  const revokeActionError = $derived(
+    scopedActionError<RevokeUserApiKeyForm>(
+      form,
+      'revokeUserApiKey',
+      $revokeMessage,
+      $revokeErrors,
+      ['id', '_kind'],
+    ),
   );
   const labelInputClass = $derived(
     `${inputClass} ${labelError ? 'border-red-500 focus:border-red-500' : ''}`,
   );
-  const actionError = $derived(
-    $createMessage?.type === 'error' ? $createMessage.text : revokeError,
-  );
+  const actionError = $derived(createActionError ?? revokeActionError);
 
   // Cleared on the next navigation; persists across the post-mint render.
   // Narrowing on the `success: 'mint'` discriminator (set by

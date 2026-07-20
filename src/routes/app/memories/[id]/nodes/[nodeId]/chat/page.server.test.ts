@@ -84,6 +84,17 @@ describe('chat sendMessage action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects a tampered form discriminator before calling GraphQL', async () => {
+    const result = (await send({
+      _kind: 'createFlowEdge',
+      content: 'hello',
+    })) as { status: number };
+
+    expect(result.status).toBe(400);
+    expect(fieldError(result, '_kind')).toBeTruthy();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('returns a typed auth error when no user is available', async () => {
     mockRequest.mockResolvedValueOnce({
       node: { id: 'chat-1', loc: 'team:chat' },

@@ -221,6 +221,17 @@ describe('actions.revoke', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects a tampered form discriminator before calling GraphQL', async () => {
+    const { actions } = await importMod();
+    const result = (await actions.revoke(actionEvent('jwt-token', {
+      _kind: 'createUserApiKey',
+      id: 'uak_1',
+    }))) as { status: number };
+    expect(result.status).toBe(400);
+    expect(fieldError(result, '_kind')).toBeTruthy();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('returns 401 fail when locals.token is missing', async () => {
     const { actions } = await importMod();
     const result = (await actions.revoke(actionEvent(null, { id: 'uak_1' }))) as {
