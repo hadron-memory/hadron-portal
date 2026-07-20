@@ -83,9 +83,14 @@ describe('invite load()', () => {
     expect(mockRequest).toHaveBeenCalledWith(INVITATION_QUERY, { slug: 'invite-token' });
     expect(result).toMatchObject({ invitation: fakeInvitation, isSignedIn: true, slug: 'invite-token' });
     expect((result as { form: { data: Record<string, string>; errors: Record<string, string[]> } }).form.data).toEqual({
+      _kind: 'sendEmail',
       email: '',
     });
+    expect((result as { acceptForm: { data: Record<string, string>; errors: Record<string, string[]> } }).acceptForm.data).toEqual({
+      _kind: 'acceptInvitation',
+    });
     expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
+    expect((result as { acceptForm: { errors: Record<string, string[]> } }).acceptForm.errors).toEqual({});
   });
 
   it('returns a null invitation when the lookup fails', async () => {
@@ -162,6 +167,14 @@ describe('invite sendEmail action', () => {
     expect(result).toMatchObject({ status: 500 });
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Unexpected redirect.' });
   });
+
+  it('rejects a tampered form discriminator before starting the magic-link flow', async () => {
+    const result = await runSendEmail({ _kind: 'acceptInvitation', email: 'ada@example.test' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeTruthy();
+    expect(mockStartBoundMagicLink).not.toHaveBeenCalled();
+  });
 });
 
 describe('invite accept action', () => {
@@ -170,6 +183,19 @@ describe('invite accept action', () => {
     const result = await actions.accept(actionEvent({}));
 
     expect(result).toMatchObject({ status: 401 });
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'error',
+      text: 'You must be signed in to accept this invitation',
+    });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a tampered form discriminator before accepting the invitation', async () => {
+    const { actions } = await importMod();
+    const result = await actions.accept(actionEvent({ _kind: 'sendEmail' }, { user: { id: 'user-1' }, authToken: 'test-token' }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
   });
 

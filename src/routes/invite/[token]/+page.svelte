@@ -1,10 +1,16 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
-  import { superForm } from 'sveltekit-superforms';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import type { PageData, ActionData } from './$types';
-  import { inviteEmailSchema } from './schema';
+  import { acceptInvitationSchema, inviteEmailSchema } from './schema';
+
+  type AcceptInvitationForm = Infer<typeof acceptInvitationSchema, 'zod4'>;
+  type InviteEmailForm = Infer<typeof inviteEmailSchema, 'zod4'>;
+  type AcceptInvitationSuperform = SuperValidated<AcceptInvitationForm, App.Superforms.Message, AcceptInvitationForm>;
+  type InviteEmailSuperform = SuperValidated<InviteEmailForm, App.Superforms.Message, InviteEmailForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const inv = $derived(data.invitation as {
@@ -20,7 +26,20 @@
   const expired = $derived(inv?.expiresAt ? new Date(inv.expiresAt) < new Date() : false);
   const maxedOut = $derived(inv?.maxActivations ? inv.activationCount >= inv.maxActivations : false);
 
-  const initialEmailForm = untrack(() => form?.form ?? data.form);
+  const initialAcceptForm = untrack(() => submittedForm<AcceptInvitationForm>(form, 'acceptInvitation') as AcceptInvitationSuperform | null ?? data.acceptForm);
+  const {
+    message: acceptMessage,
+    enhance: acceptEnhance,
+    submitting: acceptSubmitting,
+  } = superForm<AcceptInvitationForm, App.Superforms.Message, AcceptInvitationForm>(initialAcceptForm, {
+    validators: zod4Client(acceptInvitationSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  const initialEmailForm = untrack(() => submittedForm<InviteEmailForm>(form, 'sendEmail') as InviteEmailSuperform | null ?? data.form);
   const {
     form: emailForm,
     errors: emailErrors,
@@ -36,8 +55,9 @@
     clearOnSubmit: 'none',
   });
   const emailError = $derived($emailErrors.email?.[0] ?? null);
-  const emailActionError = $derived($emailMessage?.type === 'error' ? $emailMessage.text : null);
-  const emailSentMessage = $derived($emailMessage?.type === 'success' ? $emailMessage.text : null);
+  const acceptActionError = $derived(scopedActionError<AcceptInvitationForm>(form, 'acceptInvitation', $acceptMessage));
+  const emailActionError = $derived(scopedActionError<InviteEmailForm>(form, 'sendEmail', $emailMessage, $emailErrors, ['email']));
+  const emailSentMessage = $derived(scopedActionSuccess<InviteEmailForm>(form, 'sendEmail', $emailMessage));
 </script>
 
 <svelte:head><title>Invitation · Hadron</title></svelte:head>
@@ -79,14 +99,15 @@
           <p class="mt-2 text-sm text-zinc-500">You've been invited to join <strong class="text-zinc-900 dark:text-white">Hadron</strong>.</p>
         {/if}
 
-        {#if form?.error}
-          <div class="mt-4 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+        {#if acceptActionError}
+          <div role="alert" class="mt-4 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{acceptActionError}</div>
         {/if}
 
         {#if data.isSignedIn}
-          <form method="POST" action="?/accept" use:enhance class="mt-6">
-            <button type="submit" class="rounded-lg bg-green-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-600">
-              Accept invitation
+          <form method="POST" action="?/accept" use:acceptEnhance class="mt-6" novalidate>
+            <input type="hidden" name="_kind" value="acceptInvitation" />
+            <button type="submit" disabled={$acceptSubmitting} class="rounded-lg bg-green-700 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50">
+              {$acceptSubmitting ? 'Accepting...' : 'Accept invitation'}
             </button>
           </form>
         {:else}
@@ -94,6 +115,7 @@
             <p class="text-sm text-zinc-500">Sign in or create an account to accept this invitation.</p>
 
             <form method="POST" action="?/sendEmail" use:emailEnhance class="space-y-3" novalidate>
+              <input type="hidden" name="_kind" value="sendEmail" />
               {#if emailActionError}
                 <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{emailActionError}</div>
               {/if}
@@ -113,7 +135,7 @@
                 {$emailSubmitting ? 'Sending...' : 'Continue with email'}
               </button>
               {#if emailSentMessage}
-                <p class="text-sm text-green-400">{emailSentMessage}</p>
+                <p role="status" class="text-sm text-green-400">{emailSentMessage}</p>
               {/if}
             </form>
 

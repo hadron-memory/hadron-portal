@@ -675,6 +675,7 @@ describe('load', () => {
 
     const result = (await runLoad()) as {
       addConversationForm: { data: { _kind: string; systemMemoryId: string; name: string } };
+      addEdgeForm: { data: { _kind: string; sourceNodeId: string; targetNodeId: string; name: string; condition: string; priority: string; data: string } };
       addStageForms: Record<string, { data: { _kind: string; systemMemoryId: string; conversationLoc: string; stageName: string } }>;
       promptForms: Record<string, { data: { _kind: string; systemMemoryId: string; loc: string; content: string } }>;
       edgeForms: Record<string, { data: { _kind: string; edgeId: string; name: string; priority: string; condition: string; data: string } }>;
@@ -683,6 +684,15 @@ describe('load', () => {
     };
 
     expect(result.addConversationForm.data).toMatchObject({ _kind: 'addConversation', systemMemoryId: 'mem-1', name: '' });
+    expect(result.addEdgeForm.data).toMatchObject({
+      _kind: 'addEdge',
+      sourceNodeId: '',
+      targetNodeId: '',
+      name: '',
+      condition: 'null',
+      priority: '0',
+      data: '{}',
+    });
     expect(result.addStageForms['conv-1'].data).toMatchObject({
       _kind: 'addStage',
       systemMemoryId: 'mem-1',
@@ -857,6 +867,21 @@ describe('addEdge', () => {
     expect(result.status).toBe(400);
     expect(result.data.form.errors.sourceNodeId?.[0]).toBe('Source is required');
     expect(result.data.form.errors.targetNodeId?.[0]).toBe('Target is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a tampered form discriminator before any mutation', async () => {
+    const result = (await runAction('addEdge', {
+      _kind: 'addConversation',
+      sourceNodeId: 'n1',
+      targetNodeId: 'n2',
+      condition: 'null',
+      priority: '0',
+      data: '{}',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind?.[0]).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
   });
 

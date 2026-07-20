@@ -146,6 +146,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     addConversationFormAdapter,
     { errors: false },
   );
+  const addEdgeForm = await superValidate<AddEdgeForm>(
+    { sourceNodeId: '', targetNodeId: '', name: '', condition: 'null', priority: '0', data: '{}' },
+    addEdgeFormAdapter,
+    { errors: false },
+  );
   const addStageForms = Object.fromEntries(
     await Promise.all(
       systemNodes
@@ -223,6 +228,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     prompts,
     systemNodes,
     addConversationForm,
+    addEdgeForm,
     addStageForms,
     promptForms,
     edgeForms,
