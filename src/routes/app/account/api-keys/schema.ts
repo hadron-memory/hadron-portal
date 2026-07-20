@@ -5,6 +5,7 @@ import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
 export const API_KEY_LABEL_MAX_LEN = 200;
 
 export const createUserApiKeySchema = z.object({
+  _kind: z.literal('createUserApiKey').default('createUserApiKey'),
   label: z
     .string()
     .trim()
@@ -13,3 +14,10 @@ export const createUserApiKeySchema = z.object({
 });
 
 export type CreateUserApiKeySchema = typeof createUserApiKeySchema;
+
+export const revokeUserApiKeySchema = z.object({
+  _kind: z.literal('revokeUserApiKey').default('revokeUserApiKey'),
+  id: z.string().trim().min(1, 'Missing key id.').prefault(''),
+});
+
+export type RevokeUserApiKeySchema = typeof revokeUserApiKeySchema;

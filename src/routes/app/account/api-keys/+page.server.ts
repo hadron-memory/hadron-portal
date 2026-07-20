@@ -32,25 +32,27 @@ import {
 } from '$lib/server/queries';
 import type { UserApiKey, UserApiKeyCreateResult } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { createUserApiKeySchema } from './schema';
+import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
 
 const createUserApiKeyFormAdapter = zod4(createUserApiKeySchema);
+const revokeUserApiKeyFormAdapter = zod4(revokeUserApiKeySchema);
 
 export const load: PageServerLoad = async ({ locals }) => {
   const form = await superValidate({}, createUserApiKeyFormAdapter, { errors: false });
+  const revokeForm = await superValidate({}, revokeUserApiKeyFormAdapter, { errors: false });
   // Auth gate: locals.token is set by the +layout.server.ts auth flow;
   // a missing token means the user isn't signed in (the layout should
   // already have redirected). If we somehow get here without one, show
   // an empty list rather than blow up — the page renders the "no keys"
   // empty state, and the actions below 401 cleanly.
   if (!locals.token) {
-    return { keys: [] as UserApiKey[], form };
+    return { keys: [] as UserApiKey[], form, revokeForm };
   }
   try {
     const data = await gqlClient(locals.token).request<{
       myUserApiKeys: UserApiKey[];
     }>(MY_USER_API_KEYS_QUERY);
-    return { keys: data.myUserApiKeys, form };
+    return { keys: data.myUserApiKeys, form, revokeForm };
   } catch (e) {
     // Same posture as other portal loaders: surface a friendly empty
     // state on transient failure rather than crashing the page. The
@@ -58,6 +60,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     return {
       keys: [] as UserApiKey[],
       form,
+      revokeForm,
       loadError: extractGqlError(e, 'Could not load your API keys.'),
     };
   }
@@ -72,7 +75,7 @@ export const actions: Actions = {
   create: async ({ request, locals }) => {
     const form = await superValidate(await request.formData(), createUserApiKeyFormAdapter);
     if (!locals.token) {
-      return fail(401, { form, error: i18n.notSignedIn() });
+      return message(form, { type: 'error', text: i18n.notSignedIn() }, { status: 401 });
     }
     if (!form.valid) return fail(400, { form });
 
@@ -85,10 +88,10 @@ export const actions: Actions = {
       // client. The raw key flows through here EXACTLY ONCE; the page
       // renders it in a copy-now banner and then nothing recovers it.
       return {
-        form,
         success: 'mint' as const,
         rawKey: data.createUserApiKey.rawKey,
         userApiKey: data.createUserApiKey.userApiKey,
+        ...message(form, { type: 'success', text: i18n.mintSuccess() }),
       };
     } catch (e) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Could not mint API key.') }, { status: 500 });
@@ -102,24 +105,26 @@ export const actions: Actions = {
    * the portal doesn't leak the same channel.
    */
   revoke: async ({ request, locals }) => {
+    const form = await superValidate(await request.formData(), revokeUserApiKeyFormAdapter);
     if (!locals.token) {
-      return fail(401, { error: i18n.notSignedIn() });
+      return message(form, { type: 'error', text: i18n.notSignedIn() }, { status: 401 });
     }
-    const fd = await request.formData();
-    const id = String(fd.get('id') ?? '').trim();
-    if (!id) {
-      return fail(400, { error: 'Missing key id.' });
-    }
+    if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request<{ revokeUserApiKey: UserApiKey }>(
         REVOKE_USER_API_KEY_MUTATION,
-        { id },
+        { id: form.data.id },
       );
-      return { success: 'revoke' as const };
+      return {
+        success: 'revoke' as const,
+        ...message(form, { type: 'success', text: i18n.revokeSuccess() }),
+      };
     } catch (e) {
-      return fail(500, {
-        error: extractGqlError(e, 'Could not revoke API key.'),
-      });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Could not revoke API key.') },
+        { status: 500 },
+      );
     }
   },
 };

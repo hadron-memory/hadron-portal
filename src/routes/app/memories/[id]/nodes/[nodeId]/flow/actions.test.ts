@@ -203,7 +203,8 @@ describe('createEdge', () => {
     mockRequest.mockResolvedValueOnce({ node: host });
     mockRequest.mockResolvedValueOnce({ createEdge: { id: 'e-new' } });
     const result = await runAction('createEdge', { sourceId: 'n1', targetId: 'n4' });
-    expect(result).toEqual({ created: true, edgeId: 'e-new' });
+    expect(result).toMatchObject({ created: true, edgeId: 'e-new' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Edge created.' });
     expect(mockRequest.mock.calls[1][1]).toEqual({
       sourceNodeId: 'n1',
       targetNodeId: 'n4',
@@ -236,10 +237,20 @@ describe('createEdge', () => {
   it('rejects a self-connection without any server calls', async () => {
     const result = (await runAction('createEdge', { sourceId: 'n1', targetId: 'n1' })) as {
       status: number;
-      data: { error: string };
     };
     expect(result.status).toBe(400);
-    expect(result.data.error).toMatch(/itself/);
+    expect(fieldError(result, 'targetId')).toMatch(/itself/);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a tampered form discriminator before calling GraphQL', async () => {
+    const result = (await runAction('createEdge', {
+      _kind: 'updateEdge',
+      sourceId: 'n1',
+      targetId: 'n4',
+    })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(fieldError(result, '_kind')).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
@@ -249,5 +260,6 @@ describe('createEdge', () => {
       status: number;
     };
     expect(result.status).toBe(404);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Node not found: n1' });
   });
 });

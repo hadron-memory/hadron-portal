@@ -20,10 +20,13 @@ import { buildRoutingName, nextFreeRoutingIndex, routingOrder } from '$lib/flow/
 import { t } from '$lib/i18n/t';
 import type { NodeEdge } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { createFlowEdgeSchema } from './schema';
 
 type FlowEdgePanelForm = Infer<typeof flowEdgePanelSchema, 'zod4'>;
+type CreateFlowEdgeForm = Infer<typeof createFlowEdgeSchema, 'zod4'>;
 
 const flowEdgePanelFormAdapter = zod4(flowEdgePanelSchema);
+const createFlowEdgeFormAdapter = zod4(createFlowEdgeSchema);
 
 // Flow canvas (#509 spike, editing per #510). Walks the flow graph in BOTH
 // directions from the focus node — outgoing routing edges via each node's
@@ -233,6 +236,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     canvas: buildFlowCanvas(nodeInputs, edgeDetails),
     edgeDetails,
     edgeForms,
+    createEdgeForm: await superValidate<CreateFlowEdgeForm>(
+      {},
+      createFlowEdgeFormAdapter,
+      { errors: false },
+    ),
     fieldNodes,
     focusId: params.nodeId,
     focusName: focus.name || focus.loc,
@@ -277,13 +285,13 @@ export const actions: Actions = {
   // the source's next free index, so the new branch lands last in the firing
   // order — refine order/label/condition in the side panel afterwards.
   createEdge: async ({ request, locals }) => {
-    const fd = await request.formData();
-    const sourceId = String(fd.get('sourceId') ?? '').trim();
-    const targetId = String(fd.get('targetId') ?? '').trim();
-    if (!sourceId || !targetId) return fail(400, { error: 'Missing connection endpoints' });
-    if (sourceId === targetId) {
-      return fail(400, { error: 'A node cannot route to itself' });
-    }
+    const form = await superValidate<CreateFlowEdgeForm>(
+      await request.formData(),
+      createFlowEdgeFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
+    const { sourceId, targetId } = form.data;
 
     const client = gqlClient(locals.token);
     let host: FlowHostNode | null;
@@ -293,9 +301,15 @@ export const actions: Actions = {
       });
       host = res.node;
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to load the source node') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to load the source node') },
+        { status: 500 },
+      );
     }
-    if (!host) return fail(404, { error: `Node not found: ${sourceId}` });
+    if (!host) {
+      return message(form, { type: 'error', text: `Node not found: ${sourceId}` }, { status: 404 });
+    }
 
     const name = buildRoutingName(nextFreeRoutingIndex(host.outgoingEdges, host.loc), '');
 
@@ -320,9 +334,17 @@ export const actions: Actions = {
         // Absent variable = server default; only sent when a bump is needed.
         ...(priority !== undefined ? { priority } : {}),
       });
-      return { created: true, edgeId: res.createEdge.id };
+      return {
+        created: true,
+        edgeId: res.createEdge.id,
+        ...message(form, { type: 'success', text: t('flow.canvas.edgeCreated', 'Edge created.') }),
+      };
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to create edge') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to create edge') },
+        { status: 500 },
+      );
     }
   },
 };

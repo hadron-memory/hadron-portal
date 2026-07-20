@@ -17,9 +17,8 @@
   Constitution Principle III; no hardcoded copy.
 -->
 <script lang="ts">
-  import { enhance as kitEnhance } from '$app/forms';
   import { untrack } from 'svelte';
-  import { superForm } from 'sveltekit-superforms';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import {
     getCoreRowModel,
@@ -30,17 +29,32 @@
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import { scopedActionError } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
   import type { UserApiKey } from '$lib/types';
   import type { PageData, ActionData } from './$types';
-  import { createUserApiKeySchema } from './schema';
+  import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
+
+  type CreateUserApiKeyForm = Infer<typeof createUserApiKeySchema, 'zod4'>;
+  type RevokeUserApiKeyForm = Infer<typeof revokeUserApiKeySchema, 'zod4'>;
+  type CreateUserApiKeySuperform = SuperValidated<CreateUserApiKeyForm, App.Superforms.Message, CreateUserApiKeyForm>;
+  type RevokeUserApiKeySuperform = SuperValidated<RevokeUserApiKeyForm, App.Superforms.Message, RevokeUserApiKeyForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const keys = $derived(data.keys);
   const loadError = $derived('loadError' in data ? data.loadError : undefined);
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
-  const initialCreateForm = untrack(() => form?.form ?? data.form);
+
+  const createActionForm = $derived(
+    submittedForm<CreateUserApiKeyForm>(form, 'createUserApiKey'),
+  );
+  const revokeActionForm = $derived(
+    submittedForm<RevokeUserApiKeyForm>(form, 'revokeUserApiKey'),
+  );
+
+  const initialCreateForm = untrack(() => createActionForm ?? data.form) as CreateUserApiKeySuperform;
   const {
     form: createFormData,
     errors: createErrors,
@@ -55,17 +69,43 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
   });
+
+  const initialRevokeForm = untrack(() => revokeActionForm ?? data.revokeForm) as RevokeUserApiKeySuperform;
+  const {
+    form: revokeFormData,
+    errors: revokeErrors,
+    message: revokeMessage,
+    submitting: revokeSubmitting,
+    enhance: revokeEnhance,
+  } = superForm<RevokeUserApiKeyForm, App.Superforms.Message, RevokeUserApiKeyForm>(initialRevokeForm, {
+    validators: zod4Client(revokeUserApiKeySchema),
+    validationMethod: 'onsubmit',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    invalidateAll: true,
+    clearOnSubmit: 'none',
+    resetForm: true,
+    onUpdated({ form }) {
+      if (form.message?.type === 'success') closeConfirm();
+    },
+  });
   const labelError = $derived($createErrors.label?.[0] ?? null);
+  const createActionError = $derived(
+    scopedActionError<CreateUserApiKeyForm>(form, 'createUserApiKey', $createMessage, $createErrors),
+  );
+  const revokeActionError = $derived(
+    scopedActionError<RevokeUserApiKeyForm>(
+      form,
+      'revokeUserApiKey',
+      $revokeMessage,
+      $revokeErrors,
+      ['id', '_kind'],
+    ),
+  );
   const labelInputClass = $derived(
     `${inputClass} ${labelError ? 'border-red-500 focus:border-red-500' : ''}`,
   );
-  // Keep the legacy action-level error path for auth failures; Superforms
-  // messages cover validation/mint failures after the form exists.
-  const actionError = $derived(
-    form && 'error' in form && form.error
-      ? form.error
-      : ($createMessage?.type === 'error' ? $createMessage.text : null),
-  );
+  const actionError = $derived(createActionError ?? revokeActionError);
 
   // Cleared on the next navigation; persists across the post-mint render.
   // Narrowing on the `success: 'mint'` discriminator (set by
@@ -118,10 +158,12 @@
   function openConfirm(id: string, preview: string) {
     confirmId = id;
     confirmPreview = preview;
+    revokeFormData.update((current) => ({ ...current, id }), { taint: false });
   }
   function closeConfirm() {
     confirmId = null;
     confirmPreview = '';
+    revokeFormData.update((current) => ({ ...current, id: '' }), { taint: false });
   }
 
   function formatTimestamp(iso: string | null): string {
@@ -259,6 +301,7 @@
          the help sentence still fits comfortably on the row beneath
          because it spans the full form width. -->
     <form method="POST" action="?/create" use:createEnhance class="space-y-1" novalidate>
+      <input type="hidden" name="_kind" value={$createFormData._kind} />
       <div class="flex items-end gap-2">
         <div class="max-w-xs flex-1">
           <!-- a11y: <label> is the field name (one short word); the
@@ -367,18 +410,12 @@
       <form
         method="POST"
         action="?/revoke"
-        use:kitEnhance={() => {
-          // Close the modal optimistically; SvelteKit re-runs `load`
-          // after the action returns so the row's revokedAt populates
-          // and the badge flips.
-          return async ({ update }) => {
-            await update();
-            closeConfirm();
-          };
-        }}
+        use:revokeEnhance
         class="flex justify-end gap-2"
+        novalidate
       >
-        <input type="hidden" name="id" value={confirmId} />
+        <input type="hidden" name="_kind" value={$revokeFormData._kind} />
+        <input type="hidden" name="id" value={$revokeFormData.id} />
         <button
           type="button"
           onclick={closeConfirm}
@@ -388,6 +425,7 @@
         </button>
         <button
           type="submit"
+          disabled={$revokeSubmitting}
           class="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
           data-testid="revoke-confirm-yes"
         >

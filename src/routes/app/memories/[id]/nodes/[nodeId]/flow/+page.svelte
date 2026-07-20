@@ -1,19 +1,22 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
-  import { tick } from 'svelte';
-  import type { Infer, SuperValidated } from 'sveltekit-superforms';
+  import { tick, untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import { t } from '$lib/i18n/t';
   import FlowCanvas from '$lib/components/flow/FlowCanvas.svelte';
   import FlowEdgePanel from '$lib/components/flow/FlowEdgePanel.svelte';
+  import { scopedActionError } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { flowEdgePanelSchema } from '$lib/flow/edge-panel-form';
   import { collectFlowFieldsFor } from '$lib/flow/fields';
   import type { PageData, ActionData } from './$types';
+  import { createFlowEdgeSchema } from './schema';
 
   type FlowEdgePanelForm = Infer<typeof flowEdgePanelSchema, 'zod4'>;
+  type CreateFlowEdgeForm = Infer<typeof createFlowEdgeSchema, 'zod4'>;
   type UpdateEdgeActionResult = {
     form?: SuperValidated<FlowEdgePanelForm, App.Superforms.Message, FlowEdgePanelForm>;
   } | null;
-
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   let canvasHeight = $state(480);
@@ -53,6 +56,10 @@
   // bare comparison would be true and silently swallow the page banner.
   const formIsLive = $derived(form != null && form !== acknowledgedForm);
   const updateForm = $derived((form as UpdateEdgeActionResult)?.form ?? null);
+  const createEdgeActionForm = $derived.by(() => {
+    if (!formIsLive) return null;
+    return submittedForm<CreateFlowEdgeForm>(form, 'createFlowEdge');
+  });
   const panelSaved = $derived.by(() => {
     if (!formIsLive || !updateForm) return false;
     return updateForm.message?.type === 'success' && updateForm.data?.edgeId === selectedEdge?.id;
@@ -76,12 +83,48 @@
   let connectSourceId = $state('');
   let connectTargetId = $state('');
   let connectForm: HTMLFormElement | undefined = $state();
-  let connectPending = $state(false);
+  const initialCreateEdgeForm = untrack(() => createEdgeActionForm ?? data.createEdgeForm);
+  const {
+    form: createEdgeData,
+    errors: createEdgeErrors,
+    message: createEdgeMessage,
+    submitting: createEdgeSubmitting,
+    enhance: createEdgeEnhance,
+  } = superForm<CreateFlowEdgeForm, App.Superforms.Message, CreateFlowEdgeForm>(initialCreateEdgeForm, {
+    validators: zod4Client(createFlowEdgeSchema),
+    validationMethod: 'onsubmit',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    invalidateAll: true,
+    clearOnSubmit: 'none',
+    resetForm: true,
+    onResult({ result }) {
+      if (result.type === 'success' && typeof result.data?.edgeId === 'string') {
+        // Direct assignment (not selectEdge): the createEdge result must
+        // stay live so the freshly opened panel reflects it.
+        selectedEdgeId = result.data.edgeId;
+      }
+    },
+  });
+  const createEdgeError = $derived(
+    scopedActionError<CreateFlowEdgeForm>(
+      form,
+      'createFlowEdge',
+      $createEdgeMessage,
+      $createEdgeErrors,
+      ['sourceId', 'targetId', '_kind'],
+    ),
+  );
 
   async function handleConnect(sourceId: string, targetId: string) {
-    if (connectPending) return;
+    if ($createEdgeSubmitting) return;
     connectSourceId = sourceId;
     connectTargetId = targetId;
+    createEdgeData.update((current) => ({
+      ...current,
+      sourceId,
+      targetId,
+    }), { taint: false });
     await tick();
     connectForm?.requestSubmit();
   }
@@ -127,11 +170,12 @@
   {/if}
 
   <!-- Errors not tied to the panel's edge (createEdge failures) surface here. -->
-  {#if formIsLive && form?.error != null && !panelError}
+  {#if createEdgeError && !panelError}
     <div
+      role="alert"
       class="mb-3 rounded-lg border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
     >
-      {form.error}
+      {createEdgeError}
     </div>
   {/if}
 
@@ -187,20 +231,11 @@
     method="POST"
     action="?/createEdge"
     class="hidden"
-    use:enhance={() => {
-      connectPending = true;
-      return async ({ result, update }) => {
-        await update();
-        connectPending = false;
-        if (result.type === 'success' && typeof result.data?.edgeId === 'string') {
-          // Direct assignment (not selectEdge): the createEdge result must
-          // stay live so the freshly opened panel reflects it.
-          selectedEdgeId = result.data.edgeId;
-        }
-      };
-    }}
+    use:createEdgeEnhance
+    novalidate
   >
-    <input type="hidden" name="sourceId" value={connectSourceId} />
-    <input type="hidden" name="targetId" value={connectTargetId} />
+    <input type="hidden" name="_kind" value={$createEdgeData._kind} />
+    <input type="hidden" name="sourceId" value={connectSourceId || $createEdgeData.sourceId} />
+    <input type="hidden" name="targetId" value={connectTargetId || $createEdgeData.targetId} />
   </form>
 </div>
