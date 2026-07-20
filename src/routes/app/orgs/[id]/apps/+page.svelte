@@ -8,7 +8,9 @@
   install, and creation happens via the install flow.
 -->
 <script lang="ts">
-  import { enhance } from '$app/forms';
+  import { untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import {
     getCoreRowModel,
     getSortedRowModel,
@@ -19,22 +21,57 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import { installStrings } from '$lib/i18n/install-strings';
-  import type { App } from '$lib/types';
+  import type { App as HadronApp } from '$lib/types';
   import type { PageData, ActionData } from './$types';
+  import { deleteOrgAppSchema } from './schema';
+
+  type DeleteOrgAppForm = Infer<typeof deleteOrgAppSchema, 'zod4'>;
+  type DeleteOrgAppSuperform = SuperValidated<DeleteOrgAppForm, App.Superforms.Message, DeleteOrgAppForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
   const apps = $derived(data.apps);
+  const initialDeleteForm = untrack(() => submittedForm<DeleteOrgAppForm>(form, 'deleteApp') as DeleteOrgAppSuperform | null ?? data.deleteForm);
+  const {
+    form: deleteForm,
+    errors: deleteErrors,
+    message: deleteMessage,
+    submitting: deleteSubmitting,
+    enhance: deleteEnhance,
+  } = superForm<DeleteOrgAppForm, App.Superforms.Message, DeleteOrgAppForm>(initialDeleteForm, {
+    validators: zod4Client(deleteOrgAppSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const deleteActionError = $derived.by(() => {
+    const submitted = submittedForm<DeleteOrgAppForm>(form, 'deleteApp');
+    const message = $deleteMessage;
+    const errors = $deleteErrors;
+    if (!submitted) return null;
+    return message?.type === 'error' ? message.text : errors.id?.[0] ?? errors._kind?.[0] ?? null;
+  });
+  const deleteActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<DeleteOrgAppForm>(form, 'deleteApp');
+    const message = $deleteMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
 
-  function activeKeyCount(app: App): number {
+  function activeKeyCount(app: HadronApp): number {
     return app.keys.filter((k) => !k.revokedAt).length;
+  }
+
+  function prepareDeleteApp(id: string) {
+    deleteForm.update((current) => ({ ...current, id }), { taint: false });
   }
 
   let globalFilter = $state('');
 
-  const columns: ColumnDef<App>[] = [
+  const columns: ColumnDef<HadronApp>[] = [
     { accessorKey: 'name', header: t('org-apps.column.name', 'Name'), enableHiding: false, size: 180 }, // identity column
     { accessorKey: 'urn', header: t('org-apps.column.urn', 'URN'), size: 260 },
     { accessorFn: (row) => row.agent?.name ?? null, id: 'agent', header: t('org-apps.column.agent', 'Agent'), size: 150 },
@@ -52,7 +89,7 @@
     anonymousTtlDays: (v) => (v != null ? `${v}d` : '—'),
   };
 
-  const table = createSvelteTable<App>({
+  const table = createSvelteTable<HadronApp>({
     get data() {
       return apps;
     },
@@ -87,8 +124,10 @@
     <p class="mt-1 text-sm text-zinc-500">Installed Agents that authenticate clients (Micromentor, websites, mobile apps, the coding-agent CLI). Each App is a deployment of an Agent.</p>
   </div>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{form.error}</div>
+  {#if deleteActionError}
+    <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{deleteActionError}</div>
+  {:else if deleteActionSuccess}
+    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">{deleteActionSuccess}</div>
   {/if}
 
   {#if apps.length === 0}
@@ -126,10 +165,19 @@
               class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
               Manage
             </a>
-            <form method="POST" action="?/delete" use:enhance
-              onsubmit={(e) => { if (!confirm(`Delete app "${app.name}"? Active keys will be revoked and sessions invalidated.`)) e.preventDefault(); }}>
+            <!-- Click updates before Superforms client validation; submit covers keyboard/requestSubmit paths. -->
+            <form method="POST" action="?/delete" use:deleteEnhance novalidate
+              onsubmit={(e) => {
+                if (!confirm(`Delete app "${app.name}"? Active keys will be revoked and sessions invalidated.`)) {
+                  e.preventDefault();
+                  prepareDeleteApp('');
+                  return;
+                }
+                prepareDeleteApp(app.id);
+              }}>
+              <input type="hidden" name="_kind" value={$deleteForm._kind} />
               <input type="hidden" name="id" value={app.id} />
-              <button type="submit" class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
+              <button type="submit" disabled={$deleteSubmitting} onclick={() => prepareDeleteApp(app.id)} class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
                 Delete
               </button>
             </form>

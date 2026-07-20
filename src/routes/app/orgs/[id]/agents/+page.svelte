@@ -15,7 +15,6 @@
     getPaginationRowModel,
     type ColumnDef,
   } from '@tanstack/table-core';
-  import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -30,10 +29,13 @@
   import type { Agent } from '$lib/types';
   import type { AgentGrant, PublicAgent } from './+page.server';
   import type { ActionData, PageData } from './$types';
-  import { orgAgentSubscribeSchema } from './schema';
+  import { submittedForm } from '$lib/forms/submitted-form';
+  import { orgAgentSubscribeSchema, orgAgentUnsubscribeSchema } from './schema';
 
   type OrgAgentSubscribeForm = Infer<typeof orgAgentSubscribeSchema, 'zod4'>;
+  type OrgAgentUnsubscribeForm = Infer<typeof orgAgentUnsubscribeSchema, 'zod4'>;
   type OrgAgentSubscribeSuperform = SuperValidated<OrgAgentSubscribeForm, App.Superforms.Message, OrgAgentSubscribeForm>;
+  type OrgAgentUnsubscribeSuperform = SuperValidated<OrgAgentUnsubscribeForm, App.Superforms.Message, OrgAgentUnsubscribeForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
@@ -48,22 +50,11 @@
   // ── Tabs (#486): the org's own agents vs its subscriptions ───────────
   let activeTab = $state<'own' | 'subscribed'>('own');
 
-  function submittedSubscribe(actionData: ActionData): OrgAgentSubscribeSuperform | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    const candidateData = candidate?.data;
-    const kind = candidateData && typeof candidateData === 'object' && '_kind' in candidateData
-      ? String(candidateData._kind)
-      : null;
-    return kind === 'subscribeAgent'
-      ? candidate as OrgAgentSubscribeSuperform
-      : null;
-  }
-
   // Subscribe picker: selecting a public agent submits the explicit grant
   // mutation through a SvelteKit action; no App is installed (#649).
   let subscribeOpen = $state(false);
   let subscribeForm: HTMLFormElement;
-  const initialSubscribeForm = untrack(() => submittedSubscribe(form) ?? data.subscribeForm);
+  const initialSubscribeForm = untrack(() => submittedForm<OrgAgentSubscribeForm>(form, 'subscribeAgent') as OrgAgentSubscribeSuperform | null ?? data.subscribeForm);
   const {
     form: subscribeFormData,
     errors: subscribeErrors,
@@ -84,15 +75,54 @@
     },
   });
   const subscribeAgentError = $derived($subscribeErrors.agentId?.[0] ?? null);
-  const subscribeActionError = $derived($subscribeMessage?.type === 'error' ? $subscribeMessage.text : null);
-  const subscribeActionSuccess = $derived($subscribeMessage?.type === 'success' ? $subscribeMessage.text : null);
+  const subscribeActionError = $derived.by(() => {
+    const submitted = submittedForm<OrgAgentSubscribeForm>(form, 'subscribeAgent');
+    const message = $subscribeMessage;
+    return submitted && message?.type === 'error' ? message.text : null;
+  });
+  const subscribeActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<OrgAgentSubscribeForm>(form, 'subscribeAgent');
+    const message = $subscribeMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
 
   // Row-level unsubscribe state keeps the rest of the table usable while a
   // grant is being revoked and leaves lifecycle history visible afterward.
-  let unsubscribeAgentId = $state('');
   let unsubscribePendingAgentId = $state<string | null>(null);
-  let unsubscribeError = $state<string | null>(null);
   let unsubscribeForm: HTMLFormElement;
+  const initialUnsubscribeForm = untrack(() => submittedForm<OrgAgentUnsubscribeForm>(form, 'unsubscribeAgent') as OrgAgentUnsubscribeSuperform | null ?? data.unsubscribeForm);
+  const {
+    form: unsubscribeFormData,
+    errors: unsubscribeErrors,
+    message: unsubscribeMessage,
+    submitting: unsubscribeSubmitting,
+    enhance: unsubscribeEnhance,
+  } = superForm<OrgAgentUnsubscribeForm, App.Superforms.Message, OrgAgentUnsubscribeForm>(initialUnsubscribeForm, {
+    validators: zod4Client(orgAgentUnsubscribeSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: ({ form }) => {
+      unsubscribePendingAgentId = null;
+      if (form.message?.type === 'success') {
+        unsubscribeFormData.update((current) => ({ ...current, agentId: '' }), { taint: false });
+        activeTab = 'subscribed';
+      }
+    },
+  });
+  const unsubscribeActionError = $derived.by(() => {
+    const submitted = submittedForm<OrgAgentUnsubscribeForm>(form, 'unsubscribeAgent');
+    const message = $unsubscribeMessage;
+    const errors = $unsubscribeErrors;
+    if (!submitted) return null;
+    return message?.type === 'error' ? message.text : errors.agentId?.[0] ?? errors._kind?.[0] ?? null;
+  });
+  const unsubscribeActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<OrgAgentUnsubscribeForm>(form, 'unsubscribeAgent');
+    const message = $unsubscribeMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
 
   async function subscribeTo(agent: Pick<PublicAgent, 'id'>) {
     if ($subscribeSubmitting) return;
@@ -115,14 +145,14 @@
       goto(`/app/orgs/${org.id}/agents/install/${grant.agentId}`);
       return;
     }
-    if (actionId !== 'unsubscribe' || unsubscribePendingAgentId) return;
+    if (actionId !== 'unsubscribe' || $unsubscribeSubmitting) return;
 
     const agentName = grant.agent?.name ?? grant.agentId;
     const prompt = t('org-agents.subscribed.unsubscribe.confirm', 'Unsubscribe from');
     if (!confirm(`${prompt} "${agentName}"?`)) return;
 
-    unsubscribeAgentId = grant.agentId;
     unsubscribePendingAgentId = grant.agentId;
+    unsubscribeFormData.update((current) => ({ ...current, agentId: grant.agentId }), { taint: false });
     await tick();
     unsubscribeForm.requestSubmit();
   }
@@ -283,30 +313,11 @@
     method="POST"
     action="?/unsubscribe"
     class="hidden"
-    use:enhance={() => {
-      unsubscribePendingAgentId = unsubscribeAgentId;
-      unsubscribeError = null;
-      return async ({ result, update }) => {
-        try {
-          if (result.type === 'failure') {
-            unsubscribeError = typeof result.data?.unsubscribeError === 'string'
-              ? result.data.unsubscribeError
-              : t(
-                  'org-agents.subscribed.unsubscribe.error',
-                  'Failed to remove the agent subscription.',
-                );
-          } else if (result.type === 'success') {
-            unsubscribeError = null;
-          }
-          await update({ reset: false });
-        } finally {
-          unsubscribeAgentId = '';
-          unsubscribePendingAgentId = null;
-        }
-      };
-    }}
+    use:unsubscribeEnhance
+    novalidate
   >
-    <input type="hidden" name="agentId" value={unsubscribeAgentId} />
+    <input type="hidden" name="_kind" value={$unsubscribeFormData._kind} />
+    <input type="hidden" name="agentId" value={$unsubscribeFormData.agentId} />
   </form>
 
   <!-- Select Public Agent (#486/#649): selection creates the grant in place. -->
@@ -328,9 +339,15 @@
     </div>
   {/if}
 
-  {#if unsubscribeError}
+  {#if unsubscribeActionError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-      {unsubscribeError}
+      {unsubscribeActionError}
+    </div>
+  {/if}
+
+  {#if unsubscribeActionSuccess}
+    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+      {unsubscribeActionSuccess}
     </div>
   {/if}
 
@@ -399,7 +416,7 @@
                 actions={activeGrantActions}
                 onselect={(actionId) => onGrantAction(actionId, grant)}
                 label={`${t('org-agents.subscribed.actions.label', 'Actions for')} ${grant.agent?.name ?? grant.agentId}`}
-                disabled={unsubscribePendingAgentId === grant.agentId}
+                disabled={unsubscribePendingAgentId === grant.agentId || $unsubscribeSubmitting}
                 fixed
               />
             {/if}

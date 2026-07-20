@@ -73,6 +73,7 @@ async function runLoad() {
     subscribedGrants: unknown[] | null;
     subscribablePublicAgents: Array<{ id: string }>;
     subscribeForm: { data: { agentId: string } };
+    unsubscribeForm: { data: { agentId: string } };
   };
 }
 
@@ -139,6 +140,7 @@ describe('org agents loader — subscribed grants (#486)', () => {
     route({});
     const result = await runLoad();
     expect(result.subscribeForm.data.agentId).toBe('');
+    expect(result.unsubscribeForm.data.agentId).toBe('');
   });
 });
 
@@ -209,7 +211,13 @@ describe('org agents unsubscribe action (#651)', () => {
       revokeAgentOrgGrant: { agentId: 'foreign-agent' },
     });
 
-    await expect(runUnsubscribe()).resolves.toEqual({ unsubscribed: true });
+    await expect(runUnsubscribe()).resolves.toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'unsubscribeAgent', agentId: 'foreign-agent' },
+        message: { type: 'success', text: 'Unsubscribed from agent.' },
+      },
+    });
     expect(mockRequest).toHaveBeenCalledOnce();
     expect(mockRequest).toHaveBeenCalledWith(REVOKE_AGENT_ORG_GRANT_MUTATION, {
       agentRef: 'foreign-agent',
@@ -220,7 +228,24 @@ describe('org agents unsubscribe action (#651)', () => {
   it('rejects an empty selection without calling GraphQL', async () => {
     await expect(runUnsubscribe('')).resolves.toMatchObject({
       status: 400,
-      data: { unsubscribeError: expect.any(String) },
+      data: { form: { errors: { agentId: expect.any(Array) } } },
+    });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsubscribe POSTs with the wrong form discriminator', async () => {
+    const fd = new FormData();
+    fd.set('_kind', 'subscribeAgent');
+    fd.set('agentId', 'foreign-agent');
+    const { actions } = await import('./+page.server');
+
+    await expect(actions.unsubscribe!({
+      params: { id: ORG_ID },
+      locals: { token: 'tok' },
+      request: { formData: async () => fd },
+    } as never)).resolves.toMatchObject({
+      status: 400,
+      data: { form: { errors: { _kind: expect.any(Array) } } },
     });
     expect(mockRequest).not.toHaveBeenCalled();
   });
@@ -232,7 +257,7 @@ describe('org agents unsubscribe action (#651)', () => {
 
     await expect(runUnsubscribe()).resolves.toMatchObject({
       status: 500,
-      data: { unsubscribeError: 'AgentOrgGrant not found.' },
+      data: { form: { message: { type: 'error', text: 'AgentOrgGrant not found.' } } },
     });
   });
 });
