@@ -21,10 +21,21 @@ const node = { id: 'pk', memoryId: 'mem-1', loc: 'classify', name: 'Classify', t
 
 async function runConvert() {
   const { actions } = await import('./+page.server');
+  const fd = new FormData();
   return actions.convertToTask({
+    request: { formData: async () => fd },
     params: { id: 'mem-1', nodeId: 'pk' },
     locals: { token: 'tok' },
   } as never);
+}
+
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
 }
 
 describe('convertToTask action (#503)', () => {
@@ -35,7 +46,8 @@ describe('convertToTask action (#503)', () => {
       throw new Error('unexpected query');
     });
     const result = await runConvert();
-    expect(result).toEqual({ convertedToTask: true });
+    expect(result).toMatchObject({ convertedToTask: true });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Node converted to a task.' });
     const input = mockRequest.mock.calls.find(([q]) => q === UPDATE_NODE_MUTATION)![1].input;
     expect(input).toEqual({ memoryId: 'mem-1', loc: 'classify', tags: ['keep'], isRunnable: true });
   });
@@ -47,6 +59,7 @@ describe('convertToTask action (#503)', () => {
     });
     const result = (await runConvert()) as { status: number };
     expect(result.status).toBe(404);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Node not found' });
     expect(mockRequest.mock.calls.some(([q]) => q === UPDATE_NODE_MUTATION)).toBe(false);
   });
 });

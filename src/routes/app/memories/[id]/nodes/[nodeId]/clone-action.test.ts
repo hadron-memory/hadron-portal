@@ -41,10 +41,21 @@ const conflictError = () => ({
 
 async function runDuplicate() {
   const { actions } = await import('./+page.server');
+  const fd = new FormData();
   return actions.duplicate({
+    request: { formData: async () => fd },
     params: { id: 'mem-1', nodeId: 'pk' },
     locals: { token: 'tok' },
   } as never);
+}
+
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
 }
 
 function cloneCalls() {
@@ -93,8 +104,12 @@ describe('duplicate action (#501)', () => {
       if (query === CLONE_NODE_MUTATION) throw conflictError();
       throw new Error('unexpected query');
     });
-    const result = (await runDuplicate()) as { status: number; data: { error: string } };
+    const result = (await runDuplicate()) as { status: number };
     expect(result.status).toBe(409);
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'error',
+      text: 'Too many copies of this node already exist — rename one first.',
+    });
     expect(cloneCalls()).toHaveLength(5);
   });
 
@@ -106,9 +121,9 @@ describe('duplicate action (#501)', () => {
       }
       throw new Error('unexpected query');
     });
-    const result = (await runDuplicate()) as { status: number; data: { error: string } };
+    const result = (await runDuplicate()) as { status: number };
     expect(result.status).toBe(500);
-    expect(result.data.error).toBe('Forbidden');
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Forbidden' });
     expect(cloneCalls()).toHaveLength(1);
   });
 });

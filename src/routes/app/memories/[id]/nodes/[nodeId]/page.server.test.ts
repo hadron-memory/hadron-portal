@@ -668,6 +668,32 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { isRunnable?: unknown } }];
     expect(vars.input.isRunnable).toBe(false);
   });
+
+  it('updateMeta: rejects a missing name before looking up the node', async () => {
+    const actions = await importActions();
+    const result = (await actions.updateMeta(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-r3',
+      form: { loc: 'r3' },
+    }))) as { status: number };
+
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?.name?.[0]).toBe('Name is required.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('updateMeta: rejects a tampered form discriminator before looking up the node', async () => {
+    const actions = await importActions();
+    const result = (await actions.updateMeta(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-r4',
+      form: { _kind: 'deleteNode', name: 'r4', loc: 'r4' },
+    }))) as { status: number };
+
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
 });
 
 /**
@@ -819,14 +845,41 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     mockRequest.mockResolvedValueOnce({ createNode: { id: 'new-parent-pk' } });
 
     const actions = await importActions();
-    await actions.createParent(actionEvent({
+    const result = await actions.createParent(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-anchor',
       form: { loc: 'foo', name: 'foo' },
     }));
 
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Parent node created.' });
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string } }];
     expect(vars.input.memoryId).toBe('mem-B');
+  });
+
+  it('createParent: rejects missing fields before looking up the anchor node', async () => {
+    const actions = await importActions();
+    const result = (await actions.createParent(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-anchor',
+      form: { name: 'foo' },
+    }))) as { status: number };
+
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe('Missing parent loc.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('createParent: rejects a tampered form discriminator before looking up the anchor node', async () => {
+    const actions = await importActions();
+    const result = (await actions.createParent(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-anchor',
+      form: { _kind: 'deleteNode', loc: 'foo', name: 'foo' },
+    }))) as { status: number };
+
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 
   it('reorder: every per-loc update uses anchorNode.memoryId, not params.gid', async () => {

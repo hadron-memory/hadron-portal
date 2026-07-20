@@ -6,8 +6,29 @@ import {
   type ExtractionRow,
   type ExtractionShape,
 } from '$lib/flow/extraction';
+import { cleanLocInput } from '$lib/urn/clean-loc-input';
 
 type ParsedEdges = Array<{ targetId: string; name?: string | null }>;
+
+function normalizedLoc(value: string, ctx: z.RefinementCtx): string {
+  if (!value) return '';
+  try {
+    return cleanLocInput(value);
+  } catch {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Invalid loc.',
+    });
+    return z.NEVER as never;
+  }
+}
+
+const seqField = z.preprocess((value) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const parsed = parseInt(raw, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}, z.number().int().nullable()).default(null);
 
 export function isFullyQualifiedNodeUrnInput(value: string): boolean {
   const bare = value.trim().replace(/^(?:hrn|urn):node:/, '');
@@ -117,6 +138,40 @@ export const nodeDeleteSchema = z.object({
 
 // Defaulted _kind accepts omitted hidden inputs while still rejecting a
 // defined discriminator from the wrong action.
+export const nodeCreateParentSchema = z.object({
+  _kind: z.literal('createParent').default('createParent'),
+  loc: z.string().trim().min(1, 'Missing parent loc.').prefault(''),
+  name: z.string().trim().min(1, 'Missing parent name.').prefault(''),
+});
+
+// Defaulted _kind accepts omitted hidden inputs while still rejecting a
+// defined discriminator from the wrong action.
+export const nodeUpdateMetaSchema = z.object({
+  _kind: z.literal('updateMeta').default('updateMeta'),
+  name: z.string().trim().min(1, 'Name is required.').prefault(''),
+  nodeType: z.string().trim().default(''),
+  description: z.string().trim().default(''),
+  alias: z.string().trim().default(''),
+  seq: seqField,
+  tags: z.string().trim().default(''),
+  isRunnable: checkboxBoolean.default(false),
+  loc: z.string().trim().default('').transform(normalizedLoc),
+});
+
+// Defaulted _kind accepts omitted hidden inputs while still rejecting a
+// defined discriminator from the wrong action.
+export const nodeDuplicateSchema = z.object({
+  _kind: z.literal('duplicateNode').default('duplicateNode'),
+});
+
+// Defaulted _kind accepts omitted hidden inputs while still rejecting a
+// defined discriminator from the wrong action.
+export const nodeConvertToTaskSchema = z.object({
+  _kind: z.literal('convertToTask').default('convertToTask'),
+});
+
+// Defaulted _kind accepts omitted hidden inputs while still rejecting a
+// defined discriminator from the wrong action.
 export const nodeUpdateFlowSchema = z.object({
   _kind: z.literal('updateFlow').default('updateFlow'),
   extractionRows: z.string().default('[]').superRefine((value, ctx) => {
@@ -147,5 +202,9 @@ export const nodeUpdateEdgesSchema = z.object({
 export type NodeMoveSchema = typeof nodeMoveSchema;
 export type NodeTestFlowSchema = typeof nodeTestFlowSchema;
 export type NodeDeleteSchema = typeof nodeDeleteSchema;
+export type NodeCreateParentSchema = typeof nodeCreateParentSchema;
+export type NodeUpdateMetaSchema = typeof nodeUpdateMetaSchema;
+export type NodeDuplicateSchema = typeof nodeDuplicateSchema;
+export type NodeConvertToTaskSchema = typeof nodeConvertToTaskSchema;
 export type NodeUpdateFlowSchema = typeof nodeUpdateFlowSchema;
 export type NodeUpdateEdgesSchema = typeof nodeUpdateEdgesSchema;
