@@ -363,14 +363,14 @@
             </a>
             <!-- Click updates before Superforms client validation; submit covers keyboard/requestSubmit paths. -->
             <form method="POST" action="?/testExchangeConnection" use:testExchangeConnectionEnhance onsubmit={() => setTestExchangeConnection(conn.id)} novalidate>
-              <input type="hidden" name="_kind" value="testExchangeConnection" />
+              <input type="hidden" name="_kind" value={$testExchangeConnectionForm._kind} />
               <input type="hidden" name="connectionId" value={conn.id} />
               <button type="submit" disabled={$testExchangeConnectionSubmitting} onclick={() => setTestExchangeConnection(conn.id)} class="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Test</button>
             </form>
             <form method="POST" action="?/deleteExchangeConnection" use:deleteExchangeConnectionEnhance novalidate
               onsubmit={(e) => { setDeleteExchangeConnection(conn.id); if (!confirm('Disconnect this Microsoft account?')) e.preventDefault(); }}
             >
-              <input type="hidden" name="_kind" value="deleteExchangeConnection" />
+              <input type="hidden" name="_kind" value={$deleteExchangeConnectionForm._kind} />
               <input type="hidden" name="connectionId" value={conn.id} />
               <button type="submit" disabled={$deleteExchangeConnectionSubmitting} onclick={() => setDeleteExchangeConnection(conn.id)} class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">Disconnect</button>
             </form>

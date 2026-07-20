@@ -388,15 +388,27 @@ describe('connectExchange action', () => {
     );
   });
 
-  it('returns a typed error when the OAuth start endpoint rejects the request', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
+  it('returns a typed error with the upstream status when the OAuth start endpoint rejects the request', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+
+    const result = await runAction('connectExchange', {});
+
+    expect((result as { status: number }).status).toBe(403);
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'error',
+      text: 'Failed to start Microsoft sign-in.',
+    });
+  });
+
+  it('returns a typed unreachable error when the OAuth start request throws', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNRESET')));
 
     const result = await runAction('connectExchange', {});
 
     expect((result as { status: number }).status).toBe(500);
     expect(superFormFrom(result)?.message).toEqual({
       type: 'error',
-      text: 'Failed to start Microsoft sign-in.',
+      text: 'Could not reach the server to start sign-in.',
     });
   });
 
@@ -441,6 +453,17 @@ describe('deleteExchangeConnection action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('rejects deleteExchangeConnection POSTs with the wrong form discriminator', async () => {
+    const result = await runAction('deleteExchangeConnection', {
+      _kind: 'testExchangeConnection',
+      connectionId: 'exchange-1',
+    });
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('returns a typed error when deleting fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('still syncing'));
 
@@ -482,6 +505,17 @@ describe('testExchangeConnection action', () => {
 
     expect((result as { status: number }).status).toBe(400);
     expect(superFormFrom(result)?.errors?.connectionId?.[0]).toBe('Connection ID is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects testExchangeConnection POSTs with the wrong form discriminator', async () => {
+    const result = await runAction('testExchangeConnection', {
+      _kind: 'deleteExchangeConnection',
+      connectionId: 'exchange-1',
+    });
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
     expect(mockRequest).not.toHaveBeenCalled();
   });
 

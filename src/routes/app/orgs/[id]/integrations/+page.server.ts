@@ -42,6 +42,20 @@ const connectExchangeFormAdapter = zod4(connectExchangeSchema);
 const testExchangeConnectionFormAdapter = zod4(testExchangeConnectionSchema);
 const deleteExchangeConnectionFormAdapter = zod4(deleteExchangeConnectionSchema);
 
+type NumericRange<
+  START extends number,
+  END extends number,
+  ARR extends unknown[] = [],
+  ACC extends number = never,
+> = ARR['length'] extends END
+  ? ACC | START | END
+  : NumericRange<START, END, [...ARR, 1], ARR[START] extends undefined ? ACC : ACC | ARR['length']>;
+type ActionFailureStatus = NumericRange<400, 599>;
+
+function actionFailureStatus(status: number): ActionFailureStatus {
+  return status >= 400 && status <= 599 ? status as ActionFailureStatus : 500;
+}
+
 function scrubPrivateKey<T extends { data: { privateKey: string } }>(form: T): T {
   form.data.privateKey = '';
   return form;
@@ -218,7 +232,7 @@ export const actions: Actions = {
         return message(
           form,
           { type: 'error', text: t('org.integrations.exchange.startFailed', 'Failed to start Microsoft sign-in.') },
-          { status: 500 },
+          { status: actionFailureStatus(res.status) },
         );
       }
       ({ nonce } = (await res.json()) as { nonce: string });
