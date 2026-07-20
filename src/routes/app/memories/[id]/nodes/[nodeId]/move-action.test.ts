@@ -27,10 +27,11 @@ const node = {
   memory: { id: 'mem-1', urn: 'acme.com::flows', name: 'Flows' },
 };
 
-async function runMove(target: string) {
+async function runMove(target: string, extra: Record<string, string> = {}) {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
   fd.set('target', target);
+  for (const [key, value] of Object.entries(extra)) fd.set(key, value);
   return actions.move({
     request: { formData: async () => fd },
     params: { id: 'mem-1', nodeId: 'pk' },
@@ -42,6 +43,15 @@ function moveVars() {
   return mockRequest.mock.calls.find(([q]) => q === MOVE_NODE_MUTATION)?.[1] as
     | { sourceRef: string; targetUrn: string }
     | undefined;
+}
+
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { data?: Record<string, unknown>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { data?: Record<string, unknown>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { data?: Record<string, unknown>; errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
 }
 
 describe('move action (#503 / #489)', () => {
@@ -75,7 +85,10 @@ describe('move action (#503 / #489)', () => {
       throw new Error('unexpected query');
     });
     const result = await runMove('acme.com::flows::flows:classify');
-    expect(result).toEqual({ moved: true });
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'success',
+      text: 'Node is already at that destination.',
+    });
     expect(moveVars()).toBeUndefined();
   });
 
@@ -87,14 +100,22 @@ describe('move action (#503 / #489)', () => {
       }
       throw new Error('unexpected query');
     });
-    const result = (await runMove('flows:taken')) as { status: number; data: { moveError: string } };
+    const result = (await runMove('flows:taken')) as { status: number };
     expect(result.status).toBe(409);
-    expect(result.data.moveError).toMatch(/already occupies/);
+    expect(superFormFrom(result)?.errors?.target?.[0]).toMatch(/already occupies/);
   });
 
   it('rejects an empty destination before any lookup', async () => {
-    const result = (await runMove('   ')) as { status: number; data: { moveError: string } };
+    const result = (await runMove('   ')) as { status: number };
     expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?.target?.[0]).toBe('Enter a destination node URN.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a tampered form discriminator before any lookup', async () => {
+    const result = (await runMove('flows:renamed', { _kind: 'deleteNode' })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
   });
 });
