@@ -13,6 +13,7 @@ import {
   ORG_SYSTEM_MEMORIES_QUERY,
   GRAPH_NODES_QUERY,
   AGENT_APPS_QUERY,
+  DELETE_AGENT_MUTATION,
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
 } from '$lib/server/queries';
@@ -83,6 +84,11 @@ async function runUpdateMemoryRole(fields: Record<string, string>) {
 async function runRemoveMemory(fields: Record<string, string>) {
   const { actions } = await importMod();
   return actions.removeMemory(actionEv(fields));
+}
+
+async function runDeleteAgent(fields: Record<string, string>) {
+  const { actions } = await importMod();
+  return actions.delete(actionEv(fields));
 }
 
 /**
@@ -373,5 +379,40 @@ describe('/app/agents/[id] memory actions', () => {
 
     expect(result).toMatchObject({ status: 500 });
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'remove failed' });
+  });
+});
+
+describe('/app/agents/[id] delete action', () => {
+  it('deletes the agent and redirects to the agents list', async () => {
+    mockRequest.mockResolvedValueOnce({ deleteAgent: true });
+
+    let thrown: unknown;
+    try {
+      await runDeleteAgent({});
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect(thrown).toBeDefined();
+    expect((thrown as { status: number }).status).toBe(303);
+    expect((thrown as { location: string }).location).toBe('/app/agents');
+    expect(mockRequest).toHaveBeenCalledWith(DELETE_AGENT_MUTATION, { id: 'agent-id-123' });
+  });
+
+  it('rejects delete-agent payloads with the wrong action discriminator', async () => {
+    const result = await runDeleteAgent({ _kind: 'removeMemory' });
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, '_kind')).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns delete-agent GraphQL failures as Superforms messages', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('delete failed'));
+
+    const result = await runDeleteAgent({});
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'delete failed' });
   });
 });

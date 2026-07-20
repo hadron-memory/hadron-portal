@@ -50,7 +50,14 @@ export const removeAgentMemorySchema = z.object({
   memoryId: z.string().trim().min(1, 'Select a memory.').prefault(''),
 });
 
+export const deleteAgentSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('deleteAgent').default('deleteAgent'),
+});
+
 export type AgentSettingsSchema = typeof agentSettingsSchema;
 export type AddAgentMemorySchema = typeof addAgentMemorySchema;
 export type UpdateAgentMemoryRoleSchema = typeof updateAgentMemoryRoleSchema;
 export type RemoveAgentMemorySchema = typeof removeAgentMemorySchema;
+export type DeleteAgentSchema = typeof deleteAgentSchema;

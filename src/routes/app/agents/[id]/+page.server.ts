@@ -23,6 +23,7 @@ import type { Actions, PageServerLoad } from './$types';
 import {
   addAgentMemorySchema,
   agentSettingsSchema,
+  deleteAgentSchema,
   removeAgentMemorySchema,
   updateAgentMemoryRoleSchema,
 } from './schema';
@@ -31,8 +32,10 @@ const agentSettingsFormAdapter = zod4(agentSettingsSchema);
 const addAgentMemoryFormAdapter = zod4(addAgentMemorySchema);
 const updateAgentMemoryRoleFormAdapter = zod4(updateAgentMemoryRoleSchema);
 const removeAgentMemoryFormAdapter = zod4(removeAgentMemorySchema);
+const deleteAgentFormAdapter = zod4(deleteAgentSchema);
 
 type AddAgentMemoryForm = Infer<typeof addAgentMemorySchema, 'zod4'>;
+type DeleteAgentForm = Infer<typeof deleteAgentSchema, 'zod4'>;
 
 function urnSlug(urn: string): string {
   const idx = urn.lastIndexOf(':');
@@ -130,7 +133,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));
   }
   orgSystemMemories = sysMemResult;
-  const [form, addMemoryForm, updateMemoryRoleForm, removeMemoryForm] = await Promise.all([
+  const [form, addMemoryForm, updateMemoryRoleForm, removeMemoryForm, deleteForm] = await Promise.all([
     superValidate({
       name: agent.name ?? '',
       urnSlug: urnSlug(agent.urn),
@@ -154,6 +157,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       removeAgentMemoryFormAdapter,
       { errors: false },
     ),
+    superValidate<DeleteAgentForm>(
+      {},
+      deleteAgentFormAdapter,
+      { errors: false },
+    ),
   ]);
 
   return {
@@ -170,6 +178,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     addMemoryForm,
     updateMemoryRoleForm,
     removeMemoryForm,
+    deleteForm,
   };
 };
 
@@ -272,13 +281,23 @@ export const actions: Actions = {
     }
   },
 
-  delete: async ({ params, locals }) => {
+  delete: async ({ request, params, locals }) => {
+    const form = await superValidate<DeleteAgentForm>(
+      await request.formData(),
+      deleteAgentFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(DELETE_AGENT_MUTATION, { id: params.id });
       redirect(303, '/app/agents');
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      return fail(500, { error: extractGqlError(e, 'Failed to delete agent') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to delete agent') },
+        { status: 500 },
+      );
     }
   },
 
