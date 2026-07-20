@@ -3,18 +3,29 @@
   // configs. The GitHub/Exchange markup moved here from the org dashboard
   // (+page.svelte); the AI section moved from the standalone /ai-configs route.
   import { page } from '$app/stores';
-  import { enhance } from '$app/forms';
   import { env } from '$env/dynamic/public';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
-  import { githubAppCredentialsSchema, githubInstallationSchema } from './schema';
+  import {
+    connectExchangeSchema,
+    deleteExchangeConnectionSchema,
+    githubAppCredentialsSchema,
+    githubInstallationSchema,
+    testExchangeConnectionSchema,
+    unlinkGithubSchema,
+  } from './schema';
 
   type GithubAppCredentialsForm = Infer<typeof githubAppCredentialsSchema, 'zod4'>;
   type GithubInstallationForm = Infer<typeof githubInstallationSchema, 'zod4'>;
+  type UnlinkGithubForm = Infer<typeof unlinkGithubSchema, 'zod4'>;
+  type ConnectExchangeForm = Infer<typeof connectExchangeSchema, 'zod4'>;
+  type TestExchangeConnectionForm = Infer<typeof testExchangeConnectionSchema, 'zod4'>;
+  type DeleteExchangeConnectionForm = Infer<typeof deleteExchangeConnectionSchema, 'zod4'>;
   type GithubAppCredentialsSuperform = SuperValidated<
     GithubAppCredentialsForm,
     App.Superforms.Message,
@@ -25,6 +36,10 @@
     App.Superforms.Message,
     GithubInstallationForm
   >;
+  type UnlinkGithubSuperform = SuperValidated<UnlinkGithubForm, App.Superforms.Message, UnlinkGithubForm>;
+  type ConnectExchangeSuperform = SuperValidated<ConnectExchangeForm, App.Superforms.Message, ConnectExchangeForm>;
+  type TestExchangeConnectionSuperform = SuperValidated<TestExchangeConnectionForm, App.Superforms.Message, TestExchangeConnectionForm>;
+  type DeleteExchangeConnectionSuperform = SuperValidated<DeleteExchangeConnectionForm, App.Superforms.Message, DeleteExchangeConnectionForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
@@ -37,20 +52,16 @@
   let selectedIntegration = $state('');
   const hasGithubConfigured = $derived(!!org.githubInstallationId || isUsingCustomApp);
 
-  function actionFormKind(actionData: ActionData): string | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    const candidateData = candidate?.data;
-    return candidateData && typeof candidateData === 'object' && '_kind' in candidateData
-      ? String(candidateData._kind)
-      : null;
-  }
-
   let showGithubConfig = $state(false);
   // Native POST validation should reveal the submitted GitHub panel, but a
   // later user close should not be forced by us unless another action arrives.
   $effect(() => {
-    const kind = actionFormKind(form);
-    if (kind === 'updateGithubApp' || kind === 'linkGithub') showGithubConfig = true;
+    if (
+      submittedForm<GithubAppCredentialsForm>(form, 'updateGithubApp') ||
+      submittedForm<GithubInstallationForm>(form, 'linkGithub')
+    ) {
+      showGithubConfig = true;
+    }
   });
 
   // Exchange integration state
@@ -65,29 +76,12 @@
   // Show success after callback redirect
   const justInstalled = $derived($page.url.searchParams.get('githubInstalled') === '1');
 
-  function submittedGithubApp(actionData: ActionData): GithubAppCredentialsSuperform | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    return actionFormKind(actionData) === 'updateGithubApp'
-      ? (candidate as GithubAppCredentialsSuperform)
-      : null;
-  }
-
-  function submittedGithubInstallation(actionData: ActionData): GithubInstallationSuperform | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    return actionFormKind(actionData) === 'linkGithub'
-      ? (candidate as GithubInstallationSuperform)
-      : null;
-  }
-
-  const submittedGithubAppForm = $derived(submittedGithubApp(form));
-  const submittedGithubInstallationForm = $derived(submittedGithubInstallation(form));
-
-  function afterGithubFormUpdate() {
+  function afterIntegrationFormUpdate() {
     showSetupGuide = false;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  const initialGithubAppForm = untrack(() => submittedGithubAppForm ?? data.githubAppForm);
+  const initialGithubAppForm = untrack(() => submittedForm<GithubAppCredentialsForm>(form, 'updateGithubApp') as GithubAppCredentialsSuperform | null ?? data.githubAppForm);
   const {
     form: githubAppForm,
     errors: githubAppErrors,
@@ -101,14 +95,22 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    onUpdated: afterGithubFormUpdate,
+    onUpdated: afterIntegrationFormUpdate,
   });
   const githubAppIdError = $derived($githubAppErrors.appId?.[0] ?? null);
   const githubPrivateKeyError = $derived($githubAppErrors.privateKey?.[0] ?? null);
-  const githubAppActionError = $derived($githubAppMessage?.type === 'error' ? $githubAppMessage.text : null);
-  const githubAppActionSuccess = $derived($githubAppMessage?.type === 'success' ? $githubAppMessage.text : null);
+  const githubAppActionError = $derived.by(() => {
+    const submitted = submittedForm<GithubAppCredentialsForm>(form, 'updateGithubApp');
+    const message = $githubAppMessage;
+    return submitted && message?.type === 'error' ? message.text : null;
+  });
+  const githubAppActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<GithubAppCredentialsForm>(form, 'updateGithubApp');
+    const message = $githubAppMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
 
-  const initialGithubInstallationForm = untrack(() => submittedGithubInstallationForm ?? data.githubInstallationForm);
+  const initialGithubInstallationForm = untrack(() => submittedForm<GithubInstallationForm>(form, 'linkGithub') as GithubInstallationSuperform | null ?? data.githubInstallationForm);
   const {
     form: githubInstallationForm,
     errors: githubInstallationErrors,
@@ -122,26 +124,132 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    onUpdated: afterGithubFormUpdate,
+    onUpdated: afterIntegrationFormUpdate,
   });
   const githubInstallationError = $derived($githubInstallationErrors.installationId?.[0] ?? null);
-  const githubInstallationActionError = $derived(
-    $githubInstallationMessage?.type === 'error' ? $githubInstallationMessage.text : null,
-  );
-  const githubInstallationActionSuccess = $derived(
-    $githubInstallationMessage?.type === 'success' ? $githubInstallationMessage.text : null,
-  );
+  const githubInstallationActionError = $derived.by(() => {
+    const submitted = submittedForm<GithubInstallationForm>(form, 'linkGithub');
+    const message = $githubInstallationMessage;
+    return submitted && message?.type === 'error' ? message.text : null;
+  });
+  const githubInstallationActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<GithubInstallationForm>(form, 'linkGithub');
+    const message = $githubInstallationMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
 
-  // Scroll to top and collapse guide after successful form actions
-  function scrollEnhance(formEl: HTMLFormElement) {
-    return enhance(formEl, () => {
-      return async ({ update }) => {
-        await update();
-        showSetupGuide = false;
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      };
-    });
+  const initialUnlinkGithubForm = untrack(() => submittedForm<UnlinkGithubForm>(form, 'unlinkGithub') as UnlinkGithubSuperform | null ?? data.unlinkGithubForm);
+  const {
+    form: unlinkGithubForm,
+    errors: unlinkGithubErrors,
+    message: unlinkGithubMessage,
+    submitting: unlinkGithubSubmitting,
+    enhance: unlinkGithubEnhance,
+  } = superForm<UnlinkGithubForm, App.Superforms.Message, UnlinkGithubForm>(initialUnlinkGithubForm, {
+    validators: zod4Client(unlinkGithubSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: afterIntegrationFormUpdate,
+  });
+  const initialConnectExchangeForm = untrack(() => submittedForm<ConnectExchangeForm>(form, 'connectExchange') as ConnectExchangeSuperform | null ?? data.connectExchangeForm);
+  const {
+    form: connectExchangeForm,
+    errors: connectExchangeErrors,
+    message: connectExchangeMessage,
+    submitting: connectExchangeSubmitting,
+    enhance: connectExchangeEnhance,
+  } = superForm<ConnectExchangeForm, App.Superforms.Message, ConnectExchangeForm>(initialConnectExchangeForm, {
+    validators: zod4Client(connectExchangeSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: afterIntegrationFormUpdate,
+  });
+  const initialTestExchangeConnectionForm = untrack(() => submittedForm<TestExchangeConnectionForm>(form, 'testExchangeConnection') as TestExchangeConnectionSuperform | null ?? data.testExchangeConnectionForm);
+  const {
+    form: testExchangeConnectionForm,
+    errors: testExchangeConnectionErrors,
+    message: testExchangeConnectionMessage,
+    submitting: testExchangeConnectionSubmitting,
+    enhance: testExchangeConnectionEnhance,
+  } = superForm<TestExchangeConnectionForm, App.Superforms.Message, TestExchangeConnectionForm>(initialTestExchangeConnectionForm, {
+    validators: zod4Client(testExchangeConnectionSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: afterIntegrationFormUpdate,
+  });
+  const initialDeleteExchangeConnectionForm = untrack(() => submittedForm<DeleteExchangeConnectionForm>(form, 'deleteExchangeConnection') as DeleteExchangeConnectionSuperform | null ?? data.deleteExchangeConnectionForm);
+  const {
+    form: deleteExchangeConnectionForm,
+    errors: deleteExchangeConnectionErrors,
+    message: deleteExchangeConnectionMessage,
+    submitting: deleteExchangeConnectionSubmitting,
+    enhance: deleteExchangeConnectionEnhance,
+  } = superForm<DeleteExchangeConnectionForm, App.Superforms.Message, DeleteExchangeConnectionForm>(initialDeleteExchangeConnectionForm, {
+    validators: zod4Client(deleteExchangeConnectionSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: afterIntegrationFormUpdate,
+  });
+
+  function setTestExchangeConnection(connectionId: string) {
+    testExchangeConnectionForm.update((current) => ({ ...current, connectionId }), { taint: false });
   }
+
+  function setDeleteExchangeConnection(connectionId: string) {
+    deleteExchangeConnectionForm.update((current) => ({ ...current, connectionId }), { taint: false });
+  }
+
+  const unlinkGithubActionError = $derived.by(() => {
+    const submitted = submittedForm<UnlinkGithubForm>(form, 'unlinkGithub');
+    const message = $unlinkGithubMessage;
+    const errors = $unlinkGithubErrors;
+    if (!submitted) return null;
+    return message?.type === 'error' ? message.text : errors._kind?.[0] ?? null;
+  });
+  const unlinkGithubActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<UnlinkGithubForm>(form, 'unlinkGithub');
+    const message = $unlinkGithubMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
+  const connectExchangeActionError = $derived.by(() => {
+    const submitted = submittedForm<ConnectExchangeForm>(form, 'connectExchange');
+    const message = $connectExchangeMessage;
+    const errors = $connectExchangeErrors;
+    if (!submitted) return null;
+    return message?.type === 'error' ? message.text : errors._kind?.[0] ?? null;
+  });
+  const testExchangeConnectionActionError = $derived.by(() => {
+    const submitted = submittedForm<TestExchangeConnectionForm>(form, 'testExchangeConnection');
+    const message = $testExchangeConnectionMessage;
+    const errors = $testExchangeConnectionErrors;
+    if (!submitted) return null;
+    return message?.type === 'error' ? message.text : errors.connectionId?.[0] ?? errors._kind?.[0] ?? null;
+  });
+  const testExchangeConnectionActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<TestExchangeConnectionForm>(form, 'testExchangeConnection');
+    const message = $testExchangeConnectionMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
+  const deleteExchangeConnectionActionError = $derived.by(() => {
+    const submitted = submittedForm<DeleteExchangeConnectionForm>(form, 'deleteExchangeConnection');
+    const message = $deleteExchangeConnectionMessage;
+    const errors = $deleteExchangeConnectionErrors;
+    if (!submitted) return null;
+    return message?.type === 'error' ? message.text : errors.connectionId?.[0] ?? errors._kind?.[0] ?? null;
+  });
+  const deleteExchangeConnectionActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<DeleteExchangeConnectionForm>(form, 'deleteExchangeConnection');
+    const message = $deleteExchangeConnectionMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
 </script>
 
 <svelte:head><title>Integrations · {org.name} · Hadron</title></svelte:head>
@@ -151,35 +259,38 @@
   <section>
     <h1 class="mb-3 font-semibold text-zinc-900 dark:text-white">Integrations</h1>
 
-    {#if form?.error}
-      <div class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
-    {/if}
     {#if githubInstallationActionSuccess}
       <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{githubInstallationActionSuccess}</div>
     {/if}
     {#if githubAppActionSuccess}
       <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{githubAppActionSuccess}</div>
     {/if}
-    {#if form?.githubUnlinked}
-      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">GitHub App disconnected.</div>
+    {#if unlinkGithubActionError}
+      <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{unlinkGithubActionError}</div>
+    {:else if unlinkGithubActionSuccess}
+      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{unlinkGithubActionSuccess}</div>
     {/if}
     {#if justInstalled}
-      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Hadron GitHub App installed and linked to this organization.</div>
+      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Hadron GitHub App installed and linked to this organization.</div>
     {/if}
-    {#if form?.exchangeError}
-      <div class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.exchangeError}</div>
+    {#if connectExchangeActionError}
+      <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{connectExchangeActionError}</div>
     {/if}
     {#if $page.url.searchParams.get('exchangeConnected') === '1'}
-      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Microsoft Exchange connected successfully.</div>
+      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Microsoft Exchange connected successfully.</div>
     {/if}
     {#if $page.url.searchParams.get('exchangeError')}
-      <div class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">Exchange error: {$page.url.searchParams.get('exchangeError')}</div>
+      <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">Exchange error: {$page.url.searchParams.get('exchangeError')}</div>
     {/if}
-    {#if form?.exchangeDeleted}
-      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Exchange connection removed.</div>
+    {#if deleteExchangeConnectionActionError}
+      <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{deleteExchangeConnectionActionError}</div>
+    {:else if deleteExchangeConnectionActionSuccess}
+      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{deleteExchangeConnectionActionSuccess}</div>
     {/if}
-    {#if form?.exchangeTested}
-      <div class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Exchange connection test passed.</div>
+    {#if testExchangeConnectionActionError}
+      <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{testExchangeConnectionActionError}</div>
+    {:else if testExchangeConnectionActionSuccess}
+      <div role="status" class="mb-3 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{testExchangeConnectionActionSuccess}</div>
     {/if}
 
     <!-- Configured integrations -->
@@ -207,10 +318,11 @@
             >
               {showGithubConfig ? 'Hide' : 'Edit'}
             </button>
-            <form method="POST" action="?/unlinkGithub" use:scrollEnhance
+            <form method="POST" action="?/unlinkGithub" use:unlinkGithubEnhance novalidate
               onsubmit={(e) => { if (!confirm('Disconnect GitHub? This removes the installation ID and any stored credentials.')) e.preventDefault(); }}
             >
-              <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">Disconnect</button>
+              <input type="hidden" name="_kind" value={$unlinkGithubForm._kind} />
+              <button type="submit" disabled={$unlinkGithubSubmitting} class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">Disconnect</button>
             </form>
           </div>
         </div>
@@ -249,15 +361,18 @@
               class="rounded-md border border-indigo-300 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 dark:border-indigo-800 dark:text-indigo-400 dark:hover:bg-indigo-950">
               Inbox
             </a>
-            <form method="POST" action="?/testExchangeConnection" use:scrollEnhance>
+            <!-- Click updates before Superforms client validation; submit covers keyboard/requestSubmit paths. -->
+            <form method="POST" action="?/testExchangeConnection" use:testExchangeConnectionEnhance onsubmit={() => setTestExchangeConnection(conn.id)} novalidate>
+              <input type="hidden" name="_kind" value={$testExchangeConnectionForm._kind} />
               <input type="hidden" name="connectionId" value={conn.id} />
-              <button type="submit" class="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Test</button>
+              <button type="submit" disabled={$testExchangeConnectionSubmitting} onclick={() => setTestExchangeConnection(conn.id)} class="rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">Test</button>
             </form>
-            <form method="POST" action="?/deleteExchangeConnection" use:scrollEnhance
-              onsubmit={(e) => { if (!confirm('Disconnect this Microsoft account?')) e.preventDefault(); }}
+            <form method="POST" action="?/deleteExchangeConnection" use:deleteExchangeConnectionEnhance novalidate
+              onsubmit={(e) => { setDeleteExchangeConnection(conn.id); if (!confirm('Disconnect this Microsoft account?')) e.preventDefault(); }}
             >
+              <input type="hidden" name="_kind" value={$deleteExchangeConnectionForm._kind} />
               <input type="hidden" name="connectionId" value={conn.id} />
-              <button type="submit" class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">Disconnect</button>
+              <button type="submit" disabled={$deleteExchangeConnectionSubmitting} onclick={() => setDeleteExchangeConnection(conn.id)} class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">Disconnect</button>
             </form>
           </div>
         </div>
@@ -312,12 +427,13 @@
           You'll be redirected to Microsoft to authorize the connection.
         </p>
         <div class="flex items-center gap-3">
-          <form method="POST" action="?/connectExchange">
-            <button type="submit"
-              class="inline-flex items-center gap-2 rounded-lg bg-[#2f2f2f] px-5 py-2.5 text-sm font-medium text-white hover:bg-[#404040] dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
+          <form method="POST" action="?/connectExchange" use:connectExchangeEnhance novalidate>
+            <input type="hidden" name="_kind" value={$connectExchangeForm._kind} />
+            <button type="submit" disabled={$connectExchangeSubmitting}
+              class="inline-flex items-center gap-2 rounded-lg bg-[#2f2f2f] px-5 py-2.5 text-sm font-medium text-white hover:bg-[#404040] disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
             >
               <svg width="16" height="16" viewBox="0 0 23 23" fill="none"><path fill="#f35325" d="M1 1h10v10H1z"/><path fill="#81bc06" d="M12 1h10v10H12z"/><path fill="#05a6f0" d="M1 12h10v10H1z"/><path fill="#ffba08" d="M12 12h10v10H12z"/></svg>
-              Sign in with Microsoft
+              {$connectExchangeSubmitting ? 'Starting...' : 'Sign in with Microsoft'}
             </button>
           </form>
           <button type="button" onclick={() => { showExchangeSetup = false; selectedIntegration = ''; }}

@@ -3,11 +3,14 @@
  * from the standalone /ai-configs route; the admin-gated failure path that used
  * to be covered on the org-detail loader lives here now.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AI_SERVICE_CONFIGS_QUERY,
+  DELETE_EXCHANGE_CONNECTION_MUTATION,
   LINK_GITHUB_APP_MUTATION,
+  TEST_EXCHANGE_CONNECTION_MUTATION,
   UPDATE_ORG_GITHUB_APP_MUTATION,
+  UNLINK_GITHUB_APP_MUTATION,
 } from '$lib/server/queries';
 
 // `$env/dynamic/*` are SvelteKit virtual modules; vitest skips the SvelteKit
@@ -27,6 +30,10 @@ vi.mock('$lib/server/guards', () => ({
 
 beforeEach(() => {
   mockRequest.mockReset();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 async function importLoad() {
@@ -55,7 +62,13 @@ function ev(opts: { orgId?: string; userId?: string; org?: typeof fakeOrg } = {}
 }
 
 async function runAction(
-  name: 'linkGithub' | 'updateGithubApp',
+  name:
+    | 'linkGithub'
+    | 'updateGithubApp'
+    | 'unlinkGithub'
+    | 'connectExchange'
+    | 'deleteExchangeConnection'
+    | 'testExchangeConnection',
   fields: Record<string, string>,
   opts: { orgId?: string } = {},
 ) {
@@ -68,6 +81,32 @@ async function runAction(
     locals: { token: 'test-token' },
   } as unknown as Parameters<(typeof actions)[typeof name]>[0];
   return actions[name](event);
+}
+
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: {
+      form?: {
+        data?: Record<string, unknown>;
+        errors?: Record<string, string[]>;
+        message?: App.Superforms.Message;
+        valid?: boolean;
+      };
+    };
+    form?: {
+      data?: Record<string, unknown>;
+      errors?: Record<string, string[]>;
+      message?: App.Superforms.Message;
+      valid?: boolean;
+    };
+  } | undefined)?.data?.form ?? (result as {
+    form?: {
+      data?: Record<string, unknown>;
+      errors?: Record<string, string[]>;
+      message?: App.Superforms.Message;
+      valid?: boolean;
+    };
+  } | undefined)?.form;
 }
 
 function routeMock(opts: { aiConfigs?: { data?: unknown; error?: unknown } }) {
@@ -94,6 +133,10 @@ describe('Integrations load()', () => {
       currentUserId: string;
       githubAppForm: { data: { _kind: string; appId: string; privateKey: string } };
       githubInstallationForm: { data: { _kind: string; installationId: string } };
+      unlinkGithubForm: { data: { _kind: string } };
+      connectExchangeForm: { data: { _kind: string } };
+      testExchangeConnectionForm: { data: { _kind: string; connectionId: string } };
+      deleteExchangeConnectionForm: { data: { _kind: string; connectionId: string } };
     };
     expect(result).toMatchObject({
       org: fakeConfiguredOrg,
@@ -109,6 +152,16 @@ describe('Integrations load()', () => {
     expect(result.githubInstallationForm.data).toMatchObject({
       _kind: 'linkGithub',
       installationId: '987654',
+    });
+    expect(result.unlinkGithubForm.data).toMatchObject({ _kind: 'unlinkGithub' });
+    expect(result.connectExchangeForm.data).toMatchObject({ _kind: 'connectExchange' });
+    expect(result.testExchangeConnectionForm.data).toMatchObject({
+      _kind: 'testExchangeConnection',
+      connectionId: '',
+    });
+    expect(result.deleteExchangeConnectionForm.data).toMatchObject({
+      _kind: 'deleteExchangeConnection',
+      connectionId: '',
     });
   });
 
@@ -271,6 +324,212 @@ describe('updateGithubApp action', () => {
     expect(result.data.form.message).toEqual({
       type: 'error',
       text: 'Invalid PEM: [redacted] was rejected',
+    });
+  });
+});
+
+describe('unlinkGithub action', () => {
+  it('unlinks GitHub and returns a typed success', async () => {
+    mockRequest.mockResolvedValueOnce({});
+
+    const result = await runAction('unlinkGithub', {});
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'unlinkGithub' },
+        message: { type: 'success', text: 'GitHub App disconnected.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      UNLINK_GITHUB_APP_MUTATION,
+      { orgId: 'org-id-123' },
+    ]);
+  });
+
+  it('rejects unlinkGithub POSTs with the wrong form discriminator', async () => {
+    const result = await runAction('unlinkGithub', { _kind: 'connectExchange' });
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('connectExchange action', () => {
+  it('starts Microsoft OAuth through the local server and throws the browser redirect', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ nonce: 'nonce/with space' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    let thrown: unknown;
+    try {
+      await runAction('connectExchange', {}, { orgId: 'org/with space' });
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect(fetchMock).toHaveBeenCalledWith('http://localhost:4000/auth/microsoft/start', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: 'Bearer test-token',
+      },
+      body: JSON.stringify({
+        orgId: 'org/with space',
+        redirect: '/app/orgs/org%2Fwith%20space/integrations',
+      }),
+    });
+    expect((thrown as { status: number }).status).toBe(303);
+    expect((thrown as { location: string }).location).toBe(
+      'http://localhost:4000/auth/microsoft?nonce=nonce%2Fwith%20space',
+    );
+  });
+
+  it('returns a typed error with the upstream status when the OAuth start endpoint rejects the request', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+
+    const result = await runAction('connectExchange', {});
+
+    expect((result as { status: number }).status).toBe(403);
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'error',
+      text: 'Failed to start Microsoft sign-in.',
+    });
+  });
+
+  it('returns a typed unreachable error when the OAuth start request throws', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNRESET')));
+
+    const result = await runAction('connectExchange', {});
+
+    expect((result as { status: number }).status).toBe(500);
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'error',
+      text: 'Could not reach the server to start sign-in.',
+    });
+  });
+
+  it('rejects connectExchange POSTs with the wrong form discriminator', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await runAction('connectExchange', { _kind: 'unlinkGithub' });
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('deleteExchangeConnection action', () => {
+  it('deletes an Exchange connection and returns a typed success', async () => {
+    mockRequest.mockResolvedValueOnce({});
+
+    const result = await runAction('deleteExchangeConnection', {
+      connectionId: 'exchange-1',
+    });
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'deleteExchangeConnection', connectionId: 'exchange-1' },
+        message: { type: 'success', text: 'Exchange connection removed.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      DELETE_EXCHANGE_CONNECTION_MUTATION,
+      { id: 'exchange-1' },
+    ]);
+  });
+
+  it('rejects missing Exchange connection ids before deleting', async () => {
+    const result = await runAction('deleteExchangeConnection', {});
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?.connectionId?.[0]).toBe('Connection ID is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects deleteExchangeConnection POSTs with the wrong form discriminator', async () => {
+    const result = await runAction('deleteExchangeConnection', {
+      _kind: 'testExchangeConnection',
+      connectionId: 'exchange-1',
+    });
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed error when deleting fails', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('still syncing'));
+
+    const result = await runAction('deleteExchangeConnection', {
+      connectionId: 'exchange-1',
+    });
+
+    expect((result as { status: number }).status).toBe(500);
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'error',
+      text: 'still syncing',
+    });
+  });
+});
+
+describe('testExchangeConnection action', () => {
+  it('tests an Exchange connection and returns a typed success', async () => {
+    mockRequest.mockResolvedValueOnce({});
+
+    const result = await runAction('testExchangeConnection', {
+      connectionId: 'exchange-1',
+    });
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'testExchangeConnection', connectionId: 'exchange-1' },
+        message: { type: 'success', text: 'Exchange connection test passed.' },
+      },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      TEST_EXCHANGE_CONNECTION_MUTATION,
+      { id: 'exchange-1' },
+    ]);
+  });
+
+  it('rejects missing Exchange connection ids before testing', async () => {
+    const result = await runAction('testExchangeConnection', {});
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?.connectionId?.[0]).toBe('Connection ID is required');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects testExchangeConnection POSTs with the wrong form discriminator', async () => {
+    const result = await runAction('testExchangeConnection', {
+      _kind: 'deleteExchangeConnection',
+      connectionId: 'exchange-1',
+    });
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed error when the connection test fails', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('tenant unavailable'));
+
+    const result = await runAction('testExchangeConnection', {
+      connectionId: 'exchange-1',
+    });
+
+    expect((result as { status: number }).status).toBe(500);
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'error',
+      text: 'tenant unavailable',
     });
   });
 });
