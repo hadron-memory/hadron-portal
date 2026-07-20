@@ -1,14 +1,21 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { enhance as kitEnhance } from '$app/forms';
   import { page } from '$app/stores';
   import { replaceState } from '$app/navigation';
-  import { superForm } from 'sveltekit-superforms';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import type { PageData, ActionData } from './$types';
-  import { memorySettingsSchema } from './schema';
+  import { deleteMemorySchema, memorySettingsSchema, vectorIndexSettingsSchema } from './schema';
+
+  type MemorySettingsForm = Infer<typeof memorySettingsSchema, 'zod4'>;
+  type VectorIndexSettingsForm = Infer<typeof vectorIndexSettingsSchema, 'zod4'>;
+  type DeleteMemoryForm = Infer<typeof deleteMemorySchema, 'zod4'>;
+  type MemorySettingsSuperform = SuperValidated<MemorySettingsForm, App.Superforms.Message, MemorySettingsForm>;
+  type VectorIndexSettingsSuperform = SuperValidated<VectorIndexSettingsForm, App.Superforms.Message, VectorIndexSettingsForm>;
+  type DeleteMemorySuperform = SuperValidated<DeleteMemoryForm, App.Superforms.Message, DeleteMemoryForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const g = $derived(data.graph);
@@ -39,7 +46,7 @@
         : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
   );
 
-  const initialSettingsForm = untrack(() => form?.form ?? data.form);
+  const initialSettingsForm = untrack(() => submittedForm<MemorySettingsForm>(form, 'updateMemorySettings') as MemorySettingsSuperform | null ?? data.form);
   const {
     form: settingsForm,
     errors: settingsErrors,
@@ -48,7 +55,7 @@
     allErrors: settingsAllErrors,
     submitting: settingsSubmitting,
     enhance: settingsEnhance,
-  } = superForm(initialSettingsForm, {
+  } = superForm<MemorySettingsForm, App.Superforms.Message, MemorySettingsForm>(initialSettingsForm, {
     validators: zod4Client(memorySettingsSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
@@ -56,7 +63,10 @@
     clearOnSubmit: 'none',
   });
 
-  let isEditing = $state(untrack(() => !!form?.form && form.form.message?.type !== 'success'));
+  let isEditing = $state(untrack(() => {
+    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
+    return !!submitted && submitted.message?.type !== 'success';
+  }));
   let confirmDelete = $state(false);
 
   // #520: the memory-detail ⋯ menu deep-links here (?edit=1 / ?delete=1) to open
@@ -134,14 +144,24 @@
     isEditing = true;
   }
 
-  const settingsActionError = $derived(
-    $settingsMessage?.type === 'error'
-      ? $settingsMessage.text
-      : ($settingsAllErrors[0]?.messages[0] ?? null),
-  );
+  const settingsActionError = $derived.by(() => {
+    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
+    const message = $settingsMessage;
+    const allErrors = $settingsAllErrors;
+    if (!submitted) return null;
+    return message?.type === 'error'
+      ? message.text
+      : (allErrors[0]?.messages[0] ?? null);
+  });
+  const settingsActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
+    const message = $settingsMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
 
   $effect(() => {
-    if ($settingsMessage?.type === 'success') isEditing = false;
+    const submitted = submittedForm<MemorySettingsForm>(form, 'updateMemorySettings');
+    if (submitted && $settingsMessage?.type === 'success') isEditing = false;
   });
 
   // ── Vector index (spec 033 §2/§3) ───────────────────────────────────
@@ -154,21 +174,52 @@
     "(d) The opt-in is revocable; revoking stops further indexing AND removes the memory's already-stored vectors.",
   ];
 
-  const initialVectorSettings = untrack(() => ({
-    enabled: g.vectorIndexEnabled ?? false,
-    source: g.embeddingSource ?? 'abstract',
-    chunkTokens: g.chunkTokens != null ? String(g.chunkTokens) : '',
-    chunkOverlap: g.chunkOverlap != null ? String(g.chunkOverlap) : '',
-    forceFixedSize: g.forceFixedSize ?? false,
-  }));
-  let viEnabled = $state(initialVectorSettings.enabled);
-  let viSource = $state<'abstract' | 'contentChunks' | 'both'>(initialVectorSettings.source);
-  let viChunkTokens = $state(initialVectorSettings.chunkTokens);
-  let viChunkOverlap = $state(initialVectorSettings.chunkOverlap);
-  let viForceFixedSize = $state(initialVectorSettings.forceFixedSize);
-  let viSaving = $state(false);
+  const initialVectorForm = untrack(() => submittedForm<VectorIndexSettingsForm>(form, 'updateVectorIndex') as VectorIndexSettingsSuperform | null ?? data.vectorForm);
+  const {
+    form: vectorForm,
+    errors: vectorErrors,
+    message: vectorMessage,
+    submitting: vectorSubmitting,
+    enhance: vectorEnhance,
+  } = superForm<VectorIndexSettingsForm, App.Superforms.Message, VectorIndexSettingsForm>(initialVectorForm, {
+    validators: zod4Client(vectorIndexSettingsSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onResult: ({ result }) => {
+      const needsEncryptedAck =
+        result.type === 'failure' &&
+        result.data &&
+        typeof result.data === 'object' &&
+        'needsEncryptedAck' in result.data &&
+        result.data.needsEncryptedAck === true;
+      if (result.type === 'success') {
+        showDisclosure = false;
+        confirmRevoke = false;
+        $vectorForm.acknowledgeVectorInversionRisk = false;
+      }
+      if (needsEncryptedAck) {
+        $vectorForm.vectorIndexEnabled = true;
+        showDisclosure = true;
+      }
+    },
+  });
+  const initialDeleteForm = untrack(() => submittedForm<DeleteMemoryForm>(form, 'deleteMemory') as DeleteMemorySuperform | null ?? data.deleteForm);
+  const {
+    form: deleteForm,
+    errors: deleteErrors,
+    message: deleteMessage,
+    submitting: deleteSubmitting,
+    enhance: deleteEnhance,
+  } = superForm<DeleteMemoryForm, App.Superforms.Message, DeleteMemoryForm>(initialDeleteForm, {
+    validators: zod4Client(deleteMemorySchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
   let showDisclosure = $state(false);
-  let disclosureAccepted = $state(false);
   let confirmRevoke = $state(false);
   let viFormEl: HTMLFormElement;
 
@@ -179,71 +230,70 @@
   // backstop (needsEncryptedAck) can keep the user's enable intent and let
   // them acknowledge + enable in one flow instead of resyncing back to false.
   $effect(() => {
-    if (!showDisclosure) viEnabled = g.vectorIndexEnabled ?? false;
-    viSource = g.embeddingSource ?? 'abstract';
-    viChunkTokens = g.chunkTokens != null ? String(g.chunkTokens) : '';
-    viChunkOverlap = g.chunkOverlap != null ? String(g.chunkOverlap) : '';
-    viForceFixedSize = g.forceFixedSize ?? false;
+    vectorForm.update((current) => ({
+      ...current,
+      vectorIndexEnabled: showDisclosure ? current.vectorIndexEnabled : (g.vectorIndexEnabled ?? false),
+      embeddingSource: g.embeddingSource ?? 'abstract',
+      chunkTokens: g.chunkTokens != null ? String(g.chunkTokens) : '',
+      chunkOverlap: g.chunkOverlap != null ? String(g.chunkOverlap) : '',
+      forceFixedSize: g.forceFixedSize ?? false,
+    }), { taint: false });
   });
 
-  const viSourceIncludesChunks = $derived(viSource === 'contentChunks' || viSource === 'both');
+  const viSourceIncludesChunks = $derived($vectorForm.embeddingSource === 'contentChunks' || $vectorForm.embeddingSource === 'both');
   const viDirty = $derived(
-    viEnabled !== (g.vectorIndexEnabled ?? false) ||
-    viSource !== (g.embeddingSource ?? 'abstract') ||
-    viChunkTokens.trim() !== (g.chunkTokens != null ? String(g.chunkTokens) : '') ||
-    viChunkOverlap.trim() !== (g.chunkOverlap != null ? String(g.chunkOverlap) : '') ||
-    viForceFixedSize !== (g.forceFixedSize ?? false),
+    $vectorForm.vectorIndexEnabled !== (g.vectorIndexEnabled ?? false) ||
+    $vectorForm.embeddingSource !== (g.embeddingSource ?? 'abstract') ||
+    $vectorForm.chunkTokens.trim() !== (g.chunkTokens != null ? String(g.chunkTokens) : '') ||
+    $vectorForm.chunkOverlap.trim() !== (g.chunkOverlap != null ? String(g.chunkOverlap) : '') ||
+    $vectorForm.forceFixedSize !== (g.forceFixedSize ?? false),
   );
   // First-time enable on an encrypted memory that hasn't accepted FR-026 yet.
-  const viNeedsAck = $derived(!!g.isEncrypted && viEnabled && !g.vectorIndexEncryptedAckAt);
+  const viNeedsAck = $derived(!!g.isEncrypted && $vectorForm.vectorIndexEnabled && !g.vectorIndexEncryptedAckAt);
   // Turning the index OFF on an encrypted memory that currently has it on —
   // the server drops stored vectors, so confirm first.
-  const viIsRevoking = $derived(!!g.isEncrypted && !viEnabled && (g.vectorIndexEnabled ?? false));
+  const viIsRevoking = $derived(!!g.isEncrypted && !$vectorForm.vectorIndexEnabled && (g.vectorIndexEnabled ?? false));
+  const vectorActionError = $derived.by(() => {
+    const submitted = submittedForm<VectorIndexSettingsForm>(form, 'updateVectorIndex');
+    const message = $vectorMessage;
+    const errors = $vectorErrors;
+    if (!submitted) return null;
+    return message?.type === 'error'
+      ? message.text
+      : errors._kind?.[0] ??
+          errors.vectorIndexEnabled?.[0] ??
+          errors.embeddingSource?.[0] ??
+          errors.forceFixedSize?.[0] ??
+          errors.acknowledgeVectorInversionRisk?.[0] ??
+          null;
+  });
+  const vectorActionSuccess = $derived.by(() => {
+    const submitted = submittedForm<VectorIndexSettingsForm>(form, 'updateVectorIndex');
+    const message = $vectorMessage;
+    return submitted && message?.type === 'success' ? message.text : null;
+  });
+  const deleteActionError = $derived.by(() => {
+    const submitted = submittedForm<DeleteMemoryForm>(form, 'deleteMemory');
+    const message = $deleteMessage;
+    const errors = $deleteErrors;
+    if (!submitted) return null;
+    return message?.type === 'error'
+      ? message.text
+      : errors._kind?.[0] ?? null;
+  });
 
   function attemptVectorSave() {
-    if (viNeedsAck && !disclosureAccepted) { showDisclosure = true; return; }
+    if (viNeedsAck && !$vectorForm.acknowledgeVectorInversionRisk) { showDisclosure = true; return; }
     if (viIsRevoking && !confirmRevoke) { confirmRevoke = true; return; }
     viFormEl.requestSubmit();
-  }
-
-  function vectorEnhance(formEl: HTMLFormElement) {
-    return kitEnhance(formEl, () => {
-      viSaving = true;
-      return async ({ result, update }) => {
-        viSaving = false;
-        const needsAck =
-          result.type === 'failure' &&
-          (result.data as { needsEncryptedAck?: boolean } | undefined)?.needsEncryptedAck === true;
-        if (result.type === 'success') {
-          showDisclosure = false;
-          confirmRevoke = false;
-          disclosureAccepted = false;
-        }
-        await update();
-        // Server backstop: the encrypted memory needs acknowledgement. Re-open
-        // the disclosure AFTER the data resync (the resync effect leaves
-        // viEnabled alone while showDisclosure is true) so the user can accept
-        // and enable in a single follow-up submit.
-        if (needsAck) {
-          viEnabled = true;
-          showDisclosure = true;
-        }
-      };
-    });
   }
 </script>
 
 <svelte:head><title>{g.name} &middot; Settings &middot; Hadron</title></svelte:head>
 
 <div class="space-y-8">
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
-  {/if}
-  {#if $settingsMessage?.type === 'success' && !isEditing}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$settingsMessage.text}</div>
-  {:else if form?.success}
-    <!-- Vector-index actions still return plain SvelteKit success payloads. -->
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
+  {#if settingsActionSuccess && !isEditing}
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{settingsActionSuccess}</div>
   {/if}
 
   <!-- Memory settings -->
@@ -257,8 +307,9 @@
 
     {#if isEditing}
       <form id="graph-settings" method="POST" action="?/update" use:settingsEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
+        <input type="hidden" name="_kind" value={$settingsForm._kind} />
         {#if settingsActionError}
-          <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{settingsActionError}</div>
+          <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{settingsActionError}</div>
         {/if}
         {#if isAgentSystem}
           <p class="rounded border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-950">
@@ -448,15 +499,22 @@
   <section class="max-w-lg">
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Vector index</h2>
     <form bind:this={viFormEl} method="POST" action="?/updateVectorIndex" use:vectorEnhance
-      class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
+      class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
+      <input type="hidden" name="_kind" value={$vectorForm._kind} />
       <!-- Booleans submitted as explicit hidden values (unchecked checkboxes
            don't post; the server needs true/false, not present/absent). -->
-      <input type="hidden" name="vectorIndexEnabled" value={String(viEnabled)} />
-      <input type="hidden" name="forceFixedSize" value={String(viForceFixedSize)} />
-      <input type="hidden" name="acknowledgeVectorInversionRisk" value={String(disclosureAccepted)} />
+      <input type="hidden" name="vectorIndexEnabled" value={String($vectorForm.vectorIndexEnabled)} />
+      <input type="hidden" name="forceFixedSize" value={String($vectorForm.forceFixedSize)} />
+      <input type="hidden" name="acknowledgeVectorInversionRisk" value={String($vectorForm.acknowledgeVectorInversionRisk)} />
+
+      {#if vectorActionError}
+        <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{vectorActionError}</div>
+      {:else if vectorActionSuccess}
+        <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{vectorActionSuccess}</div>
+      {/if}
 
       <label class="flex items-start gap-3">
-        <input type="checkbox" bind:checked={viEnabled} class="mt-0.5 h-4 w-4" />
+        <input type="checkbox" bind:checked={$vectorForm.vectorIndexEnabled} class="mt-0.5 h-4 w-4" />
         <span>
           <span class="block text-sm font-medium text-zinc-900 dark:text-white">Enable vector index</span>
           <span class="block text-xs text-zinc-500 dark:text-zinc-400">Allows semantic (meaning-based) search over this memory's nodes.</span>
@@ -471,10 +529,10 @@
         </p>
       {/if}
 
-      {#if viEnabled}
+      {#if $vectorForm.vectorIndexEnabled}
         <div>
           <label for="embeddingSource" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Embedding source</label>
-          <select id="embeddingSource" name="embeddingSource" bind:value={viSource} class={inputClass}>
+          <select id="embeddingSource" name="embeddingSource" bind:value={$vectorForm.embeddingSource} class={inputClass}>
             <option value="abstract">Abstract (default)</option>
             <option value="contentChunks">Content chunks</option>
             <option value="both">Both</option>
@@ -486,15 +544,15 @@
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label for="chunkTokens" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Chunk size <span class="text-zinc-500">(tokens, 64–4096)</span></label>
-              <input id="chunkTokens" name="chunkTokens" type="text" inputmode="numeric" bind:value={viChunkTokens} placeholder="512" class={inputClass} />
+              <input id="chunkTokens" name="chunkTokens" type="text" inputmode="numeric" bind:value={$vectorForm.chunkTokens} placeholder="512" class={inputClass} />
             </div>
             <div>
               <label for="chunkOverlap" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Chunk overlap <span class="text-zinc-500">(tokens, &lt; size)</span></label>
-              <input id="chunkOverlap" name="chunkOverlap" type="text" inputmode="numeric" bind:value={viChunkOverlap} placeholder="64" class={inputClass} />
+              <input id="chunkOverlap" name="chunkOverlap" type="text" inputmode="numeric" bind:value={$vectorForm.chunkOverlap} placeholder="64" class={inputClass} />
             </div>
           </div>
           <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-            <input type="checkbox" bind:checked={viForceFixedSize} class="h-4 w-4" />
+            <input type="checkbox" bind:checked={$vectorForm.forceFixedSize} class="h-4 w-4" />
             Force fixed-size chunking <span class="text-xs text-zinc-500">(bypass structure-aware splitting)</span>
           </label>
         {/if}
@@ -518,15 +576,15 @@
             {#each FR_026_DISCLOSURE as line}<li>{line}</li>{/each}
           </ul>
           <label class="flex items-center gap-2 text-sm font-medium text-amber-900 dark:text-amber-200">
-            <input type="checkbox" bind:checked={disclosureAccepted} class="h-4 w-4" />
+            <input type="checkbox" bind:checked={$vectorForm.acknowledgeVectorInversionRisk} class="h-4 w-4" />
             I understand and accept the tradeoff
           </label>
           <div class="flex gap-2">
-            <button type="button" disabled={!disclosureAccepted || viSaving} onclick={() => viFormEl.requestSubmit()}
+            <button type="button" disabled={!$vectorForm.acknowledgeVectorInversionRisk || $vectorSubmitting} onclick={() => viFormEl.requestSubmit()}
               class="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50">
-              {viSaving ? 'Saving...' : 'Enable with acknowledgement'}
+              {$vectorSubmitting ? 'Saving...' : 'Enable with acknowledgement'}
             </button>
-            <button type="button" onclick={() => { showDisclosure = false; disclosureAccepted = false; viEnabled = false; }}
+            <button type="button" onclick={() => { showDisclosure = false; $vectorForm.acknowledgeVectorInversionRisk = false; $vectorForm.vectorIndexEnabled = false; }}
               class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
           </div>
         </div>
@@ -537,11 +595,11 @@
         <div class="space-y-3 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/40">
           <p class="text-sm text-red-700 dark:text-red-300">Disabling the index removes this memory's already-stored vectors. Re-enabling later re-embeds every node from scratch.</p>
           <div class="flex gap-2">
-            <button type="button" disabled={viSaving} onclick={() => viFormEl.requestSubmit()}
+            <button type="button" disabled={$vectorSubmitting} onclick={() => viFormEl.requestSubmit()}
               class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">
-              {viSaving ? 'Saving...' : 'Disable and remove vectors'}
+              {$vectorSubmitting ? 'Saving...' : 'Disable and remove vectors'}
             </button>
-            <button type="button" onclick={() => { confirmRevoke = false; viEnabled = true; }}
+            <button type="button" onclick={() => { confirmRevoke = false; $vectorForm.vectorIndexEnabled = true; }}
               class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
           </div>
         </div>
@@ -549,9 +607,9 @@
 
       {#if !showDisclosure && !confirmRevoke}
         <div>
-          <button type="button" onclick={attemptVectorSave} disabled={viSaving || !viDirty}
+          <button type="button" onclick={attemptVectorSave} disabled={$vectorSubmitting || !viDirty}
             class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
-            {viSaving ? 'Saving...' : 'Save vector index settings'}
+            {$vectorSubmitting ? 'Saving...' : 'Save vector index settings'}
           </button>
         </div>
       {/if}
@@ -573,23 +631,30 @@
           {deleteMemoryStrings.deleteButton()}
         </button>
       {:else}
-        <form method="POST" action="?/delete" use:kitEnhance class="flex items-center gap-2">
+        <form method="POST" action="?/delete" use:deleteEnhance class="space-y-2" novalidate>
           <!-- #260: owning org id so the post-delete redirect can return to it. -->
-          <input type="hidden" name="organizationId" value={g.organizationId} />
-          <span class="text-sm text-red-500">{deleteMemoryStrings.confirmPrompt(g.name)}</span>
-          <button
-            type="submit"
-            class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500"
-          >
-            {deleteMemoryStrings.confirmYes()}
-          </button>
-          <button
-            type="button"
-            onclick={() => (confirmDelete = false)}
-            class="text-sm text-zinc-500 hover:text-zinc-300"
-          >
-            {deleteMemoryStrings.confirmCancel()}
-          </button>
+          <input type="hidden" name="_kind" value={$deleteForm._kind} />
+          <input type="hidden" name="organizationId" value={$deleteForm.organizationId} />
+          {#if deleteActionError}
+            <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{deleteActionError}</div>
+          {/if}
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-red-500">{deleteMemoryStrings.confirmPrompt(g.name)}</span>
+            <button
+              type="submit"
+              disabled={$deleteSubmitting}
+              class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:opacity-50"
+            >
+              {$deleteSubmitting ? 'Deleting...' : deleteMemoryStrings.confirmYes()}
+            </button>
+            <button
+              type="button"
+              onclick={() => (confirmDelete = false)}
+              class="text-sm text-zinc-500 hover:text-zinc-300"
+            >
+              {deleteMemoryStrings.confirmCancel()}
+            </button>
+          </div>
         </form>
       {/if}
     </section>

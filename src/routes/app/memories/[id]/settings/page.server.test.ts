@@ -102,6 +102,22 @@ describe("memory-detail `delete` action (spec 013)", () => {
     expect(vars).toEqual({ id: 'mem-y' });
   });
 
+  it('encodes the submitted org id before building the redirect path', async () => {
+    mockRequest.mockResolvedValueOnce(true);
+    const actions = await importActions();
+
+    let thrown: unknown;
+    try {
+      await actions.delete(ev({ memId: 'mem-y', orgId: 'org/with space' }));
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect(thrown).toBeDefined();
+    expect((thrown as { status: number }).status).toBe(303);
+    expect((thrown as { location: string }).location).toBe('/app/orgs/org%2Fwith%20space/memories');
+  });
+
   it('GraphQL transport error — returns fail(500) with the extracted error message', async () => {
     // Shape: graphql-request style error with response.errors[0].message
     const gqlError = Object.assign(new Error('outer'), {
@@ -111,12 +127,15 @@ describe("memory-detail `delete` action (spec 013)", () => {
     const actions = await importActions();
 
     const result = (await actions.delete(ev({}))) as
-      | { status: number; data: { error: string } }
+      | { status: number; data: { form?: { message?: App.Superforms.Message } } }
       | undefined;
 
     expect(result).toBeDefined();
     expect(result!.status).toBe(500);
-    expect(result!.data.error).toBe('Forbidden: only the owner can delete a personal memory');
+    expect(result!.data.form?.message).toEqual({
+      type: 'error',
+      text: 'Forbidden: only the owner can delete a personal memory',
+    });
   });
 
   it('non-GraphQL error — falls back to the generic message', async () => {
@@ -124,13 +143,33 @@ describe("memory-detail `delete` action (spec 013)", () => {
     const actions = await importActions();
 
     const result = (await actions.delete(ev({}))) as
-      | { status: number; data: { error: string } }
+      | { status: number; data: { form?: { message?: App.Superforms.Message } } }
       | undefined;
 
     expect(result).toBeDefined();
     expect(result!.status).toBe(500);
     // extractGqlError falls through to e.message when e isn't a GraphQL error.
-    expect(result!.data.error).toBe('socket hangup');
+    expect(result!.data.form?.message).toEqual({ type: 'error', text: 'socket hangup' });
+  });
+
+  it('rejects a delete submission with the wrong form discriminator', async () => {
+    const actions = await importActions();
+
+    const result = await actions.delete({
+      ...ev({ orgId: 'org-x' }),
+      request: {
+        formData: async () => {
+          const fd = new FormData();
+          fd.append('_kind', 'updateVectorIndex');
+          fd.append('organizationId', 'org-x');
+          return fd;
+        },
+      },
+    } as Parameters<Awaited<ReturnType<typeof importActions>>['delete']>[0]);
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 
   it("isRedirect re-throw — the SvelteKit redirect inside the try block is not swallowed by the catch", async () => {
@@ -173,15 +212,15 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
     mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
     const actions = await importActions();
 
-    const result = (await actions.updateVectorIndex(vectorEv({
+    const result = await actions.updateVectorIndex(vectorEv({
       vectorIndexEnabled: 'true',
       embeddingSource: 'both',
       chunkTokens: '256',
       chunkOverlap: '32',
       forceFixedSize: 'true',
-    }))) as { success?: boolean } | undefined;
+    }));
 
-    expect(result).toEqual({ success: true });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Changes saved.' });
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars).toMatchObject({
       id: 'mem-id-abc',
@@ -209,6 +248,34 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
     expect(vars.forceFixedSize).toBe(false);
     // Never send `false` — only assert acknowledgement when truly accepted.
     expect(vars.acknowledgeVectorInversionRisk).toBeUndefined();
+  });
+
+  it('rejects unexpected boolean strings before calling the API', async () => {
+    const actions = await importActions();
+
+    const result = await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'on',
+      embeddingSource: 'abstract',
+      forceFixedSize: 'false',
+    }));
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(fieldError(result, 'vectorIndexEnabled')).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('omits embeddingSource when the field was not submitted so disabling does not reset it', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.updateVectorIndex(vectorEv({
+      vectorIndexEnabled: 'false',
+      forceFixedSize: 'false',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.vectorIndexEnabled).toBe(false);
+    expect(vars.embeddingSource).toBeUndefined();
   });
 
   it('sends acknowledgeVectorInversionRisk: true when the disclosure was accepted', async () => {
@@ -269,10 +336,14 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
     const result = (await actions.updateVectorIndex(vectorEv({
       vectorIndexEnabled: 'true',
       embeddingSource: 'abstract',
-    }))) as { status: number; data: { needsEncryptedAck?: boolean } } | undefined;
+    }))) as { status: number; data: { form?: { message?: App.Superforms.Message }; needsEncryptedAck?: boolean } } | undefined;
 
     expect(result!.status).toBe(400);
     expect(result!.data.needsEncryptedAck).toBe(true);
+    expect(result!.data.form?.message).toEqual({
+      type: 'error',
+      text: 'This encrypted memory requires acknowledging the vector-inversion disclosure before enabling the index.',
+    });
   });
 
   it('falls back to fail(500) for unrelated GraphQL errors', async () => {
@@ -285,11 +356,25 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
     const result = (await actions.updateVectorIndex(vectorEv({
       vectorIndexEnabled: 'true',
       embeddingSource: 'abstract',
-    }))) as { status: number; data: { error: string; needsEncryptedAck?: boolean } } | undefined;
+    }))) as { status: number; data: { form?: { message?: App.Superforms.Message }; needsEncryptedAck?: boolean } } | undefined;
 
     expect(result!.status).toBe(500);
-    expect(result!.data.error).toBe('Forbidden');
+    expect(result!.data.form?.message).toEqual({ type: 'error', text: 'Forbidden' });
     expect(result!.data.needsEncryptedAck).toBeUndefined();
+  });
+
+  it('rejects a vector submission with the wrong form discriminator before calling the API', async () => {
+    const actions = await importActions();
+
+    const result = await actions.updateVectorIndex(vectorEv({
+      _kind: 'deleteMemory',
+      vectorIndexEnabled: 'true',
+      embeddingSource: 'abstract',
+    }));
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 });
 

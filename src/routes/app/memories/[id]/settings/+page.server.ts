@@ -1,4 +1,5 @@
 import { fail, redirect, isRedirect } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms/adapters';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
@@ -14,9 +15,14 @@ import {
 import { toBareMemorySlugInput } from '$lib/urn/form-validation';
 import type { Memory, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { memorySettingsSchema } from './schema';
+import { deleteMemorySchema, memorySettingsSchema, vectorIndexSettingsSchema } from './schema';
 
 const memorySettingsFormAdapter = zod4(memorySettingsSchema);
+const vectorIndexSettingsFormAdapter = zod4(vectorIndexSettingsSchema);
+const deleteMemoryFormAdapter = zod4(deleteMemorySchema);
+type MemorySettingsForm = Infer<typeof memorySettingsSchema, 'zod4'>;
+type VectorIndexSettingsForm = Infer<typeof vectorIndexSettingsSchema, 'zod4'>;
+type DeleteMemoryForm = Infer<typeof deleteMemorySchema, 'zod4'>;
 
 // FR-026: enabling the vector index on an encrypted memory without
 // acknowledging the embedding-inversion disclosure fails with this code.
@@ -77,8 +83,27 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
   const { graph } = await parent();
   const allOrgs = await fetchAllItems<Organization>(gqlClient(locals.token), ORGANIZATIONS_QUERY, 'organizations')
     .catch(() => [] as Organization[]);
-  const form = await superValidate(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false });
-  return { allOrgs, form };
+  const [form, vectorForm, deleteForm] = await Promise.all([
+    superValidate<MemorySettingsForm>(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false }),
+    superValidate<VectorIndexSettingsForm>(
+      {
+        vectorIndexEnabled: graph.vectorIndexEnabled ?? false,
+        embeddingSource: graph.embeddingSource ?? 'abstract',
+        chunkTokens: graph.chunkTokens != null ? String(graph.chunkTokens) : '',
+        chunkOverlap: graph.chunkOverlap != null ? String(graph.chunkOverlap) : '',
+        forceFixedSize: graph.forceFixedSize ?? false,
+        acknowledgeVectorInversionRisk: false,
+      },
+      vectorIndexSettingsFormAdapter,
+      { errors: false },
+    ),
+    superValidate<DeleteMemoryForm>(
+      { organizationId: graph.organizationId ?? '' },
+      deleteMemoryFormAdapter,
+      { errors: false },
+    ),
+  ]);
+  return { allOrgs, form, vectorForm, deleteForm };
 };
 
 export const actions: Actions = {
@@ -186,60 +211,80 @@ export const actions: Actions = {
   // fields actually change, never on an unrelated name/tag edit.
   updateVectorIndex: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const enabled = fd.get('vectorIndexEnabled') === 'true';
-    const embeddingSourceRaw = String(fd.get('embeddingSource') ?? '');
-    const embeddingSource = (['abstract', 'contentChunks', 'both'] as const).includes(
-      embeddingSourceRaw as 'abstract' | 'contentChunks' | 'both',
-    )
-      ? embeddingSourceRaw
-      : undefined;
+    const hasEmbeddingSource = fd.has('embeddingSource');
+    const form = await superValidate<VectorIndexSettingsForm>(
+      fd,
+      vectorIndexSettingsFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     // Only assert the encrypted-memory acknowledgement when the user actually
     // accepted it — never send `false`, which would be a no-op the server
     // could misread as an explicit decline.
-    const acknowledgeVectorInversionRisk =
-      fd.get('acknowledgeVectorInversionRisk') === 'true' ? true : undefined;
+    const acknowledgeVectorInversionRisk = form.data.acknowledgeVectorInversionRisk ? true : undefined;
 
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
         id: params.id,
-        vectorIndexEnabled: enabled,
-        embeddingSource,
+        vectorIndexEnabled: form.data.vectorIndexEnabled,
+        embeddingSource: hasEmbeddingSource ? form.data.embeddingSource : undefined,
         acknowledgeVectorInversionRisk,
-        chunkTokens: intDial(fd.get('chunkTokens')),
-        chunkOverlap: intDial(fd.get('chunkOverlap')),
-        forceFixedSize: fd.get('forceFixedSize') === 'true',
+        chunkTokens: intDial(form.data.chunkTokens),
+        chunkOverlap: intDial(form.data.chunkOverlap),
+        forceFixedSize: form.data.forceFixedSize,
       });
-      return { success: true };
+      return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {
       // Surface the FR-026 disclosure requirement as a structured failure so
       // the page can render the acknowledgement panel even if the client-side
       // proactive check was bypassed.
       if (isEncryptedAckError(e)) {
+        message(
+          form,
+          {
+            type: 'error',
+            text: 'This encrypted memory requires acknowledging the vector-inversion disclosure before enabling the index.',
+          },
+          { status: 400 },
+        );
         return fail(400, {
-          error: 'This encrypted memory requires acknowledging the vector-inversion disclosure before enabling the index.',
+          form,
           needsEncryptedAck: true,
         });
       }
-      return fail(500, { error: extractGqlError(e, 'Failed to update vector index') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to update vector index') },
+        { status: 500 },
+      );
     }
   },
 
   delete: async ({ request, params, locals }) => {
-    const fd = await request.formData();
+    const form = await superValidate<DeleteMemoryForm>(
+      await request.formData(),
+      deleteMemoryFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     // #260: org is no longer in the URL — the delete form submits the memory's
     // owning org id so we can land the user back on that org's memories list.
     // The deleter is always a member of the owning org (canDelete requires it),
     // so the redirect is reachable; fall back to the active-org redirector.
-    const orgId = String(fd.get('organizationId') ?? '').trim();
+    const orgId = form.data.organizationId;
     try {
       await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { id: params.id });
-      redirect(303, orgId ? `/app/orgs/${orgId}/memories` : '/app/memories');
+      redirect(303, orgId ? `/app/orgs/${encodeURIComponent(orgId)}/memories` : '/app/memories');
     } catch (e: unknown) {
       // Re-throw SvelteKit's redirect-as-thrown-exception so it isn't
       // swallowed by the catch and surfaced as "Failed to delete".
       // (Same load-bearing pattern as deleteAgent.)
       if (isRedirect(e)) throw e;
-      return fail(500, { error: extractGqlError(e, 'Failed to delete memory') });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to delete memory') },
+        { status: 500 },
+      );
     }
   },
 };
