@@ -359,6 +359,15 @@ function actionEvent(opts: {
   } as unknown as Parameters<Actions[keyof Actions]>[0];
 }
 
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+  } | undefined)?.form;
+}
+
 describe('node-detail actions — preserve tags on save (#235)', () => {
   it('updateContent: tags are explicitly passed through so the server doesn`t default-clear them', async () => {
     // NODE_BY_ID_QUERY load returns a node with tags. The action must
@@ -664,6 +673,49 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { nodeRef: string; hard: boolean }];
     expect(vars).toMatchObject({ nodeRef: 'pk', hard: true });
+  });
+
+  it('delete: returns a typed 500 message when deleteNode fails', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    mockRequest.mockRejectedValueOnce(new Error('delete failed'));
+
+    const actions = await importActions();
+    const result = (await actions.delete(actionEvent({ gid: 'mem-B', nodeId: 'pk', form: {} }))) as { status: number };
+
+    expect(result.status).toBe(500);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'delete failed' });
+  });
+
+  it('delete: returns a typed 404 message when the node is missing', async () => {
+    mockRequest.mockResolvedValueOnce({ node: null });
+
+    const actions = await importActions();
+    const result = (await actions.delete(actionEvent({ gid: 'mem-B', nodeId: 'pk', form: {} }))) as { status: number };
+
+    expect(result.status).toBe(404);
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Node not found' });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('delete: rejects a tampered form discriminator before looking up the node', async () => {
+    const actions = await importActions();
+    const result = (await actions.delete(actionEvent({
+      gid: 'mem-B',
+      nodeId: 'pk',
+      form: { _kind: 'moveNode' },
+    }))) as { status: number };
+
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind?.[0]).toBeTruthy();
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 
   it('createParent: create uses anchorNode.memoryId, not params.gid', async () => {

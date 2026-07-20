@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
+  import { enhance as kitEnhance } from '$app/forms';
   import { invalidateAll, goto } from '$app/navigation';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import DOMPurify from 'dompurify';
   import {
     getCoreRowModel,
@@ -19,6 +21,8 @@
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
+  import { scopedActionError } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { t } from '$lib/i18n/t';
   import { NODE_TYPES, isCanonicalNodeType } from '$lib/node-types';
@@ -33,6 +37,14 @@
   } from '$lib/flow/extraction';
   import type { NodeEdge, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
+  import { nodeDeleteSchema, nodeMoveSchema, nodeTestFlowSchema } from './schema';
+
+  type NodeMoveForm = Infer<typeof nodeMoveSchema, 'zod4'>;
+  type NodeTestFlowForm = Infer<typeof nodeTestFlowSchema, 'zod4'>;
+  type NodeDeleteForm = Infer<typeof nodeDeleteSchema, 'zod4'>;
+  type NodeMoveSuperform = SuperValidated<NodeMoveForm, App.Superforms.Message, NodeMoveForm>;
+  type NodeTestFlowSuperform = SuperValidated<NodeTestFlowForm, App.Superforms.Message, NodeTestFlowForm>;
+  type NodeDeleteSuperform = SuperValidated<NodeDeleteForm, App.Superforms.Message, NodeDeleteForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -362,12 +374,59 @@
   // trigger payload the flow sees at message.data.<field>. On success the
   // action redirects to the run detail page.
   let testFlowOpen = $state(false);
-  let testFlowAppId = $state('');
-  let testFlowPayload = $state('');
   const testFlowApps = $derived(data.testFlowApps ?? []);
   const canTestFlow = $derived(!!node.isRunnable && testFlowApps.length > 0);
+
+  const initialTestFlowForm = untrack(() => submittedForm<NodeTestFlowForm>(form, 'testFlow') as NodeTestFlowSuperform | null ?? data.testFlowForm);
+  const {
+    form: testFlowFormData,
+    errors: testFlowErrors,
+    message: testFlowMessage,
+    submitting: testFlowSubmitting,
+    enhance: testFlowEnhance,
+  } = superForm<NodeTestFlowForm, App.Superforms.Message, NodeTestFlowForm>(initialTestFlowForm, {
+    validators: zod4Client(nodeTestFlowSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  const initialMoveForm = untrack(() => submittedForm<NodeMoveForm>(form, 'moveNode') as NodeMoveSuperform | null ?? data.moveForm);
+  const {
+    form: moveFormData,
+    errors: moveErrors,
+    message: moveMessage,
+    submitting: moveSubmitting,
+    enhance: moveEnhance,
+  } = superForm<NodeMoveForm, App.Superforms.Message, NodeMoveForm>(initialMoveForm, {
+    validators: zod4Client(nodeMoveSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onResult: ({ result }) => {
+      if (result.type !== 'failure') moveOpen = false;
+    },
+  });
+
+  const initialDeleteForm = untrack(() => submittedForm<NodeDeleteForm>(form, 'deleteNode') as NodeDeleteSuperform | null ?? data.deleteForm);
+  const {
+    form: deleteFormData,
+    errors: deleteErrors,
+    message: deleteMessage,
+    submitting: deleteSubmitting,
+    enhance: deleteEnhance,
+  } = superForm<NodeDeleteForm, App.Superforms.Message, NodeDeleteForm>(initialDeleteForm, {
+    validators: zod4Client(nodeDeleteSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
   const testFlowPayloadValid = $derived.by(() => {
-    const raw = testFlowPayload.trim();
+    const raw = $testFlowFormData.payload.trim();
     if (raw === '') return true;
     try {
       const parsed = JSON.parse(raw);
@@ -376,6 +435,26 @@
       return false;
     }
   });
+  const testFlowActionError = $derived(scopedActionError<NodeTestFlowForm>(
+    form,
+    'testFlow',
+    $testFlowMessage,
+    $testFlowErrors,
+    ['_kind', 'appId', 'orgId', 'payload'],
+  ));
+  const moveActionError = $derived(scopedActionError<NodeMoveForm>(
+    form,
+    'moveNode',
+    $moveMessage,
+    $moveErrors,
+    ['_kind', 'target'],
+  ));
+  const deleteActionError = $derived(scopedActionError<NodeDeleteForm>(
+    form,
+    'deleteNode',
+    $deleteMessage,
+    $deleteErrors,
+  ));
 
   // ── Actions menu (#503) ─────────────────────────────────────────────
   // The header "⋯" menu consolidates node actions; each item flips a panel/
@@ -387,18 +466,15 @@
   // Full destination node URN (#489): editing the loc segment moves within
   // the memory; editing the memory segment moves to another memory. Passed
   // straight to moveNode's targetUrn.
-  let moveTarget = $state('');
   // #512: the "Select target memory" picker inside the Move dialog. Picking a
   // memory rewrites the memory segment of the destination URN, keeping the loc.
   // Uses cleanLoc (not the raw node.loc) so a legacy prefixed loc doesn't
   // double-compose into hrn:node:<new>::hrn:node:<old>::… (PR #513 review, codex).
   let memoryPickerOpen = $state(false);
   function onPickTargetMemory(memory: { urn: string }) {
-    if (cleanLoc) moveTarget = composeNodeUrn(memory.urn, cleanLoc);
+    if (cleanLoc) $moveFormData.target = composeNodeUrn(memory.urn, cleanLoc);
   }
   let deleteOpen = $state(false);
-  // #503: opt into a permanent (hard) delete; default is the safe soft delete.
-  let hardDelete = $state(false);
 
   const menuActions = $derived<NodeMenuAction[]>([
     { id: 'edit', label: t('node-actions.edit', 'Edit') },
@@ -424,16 +500,19 @@
         activeTab = 'settings';
         isEditing = true;
         break;
-      case 'run': testFlowOpen = true; break;
+      case 'run':
+        $testFlowFormData.orgId = data.org?.id ?? '';
+        testFlowOpen = true;
+        break;
       case 'duplicate': duplicateForm?.requestSubmit(); break;
       case 'convert-to-task': convertForm?.requestSubmit(); break;
       case 'move':
-        moveTarget = fullUrn;
+        $moveFormData.target = fullUrn;
         moveOpen = true;
         break;
       case 'add-child': goto(addChildHref); break;
       case 'download': downloadOpen = true; break;
-      case 'delete': hardDelete = false; deleteOpen = true; break;
+      case 'delete': $deleteFormData.hard = false; deleteOpen = true; break;
     }
   }
 
@@ -971,12 +1050,13 @@
       downloadOpen = false;
       dlError = null;
       testFlowOpen = false;
-      testFlowAppId = '';
-      testFlowPayload = '';
+      $testFlowFormData.appId = '';
+      $testFlowFormData.orgId = data.org?.id ?? '';
+      $testFlowFormData.payload = '';
       moveOpen = false;
-      moveTarget = '';
+      $moveFormData.target = '';
       deleteOpen = false;
-      hardDelete = false;
+      $deleteFormData.hard = false;
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -1014,7 +1094,7 @@
   <!-- Create missing parent nodes -->
   {#each data.breadcrumb.slice(0, -1) as seg}
     {#if !seg.nodeId}
-      <form method="POST" action="?/createParent" use:enhance class="inline">
+      <form method="POST" action="?/createParent" use:kitEnhance class="inline">
         <input type="hidden" name="loc" value={seg.path} />
         <input type="hidden" name="name" value={seg.label} />
         <button type="submit" class="text-xs text-indigo-500 hover:text-indigo-400">
@@ -1055,10 +1135,10 @@
       <NodeActionsMenu actions={menuActions} onselect={onMenuSelect} label={`Actions for ${node.name}`} />
       <!-- Hidden form the menu's Duplicate item submits (requestSubmit fires
            the submit event use:enhance intercepts, unlike .submit()). -->
-      <form bind:this={duplicateForm} method="POST" action="?/duplicate" use:enhance class="hidden"></form>
+      <form bind:this={duplicateForm} method="POST" action="?/duplicate" use:kitEnhance class="hidden"></form>
       <!-- Convert-to-task: flips isRunnable on; enhance re-runs load so the
            menu item disappears once the node is a task (#503). -->
-      <form bind:this={convertForm} method="POST" action="?/convertToTask" use:enhance class="hidden"></form>
+      <form bind:this={convertForm} method="POST" action="?/convertToTask" use:kitEnhance class="hidden"></form>
       <!-- Panels/dialogs opened from the actions menu, anchored to the header. -->
       <div class="relative">
           {#if testFlowOpen}
@@ -1069,13 +1149,20 @@
               onclick={() => (testFlowOpen = false)}
             ></button>
             <div class="absolute right-0 z-20 mt-2 w-80 rounded-xl border border-zinc-200 bg-white p-4 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-              <form method="POST" action="?/testFlow" use:enhance class="space-y-3">
+              <form method="POST" action="?/testFlow" use:testFlowEnhance class="space-y-3" novalidate>
+                <input type="hidden" name="_kind" value={$testFlowFormData._kind} />
                 <p class="text-xs text-zinc-500 dark:text-zinc-400">
                   Runs this node as a one-off headless flow: it executes, extracts its fields, and follows routing edges. You'll land on the live run page.
                 </p>
                 <div>
                   <label for="testFlowApp" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Run as App</label>
-                  <select id="testFlowApp" name="appId" bind:value={testFlowAppId} required class={inputClass}>
+                  <select
+                    id="testFlowApp"
+                    name="appId"
+                    bind:value={$testFlowFormData.appId}
+                    class={inputClass}
+                    aria-invalid={$testFlowErrors.appId?.[0] ? 'true' : undefined}
+                  >
                     <option value="" disabled>Pick an App…</option>
                     {#each testFlowApps as app (app.id)}
                       <option value={app.id}>{app.name}</option>
@@ -1089,9 +1176,10 @@
                     id="testFlowPayload"
                     name="payload"
                     rows="4"
-                    bind:value={testFlowPayload}
+                    bind:value={$testFlowFormData.payload}
                     placeholder={'{ "confidence": 0.9 }'}
                     spellcheck="false"
+                    aria-invalid={$testFlowErrors.payload?.[0] ? 'true' : undefined}
                     class="w-full rounded-lg border bg-zinc-50 p-2 font-mono text-xs text-zinc-800 focus:outline-none dark:bg-zinc-950 dark:text-zinc-300 {testFlowPayloadValid ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 dark:border-red-700'}"
                   ></textarea>
                   <p class="mt-1 text-xs {testFlowPayloadValid ? 'text-zinc-400' : 'text-red-500'}">
@@ -1100,15 +1188,17 @@
                       : 'Must be a JSON object of named fields.'}
                   </p>
                 </div>
-                {#if form && 'testFlowError' in form && form.testFlowError}
-                  <p class="text-xs text-red-500">{form.testFlowError}</p>
+                {#if testFlowActionError}
+                  <p role="alert" class="text-xs text-red-500">{testFlowActionError}</p>
                 {/if}
-                <input type="hidden" name="orgId" value={data.org?.id ?? ''} />
+                <input type="hidden" name="orgId" value={$testFlowFormData.orgId} />
                 <button
                   type="submit"
-                  disabled={!testFlowAppId || !testFlowPayloadValid}
+                  disabled={!$testFlowFormData.appId || !testFlowPayloadValid || $testFlowSubmitting}
                   class="w-full rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >Start test run</button>
+                >{$testFlowSubmitting
+                  ? t('node-actions.test-flow.starting', 'Starting...')
+                  : 'Start test run'}</button>
               </form>
             </div>
           {/if}
@@ -1207,20 +1297,34 @@
           <div class="absolute right-0 z-40 mt-2 w-96 rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
             <!-- Close on success only: a same-node move redirects back to
                  THIS page (PK stable), so the per-node effect never fires to
-                 reset moveOpen — do it here. Keep open on failure so moveError
-                 shows (PR-504 review, Gemini). -->
+                 reset moveOpen — do it here. Keep open on failure so form errors
+                 show (PR-504 review, Gemini). -->
             <form
               method="POST"
               action="?/move"
-              use:enhance={() => async ({ result, update }) => { await update(); if (result.type !== 'failure') moveOpen = false; }}
+              use:moveEnhance
               class="space-y-3"
+              novalidate
             >
+              <input type="hidden" name="_kind" value={$moveFormData._kind} />
               <div>
                 <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Destination node URN</label>
-                <input id="moveTarget" name="target" type="text" bind:value={moveTarget} spellcheck="false" class="{inputClass} font-mono text-xs" />
+                <input
+                  id="moveTarget"
+                  name="target"
+                  type="text"
+                  bind:value={$moveFormData.target}
+                  spellcheck="false"
+                  aria-invalid={$moveErrors.target?.[0] ? 'true' : undefined}
+                  aria-describedby={$moveErrors.target?.[0] ? 'moveTargetError' : undefined}
+                  class="{inputClass} font-mono text-xs {$moveErrors.target?.[0] ? 'border-red-500 focus:border-red-500' : ''}"
+                />
                 <p class="mt-1 text-xs text-zinc-400">
                   <span class="font-mono">org::memory::loc</span> — change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.
                 </p>
+                {#if $moveErrors.target?.[0]}
+                  <p id="moveTargetError" class="mt-1 text-xs text-red-500">{$moveErrors.target[0]}</p>
+                {/if}
                 <!-- #512: pick the target memory from a searchable list instead
                      of hand-typing its URN; keeps the current loc. The list is
                      streamed (#513 review), so gate on the resolved value. -->
@@ -1234,15 +1338,15 @@
                   {/if}
                 {/await}
               </div>
-              {#if form && 'moveError' in form && form.moveError}
-                <p class="text-xs text-red-500">{form.moveError}</p>
+              {#if moveActionError}
+                <p role="alert" class="text-xs text-red-500">{moveActionError}</p>
               {/if}
               <div class="flex items-center gap-2">
                 <button
                   type="submit"
-                  disabled={!moveTarget.trim() || moveTarget.trim() === fullUrn}
+                  disabled={!$moveFormData.target.trim() || $moveFormData.target.trim() === fullUrn || $moveSubmitting}
                   class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-                >Move node</button>
+                >{$moveSubmitting ? t('node-actions.move.moving', 'Moving...') : 'Move node'}</button>
                 <button type="button" onclick={() => (moveOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
               </div>
             </form>
@@ -1266,23 +1370,33 @@
         {#if deleteOpen}
           <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close delete confirmation" onclick={() => (deleteOpen = false)}></button>
           <div class="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-red-200 bg-white p-4 shadow-xl dark:border-red-900 dark:bg-zinc-900">
-            <form method="POST" action="?/delete" use:enhance class="space-y-3">
+            <form method="POST" action="?/delete" use:deleteEnhance class="space-y-3" novalidate>
+              <input type="hidden" name="_kind" value={$deleteFormData._kind} />
               <p class="text-sm text-zinc-700 dark:text-zinc-200">Delete <span class="font-medium">{node.name}</span>?</p>
               <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-                <input type="checkbox" name="hard" value="true" bind:checked={hardDelete}
+                <input type="checkbox" name="hard" value="true" bind:checked={$deleteFormData.hard}
                   class="mt-0.5 rounded border-zinc-300 text-red-600 focus:ring-red-500 dark:border-zinc-600 dark:bg-zinc-800" />
                 <span>
                   Hard delete
-                  <span class="block text-xs {hardDelete ? 'text-red-500' : 'text-zinc-400'}">
-                    {hardDelete
+                  <span class="block text-xs {$deleteFormData.hard ? 'text-red-500' : 'text-zinc-400'}">
+                    {$deleteFormData.hard
                       ? 'Permanently removes the node — it cannot be recovered.'
                       : 'Off: soft-deletes (hidden, but recoverable server-side).'}
                   </span>
                 </span>
               </label>
+              {#if deleteActionError}
+                <p role="alert" class="text-xs text-red-500">{deleteActionError}</p>
+              {/if}
               <div class="flex items-center gap-2">
-                <button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500">
-                  {hardDelete ? 'Delete permanently' : 'Delete'}
+                <button
+                  type="submit"
+                  disabled={$deleteSubmitting}
+                  class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {$deleteSubmitting
+                    ? t('node-actions.delete.deleting', 'Deleting...')
+                    : $deleteFormData.hard ? 'Delete permanently' : 'Delete'}
                 </button>
                 <button type="button" onclick={() => (deleteOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
               </div>
@@ -1600,7 +1714,7 @@
           </div>
         {/if}
 
-        <form method="POST" action="?/updateFlow" use:enhance class="space-y-6">
+        <form method="POST" action="?/updateFlow" use:kitEnhance class="space-y-6">
           <!-- Extraction -->
           <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
             <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">
@@ -1852,7 +1966,7 @@
         {/if}
       {:else}
         <!-- Edit mode: list with remove buttons, add form, save/cancel -->
-        <form method="POST" action="?/updateEdges" use:enhance={() => {
+        <form method="POST" action="?/updateEdges" use:kitEnhance={() => {
           return async ({ update }) => { editingEdges = false; await update(); };
         }}>
           <input type="hidden" name="edges" value={editableEdgesJson} />
@@ -2049,7 +2163,7 @@
           </div>
 
           {#if isEditing}
-            <form method="POST" action="?/updateMeta" use:enhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
+            <form method="POST" action="?/updateMeta" use:kitEnhance={() => { return async ({ update }) => { isEditing = false; await update(); }; }}
               class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
               <div>
                 <label for="editName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
@@ -2169,15 +2283,23 @@
         <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
           <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
           {#if !confirmDelete}
-            <button onclick={() => confirmDelete = true} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+            <button onclick={() => { $deleteFormData.hard = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
               Delete node
             </button>
           {:else}
-            <form method="POST" action="?/delete" use:enhance class="flex items-center gap-2">
+            <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
+              <input type="hidden" name="_kind" value={$deleteFormData._kind} />
               <span class="text-sm text-red-500">Delete "{node.name}"? This cannot be undone.</span>
-              <button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500">Yes, delete</button>
+              <button
+                type="submit"
+                disabled={$deleteSubmitting}
+                class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
               <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
             </form>
+            {#if deleteActionError}
+              <p role="alert" class="mt-2 text-xs text-red-500">{deleteActionError}</p>
+            {/if}
           {/if}
         </section>
       </div>

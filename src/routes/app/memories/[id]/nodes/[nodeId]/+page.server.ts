@@ -1,4 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
+import type { Infer } from 'sveltekit-superforms';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -8,8 +11,27 @@ import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { extractionRowsError, rowsToSpec, EXTRACTION_SHAPES, type ExtractionRow, type ExtractionShape } from '$lib/flow/extraction';
+import { t } from '$lib/i18n/t';
 import type { MemoryNode, NodeRevision } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { nodeDeleteSchema, nodeMoveSchema, nodeTestFlowSchema } from './schema';
+
+type NodeMoveForm = Infer<typeof nodeMoveSchema, 'zod4'>;
+type NodeTestFlowForm = Infer<typeof nodeTestFlowSchema, 'zod4'>;
+type NodeDeleteForm = Infer<typeof nodeDeleteSchema, 'zod4'>;
+
+const nodeMoveFormAdapter = zod4(nodeMoveSchema);
+const nodeTestFlowFormAdapter = zod4(nodeTestFlowSchema);
+const nodeDeleteFormAdapter = zod4(nodeDeleteSchema);
+
+function parseValidatedFlowPayload(value: string): Record<string, unknown> | undefined {
+  if (value === '') return undefined;
+  try {
+    return JSON.parse(value) as Record<string, unknown>;
+  } catch (e) {
+    throw new Error(`Validated flow payload failed to parse: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
 
 // Soft cap on the Node.data payload, mirrored client-side in +page.svelte.
 // Keeps a pathological paste from hitting the adapter-node 512KB body limit
@@ -119,7 +141,17 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }
   })();
 
-  return { node, breadcrumb, testFlowApps, memories, revisions };
+  const [moveForm, testFlowForm, deleteForm] = await Promise.all([
+    superValidate<NodeMoveForm>({ target: '' }, nodeMoveFormAdapter, { errors: false }),
+    superValidate<NodeTestFlowForm>(
+      { appId: '', orgId: org?.id ?? '', payload: '' },
+      nodeTestFlowFormAdapter,
+      { errors: false },
+    ),
+    superValidate<NodeDeleteForm>({ hard: false }, nodeDeleteFormAdapter, { errors: false }),
+  ]);
+
+  return { node, breadcrumb, testFlowApps, memories, revisions, moveForm, testFlowForm, deleteForm };
 };
 
 export const actions: Actions = {
@@ -224,19 +256,23 @@ export const actions: Actions = {
     // Optional hard delete (#503): the menu's confirm dialog sends hard=true
     // to purge the row rather than soft-delete it. Absent (Settings danger
     // zone) → soft delete, the safe default.
-    const fd = await request.formData();
-    const hard = fd.get('hard') === 'true';
+    const form = await superValidate<NodeDeleteForm>(
+      await request.formData(),
+      nodeDeleteFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+    const hard = form.data.hard;
     // Load the node to get its loc AND its actual memoryId (#237).
     const data = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
       NODE_BY_ID_QUERY, { id: params.nodeId },
     );
-    if (!data.node) return fail(404, { error: 'Node not found' });
+    if (!data.node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
     const node = data.node;
     try {
       // #542: deleteNode takes a single nodeRef — pass the resolved node's PK.
       await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id, hard });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to delete') });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to delete') }, { status: 500 });
     }
     // Redirect to the *actual* memory's list — not the URL's gid, which
     // may have been stale.
@@ -418,39 +454,30 @@ export const actions: Actions = {
   // runTask(urn, appRef:) with an optional JSON trigger payload, then
   // deep-link to the run detail (the walker executes in the background).
   testFlow: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const appId = String(fd.get('appId') ?? '').trim();
-    if (!appId) return fail(400, { testFlowError: 'Pick an App to run as.' });
+    const form = await superValidate<NodeTestFlowForm>(
+      await request.formData(),
+      nodeTestFlowFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
     // Optional trigger payload — reaches conditions/templates at
     // message.data.<field>, so it must be a JSON OBJECT (named fields).
-    const payloadRaw = String(fd.get('payload') ?? '').trim();
-    let args: Record<string, unknown> | undefined;
-    if (payloadRaw !== '') {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(payloadRaw);
-      } catch {
-        return fail(400, { testFlowError: 'The test payload must be valid JSON.' });
-      }
-      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return fail(400, { testFlowError: 'The test payload must be a JSON object of named fields.' });
-      }
-      args = parsed as Record<string, unknown>;
-    }
+    const appId = form.data.appId;
+    const args = parseValidatedFlowPayload(form.data.payload);
 
     // The redirect target's org segment comes from the form (the page only
     // offers the button when the org is known). A stale/wrong value is
     // harmless: the run detail page URL-corrects to run.organizationId.
-    const orgId = String(fd.get('orgId') ?? '').trim();
-    if (!orgId) return fail(400, { testFlowError: 'Missing organization.' });
+    const orgId = form.data.orgId;
 
     const client = gqlClient(locals.token);
     let runId: string;
     try {
       const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
-      if (!node) return fail(404, { testFlowError: 'Node not found' });
-      if (!node.memory?.urn) return fail(500, { testFlowError: 'Node has no memory URN to run by.' });
+      if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
+      if (!node.memory?.urn) {
+        return message(form, { type: 'error', text: 'Node has no memory URN to run by.' }, { status: 500 });
+      }
       const urn = composeNodeUrn(node.memory.urn, node.loc);
 
       const res = await client.request<{ runTask: string }>(RUN_TASK_APP_MUTATION, {
@@ -461,7 +488,7 @@ export const actions: Actions = {
       });
       runId = res.runTask;
     } catch (e: unknown) {
-      return fail(500, { testFlowError: extractGqlError(e, 'Failed to start the run') });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to start the run') }, { status: 500 });
     }
     redirect(303, `/app/orgs/${orgId}/apps/${appId}/runs/${runId}`);
   },
@@ -511,31 +538,41 @@ export const actions: Actions = {
   // so we redirect to it — the node page's load 303s to the destination
   // memory's URL when node.memoryId no longer matches params.id (#237 guard).
   move: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const raw = String(fd.get('target') ?? '').trim();
-    if (!raw) return fail(400, { moveError: 'Enter a destination node URN.' });
+    const form = await superValidate<NodeMoveForm>(
+      await request.formData(),
+      nodeMoveFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
 
     const client = gqlClient(locals.token);
     const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
-    if (!node) return fail(404, { moveError: 'Node not found' });
-    if (!node.memory?.urn) return fail(500, { moveError: 'Node has no memory URN to move by.' });
+    if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
+    if (!node.memory?.urn) {
+      return message(form, { type: 'error', text: 'Node has no memory URN to move by.' }, { status: 500 });
+    }
 
     // A fully-qualified node URN (has `::`, or an hrn:/urn: prefix) moves as-is
     // — possibly to another memory. A bare loc composes into the current
     // memory (same-memory rename/reparent).
+    const raw = form.data.target;
     const isFullUrn = raw.includes('::') || /^(?:hrn|urn):node:/.test(raw);
     const targetUrn = isFullUrn ? raw : composeNodeUrn(node.memory.urn, cleanLocInput(raw));
     // No-op when the destination is where the node already lives. Compare with
     // the hrn:/urn: prefix stripped — the composed form is canonical (hrn:node:),
     // but a pasted URN may omit the prefix; both are valid targetUrn inputs.
     const bare = (u: string) => u.replace(/^(?:hrn|urn):node:/, '');
-    if (bare(targetUrn) === bare(composeNodeUrn(node.memory.urn, node.loc))) return { moved: true };
+    if (bare(targetUrn) === bare(composeNodeUrn(node.memory.urn, node.loc))) {
+      return message(form, { type: 'success', text: t('node-actions.move.noop', 'Node is already at that destination.') });
+    }
 
     try {
       await client.request(MOVE_NODE_MUTATION, { sourceRef: node.id, targetUrn });
     } catch (e: unknown) {
       const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
-      return fail(status, { moveError: extractGqlError(e, 'Failed to move node') });
+      const error = extractGqlError(e, 'Failed to move node');
+      return status === 409
+        ? setError(form, 'target', error, { status })
+        : message(form, { type: 'error', text: error }, { status });
     }
     redirect(303, `/app/memories/${node.memoryId}/nodes/${node.id}`);
   },
