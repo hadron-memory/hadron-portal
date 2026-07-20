@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -33,6 +32,7 @@
   type ConversationGoalsForm = Infer<typeof conversationGoalsSchema, 'zod4'>;
   type ConversationPromptForm = Infer<typeof conversationPromptSchema, 'zod4'>;
   type ConversationStageExtractionForm = Infer<typeof conversationStageExtractionSchema, 'zod4'>;
+  type AddEdgeSuperform = SuperValidated<AddEdgeForm, App.Superforms.Message, AddEdgeForm>;
   type AddConversationActionResult = {
     form?: SuperValidated<AddConversationForm, App.Superforms.Message, AddConversationForm>;
   } | null;
@@ -298,20 +298,42 @@
     if (!formIsLive || !actionForm) return null;
     return actionForm.data._kind === 'addStage' ? actionForm : null;
   });
-  const addEdgeForm = $derived.by(() => {
+  const addEdgeActionForm = $derived.by(() => {
     const actionForm = (form as AddEdgeActionResult)?.form ?? null;
     if (!formIsLive || !actionForm) return null;
     return actionForm.data._kind === 'addEdge' ? actionForm : null;
   });
   const addEdgeError = $derived.by(() => {
-    if (!addEdgeForm) return null;
-    if (addEdgeForm.message?.type === 'error') return addEdgeForm.message.text;
-    return addEdgeForm.errors.sourceNodeId?.[0]
-      ?? addEdgeForm.errors.targetNodeId?.[0]
-      ?? addEdgeForm.errors.condition?.[0]
-      ?? addEdgeForm.errors.priority?.[0]
-      ?? addEdgeForm.errors.data?.[0]
+    if (!addEdgeActionForm) return null;
+    if (addEdgeActionForm.message?.type === 'error') return addEdgeActionForm.message.text;
+    return addEdgeActionForm.errors.sourceNodeId?.[0]
+      ?? addEdgeActionForm.errors.targetNodeId?.[0]
+      ?? addEdgeActionForm.errors.condition?.[0]
+      ?? addEdgeActionForm.errors.priority?.[0]
+      ?? addEdgeActionForm.errors.data?.[0]
       ?? null;
+  });
+  const initialAddEdgeForm = untrack(() => addEdgeActionForm as AddEdgeSuperform | null ?? data.addEdgeForm);
+  const {
+    form: addEdgeData,
+    enhance: addEdgeEnhance,
+    submitting: addEdgeSubmitting,
+  } = superForm<AddEdgeForm, App.Superforms.Message, AddEdgeForm>(initialAddEdgeForm, {
+    validators: zod4Client(addEdgeSchema),
+    validationMethod: 'onsubmit',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    invalidateAll: true,
+    clearOnSubmit: 'none',
+    resetForm: true,
+    onResult({ result }) {
+      connectPending = false;
+      if (result.type === 'success' && typeof result.data?.edgeId === 'string') {
+        // Direct assignment (not select): the addEdge result must stay
+        // live so the freshly opened panel reflects it.
+        selectedId = result.data.edgeId;
+      }
+    },
   });
   const plainActionError = $derived.by(() => {
     if (!formIsLive || !form || !('error' in form)) return null;
@@ -432,29 +454,32 @@
   // ── Drag-to-connect: SvelteFlow's connection fills this hidden form, which
   // posts to the addEdge action; on success the new rule is selected so its
   // timing/condition can be refined right away.
-  let connectSourceId = $state('');
-  let connectTargetId = $state('');
-  let connectName = $state('');
-  let connectPriority = $state(0);
   let connectForm: HTMLFormElement | undefined = $state();
   let connectPending = $state(false);
 
   async function handleConnect(sourceId: string, targetId: string) {
-    if (connectPending || sourceId === targetId) return;
+    if (connectPending || $addEdgeSubmitting || sourceId === targetId) return;
     // Claimed HERE, not in the enhance callback — the await below yields, and
     // a second connect in that window would overwrite the form fields.
     connectPending = true;
     const target = data.systemNodes.find((n) => n.id === targetId);
-    connectSourceId = sourceId;
-    connectTargetId = targetId;
-    connectName = `→ ${target?.description || target?.name || t('conversation.editor.connect.next', 'next')}`;
+    const connectName = `→ ${target?.description || target?.name || t('conversation.editor.connect.next', 'next')}`;
     // Rules fire in ascending priority and the new rule has no condition, so
     // at the sources' current minimum it would shadow every existing sibling
     // (fall-through wins first). Land it after them instead; the panel opens
     // for refinement anyway.
     const siblings = edgeDetails.filter((e) => e.sourceId === sourceId);
-    connectPriority =
+    const connectPriority =
       siblings.length > 0 ? Math.max(...siblings.map((e) => e.priority ?? 0)) + 1 : 0;
+    addEdgeData.update((current) => ({
+      ...current,
+      sourceNodeId: sourceId,
+      targetNodeId: targetId,
+      name: connectName,
+      condition: 'null',
+      priority: String(connectPriority),
+      data: JSON.stringify({ timing: 'on_complete', behavior: 'transition' }),
+    }), { taint: false });
     await tick();
     connectForm?.requestSubmit();
   }
@@ -707,25 +732,16 @@
     method="POST"
     action="?/addEdge"
     class="hidden"
-    use:enhance={() => {
-      connectPending = true;
-      return async ({ result, update }) => {
-        await update();
-        connectPending = false;
-        if (result.type === 'success' && typeof result.data?.edgeId === 'string') {
-          // Direct assignment (not select): the addEdge result must stay
-          // live so the freshly opened panel reflects it.
-          selectedId = result.data.edgeId;
-        }
-      };
-    }}
+    use:addEdgeEnhance
+    novalidate
   >
-    <input type="hidden" name="sourceNodeId" value={connectSourceId} />
-    <input type="hidden" name="targetNodeId" value={connectTargetId} />
-    <input type="hidden" name="name" value={connectName} />
-    <input type="hidden" name="condition" value="null" />
-    <input type="hidden" name="priority" value={connectPriority} />
-    <input type="hidden" name="data" value={JSON.stringify({ timing: 'on_complete', behavior: 'transition' })} />
+    <input type="hidden" name="_kind" bind:value={$addEdgeData._kind} />
+    <input type="hidden" name="sourceNodeId" bind:value={$addEdgeData.sourceNodeId} />
+    <input type="hidden" name="targetNodeId" bind:value={$addEdgeData.targetNodeId} />
+    <input type="hidden" name="name" bind:value={$addEdgeData.name} />
+    <input type="hidden" name="condition" bind:value={$addEdgeData.condition} />
+    <input type="hidden" name="priority" bind:value={$addEdgeData.priority} />
+    <input type="hidden" name="data" bind:value={$addEdgeData.data} />
   </form>
 
   <!-- Shared partials -->

@@ -6,9 +6,11 @@ import { gqlClient } from '$lib/server/api';
 import { emailLoginErrorStatus, startBoundMagicLink } from '$lib/server/emailLogin';
 import { INVITATION_QUERY, ACCEPT_INVITATION_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
-import { inviteEmailSchema } from './schema';
+import { acceptInvitationSchema, inviteEmailSchema } from './schema';
 
+const acceptInvitationFormAdapter = zod4(acceptInvitationSchema);
 const inviteEmailFormAdapter = zod4(inviteEmailSchema);
+type AcceptInvitationForm = Infer<typeof acceptInvitationSchema, 'zod4'>;
 type InviteEmailForm = Infer<typeof inviteEmailSchema, 'zod4'>;
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -26,20 +28,26 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     invitation,
     isSignedIn: !!locals.user,
     slug,
+    acceptForm: await superValidate<AcceptInvitationForm>({}, acceptInvitationFormAdapter, { errors: false }),
     form: await superValidate<InviteEmailForm>({}, inviteEmailFormAdapter, { errors: false }),
   };
 };
 
 export const actions: Actions = {
-  accept: async ({ params, locals }) => {
+  accept: async ({ request, params, locals }) => {
+    const form = await superValidate<AcceptInvitationForm>(
+      await request.formData(),
+      acceptInvitationFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
     if (!locals.user || !locals.token) {
-      return fail(401, { error: 'You must be signed in to accept this invitation' });
+      return message(form, { type: 'error', text: 'You must be signed in to accept this invitation' }, { status: 401 });
     }
 
     try {
       await gqlClient(locals.token).request(ACCEPT_INVITATION_MUTATION, { slug: params.token });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to accept invitation' });
+      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to accept invitation' }, { status: 500 });
     }
 
     redirect(303, '/app/dashboard');
