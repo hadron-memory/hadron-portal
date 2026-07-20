@@ -19,11 +19,22 @@ import {
 } from '$lib/server/queries';
 import type { Organization, Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { orgMemorySubscribeSchema } from './schema';
+import {
+  deleteOrgMemorySchema,
+  orgMemorySubscribeSchema,
+  syncOrgMemoriesSchema,
+  unsubscribeOrgMemorySchema,
+} from './schema';
 
+type DeleteOrgMemoryForm = Infer<typeof deleteOrgMemorySchema, 'zod4'>;
 type OrgMemorySubscribeForm = Infer<typeof orgMemorySubscribeSchema, 'zod4'>;
+type SyncOrgMemoriesForm = Infer<typeof syncOrgMemoriesSchema, 'zod4'>;
+type UnsubscribeOrgMemoryForm = Infer<typeof unsubscribeOrgMemorySchema, 'zod4'>;
 
+const deleteOrgMemoryFormAdapter = zod4(deleteOrgMemorySchema);
 const orgMemorySubscribeFormAdapter = zod4(orgMemorySubscribeSchema);
+const syncOrgMemoriesFormAdapter = zod4(syncOrgMemoriesSchema);
+const unsubscribeOrgMemoryFormAdapter = zod4(unsubscribeOrgMemorySchema);
 
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
@@ -65,49 +76,96 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const tabParam = url.searchParams.get('tab');
   const initialTab: 'personal' | 'org' | 'subscriptions' =
     tabParam === 'personal' || tabParam === 'subscriptions' ? tabParam : 'org';
+  const [subscribeForm, deleteForm, syncAllForm, unsubscribeForm] = await Promise.all([
+    superValidate<OrgMemorySubscribeForm>(
+      { memoryId: '', role: 'READER' },
+      orgMemorySubscribeFormAdapter,
+      { errors: false },
+    ),
+    superValidate<DeleteOrgMemoryForm>(
+      { id: '' },
+      deleteOrgMemoryFormAdapter,
+      { errors: false },
+    ),
+    superValidate<SyncOrgMemoriesForm>(
+      {},
+      syncOrgMemoriesFormAdapter,
+      { errors: false },
+    ),
+    superValidate<UnsubscribeOrgMemoryForm>(
+      { memoryId: '' },
+      unsubscribeOrgMemoryFormAdapter,
+      { errors: false },
+    ),
+  ]);
   return {
     org: orgData.organization,
     systemMemories,
     availableMemories,
     personalMemories,
     initialTab,
-    subscribeForm: await superValidate<OrgMemorySubscribeForm>(
-      { memoryId: '', role: 'READER' },
-      orgMemorySubscribeFormAdapter,
-      { errors: false },
-    ),
+    subscribeForm,
+    deleteForm,
+    syncAllForm,
+    unsubscribeForm,
   };
 };
 
 export const actions: Actions = {
   delete: async ({ request, locals }) => {
-    const fd = await request.formData();
-    const id = String(fd.get('id') ?? '');
+    const form = await superValidate<DeleteOrgMemoryForm>(
+      await request.formData(),
+      deleteOrgMemoryFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
-      await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { id });
+      await gqlClient(locals.token).request(DELETE_MEMORY_MUTATION, { id: form.data.id });
+      return message(form, { type: 'success', text: t('org-memories.deleted', 'Memory deleted.') });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete memory' });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to delete memory') },
+        { status: 500 },
+      );
     }
   },
 
-  syncAll: async ({ params, locals }) => {
-    const data = await gqlClient(locals.token).request<{ organization: Organization }>(
-      ORGANIZATION_QUERY, { id: params.id },
+  syncAll: async ({ request, params, locals }) => {
+    const form = await superValidate<SyncOrgMemoriesForm>(
+      await request.formData(),
+      syncOrgMemoriesFormAdapter,
     );
+    if (!form.valid) return fail(400, { form });
+
+    const client = gqlClient(locals.token);
+    let data: { organization: Organization };
+    try {
+      data = await client.request<{ organization: Organization }>(
+        ORGANIZATION_QUERY, { id: params.id },
+      );
+    } catch (e: unknown) {
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to list memories to sync') },
+        { status: 500 },
+      );
+    }
+
     const memories = data.organization.memories ?? [];
     const errors: string[] = [];
     for (const m of memories) {
       if (!m.source) continue;
       try {
-        await gqlClient(locals.token).request(SYNC_MEMORY_MUTATION, { id: m.id });
+        await client.request(SYNC_MEMORY_MUTATION, { id: m.id });
       } catch (e: unknown) {
-        errors.push(`${m.name}: ${e instanceof Error ? e.message : 'sync failed'}`);
+        errors.push(`${m.name}: ${extractGqlError(e, 'sync failed')}`);
       }
     }
     if (errors.length) {
-      return fail(500, { error: `Sync errors: ${errors.join('; ')}` });
+      return message(form, { type: 'error', text: `Sync errors: ${errors.join('; ')}` }, { status: 500 });
     }
-    return { synced: true };
+    return message(form, { type: 'success', text: t('org-memories.synced', 'All memories synced.') });
   },
 
   subscribe: async ({ request, params, locals }) => {
@@ -134,15 +192,24 @@ export const actions: Actions = {
   },
 
   unsubscribe: async ({ request, params, locals }) => {
-    const fd = await request.formData();
-    const memoryId = String(fd.get('memoryId') ?? '');
+    const form = await superValidate<UnsubscribeOrgMemoryForm>(
+      await request.formData(),
+      unsubscribeOrgMemoryFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(DELETE_MEMORY_SUBSCRIPTION_MUTATION, {
-        memoryId,
+        memoryId: form.data.memoryId,
         orgId: params.id,
       });
+      return message(form, { type: 'success', text: t('org-memories.subscriptions.removed', 'Unsubscribed from memory.') });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Failed to unsubscribe' });
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to unsubscribe') },
+        { status: 500 },
+      );
     }
   },
 };
