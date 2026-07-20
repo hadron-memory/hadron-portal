@@ -1,4 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
@@ -11,6 +13,7 @@ import {
 import type { AppRun } from '$lib/flow/runs';
 import type { App } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { cancelAppRunSchema } from './schema';
 
 // Run detail (#478 phase 3): the full audit record — who/what/why, budgets,
 // live position (curNodeUrn while RUNNING), the envelope, failure payload —
@@ -51,19 +54,24 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     console.warn(`[run-detail] envelope fetch failed for ${params.runId} (server without #534?):`, e);
   }
 
-  return { app: appData.app, run, envelope, envelopeSupported };
+  const cancelForm = await superValidate(zod4(cancelAppRunSchema), { errors: false });
+
+  return { app: appData.app, run, envelope, envelopeSupported, cancelForm };
 };
 
 export const actions: Actions = {
   // The kill switch. Server-side the transition is guarded
   // (where status='RUNNING'/'PENDING'), so racing a finishing run is safe —
   // the terminal state wins and survives in the audit log.
-  cancel: async ({ params, locals }) => {
+  cancel: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(cancelAppRunSchema));
+    if (!form.valid) return fail(400, { form });
+
     try {
       await gqlClient(locals.token).request(CANCEL_APP_RUN_MUTATION, { id: params.runId });
-      return { cancelled: true };
+      return message(form, { type: 'success' as const, text: 'Run cancellation requested.' });
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Failed to cancel run') });
+      return message(form, { type: 'error' as const, text: extractGqlError(e, 'Failed to cancel run') }, { status: 500 });
     }
   },
 };

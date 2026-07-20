@@ -1,8 +1,12 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
+  import { untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import {
     defaultRunRecordUrn,
@@ -16,6 +20,10 @@
     visibleEnvelope,
   } from '$lib/flow/runs';
   import type { PageData, ActionData } from './$types';
+  import { cancelAppRunSchema } from './schema';
+
+  type CancelAppRunForm = Infer<typeof cancelAppRunSchema, 'zod4'>;
+  type CancelAppRunSuperform = SuperValidated<CancelAppRunForm, App.Superforms.Message, CancelAppRunForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -25,6 +33,22 @@
   const envelope = $derived(visibleEnvelope(data.envelope));
   const eventDataShown = $derived(visibleEnvelope(run.eventData));
   const recordUrn = $derived(run.status === 'COMPLETED' ? defaultRunRecordUrn(run) : null);
+  const initialCancelForm = untrack(() => submittedForm<CancelAppRunForm>(form, 'cancelRun') as CancelAppRunSuperform | null ?? data.cancelForm);
+  const {
+    form: cancelForm,
+    errors: cancelErrors,
+    message: cancelMessage,
+    submitting: cancelSubmitting,
+    enhance: cancelEnhance,
+  } = superForm<CancelAppRunForm, App.Superforms.Message, CancelAppRunForm>(initialCancelForm, {
+    validators: zod4Client(cancelAppRunSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const cancelActionError = $derived(scopedActionError<CancelAppRunForm>(form, 'cancelRun', $cancelMessage, $cancelErrors));
+  const cancelActionSuccess = $derived(scopedActionSuccess<CancelAppRunForm>(form, 'cancelRun', $cancelMessage));
 
   let confirmCancel = $state(false);
 
@@ -69,10 +93,11 @@
           class="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
         >{t('run.cancel', 'Stop this run')}</button>
       {:else}
-        <form method="POST" action="?/cancel" use:enhance class="flex items-center gap-2">
+        <form method="POST" action="?/cancel" use:cancelEnhance class="flex items-center gap-2" novalidate>
+          <input type="hidden" name="_kind" value={$cancelForm._kind} />
           <span class="text-sm text-red-600 dark:text-red-400">{t('run.cancel.confirm', 'Stop at the next action?')}</span>
-          <button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500">
-            {t('run.cancel.yes', 'Yes, stop it')}
+          <button type="submit" disabled={$cancelSubmitting} class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50">
+            {$cancelSubmitting ? t('run.cancel.stopping', 'Stopping...') : t('run.cancel.yes', 'Yes, stop it')}
           </button>
           <button type="button" onclick={() => (confirmCancel = false)} class="text-sm text-zinc-500 hover:text-zinc-300">
             {t('run.cancel.keep', 'Keep running')}
@@ -82,8 +107,10 @@
     {/if}
   </div>
 
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if cancelActionError}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{cancelActionError}</div>
+  {:else if cancelActionSuccess}
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{cancelActionSuccess}</div>
   {/if}
 
   <!-- Provenance: who/what/why -->

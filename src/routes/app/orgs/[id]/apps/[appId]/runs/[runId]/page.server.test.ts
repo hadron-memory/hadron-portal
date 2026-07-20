@@ -4,7 +4,7 @@
  * hadron-server#534 (where selecting AppRun.data errors the whole query).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { APP_QUERY, APP_RUN_QUERY, APP_RUN_ENVELOPE_QUERY } from '$lib/server/queries';
+import { APP_QUERY, APP_RUN_QUERY, APP_RUN_ENVELOPE_QUERY, CANCEL_APP_RUN_MUTATION } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -13,6 +13,31 @@ vi.mock('$lib/server/api', () => ({
 vi.mock('$lib/server/guards', () => ({
   requireNonConsumer: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock('$app/navigation', () => ({
+  beforeNavigate: () => {},
+  goto: vi.fn(),
+  invalidateAll: vi.fn(),
+}));
+vi.mock('$app/forms', () => ({
+  applyAction: vi.fn(),
+  deserialize: vi.fn(),
+  enhance: () => ({}),
+}));
+vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
+vi.mock('$app/stores', async () => {
+  const { readable } = await import('svelte/store');
+  return {
+    page: readable({
+      url: new URL('https://example.test/app/orgs/org-1/apps/app-1/runs/run-1'),
+      params: {},
+      route: { id: null },
+      status: 200,
+      error: null,
+      data: {},
+      form: null,
+    }),
+  };
+});
 
 beforeEach(() => {
   mockRequest.mockReset();
@@ -55,13 +80,38 @@ async function runLoad(params = { id: 'org-1', appId: 'app-1', runId: 'run-1' })
   } as never);
 }
 
+function actionEvent(fields: Record<string, string> = {}) {
+  const fd = new FormData();
+  for (const [key, value] of Object.entries(fields)) fd.set(key, value);
+  return {
+    request: { formData: async () => fd },
+    params: { id: 'org-1', appId: 'app-1', runId: 'run-1' },
+    locals: { token: 'tok' },
+  };
+}
+
+function superFormFrom(result: unknown) {
+  return (result as {
+    data?: { form?: { errors?: Record<string, string[]>; message?: App.Superforms.Message } };
+    form?: { errors?: Record<string, string[]>; message?: App.Superforms.Message };
+  } | undefined)?.data?.form ?? (result as {
+    form?: { errors?: Record<string, string[]>; message?: App.Superforms.Message };
+  } | undefined)?.form;
+}
+
 describe('run detail load', () => {
   it('returns the run with its envelope when the server supports it', async () => {
     routeByQuery({ envelope: { intent: 'question' } });
-    const result = (await runLoad()) as { run: unknown; envelope: unknown; envelopeSupported: boolean };
+    const result = (await runLoad()) as {
+      run: unknown;
+      envelope: unknown;
+      envelopeSupported: boolean;
+      cancelForm: { data: { _kind: string } };
+    };
     expect(result.run).toMatchObject({ id: 'run-1' });
     expect(result.envelope).toEqual({ intent: 'question' });
     expect(result.envelopeSupported).toBe(true);
+    expect(result.cancelForm.data._kind).toBe('cancelRun');
   });
 
   it('degrades to envelopeSupported=false on a pre-#534 server instead of erroring', async () => {
@@ -83,5 +133,46 @@ describe('run detail load', () => {
   it('404s a missing run', async () => {
     routeByQuery({ run: null });
     await expect(runLoad()).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe('run detail cancel action', () => {
+  it('cancels a run and returns a typed success', async () => {
+    mockRequest.mockResolvedValueOnce(true);
+    const { actions } = await import('./+page.server');
+
+    const result = await actions.cancel(actionEvent() as never);
+
+    expect(result).toMatchObject({
+      form: {
+        valid: true,
+        data: { _kind: 'cancelRun' },
+        message: { type: 'success', text: 'Run cancellation requested.' },
+      },
+    });
+    expect(mockRequest).toHaveBeenCalledWith(CANCEL_APP_RUN_MUTATION, { id: 'run-1' });
+  });
+
+  it('rejects cancel POSTs with the wrong form discriminator', async () => {
+    const { actions } = await import('./+page.server');
+
+    const result = await actions.cancel(actionEvent({ _kind: 'runFlow' }) as never);
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed error when cancellation fails', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('already completed'));
+    const { actions } = await import('./+page.server');
+
+    const result = await actions.cancel(actionEvent() as never);
+
+    expect((result as { status: number }).status).toBe(500);
+    expect(superFormFrom(result)?.message).toEqual({
+      type: 'error',
+      text: 'already completed',
+    });
   });
 });
