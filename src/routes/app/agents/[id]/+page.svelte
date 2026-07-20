@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -18,16 +17,29 @@
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
   import type { PageData, ActionData } from './$types';
-  import { addAgentMemorySchema, agentSettingsSchema } from './schema';
+  import {
+    addAgentMemorySchema,
+    agentSettingsSchema,
+    deleteAgentSchema,
+    removeAgentMemorySchema,
+    updateAgentMemoryRoleSchema,
+  } from './schema';
 
   type AgentSettingsForm = Infer<typeof agentSettingsSchema, 'zod4'>;
   type AddAgentMemoryForm = Infer<typeof addAgentMemorySchema, 'zod4'>;
+  type UpdateAgentMemoryRoleForm = Infer<typeof updateAgentMemoryRoleSchema, 'zod4'>;
+  type RemoveAgentMemoryForm = Infer<typeof removeAgentMemorySchema, 'zod4'>;
+  type DeleteAgentForm = Infer<typeof deleteAgentSchema, 'zod4'>;
   type AgentSettingsSuperform = SuperValidated<AgentSettingsForm, App.Superforms.Message, AgentSettingsForm>;
   type AddAgentMemorySuperform = SuperValidated<AddAgentMemoryForm, App.Superforms.Message, AddAgentMemoryForm>;
+  type UpdateAgentMemoryRoleSuperform = SuperValidated<UpdateAgentMemoryRoleForm, App.Superforms.Message, UpdateAgentMemoryRoleForm>;
+  type RemoveAgentMemorySuperform = SuperValidated<RemoveAgentMemoryForm, App.Superforms.Message, RemoveAgentMemoryForm>;
+  type DeleteAgentSuperform = SuperValidated<DeleteAgentForm, App.Superforms.Message, DeleteAgentForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const agent = $derived(data.agent);
@@ -163,29 +175,7 @@
     return systemNodes.find((n) => n.loc === loc);
   }
 
-  function actionFormKind(actionData: ActionData): string | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    const candidateData = candidate?.data;
-    return candidateData && typeof candidateData === 'object' && '_kind' in candidateData
-      ? String(candidateData._kind)
-      : null;
-  }
-
-  function submittedAgentSettings(actionData: ActionData): AgentSettingsSuperform | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    return actionFormKind(actionData) === 'agentSettings'
-      ? candidate as AgentSettingsSuperform
-      : null;
-  }
-
-  function submittedAddMemory(actionData: ActionData): AddAgentMemorySuperform | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    return actionFormKind(actionData) === 'addMemory'
-      ? candidate as AddAgentMemorySuperform
-      : null;
-  }
-
-  const initialAgentSettingsForm = untrack(() => submittedAgentSettings(form) ?? data.form);
+  const initialAgentSettingsForm = untrack(() => submittedForm<AgentSettingsForm>(form, 'agentSettings') as AgentSettingsSuperform | null ?? data.form);
   const {
     form: agentSettingsForm,
     errors: agentSettingsErrors,
@@ -201,7 +191,7 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
   });
-  const initialAddMemoryForm = untrack(() => submittedAddMemory(form) ?? data.addMemoryForm);
+  const initialAddMemoryForm = untrack(() => submittedForm<AddAgentMemoryForm>(form, 'addMemory') as AddAgentMemorySuperform | null ?? data.addMemoryForm);
   const {
     form: addMemoryForm,
     errors: addMemoryErrors,
@@ -221,11 +211,55 @@
     },
   });
 
+  const initialUpdateMemoryRoleForm = untrack(() => submittedForm<UpdateAgentMemoryRoleForm>(form, 'updateMemoryRole') as UpdateAgentMemoryRoleSuperform | null ?? data.updateMemoryRoleForm);
+  const {
+    form: updateMemoryRoleForm,
+    errors: updateMemoryRoleErrors,
+    message: updateMemoryRoleMessage,
+    submitting: updateMemoryRoleSubmitting,
+    enhance: updateMemoryRoleEnhance,
+  } = superForm<UpdateAgentMemoryRoleForm, App.Superforms.Message, UpdateAgentMemoryRoleForm>(initialUpdateMemoryRoleForm, {
+    validators: zod4Client(updateAgentMemoryRoleSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
+  const initialRemoveMemoryForm = untrack(() => submittedForm<RemoveAgentMemoryForm>(form, 'removeMemory') as RemoveAgentMemorySuperform | null ?? data.removeMemoryForm);
+  const {
+    form: removeMemoryForm,
+    errors: removeMemoryErrors,
+    message: removeMemoryMessage,
+    submitting: removeMemorySubmitting,
+    enhance: removeMemoryEnhance,
+  } = superForm<RemoveAgentMemoryForm, App.Superforms.Message, RemoveAgentMemoryForm>(initialRemoveMemoryForm, {
+    validators: zod4Client(removeAgentMemorySchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+  const initialDeleteForm = untrack(() => submittedForm<DeleteAgentForm>(form, 'deleteAgent') as DeleteAgentSuperform | null ?? data.deleteForm);
+  const {
+    form: deleteForm,
+    errors: deleteErrors,
+    message: deleteMessage,
+    submitting: deleteSubmitting,
+    enhance: deleteEnhance,
+  } = superForm<DeleteAgentForm, App.Superforms.Message, DeleteAgentForm>(initialDeleteForm, {
+    validators: zod4Client(deleteAgentSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
   let isEditing = $state(untrack(() => {
-    const submitted = submittedAgentSettings(form);
+    const submitted = submittedForm<AgentSettingsForm>(form, 'agentSettings') as AgentSettingsSuperform | null;
     return !!submitted && submitted.message?.type !== 'success';
   }));
-  let confirmDelete = $state(false);
+  let confirmDelete = $state(untrack(() => !!submittedForm<DeleteAgentForm>(form, 'deleteAgent')));
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";
 
@@ -260,18 +294,60 @@
   const agentNameError = $derived($agentSettingsErrors.name?.[0] ?? null);
   const agentUrnError = $derived($agentSettingsErrors.urnSlug?.[0] ?? null);
   const addMemoryError = $derived($addMemoryErrors.memoryId?.[0] ?? null);
-  const addMemoryActionError = $derived($addMemoryMessage?.type === 'error' ? $addMemoryMessage.text : null);
+  const addMemoryActionError = $derived($addMemoryMessage?.type === 'error' ? $addMemoryMessage.text : $addMemoryErrors._kind?.[0] ?? null);
   const addMemoryActionSuccess = $derived($addMemoryMessage?.type === 'success' ? $addMemoryMessage.text : null);
+  const updateMemoryRoleActionError = $derived(
+    $updateMemoryRoleMessage?.type === 'error'
+      ? $updateMemoryRoleMessage.text
+      : $updateMemoryRoleErrors.memoryId?.[0] ?? $updateMemoryRoleErrors.role?.[0] ?? $updateMemoryRoleErrors._kind?.[0] ?? null,
+  );
+  const updateMemoryRoleActionSuccess = $derived($updateMemoryRoleMessage?.type === 'success' ? $updateMemoryRoleMessage.text : null);
+  const removeMemoryActionError = $derived(
+    $removeMemoryMessage?.type === 'error'
+      ? $removeMemoryMessage.text
+      : $removeMemoryErrors.memoryId?.[0] ?? $removeMemoryErrors._kind?.[0] ?? null,
+  );
+  const removeMemoryActionSuccess = $derived($removeMemoryMessage?.type === 'success' ? $removeMemoryMessage.text : null);
+  const deleteActionError = $derived(
+    $deleteMessage?.type === 'error'
+      ? $deleteMessage.text
+      : $deleteErrors._kind?.[0] ?? null,
+  );
 
   $effect(() => {
     if ($agentSettingsMessage?.type === 'success') isEditing = false;
   });
   $effect(() => {
-    const submitted = submittedAddMemory(form);
+    const submitted = submittedForm<AddAgentMemoryForm>(form, 'addMemory') as AddAgentMemorySuperform | null;
     if (submitted && (!submitted.valid || submitted.message?.type === 'error')) {
       activeTab = 'memories';
     }
   });
+  $effect(() => {
+    const submittedUpdate = submittedForm<UpdateAgentMemoryRoleForm>(form, 'updateMemoryRole');
+    const submittedRemove = submittedForm<RemoveAgentMemoryForm>(form, 'removeMemory');
+    if (submittedUpdate || submittedRemove) activeTab = 'memories';
+  });
+  $effect(() => {
+    if (submittedForm<DeleteAgentForm>(form, 'deleteAgent')) {
+      activeTab = 'settings';
+      confirmDelete = true;
+    }
+  });
+
+  function submitMemoryRoleChange(e: Event) {
+    const select = e.currentTarget as HTMLSelectElement;
+    const memoryId = select.dataset.memoryId ?? '';
+    updateMemoryRoleForm.update(
+      (current) => ({ ...current, memoryId, role: select.value as UpdateAgentMemoryRoleForm['role'] }),
+      { taint: false },
+    );
+    select.form?.requestSubmit();
+  }
+
+  function setRemoveMemory(memoryId: string) {
+    removeMemoryForm.update((current) => ({ ...current, memoryId }), { taint: false });
+  }
 
   // Label for the agent's own visibility (PERSONAL/ORGANIZATION/PUBLIC).
   // The old "mixed visibility" warnings (agent vs more-restrictive memory) were
@@ -435,16 +511,19 @@
   <!-- Action feedback lives at page level so it stays visible no matter which
        tab's form produced it (#352 split the agent / memory / delete forms
        across the Profile, Memories, and Settings tabs). -->
-  {#if form?.error}
-    <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {#if updateMemoryRoleActionError || removeMemoryActionError || deleteActionError}
+    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+      {updateMemoryRoleActionError ?? removeMemoryActionError ?? deleteActionError}
+    </div>
   {/if}
   {#if $agentSettingsMessage?.type === 'success' && !isEditing}
     <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{$agentSettingsMessage.text}</div>
   {:else if addMemoryActionSuccess}
     <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{addMemoryActionSuccess}</div>
-  {:else if form?.success}
-    <!-- Other page actions still return plain SvelteKit success payloads. -->
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">Changes saved.</div>
+  {:else if updateMemoryRoleActionSuccess || removeMemoryActionSuccess}
+    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+      {updateMemoryRoleActionSuccess ?? removeMemoryActionSuccess}
+    </div>
   {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
@@ -601,17 +680,21 @@
               {:else if cell.column.id === 'urn'}
                 <Urn value={m.urn} type="memory" size={10} />
               {:else if cell.column.id === 'access'}
-                <form method="POST" action="?/updateMemoryRole" use:enhance class="flex items-center">
+                <form method="POST" action="?/updateMemoryRole" use:updateMemoryRoleEnhance class="flex items-center">
+                  <input type="hidden" name="_kind" value="updateMemoryRole" />
                   <input type="hidden" name="memoryId" value={m.memoryId} />
-                  <select name="role" value={m.role} onchange={(e) => e.currentTarget.form?.requestSubmit()} class="rounded-full border px-2.5 py-0.5 text-xs font-medium {roleChipClass(m.role)}">
+                  <select name="role" value={m.role} data-memory-id={m.memoryId} onchange={submitMemoryRoleChange} disabled={$updateMemoryRoleSubmitting} class="rounded-full border px-2.5 py-0.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50 {roleChipClass(m.role)}">
                     <option value="read">read</option>
                     <option value="read-write">read-write</option>
                   </select>
                 </form>
               {:else if cell.column.id === 'actions'}
-                <form method="POST" action="?/removeMemory" use:enhance>
+                <!-- Keep both handlers: onclick updates before client validation for button activation;
+                     onsubmit covers keyboard/requestSubmit paths. -->
+                <form method="POST" action="?/removeMemory" use:removeMemoryEnhance onsubmit={() => setRemoveMemory(m.memoryId)}>
+                  <input type="hidden" name="_kind" value="removeMemory" />
                   <input type="hidden" name="memoryId" value={m.memoryId} />
-                  <button type="submit" class="text-xs text-red-400 hover:text-red-300">Remove</button>
+                  <button type="submit" disabled={$removeMemorySubmitting} onclick={() => setRemoveMemory(m.memoryId)} class="text-xs text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50">Remove</button>
                 </form>
               {/if}
             {/snippet}
@@ -1035,9 +1118,12 @@
             Delete agent
           </button>
         {:else}
-          <form method="POST" action="?/delete" use:enhance class="flex items-center gap-2">
+          <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
+            <input type="hidden" name="_kind" value={$deleteForm._kind} />
             <span class="text-sm text-red-500">Delete "{agent.name}"? This cannot be undone.</span>
-            <button type="submit" class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500">Yes, delete</button>
+            <button type="submit" disabled={$deleteSubmitting} class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50">
+              {$deleteSubmitting ? 'Deleting...' : 'Yes, delete'}
+            </button>
             <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
           </form>
         {/if}
