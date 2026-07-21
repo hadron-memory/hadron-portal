@@ -1,4 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
+import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
 import { RESOLVE_URN_QUERY } from '$lib/server/queries';
 import { normalizeUrn } from '$lib/urn/parse-urn';
@@ -30,9 +31,40 @@ const KNOWN_KINDS = new Set<UrnResolution['kind']>(['memory', 'node', 'agent', '
 export const load: PageServerLoad = async ({ params, locals }) => {
   const urn = normalizeUrn(params.urn);
 
-  const { resolveUrn } = await gqlClient(locals.token).request<{
-    resolveUrn: UrnResolution | null;
-  }>(RESOLVE_URN_QUERY, { urn });
+  // #567: a URN the server *rejects* (GraphQL error) must not surface as an
+  // unhandled 500 — but only KNOWN rejection codes are mapped, and only when
+  // the ClientError actually carries a GraphQL errors payload (graphql-request
+  // also uses ClientError for transport-level failures, which have none).
+  // Validation codes → 400; expired/missing auth → the same signin redirect
+  // the app hooks issue; not-found/no-access codes → the existence-hiding 404.
+  // Everything else — internal server errors, unknown codes, payload-less
+  // transport failures, non-GraphQL exceptions — rethrows so a genuine outage
+  // stays a distinguishable 500 (see review:no-silent-loader-catch).
+  let resolveUrn: UrnResolution | null;
+  try {
+    ({ resolveUrn } = await gqlClient(locals.token).request<{
+      resolveUrn: UrnResolution | null;
+    }>(RESOLVE_URN_QUERY, { urn }));
+  } catch (err) {
+    if (err instanceof ClientError && err.response?.errors?.length) {
+      const code = (err.response.errors[0].extensions as { code?: string } | undefined)?.code;
+      if (code === 'BAD_USER_INPUT' || code === 'GRAPHQL_VALIDATION_FAILED') {
+        throw error(400, `"${urn}" is not a valid Hadron URN.`);
+      }
+      if (code === 'UNAUTHENTICATED' || code === 'SESSION_EXPIRED') {
+        redirect(303, `/signin?redirect=${encodeURIComponent(`/app/u/${params.urn}`)}`);
+      }
+      if (
+        code === 'NOT_FOUND' ||
+        code === 'NODE_NOT_FOUND' ||
+        code === 'FORBIDDEN' ||
+        code === 'PERMISSION_DENIED'
+      ) {
+        throw error(404, 'No resource found for this URN, or you do not have access to it.');
+      }
+    }
+    throw err;
+  }
 
   if (!resolveUrn) {
     throw error(404, 'No resource found for this URN, or you do not have access to it.');

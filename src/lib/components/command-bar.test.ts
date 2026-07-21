@@ -34,11 +34,48 @@ describe('buildCommandRoute', () => {
     });
   });
 
-  it('open → the /app/u resolver route with the raw URN (no resolve call)', async () => {
+  it('open → the /app/u resolver route with the canonical URN (no resolve call)', async () => {
+    resolve.mockClear();
     expect(await buildCommandRoute('open', '  hrn:node:acme::docs::intro  ', resolve)).toEqual({
       ok: true,
       path: '/app/u/hrn:node:acme::docs::intro',
     });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  // #567 — open qualifies non-canonical input before navigating.
+  it('open with a schemeless type prefix → hrn: added, no resolve call', async () => {
+    resolve.mockClear();
+    expect(await buildCommandRoute('open', 'node:acme::docs::intro', resolve)).toEqual({
+      ok: true,
+      path: '/app/u/hrn:node:acme::docs::intro',
+    });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it('open with a bare 2-segment path → probes candidates, first resolving kind wins', async () => {
+    expect(await buildCommandRoute('open', 'acme::docs', resolve)).toEqual({
+      ok: true,
+      path: '/app/u/hrn:memory:acme::docs',
+    });
+  });
+
+  it('open with a bare 1-segment path → org resolves first', async () => {
+    expect(await buildCommandRoute('open', 'acme', resolve)).toEqual({
+      ok: true,
+      path: '/app/u/hrn:org:acme',
+    });
+  });
+
+  it('open with a bare path no candidate resolves → navigates to the best guess (node)', async () => {
+    expect(await buildCommandRoute('open', 'ghost.com::docs::intro:setup', resolve)).toEqual({
+      ok: true,
+      path: '/app/u/hrn:node:ghost.com::docs::intro:setup',
+    });
+  });
+
+  it('open with un-URN-able input → inline error, no navigation', async () => {
+    expect(await buildCommandRoute('open', 'not a urn at all', resolve)).toMatchObject({ ok: false });
   });
 
   it('create org → org-new with the slug prefilled, no parent resolution', async () => {
