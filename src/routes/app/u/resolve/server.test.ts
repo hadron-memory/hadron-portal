@@ -53,7 +53,7 @@ describe('/app/u/resolve — request validation', () => {
     expect(r.body.code).toBe('UNAUTHENTICATED');
   });
 
-  it('400s without a urn param', async () => {
+  it('400s when the urn param is missing', async () => {
     const r = await call(null);
     expect(r.status).toBe(400);
     expect(r.body.code).toBe('INVALID_INPUT');

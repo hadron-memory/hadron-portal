@@ -35,8 +35,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     // actually carries a GraphQL errors payload — graphql-request also uses
     // ClientError for transport-level failures, which have none. Everything
     // else (internal/unknown codes, payload-less transport failures, plain
-    // exceptions) is a 500, so the CommandBar's candidate probing doesn't
-    // mistake a resolver outage for "this candidate doesn't resolve"
+    // exceptions) is a 500, so callers can tell an outage apart from a
+    // non-resolving URN — the CommandBar's resolveUrn throws on 5xx and
+    // surfaces an inline error instead of falling back to a guessed candidate
     // (see review:clienterror-map-known-codes-only, #614/#567).
     if (err instanceof ClientError && err.response?.errors?.length) {
       const first = err.response.errors[0];
@@ -58,6 +59,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
         return json(body, { status: 404 });
       }
     }
-    return json({ code: 'INTERNAL', message: (err as Error).message }, { status: 500 });
+    return json(
+      { code: 'INTERNAL', message: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
   }
 };
