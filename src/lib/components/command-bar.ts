@@ -163,7 +163,9 @@ export interface UrnResolution {
 /**
  * Resolves a URN to its PK resolution (or null when unresolvable / no access).
  * Injected so the routing logic stays pure and testable; the component passes
- * a fn that GETs `/app/u/resolve`.
+ * a fn that GETs `/app/u/resolve`. May REJECT on a server/transport failure —
+ * a resolver outage is not "doesn't resolve" (#615); open probing catches it,
+ * elsewhere it propagates to the component's generic error handling.
  */
 export type ResolveFn = (urn: string) => Promise<UrnResolution | null>;
 
@@ -338,8 +340,15 @@ async function buildOpenRoute(value: string, resolve: ResolveFn): Promise<Comman
     return { ok: false, error: 'Not a valid URN.' };
   }
   if (candidates.length > 1) {
-    for (const urn of candidates) {
-      if (await resolve(urn)) return { ok: true, path: `/app/u/${urn}` };
+    try {
+      for (const urn of candidates) {
+        if (await resolve(urn)) return { ok: true, path: `/app/u/${urn}` };
+      }
+    } catch {
+      // Probe hit a resolver outage (ResolveFn rejects on 5xx/network, #615).
+      // Don't navigate to a guessed candidate on an answer we never got —
+      // keep the input and let the user retry.
+      return { ok: false, error: "Couldn't check the URN — the server had a problem. Try again." };
     }
   }
   return { ok: true, path: `/app/u/${candidates[0]}` };

@@ -78,6 +78,25 @@ describe('buildCommandRoute', () => {
     expect(await buildCommandRoute('open', 'not a urn at all', resolve)).toMatchObject({ ok: false });
   });
 
+  // #615 — a resolver outage during probing is not "doesn't resolve".
+  it('open probing that hits a resolver outage → inline error, NOT best-guess navigation', async () => {
+    const outage = vi.fn(async (): Promise<UrnResolution | null> => {
+      throw new Error('resolve failed (500)');
+    });
+    expect(await buildCommandRoute('open', 'acme::docs', outage)).toMatchObject({ ok: false });
+  });
+
+  it('a single-candidate open never probes, so an outage cannot block it', async () => {
+    const outage = vi.fn(async (): Promise<UrnResolution | null> => {
+      throw new Error('resolve failed (500)');
+    });
+    expect(await buildCommandRoute('open', 'hrn:node:acme::docs::intro', outage)).toEqual({
+      ok: true,
+      path: '/app/u/hrn:node:acme::docs::intro',
+    });
+    expect(outage).not.toHaveBeenCalled();
+  });
+
   it('create org → org-new with the slug prefilled, no parent resolution', async () => {
     expect(await buildCommandRoute('create', 'hrn:org:acme', resolve)).toEqual({
       ok: true,

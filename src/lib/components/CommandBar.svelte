@@ -171,6 +171,10 @@
           error = action.message; // keep the input so the user can fix it
           break;
       }
+    } catch {
+      // A resolve/navigation failure (server outage, network) is not the
+      // user's fault — say so and keep the input for a retry (#615).
+      error = t('app.commandbar.server-error', 'Something went wrong reaching the server — try again.');
     } finally {
       busy = false;
     }
@@ -238,16 +242,16 @@
     }
   }
 
-  /** Resolve a parent URN → PK via the JSON sibling of the #262 resolver. */
+  /** Resolve a parent URN → PK via the JSON sibling of the #262 resolver.
+   *  Null means the URN doesn't resolve (or the caller lacks access); a 5xx
+   *  or network failure THROWS so an outage isn't read as "not found" and
+   *  surfaces as an inline error instead (#615). */
   async function resolveUrn(urn: string): Promise<UrnResolution | null> {
-    try {
-      const res = await fetch(`/app/u/resolve?urn=${encodeURIComponent(urn)}`);
-      if (!res.ok) return null;
-      const data = (await res.json()) as { resolution?: UrnResolution | null };
-      return data.resolution ?? null;
-    } catch {
-      return null;
-    }
+    const res = await fetch(`/app/u/resolve?urn=${encodeURIComponent(urn)}`);
+    if (res.status >= 500) throw new Error(`resolve failed (${res.status})`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { resolution?: UrnResolution | null };
+    return data.resolution ?? null;
   }
 
   function onSubmit(e: SubmitEvent) {
