@@ -52,10 +52,12 @@ export function openUrnCandidates(raw: string): string[] {
   if (direct) return [direct];
   if (/^(?:hrn|urn):/i.test(input)) return [];
 
-  // Type-prefixed but schemeless (`node:acme.com::docs::intro`).
-  const typeWord = input.split(':', 1)[0];
+  // Type-prefixed but schemeless (`node:acme.com::docs::intro`). The type
+  // word is folded to lowercase — the canonical grammar is lowercase-only,
+  // but a hand-typed `Node:` clearly names the same kind.
+  const typeWord = input.split(':', 1)[0].toLowerCase();
   if (OPENABLE_TYPE_WORDS.has(typeWord)) {
-    const qualified = tryCanonical(`hrn:${input}`);
+    const qualified = tryCanonical(`hrn:${typeWord}${input.slice(input.indexOf(':'))}`);
     return qualified ? [qualified] : [];
   }
 

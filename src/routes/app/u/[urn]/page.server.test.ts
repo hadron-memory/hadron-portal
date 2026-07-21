@@ -160,10 +160,34 @@ describe('/app/u/[urn] — GraphQL rejections do not surface as 500s (#567)', ()
     expect(r.status).toBe(400);
   });
 
-  it('404s (existence-hiding) on any other GraphQL error', async () => {
-    mockRequest.mockRejectedValueOnce(clientError('PERMISSION_DENIED'));
-    const r = await expectError('urn:memory:acme.com::secret');
-    expect(r.status).toBe(404);
+  it('404s (existence-hiding) on known no-access / not-found codes', async () => {
+    for (const code of ['PERMISSION_DENIED', 'FORBIDDEN', 'NOT_FOUND', 'NODE_NOT_FOUND']) {
+      mockRequest.mockRejectedValueOnce(clientError(code));
+      const r = await expectError('urn:memory:acme.com::secret');
+      expect(r.status).toBe(404);
+    }
+  });
+
+  it('redirects to signin on an expired/missing-auth code (mirrors the app hooks)', async () => {
+    mockRequest.mockRejectedValueOnce(clientError('UNAUTHENTICATED'));
+    const r = await expectRedirect('urn:memory:acme.com::dev');
+    expect(r.status).toBe(303);
+    expect(r.location).toBe(`/signin?redirect=${encodeURIComponent('/app/u/urn:memory:acme.com::dev')}`);
+  });
+
+  it('rethrows an internal/unknown GraphQL error code (stays a 500)', async () => {
+    for (const code of ['INTERNAL_SERVER_ERROR', undefined]) {
+      mockRequest.mockRejectedValueOnce(clientError(code));
+      const load = await importLoad();
+      await expect(load(ev('urn:memory:acme.com::dev'))).rejects.toBeInstanceOf(ClientError);
+    }
+  });
+
+  it('rethrows a ClientError with no GraphQL errors payload (transport failure)', async () => {
+    const response = { status: 502 } as unknown as ClientError['response'];
+    mockRequest.mockRejectedValueOnce(new ClientError(response, { query: 'query', variables: {} }));
+    const load = await importLoad();
+    await expect(load(ev('urn:memory:acme.com::dev'))).rejects.toBeInstanceOf(ClientError);
   });
 
   it('keeps a non-GraphQL failure a 500 (transient outage ≠ not-found)', async () => {

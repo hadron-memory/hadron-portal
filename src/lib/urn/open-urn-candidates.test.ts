@@ -33,6 +33,12 @@ describe('openUrnCandidates — type-prefixed but schemeless', () => {
     ]);
     expect(openUrnCandidates('memory:acme.com::docs')).toEqual(['hrn:memory:acme.com::docs']);
   });
+
+  it('the type word is matched case-insensitively (hand-typed "Node:")', () => {
+    expect(openUrnCandidates('Node:acme.com::docs::intro')).toEqual([
+      'hrn:node:acme.com::docs::intro',
+    ]);
+  });
 });
 
 describe('openUrnCandidates — bare hierarchy paths', () => {

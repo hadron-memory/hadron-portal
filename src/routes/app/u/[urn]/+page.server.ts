@@ -32,23 +32,36 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const urn = normalizeUrn(params.urn);
 
   // #567: a URN the server *rejects* (GraphQL error) must not surface as an
-  // unhandled 500. Validation-style rejections become a 400 ("not a URN");
-  // every other server-side rejection collapses into the same 404 as a null
-  // resolution, preserving existence-hiding. Non-GraphQL failures (network,
-  // server down) rethrow so a transient outage stays a distinguishable 500
-  // (see review:no-silent-loader-catch).
+  // unhandled 500 — but only KNOWN rejection codes are mapped, and only when
+  // the ClientError actually carries a GraphQL errors payload (graphql-request
+  // also uses ClientError for transport-level failures, which have none).
+  // Validation codes → 400; expired/missing auth → the same signin redirect
+  // the app hooks issue; not-found/no-access codes → the existence-hiding 404.
+  // Everything else — internal server errors, unknown codes, payload-less
+  // transport failures, non-GraphQL exceptions — rethrows so a genuine outage
+  // stays a distinguishable 500 (see review:no-silent-loader-catch).
   let resolveUrn: UrnResolution | null;
   try {
     ({ resolveUrn } = await gqlClient(locals.token).request<{
       resolveUrn: UrnResolution | null;
     }>(RESOLVE_URN_QUERY, { urn }));
   } catch (err) {
-    if (err instanceof ClientError) {
-      const code = (err.response?.errors?.[0]?.extensions as { code?: string } | undefined)?.code;
-      if (code === 'BAD_USER_INPUT' || code === 'INVALID_INPUT' || code === 'GRAPHQL_VALIDATION_FAILED') {
+    if (err instanceof ClientError && err.response?.errors?.length) {
+      const code = (err.response.errors[0].extensions as { code?: string } | undefined)?.code;
+      if (code === 'BAD_USER_INPUT' || code === 'GRAPHQL_VALIDATION_FAILED') {
         throw error(400, `"${urn}" is not a valid Hadron URN.`);
       }
-      throw error(404, 'No resource found for this URN, or you do not have access to it.');
+      if (code === 'UNAUTHENTICATED' || code === 'SESSION_EXPIRED') {
+        redirect(303, `/signin?redirect=${encodeURIComponent(`/app/u/${params.urn}`)}`);
+      }
+      if (
+        code === 'NOT_FOUND' ||
+        code === 'NODE_NOT_FOUND' ||
+        code === 'FORBIDDEN' ||
+        code === 'PERMISSION_DENIED'
+      ) {
+        throw error(404, 'No resource found for this URN, or you do not have access to it.');
+      }
     }
     throw err;
   }
