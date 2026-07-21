@@ -1,4 +1,5 @@
 import { CANONICAL_SCHEME, parseUrn, UrnParseError } from '$lib/urn/parse-urn';
+import { openUrnCandidates } from '$lib/urn/open-urn-candidates';
 
 /**
  * #337/#339 — header command bar logic. The bar is a single input that behaves
@@ -309,15 +310,39 @@ export async function buildCommandRoute(
       return { ok: true, path: `/app/search?q=${encodeURIComponent(value)}` };
 
     case 'open':
-      // URN-only: hand the raw URN to the `/app/u/[urn]` resolver, which
-      // 307-redirects to the canonical page and 404s on bad or no-access input.
-      // The URN grammar yields only `:` + path-safe atoms, so it rides one path
-      // segment un-encoded (see resource-share-links).
-      return { ok: true, path: `/app/u/${value}` };
+      return buildOpenRoute(value, resolve);
 
     case 'create':
       return buildCreateRoute(value, resolve);
   }
+}
+
+/**
+ * Open-mode sub-router (#567): qualify the raw input into canonical URN
+ * candidates before handing one to the `/app/u/[urn]` resolver, which
+ * 307-redirects to the canonical page. Users paste bare hierarchy paths
+ * (`acme.com::docs::intro`) at least as often as canonical `hrn:` URNs, and
+ * the server-side resolver only dispatches on a scheme-prefixed URN — so the
+ * old pass-through dead-ended every bare paste.
+ *
+ * A single candidate navigates directly (the resolver route is the access
+ * check). With several candidates (a bare path's kind is ambiguous), each is
+ * probed via `resolve` and the first hit wins; when none resolve, we still
+ * navigate to the best guess so the not-found page shows the qualified URN
+ * the user can correct. The URN grammar yields only `:` + path-safe atoms, so
+ * a candidate rides one path segment un-encoded (see resource-share-links).
+ */
+async function buildOpenRoute(value: string, resolve: ResolveFn): Promise<CommandRoute> {
+  const candidates = openUrnCandidates(value);
+  if (candidates.length === 0) {
+    return { ok: false, error: 'Not a valid URN.' };
+  }
+  if (candidates.length > 1) {
+    for (const urn of candidates) {
+      if (await resolve(urn)) return { ok: true, path: `/app/u/${urn}` };
+    }
+  }
+  return { ok: true, path: `/app/u/${candidates[0]}` };
 }
 
 /** Create-mode sub-router: parse the URN, dispatch on its kind. */

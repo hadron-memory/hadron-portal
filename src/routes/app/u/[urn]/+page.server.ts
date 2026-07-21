@@ -1,4 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
+import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
 import { RESOLVE_URN_QUERY } from '$lib/server/queries';
 import { normalizeUrn } from '$lib/urn/parse-urn';
@@ -30,9 +31,27 @@ const KNOWN_KINDS = new Set<UrnResolution['kind']>(['memory', 'node', 'agent', '
 export const load: PageServerLoad = async ({ params, locals }) => {
   const urn = normalizeUrn(params.urn);
 
-  const { resolveUrn } = await gqlClient(locals.token).request<{
-    resolveUrn: UrnResolution | null;
-  }>(RESOLVE_URN_QUERY, { urn });
+  // #567: a URN the server *rejects* (GraphQL error) must not surface as an
+  // unhandled 500. Validation-style rejections become a 400 ("not a URN");
+  // every other server-side rejection collapses into the same 404 as a null
+  // resolution, preserving existence-hiding. Non-GraphQL failures (network,
+  // server down) rethrow so a transient outage stays a distinguishable 500
+  // (see review:no-silent-loader-catch).
+  let resolveUrn: UrnResolution | null;
+  try {
+    ({ resolveUrn } = await gqlClient(locals.token).request<{
+      resolveUrn: UrnResolution | null;
+    }>(RESOLVE_URN_QUERY, { urn }));
+  } catch (err) {
+    if (err instanceof ClientError) {
+      const code = (err.response?.errors?.[0]?.extensions as { code?: string } | undefined)?.code;
+      if (code === 'BAD_USER_INPUT' || code === 'INVALID_INPUT' || code === 'GRAPHQL_VALIDATION_FAILED') {
+        throw error(400, `"${urn}" is not a valid Hadron URN.`);
+      }
+      throw error(404, 'No resource found for this URN, or you do not have access to it.');
+    }
+    throw err;
+  }
 
   if (!resolveUrn) {
     throw error(404, 'No resource found for this URN, or you do not have access to it.');
