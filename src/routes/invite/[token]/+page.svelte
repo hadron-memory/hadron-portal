@@ -1,4 +1,5 @@
 <script lang="ts">
+  import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -144,6 +145,11 @@
               <span class="text-xs text-zinc-500">or</span>
               <hr class="flex-1 border-zinc-700" />
             </div>
+
+            <GoogleLoginButton
+              href="/auth/start/google?redirect=/invite/{data.slug}"
+              label="Sign in with Google"
+            />
 
             <a href="/auth/start/github?redirect=/invite/{data.slug}" class="block w-full rounded-lg bg-zinc-800 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-zinc-700">
               Sign in with GitHub

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
   import { authEmailSchema } from '$lib/forms/authEmail';
   import { isLocalPath } from '$lib/safeRedirect';
   import { untrack } from 'svelte';
@@ -24,6 +25,9 @@
   // session-fixation nonce cookie before bouncing to the server's OAuth start.
   const githubUrl = $derived(
     `/auth/start/github?redirect=${encodeURIComponent(postAuthRedirect)}`
+  );
+  const googleUrl = $derived(
+    `/auth/start/google?redirect=${encodeURIComponent(postAuthRedirect)}`
   );
 
   const initialEmailForm = untrack(() => form?.form ?? data.form);
@@ -62,6 +66,10 @@
         {successMessage}
       </div>
     {:else}
+      <div class="mb-3">
+        <GoogleLoginButton href={googleUrl} />
+      </div>
+
       <!-- GitHub -->
       <a
         href={githubUrl}
