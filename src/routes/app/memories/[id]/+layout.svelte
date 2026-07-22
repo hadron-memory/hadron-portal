@@ -219,7 +219,9 @@
         {t('memory-detail.nodes-load-error', "Couldn't load this memory's nodes — the node service returned an error. This is not the same as an empty memory; try refreshing, and if it persists check the hadron-server logs.")}
       </div>
     {/if}
-    <MemoryBrowser nodes={data.graphNodes ?? []} nodesTotal={data.nodesTotal} {basePath} forcedView={activeTab} />
+    <!-- #589: memory drives the structured-query UI (schema pickers +
+         encrypted-data annotation). -->
+    <MemoryBrowser nodes={data.graphNodes ?? []} nodesTotal={data.nodesTotal} {basePath} forcedView={activeTab} memory={data.graph} />
   {/if}
   {@render children()}
 </div>

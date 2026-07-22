@@ -1587,12 +1587,18 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
     $updatedAfter: String
     $updatedBefore: String
     $includeDeleted: Boolean
+    $objectType: String
+    $where: NodeWhereInput
+    $sortProperty: NodePropertySort
     $limit: Int
   ) {
     findNodes(
       query: $query
       mode: $mode
       sort: $sort
+      # #589 (server #719): order by a properties/data JSON path; overrides
+      # the sort enum when present. Missing/unparseable values sort last.
+      sortProperty: $sortProperty
       granularity: $granularity
       # #433: fields is a lexical scoring weight-mask (cor:api:090:03), not a
       # hard filter; ignored by the server for vector/hybrid retrieval.
@@ -1605,6 +1611,10 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
         updatedBefore: $updatedBefore
         # #433: surface soft-deleted nodes (admin/audit/restore); default false.
         includeDeleted: $includeDeleted
+        # #589 (server #725/#719): collection facet + structured predicate
+        # over the properties/data JSONB.
+        objectType: $objectType
+        where: $where
       }
     ) {
       hits {
