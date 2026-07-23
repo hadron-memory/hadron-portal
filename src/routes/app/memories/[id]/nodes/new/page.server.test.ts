@@ -21,6 +21,7 @@ function loadEvent(opts: {
   isConsumerMode?: boolean;
   activeOrgId?: string | null;
   graphNodes?: Array<{ loc: string }>;
+  graph?: { organizationId?: string | null };
 } = {}) {
   const url = new URL('https://portal.test/app/memories/memory-1/nodes/new');
   if (opts.parent !== undefined) url.searchParams.set('parent', opts.parent);
@@ -32,6 +33,9 @@ function loadEvent(opts: {
       isConsumerMode: opts.isConsumerMode ?? false,
       activeOrgId: opts.activeOrgId ?? 'org-1',
       graphNodes: opts.graphNodes ?? [],
+      // Default to an org-scoped memory so the consumer-bounce still applies
+      // unless a test opts into an org-less (user-owned) memory.
+      graph: opts.graph ?? { organizationId: 'org-1' },
     }),
   } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['load']>[0];
 }
@@ -103,12 +107,20 @@ describe('new node load()', () => {
     expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
   });
 
-  it('redirects consumer-mode users away', async () => {
+  it('redirects consumer-mode users away from an ORG-scoped memory', async () => {
     const { load } = await importMod();
 
-    await expect(load(loadEvent({ isConsumerMode: true, activeOrgId: 'personal-org' })))
+    await expect(load(loadEvent({ isConsumerMode: true, activeOrgId: 'personal-org', graph: { organizationId: 'org-9' } })))
       .rejects
       .toMatchObject({ status: 303, location: '/app/orgs/personal-org/' });
+  });
+
+  it('#627: ALLOWS a consumer to author nodes in an org-less memory they own', async () => {
+    const { load } = await importMod();
+    // organizationId == null → user-owned; no bounce, the form loads.
+    const result = await load(loadEvent({ isConsumerMode: true, activeOrgId: 'personal-org', graph: { organizationId: null } }));
+    expect(result).toBeTruthy();
+    expect(superFormFrom(result)).toBeTruthy();
   });
 });
 

@@ -21,9 +21,15 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
   // Consumer / org-less: list the user's own (org-less) memories. The server
   // returns the caller's accessible personal/private memories; keep only the
   // ones with no owning org — those are the ones this user owns directly.
-  const memories = await fetchAllItems<Memory>(gqlClient(locals.token), PERSONAL_MEMORIES_QUERY, 'memories')
-    .catch(() => [] as Memory[]);
-  const personalMemories = memories.filter((m) => m.organizationId == null);
-
-  return { memories: personalMemories };
+  // Distinguish a FAILED fetch from a genuinely empty list (`loadFailed`) — this
+  // is a primary consumer surface, and silently rendering the empty state on an
+  // API error would hide existing memories and invite duplicate creation
+  // (review; conventions:no-silent-loader-catch).
+  try {
+    const memories = await fetchAllItems<Memory>(gqlClient(locals.token), PERSONAL_MEMORIES_QUERY, 'memories');
+    return { memories: memories.filter((m) => m.organizationId == null), loadFailed: false };
+  } catch (e) {
+    console.error('[my-memories] failed to load personal memories:', e);
+    return { memories: [] as Memory[], loadFailed: true };
+  }
 };

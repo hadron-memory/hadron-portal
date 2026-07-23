@@ -7,6 +7,7 @@
 
   let { data }: { data: PageData } = $props();
   const memories = $derived(data.memories ?? []);
+  const loadFailed = $derived(data.loadFailed === true);
 </script>
 
 <svelte:head><title>{t('my-memories.title', 'My memories — Hadron')}</title></svelte:head>
@@ -20,7 +21,11 @@
     >{t('my-memories.new', 'New memory')}</a>
   </div>
 
-  {#if memories.length === 0}
+  {#if loadFailed}
+    <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+      {t('my-memories.load-failed', "Couldn't load your memories just now — this is a temporary error, not an empty list. Try refreshing the page.")}
+    </div>
+  {:else if memories.length === 0}
     <div class="rounded-xl border border-dashed border-zinc-300 bg-white p-10 text-center dark:border-zinc-700 dark:bg-zinc-900">
       <p class="text-sm text-zinc-600 dark:text-zinc-400">
         {t('my-memories.empty', "You don't have any memories yet.")}
