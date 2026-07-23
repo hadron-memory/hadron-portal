@@ -72,6 +72,26 @@
   const propertiesError = $derived($errors.propertiesJson?.[0] ?? null);
   let propertiesInvalid = $state(false);
 
+  // #622: the Properties section (and its editor) only renders when an
+  // objectType is chosen. `propertiesInvalid` is bound from PropertiesEditor,
+  // which UNMOUNTS when the user clears objectType back to "None" — leaving the
+  // flag stuck at its last value (e.g. `true` from a declared collection's
+  // required field). Gate the properties concern on objectType so a hidden
+  // editor can never block submit with no visible field to fix.
+  const propertiesBlockSubmit = $derived(
+    !!$formData.objectType && (propertiesInvalid || !!propertiesError),
+  );
+
+  // #622: never present a disabled submit button with no explanation. When the
+  // button is held disabled (and we're not mid-submit, where the spinner speaks
+  // for itself), surface the first unmet requirement next to it.
+  const submitDisabledReason = $derived.by(() => {
+    if (!$formData.name.trim()) return createNodeStrings.disabledReasonName();
+    if (!$formData.loc.trim()) return createNodeStrings.disabledReasonLoc();
+    if (propertiesBlockSubmit) return createNodeStrings.disabledReasonProperties();
+    return null;
+  });
+
   // Auto-derive loc from name until the user manually edits the loc field.
   // Once they do, name changes don't overwrite their choice. The loc field
   // shows the FULL path (parent:leaf) so the user has one editable string
@@ -278,7 +298,12 @@
       </div>
     {/if}
 
-    <div class="flex items-center justify-end gap-2">
+    <div class="flex items-center justify-end gap-3">
+      {#if submitDisabledReason && !$submitting}
+        <p class="mr-auto text-xs text-zinc-500 dark:text-zinc-400" data-testid="submit-disabled-reason">
+          {submitDisabledReason}
+        </p>
+      {/if}
       <a
         href="/app/memories/{memory.id}"
         class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -287,7 +312,7 @@
       </a>
       <button
         type="submit"
-        disabled={$submitting || !$formData.name.trim() || !$formData.loc.trim() || propertiesInvalid || !!propertiesError}
+        disabled={$submitting || !!submitDisabledReason}
         class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
       >
         {$submitting ? createNodeStrings.submitting() : createNodeStrings.submit()}
