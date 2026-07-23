@@ -62,6 +62,17 @@ export const createNodeStrings = {
   submit: (): string => t('create-node.button.submit', 'Create node'),
   submitting: (): string => t('create-node.button.submitting', 'Creating…'),
 
+  /**
+   * Why the submit button is disabled — shown next to it so it is never a
+   * dead control with no explanation (#622).
+   */
+  disabledReasonName: (): string =>
+    t('create-node.disabled.name', 'Enter a name to create the node.'),
+  disabledReasonLoc: (): string =>
+    t('create-node.disabled.loc', 'Enter a loc (address) to create the node.'),
+  disabledReasonProperties: (): string =>
+    t('create-node.disabled.properties', 'Fix the highlighted Properties fields to continue.'),
+
   /** Empty-state copy when the user lacks write access. */
   noWriteAccess: (): string =>
     t(

@@ -32,6 +32,14 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // The submit button is aria-disabled (not natively `disabled`) so it stays
+    // focusable and its disabled-reason is announced (#622 a11y review). Since
+    // an aria-disabled button can still be activated, cancel the submit here
+    // when the form isn't ready. (`submitDisabledReason` is declared below; this
+    // closure only reads it at submit time.)
+    onSubmit: ({ cancel }) => {
+      if (submitDisabledReason) cancel();
+    },
   });
 
   // #260: org-less memory route. The owning-org crumbs are only included when
@@ -71,6 +79,26 @@
   const declaredCollection = $derived(declaredObjectType(memorySchema, $formData.objectType || null));
   const propertiesError = $derived($errors.propertiesJson?.[0] ?? null);
   let propertiesInvalid = $state(false);
+
+  // #622: the Properties section (and its editor) only renders when an
+  // objectType is chosen. `propertiesInvalid` is bound from PropertiesEditor,
+  // which UNMOUNTS when the user clears objectType back to "None" — leaving the
+  // flag stuck at its last value (e.g. `true` from a declared collection's
+  // required field). Gate the properties concern on objectType so a hidden
+  // editor can never block submit with no visible field to fix.
+  const propertiesBlockSubmit = $derived(
+    !!$formData.objectType && (propertiesInvalid || !!propertiesError),
+  );
+
+  // #622: never present a disabled submit button with no explanation. When the
+  // button is held disabled (and we're not mid-submit, where the spinner speaks
+  // for itself), surface the first unmet requirement next to it.
+  const submitDisabledReason = $derived.by(() => {
+    if (!$formData.name.trim()) return createNodeStrings.disabledReasonName();
+    if (!$formData.loc.trim()) return createNodeStrings.disabledReasonLoc();
+    if (propertiesBlockSubmit) return createNodeStrings.disabledReasonProperties();
+    return null;
+  });
 
   // Auto-derive loc from name until the user manually edits the loc field.
   // Once they do, name changes don't overwrite their choice. The loc field
@@ -284,17 +312,29 @@
       </div>
     {/if}
 
-    <div class="flex items-center justify-end gap-2">
+    <div class="flex items-center justify-end gap-3">
+      {#if submitDisabledReason && !$submitting}
+        <p id="submit-disabled-reason" class="mr-auto text-xs text-zinc-500 dark:text-zinc-400" data-testid="submit-disabled-reason">
+          {submitDisabledReason}
+        </p>
+      {/if}
       <a
         href="/app/memories/{memory.id}"
         class="rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
       >
         Cancel
       </a>
+      <!-- aria-disabled (not the native `disabled` attribute) keeps the button
+           in the tab order so keyboard / screen-reader users can focus it and
+           hear WHY it's inert — a native disabled button is skipped and its
+           aria-describedby is never announced (#622 Codex review). The submit
+           is still blocked: superForm's onSubmit cancels it while the form
+           isn't ready, and the server re-validates regardless. -->
       <button
         type="submit"
-        disabled={$submitting || !$formData.name.trim() || !$formData.loc.trim() || propertiesInvalid || !!propertiesError}
-        class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+        aria-disabled={$submitting || !!submitDisabledReason}
+        aria-describedby={submitDisabledReason && !$submitting ? 'submit-disabled-reason' : undefined}
+        class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-indigo-600"
       >
         {$submitting ? createNodeStrings.submitting() : createNodeStrings.submit()}
       </button>
