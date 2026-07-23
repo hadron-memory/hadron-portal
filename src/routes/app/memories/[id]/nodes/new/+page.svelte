@@ -81,9 +81,15 @@
     const nextLoc = $formData.name
       ? `${parentLoc ? `${parentLoc}:` : ''}${deriveDefaultLoc($formData.name, parentLoc, existingLocs)}`
       : '';
-    formData.update((current) => (
-      current.loc === nextLoc ? current : { ...current, loc: nextLoc }
-    ), { taint: false });
+    // Guard the update() CALL, not the returned value. superForm's
+    // form.update() notifies its subscribers on EVERY call — even when the
+    // updater returns an unchanged object — and this effect reads $formData
+    // (via $formData.name), so calling update() unconditionally re-triggers the
+    // effect forever: effect_update_depth_exceeded aborts the flush and kills
+    // the form's reactivity, so loc never derives and the URN preview never
+    // composes as you type (#624). Only write when the loc actually changes.
+    if ($formData.loc === nextLoc) return;
+    formData.update((current) => ({ ...current, loc: nextLoc }), { taint: false });
   });
 
   // URN preview uses the SAME normalization the server action runs
