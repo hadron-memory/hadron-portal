@@ -300,11 +300,18 @@
     return [...new Set(collections.flatMap((c) => Object.keys(c.fields)))].sort();
   });
   // A declared field's type IS its query cast (#725) — auto-pick the cast
-  // when the typed path names a declared field (enum casts as text).
+  // when the typed path names a declared field (enum casts as text). Scoped
+  // to the SELECTED collection when the facet is set — the same field name
+  // can carry different types across collections, and the first-declared
+  // type would win otherwise (PR #617 review, Codex P2). Falls back to
+  // scanning every collection only when no facet narrows it.
   function syncSortCastFromSchema() {
     if (!memorySchema || sortPropField !== 'properties' || sortPropPathSegments.length !== 1) return;
     const name = sortPropPathSegments[0];
-    for (const c of Object.values(memorySchema.objectTypes)) {
+    const collections = objectTypeFilter && memorySchema.objectTypes[objectTypeFilter]
+      ? [memorySchema.objectTypes[objectTypeFilter]]
+      : Object.values(memorySchema.objectTypes);
+    for (const c of collections) {
       const declared = c.fields[name];
       if (declared) {
         sortPropAs = declared.type === 'enum' ? 'text' : declared.type;
@@ -926,7 +933,9 @@
           <div>
             <label for="structured-object-type" class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Object type</label>
             {#if collectionNames.length > 0}
-              <select id="structured-object-type" bind:value={objectTypeFilter}
+              <!-- onchange: re-run the cast auto-pick — switching collections
+                   can change the selected sort field's declared type. -->
+              <select id="structured-object-type" bind:value={objectTypeFilter} onchange={syncSortCastFromSchema}
                 class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
                 <option value="">Any</option>
                 {#each collectionNames as name (name)}
