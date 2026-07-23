@@ -10,11 +10,16 @@
   let { data }: { data: PageData } = $props();
 
   const displayName = $derived(data.user?.name ?? (data.user?.handle ? `@${data.user.handle}` : null));
-  // Memory creation is org-scoped; a brand-new user always has at least their
-  // own (personal) org resolved by the layout. Guarded so the card hides rather
-  // than links to a broken `/app/orgs//…` if no org resolved.
+  // Memory creation is org-scoped AND gated by requireNonConsumer: an individual
+  // (consumer-mode) user — which is exactly who this page targets — gets bounced
+  // straight back to their org dashboard by `/app/orgs/<id>/memories/new`, so the
+  // CTA would be a dead end. Only offer it to non-consumer org members (who can
+  // actually reach the form) until org-less memory creation lands (#627); also
+  // guarded on activeOrgId so it never links to a broken `/app/orgs//…`.
   const createMemoryHref = $derived(
-    data.activeOrgId ? `/app/orgs/${data.activeOrgId}/memories/new` : null,
+    !data.isConsumerMode && data.activeOrgId
+      ? `/app/orgs/${data.activeOrgId}/memories/new`
+      : null,
   );
   const workspaceHref = $derived(
     data.activeOrgId ? `/app/orgs/${data.activeOrgId}` : '/app/marketplace',
@@ -35,7 +40,7 @@
     <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
       {t(
         'setup.intro',
-        'Hadron is your knowledge memory — a graph of notes, tasks, and context that you and your AI agents can read and write. Here are a couple of ways to get started.',
+        'Hadron is your knowledge memory — a graph of notes, tasks, and context that you and your AI agents can read and write. Here’s how to get started.',
       )}
     </p>
   </div>
