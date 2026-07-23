@@ -287,7 +287,7 @@
       </a>
       <button
         type="submit"
-        disabled={$submitting || !$formData.name.trim() || !$formData.loc.trim() || propertiesInvalid}
+        disabled={$submitting || !$formData.name.trim() || !$formData.loc.trim() || propertiesInvalid || !!propertiesError}
         class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
       >
         {$submitting ? createNodeStrings.submitting() : createNodeStrings.submit()}
