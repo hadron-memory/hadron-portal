@@ -32,6 +32,14 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // The submit button is aria-disabled (not natively `disabled`) so it stays
+    // focusable and its disabled-reason is announced (#622 a11y review). Since
+    // an aria-disabled button can still be activated, cancel the submit here
+    // when the form isn't ready. (`submitDisabledReason` is declared below; this
+    // closure only reads it at submit time.)
+    onSubmit: ({ cancel }) => {
+      if (submitDisabledReason) cancel();
+    },
   });
 
   // #260: org-less memory route. The owning-org crumbs are only included when
@@ -300,7 +308,7 @@
 
     <div class="flex items-center justify-end gap-3">
       {#if submitDisabledReason && !$submitting}
-        <p class="mr-auto text-xs text-zinc-500 dark:text-zinc-400" data-testid="submit-disabled-reason">
+        <p id="submit-disabled-reason" class="mr-auto text-xs text-zinc-500 dark:text-zinc-400" data-testid="submit-disabled-reason">
           {submitDisabledReason}
         </p>
       {/if}
@@ -310,10 +318,17 @@
       >
         Cancel
       </a>
+      <!-- aria-disabled (not the native `disabled` attribute) keeps the button
+           in the tab order so keyboard / screen-reader users can focus it and
+           hear WHY it's inert — a native disabled button is skipped and its
+           aria-describedby is never announced (#622 Codex review). The submit
+           is still blocked: superForm's onSubmit cancels it while the form
+           isn't ready, and the server re-validates regardless. -->
       <button
         type="submit"
-        disabled={$submitting || !!submitDisabledReason}
-        class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+        aria-disabled={$submitting || !!submitDisabledReason}
+        aria-describedby={submitDisabledReason && !$submitting ? 'submit-disabled-reason' : undefined}
+        class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-indigo-600"
       >
         {$submitting ? createNodeStrings.submitting() : createNodeStrings.submit()}
       </button>
