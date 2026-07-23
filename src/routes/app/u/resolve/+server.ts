@@ -31,13 +31,37 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     }>(RESOLVE_URN_QUERY, { urn });
     return json({ resolution: resolveUrn ?? null });
   } catch (err) {
-    if (err instanceof ClientError) {
-      const ext = err.response?.errors?.[0]?.extensions as { code?: string } | undefined;
-      return json(
-        { code: ext?.code ?? 'UNKNOWN', message: err.response?.errors?.[0]?.message ?? 'resolve failed' },
-        { status: ext?.code === 'PERMISSION_DENIED' ? 403 : 400 },
-      );
+    // Map only KNOWN GraphQL rejection codes, and only when the ClientError
+    // actually carries a GraphQL errors payload — graphql-request also uses
+    // ClientError for transport-level failures, which have none. Everything
+    // else (internal/unknown codes, payload-less transport failures, plain
+    // exceptions) is a 500, so callers can tell an outage apart from a
+    // non-resolving URN — the CommandBar's resolveUrn throws on 5xx and
+    // surfaces an inline error instead of falling back to a guessed candidate
+    // (see review:clienterror-map-known-codes-only, #614/#567).
+    if (err instanceof ClientError && err.response?.errors?.length) {
+      const first = err.response.errors[0];
+      const code = (first.extensions as { code?: string } | undefined)?.code;
+      const body = { code: code ?? 'UNKNOWN', message: first.message ?? 'resolve failed' };
+      if (code === 'BAD_USER_INPUT' || code === 'GRAPHQL_VALIDATION_FAILED') {
+        return json(body, { status: 400 });
+      }
+      if (code === 'UNAUTHENTICATED' || code === 'SESSION_EXPIRED') {
+        return json(body, { status: 401 });
+      }
+      // No-access collapses into the same status as not-found (existence-hiding).
+      if (
+        code === 'NOT_FOUND' ||
+        code === 'NODE_NOT_FOUND' ||
+        code === 'FORBIDDEN' ||
+        code === 'PERMISSION_DENIED'
+      ) {
+        return json(body, { status: 404 });
+      }
     }
-    return json({ code: 'INTERNAL', message: (err as Error).message }, { status: 500 });
+    return json(
+      { code: 'INTERNAL', message: err instanceof Error ? err.message : String(err) },
+      { status: 500 },
+    );
   }
 };

@@ -8,6 +8,7 @@
  * call it with a hand-rolled event, and catch the thrown redirect/error.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClientError } from 'graphql-request';
 
 const mockRequest = vi.fn();
 
@@ -139,5 +140,59 @@ describe('/app/u/[urn] — unresolvable and inaccessible URNs 404', () => {
     });
     await expectRedirect('  urn:memory:acme.com::dev  ');
     expect(mockRequest).toHaveBeenCalledWith(expect.any(String), { urn: 'urn:memory:acme.com::dev' });
+  });
+});
+
+describe('/app/u/[urn] — GraphQL rejections do not surface as 500s (#567)', () => {
+  function clientError(code?: string): ClientError {
+    // graphql-request types the response with full GraphQLError objects and
+    // fetch metadata; the runtime only carries the serialized shape.
+    const response = {
+      errors: [{ message: 'rejected', extensions: code ? { code } : {} }],
+      status: 200,
+    } as unknown as ClientError['response'];
+    return new ClientError(response, { query: 'query', variables: {} });
+  }
+
+  it('400s when the server rejects the URN as invalid input', async () => {
+    mockRequest.mockRejectedValueOnce(clientError('BAD_USER_INPUT'));
+    const r = await expectError('total-garbage');
+    expect(r.status).toBe(400);
+  });
+
+  it('404s (existence-hiding) on known no-access / not-found codes', async () => {
+    for (const code of ['PERMISSION_DENIED', 'FORBIDDEN', 'NOT_FOUND', 'NODE_NOT_FOUND']) {
+      mockRequest.mockRejectedValueOnce(clientError(code));
+      const r = await expectError('urn:memory:acme.com::secret');
+      expect(r.status).toBe(404);
+    }
+  });
+
+  it('redirects to signin on an expired/missing-auth code (mirrors the app hooks)', async () => {
+    mockRequest.mockRejectedValueOnce(clientError('UNAUTHENTICATED'));
+    const r = await expectRedirect('urn:memory:acme.com::dev');
+    expect(r.status).toBe(303);
+    expect(r.location).toBe(`/signin?redirect=${encodeURIComponent('/app/u/urn:memory:acme.com::dev')}`);
+  });
+
+  it('rethrows an internal/unknown GraphQL error code (stays a 500)', async () => {
+    for (const code of ['INTERNAL_SERVER_ERROR', undefined]) {
+      mockRequest.mockRejectedValueOnce(clientError(code));
+      const load = await importLoad();
+      await expect(load(ev('urn:memory:acme.com::dev'))).rejects.toBeInstanceOf(ClientError);
+    }
+  });
+
+  it('rethrows a ClientError with no GraphQL errors payload (transport failure)', async () => {
+    const response = { status: 502 } as unknown as ClientError['response'];
+    mockRequest.mockRejectedValueOnce(new ClientError(response, { query: 'query', variables: {} }));
+    const load = await importLoad();
+    await expect(load(ev('urn:memory:acme.com::dev'))).rejects.toBeInstanceOf(ClientError);
+  });
+
+  it('keeps a non-GraphQL failure a 500 (transient outage ≠ not-found)', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    const load = await importLoad();
+    await expect(load(ev('urn:memory:acme.com::dev'))).rejects.toThrow('ECONNREFUSED');
   });
 });
