@@ -1,6 +1,12 @@
 export interface Memory {
   id: string;
-  organizationId: string;
+  /**
+   * Owning org — NULL for a user-owned (org-less) memory (spec 047: personal /
+   * private memories created with no orgId, `ownerUserId` = caller). The
+   * `chk_memory_owner_xor` constraint makes org and user ownership mutually
+   * exclusive, so this is null exactly when the memory belongs to a user.
+   */
+  organizationId: string | null;
   organization?: OrgSummary;
   urn: string;
   name: string;

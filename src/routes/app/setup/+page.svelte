@@ -10,16 +10,17 @@
   let { data }: { data: PageData } = $props();
 
   const displayName = $derived(data.user?.name ?? (data.user?.handle ? `@${data.user.handle}` : null));
-  // Memory creation is org-scoped AND gated by requireNonConsumer: an individual
-  // (consumer-mode) user — which is exactly who this page targets — gets bounced
-  // straight back to their org dashboard by `/app/orgs/<id>/memories/new`, so the
-  // CTA would be a dead end. Only offer it to non-consumer org members (who can
-  // actually reach the form) until org-less memory creation lands (#627); also
-  // guarded on activeOrgId so it never links to a broken `/app/orgs//…`.
+  // Create-memory CTA target (#627): an individual (consumer / org-less) user
+  // creates a user-owned memory via the org-less /app/memories/new; an org
+  // member creates one under their active org. Both routes exist and are
+  // reachable for their user type — `/app/orgs/<id>/memories/new` is gated by
+  // requireNonConsumer (which is why consumers must NOT be sent there).
   const createMemoryHref = $derived(
-    !data.isConsumerMode && data.activeOrgId
-      ? `/app/orgs/${data.activeOrgId}/memories/new`
-      : null,
+    data.isConsumerMode
+      ? '/app/memories/new'
+      : data.activeOrgId
+        ? `/app/orgs/${data.activeOrgId}/memories/new`
+        : '/app/memories/new',
   );
   const workspaceHref = $derived(
     data.activeOrgId ? `/app/orgs/${data.activeOrgId}` : '/app/marketplace',

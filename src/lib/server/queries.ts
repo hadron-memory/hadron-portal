@@ -685,6 +685,23 @@ export const CREATE_MEMORY_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #627: create a USER-OWNED (org-less) memory. Omitting `orgId` roots the memory
+// on the caller's handle namespace (organizationId NULL, ownerUserId = caller)
+// per spec 047; the org-less path supports only the owner-only classes
+// `personal` / `private` (visibility is auto-derived server-side, so it's not
+// sent). Backs the /app/memories/new individual-user create flow.
+export const CREATE_PERSONAL_MEMORY_MUTATION = /* GraphQL */ `
+  ${MEMORY_FIELDS}
+  mutation CreatePersonalMemory(
+    $name: String!, $description: String, $tags: [String!],
+    $memoryClass: MemoryClass = personal
+  ) {
+    createMemory(name: $name, description: $description, tags: $tags, memoryClass: $memoryClass) {
+      ...MemoryFields
+    }
+  }
+`;
+
 export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation UpdateMemory(
@@ -1785,6 +1802,21 @@ export const MEMORIES_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
   query Memories($limit: Int, $offset: Int) {
     memories(limit: $limit, offset: $offset) {
+      items {
+        ...MemoryFields
+      }
+      total
+    }
+  }
+`;
+
+// #627: the caller's owner-only memories (personal + private). The loader keeps
+// only the USER-OWNED ones (organizationId == null) to present an org-less "My
+// memories" list — org-anchored personal memories still live under their org.
+export const PERSONAL_MEMORIES_QUERY = /* GraphQL */ `
+  ${MEMORY_FIELDS}
+  query PersonalMemories($limit: Int, $offset: Int) {
+    memories(filter: { memoryClasses: [personal, private] }, limit: $limit, offset: $offset) {
       items {
         ...MemoryFields
       }

@@ -32,22 +32,24 @@ describe('/app/setup', () => {
     expect(body).toContain('@ada');
   });
 
-  it('hides the create-memory CTA in consumer mode (requireNonConsumer would bounce it)', () => {
+  it('points the create-memory CTA at the org-less flow in consumer mode (#627)', () => {
     const { body } = render(Page, {
       props: {
         data: { user: { id: 'u1', name: 'Ada' }, activeOrgId: 'org-1', isConsumerMode: true } as never,
       },
     });
-    expect(body).not.toContain('/memories/new');
-    // The marketplace CTA (org-agnostic, always reachable) still renders.
+    // Individuals create a user-owned memory via /app/memories/new — NOT the
+    // org-scoped route (requireNonConsumer would bounce that).
+    expect(body).toContain('href="/app/memories/new"');
+    expect(body).not.toContain('href="/app/orgs/org-1/memories/new"');
     expect(body).toContain('href="/app/marketplace"');
   });
 
-  it('hides the org-scoped create-memory card and points skip at the marketplace when no org resolved', () => {
+  it('uses the org-less create flow and points skip at the marketplace when no org resolved', () => {
     const { body } = render(Page, {
       props: { data: { user: { id: 'u1', name: 'Ada' }, activeOrgId: null } as never },
     });
-    expect(body).not.toContain('/memories/new');
+    expect(body).toContain('href="/app/memories/new"');
     expect(body).toContain('href="/app/marketplace"');
     expect(body).not.toContain('href="/app/orgs/');
   });

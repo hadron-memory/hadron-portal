@@ -27,9 +27,14 @@ export const load: PageServerLoad = async ({ url, parent }) => {
   const layout = await parent() as unknown as {
     isConsumerMode?: boolean;
     activeOrgId?: string | null;
+    graph?: { organizationId?: string | null };
     graphNodes?: MemoryNode[];
   };
-  if (layout.isConsumerMode) {
+  // #627: mirror requireNonConsumer's exemption — a consumer may author nodes in
+  // a memory they own directly (org-less, organizationId == null). Only bounce
+  // them from org-scoped memories; write access is enforced at createNode.
+  const ownsOrglessMemory = !!layout.graph && layout.graph.organizationId == null;
+  if (layout.isConsumerMode && !ownsOrglessMemory) {
     redirect(303, layout.activeOrgId ? `/app/orgs/${layout.activeOrgId}/` : '/app/orgs/');
   }
 
