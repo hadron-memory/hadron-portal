@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { optionalHttpUrl } from '$lib/forms/zod-validators';
+import { JSON_FIELD_MAX, optionalHttpUrl } from '$lib/forms/zod-validators';
 import { MemorySchemaError, parseMemorySchema } from '$lib/schema/memory-schema';
 import { toBareMemorySlugInput, validateMemorySlugField } from '$lib/urn/form-validation';
 
@@ -69,9 +69,9 @@ export const vectorIndexSettingsSchema = z.object({
   acknowledgeVectorInversionRisk: booleanString.default(false),
 });
 
-// #588: mirror of the node-detail Data tab's soft size cap — keeps a
-// pathological paste from hitting the adapter-node body limit's opaque error.
-export const SCHEMA_JSON_MAX = 256 * 1024;
+// #588: the shared JSON-payload soft size cap (alias, not a copy — PR #613
+// review flagged the drift risk of two independent 256KB constants).
+export const SCHEMA_JSON_MAX = JSON_FIELD_MAX;
 
 // #588 (server #725): the memory property schema, edited as raw JSON (v1).
 // Empty = clear the schema (the action sends null). The client-side

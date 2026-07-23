@@ -5,9 +5,10 @@
   // - A declared collection (the node's objectType names an entry in the
   //   memory schema): one typed input per declared field — text / number /
   //   datetime / boolean / enum — with required markers. Undeclared keys
-  //   already present on the node are preserved through the round-trip and
-  //   shown read-only (they're legal when the collection isn't strict; the
-  //   server rejects them on a strict one).
+  //   already present on the node are preserved through the round-trip,
+  //   shown read-only, and individually REMOVABLE (they're legal when the
+  //   collection isn't strict; a strict collection rejects them server-side,
+  //   so removal is the migration path onto a strict type — PR #613 review).
   // - No declared collection (free-form objectType, or no schema): a raw
   //   JSON-object textarea, mirroring the node-detail Data tab's editor.
   //
@@ -67,11 +68,20 @@
     )),
   );
 
-  // Undeclared keys present on the node — preserved verbatim on save.
-  const extras = untrack(() => Object.fromEntries(
+  // Undeclared keys present on the node — preserved verbatim on save unless
+  // the user removes them (removal unblocks migrating onto a strict
+  // collection, whose server validation rejects unknown keys).
+  let extras = $state<Record<string, unknown>>(untrack(() => Object.fromEntries(
     Object.entries(initial).filter(([k]) => !declaredNames.has(k)),
-  ));
-  const extrasJson = Object.keys(extras).length > 0 ? JSON.stringify(extras, null, 2) : '';
+  )));
+  const extraEntries = $derived(Object.entries(extras));
+
+  function removeExtra(name: string) {
+    const next = { ...extras };
+    delete next[name];
+    extras = next;
+    syncTyped();
+  }
 
   function fieldError(name: string): string | null {
     if (!declared) return null;
@@ -80,7 +90,10 @@
     if (!raw) return field.required ? t('properties-editor.error.required', 'Required.') : null;
     switch (field.type) {
       case 'number':
-        return Number.isNaN(Number(raw)) ? t('properties-editor.error.not-a-number', 'Not a number.') : null;
+        // Number.isFinite (not just !NaN): '1e309' coerces to Infinity, which
+        // JSON.stringify would serialize as null — silent payload corruption
+        // (PR #613 review).
+        return Number.isFinite(Number(raw)) ? null : t('properties-editor.error.not-a-number', 'Not a number.');
       case 'datetime':
         return Number.isNaN(Date.parse(raw))
           ? t('properties-editor.error.not-a-datetime', 'Not a valid date/time (use ISO-8601, e.g. 2026-07-20T12:00:00Z).')
@@ -187,13 +200,24 @@
       </div>
     {/each}
 
-    {#if extrasJson}
+    {#if extraEntries.length > 0}
       <div>
         <p class="mb-1 text-xs text-zinc-500 dark:text-zinc-400">
           {t('properties-editor.extras.label', 'Other properties')}
-          <span class="text-zinc-400 dark:text-zinc-500">{t('properties-editor.extras.note', '(not declared for this object type — preserved on save)')}</span>
+          <span class="text-zinc-400 dark:text-zinc-500">{t('properties-editor.extras.note', '(not declared for this object type — kept on save unless removed)')}</span>
         </p>
-        <pre class="overflow-x-auto rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">{extrasJson}</pre>
+        <div class="space-y-1">
+          {#each extraEntries as [name, extraValue] (name)}
+            <div class="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 font-mono text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-400">
+              <span class="shrink-0">{name}:</span>
+              <span class="min-w-0 truncate">{JSON.stringify(extraValue)}</span>
+              <button type="button" onclick={() => removeExtra(name)}
+                aria-label={t('properties-editor.extras.remove', 'Remove property') + ` ${name}`}
+                title={t('properties-editor.extras.remove', 'Remove property')}
+                class="ml-auto shrink-0 text-red-400 hover:text-red-300">&times;</button>
+            </div>
+          {/each}
+        </div>
       </div>
     {/if}
   </div>
