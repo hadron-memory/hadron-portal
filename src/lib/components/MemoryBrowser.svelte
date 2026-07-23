@@ -6,7 +6,7 @@
   import { page } from '$app/stores';
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
@@ -382,7 +382,14 @@
   let resultsVersion = $state(0);
   function setServerResults(v: MemoryNode[] | null) {
     serverResults = v;
-    resultsVersion++;
+    // `resultsVersion++` is a read-modify-write of a $state. setServerResults is
+    // called SYNCHRONOUSLY from the debounce $effect below (the serverViewActive
+    // reset branch fires on every load), so a plain `++` would read resultsVersion
+    // inside that effect's reactive scope — subscribing the effect to a signal it
+    // then writes, an immediate self-invalidation loop (effect_update_depth_exceeded,
+    // #619). untrack the read so the counter still bumps for the graph {#key} but
+    // never becomes a dependency of the caller.
+    resultsVersion = untrack(() => resultsVersion) + 1;
   }
   // #531: mirror the server content-search hits (as node PKs) into the shared
   // tree/graph filter, so the Tree pane scopes to the SAME matches the table
