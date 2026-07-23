@@ -250,7 +250,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
       const detail = (e as { response?: { errors?: Array<{ message?: string }> } })
         ?.response?.errors?.[0]?.message;
-      return json({ error: detail || 'Invalid search pattern.' }, { status: 400 });
+      // Fallback copy matches what the request actually carried — a
+      // message-less rejection of a where/sortProperty request shouldn't
+      // blame the search pattern (PR #616 review).
+      const fallback = where || sortProp ? 'Invalid filter or sort.' : 'Invalid search pattern.';
+      return json({ error: detail || fallback }, { status: 400 });
     }
     // Log detail server-side; return a generic message so GraphQL/DB internals
     // (query shapes, schema, server state) aren't leaked to the client (PR #358

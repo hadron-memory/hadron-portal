@@ -280,6 +280,17 @@ describe('/api/nodes/search (#429)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('#589: a message-less BAD_USER_INPUT on a structured request falls back to filter/sort copy', async () => {
+    mockRequest.mockRejectedValueOnce(
+      Object.assign(new Error('boom'), {
+        response: { errors: [{ extensions: { code: 'BAD_USER_INPUT' } }] },
+      }),
+    );
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { where: { path: ['x'], eq: 1 } } }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Invalid filter or sort.');
+  });
+
   it("#589: a server where-grammar rejection (BAD_USER_INPUT) surfaces the server's message", async () => {
     mockRequest.mockRejectedValueOnce(
       Object.assign(new Error('where: depth exceeds 4'), {

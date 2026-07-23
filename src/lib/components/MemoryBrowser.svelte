@@ -367,6 +367,16 @@
 
   // Server search results: null = not in server view (show the normal browse set).
   let serverResults = $state<MemoryNode[] | null>(null);
+  // #616 review (Codex): TopicGraph builds its vis datasets in onMount, so the
+  // {#key} guarding it must change whenever the working set does — but a
+  // structured where/objectType change can return a DIFFERENT set of the SAME
+  // size, which none of the key's other terms see. Bump a version on every
+  // serverResults assignment (via setServerResults) and include it in the key.
+  let resultsVersion = $state(0);
+  function setServerResults(v: MemoryNode[] | null) {
+    serverResults = v;
+    resultsVersion++;
+  }
   // #531: mirror the server content-search hits (as node PKs) into the shared
   // tree/graph filter, so the Tree pane scopes to the SAME matches the table
   // lists. TreeView's own filter is name/id-substring only and would hide a
@@ -413,7 +423,7 @@
     fields: string[],
     signal?: AbortSignal,
   ) {
-    if (memoryIds.length === 0) { serverResults = []; searching = false; return; }
+    if (memoryIds.length === 0) { setServerResults([]); searching = false; return; }
     const seq = ++searchSeq;
     searching = true;
     searchError = null;
@@ -430,8 +440,8 @@
       });
       const data = await res.json();
       if (seq !== searchSeq) return; // a newer request superseded this one
-      if (!res.ok) { searchError = data.error ?? 'Search failed'; serverResults = []; return; }
-      serverResults = data.nodes ?? [];
+      if (!res.ok) { searchError = data.error ?? 'Search failed'; setServerResults([]); return; }
+      setServerResults(data.nodes ?? []);
       searchNote = data.note ?? null;
       searchCapped = !!data.capped;
       searchSnippets = data.snippets ?? {};
@@ -440,7 +450,7 @@
       if (e instanceof Error && e.name === 'AbortError') return; // superseded / destroyed
       if (seq !== searchSeq) return;
       searchError = e instanceof Error ? e.message : 'Search failed';
-      serverResults = [];
+      setServerResults([]);
     } finally {
       if (seq === searchSeq) searching = false;
     }
@@ -459,7 +469,7 @@
     const fieldsStr = searchFieldsStr; // tracked dep; '' when non-lexical
     if (!serverViewActive) {
       searchSeq++;
-      serverResults = null;
+      setServerResults(null);
       searching = false;
       searchError = null;
       searchNote = null;
@@ -474,7 +484,7 @@
     // grammar rejections still arrive as a 400 through searchError).
     if (whereError) {
       searchSeq++;
-      serverResults = [];
+      setServerResults([]);
       searching = false;
       searchError = whereError;
       searchNote = null;
@@ -490,7 +500,7 @@
         new RegExp(q);
       } catch {
         searchSeq++;
-        serverResults = [];
+        setServerResults([]);
         searching = false;
         searchError = 'Invalid regex pattern.';
         searchNote = null;
@@ -952,8 +962,11 @@
           <div>
             <label for="structured-sort-path" class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Sort by property <span class="font-normal text-zinc-400">(overrides the Sort dropdown)</span></label>
             <div class="flex items-center gap-1.5">
+              <!-- oninput (not onchange): the debounced fetch effect reacts to
+                   the path immediately, so the cast must sync before it fires
+                   (PR #616 review). -->
               <input id="structured-sort-path" type="text" bind:value={sortPropPath}
-                onchange={syncSortCastFromSchema}
+                oninput={syncSortCastFromSchema}
                 list={declaredFieldNames.length > 0 ? 'structured-field-suggestions' : undefined}
                 placeholder="path, e.g. fundingUsd"
                 class="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2 py-1.5 font-mono text-xs text-zinc-900 placeholder-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-500" />
@@ -1170,7 +1183,9 @@
 
       <div class="min-w-0 flex-1 overflow-hidden {treeOpen ? 'rounded-r-lg' : 'rounded-lg'} border border-zinc-200 dark:border-zinc-800">
         <div style="display: flex; height: 100%;">
-          {#key filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
+          <!-- resultsVersion (#616): re-mount when the server working set
+               changes, even at the same size — see setServerResults. -->
+          {#key resultsVersion + ':' + filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
             <TopicGraph data={graphViewData} {focusId} {basePath} />
           {/key}
         </div>
