@@ -1,41 +1,56 @@
 /**
- * Spec 014 T009 — /app/memories redirector tests (FR-008 / R-4).
+ * #627: /app/memories index loader. Org members keep the spec-014 (T009 / FR-008)
+ * redirect to their org grid; consumer / org-less users instead get a list of the
+ * memories they own (org-less), with org-owned memories filtered out.
  */
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mockFetchAll = vi.fn();
+vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: vi.fn() }) }));
+vi.mock('$lib/server/paginate', () => ({ fetchAllItems: (...a: unknown[]) => mockFetchAll(...a) }));
+
+beforeEach(() => mockFetchAll.mockReset());
 
 async function importLoad() {
-  const mod = await import('./+page.server');
-  return mod.load;
+  return (await import('./+page.server')).load;
 }
 
-function ev(activeOrgId: string | null) {
+function ev(parentData: Record<string, unknown>) {
   return {
-    parent: async () => ({ activeOrgId }),
-  } as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+    parent: async () => parentData,
+    locals: { token: 't' },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
-describe('/app/memories redirector', () => {
-  it('302s to /app/orgs/<active>/memories when an active org resolved', async () => {
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev('org-x'));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(302);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-x/memories');
+async function runLoad(parentData: Record<string, unknown>) {
+  const load = await importLoad();
+  try {
+    return await load(ev(parentData));
+  } catch (e) {
+    return e; // redirect throws
+  }
+}
+
+describe('/app/memories index loader (#627)', () => {
+  it('302s an org member to their active org memories grid (spec-014 T009)', async () => {
+    const result = await runLoad({ isConsumerMode: false, activeOrgId: 'org-x' });
+    expect(result).toMatchObject({ status: 302, location: '/app/orgs/org-x/memories' });
+    expect(mockFetchAll).not.toHaveBeenCalled();
   });
 
-  it('303s to /app/orgs/ when no active org could be resolved (defensive)', async () => {
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev(null));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(303);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/');
+  it("lists a consumer user's org-less memories (filters out org-owned ones)", async () => {
+    mockFetchAll.mockResolvedValue([
+      { id: 'a', name: 'mine', organizationId: null },
+      { id: 'b', name: 'org one', organizationId: 'org-9' },
+    ]);
+    const result = await runLoad({ isConsumerMode: true, activeOrgId: 'org-personal' });
+    expect(result).toMatchObject({ memories: [{ id: 'a' }] });
+    expect((result as { memories: unknown[] }).memories).toHaveLength(1);
+  });
+
+  it('lists memories for an org-less user (no active org — no longer a 303 dead-end)', async () => {
+    mockFetchAll.mockResolvedValue([{ id: 'a', name: 'mine', organizationId: null }]);
+    const result = await runLoad({ isConsumerMode: false, activeOrgId: null });
+    expect(result).toMatchObject({ memories: [{ id: 'a' }] });
   });
 });
