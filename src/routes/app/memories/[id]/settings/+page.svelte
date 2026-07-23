@@ -8,14 +8,22 @@
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
+  import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { PageData, ActionData } from './$types';
-  import { deleteMemorySchema, memorySettingsSchema, vectorIndexSettingsSchema } from './schema';
+  import {
+    deleteMemorySchema,
+    memorySchemaSettingsSchema,
+    memorySettingsSchema,
+    vectorIndexSettingsSchema,
+  } from './schema';
 
   type MemorySettingsForm = Infer<typeof memorySettingsSchema, 'zod4'>;
   type VectorIndexSettingsForm = Infer<typeof vectorIndexSettingsSchema, 'zod4'>;
+  type MemorySchemaSettingsForm = Infer<typeof memorySchemaSettingsSchema, 'zod4'>;
   type DeleteMemoryForm = Infer<typeof deleteMemorySchema, 'zod4'>;
   type MemorySettingsSuperform = SuperValidated<MemorySettingsForm, App.Superforms.Message, MemorySettingsForm>;
   type VectorIndexSettingsSuperform = SuperValidated<VectorIndexSettingsForm, App.Superforms.Message, VectorIndexSettingsForm>;
+  type MemorySchemaSettingsSuperform = SuperValidated<MemorySchemaSettingsForm, App.Superforms.Message, MemorySchemaSettingsForm>;
   type DeleteMemorySuperform = SuperValidated<DeleteMemoryForm, App.Superforms.Message, DeleteMemoryForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -202,6 +210,67 @@
       }
     },
   });
+  // ── Property schema (#588 / server #725) ────────────────────────────
+  const initialSchemaForm = untrack(() => submittedForm<MemorySchemaSettingsForm>(form, 'updateSchema') as MemorySchemaSettingsSuperform | null ?? data.schemaForm);
+  const {
+    form: schemaForm,
+    errors: schemaErrors,
+    message: schemaMessage,
+    submitting: schemaSubmitting,
+    enhance: schemaEnhance,
+  } = superForm<MemorySchemaSettingsForm, App.Superforms.Message, MemorySchemaSettingsForm>(initialSchemaForm, {
+    validators: zod4Client(memorySchemaSettingsSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onResult: ({ result }) => {
+      if (result.type === 'success') confirmSchemaClear = false;
+    },
+  });
+
+  const storedSchemaJson = $derived(g.schema != null ? JSON.stringify(g.schema, null, 2) : '');
+
+  // Resync the editor when the page data changes (after a successful save,
+  // invalidateAll reloads `g`) — same pattern as the vector-index resync.
+  // The user's in-progress edit is never clobbered mid-edit because `g.*`
+  // only changes on navigation/invalidate.
+  $effect(() => {
+    const next = storedSchemaJson;
+    schemaForm.update((current) => (
+      current.schemaJson === next ? current : { ...current, schemaJson: next }
+    ), { taint: false });
+  });
+
+  const schemaFieldError = $derived($schemaErrors.schemaJson?.[0] ?? null);
+  const schemaDirty = $derived($schemaForm.schemaJson.trim() !== storedSchemaJson.trim());
+  const schemaEmpty = $derived($schemaForm.schemaJson.trim() === '');
+  // Declared collections summary — best-effort read of the CURRENT editor
+  // value when it validates, else of the stored schema.
+  const declaredCollections = $derived.by(() => {
+    if (!schemaFieldError && !schemaEmpty) {
+      try {
+        return objectTypeNames(readMemorySchema(JSON.parse($schemaForm.schemaJson)));
+      } catch {
+        // fall through to the stored value while the editor holds partial JSON
+      }
+    }
+    return objectTypeNames(readMemorySchema(g.schema));
+  });
+  const schemaActionError = $derived(scopedActionError<MemorySchemaSettingsForm>(form, 'updateSchema', $schemaMessage, $schemaErrors));
+  const schemaActionSuccess = $derived(scopedActionSuccess<MemorySchemaSettingsForm>(form, 'updateSchema', $schemaMessage));
+  let confirmSchemaClear = $state(false);
+  let schemaFormEl: HTMLFormElement;
+  // Clearing an existing schema is a meaningful downgrade (nodes stop being
+  // validated; typed editors fall back to free-form JSON) — confirm first,
+  // mirroring the vector-index revoke flow.
+  const schemaIsClearing = $derived(schemaEmpty && storedSchemaJson !== '');
+
+  function attemptSchemaSave() {
+    if (schemaIsClearing && !confirmSchemaClear) { confirmSchemaClear = true; return; }
+    schemaFormEl.requestSubmit();
+  }
+
   const initialDeleteForm = untrack(() => submittedForm<DeleteMemoryForm>(form, 'deleteMemory') as DeleteMemorySuperform | null ?? data.deleteForm);
   const {
     form: deleteForm,
@@ -588,6 +657,86 @@
           <button type="button" onclick={attemptVectorSave} disabled={$vectorSubmitting || !viDirty}
             class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
             {$vectorSubmitting ? 'Saving...' : 'Save vector index settings'}
+          </button>
+        </div>
+      {/if}
+    </form>
+  </section>
+
+  <!-- #588 (server #725): Property schema — declared collections + typed
+       fields for structured storage. v1 is a validated raw-JSON editor; a
+       structured form-builder is a fast-follow. -->
+  <section class="max-w-lg">
+    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Property schema</h2>
+    <form bind:this={schemaFormEl} method="POST" action="?/updateSchema" use:schemaEnhance
+      class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
+      <input type="hidden" name="_kind" value={$schemaForm._kind} />
+
+      {#if schemaActionError}
+        <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{schemaActionError}</div>
+      {:else if schemaActionSuccess}
+        <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{schemaActionSuccess}</div>
+      {/if}
+
+      <p class="text-xs text-zinc-500 dark:text-zinc-400">
+        Declares the collections (object types) this memory holds and the typed
+        fields each carries. Nodes tagged with a declared object type get typed
+        property editors, and their properties are validated on write. Leave
+        empty for an unstructured memory.
+      </p>
+
+      {#if declaredCollections.length > 0}
+        <div class="flex flex-wrap items-center gap-1.5">
+          <span class="text-xs text-zinc-500 dark:text-zinc-400">Collections:</span>
+          {#each declaredCollections as name (name)}
+            <span class="rounded-full bg-indigo-100 px-2 py-0.5 font-mono text-xs text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">{name}</span>
+          {/each}
+        </div>
+      {/if}
+
+      <div>
+        <label for="schemaJson" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Schema (JSON)</label>
+        <textarea id="schemaJson" name="schemaJson" rows="12" bind:value={$schemaForm.schemaJson}
+          aria-invalid={!!schemaFieldError}
+          aria-describedby={schemaFieldError ? 'schemaJsonError' : 'schemaJsonHint'}
+          spellcheck="false"
+          placeholder={'{\n  "objectTypes": {\n    "competitor": {\n      "fields": {\n        "name": { "type": "text", "required": true },\n        "stage": { "type": "enum", "values": ["seed", "series-a"] },\n        "firstSeen": { "type": "datetime" }\n      }\n    }\n  }\n}'}
+          class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-600 {schemaFieldError ? 'border-red-500 focus:border-red-500' : ''}"
+          style="resize: vertical;"></textarea>
+        {#if schemaFieldError}
+          <p id="schemaJsonError" class="mt-1 text-xs text-red-600 dark:text-red-400">{schemaFieldError}</p>
+        {:else}
+          <p id="schemaJsonHint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            Field types: text, number, datetime, boolean, enum (with values).
+            A declared field's type is also its query cast.
+          </p>
+        {/if}
+      </div>
+
+      <!-- Clear confirmation — removing the schema stops write-time validation
+           and downgrades typed editors to free-form JSON. -->
+      {#if confirmSchemaClear}
+        <div class="space-y-3 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/40">
+          <p class="text-sm text-red-700 dark:text-red-300">
+            Remove this memory's schema? Node properties stop being validated on
+            write, and typed property editors fall back to free-form JSON.
+            Existing node properties are not changed.
+          </p>
+          <div class="flex gap-2">
+            <button type="button" disabled={$schemaSubmitting} onclick={() => schemaFormEl.requestSubmit()}
+              class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">
+              {$schemaSubmitting ? 'Saving...' : 'Remove schema'}
+            </button>
+            <button type="button" onclick={() => (confirmSchemaClear = false)}
+              class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
+          </div>
+        </div>
+      {:else}
+        <div>
+          <button type="button" onclick={attemptSchemaSave}
+            disabled={$schemaSubmitting || !schemaDirty || !!schemaFieldError}
+            class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+            {$schemaSubmitting ? 'Saving...' : 'Save schema'}
           </button>
         </div>
       {/if}

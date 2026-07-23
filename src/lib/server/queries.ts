@@ -31,6 +31,9 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     chunkOverlap
     forceFixedSize
     vectorIndexEncryptedAckAt
+    # #588 (server #725): opt-in per-memory property schema — declared
+    # collections + typed fields. NULL = unstructured.
+    schema
     userId
     userMemoryOfAgentId
     anonymousExpiresAt
@@ -692,7 +695,8 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
     $source: String, $readBranch: String, $writeBranch: String, $visibility: MemoryVisibility,
     $vectorIndexEnabled: Boolean, $embeddingSource: EmbeddingSource,
     $acknowledgeVectorInversionRisk: Boolean,
-    $chunkTokens: Int, $chunkOverlap: Int, $forceFixedSize: Boolean
+    $chunkTokens: Int, $chunkOverlap: Int, $forceFixedSize: Boolean,
+    $schema: JSON
   ) {
     updateMemory(
       id: $id, name: $name, urn: $urn, organizationId: $organizationId, shortDescription: $shortDescription, description: $description,
@@ -703,7 +707,8 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
       visibility: $visibility,
       vectorIndexEnabled: $vectorIndexEnabled, embeddingSource: $embeddingSource,
       acknowledgeVectorInversionRisk: $acknowledgeVectorInversionRisk,
-      chunkTokens: $chunkTokens, chunkOverlap: $chunkOverlap, forceFixedSize: $forceFixedSize
+      chunkTokens: $chunkTokens, chunkOverlap: $chunkOverlap, forceFixedSize: $forceFixedSize,
+      schema: $schema
     ) { ...MemoryFields }
   }
 `;
@@ -1457,6 +1462,10 @@ export const NODE_FIELDS = /* GraphQL */ `
     memoryId
     memory { id urn name }
     nodeType
+    # #588 (server #725): collection discriminator (which domain object this
+    # node is, e.g. "competitor"). NULL for an ordinary node. Orthogonal to
+    # nodeType. The typed record itself (properties) stays detail-only.
+    objectType
     loc
     name
     alias

@@ -43,6 +43,38 @@ export function orgSlugField(requiredMessage = 'Organization URN is required.') 
     });
 }
 
+// #588: soft size cap for JSON payload fields, mirroring the node-detail Data
+// tab — keeps a pathological paste from hitting the adapter-node body limit's
+// opaque error.
+export const JSON_FIELD_MAX = 256 * 1024;
+
+// #588: a form field holding a serialized JSON object ('' = none). Used for
+// node `properties` payloads (create/edit). Parser failures become field
+// errors per review:form-schema-parser-errors.
+export function jsonObjectField(label = 'Value') {
+  return z.string().default('').superRefine((value, ctx) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    if (value.length > JSON_FIELD_MAX) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `${label} is too large (${Math.round(value.length / 1024)} KB / ${JSON_FIELD_MAX / 1024} KB max).`,
+      });
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      ctx.addIssue({ code: 'custom', message: 'Not valid JSON.' });
+      return;
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      ctx.addIssue({ code: 'custom', message: `${label} must be a JSON object.` });
+    }
+  });
+}
+
 export function handleField() {
   return z
     .string()

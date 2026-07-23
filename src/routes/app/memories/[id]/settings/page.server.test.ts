@@ -667,3 +667,100 @@ describe('memory-detail `update` action — URN collision pre-check', () => {
     expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 });
+
+// ── Tests for the `updateSchema` action (#588 / server #725) ─────────────
+
+/** RequestEvent-shaped object carrying form data for the schema action. */
+function schemaEv(form: Record<string, string>) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(form)) fd.append(k, v);
+  return {
+    params: { id: 'mem-id-abc' },
+    locals: { token: 'test-token' },
+    request: { formData: async () => fd },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['updateSchema']>[0];
+}
+
+describe('memory-detail `updateSchema` action (#588)', () => {
+  const VALID_SCHEMA = JSON.stringify({
+    objectTypes: { competitor: { fields: { name: { type: 'text', required: true } } } },
+  });
+
+  it('sends the parsed schema through updateMemory and returns success', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    const result = await actions.updateSchema(schemaEv({ schemaJson: VALID_SCHEMA }));
+
+    expect(successMessage(result)).toEqual({ type: 'success', text: 'Schema saved.' });
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars).toEqual({
+      id: 'mem-id-abc',
+      schema: JSON.parse(VALID_SCHEMA),
+    });
+  });
+
+  it('sends null to clear the schema when the editor is empty', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    const result = await actions.updateSchema(schemaEv({ schemaJson: '   ' }));
+
+    expect(successMessage(result)).toEqual({ type: 'success', text: 'Schema removed.' });
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.schema).toBeNull();
+  });
+
+  it('rejects malformed JSON as a field error before calling the API', async () => {
+    const actions = await importActions();
+
+    const result = await actions.updateSchema(schemaEv({ schemaJson: '{ not json' }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'schemaJson')).toBe('Not valid JSON.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a structurally invalid schema as a field error before calling the API', async () => {
+    const actions = await importActions();
+
+    const result = await actions.updateSchema(schemaEv({
+      schemaJson: JSON.stringify({ objectTypes: { c: { fields: {} } } }),
+    }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'schemaJson')).toMatch(/non-empty "fields"/);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the server's BAD_USER_INPUT verdict verbatim on the field", async () => {
+    // The client mirror and the server validator can drift — the server's
+    // verdict must still land as an actionable field error.
+    mockRequest.mockRejectedValueOnce({
+      response: {
+        errors: [{
+          message: 'updateMemory.schema: unknown key "requird" in field "name"',
+          extensions: { code: 'BAD_USER_INPUT' },
+        }],
+      },
+    });
+    const actions = await importActions();
+
+    const result = await actions.updateSchema(schemaEv({ schemaJson: VALID_SCHEMA }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'schemaJson')).toBe('updateMemory.schema: unknown key "requird" in field "name"');
+  });
+
+  it('returns a form-level error message on non-input server failures', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL' } }] },
+    });
+    const actions = await importActions();
+
+    const result = await actions.updateSchema(schemaEv({ schemaJson: VALID_SCHEMA }));
+
+    expect(result).toMatchObject({ status: 500 });
+    expect(successMessage(result)).toEqual({ type: 'error', text: 'boom' });
+  });
+});

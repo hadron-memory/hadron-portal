@@ -40,6 +40,10 @@ export interface Memory {
   chunkOverlap?: number | null;
   forceFixedSize?: boolean;
   vectorIndexEncryptedAckAt?: string | null;
+  // #588 (server #725): opt-in per-memory property schema — declared
+  // collections + typed fields. NULL = unstructured. Parse with
+  // readMemorySchema() ($lib/schema/memory-schema) before driving editors.
+  schema?: Record<string, unknown> | null;
   userId?: string | null;
   userMemoryOfAgentId?: string | null;
   anonymousExpiresAt?: string | null;
@@ -320,6 +324,10 @@ export interface MemoryNode {
   id: string;
   memoryId: string;
   nodeType: string;
+  // #588 (server #725): collection discriminator (which domain object this
+  // node is, e.g. "competitor"). Null for an ordinary node; orthogonal to
+  // nodeType.
+  objectType?: string | null;
   loc: string;
   name: string;
   alias: string | null;

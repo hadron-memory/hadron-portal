@@ -25,6 +25,7 @@
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { t } from '$lib/i18n/t';
   import { NODE_TYPES, isCanonicalNodeType } from '$lib/node-types';
+  import { declaredObjectType, readMemorySchema } from '$lib/schema/memory-schema';
   import {
     EXTRACTION_SHAPES,
     extractionFieldError,
@@ -835,13 +836,43 @@
   }
   const highlightedData = $derived(renderedJson != null ? highlightJson(renderedJson) : []);
 
-  // ── Properties (#518) ───────────────────────────────────────────────────
-  // Node.properties is structured key-value metadata, often server-set
-  // provenance (properties.url / .title from the write seam). Read-only here —
-  // it's not user-authored free-form like Node.data, so the tab only shows it.
+  // ── Properties (#518, typed table #588) ─────────────────────────────────
+  // Node.properties is structured key-value metadata — server-set provenance
+  // (properties.url / .title from the write seam) or, with a memory schema
+  // (#725), the node's typed record. Read-only here; authoring lives on the
+  // edit page's Structured storage section.
   const hasProperties = $derived(node.properties != null);
   const propertiesString = $derived(hasProperties ? JSON.stringify(node.properties, null, 2) : '');
   const highlightedProperties = $derived(hasProperties ? highlightJson(propertiesString) : []);
+  // #588: when the node's objectType names a declared collection, render a
+  // typed field table (declared fields first, then any extra keys).
+  const nodeDeclaredCollection = $derived(
+    declaredObjectType(readMemorySchema(data.graph.schema), node.objectType || null),
+  );
+  interface TypedPropertyRow {
+    name: string;
+    type: string;
+    required: boolean;
+    declared: boolean;
+    value: unknown;
+    present: boolean;
+  }
+  const typedPropertyRows = $derived.by((): TypedPropertyRow[] => {
+    if (!nodeDeclaredCollection) return [];
+    const props = (node.properties ?? {}) as Record<string, unknown>;
+    const declared = Object.entries(nodeDeclaredCollection.fields).map(([name, field]) => ({
+      name,
+      type: field.type as string,
+      required: field.required ?? false,
+      declared: true,
+      value: props[name],
+      present: name in props,
+    }));
+    const extras = Object.keys(props)
+      .filter((k) => !(k in nodeDeclaredCollection.fields))
+      .map((name) => ({ name, type: '', required: false, declared: false, value: props[name], present: true }));
+    return [...declared, ...extras];
+  });
   let copiedProperties = $state(false);
   async function copyProperties() {
     if (!hasProperties) return;
@@ -1320,6 +1351,10 @@
           </svg>
         {/if}
         <span><span class="text-zinc-400 font-normal">{node.isRunnable ? createNodeStrings.taskNodeCaption() : createNodeStrings.nodeCaption()}</span> {node.name}</span>
+        <!-- #588 (server #725): collection discriminator badge. -->
+        {#if node.objectType}
+          <span class="rounded-full bg-indigo-100 px-2 py-0.5 font-mono text-xs font-normal text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300" title={t('node.object-type.badge-title', 'Object type (collection)')}>{node.objectType}</span>
+        {/if}
       </h1>
       <Urn value={fullUrn} type="node" />
       {#if node.description}
@@ -1882,8 +1917,45 @@
       {/if}
     {/if}
 
-    <!-- ═══ PROPERTIES TAB (#518) — read-only structured metadata ═══ -->
+    <!-- ═══ PROPERTIES TAB (#518, typed table #588) — read-only structured metadata ═══ -->
     {#if activeTab === 'properties'}
+      <!-- #588: typed view when the node's objectType names a declared
+           collection — declared fields (with type + required markers) first,
+           then any extra keys. The raw JSON view below stays authoritative. -->
+      {#if typedPropertyRows.length > 0}
+        <div class="mt-3 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-zinc-200 bg-zinc-50 text-left text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+                <th class="px-3 py-2 font-medium">{t('node.properties.col-field', 'Field')}</th>
+                <th class="px-3 py-2 font-medium">{t('node.properties.col-type', 'Type')}</th>
+                <th class="px-3 py-2 font-medium">{t('node.properties.col-value', 'Value')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each typedPropertyRows as row (row.name)}
+                <tr class="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
+                  <td class="px-3 py-2 font-mono text-xs text-zinc-700 dark:text-zinc-300">
+                    {row.name}{#if row.required}<span class="text-red-500" title={t('node.properties.required', 'Required')}>*</span>{/if}
+                  </td>
+                  <td class="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    {#if row.declared}{row.type}{:else}<span class="italic">{t('node.properties.undeclared', 'not declared')}</span>{/if}
+                  </td>
+                  <td class="px-3 py-2 font-mono text-xs text-zinc-900 dark:text-white">
+                    {#if !row.present}
+                      <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{row.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—')}</span>
+                    {:else if typeof row.value === 'object'}
+                      {JSON.stringify(row.value)}
+                    {:else}
+                      {String(row.value)}
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
       {#if hasProperties}
         <div class="flex items-center justify-end">
           <button onclick={copyProperties} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('node.properties.copy', 'Copy properties')}>
@@ -1895,11 +1967,15 @@
           </button>
         </div>
         <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedProperties as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
-      {:else}
+      {:else if typedPropertyRows.length === 0}
         <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
           <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.properties.empty', 'No properties. Node.properties holds structured key-value metadata (often server-set, e.g. source URL or title).')}</p>
         </div>
       {/if}
+      <!-- #588: authoring lives on the edit page's Structured storage section. -->
+      <div class="mt-3">
+        <a href="{basePath}/nodes/{node.id}/edit" class="text-sm text-indigo-500 hover:underline dark:text-indigo-400">{t('node.properties.edit-link', 'Edit object type & properties')}</a>
+      </div>
     {/if}
 
     <!-- ═══ FLOW TAB (#478) ═══ -->

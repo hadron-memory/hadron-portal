@@ -3,7 +3,9 @@
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import PropertiesEditor from '$lib/components/PropertiesEditor.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import { deriveDefaultLoc } from '$lib/create-node/derive-default-loc';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
@@ -58,6 +60,17 @@
   const locError = $derived($errors.loc?.[0] ?? null);
   const nodeTypeError = $derived($errors.nodeType?.[0] ?? null);
   const actionError = $derived($message?.type === 'error' ? $message.text : null);
+
+  // #588 (server #725): structured storage. With a memory schema, objectType
+  // is a picker over the declared collections (an undeclared value would be
+  // rejected server-side); without one it's free text. When the chosen
+  // objectType names a declared collection, PropertiesEditor renders typed
+  // fields; otherwise a free-form JSON editor.
+  const memorySchema = $derived(readMemorySchema(memory.schema));
+  const collectionNames = $derived(objectTypeNames(memorySchema));
+  const declaredCollection = $derived(declaredObjectType(memorySchema, $formData.objectType || null));
+  const propertiesError = $derived($errors.propertiesJson?.[0] ?? null);
+  let propertiesInvalid = $state(false);
 
   // Auto-derive loc from name until the user manually edits the loc field.
   // Once they do, name changes don't overwrite their choice. The loc field
@@ -196,6 +209,44 @@
       {/if}
     </div>
 
+    <!-- #588 (server #725): collection discriminator + typed properties. -->
+    <div>
+      <label for="objectType" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
+        {createNodeStrings.fieldObjectType()}
+      </label>
+      {#if collectionNames.length > 0}
+        <select id="objectType" name="objectType" bind:value={$formData.objectType} class={inputClass}>
+          <option value="">{createNodeStrings.objectTypeNone()}</option>
+          {#each collectionNames as name (name)}
+            <option value={name}>{name}</option>
+          {/each}
+        </select>
+        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{createNodeStrings.objectTypeHintDeclared()}</p>
+      {:else}
+        <input id="objectType" name="objectType" type="text" bind:value={$formData.objectType}
+          placeholder="e.g. competitor" class={inputClass} />
+        <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{createNodeStrings.objectTypeHintFreeform()}</p>
+      {/if}
+    </div>
+
+    {#if $formData.objectType}
+      <div>
+        <span class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">{createNodeStrings.fieldProperties()}</span>
+        <input type="hidden" name="propertiesJson" value={$formData.propertiesJson} />
+        <!-- Re-mount on objectType change so typed field state re-seeds. -->
+        {#key $formData.objectType}
+          <PropertiesEditor
+            declared={declaredCollection}
+            bind:value={$formData.propertiesJson}
+            bind:invalid={propertiesInvalid}
+          />
+        {/key}
+        {#if propertiesError}
+          <p class="mt-1 text-xs text-red-600 dark:text-red-400">{propertiesError}</p>
+        {/if}
+      </div>
+    {/if}
+
     <div>
       <label for="description" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
         {createNodeStrings.fieldDescription()}
@@ -236,7 +287,7 @@
       </a>
       <button
         type="submit"
-        disabled={$submitting || !$formData.name.trim() || !$formData.loc.trim()}
+        disabled={$submitting || !$formData.name.trim() || !$formData.loc.trim() || propertiesInvalid || !!propertiesError}
         class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
       >
         {$submitting ? createNodeStrings.submitting() : createNodeStrings.submit()}
