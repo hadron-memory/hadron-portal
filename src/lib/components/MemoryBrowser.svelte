@@ -9,7 +9,8 @@
   import { onDestroy } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
-  import type { MemoryNode, TreeEntry, SearchHitMeta } from '$lib/types';
+  import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
+  import type { Memory, MemoryNode, TreeEntry, SearchHitMeta } from '$lib/types';
 
   /** Build the URL to a node's detail page, or empty if memory context is missing */
   function nodeHref(node: MemoryNode, base: string): string {
@@ -28,6 +29,7 @@
     writableMemoryIds = [],
     scopeMemoryIds = [],
     forcedView,
+    memory = null,
   }: {
     nodes: MemoryNode[];
     /**
@@ -52,6 +54,15 @@
     scopeMemoryIds?: string[];
     /** When set (the #266 tab layout), fixes the view and hides the toggle. */
     forcedView?: 'graph' | 'nodes';
+    /**
+     * #589: the browsed memory (single-memory pages only) — drives the
+     * structured-query UI off its property schema (declared collections →
+     * objectType facet + field suggestions) and its encryption flag (the
+     * `data` column is ciphertext at rest, so where/sortProperty over `data`
+     * can't match there). Absent on multi-memory pages (agent/app), where the
+     * structured controls fall back to schema-less behavior.
+     */
+    memory?: Memory | null;
   } = $props();
 
   const writableSet = $derived(new Set(writableMemoryIds));
@@ -248,6 +259,67 @@
   let searchFields = $state<Set<string>>(new Set());
   const lexicalMode = $derived(searchMode === 'exact' || searchMode === 'regex');
 
+  // #589 (server #719/#725): structured query over a node's properties/data.
+  // objectType is the collection facet; `where` is the recursive predicate
+  // (v1: a validated raw-JSON editor — grammar parity with the server; a
+  // visual builder is a fast-follow); sortProperty orders by a JSON path and
+  // overrides the sort enum. All three are server-side dimensions (the slim
+  // loaded set carries no properties), so any of them puts the browser into
+  // server view.
+  const memorySchema = $derived(readMemorySchema(memory?.schema));
+  const collectionNames = $derived(objectTypeNames(memorySchema));
+  const memoryEncrypted = $derived(!!memory?.isEncrypted);
+  let objectTypeFilter = $state('');
+  let whereJson = $state('');
+  const whereParse = $derived.by(() => {
+    const trimmed = whereJson.trim();
+    if (!trimmed) return { value: null as Record<string, unknown> | null, error: null as string | null };
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return { value: null, error: 'Filter must be a JSON object.' };
+      }
+      return { value: parsed as Record<string, unknown>, error: null };
+    } catch {
+      return { value: null, error: 'Filter is not valid JSON.' };
+    }
+  });
+  let sortPropPath = $state('');
+  let sortPropField = $state<'properties' | 'data'>('properties');
+  let sortPropAs = $state<'text' | 'number' | 'datetime' | 'boolean'>('text');
+  let sortPropDir = $state<'asc' | 'desc'>('asc');
+  // Dot-separated path → the server's array-of-keys shape.
+  const sortPropPathSegments = $derived(sortPropPath.split('.').map((s) => s.trim()).filter(Boolean));
+  // Field-name suggestions for the where/sort path inputs: the selected
+  // collection's declared fields, or every declared field when no facet is set.
+  const declaredFieldNames = $derived.by(() => {
+    if (!memorySchema) return [] as string[];
+    const collections = objectTypeFilter && memorySchema.objectTypes[objectTypeFilter]
+      ? [memorySchema.objectTypes[objectTypeFilter]]
+      : Object.values(memorySchema.objectTypes);
+    return [...new Set(collections.flatMap((c) => Object.keys(c.fields)))].sort();
+  });
+  // A declared field's type IS its query cast (#725) — auto-pick the cast
+  // when the typed path names a declared field (enum casts as text). Scoped
+  // to the SELECTED collection when the facet is set — the same field name
+  // can carry different types across collections, and the first-declared
+  // type would win otherwise (PR #617 review, Codex P2). Falls back to
+  // scanning every collection only when no facet narrows it.
+  function syncSortCastFromSchema() {
+    if (!memorySchema || sortPropField !== 'properties' || sortPropPathSegments.length !== 1) return;
+    const name = sortPropPathSegments[0];
+    const collections = objectTypeFilter && memorySchema.objectTypes[objectTypeFilter]
+      ? [memorySchema.objectTypes[objectTypeFilter]]
+      : Object.values(memorySchema.objectTypes);
+    for (const c of collections) {
+      const declared = c.fields[name];
+      if (declared) {
+        sortPropAs = declared.type === 'enum' ? 'text' : declared.type;
+        return;
+      }
+    }
+  }
+
   const changedSinceIso = $derived.by(() => {
     const now = Date.now();
     const days = changedSince === '24h' ? 1 : changedSince === '7d' ? 7 : changedSince === '30d' ? 30 : 0;
@@ -258,17 +330,24 @@
     updatedAfter: changedSinceIso,
     updatedBefore: null as string | null,
     includeDeleted: includeDeleted || null,
+    objectType: objectTypeFilter || null,
+    where: whereParse.value,
   });
   // A stable key for the fields mask — a fresh Set identity on every toggle
   // would re-run the search effect even when the selection is unchanged (same
   // guard as searchMemoryIdsStr). Only lexical modes send it.
   const searchFieldsStr = $derived(lexicalMode ? [...searchFields].sort().join(',') : '');
   // In server view, serverResults replaces the loaded set as the working pool.
+  // #589: a non-empty (even invalid) where text counts — an invalid predicate
+  // must show its error over an empty result set, not silently browse.
   const serverViewActive = $derived(
     keyword.trim() !== '' ||
       !!serverFilter.createdBy ||
       !!serverFilter.updatedAfter ||
       !!serverFilter.includeDeleted ||
+      !!serverFilter.objectType ||
+      whereJson.trim() !== '' ||
+      sortPropPathSegments.length > 0 ||
       sortMode === 'updatedAt' ||
       sortMode === 'relevance',
   );
@@ -295,6 +374,16 @@
 
   // Server search results: null = not in server view (show the normal browse set).
   let serverResults = $state<MemoryNode[] | null>(null);
+  // #616 review (Codex): TopicGraph builds its vis datasets in onMount, so the
+  // {#key} guarding it must change whenever the working set does — but a
+  // structured where/objectType change can return a DIFFERENT set of the SAME
+  // size, which none of the key's other terms see. Bump a version on every
+  // serverResults assignment (via setServerResults) and include it in the key.
+  let resultsVersion = $state(0);
+  function setServerResults(v: MemoryNode[] | null) {
+    serverResults = v;
+    resultsVersion++;
+  }
   // #531: mirror the server content-search hits (as node PKs) into the shared
   // tree/graph filter, so the Tree pane scopes to the SAME matches the table
   // lists. TreeView's own filter is name/id-substring only and would hide a
@@ -316,16 +405,32 @@
   let searchMeta = $state<Record<string, SearchHitMeta>>({}); // #432 nodeId → relevance/stale meta
   let searchSeq = 0; // monotonic — drops out-of-order responses
 
+  // #589: the sortProperty payload in the server's shape (array path). Derived
+  // from primitive state so its identity only changes when the inputs do.
+  const sortPropertyPayload = $derived(
+    sortPropPathSegments.length > 0
+      ? { path: sortPropPathSegments, field: sortPropField, as: sortPropAs, direction: sortPropDir }
+      : null,
+  );
+
   async function runServerFetch(
     q: string,
     mode: 'exact' | 'regex' | 'fuzzy',
     memoryIds: string[],
-    filter: { createdBy: string | null; updatedAfter: string | null; updatedBefore: string | null; includeDeleted: boolean | null },
+    filter: {
+      createdBy: string | null;
+      updatedAfter: string | null;
+      updatedBefore: string | null;
+      includeDeleted: boolean | null;
+      objectType: string | null;
+      where: Record<string, unknown> | null;
+    },
     sort: 'loc' | 'updatedAt' | 'relevance',
+    sortProperty: { path: string[]; field: string; as: string; direction: string } | null,
     fields: string[],
     signal?: AbortSignal,
   ) {
-    if (memoryIds.length === 0) { serverResults = []; searching = false; return; }
+    if (memoryIds.length === 0) { setServerResults([]); searching = false; return; }
     const seq = ++searchSeq;
     searching = true;
     searchError = null;
@@ -337,13 +442,13 @@
       const res = await fetch('/api/nodes/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: q, mode, memoryIds, filter, sort, fields }),
+        body: JSON.stringify({ query: q, mode, memoryIds, filter, sort, sortProperty, fields }),
         signal,
       });
       const data = await res.json();
       if (seq !== searchSeq) return; // a newer request superseded this one
-      if (!res.ok) { searchError = data.error ?? 'Search failed'; serverResults = []; return; }
-      serverResults = data.nodes ?? [];
+      if (!res.ok) { searchError = data.error ?? 'Search failed'; setServerResults([]); return; }
+      setServerResults(data.nodes ?? []);
       searchNote = data.note ?? null;
       searchCapped = !!data.capped;
       searchSnippets = data.snippets ?? {};
@@ -352,7 +457,7 @@
       if (e instanceof Error && e.name === 'AbortError') return; // superseded / destroyed
       if (seq !== searchSeq) return;
       searchError = e instanceof Error ? e.message : 'Search failed';
-      serverResults = [];
+      setServerResults([]);
     } finally {
       if (seq === searchSeq) searching = false;
     }
@@ -366,10 +471,12 @@
     const idsStr = searchMemoryIdsStr;
     const filter = serverFilter;
     const sort = sortMode;
+    const sortProperty = sortPropertyPayload;
+    const whereError = whereParse.error;
     const fieldsStr = searchFieldsStr; // tracked dep; '' when non-lexical
     if (!serverViewActive) {
       searchSeq++;
-      serverResults = null;
+      setServerResults(null);
       searching = false;
       searchError = null;
       searchNote = null;
@@ -379,6 +486,20 @@
       return;
     }
     const ids = idsStr ? idsStr.split(',') : [];
+    // #589: an unparseable where predicate — inline error instead of firing
+    // (same posture as the invalid-regex guard below; the server's own
+    // grammar rejections still arrive as a 400 through searchError).
+    if (whereError) {
+      searchSeq++;
+      setServerResults([]);
+      searching = false;
+      searchError = whereError;
+      searchNote = null;
+      searchCapped = false;
+      searchSnippets = {};
+      searchMeta = {};
+      return;
+    }
     // #431: validate a regex pattern client-side — the server 400s on invalid
     // patterns (e.g. an unbalanced `(`); show an inline error instead of firing.
     if (mode === 'regex' && q) {
@@ -386,7 +507,7 @@
         new RegExp(q);
       } catch {
         searchSeq++;
-        serverResults = [];
+        setServerResults([]);
         searching = false;
         searchError = 'Invalid regex pattern.';
         searchNote = null;
@@ -398,7 +519,7 @@
     }
     const fields = fieldsStr ? fieldsStr.split(',') : [];
     const controller = new AbortController();
-    const timer = setTimeout(() => runServerFetch(q, mode, ids, filter, sort, fields, controller.signal), 300);
+    const timer = setTimeout(() => runServerFetch(q, mode, ids, filter, sort, sortProperty, fields, controller.signal), 300);
     return () => {
       clearTimeout(timer);
       controller.abort(); // cancel an in-flight fetch on new keystroke / destroy
@@ -415,9 +536,9 @@
   let activeTags = $state<Set<string>>(new Set());
 
   // Dropdown open state
-  let openDropdown = $state<'memory' | 'type' | 'tags' | 'fields' | null>(null);
+  let openDropdown = $state<'memory' | 'type' | 'tags' | 'fields' | 'properties' | null>(null);
 
-  function toggleDropdown(d: 'memory' | 'type' | 'tags' | 'fields') {
+  function toggleDropdown(d: 'memory' | 'type' | 'tags' | 'fields' | 'properties') {
     openDropdown = openDropdown === d ? null : d;
   }
 
@@ -426,6 +547,12 @@
       openDropdown = null;
     }
   }
+
+  // #589: how many structured-query controls are active — drives the
+  // Properties button badge.
+  const structuredActiveCount = $derived(
+    (objectTypeFilter ? 1 : 0) + (whereJson.trim() ? 1 : 0) + (sortPropPathSegments.length > 0 ? 1 : 0),
+  );
 
   const hasActiveFilters = $derived(
     activeMemoryUrns.size > 0 ||
@@ -436,6 +563,7 @@
       changedSince !== 'any' ||
       includeDeleted ||
       searchFields.size > 0 ||
+      structuredActiveCount > 0 ||
       sortMode !== 'loc',
   );
 
@@ -449,6 +577,12 @@
     includeDeleted = false;
     searchFields = new Set();
     sortMode = 'loc';
+    objectTypeFilter = '';
+    whereJson = '';
+    sortPropPath = '';
+    sortPropField = 'properties';
+    sortPropAs = 'text';
+    sortPropDir = 'asc';
   }
 
   function toggleField(f: string) {
@@ -778,6 +912,115 @@
       </div>
     {/if}
 
+    <!-- #589 (server #719/#725): structured query over properties/data —
+         objectType facet, where predicate (raw JSON v1), sort-by-property. -->
+    <div class="relative filter-dropdown">
+      <button type="button" onclick={() => toggleDropdown('properties')}
+        title="Filter and sort by structured properties"
+        class="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition
+          {structuredActiveCount > 0 ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600'}">
+        Properties {#if structuredActiveCount > 0}<span class="rounded-full bg-indigo-500 px-1.5 text-[10px] text-white">{structuredActiveCount}</span>{/if}
+        <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'properties' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
+      </button>
+      {#if openDropdown === 'properties'}
+        <div class="absolute left-0 top-full z-20 mt-1 w-80 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 space-y-3">
+          {#if structuredActiveCount > 0}
+            <button type="button" onclick={() => { objectTypeFilter = ''; whereJson = ''; sortPropPath = ''; }}
+              class="w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
+          {/if}
+
+          <!-- Collection facet (filter.objectType) -->
+          <div>
+            <label for="structured-object-type" class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Object type</label>
+            {#if collectionNames.length > 0}
+              <!-- onchange: re-run the cast auto-pick — switching collections
+                   can change the selected sort field's declared type. -->
+              <select id="structured-object-type" bind:value={objectTypeFilter} onchange={syncSortCastFromSchema}
+                class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
+                <option value="">Any</option>
+                {#each collectionNames as name (name)}
+                  <option value={name}>{name}</option>
+                {/each}
+              </select>
+            {:else}
+              <input id="structured-object-type" type="text" bind:value={objectTypeFilter} placeholder="e.g. competitor"
+                class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-500" />
+            {/if}
+          </div>
+
+          <!-- Structured predicate (filter.where) — raw JSON v1 -->
+          <div>
+            <label for="structured-where" class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Filter (where, JSON)</label>
+            <textarea id="structured-where" rows="4" bind:value={whereJson} spellcheck="false"
+              aria-invalid={!!whereParse.error}
+              aria-describedby={whereParse.error ? 'structured-where-error' : 'structured-where-hint'}
+              placeholder={'{"path": ["stage"], "eq": "seed"}'}
+              class="w-full rounded-lg border bg-white px-2 py-1.5 font-mono text-xs text-zinc-900 placeholder-zinc-400 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-600 {whereParse.error ? 'border-red-400 dark:border-red-700' : 'border-zinc-300 dark:border-zinc-700'}"
+              style="resize: vertical;"></textarea>
+            {#if whereParse.error}
+              <p id="structured-where-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{whereParse.error}</p>
+            {:else}
+              <p id="structured-where-hint" class="mt-1 text-[10px] leading-tight text-zinc-400">
+                A leaf is a path + one operator (eq, ne, in, lt, lte, gt, gte, between, exists, contains);
+                branches are and / or / not. Optional per-leaf: field (properties | data), as (text | number | datetime | boolean).
+              </p>
+            {/if}
+          </div>
+
+          <!-- Property sort (sortProperty) — overrides the Sort dropdown -->
+          <div>
+            <label for="structured-sort-path" class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Sort by property <span class="font-normal text-zinc-400">(overrides the Sort dropdown)</span></label>
+            <div class="flex items-center gap-1.5">
+              <!-- oninput (not onchange): the debounced fetch effect reacts to
+                   the path immediately, so the cast must sync before it fires
+                   (PR #616 review). -->
+              <input id="structured-sort-path" type="text" bind:value={sortPropPath}
+                oninput={syncSortCastFromSchema}
+                list={declaredFieldNames.length > 0 ? 'structured-field-suggestions' : undefined}
+                placeholder="path, e.g. fundingUsd"
+                class="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-2 py-1.5 font-mono text-xs text-zinc-900 placeholder-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-500" />
+              <select bind:value={sortPropDir} aria-label="Sort direction"
+                class="rounded-lg border border-zinc-300 bg-white px-1.5 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
+                <option value="asc">asc</option>
+                <option value="desc">desc</option>
+              </select>
+            </div>
+            <div class="mt-1.5 flex items-center gap-1.5">
+              <select bind:value={sortPropField} aria-label="Sort column"
+                class="rounded-lg border border-zinc-300 bg-white px-1.5 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
+                <option value="properties">properties</option>
+                <!-- Encrypted memory: data is ciphertext at rest — a sort over
+                     it can't order anything meaningfully. -->
+                <option value="data" disabled={memoryEncrypted}>data{memoryEncrypted ? ' (encrypted)' : ''}</option>
+              </select>
+              <select bind:value={sortPropAs} aria-label="Sort value type"
+                class="rounded-lg border border-zinc-300 bg-white px-1.5 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
+                <option value="text">text</option>
+                <option value="number">number</option>
+                <option value="datetime">datetime</option>
+                <option value="boolean">boolean</option>
+              </select>
+              <span class="text-[10px] text-zinc-400">missing values sort last</span>
+            </div>
+            {#if declaredFieldNames.length > 0}
+              <datalist id="structured-field-suggestions">
+                {#each declaredFieldNames as name (name)}
+                  <option value={name}></option>
+                {/each}
+              </datalist>
+            {/if}
+          </div>
+
+          {#if memoryEncrypted}
+            <p class="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[10px] leading-tight text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-300">
+              This memory is encrypted: filters and sorts over the <span class="font-mono">data</span> column can't match
+              (it's ciphertext at rest). <span class="font-mono">properties</span> is plaintext and works normally.
+            </p>
+          {/if}
+        </div>
+      {/if}
+    </div>
+
     <!-- #429: My nodes (server-side filter.createdBy) — needs the caller's id -->
     {#if currentUserId}
       <button type="button" onclick={() => (myNodesOnly = !myNodesOnly)}
@@ -949,7 +1192,9 @@
 
       <div class="min-w-0 flex-1 overflow-hidden {treeOpen ? 'rounded-r-lg' : 'rounded-lg'} border border-zinc-200 dark:border-zinc-800">
         <div style="display: flex; height: 100%;">
-          {#key filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
+          <!-- resultsVersion (#616): re-mount when the server working set
+               changes, even at the same size — see setServerResults. -->
+          {#key resultsVersion + ':' + filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
             <TopicGraph data={graphViewData} {focusId} {basePath} />
           {/key}
         </div>

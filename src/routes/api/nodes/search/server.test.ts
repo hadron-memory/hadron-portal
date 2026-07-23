@@ -113,6 +113,19 @@ describe('/api/nodes/search (#429)', () => {
     );
     const res = await POST(ev({ query: '(', mode: 'regex', memoryIds: ['m1'] }));
     expect(res.status).toBe(400);
+    // #589: the server's own BAD_USER_INPUT detail is surfaced (it also covers
+    // where-grammar rejections); the generic copy is only the fallback.
+    expect((await res.json()).error).toBe('invalid regex');
+  });
+
+  it('falls back to the generic 400 copy when BAD_USER_INPUT carries no message', async () => {
+    mockRequest.mockRejectedValueOnce(
+      Object.assign(new Error('boom'), {
+        response: { errors: [{ extensions: { code: 'BAD_USER_INPUT' } }] },
+      }),
+    );
+    const res = await POST(ev({ query: '(', mode: 'regex', memoryIds: ['m1'] }));
+    expect(res.status).toBe(400);
     expect((await res.json()).error).toBe('Invalid search pattern.');
   });
 
@@ -210,5 +223,82 @@ describe('/api/nodes/search (#429)', () => {
     mockRequest.mockResolvedValue(findNodesResult(500));
     const res = await POST(ev({ query: 'foo', memoryIds: ['m1'] }));
     expect((await res.json()).capped).toBe(true);
+  });
+
+  // ── #589 (server #719/#725): objectType facet + where predicate + sortProperty ──
+
+  it('#589: forwards objectType as a filter-only fetch (no query)', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(2, 2));
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { objectType: 'competitor' } }));
+    expect((await res.json()).nodes).toHaveLength(2);
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({
+      objectType: 'competitor',
+      query: null,
+      where: null,
+      sortProperty: null,
+    });
+  });
+
+  it('#589: forwards the where tree opaquely and composes it with a query', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1));
+    const where = { and: [{ path: ['stage'], eq: 'seed' }, { path: ['fundingUsd'], as: 'number', gte: 5 }] };
+    await POST(ev({ query: 'acme', memoryIds: ['m1'], filter: { where } }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ query: 'acme', mode: 'keyword', where });
+  });
+
+  it('#589: 400s a non-object where without calling the server', async () => {
+    for (const bad of ['scalar', [1, 2]]) {
+      const res = await POST(ev({ memoryIds: ['m1'], filter: { where: bad } }));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('Invalid filter.');
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('#589: a sortProperty alone drives a server fetch and fills shape defaults', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(3, 3));
+    const res = await POST(ev({ memoryIds: ['m1'], sortProperty: { path: ['fundingUsd'], as: 'number' } }));
+    expect((await res.json()).nodes).toHaveLength(3);
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({
+      sortProperty: { path: ['fundingUsd'], field: 'properties', as: 'number', direction: 'asc' },
+    });
+  });
+
+  it('#589: 400s a malformed sortProperty without calling the server', async () => {
+    for (const bad of [
+      'fundingUsd',                                  // not an object
+      { path: [] },                                  // empty path
+      { path: ['a', 7] },                            // non-string segment
+      { path: ['a'], field: 'content' },             // unknown column
+      { path: ['a'], as: 'json' },                   // unknown cast
+      { path: ['a'], direction: 'up' },              // unknown direction
+    ]) {
+      const res = await POST(ev({ memoryIds: ['m1'], sortProperty: bad }));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('Invalid sort.');
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('#589: a message-less BAD_USER_INPUT on a structured request falls back to filter/sort copy', async () => {
+    mockRequest.mockRejectedValueOnce(
+      Object.assign(new Error('boom'), {
+        response: { errors: [{ extensions: { code: 'BAD_USER_INPUT' } }] },
+      }),
+    );
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { where: { path: ['x'], eq: 1 } } }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Invalid filter or sort.');
+  });
+
+  it("#589: a server where-grammar rejection (BAD_USER_INPUT) surfaces the server's message", async () => {
+    mockRequest.mockRejectedValueOnce(
+      Object.assign(new Error('where: depth exceeds 4'), {
+        response: { errors: [{ message: 'where: depth exceeds 4', extensions: { code: 'BAD_USER_INPUT' } }] },
+      }),
+    );
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { where: { path: ['x'], eq: 1 } } }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('where: depth exceeds 4');
   });
 });
