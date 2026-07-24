@@ -10,13 +10,16 @@ export interface NavItem {
  * The /app sidebar nav (spec 014). Extracted from +layout.svelte so the routing
  * decisions are unit-testable.
  *
- * Org-independent items (Search, Marketplace, and — for individuals — the
- * org-less Memories surface) show even without an active org, so an org-less
- * user is never stranded with an empty sidebar (Copilot review on #628; matters
- * more as #627 removes the personal org). Org-scoped items (Dashboard, Task
- * Nodes, Agents, Apps) only appear when there's an active org, and Agents/Apps
- * only for non-consumer (org) members.
+ * Org-independent items (Dashboard, Search, and — for individuals — the org-less
+ * Memories surface) show even without an active org, so an org-less user is
+ * never stranded with an empty sidebar (Copilot review on #628; matters more as
+ * #627 removes the personal org). Task Nodes needs an active org; Agents and
+ * Apps only show for non-consumer (org) members.
  *
+ * #629: EVERY user's "Dashboard" now points at /app/dashboard (a stats page) —
+ * an org page is the wrong content for a dashboard, individual or not.
+ * Marketplace is hidden for now (per maintainer, 2026-07-24) — the route still
+ * exists, it's just not linked from the nav.
  * #628: a consumer (individual) user's "Memories" points at the org-less
  * `/app/memories` surface (#632) rather than `/app/orgs/<personalOrgId>/memories`,
  * which sent individuals into their invisible personal org. Org members keep the
@@ -29,13 +32,11 @@ export function buildNavItems(data: {
   const { activeOrgId, isConsumerMode } = data;
   const items: NavItem[] = [];
 
-  // Dashboard is org-scoped (its target is the org page) — only with an org.
-  if (activeOrgId) {
-    items.push({ href: `/app/orgs/${activeOrgId}`, label: t('app.nav.dashboard', 'Dashboard'), match: 'exact' });
-  }
+  // Dashboard (#629): a stats page for everyone, never the org page.
+  items.push({ href: '/app/dashboard', label: t('app.nav.dashboard', 'Dashboard'), match: 'exact' });
 
   items.push({ href: '/app/search', label: t('app.nav.search', 'Search'), match: 'prefix' });
-  items.push({ href: '/app/marketplace', label: t('app.nav.marketplace', 'Marketplace'), match: 'prefix' });
+  // Marketplace hidden for now (2026-07-24 maintainer request).
 
   // Individuals (consumer mode) and org-less users → the org-less My-memories
   // surface; org members → their org's grid.

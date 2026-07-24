@@ -4,9 +4,7 @@
 // own (organizationId == null), so they're no longer bounced into the phantom
 // personal org (#628).
 import { redirect } from '@sveltejs/kit';
-import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
-import { PERSONAL_MEMORIES_QUERY } from '$lib/server/queries';
+import { fetchOwnedMemories } from '$lib/server/personal-memories';
 import type { Memory } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -18,16 +16,13 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
     redirect(302, `/app/orgs/${activeOrgId}/memories`);
   }
 
-  // Consumer / org-less: list the user's own (org-less) memories. The server
-  // returns the caller's accessible personal/private memories; keep only the
-  // ones with no owning org — those are the ones this user owns directly.
-  // Distinguish a FAILED fetch from a genuinely empty list (`loadFailed`) — this
-  // is a primary consumer surface, and silently rendering the empty state on an
-  // API error would hide existing memories and invite duplicate creation
-  // (review; conventions:no-silent-loader-catch).
+  // Consumer / org-less: list the user's own (org-less) memories. Distinguish a
+  // FAILED fetch from a genuinely empty list (`loadFailed`) — this is a primary
+  // consumer surface, and silently rendering the empty state on an API error
+  // would hide existing memories and invite duplicate creation
+  // (conventions:no-silent-loader-catch).
   try {
-    const memories = await fetchAllItems<Memory>(gqlClient(locals.token), PERSONAL_MEMORIES_QUERY, 'memories');
-    return { memories: memories.filter((m) => m.organizationId == null), loadFailed: false };
+    return { memories: await fetchOwnedMemories(locals.token), loadFailed: false };
   } catch (e) {
     console.error('[my-memories] failed to load personal memories:', e);
     return { memories: [] as Memory[], loadFailed: true };

@@ -1,57 +1,55 @@
 /**
- * Spec 014 T025 — /app/dashboard redirector tests (FR-007 / US4).
- *
- * The dashboard load relies on the layout's resolved activeOrgId. With
- * an active org, it 302s to /app/orgs/<id>/. Without one (defensive),
- * it 303s to /app/orgs/.
+ * #629: /app/dashboard renders simple stats for EVERY user — a bounded count +
+ * five-item preview from DASHBOARD_MEMORIES_QUERY (no fetchAllItems, no org
+ * redirect; an org page is the wrong content for a dashboard).
  */
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Restore afterAll so a suite-wide spy can't suppress console.error elsewhere.
+const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+afterAll(() => errorSpy.mockRestore());
+
+const mockRequest = vi.fn();
+vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
+
+beforeEach(() => mockRequest.mockReset());
 
 async function importLoad() {
-  const mod = await import('./+page.server');
-  return mod.load;
+  return (await import('./+page.server')).load;
 }
 
-function ev(activeOrgId: string | null) {
-  return {
-    parent: async () => ({ activeOrgId }),
-  } as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+function ev() {
+  return { locals: { token: 't' } } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
-describe('/app/dashboard redirector', () => {
-  it('302s to /app/orgs/<active>/ when an active org resolved', async () => {
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev('org-personal'));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(302);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-personal/');
+async function runLoad() {
+  const load = await importLoad();
+  return load(ev());
+}
+
+describe('/app/dashboard loader (#629)', () => {
+  it('returns the server total as the count and the items as the preview', async () => {
+    mockRequest.mockResolvedValue({
+      memories: {
+        items: [{ id: 'a', name: 'Notes', urn: 'hrn:mem:ada:notes', class: 'personal' }],
+        total: 12,
+      },
+    });
+    expect(await runLoad()).toMatchObject({
+      memoryCount: 12,
+      preview: [{ id: 'a', name: 'Notes', urn: 'hrn:mem:ada:notes', class: 'personal' }],
+      loadFailed: false,
+    });
   });
 
-  it('302s to a visible org when one is resolved as active (matches URL or lastActive resolution)', async () => {
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev('org-visible-A'));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(302);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-visible-A/');
+  it('handles an empty workspace', async () => {
+    mockRequest.mockResolvedValue({ memories: { items: [], total: 0 } });
+    expect(await runLoad()).toMatchObject({ memoryCount: 0, preview: [], loadFailed: false });
   });
 
-  it('303s to /app/orgs/ when no active org could be resolved (defensive)', async () => {
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev(null));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(303);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/');
-  });
+  // The failure path (`loadFailed: true` + count 0 on a rejected query) is the
+  // same plain try/catch as /app/memories and is verified in-browser (error
+  // banner renders instead of a misleading "0 memories"). A throwing mock trips
+  // this repo's vitest error detector even when the loader catches it, so it
+  // isn't unit-tested here.
 });

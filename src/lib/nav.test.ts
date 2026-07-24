@@ -4,8 +4,26 @@ import { buildNavItems } from './nav';
 const hrefs = (data: Parameters<typeof buildNavItems>[0]) => buildNavItems(data).map((i) => i.href);
 const memoriesHref = (data: Parameters<typeof buildNavItems>[0]) =>
   buildNavItems(data).find((i) => i.href.endsWith('/memories') || i.href === '/app/memories')?.href;
+// Dashboard is always the first item.
+const dashboardHref = (data: Parameters<typeof buildNavItems>[0]) => buildNavItems(data)[0]?.href;
 
 describe('buildNavItems', () => {
+  it('#629: EVERY user\'s Dashboard points at /app/dashboard (not the org page)', () => {
+    expect(dashboardHref({ activeOrgId: 'personal-1', isConsumerMode: true })).toBe('/app/dashboard');
+    expect(dashboardHref({ activeOrgId: null, isConsumerMode: false })).toBe('/app/dashboard');
+    expect(dashboardHref({ activeOrgId: 'org-1', isConsumerMode: false })).toBe('/app/dashboard');
+  });
+
+  it('Marketplace is hidden from the nav for now', () => {
+    for (const data of [
+      { activeOrgId: 'org-1', isConsumerMode: false },
+      { activeOrgId: 'personal-1', isConsumerMode: true },
+      { activeOrgId: null, isConsumerMode: false },
+    ]) {
+      expect(hrefs(data)).not.toContain('/app/marketplace');
+    }
+  });
+
   it('#628: an individual (consumer) user\'s Memories points at the org-less surface', () => {
     expect(memoriesHref({ activeOrgId: 'personal-1', isConsumerMode: true })).toBe('/app/memories');
     // Never sends individuals into their personal org's memories grid.
@@ -18,9 +36,9 @@ describe('buildNavItems', () => {
     expect(memoriesHref({ activeOrgId: 'org-1', isConsumerMode: false })).toBe('/app/orgs/org-1/memories');
   });
 
-  it('consumer nav is trimmed (no Agents / Apps)', () => {
+  it('consumer nav is trimmed (Dashboard, Search, Memories, Task Nodes — no Agents / Apps)', () => {
     const items = hrefs({ activeOrgId: 'personal-1', isConsumerMode: true });
-    expect(items).toHaveLength(5);
+    expect(items).toEqual(['/app/dashboard', '/app/search', '/app/memories', '/app/orgs/personal-1/tasks']);
     expect(items.some((h) => h.endsWith('/agents'))).toBe(false);
     expect(items.some((h) => h.endsWith('/apps'))).toBe(false);
   });
@@ -29,14 +47,14 @@ describe('buildNavItems', () => {
     const items = hrefs({ activeOrgId: 'org-1', isConsumerMode: false });
     expect(items).toContain('/app/orgs/org-1/agents');
     expect(items).toContain('/app/orgs/org-1/apps');
-    expect(items).toHaveLength(7);
+    expect(items).toHaveLength(6);
   });
 
   it('without an active org, still shows the org-independent items (so no empty sidebar)', () => {
     // #628 review (Copilot): an org-less user must be able to reach /app/memories;
-    // only the org-scoped items (Dashboard/Tasks/Agents/Apps) drop out.
+    // only the truly org-scoped items (Task Nodes / Agents / Apps) drop out.
     const items = hrefs({ activeOrgId: null, isConsumerMode: false });
-    expect(items).toEqual(['/app/search', '/app/marketplace', '/app/memories']);
+    expect(items).toEqual(['/app/dashboard', '/app/search', '/app/memories']);
     expect(items.some((h) => h.startsWith('/app/orgs/'))).toBe(false);
   });
 

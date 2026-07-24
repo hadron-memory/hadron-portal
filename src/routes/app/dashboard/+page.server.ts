@@ -1,16 +1,28 @@
-// Spec 014 US4: /app/dashboard is now a 302 redirector to the active-org's
-// scoped equivalent. The cross-org dashboard rendering (myMemories +
-// myApps aggregate) is removed per D-2026-05-03-004; the rendered
-// dashboard lives at /app/orgs/<active>/.
-//
-// Resolution chain (URL → lastActiveOrgId → personal) runs in the
-// layout (R-1, R-6) and the resolved activeOrgId is read here via
-// `await parent()`. See contracts/portal-redirector-chain.md.
-import { redirect } from '@sveltejs/kit';
+// #629: /app/dashboard is the stats page for EVERY user (an org page is the
+// wrong content for a dashboard). For now it shows simple stats about the
+// memories the user owns; org-scoped stats + activity charts are a follow-up.
+import { gqlClient } from '$lib/server/api';
+import { DASHBOARD_MEMORIES_QUERY } from '$lib/server/queries';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async ({ parent }) => {
-  const { activeOrgId } = await parent();
-  if (!activeOrgId) redirect(303, '/app/orgs/');
-  redirect(302, `/app/orgs/${activeOrgId}/`);
+export interface DashboardMemory {
+  id: string;
+  name: string;
+  urn: string;
+  class: string;
+}
+
+export const load: PageServerLoad = async ({ locals }) => {
+  // Bounded, slim query — a count + a five-item preview, not the whole memory
+  // set (review: don't fetchAllItems just for a count). Surface a failed fetch
+  // rather than silently reporting "0 memories" (conventions:no-silent-loader-catch).
+  try {
+    const data = await gqlClient(locals.token).request<{
+      memories: { items: DashboardMemory[]; total: number };
+    }>(DASHBOARD_MEMORIES_QUERY);
+    return { memoryCount: data.memories.total, preview: data.memories.items, loadFailed: false };
+  } catch (e) {
+    console.error('[dashboard] failed to load stats:', e);
+    return { memoryCount: 0, preview: [] as DashboardMemory[], loadFailed: true };
+  }
 };
