@@ -35,7 +35,16 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
       .catch(() => [] as Organization[]),
     apiClient
       .request<{ me: UserSummary | null }>(ME_QUERY)
-      .catch(() => ({ me: null as UserSummary | null })),
+      // Don't 500 the whole app if `me` fails, but never swallow it silently.
+      // The fallback below merges the JWT's locals.user (name/email/avatarUrl),
+      // but `handle` is NOT in the JWT — so a failed `me` blanks the signed-in
+      // user's handle (and leaves name/avatar at possibly-stale JWT values),
+      // which is otherwise invisible in a SvelteKit server load. Log the real
+      // cause (conventions:no-silent-loader-catch).
+      .catch((e) => {
+        console.error('[app-layout] `me` query failed — user handle will be blank (name/avatar fall back to the JWT):', e);
+        return { me: null as UserSummary | null };
+      }),
   ]);
   // hadron-server#473: nav + resolution use the slim membership-scoped
   // ORGANIZATIONS_NAV_QUERY (filter.memberOnly — the server excludes other
