@@ -10,13 +10,14 @@ export interface NavItem {
  * The /app sidebar nav (spec 014). Extracted from +layout.svelte so the routing
  * decisions are unit-testable.
  *
- * Org-independent items (Search, Marketplace, and — for individuals — the
- * org-less Memories surface) show even without an active org, so an org-less
+ * Org-independent items (Dashboard, Search, Marketplace, and — for individuals —
+ * the org-less Memories surface) show even without an active org, so an org-less
  * user is never stranded with an empty sidebar (Copilot review on #628; matters
- * more as #627 removes the personal org). Org-scoped items (Dashboard, Task
- * Nodes, Agents, Apps) only appear when there's an active org, and Agents/Apps
- * only for non-consumer (org) members.
+ * more as #627 removes the personal org). Task Nodes needs an active org; Agents
+ * and Apps only show for non-consumer (org) members.
  *
+ * #629: an individual / org-less user's "Dashboard" points at the personal stats
+ * page (/app/dashboard); org members keep their org overview.
  * #628: a consumer (individual) user's "Memories" points at the org-less
  * `/app/memories` surface (#632) rather than `/app/orgs/<personalOrgId>/memories`,
  * which sent individuals into their invisible personal org. Org members keep the
@@ -29,10 +30,13 @@ export function buildNavItems(data: {
   const { activeOrgId, isConsumerMode } = data;
   const items: NavItem[] = [];
 
-  // Dashboard is org-scoped (its target is the org page) — only with an org.
-  if (activeOrgId) {
-    items.push({ href: `/app/orgs/${activeOrgId}`, label: t('app.nav.dashboard', 'Dashboard'), match: 'exact' });
-  }
+  // Dashboard (#629): individuals / org-less users → the personal stats
+  // dashboard (/app/dashboard); org members → their org overview page.
+  items.push({
+    href: isConsumerMode || !activeOrgId ? '/app/dashboard' : `/app/orgs/${activeOrgId}`,
+    label: t('app.nav.dashboard', 'Dashboard'),
+    match: 'exact',
+  });
 
   items.push({ href: '/app/search', label: t('app.nav.search', 'Search'), match: 'prefix' });
   items.push({ href: '/app/marketplace', label: t('app.nav.marketplace', 'Marketplace'), match: 'prefix' });

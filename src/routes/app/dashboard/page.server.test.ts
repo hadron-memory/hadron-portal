@@ -1,57 +1,61 @@
 /**
- * Spec 014 T025 — /app/dashboard redirector tests (FR-007 / US4).
- *
- * The dashboard load relies on the layout's resolved activeOrgId. With
- * an active org, it 302s to /app/orgs/<id>/. Without one (defensive),
- * it 303s to /app/orgs/.
+ * #629: /app/dashboard loader. Org members keep the spec-014 (T025 / FR-007) 302
+ * to their org overview; consumer / org-less users get simple stats about the
+ * memories they own (via fetchOwnedMemories).
  */
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.spyOn(console, 'error').mockImplementation(() => {});
+
+const mockFetchOwned = vi.fn();
+vi.mock('$lib/server/personal-memories', () => ({
+  fetchOwnedMemories: (...a: unknown[]) => mockFetchOwned(...a),
+}));
+
+beforeEach(() => mockFetchOwned.mockReset());
 
 async function importLoad() {
-  const mod = await import('./+page.server');
-  return mod.load;
+  return (await import('./+page.server')).load;
 }
 
-function ev(activeOrgId: string | null) {
+function ev(parentData: Record<string, unknown>) {
   return {
-    parent: async () => ({ activeOrgId }),
-  } as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+    parent: async () => parentData,
+    locals: { token: 't' },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
-describe('/app/dashboard redirector', () => {
-  it('302s to /app/orgs/<active>/ when an active org resolved', async () => {
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev('org-personal'));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(302);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-personal/');
+async function runLoad(parentData: Record<string, unknown>) {
+  const load = await importLoad();
+  try {
+    return await load(ev(parentData));
+  } catch (e) {
+    return e; // redirect throws
+  }
+}
+
+describe('/app/dashboard loader (#629)', () => {
+  it('302s an org member to their org overview (spec-014 T025)', async () => {
+    const result = await runLoad({ isConsumerMode: false, activeOrgId: 'org-x' });
+    expect(result).toMatchObject({ status: 302, location: '/app/orgs/org-x/' });
+    expect(mockFetchOwned).not.toHaveBeenCalled();
   });
 
-  it('302s to a visible org when one is resolved as active (matches URL or lastActive resolution)', async () => {
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev('org-visible-A'));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(302);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-visible-A/');
+  it('renders stats for a consumer (memory list, loadFailed false)', async () => {
+    mockFetchOwned.mockResolvedValue([{ id: 'a', name: 'mine' }]);
+    const result = await runLoad({ isConsumerMode: true, activeOrgId: 'org-personal' });
+    expect(result).toMatchObject({ memories: [{ id: 'a' }], loadFailed: false });
   });
 
-  it('303s to /app/orgs/ when no active org could be resolved (defensive)', async () => {
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev(null));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(303);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/');
+  it('renders stats for an org-less user (no active org — no longer a 303 dead-end)', async () => {
+    mockFetchOwned.mockResolvedValue([]);
+    const result = await runLoad({ isConsumerMode: false, activeOrgId: null });
+    expect(result).toMatchObject({ memories: [], loadFailed: false });
   });
+
+  // The failure path (`loadFailed: true` on a rejected fetch) is the same plain
+  // try/catch as /app/memories and is verified in-browser (error banner renders
+  // instead of a misleading "0 memories"). A throwing mock trips this repo's
+  // vitest error detector even when the loader catches it, so it isn't unit-
+  // tested here.
 });
