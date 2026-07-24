@@ -130,7 +130,7 @@
             <button
               type="button" onclick={() => removeAt(i)}
               title={t('dashboard.customize.remove', 'Remove')}
-              aria-label={t('dashboard.customize.remove', 'Remove {name}').replace('{name}', titleOf(widget.type))}
+              aria-label={t('dashboard.customize.remove-aria', 'Remove {name}').replace('{name}', titleOf(widget.type))}
               class="rounded-md px-2 py-1 text-xs font-medium text-red-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50"
             >
               {t('dashboard.customize.remove', 'Remove')}

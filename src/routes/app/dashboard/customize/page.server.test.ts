@@ -6,7 +6,7 @@
  * clamps span, and posts the ordered list to setDashboardWidgets.
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DASHBOARD_WIDGETS_QUERY, SET_DASHBOARD_WIDGETS_MUTATION } from '$lib/server/queries';
+import { SET_DASHBOARD_WIDGETS_MUTATION } from '$lib/server/queries';
 
 const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 afterAll(() => errorSpy.mockRestore());
@@ -79,6 +79,24 @@ describe('/app/dashboard/customize loader', () => {
       ],
     });
   });
+
+  it('collapses duplicate placements of the same type to the first (by position)', async () => {
+    // The server model allows duplicates; the picker is one-per-type, so the
+    // loader de-dupes to keep such a selection editable (no duplicate keys).
+    mockRequest.mockResolvedValue({
+      dashboardWidgets: [
+        { type: 'MEMORY_STATS', span: 4, position: 0 },
+        { type: 'MEMORY_STATS', span: 12, position: 1 },
+        { type: 'AGENT_STATS', span: 6, position: 2 },
+      ],
+    });
+    expect(await runLoad()).toEqual({
+      placements: [
+        { type: 'memory-stats', span: 4 },
+        { type: 'agent-stats', span: 6 },
+      ],
+    });
+  });
 });
 
 describe('/app/dashboard/customize save action', () => {
@@ -120,6 +138,17 @@ describe('/app/dashboard/customize save action', () => {
 
   it('returns 400 on an unparseable payload without calling the API', async () => {
     const result = await runSave('not json{');
+    expect((result as { status?: number })?.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when the widgets field is missing (does NOT clear the layout)', async () => {
+    const { actions } = await importMod();
+    const ev = {
+      request: { formData: async () => new FormData() }, // no `widgets` field
+      locals: { token: 't' },
+    } as unknown as Parameters<NonNullable<Awaited<ReturnType<typeof importMod>>['actions']['default']>>[0];
+    const result = await actions.default!(ev);
     expect((result as { status?: number })?.status).toBe(400);
     expect(mockRequest).not.toHaveBeenCalled();
   });
