@@ -1825,6 +1825,23 @@ export const PERSONAL_MEMORIES_QUERY = /* GraphQL */ `
   }
 `;
 
+// #629: the dashboard needs only a count + a small preview, so it uses a bounded
+// (limit 5), SLIM projection instead of paging the full MemoryFields set — the
+// page renders id/name/urn/class only (review: don't fetchAllItems for a count).
+export const DASHBOARD_MEMORIES_QUERY = /* GraphQL */ `
+  query DashboardMemories {
+    memories(filter: { memoryClasses: [personal, private] }, limit: 5) {
+      items {
+        id
+        name
+        urn
+        class
+      }
+      total
+    }
+  }
+`;
+
 // hadron-server#564 (#501): moveNode reshaped to the <object>Ref convention —
 // sourceRef (PK or URN) + exactly ONE of targetUrn (full destination node
 // URN: new loc and/or new memory) / targetMemoryRef (same loc, new memory).

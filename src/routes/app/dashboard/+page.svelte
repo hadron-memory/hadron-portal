@@ -1,17 +1,16 @@
 <script lang="ts">
-  // #629: individual-user dashboard. Org members never reach this — the loader
-  // 302s them to their org overview. Simple stats for now (memory count +
-  // preview + quick actions); activity charts / read-write rates are a
-  // deliberate follow-up.
+  // #629: the stats page for every user. Simple stats for now (memory count +
+  // preview + quick actions); org-scoped stats and activity charts are a
+  // deliberate follow-up. The loader sends a bounded count + preview, so the
+  // page never receives the full memory set.
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
-  const memories = $derived(data.memories ?? []);
-  const memoryCount = $derived(memories.length);
+  const memoryCount = $derived(data.memoryCount ?? 0);
+  const preview = $derived(data.preview ?? []);
   const loadFailed = $derived(data.loadFailed === true);
-  const preview = $derived(memories.slice(0, 5));
   // The /app layout merges `user` into page data.
   const displayName = $derived(
     (data as { user?: { name?: string | null; handle?: string | null } }).user?.name ??
