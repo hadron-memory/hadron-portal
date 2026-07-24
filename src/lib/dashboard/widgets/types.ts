@@ -10,14 +10,16 @@
 import type { Component } from 'svelte';
 
 /** Registered widget kinds (portal-side ids). Add a member when you add one. */
-export type WidgetType = 'memory-stats';
+export type WidgetType = 'memory-stats' | 'agent-stats';
 
 /** hadron-server `DashboardWidgetType` enum ⇄ portal `WidgetType`. */
 export const WIDGET_TYPE_FROM_SERVER: Record<string, WidgetType> = {
   MEMORY_STATS: 'memory-stats',
+  AGENT_STATS: 'agent-stats',
 };
 export const WIDGET_TYPE_TO_SERVER: Record<WidgetType, string> = {
   'memory-stats': 'MEMORY_STATS',
+  'agent-stats': 'AGENT_STATS',
 };
 
 /**

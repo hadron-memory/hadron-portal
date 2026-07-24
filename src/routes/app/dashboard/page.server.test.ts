@@ -35,6 +35,7 @@ describe('/app/dashboard loader (#629 / #636)', () => {
         items: [{ id: 'a', name: 'Notes', urn: 'hrn:mem:ada:notes', class: 'personal' }],
         total: 12,
       },
+      agents: { total: 5 },
       dashboardWidgets: [],
       dashboardWidgetData: [],
     });
@@ -45,35 +46,56 @@ describe('/app/dashboard loader (#629 / #636)', () => {
     });
   });
 
-  it('falls back to the default Memory Stats layout when the user has no widgets, seeding its data from the memory total', async () => {
+  it('falls back to the default layout (Memory + Agent stats) when the user has no widgets, seeding data from the totals', async () => {
     mockRequest.mockResolvedValue({
       memories: { items: [], total: 7 },
+      agents: { total: 3 },
       dashboardWidgets: [],
       dashboardWidgetData: [],
     });
     const result = await runLoad();
     expect(result).toMatchObject({
-      placements: [{ type: 'memory-stats', span: 4 }],
-      widgetData: { 'memory-stats': { memoryCount: 7 } },
+      placements: [
+        { type: 'memory-stats', span: 4 },
+        { type: 'agent-stats', span: 4 },
+      ],
+      widgetData: {
+        'memory-stats': { memoryCount: 7 },
+        'agent-stats': { agentCount: 3 },
+      },
     });
   });
 
   it('maps the server widget selection to placements and fans dashboardWidgetData out by type', async () => {
     mockRequest.mockResolvedValue({
       memories: { items: [], total: 3 },
-      dashboardWidgets: [{ type: 'MEMORY_STATS', span: 6, position: 0 }],
-      dashboardWidgetData: [{ type: 'MEMORY_STATS', data: { memoryCount: 3 } }],
+      agents: { total: 9 },
+      dashboardWidgets: [
+        { type: 'AGENT_STATS', span: 6, position: 0 },
+        { type: 'MEMORY_STATS', span: 3, position: 1 },
+      ],
+      dashboardWidgetData: [
+        { type: 'AGENT_STATS', data: { agentCount: 9 } },
+        { type: 'MEMORY_STATS', data: { memoryCount: 3 } },
+      ],
     });
     const result = await runLoad();
     expect(result).toMatchObject({
-      placements: [{ type: 'memory-stats', span: 6 }],
-      widgetData: { 'memory-stats': { memoryCount: 3 } },
+      placements: [
+        { type: 'agent-stats', span: 6 },
+        { type: 'memory-stats', span: 3 },
+      ],
+      widgetData: {
+        'agent-stats': { agentCount: 9 },
+        'memory-stats': { memoryCount: 3 },
+      },
     });
   });
 
   it('orders placements by the server `position`, not array order', async () => {
     mockRequest.mockResolvedValue({
       memories: { items: [], total: 0 },
+      agents: { total: 0 },
       // Deliberately out of order: position 1 before position 0.
       dashboardWidgets: [
         { type: 'MEMORY_STATS', span: 6, position: 1 },
@@ -89,16 +111,21 @@ describe('/app/dashboard loader (#629 / #636)', () => {
   it('skips an unknown server widget type defensively (falls back to default when none map)', async () => {
     mockRequest.mockResolvedValue({
       memories: { items: [], total: 1 },
+      agents: { total: 0 },
       dashboardWidgets: [{ type: 'NOT_A_REAL_WIDGET', span: 4, position: 0 }],
       dashboardWidgetData: [],
     });
     const result = (await runLoad()) as { placements: Array<{ type: string }> };
-    expect(result.placements).toEqual([{ type: 'memory-stats', span: 4 }]);
+    expect(result.placements).toEqual([
+      { type: 'memory-stats', span: 4 },
+      { type: 'agent-stats', span: 4 },
+    ]);
   });
 
   it('handles an empty workspace', async () => {
     mockRequest.mockResolvedValue({
       memories: { items: [], total: 0 },
+      agents: { total: 0 },
       dashboardWidgets: [],
       dashboardWidgetData: [],
     });

@@ -3,6 +3,7 @@
 // to `WidgetType` (types.ts) and an entry here.
 import type { Component } from 'svelte';
 import MemoryStatsWidget from './MemoryStatsWidget.svelte';
+import AgentStatsWidget from './AgentStatsWidget.svelte';
 import type { WidgetDefinition, WidgetType } from './types';
 
 export const WIDGET_REGISTRY: Record<WidgetType, WidgetDefinition> = {
@@ -14,5 +15,12 @@ export const WIDGET_REGISTRY: Record<WidgetType, WidgetDefinition> = {
     defaultSpan: 4,
     titleKey: 'dashboard.widget.memory-stats.title',
     titleDefault: 'Memory Stats',
+  },
+  'agent-stats': {
+    type: 'agent-stats',
+    component: AgentStatsWidget as unknown as Component<Record<string, unknown>>,
+    defaultSpan: 4,
+    titleKey: 'dashboard.widget.agent-stats.title',
+    titleDefault: 'Agent Stats',
   },
 };

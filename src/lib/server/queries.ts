@@ -856,6 +856,16 @@ export const CREATE_AGENT_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #636: org-less agent create — omits orgId, so hadron-server mints a user-owned
+// agent (Agent.organizationId NULL, ownerUserId=caller; createAgent's orgId is
+// optional). Mirrors CREATE_PERSONAL_MEMORY_MUTATION for the individual path.
+export const CREATE_PERSONAL_AGENT_MUTATION = /* GraphQL */ `
+  ${AGENT_FIELDS}
+  mutation CreatePersonalAgent($name: String!, $description: String, $visibility: AgentVisibility) {
+    createAgent(name: $name, description: $description, visibility: $visibility) { ...AgentFields }
+  }
+`;
+
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
   mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility) {
@@ -1840,6 +1850,9 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
         urn
         class
       }
+      total
+    }
+    agents(limit: 0) {
       total
     }
     dashboardWidgets {

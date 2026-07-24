@@ -27,7 +27,10 @@ interface ServerWidgetData {
 
 // Default layout when the user hasn't customized their dashboard (no widget
 // picker yet — server-persisted selection is respected once they have one).
-const DEFAULT_PLACEMENTS: WidgetPlacement[] = [{ type: 'memory-stats', span: 4 }];
+const DEFAULT_PLACEMENTS: WidgetPlacement[] = [
+  { type: 'memory-stats', span: 4 },
+  { type: 'agent-stats', span: 4 },
+];
 
 /** Map the server's placed-widget list → portal placements, ordered by the
  *  server's `position` (sorted defensively rather than trusting array order),
@@ -48,11 +51,13 @@ export const load: PageServerLoad = async ({ locals }) => {
   try {
     const data = await gqlClient(locals.token).request<{
       memories: { items: DashboardMemory[]; total: number };
+      agents: { total: number };
       dashboardWidgets: ServerWidget[];
       dashboardWidgetData: ServerWidgetData[];
     }>(DASHBOARD_QUERY);
 
     const memoryCount = data.memories.total;
+    const agentCount = data.agents.total;
 
     const placements = toPlacements(data.dashboardWidgets);
     const effectivePlacements = placements.length > 0 ? placements : DEFAULT_PLACEMENTS;
@@ -63,10 +68,11 @@ export const load: PageServerLoad = async ({ locals }) => {
       const type = WIDGET_TYPE_FROM_SERVER[d.type];
       if (type) widgetData[type] = d.data;
     }
-    // The default memory-stats widget renders before the user activates any
-    // widget server-side (dashboardWidgetData is empty until then), so seed its
-    // data from the memories total — the same count the widget shows.
+    // Default widgets render before the user activates any widget server-side
+    // (dashboardWidgetData is empty until then), so seed each default widget's
+    // data from the counts already fetched — the same numbers the widgets show.
     if (!widgetData['memory-stats']) widgetData['memory-stats'] = { memoryCount };
+    if (!widgetData['agent-stats']) widgetData['agent-stats'] = { agentCount };
 
     return {
       memoryCount,
@@ -81,7 +87,10 @@ export const load: PageServerLoad = async ({ locals }) => {
       memoryCount: 0,
       preview: [] as DashboardMemory[],
       placements: DEFAULT_PLACEMENTS,
-      widgetData: { 'memory-stats': { memoryCount: 0 } } as WidgetDataMap,
+      widgetData: {
+        'memory-stats': { memoryCount: 0 },
+        'agent-stats': { agentCount: 0 },
+      } as WidgetDataMap,
       loadFailed: true,
     };
   }
