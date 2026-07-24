@@ -54,11 +54,15 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // (hooks.server.ts reads the JWT WITHOUT verifying the signature). Usually the
   // token was minted by a different server, or before a local DB / JWT-secret
   // change — re-authenticating fixes it. Log it distinctly so it's diagnosable.
-  if (!meThrew && !meData.me && locals.user) {
+  // Deliberately NO user id in the message: `sub` comes from an unverified JWT,
+  // so it's attacker-controllable and must never reach the logs (log-injection,
+  // #637 review). `locals.user` is guaranteed set here (the load redirects
+  // unauthenticated requests above).
+  if (!meThrew && meData.me === null) {
     console.warn(
-      `[app-layout] \`me\` returned null (no error) for signed-in user ${locals.user.id} — ` +
-        'the server did not recognize the session token, so the handle will be blank. ' +
-        'Sign out and back in if the token predates a local server / DB / JWT-secret change.',
+      '[app-layout] `me` returned null (no error) for the signed-in user — the server did ' +
+        'not recognize the session token, so the handle will be blank. Sign out and back in ' +
+        'if the token predates a local server / DB / JWT-secret change.',
     );
   }
   // hadron-server#473: nav + resolution use the slim membership-scoped
