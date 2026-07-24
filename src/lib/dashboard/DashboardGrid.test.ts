@@ -11,14 +11,15 @@ import type { WidgetPlacement } from './widgets/types';
 const widgetData = { 'memory-stats': { memoryCount: 2 } };
 
 describe('DashboardGrid.svelte (#636)', () => {
-  it('renders a registered widget with its data slice and the correct column span', () => {
+  it('renders a registered widget with its data slice and the declared span', () => {
     const placements: WidgetPlacement[] = [{ type: 'memory-stats', span: 4 }];
     const { body } = render(DashboardGrid, { props: { placements, widgetData } });
     // The Memory Stats widget content shows up (registry lookup + dynamic render).
     expect(body).toContain('Memory Stats');
     expect(body).toContain('>2<');
-    // The placement wrapper carries the inline span.
-    expect(body).toContain('grid-column: span 4 / span 4');
+    // The span is carried as the `--span` custom property; a breakpoint-aware
+    // <style> rule (not an inline grid-column) applies it, so assert the var.
+    expect(body).toContain('--span: 4');
   });
 
   it('skips an unregistered placement type without throwing', () => {

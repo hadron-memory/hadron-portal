@@ -71,6 +71,21 @@ describe('/app/dashboard loader (#629 / #636)', () => {
     });
   });
 
+  it('orders placements by the server `position`, not array order', async () => {
+    mockRequest.mockResolvedValue({
+      memories: { items: [], total: 0 },
+      // Deliberately out of order: position 1 before position 0.
+      dashboardWidgets: [
+        { type: 'MEMORY_STATS', span: 6, position: 1 },
+        { type: 'MEMORY_STATS', span: 3, position: 0 },
+      ],
+      dashboardWidgetData: [{ type: 'MEMORY_STATS', data: { memoryCount: 0 } }],
+    });
+    const result = (await runLoad()) as { placements: Array<{ span: number }> };
+    // position 0 (span 3) must come first.
+    expect(result.placements.map((p) => p.span)).toEqual([3, 6]);
+  });
+
   it('skips an unknown server widget type defensively (falls back to default when none map)', async () => {
     mockRequest.mockResolvedValue({
       memories: { items: [], total: 1 },

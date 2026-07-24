@@ -29,13 +29,16 @@ interface ServerWidgetData {
 // picker yet — server-persisted selection is respected once they have one).
 const DEFAULT_PLACEMENTS: WidgetPlacement[] = [{ type: 'memory-stats', span: 4 }];
 
-/** Map the server's placed-widget list → portal placements (ordered by the
- *  server's `position`), skipping any unknown enum value defensively. */
+/** Map the server's placed-widget list → portal placements, ordered by the
+ *  server's `position` (sorted defensively rather than trusting array order),
+ *  skipping any unknown enum value. */
 function toPlacements(widgets: ServerWidget[]): WidgetPlacement[] {
-  return widgets.flatMap((w) => {
-    const type = WIDGET_TYPE_FROM_SERVER[w.type];
-    return type ? [{ type, span: w.span }] : [];
-  });
+  return [...widgets]
+    .sort((a, b) => a.position - b.position)
+    .flatMap((w) => {
+      const type = WIDGET_TYPE_FROM_SERVER[w.type];
+      return type ? [{ type, span: w.span }] : [];
+    });
 }
 
 export const load: PageServerLoad = async ({ locals }) => {

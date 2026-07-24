@@ -42,8 +42,9 @@
       {t('dashboard.load-failed', "Couldn't load your stats just now — this is a temporary error. Try refreshing the page.")}
     </div>
   {:else}
-    <!-- Widget grid (#636) -->
-    <DashboardGrid {placements} {widgetData} {loadFailed} />
+    <!-- Widget grid (#636). Only rendered when the load succeeded (the alert
+         branch above handles failure), so widgets don't need a loadFailed prop. -->
+    <DashboardGrid {placements} {widgetData} />
 
     <!-- Memories preview -->
     <div>
