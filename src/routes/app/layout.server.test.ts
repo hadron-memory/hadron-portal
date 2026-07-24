@@ -135,6 +135,18 @@ async function loadAuthed(
 }
 
 describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
+  it('warns (distinctly) when `me` returns null for a signed-in user — server rejected the token', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockMyOrgsRequest.mockResolvedValueOnce({ organizations: [] });
+    mockMeRequest.mockResolvedValueOnce({ me: null }); // resolver returns null (no throw) → ctx.userId unset
+
+    const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
+
+    expect(data.user.handle).toBeNull(); // handle blanks (JWT has no handle)
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('did not recognize the session token'));
+    warnSpy.mockRestore();
+  });
+
   it('populates activeOrgId from params.id when on /app/orgs/[id]/...', async () => {
     const personal = makeOrg({ id: 'org-personal', isVisible: null });
     const orgA = makeOrg({ id: 'org-a', isVisible: true });

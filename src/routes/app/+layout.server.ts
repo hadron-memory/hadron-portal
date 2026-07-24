@@ -30,6 +30,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // Fetch orgs AND the full `me` profile in parallel. The JWT only carries
   // id/roles/githubUsername, so the avatar URL and name live server-side and
   // we must fetch them to render the sidebar avatar correctly.
+  let meThrew = false;
   const [orgs, meData] = await Promise.all([
     fetchAllItems<Organization>(apiClient, ORGANIZATIONS_NAV_QUERY, 'organizations')
       .catch(() => [] as Organization[]),
@@ -37,15 +38,29 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
       .request<{ me: UserSummary | null }>(ME_QUERY)
       // Don't 500 the whole app if `me` fails, but never swallow it silently.
       // The fallback below merges the JWT's locals.user (name/email/avatarUrl),
-      // but `handle` is NOT in the JWT — so a failed `me` blanks the signed-in
+      // but `handle` is NOT in the JWT — so a lost `me` blanks the signed-in
       // user's handle (and leaves name/avatar at possibly-stale JWT values),
-      // which is otherwise invisible in a SvelteKit server load. Log the real
-      // cause (conventions:no-silent-loader-catch).
+      // which is otherwise invisible in a SvelteKit server load
+      // (conventions:no-silent-loader-catch).
       .catch((e) => {
-        console.error('[app-layout] `me` query failed — user handle will be blank (name/avatar fall back to the JWT):', e);
+        meThrew = true;
+        console.error('[app-layout] `me` query threw — user handle will be blank (name/avatar fall back to the JWT):', e);
         return { me: null as UserSummary | null };
       }),
   ]);
+  // A `me` of null WITHOUT an error is the more common cause of a blank handle:
+  // the `me` resolver returns null when `ctx.userId` is unset, i.e. the server
+  // did not accept the session token even though the portal decoded it locally
+  // (hooks.server.ts reads the JWT WITHOUT verifying the signature). Usually the
+  // token was minted by a different server, or before a local DB / JWT-secret
+  // change — re-authenticating fixes it. Log it distinctly so it's diagnosable.
+  if (!meThrew && !meData.me && locals.user) {
+    console.warn(
+      `[app-layout] \`me\` returned null (no error) for signed-in user ${locals.user.id} — ` +
+        'the server did not recognize the session token, so the handle will be blank. ' +
+        'Sign out and back in if the token predates a local server / DB / JWT-secret change.',
+    );
+  }
   // hadron-server#473: nav + resolution use the slim membership-scoped
   // ORGANIZATIONS_NAV_QUERY (filter.memberOnly — the server excludes other
   // orgs even for a platform admin; admins browse ALL orgs on /app/orgs,
