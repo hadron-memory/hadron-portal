@@ -1,6 +1,7 @@
 <script lang="ts">
-  // #627: org-less "My memories" list for individual users. Org members never
-  // reach this — the loader 302s them to their org's memories grid.
+  // "My memories" — the caller's own (org-less, user-owned) memories. Shown to
+  // EVERYONE via the "My memories" nav item; org members have their org grid
+  // separately, but their personal memories live here.
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';

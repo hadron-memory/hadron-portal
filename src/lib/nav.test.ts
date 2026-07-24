@@ -32,8 +32,12 @@ describe('buildNavItems', () => {
     );
   });
 
-  it('an org member keeps the direct org-scoped memories grid', () => {
+  it('an org member keeps the direct org-scoped memories grid AND gets a personal "My memories" link', () => {
+    const items = hrefs({ activeOrgId: 'org-1', isConsumerMode: false });
+    // The org grid ("Memories") comes first…
     expect(memoriesHref({ activeOrgId: 'org-1', isConsumerMode: false })).toBe('/app/orgs/org-1/memories');
+    // …and their personal (org-less) memories are reachable via "My memories".
+    expect(items).toContain('/app/memories');
   });
 
   it('consumer nav is trimmed (Dashboard, Search, Memories, Task Nodes — no Agents / Apps)', () => {
@@ -47,7 +51,8 @@ describe('buildNavItems', () => {
     const items = hrefs({ activeOrgId: 'org-1', isConsumerMode: false });
     expect(items).toContain('/app/orgs/org-1/agents');
     expect(items).toContain('/app/orgs/org-1/apps');
-    expect(items).toHaveLength(6);
+    // Dashboard, Search, Memories (org), My memories, Task Nodes, Agents, Apps.
+    expect(items).toHaveLength(7);
   });
 
   it('without an active org, still shows the org-independent items (so no empty sidebar)', () => {
