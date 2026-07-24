@@ -20,7 +20,12 @@ function profileFormDefaults(user: UserSummary) {
 export const load: PageServerLoad = async ({ locals }) => {
   const data = await gqlClient(locals.token)
     .request<{ me: UserSummary | null }>(ME_QUERY)
-    .catch(() => ({ me: null as UserSummary | null }));
+    // Surface a failed `me` instead of silently blanking the profile — the
+    // handle/name/email come from here, not the JWT (conventions:no-silent-loader-catch).
+    .catch((e) => {
+      console.error('[account] `me` query failed — profile fields will be blank:', e);
+      return { me: null as UserSummary | null };
+    });
   const user: UserSummary = data.me ?? { ...locals.user!, handle: null };
   const form = await superValidate(profileFormDefaults(user), accountProfileFormAdapter, { errors: false });
   return { user, form };
