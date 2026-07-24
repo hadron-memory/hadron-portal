@@ -87,7 +87,9 @@ export const actions: Actions = {
         lastActiveOrgId: null,
         myOrganizations: filterToMemberOrgs(orgs, locals.user?.id),
       });
-      redirect(303, activeOrgId ? `/app/orgs/${activeOrgId}/` : '/app/orgs/');
+      // No org (an org-less individual, post-#627) → their memories surface,
+      // NOT `/app/orgs/`, which would bounce them back off requireNonConsumer.
+      redirect(303, activeOrgId ? `/app/orgs/${activeOrgId}/` : '/app/memories');
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       return message(

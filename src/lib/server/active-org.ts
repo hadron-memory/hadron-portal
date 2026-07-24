@@ -4,8 +4,9 @@
 // R-9 (inaccessible-org fall-through with path preservation). The chain is:
 //   1. URL hint  — params.id when under /app/orgs/[id]/...
 //   2. lastActiveOrgId — User field, set by the portal on every org-scoped load
-//   3. first membership — the caller's first org, so a member always lands
-//      on an org (deterministic default).
+//   3. first membership — the caller's org with the lexicographically-first id
+//      (a STABLE default; the query doesn't guarantee order), so a member
+//      always lands on an org.
 // Each step is filtered through the user's membership list; non-member ids
 // are treated as absent so the chain continues. A user with NO memberships
 // (an org-less individual — #627) resolves to `none` / null, and the layout
@@ -82,8 +83,15 @@ export function resolveActiveOrg(input: ResolveActiveOrgInput): ActiveOrgResolut
   }
 
   // Step 3: first membership. A member always lands on an org; the OrgSwitcher
-  // lets them change it. Only a user with zero memberships falls through.
-  const firstOrg = myOrganizations[0] ?? null;
+  // lets them change it. Only a user with zero memberships falls through. The
+  // nav query doesn't guarantee an order, so pick the lexicographically-first
+  // id — a STABLE default, so the same user doesn't get a different active org
+  // across loads (Copilot review on #639). Once they navigate to an org, the
+  // cookie takes over.
+  const firstOrg =
+    myOrganizations.length > 0
+      ? [...myOrganizations].sort((a, b) => a.id.localeCompare(b.id))[0]
+      : null;
   if (firstOrg) {
     return { activeOrgId: firstOrg.id, activeOrg: firstOrg, source: 'first' };
   }

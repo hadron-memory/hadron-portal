@@ -461,9 +461,10 @@ describe('+layout.server.ts — hadron-server#473 admin/non-member org handling'
 
     const data = await loadAuthed(ev({ pathname: '/app/dashboard' }));
 
-    // 'org-aaa-foreign' sorts first but isn't a membership; the first of the
-    // filtered list ('org-zzz-own') wins.
-    expect(data.activeOrgId).toBe('org-zzz-own');
+    // 'org-aaa-foreign' sorts lexicographically first overall but isn't a
+    // membership, so it's excluded; the fallback then picks the id-first of the
+    // caller's OWN orgs ('org-a' < 'org-zzz-own').
+    expect(data.activeOrgId).toBe('org-a');
     expect(data.navOrgs).toHaveLength(2);
     expect(data.navOrgs.map((o) => o.id)).not.toContain('org-aaa-foreign');
   });

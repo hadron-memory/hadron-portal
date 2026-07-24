@@ -17,9 +17,11 @@ export async function requireNonConsumer(
   // the canonical gate, so this only governs the UX redirect.
   const ownsOrglessMemory = !!data.graph && data.graph.organizationId == null;
   if (data.isConsumerMode && !ownsOrglessMemory) {
-    // Skip the /app/dashboard 303→302 chain and redirect straight to the
-    // resolved org URL. In consumer mode the resolved active org is always
-    // the user's personal org.
-    redirect(303, data.activeOrgId ? `/app/orgs/${data.activeOrgId}/` : '/app/orgs/');
+    // Bounce a consumer (individual) off org-scoped surfaces. Post-#627 an
+    // individual is org-less — no memberships, so no active org — and their
+    // home is the org-less memories surface. It must NOT be `/app/orgs/`, which
+    // re-runs this guard and would redirect-loop (Codex review on #639). If an
+    // active org is somehow set, prefer routing straight to it.
+    redirect(303, data.activeOrgId ? `/app/orgs/${data.activeOrgId}/` : '/app/memories');
   }
 }
