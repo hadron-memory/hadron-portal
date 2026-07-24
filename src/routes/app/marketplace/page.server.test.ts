@@ -65,7 +65,6 @@ describe('marketplace add-to-my-memories action', () => {
         id: 'org-1',
         name: 'Personal',
         urn: 'hadronmemory.com:personal',
-        isVisible: false,
         members: [{ user: { id: 'user-1' } }],
       },
     ]);

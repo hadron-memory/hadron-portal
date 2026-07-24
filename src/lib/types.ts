@@ -234,7 +234,6 @@ export interface Organization {
   id: string;
   name: string;
   urn: string;
-  isVisible: boolean | null;
   githubInstallationId: number | null;
   githubAppId: string | null;
   hasGithubAppPrivateKey: boolean;

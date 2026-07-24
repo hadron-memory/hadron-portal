@@ -1,19 +1,21 @@
 // Active-organization resolution helper for the portal.
 //
 // Spec: 014-single-active-org. See research.md R-1 (resolution location),
-// R-2 (personal org identification), R-9 (inaccessible-org fall-through
-// with path preservation). The chain is:
+// R-9 (inaccessible-org fall-through with path preservation). The chain is:
 //   1. URL hint  — params.id when under /app/orgs/[id]/...
 //   2. lastActiveOrgId — User field, set by the portal on every org-scoped load
-//   3. personal org — orgs.find(o => o.isVisible !== true)
+//   3. first membership — the caller's first org, so a member always lands
+//      on an org (deterministic default).
 // Each step is filtered through the user's membership list; non-member ids
-// are treated as absent so the chain continues.
+// are treated as absent so the chain continues. A user with NO memberships
+// (an org-less individual — #627) resolves to `none` / null, and the layout
+// renders the consumer surface.
 //
-// Personal-org contract: hadron-server's `personal-workspace.ts` writes
-// `isVisible: false`, and every server-side read uses `isVisible: { not: true }`
-// (e.g. `server.ts:290`, `resolvers.ts:3315`). The migration column is
-// nullable, so the platform answer is "not visible" = null OR false. Match
-// the server filter exactly, not just one of the two states.
+// History: the fallback used to pick a "personal org" (an invisible per-user
+// org identified by `isVisible !== true`). The personal-org concept — and the
+// `Organization.isVisible` field — were removed as #627 moved individuals to
+// org-less, user-owned memories. Individuals now simply have zero orgs; a
+// member falls back to their first org.
 //
 // Pure helper: no I/O, no redirects. Callers compose with
 // `redirect(302, ...)` themselves (SvelteKit's redirect helper throws
@@ -21,21 +23,20 @@
 
 import type { Organization } from '$lib/types';
 
-export type ActiveOrgSource = 'url' | 'lastActive' | 'personal' | 'none';
+export type ActiveOrgSource = 'url' | 'lastActive' | 'first' | 'none';
 
 export interface ActiveOrgResolution {
   activeOrgId: string | null;
   activeOrg: Organization | null;
-  personalOrgId: string | null;
   source: ActiveOrgSource;
 }
 
 /**
  * hadron-server#473: the uniform organizations() list returns EVERY live org
- * for a platform ADMIN/OWNER, not just the caller's memberships. Active-org /
- * personal-org resolution must only ever consider orgs the user is actually a
- * member of — otherwise an admin's 'personal' fallback (isVisible !== true)
- * can resolve to ANOTHER user's personal org.
+ * for a platform ADMIN/OWNER, not just the caller's memberships. Active-org
+ * resolution must only ever consider orgs the user is actually a member of —
+ * otherwise an admin's first-membership fallback can resolve to ANOTHER user's
+ * org.
  *
  * The server now filters too: resolution callers fetch via
  * ORGANIZATIONS_NAV_QUERY, which passes filter.memberOnly so even a platform
@@ -64,19 +65,11 @@ export interface ResolveActiveOrgInput {
 export function resolveActiveOrg(input: ResolveActiveOrgInput): ActiveOrgResolution {
   const { paramsId, lastActiveOrgId, myOrganizations } = input;
 
-  const personalOrg = myOrganizations.find((o) => o.isVisible !== true) ?? null;
-  const personalOrgId = personalOrg?.id ?? null;
-
   // Step 1: URL hint, filtered through membership.
   if (paramsId) {
     const urlOrg = myOrganizations.find((o) => o.id === paramsId);
     if (urlOrg) {
-      return {
-        activeOrgId: urlOrg.id,
-        activeOrg: urlOrg,
-        personalOrgId,
-        source: 'url',
-      };
+      return { activeOrgId: urlOrg.id, activeOrg: urlOrg, source: 'url' };
     }
   }
 
@@ -84,31 +77,18 @@ export function resolveActiveOrg(input: ResolveActiveOrgInput): ActiveOrgResolut
   if (lastActiveOrgId) {
     const lastOrg = myOrganizations.find((o) => o.id === lastActiveOrgId);
     if (lastOrg) {
-      return {
-        activeOrgId: lastOrg.id,
-        activeOrg: lastOrg,
-        personalOrgId,
-        source: 'lastActive',
-      };
+      return { activeOrgId: lastOrg.id, activeOrg: lastOrg, source: 'lastActive' };
     }
   }
 
-  // Step 3: personal org.
-  if (personalOrg) {
-    return {
-      activeOrgId: personalOrg.id,
-      activeOrg: personalOrg,
-      personalOrgId,
-      source: 'personal',
-    };
+  // Step 3: first membership. A member always lands on an org; the OrgSwitcher
+  // lets them change it. Only a user with zero memberships falls through.
+  const firstOrg = myOrganizations[0] ?? null;
+  if (firstOrg) {
+    return { activeOrgId: firstOrg.id, activeOrg: firstOrg, source: 'first' };
   }
 
-  // Defensive: platform invariant says every user has a personal org;
-  // if not, surface as 'none' so the caller can route to a recovery surface.
-  return {
-    activeOrgId: null,
-    activeOrg: null,
-    personalOrgId: null,
-    source: 'none',
-  };
+  // No memberships — an org-less individual (#627). The layout renders the
+  // consumer surface (isConsumerMode).
+  return { activeOrgId: null, activeOrg: null, source: 'none' };
 }

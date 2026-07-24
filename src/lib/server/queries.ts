@@ -53,7 +53,6 @@ export const ORG_FIELDS = /* GraphQL */ `
     id
     name
     urn
-    isVisible
     githubInstallationId
     githubAppId
     hasGithubAppPrivateKey
@@ -399,9 +398,10 @@ export const REVOKE_AGENT_ORG_GRANT_MUTATION = /* GraphQL */ `
 // caller's own memberships SERVER-side, even for a platform ADMIN/OWNER (the
 // old myOrganizations semantics — hadron-server cor:api:120:03), so an
 // admin's nav doesn't receive every live org. Selection is only what
-// resolution + nav actually read: OrgFields scalars (id/name/isVisible for
-// resolveActiveOrg and consumer-mode detection, urn for display) plus a
-// members[].user.id skeleton for the filterToMemberOrgs defense-in-depth —
+// resolution + nav actually read: OrgFields scalars (id/name for
+// resolveActiveOrg, urn for display) plus a
+// members[].user.id skeleton for the filterToMemberOrgs defense-in-depth
+// (the count of which also drives consumer-mode detection) —
 // none of the heavy memories/agents/apps/member-PII nesting the browse query
 // carries (flagged by Copilot on portal PR #451).
 export const ORGANIZATIONS_NAV_QUERY = /* GraphQL */ `
