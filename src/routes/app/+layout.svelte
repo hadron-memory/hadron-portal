@@ -3,38 +3,16 @@
   import { page } from '$app/stores';
   import { t } from '$lib/i18n/t';
   import OrgSwitcher from '$lib/components/OrgSwitcher.svelte';
+  import { buildNavItems } from '$lib/nav';
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
-  // Spec 014: top-level nav is keyed to the active organization. The
-  // legacy bare /app/agents, /app/apps, /app/memories paths are still
-  // accepted (they 302 to the org-scoped equivalents per FR-008), but the
-  // nav itself uses the org-scoped URLs so the right entry highlights
-  // immediately and there's no extra redirect on click.
-  const consumerNav = $derived(data.activeOrgId
-    ? [
-        { href: `/app/orgs/${data.activeOrgId}`,          label: t('app.nav.dashboard', 'Dashboard'),   match: 'exact' as const },
-        { href: `/app/search`,                            label: t('app.nav.search', 'Search'),         match: 'prefix' as const },
-        { href: `/app/marketplace`,                       label: t('app.nav.marketplace', 'Marketplace'), match: 'prefix' as const },
-        { href: `/app/orgs/${data.activeOrgId}/memories`, label: t('app.nav.memories', 'Memories'),     match: 'prefix' as const },
-        { href: `/app/orgs/${data.activeOrgId}/tasks`,    label: t('app.nav.task-nodes', 'Task Nodes'), match: 'prefix' as const },
-      ]
-    : [],
+  // Spec 014: top-level nav is keyed to the active organization. Consumer
+  // (individual) users get a trimmed list, and #628 points their "Memories" at
+  // the org-less /app/memories surface instead of their personal org's grid.
+  // See $lib/nav for the (unit-tested) routing decisions.
+  const navItems = $derived(
+    buildNavItems({ activeOrgId: data.activeOrgId, isConsumerMode: data.isConsumerMode }),
   );
-
-  const fullNav = $derived(data.activeOrgId
-    ? [
-        { href: `/app/orgs/${data.activeOrgId}`,          label: t('app.nav.dashboard', 'Dashboard'),   match: 'exact' as const },
-        { href: `/app/search`,                            label: t('app.nav.search', 'Search'),         match: 'prefix' as const },
-        { href: `/app/marketplace`,                       label: t('app.nav.marketplace', 'Marketplace'), match: 'prefix' as const },
-        { href: `/app/orgs/${data.activeOrgId}/memories`, label: t('app.nav.memories', 'Memories'),     match: 'prefix' as const },
-        { href: `/app/orgs/${data.activeOrgId}/tasks`,    label: t('app.nav.task-nodes', 'Task Nodes'), match: 'prefix' as const },
-        { href: `/app/orgs/${data.activeOrgId}/agents`,   label: t('app.nav.agents', 'Agents'),         match: 'prefix' as const },
-        { href: `/app/orgs/${data.activeOrgId}/apps`,     label: t('app.nav.apps', 'Apps'),             match: 'prefix' as const },
-      ]
-    : [],
-  );
-
-  const navItems = $derived(data.isConsumerMode ? consumerNav : fullNav);
 
   // Spec 014: ORGANIZATIONS section removed (FR-003). The active org now
   // surfaces under the "Signed in as" block instead. The org switcher
