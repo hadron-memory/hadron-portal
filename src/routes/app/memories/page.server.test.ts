@@ -1,7 +1,7 @@
 /**
- * #627: /app/memories index loader. Org members keep the spec-014 (T009 / FR-008)
- * redirect to their org grid; consumer / org-less users instead get a list of the
- * memories they own (org-less), with org-owned memories filtered out.
+ * /app/memories index loader. Lists the caller's OWN (org-less, user-owned)
+ * memories for EVERYONE — org members included (their personal memories used to
+ * be stranded by a 302 to the org grid; org-owned memories are filtered out).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,43 +17,35 @@ async function importLoad() {
   return (await import('./+page.server')).load;
 }
 
-function ev(parentData: Record<string, unknown>) {
-  return {
-    parent: async () => parentData,
-    locals: { token: 't' },
-  } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+function ev() {
+  return { locals: { token: 't' } } as unknown as Parameters<
+    Awaited<ReturnType<typeof importLoad>>
+  >[0];
 }
 
-async function runLoad(parentData: Record<string, unknown>) {
+async function runLoad() {
   const load = await importLoad();
-  try {
-    return await load(ev(parentData));
-  } catch (e) {
-    return e; // redirect throws
-  }
+  return load(ev());
 }
 
-describe('/app/memories index loader (#627)', () => {
-  it('302s an org member to their active org memories grid (spec-014 T009)', async () => {
-    const result = await runLoad({ isConsumerMode: false, activeOrgId: 'org-x' });
-    expect(result).toMatchObject({ status: 302, location: '/app/orgs/org-x/memories' });
-    expect(mockFetchAll).not.toHaveBeenCalled();
-  });
-
-  it("lists a consumer user's org-less memories (filters out org-owned ones)", async () => {
+describe('/app/memories index loader', () => {
+  it("lists the caller's org-less memories, filtering out org-owned ones", async () => {
     mockFetchAll.mockResolvedValue([
       { id: 'a', name: 'mine', organizationId: null },
       { id: 'b', name: 'org one', organizationId: 'org-9' },
     ]);
-    const result = await runLoad({ isConsumerMode: true, activeOrgId: 'org-personal' });
+    const result = await runLoad();
     expect(result).toMatchObject({ memories: [{ id: 'a' }] });
     expect((result as { memories: unknown[] }).memories).toHaveLength(1);
   });
 
-  it('lists memories for an org-less user (no active org — no longer a 303 dead-end)', async () => {
+  it('never redirects — an org member sees their personal memories here too', async () => {
+    // Regression: /app/memories used to 302 org members to the org grid, so their
+    // personal (org-less) memories had no route.
     mockFetchAll.mockResolvedValue([{ id: 'a', name: 'mine', organizationId: null }]);
-    const result = await runLoad({ isConsumerMode: false, activeOrgId: null });
+    const result = await runLoad();
     expect(result).toMatchObject({ memories: [{ id: 'a' }], loadFailed: false });
+    expect((result as { status?: number })?.status).toBeUndefined();
   });
 
   // NOTE: the loader's failure path (`loadFailed: true` on a rejected fetch) is a

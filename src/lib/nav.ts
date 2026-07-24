@@ -38,13 +38,15 @@ export function buildNavItems(data: {
   items.push({ href: '/app/search', label: t('app.nav.search', 'Search'), match: 'prefix' });
   // Marketplace hidden for now (2026-07-24 maintainer request).
 
-  // Individuals (consumer mode) and org-less users → the org-less My-memories
-  // surface; org members → their org's grid.
-  items.push({
-    href: isConsumerMode || !activeOrgId ? '/app/memories' : `/app/orgs/${activeOrgId}/memories`,
-    label: t('app.nav.memories', 'Memories'),
-    match: 'prefix',
-  });
+  // Org members get their org's memories grid ("Memories"). EVERYONE also gets
+  // "My memories" → the org-less surface listing the personal (user-owned)
+  // memories they own directly — so an org member's personal memories aren't
+  // stranded (they used to have no route; /app/memories redirected them to the
+  // org grid). Consumers/org-less users have only "My memories" (no org grid).
+  if (activeOrgId && !isConsumerMode) {
+    items.push({ href: `/app/orgs/${activeOrgId}/memories`, label: t('app.nav.memories', 'Memories'), match: 'prefix' });
+  }
+  items.push({ href: '/app/memories', label: t('app.nav.my-memories', 'My memories'), match: 'prefix' });
 
   if (activeOrgId) {
     items.push({ href: `/app/orgs/${activeOrgId}/tasks`, label: t('app.nav.task-nodes', 'Task Nodes'), match: 'prefix' });
