@@ -1,7 +1,7 @@
 /**
- * #629: /app/dashboard loader. Org members keep the spec-014 (T025 / FR-007) 302
- * to their org overview; consumer / org-less users get simple stats about the
- * memories they own (via fetchOwnedMemories).
+ * #629: /app/dashboard renders simple stats (the memories the user owns, via
+ * fetchOwnedMemories) for EVERY user — no more org-member redirect; an org page
+ * is the wrong content for a dashboard.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -18,39 +18,24 @@ async function importLoad() {
   return (await import('./+page.server')).load;
 }
 
-function ev(parentData: Record<string, unknown>) {
-  return {
-    parent: async () => parentData,
-    locals: { token: 't' },
-  } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+function ev() {
+  return { locals: { token: 't' } } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
-async function runLoad(parentData: Record<string, unknown>) {
+async function runLoad() {
   const load = await importLoad();
-  try {
-    return await load(ev(parentData));
-  } catch (e) {
-    return e; // redirect throws
-  }
+  return load(ev());
 }
 
 describe('/app/dashboard loader (#629)', () => {
-  it('302s an org member to their org overview (spec-014 T025)', async () => {
-    const result = await runLoad({ isConsumerMode: false, activeOrgId: 'org-x' });
-    expect(result).toMatchObject({ status: 302, location: '/app/orgs/org-x/' });
-    expect(mockFetchOwned).not.toHaveBeenCalled();
-  });
-
-  it('renders stats for a consumer (memory list, loadFailed false)', async () => {
+  it('renders stats (memory list, loadFailed false) for any user', async () => {
     mockFetchOwned.mockResolvedValue([{ id: 'a', name: 'mine' }]);
-    const result = await runLoad({ isConsumerMode: true, activeOrgId: 'org-personal' });
-    expect(result).toMatchObject({ memories: [{ id: 'a' }], loadFailed: false });
+    expect(await runLoad()).toMatchObject({ memories: [{ id: 'a' }], loadFailed: false });
   });
 
-  it('renders stats for an org-less user (no active org — no longer a 303 dead-end)', async () => {
+  it('handles an empty list', async () => {
     mockFetchOwned.mockResolvedValue([]);
-    const result = await runLoad({ isConsumerMode: false, activeOrgId: null });
-    expect(result).toMatchObject({ memories: [], loadFailed: false });
+    expect(await runLoad()).toMatchObject({ memories: [], loadFailed: false });
   });
 
   // The failure path (`loadFailed: true` on a rejected fetch) is the same plain

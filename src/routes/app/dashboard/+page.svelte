@@ -47,7 +47,6 @@
       </a>
       <div class="flex flex-col justify-center gap-2 rounded-xl border border-dashed border-zinc-200 p-5 dark:border-zinc-800">
         <a href="/app/memories/new" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">{t('dashboard.action.new-memory', '+ New memory')}</a>
-        <a href="/app/marketplace" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">{t('dashboard.action.marketplace', 'Explore the marketplace')} &rarr;</a>
       </div>
     </div>
 
