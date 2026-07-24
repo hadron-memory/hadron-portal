@@ -3,6 +3,7 @@
   // preview + quick actions); org-scoped stats and activity charts are a
   // deliberate follow-up. The loader sends a bounded count + preview, so the
   // page never receives the full memory set.
+  import DashboardGrid from '$lib/dashboard/DashboardGrid.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -11,6 +12,11 @@
   const memoryCount = $derived(data.memoryCount ?? 0);
   const preview = $derived(data.preview ?? []);
   const loadFailed = $derived(data.loadFailed === true);
+
+  // #636: layout + per-widget data come from the server (dashboardWidgets +
+  // dashboardWidgetData), with a default layout when the user hasn't customized.
+  const placements = $derived(data.placements ?? []);
+  const widgetData = $derived(data.widgetData ?? {});
   // The /app layout merges `user` into page data.
   const displayName = $derived(
     (data as { user?: { name?: string | null; handle?: string | null } }).user?.name ??
@@ -36,18 +42,9 @@
       {t('dashboard.load-failed', "Couldn't load your stats just now — this is a temporary error. Try refreshing the page.")}
     </div>
   {:else}
-    <!-- Stat cards -->
-    <div class="grid gap-4 sm:grid-cols-2">
-      <a href="/app/memories" class="rounded-xl border border-zinc-200 bg-white p-5 transition hover:border-indigo-300 hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-indigo-700">
-        <p class="text-3xl font-bold tabular-nums text-zinc-900 dark:text-white">{memoryCount}</p>
-        <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-          {memoryCount === 1 ? t('dashboard.stat.memories-one', 'memory') : t('dashboard.stat.memories', 'memories')}
-        </p>
-      </a>
-      <div class="flex flex-col justify-center gap-2 rounded-xl border border-dashed border-zinc-200 p-5 dark:border-zinc-800">
-        <a href="/app/memories/new" class="text-sm font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">{t('dashboard.action.new-memory', '+ New memory')}</a>
-      </div>
-    </div>
+    <!-- Widget grid (#636). Only rendered when the load succeeded (the alert
+         branch above handles failure), so widgets don't need a loadFailed prop. -->
+    <DashboardGrid {placements} {widgetData} />
 
     <!-- Memories preview -->
     <div>
