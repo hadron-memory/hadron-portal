@@ -1847,6 +1847,28 @@ export const PERSONAL_MEMORIES_QUERY = /* GraphQL */ `
   }
 `;
 
+// #778 (server): memories shared WITH the caller (they're a MemoryShare grantee).
+// Slim projection — the "Memories shared with me" tab renders id/name/urn/class
+// plus `myShare` (who shared it + the caller's role). `myShare` is the caller's
+// OWN grantee row (never the owner-only full `shares` list).
+export const SHARED_MEMORIES_QUERY = /* GraphQL */ `
+  query SharedMemories($limit: Int, $offset: Int) {
+    memories(filter: { sharedWithMe: true }, limit: $limit, offset: $offset) {
+      items {
+        id
+        name
+        urn
+        class
+        myShare {
+          role
+          grantor { id handle name }
+        }
+      }
+      total
+    }
+  }
+`;
+
 // #629 / #636: the dashboard fetches everything it needs in ONE request:
 //  - a bounded (limit 5) SLIM memory projection for the "Your memories" preview
 //    + total (review: don't fetchAllItems for a count),
