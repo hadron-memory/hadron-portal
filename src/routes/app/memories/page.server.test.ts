@@ -1,9 +1,10 @@
 /**
- * /app/memories index loader. Lists the caller's OWN (org-less, user-owned)
- * memories for EVERYONE — org members included (their personal memories used to
- * be stranded by a 302 to the org grid; org-owned memories are filtered out).
+ * /app/memories index loader. Two tabs: "My memories" (the caller's OWN org-less
+ * memories, org-owned filtered out) and "Memories shared with me" (#778). The
+ * loader fetches both independently — one tab's failure must not blank the other.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { PERSONAL_MEMORIES_QUERY, SHARED_MEMORIES_QUERY } from '$lib/server/queries';
 
 vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -28,29 +29,65 @@ async function runLoad() {
   return load(ev());
 }
 
+/** Route the shared fetchAllItems mock by query: PERSONAL vs SHARED. */
+function route(opts: { owned?: unknown[] | Error; shared?: unknown[] | Error }) {
+  mockFetchAll.mockImplementation(async (_client: unknown, query: string) => {
+    const pick = query === SHARED_MEMORIES_QUERY ? opts.shared : opts.owned;
+    if (pick instanceof Error) throw pick;
+    return pick ?? [];
+  });
+}
+
 describe('/app/memories index loader', () => {
   it("lists the caller's org-less memories, filtering out org-owned ones", async () => {
-    mockFetchAll.mockResolvedValue([
-      { id: 'a', name: 'mine', organizationId: null },
-      { id: 'b', name: 'org one', organizationId: 'org-9' },
-    ]);
-    const result = await runLoad();
-    expect(result).toMatchObject({ memories: [{ id: 'a' }] });
-    expect((result as { memories: unknown[] }).memories).toHaveLength(1);
-  });
-
-  it('never redirects — an org member sees their personal memories here too', async () => {
-    // Regression: /app/memories used to 302 org members to the org grid, so their
-    // personal (org-less) memories had no route.
-    mockFetchAll.mockResolvedValue([{ id: 'a', name: 'mine', organizationId: null }]);
+    route({
+      owned: [
+        { id: 'a', name: 'mine', organizationId: null },
+        { id: 'b', name: 'org one', organizationId: 'org-9' },
+      ],
+      shared: [],
+    });
     const result = await runLoad();
     expect(result).toMatchObject({ memories: [{ id: 'a' }], loadFailed: false });
+    expect((result as { memories: unknown[] }).memories).toHaveLength(1);
+    // Never redirects — org members see their personal memories here too.
     expect((result as { status?: number })?.status).toBeUndefined();
   });
 
-  // NOTE: the loader's failure path (`loadFailed: true` on a rejected fetch) is a
-  // plain try/catch and is verified in-browser (the error banner renders instead
-  // of the empty state). It isn't unit-tested here because a rejected-promise
-  // mock trips vitest 4.x's unhandled-rejection detector even when the loader
-  // catches it — surfacing a false failure rather than exercising the branch.
+  it('lists memories shared with the caller in the shared tab', async () => {
+    route({
+      owned: [],
+      shared: [
+        {
+          id: 's1',
+          name: 'Alice notes',
+          urn: 'hrn:mem:alice:notes',
+          class: 'personal',
+          myShare: { role: 'reader', grantor: { id: 'u-alice', handle: 'alice', name: 'Alice' } },
+        },
+      ],
+    });
+    const result = (await runLoad()) as {
+      sharedMemories: Array<{ id: string; myShare: { role: string } }>;
+      sharedLoadFailed: boolean;
+    };
+    expect(result.sharedMemories).toHaveLength(1);
+    expect(result.sharedMemories[0]).toMatchObject({ id: 's1', myShare: { role: 'reader' } });
+    expect(result.sharedLoadFailed).toBe(false);
+  });
+
+  it('uses the personal + shared queries (routing sanity)', async () => {
+    route({ owned: [], shared: [] });
+    await runLoad();
+    const queries = mockFetchAll.mock.calls.map((c) => c[1]);
+    expect(queries).toContain(PERSONAL_MEMORIES_QUERY);
+    expect(queries).toContain(SHARED_MEMORIES_QUERY);
+  });
+
+  // NOTE: the per-tab failure paths (loadFailed / sharedLoadFailed) use
+  // Promise.allSettled so one tab's failure can't blank the other. They aren't
+  // unit-tested here because a rejected-promise mock trips vitest 4.x's
+  // unhandled-rejection detector even though allSettled handles it (same reason
+  // as the other loaders in this repo) — the error banners are verified
+  // in-browser instead.
 });
