@@ -6,6 +6,7 @@ import { gqlClient } from '$lib/server/api';
 import { DASHBOARD_QUERY } from '$lib/server/queries';
 import { WIDGET_TYPE_FROM_SERVER } from '$lib/dashboard/widgets/types';
 import type { WidgetDataMap, WidgetPlacement } from '$lib/dashboard/widgets/types';
+import { DEFAULT_PLACEMENTS } from '$lib/dashboard/widgets/defaults';
 import type { PageServerLoad } from './$types';
 
 export interface DashboardMemory {
@@ -24,13 +25,6 @@ interface ServerWidgetData {
   type: string;
   data: Record<string, unknown>;
 }
-
-// Default layout when the user hasn't customized their dashboard (no widget
-// picker yet — server-persisted selection is respected once they have one).
-const DEFAULT_PLACEMENTS: WidgetPlacement[] = [
-  { type: 'memory-stats', span: 4 },
-  { type: 'agent-stats', span: 4 },
-];
 
 /** Map the server's placed-widget list → portal placements, ordered by the
  *  server's `position` (sorted defensively rather than trusting array order),
