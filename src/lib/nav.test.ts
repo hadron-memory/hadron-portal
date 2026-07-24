@@ -32,8 +32,15 @@ describe('buildNavItems', () => {
     expect(items).toHaveLength(7);
   });
 
-  it('returns nothing without an active org (unchanged gate)', () => {
-    expect(buildNavItems({ activeOrgId: null, isConsumerMode: true })).toEqual([]);
-    expect(buildNavItems({ activeOrgId: undefined, isConsumerMode: false })).toEqual([]);
+  it('without an active org, still shows the org-independent items (so no empty sidebar)', () => {
+    // #628 review (Copilot): an org-less user must be able to reach /app/memories;
+    // only the org-scoped items (Dashboard/Tasks/Agents/Apps) drop out.
+    const items = hrefs({ activeOrgId: null, isConsumerMode: false });
+    expect(items).toEqual(['/app/search', '/app/marketplace', '/app/memories']);
+    expect(items.some((h) => h.startsWith('/app/orgs/'))).toBe(false);
+  });
+
+  it('a consumer with no active org still gets the org-less Memories link', () => {
+    expect(memoriesHref({ activeOrgId: undefined, isConsumerMode: true })).toBe('/app/memories');
   });
 });
