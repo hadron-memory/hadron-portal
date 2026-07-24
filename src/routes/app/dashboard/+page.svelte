@@ -29,13 +29,21 @@
 <svelte:head><title>{t('dashboard.title', 'Dashboard — Hadron')}</title></svelte:head>
 
 <div class="mx-auto max-w-3xl space-y-6 py-6">
-  <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">
-    {#if displayName}
-      {t('dashboard.heading-named', 'Welcome back, {name}').replace('{name}', displayName)}
-    {:else}
-      {t('dashboard.heading', 'Dashboard')}
-    {/if}
-  </h1>
+  <div class="flex items-center justify-between gap-4">
+    <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">
+      {#if displayName}
+        {t('dashboard.heading-named', 'Welcome back, {name}').replace('{name}', displayName)}
+      {:else}
+        {t('dashboard.heading', 'Dashboard')}
+      {/if}
+    </h1>
+    <a
+      href="/app/dashboard/customize"
+      class="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-700"
+    >
+      {t('dashboard.customize.link', 'Customize')}
+    </a>
+  </div>
 
   {#if loadFailed}
     <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">

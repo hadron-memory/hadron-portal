@@ -1879,6 +1879,29 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
   }
 `;
 
+// #636: the widget picker reads the caller's current selection and replaces it
+// wholesale. `setDashboardWidgets` takes the widgets in display order (position
+// = array order) and clamps span server-side to 1–12.
+export const DASHBOARD_WIDGETS_QUERY = /* GraphQL */ `
+  query DashboardWidgets {
+    dashboardWidgets {
+      type
+      span
+      position
+    }
+  }
+`;
+
+export const SET_DASHBOARD_WIDGETS_MUTATION = /* GraphQL */ `
+  mutation SetDashboardWidgets($widgets: [DashboardWidgetInput!]!) {
+    setDashboardWidgets(widgets: $widgets) {
+      type
+      span
+      position
+    }
+  }
+`;
+
 // hadron-server#564 (#501): moveNode reshaped to the <object>Ref convention —
 // sourceRef (PK or URN) + exactly ONE of targetUrn (full destination node
 // URN: new loc and/or new memory) / targetMemoryRef (same loc, new memory).
