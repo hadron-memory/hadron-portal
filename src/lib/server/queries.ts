@@ -1825,11 +1825,14 @@ export const PERSONAL_MEMORIES_QUERY = /* GraphQL */ `
   }
 `;
 
-// #629: the dashboard needs only a count + a small preview, so it uses a bounded
-// (limit 5), SLIM projection instead of paging the full MemoryFields set — the
-// page renders id/name/urn/class only (review: don't fetchAllItems for a count).
-export const DASHBOARD_MEMORIES_QUERY = /* GraphQL */ `
-  query DashboardMemories {
+// #629 / #636: the dashboard fetches everything it needs in ONE request:
+//  - a bounded (limit 5) SLIM memory projection for the "Your memories" preview
+//    + total (review: don't fetchAllItems for a count),
+//  - the caller's placed widgets (dashboardWidgets, ordered by position), and
+//  - the combined per-widget-type data (dashboardWidgetData) — server #772/#773.
+// The portal maps the server enum to WidgetType and fans the data out by type.
+export const DASHBOARD_QUERY = /* GraphQL */ `
+  query Dashboard {
     memories(filter: { memoryClasses: [personal, private] }, limit: 5) {
       items {
         id
@@ -1838,6 +1841,15 @@ export const DASHBOARD_MEMORIES_QUERY = /* GraphQL */ `
         class
       }
       total
+    }
+    dashboardWidgets {
+      type
+      span
+      position
+    }
+    dashboardWidgetData {
+      type
+      data
     }
   }
 `;
