@@ -6,6 +6,7 @@ import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import {
+  AGENT_QUERY,
   ORGANIZATIONS_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   GRAPH_NODES_QUERY,
@@ -17,8 +18,7 @@ import {
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
   AI_SERVICE_CONFIGS_QUERY,
 } from '$lib/server/queries';
-import { requireNonConsumer } from '$lib/server/guards';
-import type { Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
+import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
   addAgentMemorySchema,
@@ -42,37 +42,34 @@ function urnSlug(urn: string): string {
   return idx >= 0 ? urn.slice(idx + 1) : urn;
 }
 
-export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  await requireNonConsumer(parent);
+export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
 
-  // Spec 018: the previous loader silently coerced any ORGANIZATIONS_QUERY
-  // failure into an empty org list, which then produced a misleading
-  // "Agent not found" 404 for transient GraphQL/network errors. Let errors
-  // propagate so SvelteKit returns a 500 the user can distinguish from a
-  // legitimate not-found.
-  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
+  // #636: resolve the agent through the owner-accessible find-one so BOTH org
+  // agents (membership-gated) and user-owned org-less agents (owner-gated) are
+  // reachable. This replaces the old organizations()-scan, which only found org
+  // agents and 404'd a personal agent. No requireNonConsumer: the server's
+  // agent(ref:) gate IS the auth — a consumer can own a personal agent, and a
+  // non-member/non-owner gets null → 404 (no over-exposure). A THROWN error
+  // (network/GraphQL) becomes a 500, distinct from a legitimate not-found.
+  const agentRes = await client
+    .request<{ agent: Agent | null }>(AGENT_QUERY, { id: params.id })
+    .catch(() => {
+      throw error(500, 'Failed to load agent');
+    });
+  const agent = agentRes.agent;
+  if (!agent) throw error(404, 'Agent not found or no longer available');
 
-  // Spec 018 D-1: scan all of the caller's orgs and return the first
-  // match. An earlier variant org-scoped the search by a `?org=<id>`
-  // query hint passed from /app/orgs/<id>/agents/<aid>, but it 404'd
-  // legitimate cross-org navigation (same agent reachable from
-  // multiple list surfaces, stale hint after an org change, etc.).
-  // The membership gate is enforced by the fact that organizations()
-  // only contains orgs the user belongs to (platform admins see all —
-  // hadron-server#473) — no extra org-id check needed here.
-  let agent = null;
-  let org = null;
-  for (const o of orgs) {
-    const found = (o.agents ?? []).find((a) => a.id === params.id);
-    if (found) {
-      agent = found;
-      org = o;
-      break;
-    }
+  // Org chrome only for org-owned agents. A user-owned agent (organizationId
+  // null) belongs to no org — the page renders the org-less variant (org null,
+  // no org name / install / org system-memory picker).
+  let org: Organization | null = null;
+  let orgs: Organization[] = [];
+  if (agent.organizationId) {
+    orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
+    org = orgs.find((o) => o.id === agent.organizationId) ?? null;
+    if (!org) throw error(404, 'Agent not found or no longer available');
   }
-
-  if (!agent || !org) throw error(404, 'Agent not found or no longer available');
 
   // 006-asset-upload-redesign FR-013: per-agent asset-upload toggle is
   // gone. The v1 callerApp/assetUploadEnabled lookup is removed; the
@@ -103,8 +100,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
           GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
         ).catch(() => null)
       : Promise.resolve(null),
-    fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: org.id })
-      .catch(() => [] as Memory[]),
+    // Org system memories feed the system-memory picker — org-only; a user-owned
+    // agent has no org, so skip the query.
+    org
+      ? fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: org.id })
+          .catch(() => [] as Memory[])
+      : Promise.resolve([] as Memory[]),
     // 036: the AGENT-owned named configs. org-ADMIN gated server-side; a
     // non-admin member's call errors (the page hides the manager for them
     // anyway). Coerce to null so a transient failure surfaces as a load error

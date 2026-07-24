@@ -44,6 +44,12 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const agent = $derived(data.agent);
   const org = $derived(data.org);
+  // #636: the edit form shows the agent's URN prefix. For an org agent that's
+  // the org URN; for a user-owned (org-less) agent there's no org, so derive it
+  // from the agent's own URN (everything before the final ':' slug segment).
+  const urnPrefix = $derived(
+    org ? org.urn : agent.urn.slice(0, Math.max(0, agent.urn.lastIndexOf(':'))),
+  );
   const orgSystemMemories = $derived((data as any).orgSystemMemories ?? []);
   // Apps this agent is installed into (built server-side from the AppAgent join).
   const installedApps = $derived(
@@ -362,7 +368,7 @@
   const allMemories = $derived.by(() => {
     const seen = new Set<string>();
     const result: Array<{ id: string; urn: string; name: string; visibility?: string | null; class?: string; orgName?: string }> = [];
-    for (const o of (data as any).allOrgs ?? [org]) {
+    for (const o of (data as any).allOrgs ?? (org ? [org] : [])) {
       for (const m of o.memories ?? []) {
         if (!seen.has(m.id)) {
           seen.add(m.id);
@@ -382,7 +388,7 @@
     for (const m of orgSystemMemories) {
       if (!seen.has(m.id)) {
         seen.add(m.id);
-        result.push({ ...m, orgName: org.name });
+        result.push({ ...m, orgName: org?.name ?? '' });
       }
     }
     return result;
@@ -478,19 +484,24 @@
       {#if agent.description}
         <p class="mt-1 text-sm text-zinc-500">{agent.description}</p>
       {/if}
-      <p class="mt-1 text-xs text-zinc-400">Organization: {org.name}</p>
+      {#if org}
+        <p class="mt-1 text-xs text-zinc-400">Organization: {org.name}</p>
+      {/if}
     </div>
     <!-- 009-install-agent-flow T013: Install action surfaces here as the
          primary call-to-action for the Agent detail page. Soft-deleted
          Agents don't reach this page (the load redirect would 404 first),
-         so no client-side gate needed. -->
-    <a
-      href="/app/orgs/{org.id}/agents/install/{agent.id}"
-      class="shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white"
-      style="background: #fb8500;"
-    >
-      {installStrings.buttonLabel()}
-    </a>
+         so no client-side gate needed. Install is an org-only flow — a
+         user-owned (org-less) agent has no org install surface (#636). -->
+    {#if org}
+      <a
+        href="/app/orgs/{org.id}/agents/install/{agent.id}"
+        class="shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white"
+        style="background: #fb8500;"
+      >
+        {installStrings.buttonLabel()}
+      </a>
+    {/if}
   </div>
 
   <!-- Tabs -->
@@ -559,10 +570,12 @@
               <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
             </div>
           {/if}
-          <div class="flex items-center justify-between px-5 py-3">
-            <span class="text-sm text-zinc-500">Organization</span>
-            <span class="text-sm text-zinc-900 dark:text-white">{org.name}</span>
-          </div>
+          {#if org}
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Organization</span>
+              <span class="text-sm text-zinc-900 dark:text-white">{org.name}</span>
+            </div>
+          {/if}
           <div class="flex items-center justify-between px-5 py-3">
             <span class="text-sm text-zinc-500">Created</span>
             <span class="text-sm text-zinc-900 dark:text-white">{new Date(agent.createdAt).toLocaleDateString()}</span>
@@ -967,7 +980,7 @@
         ownerType="AGENT"
         ownerId={agent.id}
         configs={data.agentConfigs ?? []}
-        members={org.members ?? []}
+        members={org?.members ?? []}
         currentUserId={data.currentUserId}
         configsError={data.configsError}
       />
@@ -1010,7 +1023,7 @@
             <div>
               <label for="editUrn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
               <div class="flex items-stretch">
-                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{urnPrefix}:</span>
                 <input id="editUrn" name="urnSlug" type="text" bind:value={$agentSettingsForm.urnSlug}
                   aria-invalid={!!agentUrnError}
                   aria-describedby={agentUrnError ? 'editUrnError' : undefined}
@@ -1034,7 +1047,10 @@
               <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
               <select id="editVisibility" name="visibility" bind:value={$agentSettingsForm.visibility} class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                 <option value="PERSONAL">Personal</option>
-                <option value="ORGANIZATION">Organization</option>
+                <!-- ORGANIZATION visibility needs an org — hidden for a user-owned agent (#636). -->
+                {#if org}
+                  <option value="ORGANIZATION">Organization</option>
+                {/if}
                 <option value="PUBLIC">Public</option>
               </select>
             </div>
@@ -1098,10 +1114,12 @@
                 <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
               </div>
             {/if}
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Organization</span>
-              <span class="text-sm text-zinc-900 dark:text-white">{org.name}</span>
-            </div>
+            {#if org}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Organization</span>
+                <span class="text-sm text-zinc-900 dark:text-white">{org.name}</span>
+              </div>
+            {/if}
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">Created</span>
               <span class="text-sm text-zinc-900 dark:text-white">{new Date(agent.createdAt).toLocaleDateString()}</span>
