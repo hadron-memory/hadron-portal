@@ -7,7 +7,6 @@ function makeOrg(overrides: Partial<Organization>): Organization {
     id: 'org-id',
     name: 'Org',
     urn: 'org:example',
-    isVisible: true,
     githubInstallationId: null,
     githubAppId: null,
     hasGithubAppPrivateKey: false,
@@ -17,20 +16,19 @@ function makeOrg(overrides: Partial<Organization>): Organization {
   };
 }
 
-describe('resolveActiveOrg — spec 014 R-1/R-2/R-9', () => {
-  const personal = makeOrg({ id: 'org-personal', isVisible: null });
-  const orgA = makeOrg({ id: 'org-a', isVisible: true });
-  const orgB = makeOrg({ id: 'org-b', isVisible: true });
+describe('resolveActiveOrg — spec 014 R-1/R-9 (post-#627, no personal org)', () => {
+  const orgA = makeOrg({ id: 'org-a' });
+  const orgB = makeOrg({ id: 'org-b' });
+  const orgC = makeOrg({ id: 'org-c' });
 
   it('returns source=url when paramsId is a member org', () => {
     const r = resolveActiveOrg({
-      paramsId: 'org-a',
+      paramsId: 'org-b',
       lastActiveOrgId: null,
-      myOrganizations: [personal, orgA, orgB],
+      myOrganizations: [orgA, orgB, orgC],
     });
-    expect(r.activeOrgId).toBe('org-a');
-    expect(r.activeOrg).toBe(orgA);
-    expect(r.personalOrgId).toBe('org-personal');
+    expect(r.activeOrgId).toBe('org-b');
+    expect(r.activeOrg).toBe(orgB);
     expect(r.source).toBe('url');
   });
 
@@ -38,111 +36,66 @@ describe('resolveActiveOrg — spec 014 R-1/R-2/R-9', () => {
     const r = resolveActiveOrg({
       paramsId: undefined,
       lastActiveOrgId: 'org-b',
-      myOrganizations: [personal, orgA, orgB],
+      myOrganizations: [orgA, orgB, orgC],
     });
     expect(r.activeOrgId).toBe('org-b');
     expect(r.activeOrg).toBe(orgB);
     expect(r.source).toBe('lastActive');
   });
 
-  it('returns source=personal when both URL and lastActiveOrgId are absent', () => {
+  it('falls back to the FIRST membership when both URL and lastActiveOrgId are absent', () => {
+    // Regression for the "member of several orgs sees none" bug: with no URL
+    // hint (e.g. on /app/dashboard) and no cookie, a member must still land on
+    // an org so the org surface + switcher render.
     const r = resolveActiveOrg({
       paramsId: undefined,
       lastActiveOrgId: null,
-      myOrganizations: [personal, orgA],
-    });
-    expect(r.activeOrgId).toBe('org-personal');
-    expect(r.activeOrg).toBe(personal);
-    expect(r.source).toBe('personal');
-  });
-
-  it('falls through URL → lastActive → personal when paramsId is not a member org (R-9)', () => {
-    const r = resolveActiveOrg({
-      paramsId: 'org-unknown',
-      lastActiveOrgId: 'org-a',
-      myOrganizations: [personal, orgA],
+      myOrganizations: [orgA, orgB, orgC],
     });
     expect(r.activeOrgId).toBe('org-a');
+    expect(r.activeOrg).toBe(orgA);
+    expect(r.source).toBe('first');
+  });
+
+  it('falls through URL → lastActive → first when paramsId is not a member org (R-9)', () => {
+    const r = resolveActiveOrg({
+      paramsId: 'org-unknown',
+      lastActiveOrgId: 'org-b',
+      myOrganizations: [orgA, orgB],
+    });
+    expect(r.activeOrgId).toBe('org-b');
     expect(r.source).toBe('lastActive');
   });
 
-  it('falls through to personal when both paramsId AND lastActiveOrgId are non-member', () => {
+  it('falls through to the first membership when both paramsId AND lastActiveOrgId are non-member', () => {
     const r = resolveActiveOrg({
       paramsId: 'org-unknown',
       lastActiveOrgId: 'org-gone',
-      myOrganizations: [personal, orgA],
+      myOrganizations: [orgA, orgB],
     });
-    expect(r.activeOrgId).toBe('org-personal');
-    expect(r.source).toBe('personal');
+    expect(r.activeOrgId).toBe('org-a');
+    expect(r.source).toBe('first');
   });
 
-  it('falls through to personal when lastActiveOrgId points to a stale (non-member) org (FR-009)', () => {
+  it('ignores a stale (non-member) lastActiveOrgId and falls back to first (FR-009)', () => {
     const r = resolveActiveOrg({
       paramsId: undefined,
       lastActiveOrgId: 'org-deleted',
-      myOrganizations: [personal, orgA],
+      myOrganizations: [orgA, orgB],
     });
-    expect(r.activeOrgId).toBe('org-personal');
-    expect(r.source).toBe('personal');
+    expect(r.activeOrgId).toBe('org-a');
+    expect(r.source).toBe('first');
   });
 
-  it('returns source=none when no personal org exists (defensive, R-2)', () => {
-    const r = resolveActiveOrg({
-      paramsId: undefined,
-      lastActiveOrgId: null,
-      myOrganizations: [orgA, orgB], // no isVisible === null
-    });
-    expect(r.activeOrgId).toBeNull();
-    expect(r.activeOrg).toBeNull();
-    expect(r.personalOrgId).toBeNull();
-    expect(r.source).toBe('none');
-  });
-
-  it('returns source=none when membership list is empty (unreachable platform state)', () => {
+  it('returns source=none when the user has NO memberships (org-less individual, #627)', () => {
     const r = resolveActiveOrg({
       paramsId: 'org-anything',
       lastActiveOrgId: 'org-anything',
       myOrganizations: [],
     });
+    expect(r.activeOrgId).toBeNull();
+    expect(r.activeOrg).toBeNull();
     expect(r.source).toBe('none');
-  });
-
-  it('always exposes personalOrgId regardless of which step picked the active org', () => {
-    const r = resolveActiveOrg({
-      paramsId: 'org-a',
-      lastActiveOrgId: null,
-      myOrganizations: [personal, orgA],
-    });
-    expect(r.source).toBe('url');
-    expect(r.personalOrgId).toBe('org-personal');
-  });
-
-  // hadron-server's `personal-workspace.ts` writes `isVisible: false` on
-  // provisioning; the read filter is `{ not: true }`. Lock in that both
-  // null AND false count as "personal" so the portal stays aligned with
-  // the server contract.
-  it('treats isVisible=false as personal (hadron-server provisioning shape)', () => {
-    const personalFalse = makeOrg({ id: 'org-personal-false', isVisible: false });
-    const r = resolveActiveOrg({
-      paramsId: undefined,
-      lastActiveOrgId: null,
-      myOrganizations: [personalFalse, orgA],
-    });
-    expect(r.activeOrgId).toBe('org-personal-false');
-    expect(r.personalOrgId).toBe('org-personal-false');
-    expect(r.source).toBe('personal');
-  });
-
-  it('prefers isVisible=true orgs over isVisible=false when the URL points at a visible one', () => {
-    const personalFalse = makeOrg({ id: 'org-personal-false', isVisible: false });
-    const r = resolveActiveOrg({
-      paramsId: 'org-a',
-      lastActiveOrgId: null,
-      myOrganizations: [personalFalse, orgA],
-    });
-    expect(r.activeOrgId).toBe('org-a');
-    expect(r.personalOrgId).toBe('org-personal-false');
-    expect(r.source).toBe('url');
   });
 });
 
@@ -170,19 +123,18 @@ describe('filterToMemberOrgs — hadron-server#473 admin unscoped reach', () => 
     expect(filterToMemberOrgs([noMembers], undefined)).toEqual([]);
   });
 
-  it("admin regression (PR #451 P2): another user's personal org sorting first no longer wins the personal fallback", () => {
-    // organizations() gives an admin EVERY org — including other users'
-    // personal orgs (isVisible !== true). Unfiltered, the first of those
-    // would win resolveActiveOrg's personal-org step.
-    const foreignPersonal = makeOrg({ id: 'org-aaa-foreign', isVisible: null, members: [member('u2', 'org-aaa-foreign')] });
-    const ownPersonal = makeOrg({ id: 'org-zzz-own', isVisible: null, members: [member('u1', 'org-zzz-own')] });
+  it("admin regression (PR #451 P2): the first-membership fallback only ever considers the user's OWN orgs", () => {
+    // organizations() gives an admin EVERY org — including other users' orgs.
+    // Unfiltered, a foreign org sorting first would win the first-membership
+    // step. filterToMemberOrgs must strip it before resolution.
+    const foreign = makeOrg({ id: 'org-aaa-foreign', members: [member('u2', 'org-aaa-foreign')] });
+    const own = makeOrg({ id: 'org-zzz-own', members: [member('u1', 'org-zzz-own')] });
     const r = resolveActiveOrg({
       paramsId: undefined,
       lastActiveOrgId: null,
-      myOrganizations: filterToMemberOrgs([foreignPersonal, ownPersonal], 'u1'),
+      myOrganizations: filterToMemberOrgs([foreign, own], 'u1'),
     });
-    expect(r.source).toBe('personal');
+    expect(r.source).toBe('first');
     expect(r.activeOrgId).toBe('org-zzz-own');
-    expect(r.personalOrgId).toBe('org-zzz-own');
   });
 });

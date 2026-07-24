@@ -31,9 +31,18 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // id/roles/githubUsername, so the avatar URL and name live server-side and
   // we must fetch them to render the sidebar avatar correctly.
   let meThrew = false;
+  let orgsThrew = false;
   const [orgs, meData] = await Promise.all([
     fetchAllItems<Organization>(apiClient, ORGANIZATIONS_NAV_QUERY, 'organizations')
-      .catch(() => [] as Organization[]),
+      // Keep the app up if the org list fails, but REMEMBER it failed: an empty
+      // list must not be read as "zero memberships" and flip a real org member
+      // into consumer mode (Copilot review on #639). The error is a query/network
+      // failure (no user-controlled data), so it's safe to log.
+      .catch((e) => {
+        orgsThrew = true;
+        console.error('[app-layout] organizations query threw — org context unavailable this load:', e);
+        return [] as Organization[];
+      }),
     apiClient
       .request<{ me: UserSummary | null }>(ME_QUERY)
       // Don't 500 the whole app if `me` fails, but never swallow it silently.
@@ -72,7 +81,14 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // defense-in-depth for consumer-mode detection and active-/personal-org
   // resolution.
   const memberOrgs = filterToMemberOrgs(orgs, locals.user.id);
-  const isConsumerMode = memberOrgs.length === 1 && memberOrgs[0].isVisible !== true;
+  // Consumer (individual) mode = the user belongs to NO organization. Since
+  // #627 removed the per-user "personal org" (and its `isVisible` marker),
+  // an individual simply has zero orgs and works out of org-less, user-owned
+  // memories; anyone with a membership is an org member. Guard on `orgsThrew`
+  // so a transient org-fetch failure (swallowed to `[]` above) can't misread a
+  // real member as a consumer and hide their org UI — on failure we keep the
+  // non-consumer default rather than downgrade.
+  const isConsumerMode = !orgsThrew && memberOrgs.length === 0;
 
   // Merge fresh server-side fields (name, avatarUrl, email) over the JWT
   // payload, so the layout always has current user metadata.
@@ -81,7 +97,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
     : { ...locals.user, handle: null };
 
   // Spec 014: resolve the active organization (URL → lastActiveOrgId →
-  // personal). #232 fix: feed the persisted cookie as the lastActiveOrgId
+  // first membership). #232 fix: feed the persisted cookie as the lastActiveOrgId
   // step so navigations to routes without an org URL hint (e.g. opening
   // /app/agents/[id] from /app/orgs/<X>/agents) keep the previously-
   // selected org active. The hadron-server-side `lastActiveOrgId` field
@@ -98,8 +114,8 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   });
 
   // Persist the URL-driven selection so subsequent loads on org-less
-  // routes can find it. Never write on `personal` fallback — we want it
-  // to stay a fallback, not become a sticky selection. Refresh on
+  // routes can find it. Never write on the `first`-membership fallback — we
+  // want it to stay a fallback, not become a sticky selection. Refresh on
   // `lastActive` to extend the cookie's TTL while the user is active.
   if (
     (resolution.source === 'url' || resolution.source === 'lastActive') &&
@@ -155,6 +171,5 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
     isConsumerMode,
     activeOrgId: resolution.activeOrgId,
     activeOrg: resolution.activeOrg,
-    personalOrgId: resolution.personalOrgId,
   };
 };

@@ -65,7 +65,6 @@ describe('marketplace add-to-my-memories action', () => {
         id: 'org-1',
         name: 'Personal',
         urn: 'hadronmemory.com:personal',
-        isVisible: false,
         members: [{ user: { id: 'user-1' } }],
       },
     ]);
@@ -76,10 +75,10 @@ describe('marketplace add-to-my-memories action', () => {
     expect(mockRequest).toHaveBeenCalledWith(ADD_TO_MY_MEMORIES_MUTATION, { memoryId: 'memory-1' });
   });
 
-  it('adds a selected memory and redirects to the orgs fallback when no active org resolves', async () => {
+  it('adds a selected memory and redirects an org-less user to /app/memories when no active org resolves', async () => {
     const result = await runAdd({ _kind: 'addMarketplaceMemory', memoryId: 'memory-1' });
 
-    expect(result).toMatchObject({ status: 303, location: '/app/orgs/' });
+    expect(result).toMatchObject({ status: 303, location: '/app/memories' });
     expect(mockRequest).toHaveBeenCalledWith(ADD_TO_MY_MEMORIES_MUTATION, { memoryId: 'memory-1' });
     expect(mockFetchAllItems).toHaveBeenCalled();
   });

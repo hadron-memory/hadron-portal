@@ -39,10 +39,10 @@ describe('requireNonConsumer', () => {
     expect(await run({ isConsumerMode: false, activeOrgId: 'org-1' })).toBeNull();
   });
 
-  it('falls back to /app/orgs/ when a consumer has no active org', async () => {
+  it('sends a consumer with no active org to /app/memories (not /app/orgs/, which would loop)', async () => {
     expect(await run({ isConsumerMode: true, activeOrgId: null })).toMatchObject({
       status: 303,
-      location: '/app/orgs/',
+      location: '/app/memories',
     });
   });
 });
