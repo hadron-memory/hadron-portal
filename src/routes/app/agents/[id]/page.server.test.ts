@@ -8,6 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  AGENT_QUERY,
   ORGANIZATIONS_QUERY,
   ORGANIZATION_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
@@ -96,6 +97,7 @@ async function runDeleteAgent(fields: Record<string, string>) {
  * `queries.ts` so the strings match exactly.
  */
 function routeMock(opts: {
+  agent?: { data?: unknown; error?: unknown };
   myOrgs?: { data?: unknown; error?: unknown };
   org?: { data?: unknown; error?: unknown };
   orgSysMems?: { data?: unknown; error?: unknown };
@@ -103,6 +105,10 @@ function routeMock(opts: {
   apps?: { data?: unknown; error?: unknown };
 }) {
   mockRequest.mockImplementation(async (query: string) => {
+    if (query === AGENT_QUERY) {
+      if (opts.agent?.error !== undefined) throw opts.agent.error;
+      return opts.agent?.data ?? { agent: null };
+    }
     if (query === ORGANIZATIONS_QUERY) {
       if (opts.myOrgs?.error !== undefined) throw opts.myOrgs.error;
       // hadron-server#473: wrap in the uniform { items, total } envelope.
@@ -141,75 +147,61 @@ const orgA = {
 const orgB = { ...orgA, id: 'org-b', name: 'Org B', urn: 'urn:org:b' };
 const agentInA = { id: 'agent-aaa', organizationId: 'org-a', name: 'Agent in A', urn: 'urn:agent:a', memoryItems: [], systemMemoryId: null };
 const agentInB = { id: 'agent-bbb', organizationId: 'org-b', name: 'Agent in B', urn: 'urn:agent:b', memoryItems: [], systemMemoryId: null };
+// #636: a user-owned (org-less) agent — organizationId null, reachable via agent(ref:).
+const personalAgent = { id: 'agent-personal', organizationId: null, name: 'My Agent', urn: 'urn:agent:ada::my-agent', memoryItems: [], systemMemoryId: null };
 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe('/app/agents/[id] loader', () => {
-  // ── US1: false-404 fix ───────────────────────────────────────────────────
+  // ── Org agents: resolved via agent(ref:), org chrome loaded ──────────────
 
-  it('US1 — happy path, single-org user: returns agent + org from organizations()', async () => {
+  it('org agent: returns the agent + its org (agent(ref:) then organizations())', async () => {
     routeMock({
-      myOrgs: { data: { organizations: [{ ...orgA, agents: [agentInA] }] } },
+      agent: { data: { agent: agentInA } },
+      myOrgs: { data: { organizations: [orgA] } },
     });
     const load = await importLoad();
     const result = (await load(ev({ agentId: 'agent-aaa' }))) as {
       agent: typeof agentInA;
       org: typeof orgA;
-      agentNodes: unknown[];
       allOrgs: unknown[];
     };
     expect(result.agent.id).toBe('agent-aaa');
-    expect(result.org.id).toBe('org-a');
+    expect(result.org?.id).toBe('org-a');
     expect(result.allOrgs).toHaveLength(1);
   });
 
-  it('US1 — happy path, multi-org user: finds agent in second org', async () => {
+  it('org agent in a non-first member org is still resolved', async () => {
     routeMock({
-      myOrgs: {
-        data: {
-          organizations: [
-            { ...orgA, agents: [] },
-            { ...orgB, agents: [agentInB] },
-          ],
-        },
-      },
+      agent: { data: { agent: agentInB } },
+      myOrgs: { data: { organizations: [orgA, orgB] } },
     });
     const load = await importLoad();
-    const result = (await load(ev({ agentId: 'agent-bbb' }))) as {
-      agent: typeof agentInB;
-      org: typeof orgB;
-    };
-    expect(result.agent.id).toBe('agent-bbb');
-    expect(result.org.id).toBe('org-b');
+    const result = (await load(ev({ agentId: 'agent-bbb' }))) as { org: typeof orgB };
+    expect(result.org?.id).toBe('org-b');
   });
 
-  it('US1 — happy path: cross-org scan resolves the agent in its owning org', async () => {
-    // The loader scans every org the user is a member of and returns
-    // the first match. The org-scoped redirector at
-    // /app/orgs/<id>/agents/<aid> simply redirects here without any
-    // hint — see plan.md D-1 for why the earlier `?org=` hint was
-    // dropped.
-    routeMock({
-      myOrgs: {
-        data: {
-          organizations: [
-            { ...orgA, agents: [agentInA] },
-            { ...orgB, agents: [agentInB] },
-          ],
-        },
-      },
-    });
+  // ── #636: user-owned (org-less) agent is reachable, org is null ──────────
+
+  it('user-owned agent: reachable with org null, no organizations() fetch', async () => {
+    routeMock({ agent: { data: { agent: personalAgent } } });
     const load = await importLoad();
-    const result = (await load(ev({ agentId: 'agent-bbb' }))) as {
-      agent: typeof agentInB;
-      org: typeof orgB;
+    const result = (await load(ev({ agentId: 'agent-personal' }))) as {
+      agent: typeof personalAgent;
+      org: unknown;
+      allOrgs: unknown[];
     };
-    expect(result.agent.id).toBe('agent-bbb');
-    expect(result.org.id).toBe('org-b');
+    expect(result.agent.id).toBe('agent-personal');
+    expect(result.org).toBeNull();
+    expect(result.allOrgs).toEqual([]);
+    // ORGANIZATIONS_QUERY must NOT be called for an org-less agent.
+    expect(mockRequest).not.toHaveBeenCalledWith(ORGANIZATIONS_QUERY, expect.anything());
   });
 
-  it('US1 — resilience: ORGANIZATIONS_QUERY errors propagate (no silent 404)', async () => {
-    routeMock({ myOrgs: { error: new Error('graphql blew up') } });
+  // ── Resilience + not-found ───────────────────────────────────────────────
+
+  it('resilience: a thrown agent(ref:) error propagates (not a silent 404)', async () => {
+    routeMock({ agent: { error: new Error('graphql blew up') } });
     const load = await importLoad();
     let thrown: unknown;
     try {
@@ -217,8 +209,6 @@ describe('/app/agents/[id] loader', () => {
     } catch (e) {
       thrown = e;
     }
-    // Must NOT be a SvelteKit 404 — the previous .catch(() => []) turned
-    // every transient failure into "Agent not found".
     expect(thrown).toBeDefined();
     const status = (thrown as { status?: number }).status;
     expect(status === undefined || status >= 500).toBe(true);
@@ -226,12 +216,8 @@ describe('/app/agents/[id] loader', () => {
       .not.toBe('Agent not found or no longer available');
   });
 
-  // ── US2: visibility-safety guard ─────────────────────────────────────────
-
-  it('US2 — 404 when agent is in no user-member org', async () => {
-    routeMock({
-      myOrgs: { data: { organizations: [{ ...orgA, agents: [agentInA] }] } },
-    });
+  it('404 when agent(ref:) resolves to null (not found / no access / soft-deleted)', async () => {
+    routeMock({ agent: { data: { agent: null } } });
     const load = await importLoad();
     let thrown: unknown;
     try {
@@ -242,66 +228,37 @@ describe('/app/agents/[id] loader', () => {
     expect((thrown as { status: number }).status).toBe(404);
   });
 
-  it('US2 — soft-deleted agent (filtered out of organizations().agents by server) returns 404', async () => {
-    // The server's ORG_INCLUDE filters `deletedAt: null`, so a soft-deleted
-    // agent simply doesn't appear in `o.agents`. Loader sees no match → 404.
-    routeMock({
-      myOrgs: { data: { organizations: [{ ...orgA, agents: [] }] } },
-    });
+  it('404 body carries no agent fields (no-leak guard)', async () => {
+    routeMock({ agent: { data: { agent: null } } });
     const load = await importLoad();
     let thrown: unknown;
     try {
-      await load(ev({ agentId: 'agent-aaa' }));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(404);
-  });
-
-  it('US2 — 404 body carries no agent fields (FR-005 no-leak guard)', async () => {
-    routeMock({
-      myOrgs: { data: { organizations: [{ ...orgA, agents: [agentInA] }] } },
-    });
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      // Ask for an id that exists nowhere
       await load(ev({ agentId: 'private-cross-org-agent' }));
     } catch (e) {
       thrown = e;
     }
     const body = (thrown as { body?: { message?: string } }).body;
     expect(body?.message).toBe('Agent not found or no longer available');
-    // No agent name, URN, or description in the body
     const bodyStr = JSON.stringify(body);
     expect(bodyStr).not.toContain('Agent in A');
     expect(bodyStr).not.toContain('urn:agent:a');
-    expect(bodyStr).not.toContain('agent-aaa');
   });
 
-  it('US1 — agent in a non-first member org is still resolved by the scan', async () => {
-    // The loader walks every member org in order until it finds the
-    // agent; this asserts the walk doesn't stop at the first org. An
-    // earlier strict-pivot variant (org-scope by `?org=` hint) was
-    // tried and reverted because it 404'd legitimate cross-org
-    // navigation. See plan.md D-1.
+  it('404 when an org agent’s org is not among the caller’s memberships', async () => {
+    // agent(ref:) returned an org agent, but organizations() (the membership
+    // list) doesn't contain its org — treat as not-available.
     routeMock({
-      myOrgs: {
-        data: {
-          organizations: [
-            { ...orgA, agents: [agentInA] },
-            { ...orgB, agents: [agentInB] },
-          ],
-        },
-      },
+      agent: { data: { agent: agentInB } },
+      myOrgs: { data: { organizations: [orgA] } },
     });
     const load = await importLoad();
-    const result = (await load(ev({ agentId: 'agent-bbb' }))) as {
-      agent: typeof agentInB;
-      org: typeof orgB;
-    };
-    expect(result.agent.id).toBe('agent-bbb');
-    expect(result.org.id).toBe('org-b');
+    let thrown: unknown;
+    try {
+      await load(ev({ agentId: 'agent-bbb' }));
+    } catch (e) {
+      thrown = e;
+    }
+    expect((thrown as { status: number }).status).toBe(404);
   });
 });
 
