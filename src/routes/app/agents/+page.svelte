@@ -39,10 +39,20 @@
     })),
   );
 
-  const visibilityLabel = (v: AgentRow['visibility']): string =>
-    v === 'PUBLIC'
-      ? t('my-agents.badge.public', 'Public')
-      : t('my-agents.badge.personal', 'Personal');
+  // Org-less agents are PERSONAL or PUBLIC, but handle every enum value
+  // explicitly so an unexpected ORGANIZATION value (e.g. inconsistent historical
+  // data) is labelled correctly rather than mislabelled "Personal".
+  const visibilityLabel = (v: AgentRow['visibility']): string => {
+    switch (v) {
+      case 'PUBLIC':
+        return t('my-agents.badge.public', 'Public');
+      case 'ORGANIZATION':
+        return t('my-agents.badge.organization', 'Organization');
+      case 'PERSONAL':
+      default:
+        return t('my-agents.badge.personal', 'Personal');
+    }
+  };
 
   let globalFilter = $state('');
   const columns: ColumnDef<AgentRow>[] = [

@@ -70,7 +70,7 @@
       <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{t('my-apps.heading', 'My apps')}</h1>
       <p class="text-sm text-zinc-500">{t('my-apps.subhead', 'Apps you own directly, outside any organization.')}</p>
     </div>
-    <!-- #647: org-less app create + detail are a follow-up (portal). Until they
+    <!-- Org-less app create + detail are a follow-up (portal, #648). Until they
          land, "My apps" is a read-only list — no "New app" button, and the app
          name isn't a link (there is no org-less detail route yet). -->
   </div>
@@ -94,7 +94,7 @@
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
-          <!-- Plain text until the org-less /app/apps/[appId] detail lands (#647 follow-up). -->
+          <!-- Plain text until the org-less /app/apps/[appId] detail lands (#648). -->
           <span class="font-medium text-zinc-900 dark:text-zinc-100">{row.name}</span>
         {:else if cell.column.id === 'urn'}
           <Urn value={row.urn} type="app" size={8} />

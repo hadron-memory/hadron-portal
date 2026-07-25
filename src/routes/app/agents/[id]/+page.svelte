@@ -44,6 +44,11 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const agent = $derived(data.agent);
   const org = $derived(data.org);
+  // #647: the "Agents" list this agent belongs to — the org grid for an org
+  // agent, the personal "My agents" list for a user-owned (org-less) one. Since
+  // /app/agents stopped redirecting org members to their org grid, org-agent
+  // exits (breadcrumb, delete) must target the org list explicitly.
+  const agentsHref = $derived(org ? `/app/orgs/${org.id}/agents` : '/app/agents');
   // #636: the edit form shows the agent's URN prefix. For an org agent that's
   // the org URN; for a user-owned (org-less) agent there's no org, so derive it
   // from the agent's own URN (everything before the final ':' slug segment).
@@ -472,7 +477,7 @@
   <!-- Breadcrumb -->
   <Breadcrumb items={[
     { label: 'Dashboard', href: '/app/dashboard' },
-    { label: 'Agents', href: '/app/agents' },
+    { label: 'Agents', href: agentsHref },
     { label: agent.name },
   ]} />
 

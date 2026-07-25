@@ -9,8 +9,8 @@
 // resolvers.mutation.app.ts). The portal just hasn't wired that org-less install
 // path yet; until it does, an individual (org-less) user reaching here is still
 // bounced to the org list, which is a dead end for them. Wiring the org-less
-// create/install flow (and the org-less `/app/apps/[appId]` detail) is the #647
-// follow-up. Do not read this redirect as "org-less apps don't exist" — they do.
+// create/install flow (and the org-less `/app/apps/[appId]` detail) is tracked
+// in #648. Do not read this redirect as "org-less apps don't exist" — they do.
 import { redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 

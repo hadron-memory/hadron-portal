@@ -340,8 +340,12 @@ describe('/app/agents/[id] memory actions', () => {
 });
 
 describe('/app/agents/[id] delete action', () => {
-  it('deletes the agent and redirects to the agents list', async () => {
-    mockRequest.mockResolvedValueOnce({ deleteAgent: true });
+  // #647: the post-delete redirect depends on ownership — the action resolves the
+  // agent's org (first request) before deleting (second request).
+  it('deletes a personal (org-less) agent and redirects to the personal My agents list', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ agent: { organizationId: null } }) // org lookup
+      .mockResolvedValueOnce({ deleteAgent: true }); // delete
 
     let thrown: unknown;
     try {
@@ -356,6 +360,38 @@ describe('/app/agents/[id] delete action', () => {
     expect(mockRequest).toHaveBeenCalledWith(DELETE_AGENT_MUTATION, { id: 'agent-id-123' });
   });
 
+  it('deletes an org agent and redirects to that org’s agents grid', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ agent: { organizationId: 'org-9' } }) // org lookup
+      .mockResolvedValueOnce({ deleteAgent: true }); // delete
+
+    let thrown: unknown;
+    try {
+      await runDeleteAgent({});
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect((thrown as { status: number }).status).toBe(303);
+    expect((thrown as { location: string }).location).toBe('/app/orgs/org-9/agents');
+  });
+
+  it('falls back to the personal list when the org lookup fails', async () => {
+    mockRequest
+      .mockRejectedValueOnce(new Error('lookup failed')) // org lookup (non-fatal)
+      .mockResolvedValueOnce({ deleteAgent: true }); // delete still runs
+
+    let thrown: unknown;
+    try {
+      await runDeleteAgent({});
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect((thrown as { status: number }).status).toBe(303);
+    expect((thrown as { location: string }).location).toBe('/app/agents');
+  });
+
   it('rejects delete-agent payloads with the wrong action discriminator', async () => {
     const result = await runDeleteAgent({ _kind: 'removeMemory' });
 
@@ -365,7 +401,9 @@ describe('/app/agents/[id] delete action', () => {
   });
 
   it('returns delete-agent GraphQL failures as Superforms messages', async () => {
-    mockRequest.mockRejectedValueOnce(new Error('delete failed'));
+    mockRequest
+      .mockResolvedValueOnce({ agent: { organizationId: null } }) // org lookup ok
+      .mockRejectedValueOnce(new Error('delete failed')); // delete fails
 
     const result = await runDeleteAgent({});
 
