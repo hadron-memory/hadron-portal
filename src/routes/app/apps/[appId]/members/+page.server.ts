@@ -2,17 +2,15 @@ import { fail, error } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
 import {
   APP_WITH_MEMBERS_QUERY,
   ENSURE_APP_MEMBER_MUTATION,
   REMOVE_APP_MEMBER_MUTATION,
   ORGANIZATION_QUERY,
-  USERS_QUERY,
 } from '$lib/server/queries';
 import { appMemberErrorCode, translateAppMemberError, appMemberErrorStatus } from '$lib/i18n/app-member-errors';
 import { t } from '$lib/i18n/t';
-import type { App, AppMember, Organization, UserSummary } from '$lib/types';
+import type { App, AppMember, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
 
@@ -24,15 +22,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // #648: canonical org-optional App members. No requireNonConsumer — a
   // user-owned (org-less) app has members too; the app(ref:) gate is the auth.
   const client = gqlClient(locals.token);
-  const [appData, usersData] = await Promise.all([
-    client
-      .request<{ app: (App & { members?: AppMember[] }) | null }>(APP_WITH_MEMBERS_QUERY, {
-        id: params.appId,
-      })
-      .catch(() => ({ app: null })),
-    fetchAllItems<UserSummary>(client, USERS_QUERY, 'users')
-      .catch(() => [] as UserSummary[]),
-  ]);
+  // #653: the "Add member" picker searches users on demand (SelectUser →
+  // /api/users/search), so we no longer bulk-load the admin-only USERS_QUERY —
+  // which returned an EMPTY page for a non-admin caller (personal-app owner or
+  // non-admin org member), hiding the add-member section entirely.
+  const appData = await client
+    .request<{ app: (App & { members?: AppMember[] }) | null }>(APP_WITH_MEMBERS_QUERY, {
+      id: params.appId,
+    })
+    .catch(() => ({ app: null }));
   if (!appData.app) throw error(404, 'App not found');
 
   // Org chrome only for an org-owned app (breadcrumb/back link); a user-owned
@@ -52,12 +50,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   }
 
   const members = appData.app.members ?? [];
-  const memberIds = new Set(members.map((member) => member.userId));
-  const firstNonMember = usersData.find((user) => !memberIds.has(user.id));
   const firstRole = appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '';
   const [addForm, ensureForm, removeForm] = await Promise.all([
+    // userId is empty until the operator picks someone via the search modal.
     superValidate(
-      { userId: firstNonMember?.id ?? '', role: firstRole },
+      { userId: '', role: firstRole },
       addAppMemberFormAdapter,
       { errors: false },
     ),
@@ -77,7 +74,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     app: appData.app,
     org,
     members,
-    allUsers: usersData,
     addForm,
     ensureForm,
     removeForm,
