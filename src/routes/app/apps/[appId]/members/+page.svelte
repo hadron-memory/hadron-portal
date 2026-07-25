@@ -3,6 +3,8 @@
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import SelectUser from '$lib/components/SelectUser.svelte';
+  import { type SearchUser, userLabel as searchUserLabel } from '$lib/users/search-user';
   import { submittedForm } from '$lib/forms/submitted-form';
   import type { PageData, ActionData } from './$types';
   import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
@@ -21,7 +23,31 @@
   // (org-less) app through the personal "My apps" list / canonical detail.
   const appsHref = $derived(org ? `/app/orgs/${org.id}/apps` : '/app/apps');
   const members = $derived(data.members);
-  const allUsers = $derived(data.allUsers);
+
+  // #653: "Add member" searches users on demand (SelectUser → /api/users/search)
+  // instead of a bulk-loaded admin-only list — so a personal-app owner or
+  // non-admin org member can add the first member. Selection is by opaque id.
+  let selectUserOpen = $state(false);
+  let selectedUser = $state<SearchUser | null>(null);
+  const selectedUserLabel = $derived(selectedUser ? searchUserLabel(selectedUser) : '');
+  const memberIdSet = $derived(new Set(members.map((m) => m.userId)));
+
+  async function searchUsers(query: string): Promise<SearchUser[]> {
+    const res = await fetch('/api/users/search', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    if (!res.ok) throw new Error('Search failed');
+    const data = (await res.json()) as { users?: SearchUser[] };
+    // Hide users already on this app — they can't be added again.
+    return (data.users ?? []).filter((u) => !memberIdSet.has(u.id));
+  }
+
+  function selectAddUser(user: SearchUser) {
+    selectedUser = user;
+    addForm.update((current) => ({ ...current, userId: user.id }), { taint: false });
+  }
 
   // Roles offered by the linked Agent's installation policy. The server
   // validates against this same list (InvalidRoleError if the role isn't
@@ -33,14 +59,14 @@
   );
   const atLimit = $derived(memberLimit !== null && members.length >= memberLimit);
 
-  const memberIds = $derived(new Set(members.map((m) => m.userId)));
-  const nonMembers = $derived(allUsers.filter((u) => !memberIds.has(u.id)));
-
-  function reseedAddForm(addedUserId: string, submittedRole: string) {
+  // After a successful add, clear the picked user and keep a sensible role so the
+  // operator can immediately add another.
+  function reseedAddForm(submittedRole: string) {
+    selectedUser = null;
     addForm.update(
       (current) => ({
         ...current,
-        userId: nonMembers.find((user) => user.id !== addedUserId)?.id ?? '',
+        userId: '',
         role: memberRoles.includes(submittedRole) ? submittedRole : (memberRoles[0] ?? ''),
       }),
       { taint: false },
@@ -62,7 +88,7 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
     onUpdated: ({ form }) => {
-      if (form.message?.type === 'success') reseedAddForm(form.data.userId, form.data.role);
+      if (form.message?.type === 'success') reseedAddForm(form.data.role);
     },
   });
   const addUserError = $derived($addErrors.userId?.[0] ?? null);
@@ -219,8 +245,10 @@
     <p class="text-sm text-zinc-500">No members yet.</p>
   {/if}
 
-  <!-- Add existing user -->
-  {#if app.agent && nonMembers.length > 0 && memberRoles.length > 0}
+  <!-- Add member — on-demand user search (#653): no longer gated on a
+       bulk-loaded user list, so a personal-app owner / non-admin can add the
+       first member. -->
+  {#if app.agent && memberRoles.length > 0}
     <section>
       <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Add member</h2>
       {#if atLimit}
@@ -230,22 +258,22 @@
       {:else}
         <form method="POST" action="?/add" use:addEnhance class="flex flex-wrap items-start gap-3" novalidate>
           <input type="hidden" name="_kind" value="addAppMember" />
+          <input type="hidden" name="userId" bind:value={$addForm.userId} />
           {#if addActionError}
             <div class="basis-full rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{addActionError}</div>
           {/if}
           <div class="flex-1 min-w-[200px]">
-            <label for="userId" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">User</label>
-            <select id="userId" name="userId"
-              bind:value={$addForm.userId}
-              aria-invalid={!!addUserError}
-              aria-describedby={addUserError ? 'addUserError' : undefined}
-              {...$addConstraints.userId}
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
-              <option value="" disabled>Select a user...</option>
-              {#each nonMembers as u (u.id)}
-                <option value={u.id}>{userLabel(u)}{u.githubUsername ? ` (@${u.githubUsername})` : ''}</option>
-              {/each}
-            </select>
+            <label for="add-user-button" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">User</label>
+            <button
+              id="add-user-button"
+              type="button"
+              onclick={() => (selectUserOpen = true)}
+              aria-haspopup="dialog"
+              aria-expanded={selectUserOpen}
+              class="w-full truncate rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800 {selectedUser ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-zinc-500'}"
+            >
+              {selectedUser ? selectedUserLabel : 'Find a user...'}
+            </button>
             {#if addUserError}
               <p id="addUserError" class="mt-1 text-xs text-red-600 dark:text-red-400">{addUserError}</p>
             {/if}
@@ -267,10 +295,16 @@
               <p id="addRoleError" class="mt-1 text-xs text-red-600 dark:text-red-400">{addRoleError}</p>
             {/if}
           </div>
-          <button type="submit" disabled={$addSubmitting || !$addForm.userId || !$addForm.role} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="submit" disabled={$addSubmitting || !selectedUser || !$addForm.role} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
             {$addSubmitting ? 'Adding...' : 'Add member'}
           </button>
         </form>
+
+        <SelectUser
+          search={searchUsers}
+          bind:open={selectUserOpen}
+          onselect={selectAddUser}
+        />
       {/if}
     </section>
   {/if}

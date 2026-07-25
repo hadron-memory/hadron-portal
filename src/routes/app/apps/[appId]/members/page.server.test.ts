@@ -123,7 +123,7 @@ function gqlError(code: string, message = 'GraphQL failed') {
 }
 
 describe('app members load()', () => {
-  it('loads app members and seeds the add form with the first non-member and first role', async () => {
+  it('loads app members and seeds the add form (empty userId — the picker searches on demand)', async () => {
     mockRequest
       .mockResolvedValueOnce({ app: fakeApp })
       .mockResolvedValueOnce({ organization: fakeOrg });
@@ -133,10 +133,13 @@ describe('app members load()', () => {
 
     expect(mockRequest).toHaveBeenNthCalledWith(1, APP_WITH_MEMBERS_QUERY, { id: 'app-1' });
     expect(mockRequest).toHaveBeenNthCalledWith(2, ORGANIZATION_QUERY, { id: 'org-1' });
-    expect(result).toMatchObject({ app: fakeApp, org: fakeOrg, members: fakeApp.members, allUsers: fakeUsers });
+    expect(result).toMatchObject({ app: fakeApp, org: fakeOrg, members: fakeApp.members });
+    // #653: no bulk user list is loaded any more.
+    expect(result).not.toHaveProperty('allUsers');
+    expect(mockFetchAllItems).not.toHaveBeenCalled();
     expect((result as { addForm: { data: Record<string, string>; errors: Record<string, string[]> } }).addForm.data).toMatchObject({
       _kind: 'addAppMember',
-      userId: 'user-new',
+      userId: '',
       role: 'reader',
     });
     expect((result as { addForm: { errors: Record<string, string[]> } }).addForm.errors).toEqual({});
