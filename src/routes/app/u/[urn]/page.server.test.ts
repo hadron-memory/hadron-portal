@@ -108,12 +108,20 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
     expect(r.location).toBe('/app/user/user-2');
   });
 
-  it('redirects an app URN to /app/orgs/{organizationId}/apps/{id}', async () => {
+  it('redirects an app URN to the canonical org-optional /app/apps/{id}', async () => {
     mockRequest.mockResolvedValueOnce({
       resolveUrn: { kind: 'app', id: 'app-1', memoryId: null, organizationId: 'org-7' },
     });
     const r = await expectRedirect('urn:app:acme.com:bot-app');
-    expect(r.location).toBe('/app/orgs/org-7/apps/app-1');
+    expect(r.location).toBe('/app/apps/app-1');
+  });
+
+  it('redirects a user-owned (org-less) app URN to /app/apps/{id}', async () => {
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'app', id: 'app-2', memoryId: null, organizationId: null },
+    });
+    const r = await expectRedirect('urn:app:alice:personal-bot');
+    expect(r.location).toBe('/app/apps/app-2');
   });
 });
 

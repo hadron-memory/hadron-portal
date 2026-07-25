@@ -36,7 +36,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   if (!appData.app) throw error(404, 'App not found');
 
   // Org chrome only for an org-owned app (breadcrumb/back link); a user-owned
-  // (org-less) app has none.
+  // (org-less) app has none. For an org-owned app a null/failed org lookup is a
+  // real error, NOT the org-less case — 404 rather than silently mislabelling
+  // the app as personal (which would point the breadcrumb at "My apps" and hide
+  // org-derived controls). Mirrors the canonical detail loader.
   let org: Organization | null = null;
   if (appData.app.organizationId) {
     const orgData = await client
@@ -44,6 +47,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
         id: appData.app.organizationId,
       })
       .catch(() => ({ organization: null }));
+    if (!orgData.organization) throw error(404, 'Organization not found');
     org = orgData.organization;
   }
 

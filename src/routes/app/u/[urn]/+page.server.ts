@@ -111,8 +111,10 @@ function canonicalPath(r: UrnResolution): string | null {
       // #533: public profile page, PK-scoped like the other canonical pages.
       return `/app/user/${r.id}`;
     case 'app':
-      // Apps live under their org; organizationId is always set by the resolver.
-      return r.organizationId ? `/app/orgs/${r.organizationId}/apps/${r.id}` : null;
+      // #648: canonical org-optional detail resolves both org-owned and
+      // user-owned (org-less) apps, so a copied /app/u/<app-urn> link works for
+      // a personal app too.
+      return `/app/apps/${r.id}`;
     default:
       return null;
   }
