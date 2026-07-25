@@ -791,7 +791,7 @@
         <ul class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
           {#each installedApps as app (app.id)}
             <li class="flex items-center gap-2 px-3 py-2">
-              <a href="/app/orgs/{app.orgId}/apps/{app.id}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{app.name}</a>
+              <a href="/app/apps/{app.id}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{app.name}</a>
               <Urn value={app.urn} type="app" size={10} />
             </li>
           {/each}

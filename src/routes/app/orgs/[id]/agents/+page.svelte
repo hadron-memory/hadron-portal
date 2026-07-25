@@ -435,7 +435,7 @@
           <div class="flex items-center gap-2">
             {#if installed}
               <a
-                href="/app/orgs/{org.id}/apps/{installed.appId}"
+                href="/app/apps/{installed.appId}"
                 title={t('org-agents.action.open-title', 'Open the app this agent is installed as')}
                 class="inline-block rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
               >

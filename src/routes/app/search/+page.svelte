@@ -45,7 +45,9 @@
       case 'agent':
         return `/app/agents/${h.id}`;
       case 'app':
-        return h.organizationId ? `/app/orgs/${h.organizationId}/apps/${h.id}` : null;
+        // #648: canonical org-optional detail resolves both org-owned and
+        // user-owned (org-less) apps.
+        return `/app/apps/${h.id}`;
       case 'aiServiceConfig':
         return h.organizationId ? `/app/orgs/${h.organizationId}/integrations` : null;
       case 'user':

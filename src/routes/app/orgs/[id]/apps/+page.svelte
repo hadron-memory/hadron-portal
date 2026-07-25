@@ -144,7 +144,7 @@
       {#snippet cell(cell, app)}
         {#if cell.column.id === 'name'}
           <div class="truncate">
-            <a href="/app/orgs/{org.id}/apps/{app.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{app.name}</a>
+            <a href="/app/apps/{app.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{app.name}</a>
           </div>
         {:else if cell.column.id === 'urn'}
           <Urn value={app.urn} type="app" size={8} />
@@ -152,7 +152,7 @@
           <span class="inline-block rounded bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{cell.getValue()}</span>
         {:else if cell.column.id === 'actions'}
           <div class="flex items-center gap-2">
-            <a href="/app/orgs/{org.id}/apps/{app.id}"
+            <a href="/app/apps/{app.id}"
               class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
               Manage
             </a>

@@ -101,7 +101,7 @@ describe('install agent action', () => {
   it('installs the agent using validated Superforms data', async () => {
     const result = await runInstall(baseFields);
 
-    expect(result).toMatchObject({ status: 303, location: '/app/orgs/org-1/apps/app-1' });
+    expect(result).toMatchObject({ status: 303, location: '/app/apps/app-1' });
     expect(mockFetchAllItems).toHaveBeenCalled();
     expect(mockRequest).toHaveBeenCalledWith(CREATE_APP_MUTATION, {
       orgId: 'org-1',

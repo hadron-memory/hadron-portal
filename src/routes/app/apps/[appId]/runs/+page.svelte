@@ -23,7 +23,13 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
-  const basePath = $derived(`/app/orgs/${data.app.organizationId}/apps/${data.app.id}`);
+  // #648: canonical org-optional. The app's own page + list live at org-
+  // independent /app/apps/[appId]; the "Apps" crumb points at the org grid for an
+  // org app, else the personal "My apps" list.
+  const basePath = $derived(`/app/apps/${data.app.id}`);
+  const appsHref = $derived(
+    data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps',
+  );
   const totalPages = $derived(Math.max(1, Math.ceil(data.total / data.pageSize)));
   const initialRunForm = untrack(() => submittedForm<RunAppFlowForm>(form, 'runFlow') as RunAppFlowSuperform | null ?? data.runForm);
   const {
@@ -64,7 +70,7 @@
 
 <div class="space-y-4">
   <Breadcrumb items={[
-    { label: 'Apps', href: `/app/orgs/${data.app.organizationId}/apps` },
+    { label: 'Apps', href: appsHref },
     { label: data.app.name, href: basePath },
     { label: 'Runs' },
   ]} />

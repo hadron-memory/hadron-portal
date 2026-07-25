@@ -70,9 +70,9 @@
       <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{t('my-apps.heading', 'My apps')}</h1>
       <p class="text-sm text-zinc-500">{t('my-apps.subhead', 'Apps you own directly, outside any organization.')}</p>
     </div>
-    <!-- Org-less app create + detail are a follow-up (portal, #648). Until they
-         land, "My apps" is a read-only list — no "New app" button, and the app
-         name isn't a link (there is no org-less detail route yet). -->
+    <!-- #648: the app name links to the canonical org-optional /app/apps/[appId]
+         detail. The "New app" affordance is still omitted until the org-less
+         create/install flow lands (tracked in #648). -->
   </div>
 
   {#if loadFailed}
@@ -94,8 +94,7 @@
     >
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'name'}
-          <!-- Plain text until the org-less /app/apps/[appId] detail lands (#648). -->
-          <span class="font-medium text-zinc-900 dark:text-zinc-100">{row.name}</span>
+          <a href="/app/apps/{row.id}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
         {:else if cell.column.id === 'urn'}
           <Urn value={row.urn} type="app" size={8} />
         {:else if cell.column.id === 'agent'}

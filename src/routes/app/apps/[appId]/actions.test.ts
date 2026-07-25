@@ -72,6 +72,9 @@ describe('load', () => {
             id: 'app-1',
             name: 'Demo App',
             urn: 'hadronmemory.com:demo-org:demo-app',
+            // #648: org-owned app → the loader fetches the org (ORGANIZATION_QUERY
+            // below) and availableAgents = org.agents.
+            organizationId: 'org-1',
             appType: 'CHATBOT',
             role: 'ADMIN',
             description: null,
@@ -451,16 +454,30 @@ describe('revokeKey action', () => {
 });
 
 describe('deleteApp action', () => {
-  it('deletes the app and redirects to the app list', async () => {
-    mockRequest.mockResolvedValueOnce({});
+  // #648: the action resolves the app's org (first request) before deleting
+  // (second), then redirects to the org grid or the personal My apps list.
+  it('deletes an org app and redirects to the org apps grid', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ app: { organizationId: 'org-1' } }) // org lookup
+      .mockResolvedValueOnce({}); // delete
     await expect(runAction('deleteApp', {})).rejects.toMatchObject({
       status: 303,
       location: '/app/orgs/org-1/apps',
     });
-    expect(mockRequest.mock.calls[0]).toEqual([
+    expect(mockRequest.mock.calls[1]).toEqual([
       DELETE_APP_MUTATION,
       { id: 'app-1' },
     ]);
+  });
+
+  it('deletes a user-owned (org-less) app and redirects to the personal My apps list', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ app: { organizationId: null } }) // org lookup
+      .mockResolvedValueOnce({}); // delete
+    await expect(runAction('deleteApp', {})).rejects.toMatchObject({
+      status: 303,
+      location: '/app/apps',
+    });
   });
 
   it('rejects deleteApp POSTs with the wrong form discriminator', async () => {
@@ -473,7 +490,9 @@ describe('deleteApp action', () => {
   });
 
   it('returns typed deleteApp errors', async () => {
-    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    mockRequest
+      .mockResolvedValueOnce({ app: { organizationId: 'org-1' } }) // org lookup ok
+      .mockRejectedValueOnce(new Error('nope')); // delete fails
     const result = (await runAction('deleteApp', {})) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };

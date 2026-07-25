@@ -17,6 +17,9 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
   const org = $derived(data.org);
+  // #648: org-optional — an org app links back through its org grid, a user-owned
+  // (org-less) app through the personal "My apps" list / canonical detail.
+  const appsHref = $derived(org ? `/app/orgs/${org.id}/apps` : '/app/apps');
   const members = $derived(data.members);
   const allUsers = $derived(data.allUsers);
 
@@ -140,8 +143,8 @@
 <div class="space-y-8">
   <div>
     <Breadcrumb items={[
-      { label: 'Apps', href: `/app/orgs/${org.id}/apps` },
-      { label: app.name, href: `/app/orgs/${org.id}/apps/${app.id}` },
+      { label: 'Apps', href: appsHref },
+      { label: app.name, href: `/app/apps/${app.id}` },
       { label: 'Members' },
     ]} />
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">

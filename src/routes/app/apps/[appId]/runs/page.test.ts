@@ -102,7 +102,7 @@ describe('runs list (#478)', () => {
     expect(body).toContain('classify');
     expect(body).toContain('3s');
     expect(body).toContain('MAX_HOPS_EXCEEDED');
-    expect(body).toContain('/app/orgs/org-1/apps/app-1/runs/run-2');
+    expect(body).toContain('/app/apps/app-1/runs/run-2');
   });
 
   it('teaches triggers in the unfiltered empty state', async () => {
