@@ -24,6 +24,13 @@ export interface NavItem {
  * `/app/memories` surface (#632) rather than `/app/orgs/<personalOrgId>/memories`,
  * which sent individuals into their invisible personal org. Org members keep the
  * direct org-scoped grid (no redirect hop).
+ * #647: individual (consumer) users also get "Agents" → `/app/agents` and
+ * "Apps" → `/app/apps` — the org-less personal surfaces (an individual can own
+ * agents/apps directly: Agent/App.ownerUserId, spec 047). Org members keep their
+ * org-scoped Agents/Apps. Gated on `isConsumerMode`, NOT merely "no active org":
+ * a non-consumer whose active org didn't resolve (activeOrgId null,
+ * isConsumerMode false) is an org member mid-resolution, not an individual — they
+ * must not get the personal surfaces.
  */
 export function buildNavItems(data: {
   activeOrgId?: string | null;
@@ -55,6 +62,11 @@ export function buildNavItems(data: {
   if (activeOrgId && !isConsumerMode) {
     items.push({ href: `/app/orgs/${activeOrgId}/agents`, label: t('app.nav.agents', 'Agents'), match: 'prefix' });
     items.push({ href: `/app/orgs/${activeOrgId}/apps`, label: t('app.nav.apps', 'Apps'), match: 'prefix' });
+  } else if (isConsumerMode) {
+    // #647: individual users reach their own (org-less) agents/apps here. Same
+    // labels as the org items — a consumer has no org list to disambiguate from.
+    items.push({ href: '/app/agents', label: t('app.nav.agents', 'Agents'), match: 'prefix' });
+    items.push({ href: '/app/apps', label: t('app.nav.apps', 'Apps'), match: 'prefix' });
   }
 
   return items;

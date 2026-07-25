@@ -40,11 +40,19 @@ describe('buildNavItems', () => {
     expect(items).toContain('/app/memories');
   });
 
-  it('consumer nav is trimmed (Dashboard, Search, Memories, Task Nodes — no Agents / Apps)', () => {
+  it('#647: consumer nav includes org-less Agents (/app/agents) and Apps (/app/apps)', () => {
     const items = hrefs({ activeOrgId: 'personal-1', isConsumerMode: true });
-    expect(items).toEqual(['/app/dashboard', '/app/search', '/app/memories', '/app/orgs/personal-1/tasks']);
-    expect(items.some((h) => h.endsWith('/agents'))).toBe(false);
-    expect(items.some((h) => h.endsWith('/apps'))).toBe(false);
+    expect(items).toEqual([
+      '/app/dashboard',
+      '/app/search',
+      '/app/memories',
+      '/app/orgs/personal-1/tasks',
+      '/app/agents',
+      '/app/apps',
+    ]);
+    // …never the org-scoped variants for an individual.
+    expect(items).not.toContain('/app/orgs/personal-1/agents');
+    expect(items).not.toContain('/app/orgs/personal-1/apps');
   });
 
   it('full (org) nav includes Agents and Apps', () => {

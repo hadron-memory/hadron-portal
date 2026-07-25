@@ -1869,6 +1869,53 @@ export const SHARED_MEMORIES_QUERY = /* GraphQL */ `
   }
 `;
 
+// #647: the caller's own (org-less, user-owned) agents. The default agents()
+// list (no orgId) already includes the caller's user-owned agents (org NULL,
+// ownerUserId=caller) alongside their org agents (server resolvers.query.agent);
+// the loader keeps only organizationId==null to present the org-less "My agents"
+// list — the exact analogue of PERSONAL_MEMORIES_QUERY. Slim selection: just
+// what the list table renders (name/urn/description/visibility + a memory count).
+export const MY_AGENTS_QUERY = /* GraphQL */ `
+  query MyAgents($limit: Int, $offset: Int) {
+    agents(limit: $limit, offset: $offset) {
+      items {
+        id
+        urn
+        name
+        description
+        visibility
+        organizationId
+        systemMemoryId
+        memoryItems { id }
+      }
+      total
+    }
+  }
+`;
+
+// #647: the caller's own (org-less, user-owned) apps. Like MY_AGENTS_QUERY, the
+// default apps() list (no orgId) surfaces the caller's user-owned apps (org NULL,
+// ownerUserId=caller) alongside their org apps (server resolvers.query.app); the
+// loader keeps only organizationId==null for the org-less "My apps" list. Slim
+// selection for the list table.
+export const MY_APPS_QUERY = /* GraphQL */ `
+  query MyApps($limit: Int, $offset: Int) {
+    apps(limit: $limit, offset: $offset) {
+      items {
+        id
+        urn
+        name
+        description
+        organizationId
+        appType
+        agentId
+        agent { id urn name }
+      }
+      total
+    }
+  }
+`;
+
 // #629 / #636: the dashboard fetches everything it needs in ONE request:
 //  - a bounded (limit 5) SLIM memory projection for the "Your memories" preview
 //    + total (review: don't fetchAllItems for a count),
