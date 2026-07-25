@@ -949,6 +949,27 @@ export const CREATE_APP_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #648: org-less (personal) app create — createApp with NO orgId → user-owned
+// App (ownerUserId = caller, organizationId NULL, spec 047), installing a PUBLIC
+// or the caller's OWN personal agent. Deliberately OMITS the orgId variable (an
+// empty-string orgId is rejected server-side; absence is the personal-create
+// signal). Mirrors CREATE_PERSONAL_AGENT_MUTATION. `urn` is the slug — the server
+// namespaces it under the caller's handle.
+export const CREATE_PERSONAL_APP_MUTATION = /* GraphQL */ `
+  ${APP_FIELDS}
+  mutation CreatePersonalApp(
+    $agentId: ID!, $name: String!, $urn: String,
+    $appType: AppType, $surfaces: [String!]
+  ) {
+    createApp(
+      agentId: $agentId, name: $name, urn: $urn,
+      appType: $appType, surfaces: $surfaces
+    ) {
+      ...AppFields
+    }
+  }
+`;
+
 export const UPDATE_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
   mutation UpdateApp(

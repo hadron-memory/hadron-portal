@@ -784,9 +784,20 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'apps'}
     <section>
-      <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Apps
-        <span class="ml-1 text-sm font-normal text-zinc-500">({installedApps.length})</span>
-      </h2>
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <h2 class="font-semibold text-zinc-900 dark:text-white">Apps
+          <span class="ml-1 text-sm font-normal text-zinc-500">({installedApps.length})</span>
+        </h2>
+        <!-- #648: a user-owned (org-less) agent installs as a PERSONAL app via
+             the org-less create flow (org agents install from the org grid). -->
+        {#if !org}
+          <a
+            href="/app/apps/new?agent={agent.id}"
+            class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
+            style="background: #fb8500;"
+          >Install as app</a>
+        {/if}
+      </div>
       {#if installedApps.length > 0}
         <ul class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
           {#each installedApps as app (app.id)}

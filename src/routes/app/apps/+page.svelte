@@ -70,9 +70,10 @@
       <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{t('my-apps.heading', 'My apps')}</h1>
       <p class="text-sm text-zinc-500">{t('my-apps.subhead', 'Apps you own directly, outside any organization.')}</p>
     </div>
-    <!-- #648: the app name links to the canonical org-optional /app/apps/[appId]
-         detail. The "New app" affordance is still omitted until the org-less
-         create/install flow lands (tracked in #648). -->
+    <a
+      href="/app/apps/new"
+      class="rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+    >{t('my-apps.new', 'New app')}</a>
   </div>
 
   {#if loadFailed}
@@ -82,6 +83,7 @@
   {:else if rows.length === 0}
     <div class="rounded-xl border border-dashed border-zinc-300 bg-white p-10 text-center dark:border-zinc-700 dark:bg-zinc-900">
       <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('my-apps.empty', "You don't have any personal apps yet.")}</p>
+      <a href="/app/apps/new" class="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('my-apps.empty-cta', 'Create your first app')}</a>
     </div>
   {:else}
     <DataTable
