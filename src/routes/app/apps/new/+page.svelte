@@ -3,25 +3,36 @@
   // own personal agent. Modeled on the org install form, plus an agent picker
   // (the org route gets its agent from the URL; here you choose one).
   import { untrack } from 'svelte';
-  import { superForm, type Infer } from 'sveltekit-superforms';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
+  import { submittedForm } from '$lib/forms/submitted-form';
+  import { deriveDefaultUrn } from '$lib/install/derive-default-urn';
   import type { PageData, ActionData } from './$types';
   import type { InstallableAgent } from './+page.server';
   import { createPersonalAppSchema } from './schema';
 
   type CreatePersonalAppForm = Infer<typeof createPersonalAppSchema, 'zod4'>;
+  type CreatePersonalAppSuperform = SuperValidated<CreatePersonalAppForm, App.Superforms.Message, CreatePersonalAppForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const agents = $derived(data.agents ?? []);
   const handle = $derived(data.handle);
+  const loadFailed = $derived(data.loadFailed === true);
+  const existingAppUrns = $derived(data.existingAppUrns ?? []);
 
   function agentSlugFromUrn(urn: string): string {
     const colon = urn.lastIndexOf(':');
     return colon >= 0 ? urn.slice(colon + 1) : urn;
   }
 
+  // Hydrate from the action's returned form when a no-JS (non-enhanced) POST
+  // round-trips validation errors (e.g. URN collision); otherwise the loader
+  // defaults. Same pattern as the org agent install page.
+  const initialForm = untrack(
+    () => (submittedForm<CreatePersonalAppForm>(form, 'createPersonalApp') as CreatePersonalAppSuperform | null) ?? data.form,
+  );
   const {
     form: appForm,
     errors,
@@ -29,7 +40,7 @@
     message: formMessage,
     submitting,
     enhance,
-  } = superForm<CreatePersonalAppForm, App.Superforms.Message, CreatePersonalAppForm>(untrack(() => data.form), {
+  } = superForm<CreatePersonalAppForm, App.Superforms.Message, CreatePersonalAppForm>(initialForm, {
     validators: zod4Client(createPersonalAppSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
@@ -43,12 +54,18 @@
   const appTypeError = $derived($errors.appType?.[0] ?? null);
   const actionError = $derived($formMessage?.type === 'error' ? $formMessage.text : null);
 
-  // When the picked agent changes, seed the name + URN slug from it (the server
-  // resolves collisions and the user can still edit both).
+  // When the picked agent changes, seed the name + a COLLISION-FREE URN slug from
+  // it — the same existing-URN suffixing the loader applied, so the default
+  // doesn't guarantee a 409 (App URNs are unique-constrained). The user can still
+  // edit both.
   function onAgentChange(id: string) {
     const a = agents.find((x) => x.id === id);
     if (!a) return;
-    appForm.update((cur) => ({ ...cur, name: a.name, urn: agentSlugFromUrn(a.urn) }), { taint: false });
+    const slug = agentSlugFromUrn(a.urn);
+    const namespace = handle ?? '';
+    const fullUrn = namespace ? deriveDefaultUrn(namespace, slug, existingAppUrns) : slug;
+    const urnSlug = namespace && fullUrn.startsWith(namespace + ':') ? fullUrn.slice(namespace.length + 1) : fullUrn;
+    appForm.update((cur) => ({ ...cur, name: a.name, urn: urnSlug }), { taint: false });
   }
 
   const inputClass =
@@ -73,12 +90,21 @@
     <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
       {t('my-apps.new.no-handle', 'Your account needs a handle before you can create a personal app. Set one in your profile, then come back.')}
     </div>
+  {:else if loadFailed && agents.length === 0}
+    <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+      {t('my-apps.new.load-failed', "Couldn't load the agents you can install just now — this is a temporary error, not an empty list. Try refreshing the page.")}
+    </div>
   {:else if agents.length === 0}
     <div class="rounded-xl border border-dashed border-zinc-300 bg-white p-10 text-center dark:border-zinc-700 dark:bg-zinc-900">
       <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('my-apps.new.no-agents', "You don't have any agents to install yet.")}</p>
       <a href="/app/agents/new" class="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('my-apps.new.create-agent', 'Create an agent first')}</a>
     </div>
   {:else}
+    {#if loadFailed}
+      <div role="alert" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+        {t('my-apps.new.partial-agents', 'Some agents you can install may be missing — the list didn’t fully load. Refresh if you don’t see the one you want.')}
+      </div>
+    {/if}
     {#if actionError}
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
         {actionError}

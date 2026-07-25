@@ -91,6 +91,17 @@ describe('/app/apps/new loader', () => {
     const res = (await load(loadEv('', { handle: null }))) as { handle: string | null };
     expect(res.handle).toBeNull();
   });
+
+  it('surfaces a lookup failure as loadFailed (not a false "no agents")', async () => {
+    mockFetchAll.mockImplementation(async (doc: string) => {
+      if (doc === MY_AGENTS_QUERY || doc === PUBLIC_AGENTS_QUERY) throw new Error('boom');
+      return [];
+    });
+    const { load } = await importMod();
+    const res = (await load(loadEv())) as { loadFailed: boolean; agents: unknown[] };
+    expect(res.loadFailed).toBe(true);
+    expect(res.agents).toEqual([]);
+  });
 });
 
 describe('/app/apps/new default action', () => {
@@ -117,6 +128,21 @@ describe('/app/apps/new default action', () => {
     expect(result.status).toBe(400);
     expect(result.data.form.errors.agentId).toBeDefined();
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('defers to the server gate (no pre-reject) when the installable lookup fails', async () => {
+    // Both agent lookups fail → the list is unreliable → don't reject a
+    // possibly-valid agent; let createApp be authoritative.
+    mockFetchAll.mockImplementation(async (doc: string) => {
+      if (doc === MY_AGENTS_QUERY || doc === PUBLIC_AGENTS_QUERY) throw new Error('boom');
+      return [];
+    });
+    mockRequest.mockResolvedValueOnce({ createApp: { id: 'app-x' } });
+    const { actions } = await importMod();
+    await expect(
+      actions.default(actionEv({ agentId: 'a-own', name: 'X', urn: 'x', appType: 'WORKSTATION' })),
+    ).rejects.toMatchObject({ status: 303, location: '/app/apps/app-x' });
+    expect(mockRequest).toHaveBeenCalled();
   });
 
   it('maps a URN collision to a field error', async () => {
