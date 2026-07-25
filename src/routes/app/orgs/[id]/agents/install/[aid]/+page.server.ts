@@ -198,6 +198,7 @@ export const actions: Actions = {
       return message(form, { type: 'error', text: msg }, { status: 400 });
     }
 
-    throw redirect(303, `/app/orgs/${params.id}/apps/${createdApp.id}`);
+    // #648: the App detail is the canonical org-optional /app/apps/[appId].
+    throw redirect(303, `/app/apps/${createdApp.id}`);
   },
 };

@@ -513,10 +513,6 @@ export const actions: Actions = {
     const appId = form.data.appId;
     const args = parseValidatedFlowPayload(form.data.payload);
 
-    // The redirect target's org segment comes from the form (the page only
-    // offers the button when the org is known). A stale/wrong value is
-    // harmless: the run detail page URL-corrects to run.organizationId.
-    const orgId = form.data.orgId;
 
     const client = gqlClient(locals.token);
     let runId: string;
@@ -538,7 +534,8 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to start the run') }, { status: 500 });
     }
-    redirect(303, `/app/orgs/${orgId}/apps/${appId}/runs/${runId}`);
+    // #648: run detail is the canonical org-optional /app/apps/[appId]/runs/[runId].
+    redirect(303, `/app/apps/${appId}/runs/${runId}`);
   },
 
   // Duplicate (#501 / hadron-server#564): cloneNode into `<loc>-copy` beside

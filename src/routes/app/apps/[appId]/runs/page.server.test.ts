@@ -115,7 +115,7 @@ describe('app runs run action', () => {
 
     await expect(actions.run(actionEvent({ entryUrn: 'hrn:node:acme.com::flows::entry' }) as never)).rejects.toMatchObject({
       status: 303,
-      location: '/app/orgs/org-1/apps/app-1/runs/run-1',
+      location: '/app/apps/app-1/runs/run-1',
     });
     expect(mockRequest).toHaveBeenCalledWith(RUN_TASK_APP_MUTATION, {
       urn: 'hrn:node:acme.com::flows::entry',

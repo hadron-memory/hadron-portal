@@ -44,6 +44,15 @@
   const app = $derived(data.app);
   const org = $derived(data.org);
   const availableAgents = $derived(data.availableAgents);
+  // #648: this page is canonical org-optional — an org-owned app renders its org
+  // chrome, a user-owned (org-less) app does not. The "Apps" list this app
+  // belongs to is the org grid for an org app, the personal "My apps" list for a
+  // user-owned one; the URN prefix is the org URN for an org app, else derived
+  // from the app's own URN (everything before the final ':' slug segment).
+  const appsHref = $derived(org ? `/app/orgs/${org.id}/apps` : '/app/apps');
+  const urnPrefix = $derived(
+    org ? org.urn : app.urn.slice(0, Math.max(0, app.urn.lastIndexOf(':'))),
+  );
 
   // ── Tab state — driven by App.surfaces (008-agent-installation T071) ─
   // The chat tab appears iff the App's `surfaces` array contains 'chat'.
@@ -291,7 +300,7 @@
   // direct FK; the AppAgent join was dropped). The "subscribable agents"
   // list is now "agents not yet linked" — empty when an Agent is already set.
   const subscribableAgents = $derived(
-    app.agent ? [] : (org.agents ?? [])
+    app.agent ? [] : availableAgents,
   );
 
   interface EffectiveMemory { id: string; urn: string; name: string; access: 'read' | 'read-write'; agentName: string }
@@ -644,12 +653,12 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
   }
 </script>
 
-<svelte:head><title>{app.name} · Apps · {org.name} · Hadron</title></svelte:head>
+<svelte:head><title>{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
 
 <div class="space-y-4">
   <div>
     <Breadcrumb items={[
-      { label: 'Apps', href: `/app/orgs/${org.id}/apps` },
+      { label: 'Apps', href: appsHref },
       { label: app.name },
     ]} />
     <div class="mt-2 flex items-start justify-between gap-4">
@@ -712,7 +721,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
     <!-- Runs is a real subroute (deep-linkable from "Test flow" and run
          records), so it's a link styled as a tab, not an activeTab state. -->
     <a
-      href="/app/orgs/{org.id}/apps/{app.id}/runs"
+      href="/app/apps/{app.id}/runs"
       class="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
     >
       {t('app.tabs.runs', 'Runs')}
@@ -837,7 +846,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             <div>
               <label for="urn" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
               <div class="flex items-stretch">
-                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{org.urn}:</span>
+                <span class="inline-flex items-center rounded-l-lg border border-r-0 border-zinc-300 bg-zinc-100 px-3 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">{urnPrefix}:</span>
                 <input
                   id="urn"
                   type="text"
@@ -1001,7 +1010,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         <h2 class="mb-3 flex items-baseline gap-3 text-lg font-semibold text-zinc-900 dark:text-white">
           <span>Agent</span>
           {#if app.agent}
-            <a href="/app/orgs/{org.id}/apps/{app.id}/members"
+            <a href="/app/apps/{app.id}/members"
               class="text-sm font-normal text-indigo-500 hover:underline dark:text-indigo-400">
               {app.memberCount} {app.memberCount === 1 ? 'member' : 'members'} →
             </a>
@@ -1116,7 +1125,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           ownerType="APP"
           ownerId={app.id}
           configs={data.appConfigs ?? []}
-          members={org.members ?? []}
+          members={org?.members ?? []}
           currentUserId={data.currentUserId}
           configsError={data.configsError}
         />

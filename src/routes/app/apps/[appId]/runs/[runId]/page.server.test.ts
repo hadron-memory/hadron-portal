@@ -122,11 +122,13 @@ describe('run detail load', () => {
     expect(result.envelopeSupported).toBe(false);
   });
 
-  it('redirects a wrong org/app URL to the run’s canonical page', async () => {
+  it('redirects a wrong-app URL to the run’s canonical (org-independent) page', async () => {
+    // #648: the canonical route is org-independent — the correction now keys on
+    // appId only and redirects to /app/apps/[appId]/runs/[runId].
     routeByQuery({});
-    await expect(runLoad({ id: 'org-OTHER', appId: 'app-1', runId: 'run-1' })).rejects.toMatchObject({
+    await expect(runLoad({ id: 'org-1', appId: 'app-OTHER', runId: 'run-1' })).rejects.toMatchObject({
       status: 303,
-      location: '/app/orgs/org-1/apps/app-1/runs/run-1',
+      location: '/app/apps/app-1/runs/run-1',
     });
   });
 

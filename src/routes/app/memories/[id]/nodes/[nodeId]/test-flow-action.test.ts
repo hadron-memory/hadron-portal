@@ -58,7 +58,7 @@ describe('testFlow action Superforms validation', () => {
       payload: '{"confidence":0.9}',
     })).rejects.toMatchObject({
       status: 303,
-      location: '/app/orgs/org-1/apps/app-1/runs/run-1',
+      location: '/app/apps/app-1/runs/run-1',
     });
     expect(mockRequest.mock.calls.find(([query]) => query === RUN_TASK_APP_MUTATION)?.[1]).toEqual({
       urn: 'hrn:node:acme.com::flows::flows:classify',

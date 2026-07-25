@@ -28,7 +28,11 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const run = $derived(data.run);
-  const basePath = $derived(`/app/orgs/${data.app.organizationId}/apps/${data.app.id}`);
+  // #648: canonical org-optional (see the runs list page).
+  const basePath = $derived(`/app/apps/${data.app.id}`);
+  const appsHref = $derived(
+    data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps',
+  );
   const live = $derived(isCancellable(run.status));
   const envelope = $derived(visibleEnvelope(data.envelope));
   const eventDataShown = $derived(visibleEnvelope(run.eventData));
@@ -69,7 +73,7 @@
 
 <div class="max-w-3xl space-y-4">
   <Breadcrumb items={[
-    { label: 'Apps', href: `/app/orgs/${data.app.organizationId}/apps` },
+    { label: 'Apps', href: appsHref },
     { label: data.app.name, href: basePath },
     { label: 'Runs', href: `${basePath}/runs` },
     { label: run.id.slice(0, 8) },
