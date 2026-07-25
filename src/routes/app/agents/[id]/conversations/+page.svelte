@@ -57,6 +57,10 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const agent = $derived(data.agent);
+  // This page 404s without an org (loader), so org is always present here — the
+  // "Agents" breadcrumb targets the org grid (#647: /app/agents is now the
+  // personal list, not an org-member redirector).
+  const org = $derived(data.org);
 
   // ── Revisions + Lock ──
   type Revision = { loc: string; label: string; description: string | null; published: boolean; revision: number; createdAt: string | null };
@@ -519,7 +523,7 @@
   <div>
     <Breadcrumb items={[
       { label: 'Dashboard', href: '/app/dashboard' },
-      { label: 'Agents', href: '/app/agents' },
+      { label: 'Agents', href: `/app/orgs/${org.id}/agents` },
       { label: agent.name, href: `/app/agents/${agent.id}` },
       { label: 'Conversations' },
     ]} />

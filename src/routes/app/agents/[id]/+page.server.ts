@@ -289,9 +289,25 @@ export const actions: Actions = {
     );
     if (!form.valid) return fail(400, { form });
 
+    const client = gqlClient(locals.token);
     try {
-      await gqlClient(locals.token).request(DELETE_AGENT_MUTATION, { id: params.id });
-      redirect(303, '/app/agents');
+      // #647: where to land after delete depends on ownership — an org agent
+      // returns to its org grid, a user-owned (org-less) agent to the personal
+      // "My agents" list (/app/agents no longer redirects org members to their
+      // org). Resolve the org BEFORE deleting (the row is gone afterwards); a
+      // lookup failure falls back to the personal list.
+      let orgId: string | null = null;
+      try {
+        const res = await client.request<{ agent: { organizationId: string | null } | null }>(
+          'query AgentOrg($id: ID!) { agent(ref: $id) { organizationId } }',
+          { id: params.id },
+        );
+        orgId = res.agent?.organizationId ?? null;
+      } catch {
+        // Non-fatal — the redirect target degrades to the personal list.
+      }
+      await client.request(DELETE_AGENT_MUTATION, { id: params.id });
+      redirect(303, orgId ? `/app/orgs/${orgId}/agents` : '/app/agents');
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
       return message(

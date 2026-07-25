@@ -1,45 +1,42 @@
 /**
- * Spec 014 T007 — /app/agents redirector tests (FR-008 / R-4).
- *
- * The load throws a SvelteKit redirect; we catch and assert on
- * `.status` and `.location`. Layout `parent()` is mocked to provide
- * `activeOrgId`.
+ * #647 — /app/agents is the org-less "My agents" list (was a spec-014
+ * redirector). The loader returns the caller's own agents and distinguishes a
+ * failed fetch from an empty list.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+vi.spyOn(console, 'error').mockImplementation(() => {});
+
+const fetchOwnedAgents = vi.fn();
+vi.mock('$lib/server/personal-agents', () => ({
+  fetchOwnedAgents: (...args: unknown[]) => fetchOwnedAgents(...args),
+}));
 
 async function importLoad() {
   const mod = await import('./+page.server');
   return mod.load;
 }
 
-function ev(activeOrgId: string | null) {
-  return {
-    parent: async () => ({ activeOrgId }),
-  } as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+function ev() {
+  return { locals: { token: 'tok' } } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
-describe('/app/agents redirector', () => {
-  it('302s to /app/orgs/<active>/agents when an active org resolved', async () => {
+describe('/app/agents (My agents)', () => {
+  beforeEach(() => fetchOwnedAgents.mockReset());
+
+  it('returns the caller\'s own agents on success', async () => {
+    const agents = [{ id: 'a1', urn: 'u', name: 'A', organizationId: null }];
+    fetchOwnedAgents.mockResolvedValueOnce(agents);
     const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev('org-a'));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(302);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-a/agents');
+    const res = await load(ev());
+    expect(res).toMatchObject({ agents, loadFailed: false });
   });
 
-  it('303s to /app/orgs/ when no active org could be resolved (defensive)', async () => {
+  it('surfaces a failed fetch as loadFailed (not a silent empty list)', async () => {
+    fetchOwnedAgents.mockRejectedValueOnce(new Error('boom'));
     const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev(null));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(303);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/');
+    const res = (await load(ev())) as { agents: unknown[]; loadFailed: boolean };
+    expect(res.loadFailed).toBe(true);
+    expect(res.agents).toEqual([]);
   });
 });

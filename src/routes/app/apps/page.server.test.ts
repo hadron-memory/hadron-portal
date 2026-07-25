@@ -1,41 +1,42 @@
 /**
- * Spec 014 T008 — /app/apps redirector tests (FR-008 / R-4).
+ * #647 — /app/apps is the org-less "My apps" list (was a spec-014 redirector).
+ * The loader returns the caller's own apps and distinguishes a failed fetch from
+ * an empty list.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+vi.spyOn(console, 'error').mockImplementation(() => {});
+
+const fetchOwnedApps = vi.fn();
+vi.mock('$lib/server/personal-apps', () => ({
+  fetchOwnedApps: (...args: unknown[]) => fetchOwnedApps(...args),
+}));
 
 async function importLoad() {
   const mod = await import('./+page.server');
   return mod.load;
 }
 
-function ev(activeOrgId: string | null) {
-  return {
-    parent: async () => ({ activeOrgId }),
-  } as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+function ev() {
+  return { locals: { token: 'tok' } } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
-describe('/app/apps redirector', () => {
-  it('302s to /app/orgs/<active>/apps when an active org resolved', async () => {
+describe('/app/apps (My apps)', () => {
+  beforeEach(() => fetchOwnedApps.mockReset());
+
+  it('returns the caller\'s own apps on success', async () => {
+    const apps = [{ id: 'p1', urn: 'u', name: 'P', organizationId: null }];
+    fetchOwnedApps.mockResolvedValueOnce(apps);
     const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev('org-b'));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(302);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/org-b/apps');
+    const res = await load(ev());
+    expect(res).toMatchObject({ apps, loadFailed: false });
   });
 
-  it('303s to /app/orgs/ when no active org could be resolved (defensive)', async () => {
+  it('surfaces a failed fetch as loadFailed (not a silent empty list)', async () => {
+    fetchOwnedApps.mockRejectedValueOnce(new Error('boom'));
     const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(ev(null));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(303);
-    expect((thrown as { location: string }).location).toBe('/app/orgs/');
+    const res = (await load(ev())) as { apps: unknown[]; loadFailed: boolean };
+    expect(res.loadFailed).toBe(true);
+    expect(res.apps).toEqual([]);
   });
 });

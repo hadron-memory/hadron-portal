@@ -242,7 +242,7 @@
 <div class="space-y-4">
   <Breadcrumb items={[
     { label: t('agent-tester.breadcrumb.dashboard', 'Dashboard'), href: '/app/dashboard' },
-    { label: t('agent-tester.breadcrumb.agents', 'Agents'), href: '/app/agents' },
+    { label: t('agent-tester.breadcrumb.agents', 'Agents'), href: `/app/orgs/${org.id}/agents` },
     { label: agent.name, href: `/app/agents/${agent.id}` },
     { label: t('agent-tester.breadcrumb.test', 'Test') },
   ]} />
