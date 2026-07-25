@@ -6,6 +6,7 @@
   import SelectUser from '$lib/components/SelectUser.svelte';
   import { type SearchUser, userLabel as searchUserLabel } from '$lib/users/search-user';
   import { submittedForm } from '$lib/forms/submitted-form';
+  import { t } from '$lib/i18n/t';
   import type { PageData, ActionData } from './$types';
   import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
 
@@ -270,9 +271,10 @@
               onclick={() => (selectUserOpen = true)}
               aria-haspopup="dialog"
               aria-expanded={selectUserOpen}
-              class="w-full truncate rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800 {selectedUser ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-zinc-500'}"
+              aria-describedby={addUserError ? 'addUserError' : undefined}
+              class="w-full truncate rounded-lg border border-zinc-300 bg-white px-3 py-2 text-left text-sm hover:bg-zinc-50 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-zinc-800 {addUserError ? 'border-red-500 focus:border-red-500' : ''} {selectedUser ? 'text-zinc-900 dark:text-white' : 'text-zinc-400 dark:text-zinc-500'}"
             >
-              {selectedUser ? selectedUserLabel : 'Find a user...'}
+              {selectedUser ? selectedUserLabel : t('app-members.add.find-user', 'Find a user...')}
             </button>
             {#if addUserError}
               <p id="addUserError" class="mt-1 text-xs text-red-600 dark:text-red-400">{addUserError}</p>
