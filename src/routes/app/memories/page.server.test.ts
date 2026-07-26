@@ -14,9 +14,13 @@ vi.mock('$lib/server/personal-memories', () => ({
   fetchSharedMemories: (...a: unknown[]) => mockShared(...a),
 }));
 
+const mockRequest = vi.fn();
+vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
+
 beforeEach(() => {
   mockOwned.mockReset();
   mockShared.mockReset();
+  mockRequest.mockReset();
 });
 
 async function importLoad() {
@@ -85,5 +89,55 @@ describe('/app/memories index loader', () => {
     expect(result.memories).toEqual([]);
     expect(result.sharedMemories).toHaveLength(1);
     expect(result.sharedLoadFailed).toBe(false);
+  });
+});
+
+// #649: the grantee "Leave" (self-revoke) action.
+async function importActions() {
+  return (await import('./+page.server')).actions;
+}
+
+function actionEv(fields: Record<string, string>) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+  return {
+    request: { formData: async () => fd },
+    locals: { token: 't' },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['leaveShare']>[0];
+}
+
+describe('/app/memories leaveShare action', () => {
+  it('calls deleteMemoryShare with ONLY memoryRef (self-leave — no granteeRef) and returns success', async () => {
+    mockRequest.mockResolvedValueOnce({ deleteMemoryShare: { memoryId: 'm1', granteeId: 'u1' } });
+    const { leaveShare } = await importActions();
+    const res = await leaveShare(actionEv({ memoryId: 'm1', confirm: 'yes' }));
+    expect(res).toEqual({ leaveSuccess: true });
+    const [, vars] = mockRequest.mock.calls[0];
+    expect(vars).toEqual({ memoryRef: 'm1' });
+    expect(vars).not.toHaveProperty('granteeRef');
+  });
+
+  // The no-JS path: a plain (unenhanced) POST carries no confirm=yes, so the
+  // action must NOT delete — it asks for confirmation instead.
+  it('does not delete without confirm=yes — returns the pending confirmation instead', async () => {
+    const { leaveShare } = await importActions();
+    const res = await leaveShare(actionEv({ memoryId: 'm1' }));
+    expect(res).toEqual({ pendingLeaveId: 'm1' });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects a missing memoryId with 400 before calling the API', async () => {
+    const { leaveShare } = await importActions();
+    const res = (await leaveShare(actionEv({ confirm: 'yes' }))) as { status: number };
+    expect(res.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a 500 with a message when the mutation fails', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('boom'));
+    const { leaveShare } = await importActions();
+    const res = (await leaveShare(actionEv({ memoryId: 'm1', confirm: 'yes' }))) as { status: number; data: { leaveError: string } };
+    expect(res.status).toBe(500);
+    expect(res.data.leaveError).toBeTruthy();
   });
 });
