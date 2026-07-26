@@ -78,6 +78,7 @@ The frontend never sees or stores OAuth credentials or email tokens.
 | `/browse` | Marketplace — browse all public memories, "Use this memory" buttons |
 | `/about` | About page |
 | `/contact` | Contact page |
+| `/goodbye` | Post-account-deletion landing page (#662) — confirms the account is gone |
 | `/auth/callback` | Auth callback — sets cookie and redirects |
 | `/auth/signout` | Clears auth cookie |
 

@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { DELETE_CONFIRMATION_TOKEN, deleteAccountStrings } from '$lib/i18n/delete-account-strings';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { DELETE_USER_MUTATION, ME_QUERY, UPDATE_MY_PROFILE_MUTATION } from '$lib/server/queries';
 import type { UserSummary } from '$lib/types';
@@ -97,21 +98,23 @@ export const actions: Actions = {
     const confirm = String((await request.formData()).get('confirm') ?? '').trim();
     // Every failure return carries the same { deleteError, blockingOrgs }
     // shape so the generated ActionData exposes both keys uniformly.
-    if (confirm !== 'DELETE') {
-      return fail(400, { deleteError: 'Type DELETE to confirm.', blockingOrgs: [] as BlockingOrg[] });
+    if (confirm !== DELETE_CONFIRMATION_TOKEN) {
+      return fail(400, {
+        deleteError: deleteAccountStrings.errorConfirmMismatch(),
+        blockingOrgs: [] as BlockingOrg[],
+      });
     }
     try {
       await gqlClient(locals.token).request(DELETE_USER_MUTATION);
     } catch (e: unknown) {
       if (extractGqlErrorCode(e) === 'SOLE_ORG_OWNER') {
         return fail(409, {
-          deleteError:
-            'You are the sole owner of organizations that still have other members. Transfer ownership of each one (or delete the organization) first:',
+          deleteError: deleteAccountStrings.errorSoleOrgOwner(),
           blockingOrgs: extractBlockingOrgs(e),
         });
       }
       return fail(500, {
-        deleteError: extractGqlError(e, 'Failed to delete account'),
+        deleteError: extractGqlError(e, deleteAccountStrings.errorGeneric()),
         blockingOrgs: [] as BlockingOrg[],
       });
     }
