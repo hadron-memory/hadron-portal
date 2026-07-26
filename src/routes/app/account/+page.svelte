@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { enhance } from '$app/forms';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PageData, ActionData } from './$types';
@@ -51,6 +52,16 @@
       : ($profileAllErrors[0]?.messages[0] ?? null),
   );
 
+  // Danger zone (#662): single-button → expanded confirmation form (the portal
+  // soft-delete pattern), hardened with a typed-DELETE gate since this delete
+  // is permanent and account-wide. Re-open the confirmation after a native
+  // POST failure so no-JS users see the error next to the form.
+  const deleteError = $derived(form?.deleteError ?? null);
+  const blockingOrgs = $derived(form?.blockingOrgs ?? []);
+  let confirmDeleteOpen = $state(untrack(() => !!form?.deleteError));
+  let deleteConfirmText = $state('');
+  const deleteArmed = $derived(deleteConfirmText.trim() === 'DELETE');
+  let deleting = $state(false);
 </script>
 
 <svelte:head><title>Account · Hadron</title></svelte:head>
@@ -174,5 +185,84 @@
     <a href="/auth/signout" data-sveltekit-reload class="inline-block rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
       Sign out
     </a>
+  </section>
+
+  <!-- Danger zone (#662): self-serve account deletion -->
+  <section>
+    <h2 class="mb-4 font-semibold text-red-600 dark:text-red-400">Danger zone</h2>
+    <div class="rounded-xl border border-red-300 bg-white p-5 dark:border-red-800 dark:bg-zinc-900 space-y-4">
+      <h3 class="font-medium text-zinc-900 dark:text-white">Delete Account</h3>
+      <p class="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+        Deleting your account permanently erases your personal and private memories, your
+        user-owned agents and apps, your API keys, and your connected accounts, and removes
+        you from your organizations. Organizations where you are the only member are deleted
+        too. This cannot be undone.
+      </p>
+
+      {#if deleteError}
+        <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+          <p>{deleteError}</p>
+          {#if blockingOrgs.length > 0}
+            <ul class="mt-2 list-disc space-y-1 pl-5">
+              {#each blockingOrgs as org (org.id)}
+                <li><a href="/app/orgs/{org.id}" class="font-medium underline hover:text-red-200">{org.name}</a></li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/if}
+
+      {#if !confirmDeleteOpen}
+        <button
+          onclick={() => confirmDeleteOpen = true}
+          class="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+        >
+          Delete my account
+        </button>
+      {:else}
+        <form
+          method="POST"
+          action="?/deleteAccount"
+          class="space-y-3"
+          use:enhance={() => {
+            deleting = true;
+            return async ({ update }) => {
+              deleting = false;
+              await update({ reset: false });
+            };
+          }}
+        >
+          <label for="deleteConfirm" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            Type <span class="font-mono font-semibold text-red-600 dark:text-red-400">DELETE</span> to confirm
+          </label>
+          <input
+            id="deleteConfirm"
+            name="confirm"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            bind:value={deleteConfirmText}
+            placeholder="DELETE"
+            class="w-full rounded-lg border border-red-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-red-500 focus:outline-none dark:border-red-800 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-600"
+          />
+          <div class="flex items-center gap-3">
+            <button
+              type="submit"
+              disabled={!deleteArmed || deleting}
+              class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleting ? 'Deleting...' : 'Permanently delete my account'}
+            </button>
+            <button
+              type="button"
+              onclick={() => { confirmDeleteOpen = false; deleteConfirmText = ''; }}
+              class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      {/if}
+    </div>
   </section>
 </div>
