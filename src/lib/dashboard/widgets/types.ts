@@ -42,7 +42,13 @@ export interface WidgetDefinition {
 
 /** One widget placed on the dashboard grid. */
 export interface WidgetPlacement {
+  /** Server placement-row id (#788) — stable across saves. Null until first saved. */
+  id: string | null;
   type: WidgetType;
   /** Columns to span on the 12-col desktop grid (clamped on smaller screens). */
   span: number;
+  /** Rows to span on the fixed-height row grid (1–4, #788). */
+  rowSpan: number;
+  /** Widget-instance settings (#788); shape is widget-defined. */
+  config?: Record<string, unknown> | null;
 }

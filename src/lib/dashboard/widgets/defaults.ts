@@ -5,6 +5,6 @@ import type { WidgetPlacement } from './types';
 // (what to render) and the customize page (what to pre-populate the picker with,
 // so "what you see is what you edit").
 export const DEFAULT_PLACEMENTS: WidgetPlacement[] = [
-  { type: 'memory-stats', span: 4 },
-  { type: 'agent-stats', span: 4 },
+  { id: null, type: 'memory-stats', span: 4, rowSpan: 1 },
+  { id: null, type: 'agent-stats', span: 4, rowSpan: 1 },
 ];

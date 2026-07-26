@@ -1975,9 +1975,12 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
       total
     }
     dashboardWidgets {
+      id
       type
       span
+      rowSpan
       position
+      config
     }
     dashboardWidgetData {
       type
@@ -1986,25 +1989,19 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
   }
 `;
 
-// #636: the widget picker reads the caller's current selection and replaces it
-// wholesale. `setDashboardWidgets` takes the widgets in display order (position
-// = array order) and clamps span server-side to 1–12.
-export const DASHBOARD_WIDGETS_QUERY = /* GraphQL */ `
-  query DashboardWidgets {
-    dashboardWidgets {
-      type
-      span
-      position
-    }
-  }
-`;
-
+// #636 / server #788: the in-place dashboard editor replaces the selection
+// wholesale — the array IS the layout (position = array order). Placements
+// carrying an `id` the caller owns are updated in place, so instance ids
+// survive saves; span (1–12) and rowSpan (1–4) are clamped server-side.
 export const SET_DASHBOARD_WIDGETS_MUTATION = /* GraphQL */ `
   mutation SetDashboardWidgets($widgets: [DashboardWidgetInput!]!) {
     setDashboardWidgets(widgets: $widgets) {
+      id
       type
       span
+      rowSpan
       position
+      config
     }
   }
 `;

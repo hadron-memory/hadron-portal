@@ -24,26 +24,33 @@
      Grid does NOT clamp `grid-column: span N` to the explicit track count — a
      span-4 item in a 1-col grid grows the grid with implicit columns and breaks
      the layout. So below `lg` every slot is full-width (`1 / -1`); at `lg` it
-     spans its declared number of the 12 columns. Key by index because multiple
-     widgets of the same type may be placed. -->
-<div class="grid grid-cols-12 gap-4">
+     spans its declared number of the 12 columns. rowSpan (#788) is likewise
+     lg-only: below `lg` widgets stack at natural height. Key by index because
+     multiple widgets of the same type may be placed. -->
+<div class="dashboard-grid grid grid-cols-12 gap-4">
   {#each resolved as { placement, def }, i (i)}
     {@const Widget = def.component}
-    <div class="slot" style="--span: {placement.span}">
+    <div class="slot" style="--span: {placement.span}; --row-span: {placement.rowSpan ?? 1}">
       <Widget {...(widgetData[placement.type] ?? {})} />
     </div>
   {/each}
 </div>
 
 <style>
-  /* Mobile + tablet: full width (spans all explicit columns). */
+  /* Mobile + tablet: full width (spans all explicit columns), natural height. */
   .slot {
     grid-column: 1 / -1;
   }
-  /* Desktop (Tailwind `lg` = 1024px): span the declared number of columns. */
+  /* Desktop (Tailwind `lg` = 1024px): span the declared number of columns and
+     rows. Rows have a fixed minimum so `grid-row: span N` means something, but
+     stay `auto`-max so a single-row widget with tall content never clips. */
   @media (min-width: 1024px) {
+    .dashboard-grid {
+      grid-auto-rows: minmax(8rem, auto);
+    }
     .slot {
       grid-column: span var(--span, 12) / span var(--span, 12);
+      grid-row: span var(--row-span, 1) / span var(--row-span, 1);
     }
   }
 </style>

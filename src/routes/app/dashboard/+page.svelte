@@ -2,13 +2,16 @@
   // #629: the stats page for every user. Simple stats for now (memory count +
   // preview + quick actions); org-scoped stats and activity charts are a
   // deliberate follow-up. The loader sends a bounded count + preview, so the
-  // page never receives the full memory set.
+  // page never receives the full memory set. #636/#788: Customize flips the
+  // widget grid into the in-place editor (drag/reorder/resize) right here.
   import DashboardGrid from '$lib/dashboard/DashboardGrid.svelte';
+  import DashboardEditor from '$lib/dashboard/DashboardEditor.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
-  import type { PageData } from './$types';
+  import type { ActionData, PageData } from './$types';
 
-  let { data }: { data: PageData } = $props();
+  let { data, form }: { data: PageData; form: ActionData } = $props();
+  let editing = $state(false);
   const memoryCount = $derived(data.memoryCount ?? 0);
   const preview = $derived(data.preview ?? []);
   const loadFailed = $derived(data.loadFailed === true);
@@ -37,18 +40,30 @@
         {t('dashboard.heading', 'Dashboard')}
       {/if}
     </h1>
-    <a
-      href="/app/dashboard/customize"
-      class="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-700"
-    >
-      {t('dashboard.customize.link', 'Customize')}
-    </a>
+    {#if !editing && !loadFailed}
+      <button
+        type="button"
+        onclick={() => (editing = true)}
+        class="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-700"
+      >
+        {t('dashboard.customize.link', 'Customize')}
+      </button>
+    {/if}
   </div>
 
   {#if loadFailed}
     <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
       {t('dashboard.load-failed', "Couldn't load your stats just now — this is a temporary error. Try refreshing the page.")}
     </div>
+  {:else if editing}
+    <!-- In-place editor (#636/#788): same grid, wrapped in edit chrome. Keyed
+         so re-entering edit mode always starts from the loaded placements. -->
+    <DashboardEditor
+      {placements}
+      {widgetData}
+      error={form?.error ?? null}
+      onDone={() => (editing = false)}
+    />
   {:else}
     <!-- Widget grid (#636). Only rendered when the load succeeded (the alert
          branch above handles failure), so widgets don't need a loadFailed prop. -->
