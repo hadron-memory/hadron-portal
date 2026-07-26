@@ -1,13 +1,9 @@
 // #647: the caller's own (org-less, user-owned) apps — the app analogue of
-// personal-memories / personal-agents. The server's default apps() list (no
-// orgId) returns the caller's user-owned apps (organizationId NULL,
-// ownerUserId=caller) alongside their org apps; keep only the org-less ones for
-// the "My apps" surface.
-//
-// INTERIM: filters client-side; for a platform ADMIN the default apps() list
-// returns every org app system-wide, so this over-fetches. Server-side
-// "owned by me / org-less" filter tracked in hadron-server#782 — switch when it
-// lands. No behavior change for a normal individual.
+// personal-memories / personal-agents. MY_APPS_QUERY scopes the list
+// SERVER-SIDE via `filter: { ownedByMe: true }` (hadron-server #782/#787 — new
+// AppFilter input): it returns only the caller's user-owned apps (organizationId
+// NULL, ownerUserId=caller) for ALL callers — including platform admins — so no
+// client-side org-less post-filter is needed here.
 import { gqlClient } from './api';
 import { fetchAllItems } from './paginate';
 import { MY_APPS_QUERY } from './queries';
@@ -26,6 +22,5 @@ export interface PersonalApp {
 
 /** Throws on query failure — callers decide how to surface it. */
 export async function fetchOwnedApps(token: string | null): Promise<PersonalApp[]> {
-  const apps = await fetchAllItems<PersonalApp>(gqlClient(token), MY_APPS_QUERY, 'apps');
-  return apps.filter((a) => a.organizationId == null);
+  return fetchAllItems<PersonalApp>(gqlClient(token), MY_APPS_QUERY, 'apps');
 }
