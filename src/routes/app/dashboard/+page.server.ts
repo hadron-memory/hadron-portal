@@ -66,7 +66,13 @@ export const load: PageServerLoad = async ({ locals }) => {
     // (dashboardWidgetData is empty until then), so seed each default widget's
     // data from the counts already fetched — the same numbers the widgets show.
     if (!widgetData['memory-stats']) widgetData['memory-stats'] = { memoryCount };
-    if (!widgetData['agent-stats']) widgetData['agent-stats'] = { agentCount };
+    // #647: `agentCount` here is the caller's OWN (org-less, user-owned) total
+    // (DASHBOARD_QUERY uses agents(filter: { ownedByMe: true })). The server's
+    // AGENT_STATS widget-data payload still carries a broad, unscoped count
+    // (system-wide for a platform admin — the very bug this fixes), so ALWAYS
+    // override its agentCount with the scoped total, not only when the widget is
+    // unplaced. Scoping the server-side widget-data provider is tracked separately.
+    widgetData['agent-stats'] = { ...widgetData['agent-stats'], agentCount };
 
     return {
       memoryCount,

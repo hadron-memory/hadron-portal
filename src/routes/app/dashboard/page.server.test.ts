@@ -92,6 +92,21 @@ describe('/app/dashboard loader (#629 / #636)', () => {
     });
   });
 
+  it('#647: overrides a placed AGENT_STATS widget count with the owner-scoped total', async () => {
+    // The server's dashboardWidgetData still carries a BROAD agent count (e.g.
+    // system-wide for a platform admin); the top-level agents(filter:{ownedByMe})
+    // total is the caller's OWN count. The loader must prefer the scoped total
+    // even when the widget is placed — otherwise an admin sees the broad count.
+    mockRequest.mockResolvedValue({
+      memories: { items: [], total: 3 },
+      agents: { total: 4 },
+      dashboardWidgets: [{ type: 'AGENT_STATS', span: 6, position: 0 }],
+      dashboardWidgetData: [{ type: 'AGENT_STATS', data: { agentCount: 999 } }],
+    });
+    const result = (await runLoad()) as { widgetData: { 'agent-stats': { agentCount: number } } };
+    expect(result.widgetData['agent-stats']).toEqual({ agentCount: 4 });
+  });
+
   it('orders placements by the server `position`, not array order', async () => {
     mockRequest.mockResolvedValue({
       memories: { items: [], total: 0 },
