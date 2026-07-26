@@ -200,6 +200,14 @@ export const UPDATE_MY_PROFILE_MUTATION = /* GraphQL */ `
   }
 `;
 
+// Self-serve account deletion (#662, Apple guideline 5.1.1(v)). No argument —
+// the server deletes the caller. Fails with extensions.code 'SOLE_ORG_OWNER'
+// (blocking orgs listed in extensions) when the user is the sole owner of
+// orgs that still have other members.
+export const DELETE_USER_MUTATION = /* GraphQL */ `
+  mutation DeleteUser { deleteUser }
+`;
+
 export const JOIN_WAITING_LIST_MUTATION = /* GraphQL */ `
   mutation JoinWaitingList($email: String!, $requestedFeatures: String) {
     joinWaitingList(email: $email, requestedFeatures: $requestedFeatures)

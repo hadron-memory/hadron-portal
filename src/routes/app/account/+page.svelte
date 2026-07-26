@@ -1,5 +1,8 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { browser } from '$app/environment';
+  import { enhance } from '$app/forms';
+  import { deleteAccountStrings, DELETE_CONFIRMATION_TOKEN } from '$lib/i18n/delete-account-strings';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PageData, ActionData } from './$types';
@@ -51,6 +54,19 @@
       : ($profileAllErrors[0]?.messages[0] ?? null),
   );
 
+  // Danger zone (#662): single-button → expanded confirmation form (the portal
+  // soft-delete pattern), hardened with a typed-DELETE gate since this delete
+  // is permanent and account-wide. The disclosure is a native
+  // <details>/<summary> so the POST form stays reachable without JavaScript
+  // (the server re-checks the typed confirmation either way). Re-open the
+  // confirmation after a native POST failure so the error shows next to the
+  // form.
+  const deleteError = $derived(form?.deleteError ?? null);
+  const blockingOrgs = $derived(form?.blockingOrgs ?? []);
+  let confirmDeleteOpen = $state(untrack(() => !!form?.deleteError));
+  let deleteConfirmText = $state('');
+  const deleteArmed = $derived(deleteConfirmText.trim() === DELETE_CONFIRMATION_TOKEN);
+  let deleting = $state(false);
 </script>
 
 <svelte:head><title>Account · Hadron</title></svelte:head>
@@ -174,5 +190,91 @@
     <a href="/auth/signout" data-sveltekit-reload class="inline-block rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
       Sign out
     </a>
+  </section>
+
+  <!-- Danger zone (#662): self-serve account deletion -->
+  <section>
+    <h2 class="mb-4 font-semibold text-red-600 dark:text-red-400">{deleteAccountStrings.heading()}</h2>
+    <div class="rounded-xl border border-red-300 bg-white p-5 dark:border-red-800 dark:bg-zinc-900 space-y-4">
+      <h3 class="font-medium text-zinc-900 dark:text-white">{deleteAccountStrings.cardTitle()}</h3>
+      <p class="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+        {deleteAccountStrings.consequences()}
+      </p>
+
+      {#if deleteError}
+        <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+          <p>{deleteError}</p>
+          {#if blockingOrgs.length > 0}
+            <ul class="mt-2 list-disc space-y-1 pl-5">
+              {#each blockingOrgs as org (org.id)}
+                <li><a href="/app/orgs/{org.id}" class="font-medium underline hover:text-red-200">{org.name}</a></li>
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/if}
+
+      <!-- Native disclosure: with JS disabled <summary> still toggles, so the
+           POST form below stays reachable (Codex no-JS finding on #665). -->
+      <details bind:open={confirmDeleteOpen}>
+        <summary
+          class="inline-block cursor-pointer select-none list-none rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950 [&::-webkit-details-marker]:hidden"
+        >
+          {deleteAccountStrings.deleteButton()}
+        </summary>
+        <form
+          method="POST"
+          action="?/deleteAccount"
+          class="mt-3 space-y-3"
+          use:enhance={() => {
+            deleting = true;
+            return async ({ update }) => {
+              // Reset AFTER the action result is applied — resetting before
+              // would re-enable the destructive submit mid-processing, and a
+              // throwing update() would otherwise leave the button stuck on
+              // "Deleting..." (Copilot finding on #665).
+              try {
+                await update({ reset: false });
+              } finally {
+                deleting = false;
+              }
+            };
+          }}
+        >
+          <label for="deleteConfirm" class="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            {deleteAccountStrings.confirmLabel()}
+          </label>
+          <input
+            id="deleteConfirm"
+            name="confirm"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            bind:value={deleteConfirmText}
+            placeholder={DELETE_CONFIRMATION_TOKEN}
+            class="w-full rounded-lg border border-red-300 bg-white px-3 py-2 font-mono text-sm text-zinc-900 placeholder-zinc-400 focus:border-red-500 focus:outline-none dark:border-red-800 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-600"
+          />
+          <div class="flex items-center gap-3">
+            <!-- The disabled-until-typed gate is a JS-only enhancement: it must
+                 not render at SSR time or a no-JS user could never submit. The
+                 server action re-checks the typed confirmation regardless. -->
+            <button
+              type="submit"
+              disabled={browser && (!deleteArmed || deleting)}
+              class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleting ? deleteAccountStrings.confirmSubmitting() : deleteAccountStrings.confirmSubmit()}
+            </button>
+            <button
+              type="button"
+              onclick={() => { confirmDeleteOpen = false; deleteConfirmText = ''; }}
+              class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+            >
+              {deleteAccountStrings.confirmCancel()}
+            </button>
+          </div>
+        </form>
+      </details>
+    </div>
   </section>
 </div>

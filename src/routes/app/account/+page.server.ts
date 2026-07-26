@@ -1,11 +1,46 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { ME_QUERY, UPDATE_MY_PROFILE_MUTATION } from '$lib/server/queries';
+import { DELETE_CONFIRMATION_TOKEN, deleteAccountStrings } from '$lib/i18n/delete-account-strings';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { DELETE_USER_MUTATION, ME_QUERY, UPDATE_MY_PROFILE_MUTATION } from '$lib/server/queries';
 import type { UserSummary } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { accountProfileSchema } from './schema';
+
+/** An org blocking self-deletion: the caller is its sole owner while other
+ *  members remain (deleteUser SOLE_ORG_OWNER failure, #662). */
+export interface BlockingOrg {
+  id: string;
+  name: string;
+}
+
+/**
+ * Pull the blocking-org list out of a SOLE_ORG_OWNER GraphQL error's
+ * extensions. The server contract guarantees a list of `{ id, name }` orgs in
+ * extensions but doesn't pin the key name, so scan the known candidates first
+ * and fall back to the first array of org-shaped entries.
+ */
+function extractBlockingOrgs(e: unknown): BlockingOrg[] {
+  if (!e || typeof e !== 'object' || !('response' in e)) return [];
+  const resp = (e as { response?: { errors?: { extensions?: Record<string, unknown> }[] } }).response;
+  const extensions = resp?.errors?.[0]?.extensions;
+  if (!extensions) return [];
+  const isOrgList = (v: unknown): v is BlockingOrg[] =>
+    Array.isArray(v) &&
+    v.length > 0 &&
+    v.every(
+      (o) => !!o && typeof o === 'object'
+        && typeof (o as BlockingOrg).id === 'string'
+        && typeof (o as BlockingOrg).name === 'string',
+    );
+  for (const key of ['orgs', 'blockingOrgs', 'organizations']) {
+    if (isOrgList(extensions[key])) return (extensions[key] as BlockingOrg[]).map(({ id, name }) => ({ id, name }));
+  }
+  const fallback = Object.values(extensions).find(isOrgList);
+  return fallback ? fallback.map(({ id, name }) => ({ id, name })) : [];
+}
 
 const accountProfileFormAdapter = zod4(accountProfileSchema);
 
@@ -47,5 +82,43 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to update profile' }, { status: 500 });
     }
+  },
+
+  /**
+   * Self-serve account deletion (#662). Plain (non-Superforms) action per the
+   * simple-delete-confirmation convention: the only field is the typed
+   * `DELETE` confirmation, re-checked server-side. On success the account —
+   * and with it the JWT — is gone, so clear the session cookie (same `/` path
+   * it was set with in /auth/callback) and land on the public /goodbye page.
+   */
+  deleteAccount: async ({ request, locals, cookies }) => {
+    if (!locals.user || !locals.token) {
+      redirect(303, '/signin?redirect=/app/account');
+    }
+    const confirm = String((await request.formData()).get('confirm') ?? '').trim();
+    // Every failure return carries the same { deleteError, blockingOrgs }
+    // shape so the generated ActionData exposes both keys uniformly.
+    if (confirm !== DELETE_CONFIRMATION_TOKEN) {
+      return fail(400, {
+        deleteError: deleteAccountStrings.errorConfirmMismatch(),
+        blockingOrgs: [] as BlockingOrg[],
+      });
+    }
+    try {
+      await gqlClient(locals.token).request(DELETE_USER_MUTATION);
+    } catch (e: unknown) {
+      if (extractGqlErrorCode(e) === 'SOLE_ORG_OWNER') {
+        return fail(409, {
+          deleteError: deleteAccountStrings.errorSoleOrgOwner(),
+          blockingOrgs: extractBlockingOrgs(e),
+        });
+      }
+      return fail(500, {
+        deleteError: extractGqlError(e, deleteAccountStrings.errorGeneric()),
+        blockingOrgs: [] as BlockingOrg[],
+      });
+    }
+    cookies.delete('hadron_token', { path: '/' });
+    redirect(303, '/goodbye');
   },
 };
