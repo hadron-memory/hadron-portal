@@ -1,8 +1,8 @@
 /**
- * #629 / #636: /app/dashboard renders a widget grid + a memories preview for
- * EVERY user. The loader issues ONE DASHBOARD_QUERY (no fetchAllItems, no org
- * redirect) and returns the memory count/preview, the widget placements (from
- * the server selection, or a default), and the per-widget combined data.
+ * #629 / #636: /app/dashboard renders a widget grid for EVERY user. The
+ * loader issues ONE DASHBOARD_QUERY (count-only totals, no org redirect) and
+ * returns the widget placements (from the server selection, or a default) and
+ * the per-widget combined data.
  * #788: the in-place editor saves the layout back via the saveLayout action
  * (position = array order, server row ids kept so they survive the save).
  */
@@ -43,26 +43,9 @@ function serverWidget(
 }
 
 describe('/app/dashboard loader (#629 / #636)', () => {
-  it('returns the server total as the count and the items as the preview', async () => {
-    mockRequest.mockResolvedValue({
-      memories: {
-        items: [{ id: 'a', name: 'Notes', urn: 'hrn:mem:ada:notes', class: 'personal' }],
-        total: 12,
-      },
-      agents: { total: 5 },
-      dashboardWidgets: [],
-      dashboardWidgetData: [],
-    });
-    expect(await runLoad()).toMatchObject({
-      memoryCount: 12,
-      preview: [{ id: 'a', name: 'Notes', urn: 'hrn:mem:ada:notes', class: 'personal' }],
-      loadFailed: false,
-    });
-  });
-
   it('falls back to the default layout (Memory + Agent stats) when the user has no widgets, seeding data from the totals', async () => {
     mockRequest.mockResolvedValue({
-      memories: { items: [], total: 7 },
+      memories: { total: 7 },
       agents: { total: 3 },
       dashboardWidgets: [],
       dashboardWidgetData: [],
@@ -82,7 +65,7 @@ describe('/app/dashboard loader (#629 / #636)', () => {
 
   it('maps the server widget selection (id/span/rowSpan/config) to placements and fans dashboardWidgetData out by type', async () => {
     mockRequest.mockResolvedValue({
-      memories: { items: [], total: 3 },
+      memories: { total: 3 },
       agents: { total: 9 },
       dashboardWidgets: [
         serverWidget({ id: 'row-a', type: 'AGENT_STATS', span: 6, rowSpan: 2, position: 0, config: { theme: 'x' } }),
@@ -108,7 +91,7 @@ describe('/app/dashboard loader (#629 / #636)', () => {
 
   it('orders placements by the server `position`, not array order', async () => {
     mockRequest.mockResolvedValue({
-      memories: { items: [], total: 0 },
+      memories: { total: 0 },
       agents: { total: 0 },
       // Deliberately out of order: position 1 before position 0.
       dashboardWidgets: [
@@ -124,7 +107,7 @@ describe('/app/dashboard loader (#629 / #636)', () => {
 
   it('skips an unknown server widget type defensively (falls back to default when none map)', async () => {
     mockRequest.mockResolvedValue({
-      memories: { items: [], total: 1 },
+      memories: { total: 1 },
       agents: { total: 0 },
       dashboardWidgets: [serverWidget({ type: 'NOT_A_REAL_WIDGET' })],
       dashboardWidgetData: [],
@@ -135,12 +118,12 @@ describe('/app/dashboard loader (#629 / #636)', () => {
 
   it('handles an empty workspace', async () => {
     mockRequest.mockResolvedValue({
-      memories: { items: [], total: 0 },
+      memories: { total: 0 },
       agents: { total: 0 },
       dashboardWidgets: [],
       dashboardWidgetData: [],
     });
-    expect(await runLoad()).toMatchObject({ memoryCount: 0, preview: [], loadFailed: false });
+    expect(await runLoad()).toMatchObject({ loadFailed: false });
   });
 
   // The failure path (`loadFailed: true` + count 0 on a rejected query) is the

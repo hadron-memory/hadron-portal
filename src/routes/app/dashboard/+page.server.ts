@@ -12,13 +12,6 @@ import type { WidgetDataMap, WidgetPlacement, WidgetType } from '$lib/dashboard/
 import { DEFAULT_PLACEMENTS } from '$lib/dashboard/widgets/defaults';
 import type { Actions, PageServerLoad } from './$types';
 
-export interface DashboardMemory {
-  id: string;
-  name: string;
-  urn: string;
-  class: string;
-}
-
 interface ServerWidget {
   id: string;
   type: string;
@@ -47,12 +40,12 @@ function toPlacements(widgets: ServerWidget[]): WidgetPlacement[] {
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
-  // Bounded, slim query — a count + a five-item preview, not the whole memory
-  // set (review: don't fetchAllItems just for a count). Surface a failed fetch
-  // rather than silently reporting "0 memories" (conventions:no-silent-loader-catch).
+  // Count-only entity queries (limit:0 — the memories preview was dropped, the
+  // counts seed the default widgets' data). Surface a failed fetch rather than
+  // silently reporting "0 memories" (conventions:no-silent-loader-catch).
   try {
     const data = await gqlClient(locals.token).request<{
-      memories: { items: DashboardMemory[]; total: number };
+      memories: { total: number };
       agents: { total: number };
       dashboardWidgets: ServerWidget[];
       dashboardWidgetData: ServerWidgetData[];
@@ -77,8 +70,6 @@ export const load: PageServerLoad = async ({ locals }) => {
     if (!widgetData['agent-stats']) widgetData['agent-stats'] = { agentCount };
 
     return {
-      memoryCount,
-      preview: data.memories.items,
       placements: effectivePlacements,
       widgetData,
       loadFailed: false,
@@ -86,8 +77,6 @@ export const load: PageServerLoad = async ({ locals }) => {
   } catch (e) {
     console.error('[dashboard] failed to load stats:', e);
     return {
-      memoryCount: 0,
-      preview: [] as DashboardMemory[],
       placements: DEFAULT_PLACEMENTS,
       widgetData: {
         'memory-stats': { memoryCount: 0 },
