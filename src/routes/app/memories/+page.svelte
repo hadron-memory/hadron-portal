@@ -32,6 +32,12 @@
     'my-memories.shared.leave.confirm',
     'Remove this memory from those shared with you? You’ll lose access unless it’s shared again.',
   );
+  // No-JS confirmation step: an unenhanced POST comes back with pendingLeaveId,
+  // and we render an explicit confirm banner instead of having deleted anything.
+  const pendingLeaveId = $derived((form as { pendingLeaveId?: string } | null)?.pendingLeaveId ?? null);
+  const pendingLeaveName = $derived(
+    pendingLeaveId ? (sharedMemories.find((m) => m.id === pendingLeaveId)?.name ?? '') : '',
+  );
 
   // ── Tabs (ARIA tab pattern) ──────────────────────────────────────────────
   type TabId = 'mine' | 'shared';
@@ -221,6 +227,31 @@
             {leaveError}
           </div>
         {/if}
+
+        <!-- No-JS confirmation step (the enhanced path confirms in the browser
+             and never lands here). -->
+        {#if pendingLeaveId}
+          <div role="alert" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+            <p>
+              {leaveConfirmPrefix}
+              {#if pendingLeaveName}<strong class="font-semibold">{pendingLeaveName}</strong>{/if}
+            </p>
+            <div class="mt-3 flex items-center gap-2">
+              <form method="POST" action="?/leaveShare">
+                <input type="hidden" name="memoryId" value={pendingLeaveId} />
+                <input type="hidden" name="confirm" value="yes" />
+                <button
+                  type="submit"
+                  class="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500"
+                >{t('my-memories.shared.leave.confirm-cta', 'Yes, leave')}</button>
+              </form>
+              <a
+                href="/app/memories"
+                class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >{t('my-memories.shared.leave.cancel', 'Cancel')}</a>
+            </div>
+          </div>
+        {/if}
         <DataTable
           table={sharedTable}
           listKey="memories:shared"
@@ -244,12 +275,22 @@
               <form
                 method="POST"
                 action="?/leaveShare"
-                use:enhance={({ cancel }) => {
+                use:enhance={({ formData, cancel }) => {
                   if (!confirm(`${leaveConfirmPrefix}\n\n"${row.name}"`)) { cancel(); return; }
-                  leavingId = row.id;
+                  // Confirmed in the browser — tell the server to skip its own
+                  // (no-JS) confirm step.
+                  formData.set('confirm', 'yes');
+                  // Capture the id so a second, faster submit can't clear this
+                  // row's in-flight flag, and always clear in finally so a
+                  // network error can't leave the button stuck disabled.
+                  const id = row.id;
+                  leavingId = id;
                   return async ({ update }) => {
-                    await update();
-                    leavingId = null;
+                    try {
+                      await update();
+                    } finally {
+                      if (leavingId === id) leavingId = null;
+                    }
                   };
                 }}
               >

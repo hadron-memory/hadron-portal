@@ -47,6 +47,15 @@ export const actions: Actions = {
     const memoryId = String(data.get('memoryId') ?? '').trim();
     if (!memoryId) return fail(400, { leaveError: 'Missing memory.' });
 
+    // Destructive-action confirmation that survives WITHOUT JavaScript. The
+    // enhanced path sets confirm=yes after the native confirm() dialog; a plain
+    // (unenhanced) POST arrives without it, so we render a server-side confirm
+    // step instead of deleting. An `onsubmit` guard wouldn't help here — it's
+    // still JS, so a no-JS submit would bypass it entirely.
+    if (String(data.get('confirm') ?? '') !== 'yes') {
+      return { pendingLeaveId: memoryId };
+    }
+
     try {
       await gqlClient(locals.token).request(DELETE_MEMORY_SHARE_MUTATION, { memoryRef: memoryId });
     } catch (e) {
