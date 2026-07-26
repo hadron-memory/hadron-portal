@@ -3,6 +3,7 @@
   // "Memories shared with me" tab listing memories other users shared with the
   // caller via MemoryShare (#778). Both lists use the shared TanStack DataTable.
   import { tick } from 'svelte';
+  import { enhance } from '$app/forms';
   import {
     getCoreRowModel,
     getSortedRowModel,
@@ -14,13 +15,23 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
-  import type { PageData } from './$types';
+  import type { PageData, ActionData } from './$types';
 
-  let { data }: { data: PageData } = $props();
+  let { data, form }: { data: PageData; form: ActionData } = $props();
   const memories = $derived(data.memories ?? []);
   const loadFailed = $derived(data.loadFailed === true);
   const sharedMemories = $derived(data.sharedMemories ?? []);
   const sharedLoadFailed = $derived(data.sharedLoadFailed === true);
+
+  // #649: "Leave" (remove a memory someone shared with you). The row's form
+  // POSTs ?/leaveShare; while in flight we disable that row's button, and a
+  // failure surfaces above the table (success just drops the row on re-load).
+  const leaveError = $derived((form as { leaveError?: string } | null)?.leaveError ?? null);
+  let leavingId = $state<string | null>(null);
+  const leaveConfirmPrefix = t(
+    'my-memories.shared.leave.confirm',
+    'Remove this memory from those shared with you? You’ll lose access unless it’s shared again.',
+  );
 
   // ── Tabs (ARIA tab pattern) ──────────────────────────────────────────────
   type TabId = 'mine' | 'shared';
@@ -99,10 +110,11 @@
   );
   let sharedFilter = $state('');
   const sharedColumns: ColumnDef<SharedRow>[] = [
-    { accessorKey: 'name', header: NAME_COL(), enableHiding: false, size: 260 },
-    { accessorKey: 'urn', header: 'URN', size: 260 },
-    { accessorKey: 'sharedBy', id: 'sharedBy', header: t('my-memories.col.shared-by', 'Shared by'), size: 160 },
-    { accessorKey: 'role', id: 'access', header: t('my-memories.col.access', 'Access'), size: 120 },
+    { accessorKey: 'name', header: NAME_COL(), enableHiding: false, size: 240 },
+    { accessorKey: 'urn', header: 'URN', size: 240 },
+    { accessorKey: 'sharedBy', id: 'sharedBy', header: t('my-memories.col.shared-by', 'Shared by'), size: 150 },
+    { accessorKey: 'role', id: 'access', header: t('my-memories.col.access', 'Access'), size: 110 },
+    { id: 'actions', header: t('my-memories.col.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 110 },
   ];
   const sharedTable = createSvelteTable<SharedRow>({
     get data() { return sharedRows; },
@@ -204,6 +216,11 @@
           <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('my-memories.shared.empty', 'No one has shared a memory with you yet.')}</p>
         </div>
       {:else}
+        {#if leaveError}
+          <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+            {leaveError}
+          </div>
+        {/if}
         <DataTable
           table={sharedTable}
           listKey="memories:shared"
@@ -223,6 +240,30 @@
               {#if row.role === 'reader' || row.role === 'writer'}
                 <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{roleLabel(row.role)}</span>
               {/if}
+            {:else if cell.column.id === 'actions'}
+              <form
+                method="POST"
+                action="?/leaveShare"
+                use:enhance={({ cancel }) => {
+                  if (!confirm(`${leaveConfirmPrefix}\n\n"${row.name}"`)) { cancel(); return; }
+                  leavingId = row.id;
+                  return async ({ update }) => {
+                    await update();
+                    leavingId = null;
+                  };
+                }}
+              >
+                <input type="hidden" name="memoryId" value={row.id} />
+                <button
+                  type="submit"
+                  disabled={leavingId === row.id}
+                  class="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:cursor-wait disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >
+                  {leavingId === row.id
+                    ? t('my-memories.shared.leaving', 'Leaving…')
+                    : t('my-memories.shared.leave', 'Leave')}
+                </button>
+              </form>
             {/if}
           {/snippet}
         </DataTable>

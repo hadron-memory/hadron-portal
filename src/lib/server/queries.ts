@@ -1890,6 +1890,19 @@ export const SHARED_MEMORIES_QUERY = /* GraphQL */ `
   }
 `;
 
+// #649: a MemoryShare GRANTEE removes THEIR OWN share ("stop sharing with me" /
+// leave). deleteMemoryShare is principal-or-self (hadron-server#785/#786):
+// OMITTING granteeRef targets the caller's own grantee row, so no id is needed —
+// a non-owner can only ever affect their own share. Idempotent server-side.
+export const DELETE_MEMORY_SHARE_MUTATION = /* GraphQL */ `
+  mutation DeleteMemoryShare($memoryRef: ID!) {
+    deleteMemoryShare(memoryRef: $memoryRef) {
+      memoryId
+      granteeId
+    }
+  }
+`;
+
 // #647: the caller's own (org-less, user-owned) agents. The default agents()
 // list (no orgId) already includes the caller's user-owned agents (org NULL,
 // ownerUserId=caller) alongside their org agents (server resolvers.query.agent);
