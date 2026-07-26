@@ -2,12 +2,15 @@
 // wrong content for a dashboard). #636: it renders a widget grid whose layout
 // (the caller's placed widgets) and per-widget data both come from the server
 // in a single request (dashboardWidgets + dashboardWidgetData — server #772).
+// The in-place editor (server #788) saves the layout back via ?/saveLayout.
+import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { DASHBOARD_QUERY } from '$lib/server/queries';
-import { WIDGET_TYPE_FROM_SERVER } from '$lib/dashboard/widgets/types';
-import type { WidgetDataMap, WidgetPlacement } from '$lib/dashboard/widgets/types';
+import { extractGqlError } from '$lib/server/gqlError';
+import { DASHBOARD_QUERY, SET_DASHBOARD_WIDGETS_MUTATION } from '$lib/server/queries';
+import { WIDGET_TYPE_FROM_SERVER, WIDGET_TYPE_TO_SERVER } from '$lib/dashboard/widgets/types';
+import type { WidgetDataMap, WidgetPlacement, WidgetType } from '$lib/dashboard/widgets/types';
 import { DEFAULT_PLACEMENTS } from '$lib/dashboard/widgets/defaults';
-import type { PageServerLoad } from './$types';
+import type { Actions, PageServerLoad } from './$types';
 
 export interface DashboardMemory {
   id: string;
@@ -17,9 +20,12 @@ export interface DashboardMemory {
 }
 
 interface ServerWidget {
+  id: string;
   type: string;
   span: number;
+  rowSpan: number;
   position: number;
+  config: Record<string, unknown> | null;
 }
 interface ServerWidgetData {
   type: string;
@@ -34,7 +40,9 @@ function toPlacements(widgets: ServerWidget[]): WidgetPlacement[] {
     .sort((a, b) => a.position - b.position)
     .flatMap((w) => {
       const type = WIDGET_TYPE_FROM_SERVER[w.type];
-      return type ? [{ type, span: w.span }] : [];
+      return type
+        ? [{ id: w.id, type, span: w.span, rowSpan: w.rowSpan, config: w.config ?? null }]
+        : [];
     });
 }
 
@@ -88,4 +96,73 @@ export const load: PageServerLoad = async ({ locals }) => {
       loadFailed: true,
     };
   }
+};
+
+const SPAN_MIN = 1;
+const SPAN_MAX = 12;
+const ROW_SPAN_MIN = 1;
+const ROW_SPAN_MAX = 4;
+
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(n)));
+}
+
+export const actions: Actions = {
+  // #788: the in-place editor posts the full layout as JSON — array order
+  // becomes the server `position`; placements carrying a server row `id` are
+  // updated in place there, so ids survive the save.
+  saveLayout: async ({ request, locals }) => {
+    const raw = (await request.formData()).get('widgets');
+    // A MISSING field is a malformed request, not an intentional empty layout —
+    // don't silently clear the user's dashboard (Copilot review on #643). An
+    // intentional "no widgets" save posts the string '[]'.
+    if (typeof raw !== 'string') {
+      return fail(400, { error: 'Could not read the widget layout — please try again.' });
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return fail(400, { error: 'Could not read the widget layout — please try again.' });
+    }
+    if (!Array.isArray(parsed)) {
+      return fail(400, { error: 'Invalid widget layout.' });
+    }
+
+    // Map portal widget ids → the server enum, dropping any unknown type.
+    // span/rowSpan are non-null on the wire (server #788) and clamped here too
+    // (the server clamps as well, but keep the wire value sane).
+    const widgets = parsed.flatMap((w) => {
+      const rec = (w ?? {}) as {
+        id?: unknown;
+        type?: unknown;
+        span?: unknown;
+        rowSpan?: unknown;
+        config?: unknown;
+      };
+      const serverType =
+        typeof rec.type === 'string' ? WIDGET_TYPE_TO_SERVER[rec.type as WidgetType] : undefined;
+      if (!serverType) return [];
+      return [
+        {
+          id: typeof rec.id === 'string' && rec.id.length > 0 ? rec.id : null,
+          type: serverType,
+          span: clampInt(rec.span, SPAN_MIN, SPAN_MAX, 4),
+          rowSpan: clampInt(rec.rowSpan, ROW_SPAN_MIN, ROW_SPAN_MAX, 1),
+          config: rec.config != null && typeof rec.config === 'object' ? rec.config : null,
+        },
+      ];
+    });
+
+    try {
+      await gqlClient(locals.token).request(SET_DASHBOARD_WIDGETS_MUTATION, { widgets });
+    } catch (e: unknown) {
+      return fail(500, { error: extractGqlError(e, 'Failed to save your dashboard.') });
+    }
+    // Same-page action: use:enhance invalidates on success, so the refreshed
+    // load carries the saved layout (with its server row ids) back down.
+    return { saved: true };
+  },
 };
