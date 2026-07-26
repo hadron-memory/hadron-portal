@@ -1907,15 +1907,16 @@ export const DELETE_MEMORY_SHARE_MUTATION = /* GraphQL */ `
   }
 `;
 
-// #647: the caller's own (org-less, user-owned) agents. The default agents()
-// list (no orgId) already includes the caller's user-owned agents (org NULL,
-// ownerUserId=caller) alongside their org agents (server resolvers.query.agent);
-// the loader keeps only organizationId==null to present the org-less "My agents"
-// list — the exact analogue of PERSONAL_MEMORIES_QUERY. Slim selection: just
-// what the list table renders (name/urn/description/visibility + a memory count).
+// #647: the caller's own (org-less, user-owned) agents — the "My agents" list.
+// #782 (server): scoped SERVER-side via filter.ownedByMe (organizationId IS NULL
+// AND ownerUserId = caller), for every caller INCLUDING platform ADMIN/OWNER —
+// owner scope is never an admin-bypass surface. This replaced a client-side
+// organizationId==null filter over the default list, which for an admin fetched
+// EVERY agent system-wide before discarding almost all of it. Slim selection:
+// just what the list table renders (name/urn/description/visibility + a count).
 export const MY_AGENTS_QUERY = /* GraphQL */ `
   query MyAgents($limit: Int, $offset: Int) {
-    agents(limit: $limit, offset: $offset) {
+    agents(filter: { ownedByMe: true }, limit: $limit, offset: $offset) {
       items {
         id
         urn
@@ -1931,14 +1932,13 @@ export const MY_AGENTS_QUERY = /* GraphQL */ `
   }
 `;
 
-// #647: the caller's own (org-less, user-owned) apps. Like MY_AGENTS_QUERY, the
-// default apps() list (no orgId) surfaces the caller's user-owned apps (org NULL,
-// ownerUserId=caller) alongside their org apps (server resolvers.query.app); the
-// loader keeps only organizationId==null for the org-less "My apps" list. Slim
+// #647: the caller's own (org-less, user-owned) apps — the "My apps" list.
+// #782 (server): same server-side filter.ownedByMe scoping as MY_AGENTS_QUERY
+// (organizationId IS NULL AND ownerUserId = caller, no admin bypass). Slim
 // selection for the list table.
 export const MY_APPS_QUERY = /* GraphQL */ `
   query MyApps($limit: Int, $offset: Int) {
-    apps(limit: $limit, offset: $offset) {
+    apps(filter: { ownedByMe: true }, limit: $limit, offset: $offset) {
       items {
         id
         urn

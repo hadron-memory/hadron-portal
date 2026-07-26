@@ -1,14 +1,12 @@
 // #647: the caller's own (org-less, user-owned) agents — the agent analogue of
-// personal-memories. The server's default agents() list (no orgId) returns the
-// caller's user-owned agents (organizationId NULL, ownerUserId=caller) alongside
-// their org agents; keep only the org-less ones for the "My agents" surface.
+// personal-memories, backing the "My agents" surface.
 //
-// INTERIM: this filters client-side. For a platform ADMIN the default agents()
-// list returns EVERY org agent system-wide (not just the caller's), so this
-// over-fetches and drags every org agent's relations through resolution. A
-// server-side "owned by me / org-less" filter is tracked in hadron-server#782;
-// switch to it when it lands (also fixes the dashboard Agent Stats count for
-// admins). No behavior change for a normal individual (they only have their own).
+// #782 (server): the scoping is now SERVER-side — MY_AGENTS_QUERY passes
+// filter.ownedByMe, so the list is already exactly organizationId IS NULL AND
+// ownerUserId = caller, for every caller including a platform admin. The former
+// client-side organizationId==null filter is gone: for an admin it pulled EVERY
+// agent system-wide (dragging each one's relations through resolution) only to
+// discard nearly all of them.
 import { gqlClient } from './api';
 import { fetchAllItems } from './paginate';
 import { MY_AGENTS_QUERY } from './queries';
@@ -27,6 +25,5 @@ export interface PersonalAgent {
 
 /** Throws on query failure — callers decide how to surface it. */
 export async function fetchOwnedAgents(token: string | null): Promise<PersonalAgent[]> {
-  const agents = await fetchAllItems<PersonalAgent>(gqlClient(token), MY_AGENTS_QUERY, 'agents');
-  return agents.filter((a) => a.organizationId == null);
+  return fetchAllItems<PersonalAgent>(gqlClient(token), MY_AGENTS_QUERY, 'agents');
 }
