@@ -11,6 +11,10 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const node = $derived(data.node);
+  // #656: an outgoing edge into a memory the caller can't read has target ===
+  // null and no id to resubmit; the edges field REPLACES the set, so editing is
+  // disabled here (the action refuses edge changes on the server side too).
+  const hasUnreadableOutgoing = $derived((node.outgoingEdges ?? []).some((e) => !e.target));
   const basePath = $derived(`/app/memories/${data.graph.id}`);
   const initialForm = untrack(() => form?.form ?? data.form);
   const {
@@ -221,25 +225,37 @@
     <section class="space-y-3">
       <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Edges</h2>
       <input type="hidden" name="edges" value={$formData.edges} />
+      {#if hasUnreadableOutgoing}
+        <!-- #656: an edge points into a memory this user can't read, so it has no
+             id to resubmit. Saving edges REPLACES the set and would delete it —
+             the controls are disabled and the server refuses edge changes too. -->
+        <p class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+          This node has an edge into a memory you can’t access. Saving edges would remove it, so edge editing is disabled here. Everything else on this page still saves.
+        </p>
+      {/if}
       {#if edges.length > 0}
         <div class="space-y-1">
           {#each edges as edge, i}
             <div class="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
               <span class="font-mono text-indigo-400">{edge.targetId}</span>
               <span class="text-zinc-500">{edge.name}</span>
-              <button type="button" class="ml-auto text-red-400 hover:text-red-300" onclick={() => removeEdge(i)}>&times;</button>
+              {#if !hasUnreadableOutgoing}
+                <button type="button" class="ml-auto text-red-400 hover:text-red-300" onclick={() => removeEdge(i)}>&times;</button>
+              {/if}
             </div>
           {/each}
         </div>
       {/if}
-      <div class="flex gap-2">
-        <input type="text" placeholder="target ID" bind:value={newTargetLoc}
-          class="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
-        <input type="text" placeholder="label" bind:value={newLabel}
-          class="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
-        <button type="button" onclick={addEdge}
-          class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700">Add</button>
-      </div>
+      {#if !hasUnreadableOutgoing}
+        <div class="flex gap-2">
+          <input type="text" placeholder="target ID" bind:value={newTargetLoc}
+            class="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+          <input type="text" placeholder="label" bind:value={newLabel}
+            class="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
+          <button type="button" onclick={addEdge}
+            class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700">Add</button>
+        </div>
+      {/if}
     </section>
 
     <!-- Abstract -->

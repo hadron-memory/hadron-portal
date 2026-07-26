@@ -695,6 +695,26 @@ export const actions: Actions = {
         NODE_BY_ID_QUERY, { id: params.nodeId },
       );
       if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
+      // #656: this replaces the WHOLE outgoing set, and an edge whose target is
+      // in a memory the caller can't read has no targetId to resubmit — so it
+      // would be silently deleted. The page hides the editor in that case, but
+      // this is the load-bearing check: it also covers a crafted POST and the
+      // race where an endpoint becomes unreadable (or a cross-memory edge is
+      // added by another writer) while the editor is open, which is exactly why
+      // it's tested against the FRESH refetch above, not the page's snapshot.
+      if ((node.outgoingEdges ?? []).some((e) => !e.target)) {
+        return message(
+          form,
+          {
+            type: 'error',
+            text: t(
+              'node.edges.blocked-unreadable',
+              'This node has an edge into a memory you can’t access. Saving would remove it, so edge changes can’t be applied here.',
+            ),
+          },
+          { status: 400 },
+        );
+      }
       await client.request(UPDATE_NODE_MUTATION, {
         input: {
           // #237: memoryId from the node, not the URL.

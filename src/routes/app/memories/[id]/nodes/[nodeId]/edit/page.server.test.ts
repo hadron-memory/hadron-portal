@@ -279,7 +279,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
   // === null, so it carries no targetId. `edges` REPLACES the whole outgoing
   // set, so the action must OMIT the field rather than send an incomplete list
   // that would silently delete that edge.
-  it('omits edges from the update when an outgoing edge has an unreadable target', async () => {
+  it('omits edges (saving the rest) when edges are UNCHANGED and one target is unreadable', async () => {
     mockRequest.mockResolvedValueOnce({
       node: {
         id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
@@ -306,6 +306,35 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
     expect(vars.input.edges).toBeUndefined();
+  });
+
+  it('refuses loudly when edges were CHANGED and an outgoing target is unreadable', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: 'old',
+        tokens: null, tags: ['x'], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [
+          { id: 'e1', name: 'ref', loc: 'a:ref', target: { id: 'n2', loc: 'b', name: 'B' } },
+          { id: 'e2', name: 'x', loc: 'a:x', target: null },
+        ],
+        incomingEdges: [],
+      },
+    });
+
+    const actions = await importActions();
+    const result = await actions.default(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk',
+      // The user removed the readable edge — a real change, so don't drop it silently.
+      form: { name: 'new', loc: 'a', edges: '[]' },
+    }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'error' });
+    // Refused before the update mutation — only the refetch ran.
+    expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 
   it('returns a typed message instead of silently dropping corrupt edges JSON', async () => {

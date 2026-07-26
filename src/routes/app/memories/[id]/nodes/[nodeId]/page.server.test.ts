@@ -479,6 +479,38 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     expect(vars.input.edges).toEqual([{ targetId: 'pk-target', name: 'uses' }]);
   });
 
+  // #656: the client hides the editor when an outgoing edge points into an
+  // unreadable memory, but this REPLACEMENT mutation is the load-bearing guard —
+  // it must refuse based on the FRESH refetch (crafted POST, or the edge became
+  // unreadable while the editor was open).
+  it('updateEdges: refuses when the refetched node has an unreadable outgoing edge', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'pk-x', memoryId: 'mem-A', loc: 'src', name: 'src',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [
+          { id: 'e1', name: 'ok', loc: 'src:ok', target: { id: 'pk-t', loc: 't', name: 'T' } },
+          { id: 'e2', name: 'hidden', loc: 'src:hidden', target: null },
+        ],
+        incomingEdges: [],
+      },
+    });
+
+    const actions = await importActions();
+    const result = await actions.updateEdges(actionEvent({
+      gid: 'mem-A',
+      nodeId: 'pk-x',
+      form: { edges: JSON.stringify([{ targetId: 'pk-t', name: 'ok' }]) },
+    }));
+
+    expect(result).toMatchObject({ status: 400 });
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'error' });
+    // Never reached the replacement mutation — only the refetch happened.
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
   it('updateEdges: returns a typed success message', async () => {
     mockRequest.mockResolvedValueOnce({
       node: {
