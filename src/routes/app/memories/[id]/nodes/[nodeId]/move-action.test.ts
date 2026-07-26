@@ -130,6 +130,59 @@ describe('move action (#503 / #489)', () => {
     expect(superFormFrom(result)?.errors?.target?.[0]).toMatch(/already occupies/);
   });
 
+  // #656 (server #781/#784): cross-memory subtree moves can be refused for
+  // user-fixable reasons. Those must surface on the field, not as a generic 500.
+  it('surfaces a refused cross-memory move (BAD_USER_INPUT) as a 400 field error', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === NODE_BY_ID_QUERY) return { node };
+      if (query === MOVE_NODE_MUTATION) {
+        throw {
+          response: {
+            errors: [{
+              message: 'Cannot move a subtree into an encrypted memory.',
+              extensions: { code: 'BAD_USER_INPUT' },
+            }],
+          },
+        };
+      }
+      throw new Error('unexpected query');
+    });
+    const result = (await runMove('other.com::mem::flows:x')) as { status: number };
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.errors?.target?.[0]).toMatch(/encrypted memory/);
+  });
+
+  it('surfaces a concurrent-write CONFLICT as a 409 field error', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === NODE_BY_ID_QUERY) return { node };
+      if (query === MOVE_NODE_MUTATION) {
+        throw {
+          response: {
+            errors: [{
+              message: 'The source subtree changed during the move.',
+              extensions: { code: 'CONFLICT' },
+            }],
+          },
+        };
+      }
+      throw new Error('unexpected query');
+    });
+    const result = (await runMove('other.com::mem::flows:x')) as { status: number };
+    expect(result.status).toBe(409);
+    expect(superFormFrom(result)?.errors?.target?.[0]).toMatch(/changed during the move/);
+  });
+
+  it('still reports an unexpected server fault as a 500 message', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === NODE_BY_ID_QUERY) return { node };
+      if (query === MOVE_NODE_MUTATION) throw new Error('boom');
+      throw new Error('unexpected query');
+    });
+    const result = (await runMove('flows:x')) as { status: number };
+    expect(result.status).toBe(500);
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'error' });
+  });
+
   it('rejects an empty destination before any lookup', async () => {
     const result = (await runMove('   ')) as { status: number };
     expect(result.status).toBe(400);

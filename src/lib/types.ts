@@ -296,8 +296,12 @@ export interface NodeEdge {
   condition?: unknown;
   priority?: number | null;
   data?: unknown;
-  source: NodeSummary;
-  target: NodeSummary;
+  // #656 (server #783): NULLABLE — an endpoint is null when it lives in a memory
+  // the caller can't read (a cross-memory edge's far end, typically reached via
+  // incomingEdges). A same-memory edge the caller can already see always has
+  // both. Treat null as an opaque "private" endpoint; never dereference it.
+  source: NodeSummary | null;
+  target: NodeSummary | null;
 }
 
 // #529: a NodeRevision snapshot (server type, #623 rename from NodeVersion),
