@@ -105,9 +105,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     availableAgents = app.agentId ? [] : (org.agents ?? []);
   } else if (!app.agentId) {
     const [mine, publicAgents] = await Promise.all([
-      fetchAllItems<{ id: string; name: string; urn: string; organizationId: string | null }>(
+      // #782: MY_AGENTS_QUERY is scoped server-side (filter.ownedByMe), so it's
+      // already the caller's own org-less agents — no client-side filter needed.
+      fetchAllItems<{ id: string; name: string; urn: string }>(
         client, MY_AGENTS_QUERY, 'agents',
-      ).then((list) => list.filter((a) => a.organizationId == null)).catch(() => []),
+      ).catch(() => []),
       fetchAllItems<{ id: string; name: string; urn: string }>(
         client, PUBLIC_AGENTS_QUERY, 'publicAgents',
       ).catch(() => []),

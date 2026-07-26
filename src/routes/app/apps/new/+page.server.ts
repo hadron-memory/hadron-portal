@@ -58,11 +58,11 @@ async function fetchInstallableAgents(
 ): Promise<{ agents: InstallableAgent[]; ok: boolean }> {
   let ok = true;
   const [mine, pub] = await Promise.all([
-    fetchAllItems<InstallableAgent & { organizationId: string | null }>(client, MY_AGENTS_QUERY, 'agents')
-      .then((list) => list.filter((a) => a.organizationId == null))
+    // #782: server-side filter.ownedByMe — already the caller's own org-less agents.
+    fetchAllItems<InstallableAgent>(client, MY_AGENTS_QUERY, 'agents')
       .catch(() => {
         ok = false;
-        return [] as Array<InstallableAgent & { organizationId: string | null }>;
+        return [] as InstallableAgent[];
       }),
     fetchAllItems<InstallableAgent>(client, PUBLIC_AGENTS_QUERY, 'publicAgents')
       .catch(() => {
@@ -86,9 +86,9 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
   const client = gqlClient(locals.token);
   const [installable, ownApps] = await Promise.all([
     fetchInstallableAgents(client),
-    fetchAllItems<{ urn: string; name: string; organizationId: string | null }>(client, MY_APPS_QUERY, 'apps')
-      .then((list) => list.filter((a) => a.organizationId == null))
-      .catch(() => [] as Array<{ urn: string; name: string; organizationId: string | null }>),
+    // #782: server-side filter.ownedByMe — already the caller's own org-less apps.
+    fetchAllItems<{ urn: string; name: string }>(client, MY_APPS_QUERY, 'apps')
+      .catch(() => [] as Array<{ urn: string; name: string }>),
   ]);
   const agents = installable.agents;
 
