@@ -169,14 +169,18 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   let referencesDropped = 0;
   for (const n of fetched.values()) {
     for (const e of n.outgoingEdges) {
-      if (!e.target) continue;
-      if (edgeRoutes(e, n.loc) || fetched.has(e.target.id)) continue;
-      if (nodeInputs.some((existing) => existing.id === e.target.id)) continue;
+      // #656: null target = an endpoint in a memory the caller can't read; it has
+      // no node to place on the canvas. Bind it so the narrowing survives the
+      // closure below.
+      const target = e.target;
+      if (!target) continue;
+      if (edgeRoutes(e, n.loc) || fetched.has(target.id)) continue;
+      if (nodeInputs.some((existing) => existing.id === target.id)) continue;
       if (nodeInputs.length - fetched.size >= REFERENCE_NODES_MAX) {
         referencesDropped++;
         continue;
       }
-      nodeInputs.push({ id: e.target.id, loc: e.target.loc, name: e.target.name, kind: 'reference' });
+      nodeInputs.push({ id: target.id, loc: target.loc, name: target.name, kind: 'reference' });
     }
   }
 
@@ -184,9 +188,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // FlowEdgeDetail is a superset of FlowCanvasEdgeInput, so this one pass
   // also feeds buildFlowCanvas.
   const edgeDetails: FlowEdgeDetail[] = [...fetched.values()].flatMap((n) =>
-    n.outgoingEdges
-      .filter((e) => e.target)
-      .map((e) => ({
+    // #656: an edge with an unreadable (null) target has no canvas endpoint —
+    // flatMap over a bound target so the null check also narrows the type.
+    n.outgoingEdges.flatMap((e) => {
+      const target = e.target;
+      if (!target) return [];
+      return [{
         id: e.id,
         name: e.name,
         loc: e.loc,
@@ -195,10 +202,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
         sourceId: n.id,
         sourceLoc: n.loc,
         sourceName: n.name,
-        targetId: e.target.id,
-        targetLoc: e.target.loc,
-        targetName: e.target.name,
-      })),
+        targetId: target.id,
+        targetLoc: target.loc,
+        targetName: target.name,
+      }];
+    }),
   );
 
   // Inputs for the panel's condition-builder field picker, computed LAZILY on

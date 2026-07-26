@@ -1317,6 +1317,10 @@ export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
 // (the page renders it from `host`), so it would only bloat the payload.
 // (Since server PR #381 Edge.source/target lazily load when not preloaded,
 // so selecting it is no longer a 500 — just redundant here.)
+// #656 (server #783): Edge.source / Edge.target are NULLABLE — an endpoint in a
+// memory the caller can't read comes back null (a cross-memory edge's far end,
+// typically via incomingEdges). Every consumer must treat a null endpoint as an
+// opaque "private" endpoint rather than dereferencing .name / .loc / .memory.
 export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
   query EdgeHostNode($id: ID!) {
     node(ref: $id) {

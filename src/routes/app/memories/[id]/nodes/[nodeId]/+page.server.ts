@@ -167,7 +167,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   const flowRows = rowsFromNodeData(node.data);
   const output = outputFromNodeData(node.data);
-  const outgoingEdges = node.outgoingEdges.map((e) => ({ targetId: e.target.id, name: e.name ?? null }));
+  // #656: an edge whose target is null (unreadable memory) has no targetId to
+  // expose. The page blocks edge editing while one is present, so this list is
+  // never round-tripped as a replacement set.
+  const outgoingEdges = node.outgoingEdges
+    .filter((e) => e.target != null)
+    .map((e) => ({ targetId: e.target!.id, name: e.name ?? null }));
   const [moveForm, testFlowForm, deleteForm, createParentForm, updateMetaForm, duplicateForm, convertToTaskForm, flowForm, edgesForm] = await Promise.all([
     superValidate<NodeMoveForm>({ target: '' }, nodeMoveFormAdapter, { errors: false }),
     superValidate<NodeTestFlowForm>(
@@ -620,11 +625,24 @@ export const actions: Actions = {
     try {
       await client.request(MOVE_NODE_MUTATION, { sourceRef: node.id, targetUrn });
     } catch (e: unknown) {
-      const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
+      // #656 (server #781/#784): a cross-memory subtree move can be REFUSED for
+      // reasons that are the user's to fix — an encrypted source/destination, a
+      // git-backed source, a chat-root in the subtree, or a node that violates
+      // the destination memory's collection schema (BAD_USER_INPUT) — or because
+      // the source changed under a concurrent write (CONFLICT). None of those
+      // are server faults, so don't bury them in a generic 500: surface the
+      // server's message verbatim on the `target` field (it names the offending
+      // memory/node), the same way NODE_ALREADY_EXISTS already did.
+      const code = extractGqlErrorCode(e);
       const error = extractGqlError(e, 'Failed to move node');
-      return status === 409
-        ? setError(form, 'target', error, { status })
-        : message(form, { type: 'error', text: error }, { status });
+      const fieldStatus =
+        code === 'NODE_ALREADY_EXISTS' ? 409
+        : code === 'CONFLICT' ? 409
+        : code === 'BAD_USER_INPUT' ? 400
+        : null;
+      return fieldStatus !== null
+        ? setError(form, 'target', error, { status: fieldStatus })
+        : message(form, { type: 'error', text: error }, { status: 500 });
     }
     redirect(303, `/app/memories/${node.memoryId}/nodes/${node.id}`);
   },

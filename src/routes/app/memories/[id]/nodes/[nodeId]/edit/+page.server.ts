@@ -28,7 +28,14 @@ function formDefaults(node: MemoryNode): EditNodeForm {
     isRunnable: node.isRunnable ?? false,
     objectType: node.objectType ?? '',
     propertiesJson: node.properties != null ? JSON.stringify(node.properties, null, 2) : '',
-    edges: JSON.stringify((node.outgoingEdges ?? []).map((e) => ({ targetId: e.target.id, name: e.name ?? '' }))),
+    // #656: skip edges whose target is null (a memory the caller can't read) —
+    // they have no targetId to seed. The action omits `edges` entirely in that
+    // case, so this incomplete list is never sent back as a replacement.
+    edges: JSON.stringify(
+      (node.outgoingEdges ?? [])
+        .filter((e) => e.target != null)
+        .map((e) => ({ targetId: e.target!.id, name: e.name ?? '' })),
+    ),
   };
 }
 
@@ -100,6 +107,15 @@ export const actions: Actions = {
     } catch {
       return message(form, { type: 'error', text: 'Edges payload was corrupt. Please refresh and try again.' }, { status: 400 });
     }
+
+    // #656 (server #783): an outgoing edge into a memory the caller can't read
+    // comes back with target === null, so it has NO targetId and can't be
+    // round-tripped through this form. `edges` REPLACES the whole outgoing set,
+    // so sending our (necessarily incomplete) list would silently delete it —
+    // omit the field entirely instead. updateNode preserves omitted fields, so
+    // the rest of the edit still saves and the edges are left untouched.
+    const hasUnreadableOutgoing = (currentNode.outgoingEdges ?? []).some((e) => !e.target);
+    if (hasUnreadableOutgoing) edges = undefined;
 
     // #237: route every mutation through the node's actual memoryId, not
     // the URL's gid. Form actions run BEFORE `load`, so the URL guard

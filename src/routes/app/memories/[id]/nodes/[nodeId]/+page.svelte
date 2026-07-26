@@ -907,13 +907,23 @@
   let newEdgeTargetQuery = $state('');
   let newEdgeName = $state('');
 
+  // #656: an outgoing edge whose target sits in a memory the caller can't read
+  // comes back with target === null (server #783), so it carries NO targetId.
+  // updateEdges REPLACES the whole outgoing set, and an edge we can't round-trip
+  // would be silently deleted by any save — so edge editing is blocked while one
+  // is present rather than risking that data loss.
+  const hasUnreadableOutgoing = $derived(node.outgoingEdges.some((e) => !e.target));
+
   function startEditEdges() {
-    editableEdges = node.outgoingEdges.map((e) => ({
-      targetId: e.target.id,
-      targetName: e.target.name ?? e.target.loc,
-      targetLoc: e.target.loc,
-      name: e.name ?? '',
-    }));
+    if (hasUnreadableOutgoing) return;
+    editableEdges = node.outgoingEdges
+      .filter((e) => e.target != null)
+      .map((e) => ({
+        targetId: e.target!.id,
+        targetName: e.target!.name ?? e.target!.loc,
+        targetLoc: e.target!.loc,
+        name: e.name ?? '',
+      }));
     newEdgeTargetQuery = '';
     newEdgeName = '';
     editingEdges = true;
@@ -1012,15 +1022,23 @@
     edgeId: string;
     direction: 'Outgoing' | 'Incoming';
     name: string; // relationship name ('—' when unnamed) — also the sort/search key
-    endpointId: string;
+    /** #656: null when the far endpoint lives in a memory the caller can't read
+     *  (server #783 made Edge.source/target nullable) — the row renders an
+     *  opaque placeholder and drops its links. */
+    endpointId: string | null;
     endpointName: string;
     endpointUrn: string;
     /** Memory id that owns the edge (= source node's memory) — for the detail href. */
     sourceMemoryId: string;
-    sourceId: string;
+    sourceId: string | null;
   }
 
-  function endpointUrnOf(n: NodeEdge['source']): string {
+  // #656: label for an endpoint the caller isn't allowed to resolve.
+  const PRIVATE_ENDPOINT = t('node-edges.endpoint.private', 'In a memory you can’t access');
+
+  // Callers guard the null case (#656) and render a placeholder instead, so this
+  // only ever sees a readable endpoint.
+  function endpointUrnOf(n: NonNullable<NodeEdge['source']>): string {
     // Endpoints carry their memory urn (#350); compose the full node URN the
     // same way the Nodes list does, falling back to bare loc if absent.
     const memUrn = n.memory?.urn;
@@ -1032,9 +1050,10 @@
       edgeId: e.id,
       direction: 'Outgoing' as const,
       name: e.name || '—',
-      endpointId: e.target.id,
-      endpointName: e.target.name || e.target.loc,
-      endpointUrn: endpointUrnOf(e.target),
+      // #656: target may be null (cross-memory edge into an unreadable memory).
+      endpointId: e.target?.id ?? null,
+      endpointName: e.target ? (e.target.name || e.target.loc) : PRIVATE_ENDPOINT,
+      endpointUrn: e.target ? endpointUrnOf(e.target) : '',
       // Outgoing: this node is the source.
       sourceMemoryId: node.memoryId,
       sourceId: node.id,
@@ -1043,12 +1062,14 @@
       edgeId: e.id,
       direction: 'Incoming' as const,
       name: e.name || '—',
-      endpointId: e.source.id,
-      endpointName: e.source.name || e.source.loc,
-      endpointUrn: endpointUrnOf(e.source),
+      // #656: source may be null — the common case, since incomingEdges is how
+      // a foreign memory's edge reaches this node.
+      endpointId: e.source?.id ?? null,
+      endpointName: e.source ? (e.source.name || e.source.loc) : PRIVATE_ENDPOINT,
+      endpointUrn: e.source ? endpointUrnOf(e.source) : '',
       // Incoming: the OTHER node is the source that owns the edge.
-      sourceMemoryId: e.source.memory?.id ?? node.memoryId,
-      sourceId: e.source.id,
+      sourceMemoryId: e.source?.memory?.id ?? node.memoryId,
+      sourceId: e.source?.id ?? null,
     })),
   ]);
 
@@ -2219,12 +2240,18 @@
       <div class="mb-4 flex items-center justify-between">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Edges</h3>
         {#if !editingEdges}
-          <button type="button" onclick={startEditEdges}
-            class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
+          <button type="button" onclick={startEditEdges} disabled={hasUnreadableOutgoing}
+            title={hasUnreadableOutgoing ? t('node-edges.edit-blocked', 'This node has an edge into a memory you can’t access. Editing would remove it, so edge editing is disabled here.') : undefined}
+            class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
             Edit edges
           </button>
         {/if}
       </div>
+      {#if hasUnreadableOutgoing && !editingEdges}
+        <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+          {t('node-edges.edit-blocked', 'This node has an edge into a memory you can’t access. Editing would remove it, so edge editing is disabled here.')}
+        </p>
+      {/if}
       {#if edgesActionError}
         <div role="alert" class="mb-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{edgesActionError}</div>
       {/if}
@@ -2249,12 +2276,25 @@
                 <span class="text-zinc-600 dark:text-zinc-400">{r.name}</span>
               {:else if cell.column.id === 'node'}
                 <div class="truncate">
-                  <a href="{basePath}/nodes/{r.endpointId}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{r.endpointName}</a>
+                  {#if r.endpointId}
+                    <a href="{basePath}/nodes/{r.endpointId}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{r.endpointName}</a>
+                  {:else}
+                    <!-- #656: unreadable cross-memory endpoint — opaque, not a link. -->
+                    <span class="min-w-0 truncate italic text-zinc-400 dark:text-zinc-500" title={PRIVATE_ENDPOINT}>{r.endpointName}</span>
+                  {/if}
                 </div>
               {:else if cell.column.id === 'urn'}
-                <Urn value={r.endpointUrn} type="node" size={10} />
+                {#if r.endpointUrn}
+                  <Urn value={r.endpointUrn} type="node" size={10} />
+                {:else}
+                  <span class="text-zinc-400 dark:text-zinc-500">—</span>
+                {/if}
               {:else if cell.column.id === 'actions'}
-                <a href={edgeDetailHref(r)} class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Open →</a>
+                <!-- The edge detail page loads via its SOURCE node, so an edge
+                     whose source we can't read has no reachable detail page. -->
+                {#if r.sourceId}
+                  <a href={edgeDetailHref(r)} class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Open →</a>
+                {/if}
               {/if}
             {/snippet}
           </DataTable>

@@ -93,7 +93,12 @@
     return memUrn && loc ? composeNodeUrn(memUrn, loc) : loc;
   }
   const sourceUrn = $derived(nodeUrn(host.memory?.urn ?? data.graph.urn, host.loc));
-  const targetUrn = $derived(nodeUrn(edge.target.memory?.urn ?? data.graph.urn, edge.target.loc));
+  // #656 (server #783): Edge.target is null when it lives in a memory the caller
+  // can't read — render it as an opaque endpoint instead of dereferencing.
+  const targetUrn = $derived(
+    edge.target ? nodeUrn(edge.target.memory?.urn ?? data.graph.urn, edge.target.loc) : '',
+  );
+  const PRIVATE_ENDPOINT = t('edge-editor.endpoint.private', 'In a memory you can’t access');
 
   // ── Editable state (seeded from the loaded edge, via the shared
   // $lib/flow/edge-editing helpers the flow-canvas panel also uses).
@@ -241,8 +246,12 @@
       </div>
       <div class="min-w-0">
         <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Target</p>
-        <a href="{basePath}/nodes/{edge.target.id}" class="block truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{edge.target.name || edge.target.loc}</a>
-        <div class="mt-0.5"><Urn value={targetUrn} type="node" size={10} /></div>
+        {#if edge.target}
+          <a href="{basePath}/nodes/{edge.target.id}" class="block truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{edge.target.name || edge.target.loc}</a>
+          <div class="mt-0.5"><Urn value={targetUrn} type="node" size={10} /></div>
+        {:else}
+          <span class="block truncate italic text-zinc-400 dark:text-zinc-500">{PRIVATE_ENDPOINT}</span>
+        {/if}
       </div>
     </div>
   </section>
@@ -440,7 +449,7 @@
             <span class="font-mono text-xs text-zinc-600 dark:text-zinc-300">{entry.routingName}</span>
             <span class="text-zinc-400">→</span>
             <span class="font-medium text-zinc-800 dark:text-zinc-100">
-              {entry.edge.target.name || entry.edge.target.loc}
+              {entry.edge.target ? (entry.edge.target.name || entry.edge.target.loc) : PRIVATE_ENDPOINT}
             </span>
             {#if (entry.edge.priority ?? 0) !== 0}
               <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">

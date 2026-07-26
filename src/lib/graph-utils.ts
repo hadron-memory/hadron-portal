@@ -94,14 +94,17 @@ export function buildGraphViewData(nodes: MemoryNode[], memoryUrn?: string): Gra
     const domain = parts[0];
     const depth = parts.length - 1;
 
-    // Build topic — outgoing edges reference target node IDs
+    // Build topic — outgoing edges reference target node IDs. #656: an edge
+    // whose target is null (a memory the caller can't read) has no node in this
+    // graph to point at, so it's dropped — the idSet check already excluded any
+    // target outside the rendered set.
     const outgoing = n.outgoingEdges
-      .filter((e) => idSet.has(e.target.id))
+      .filter((e) => e.target != null && idSet.has(e.target.id))
       .map((e) => ({
         id: e.id,
         rel: e.name ?? e.loc, // edge name (spec 037, was label); fall back to loc when unnamed
-        loc: e.target.id, // use target's node.id as the graph reference
-        name: e.target.name,
+        loc: e.target!.id, // use target's node.id as the graph reference
+        name: e.target!.name,
       }));
 
     // Prefer the function-scoped memoryUrn parameter; fall back to the
