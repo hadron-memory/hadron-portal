@@ -1,19 +1,16 @@
 <script lang="ts">
-  // #629: the stats page for every user. Simple stats for now (memory count +
-  // preview + quick actions); org-scoped stats and activity charts are a
-  // deliberate follow-up. The loader sends a bounded count + preview, so the
-  // page never receives the full memory set. #636/#788: Customize flips the
-  // widget grid into the in-place editor (drag/reorder/resize) right here.
+  // #629: the stats page for every user — the widget grid IS the content (the
+  // memories preview was dropped; "My memories" in the nav covers it).
+  // Org-scoped stats and activity charts are a deliberate follow-up.
+  // #636/#788: the cogwheel flips the widget grid into the in-place editor
+  // (drag/reorder/resize) right here.
   import DashboardGrid from '$lib/dashboard/DashboardGrid.svelte';
   import DashboardEditor from '$lib/dashboard/DashboardEditor.svelte';
-  import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import type { ActionData, PageData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   let editing = $state(false);
-  const memoryCount = $derived(data.memoryCount ?? 0);
-  const preview = $derived(data.preview ?? []);
   const loadFailed = $derived(data.loadFailed === true);
 
   // #636: layout + per-widget data come from the server (dashboardWidgets +
@@ -44,9 +41,11 @@
       <button
         type="button"
         onclick={() => (editing = true)}
-        class="shrink-0 rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-700"
+        title={t('dashboard.customize.link-title', 'Customize dashboard')}
+        aria-label={t('dashboard.customize.link-aria', 'Customize dashboard')}
+        class="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
       >
-        {t('dashboard.customize.link', 'Customize')}
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
     {/if}
   </div>
@@ -68,30 +67,5 @@
     <!-- Widget grid (#636). Only rendered when the load succeeded (the alert
          branch above handles failure), so widgets don't need a loadFailed prop. -->
     <DashboardGrid {placements} {widgetData} />
-
-    <!-- Memories preview -->
-    <div>
-      <div class="mb-2 flex items-center justify-between">
-        <h2 class="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('dashboard.memories.heading', 'Your memories')}</h2>
-        {#if memoryCount > preview.length}
-          <a href="/app/memories" class="text-xs font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">{t('dashboard.memories.view-all', 'View all')} &rarr;</a>
-        {/if}
-      </div>
-      {#if preview.length === 0}
-        <div class="rounded-xl border border-dashed border-zinc-300 bg-white p-8 text-center dark:border-zinc-700 dark:bg-zinc-900">
-          <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('dashboard.memories.empty', 'No memories yet — create your first one to get started.')}</p>
-          <a href="/app/memories/new" class="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('dashboard.memories.empty-cta', 'Create a memory')}</a>
-        </div>
-      {:else}
-        <ul class="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-          {#each preview as m (m.id)}
-            <li class="bg-white px-4 py-3 hover:bg-zinc-50 dark:bg-zinc-900 dark:hover:bg-zinc-800/50">
-              <a href="/app/memories/{m.id}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{m.name}</a>
-              <div class="mt-0.5"><Urn value={m.urn} type="memory" size={10} /></div>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </div>
   {/if}
 </div>

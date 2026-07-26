@@ -1955,20 +1955,14 @@ export const MY_APPS_QUERY = /* GraphQL */ `
 `;
 
 // #629 / #636: the dashboard fetches everything it needs in ONE request:
-//  - a bounded (limit 5) SLIM memory projection for the "Your memories" preview
-//    + total (review: don't fetchAllItems for a count),
+//  - count-only memory/agent totals (limit:0 — they seed the default widgets'
+//    data; the "Your memories" preview was dropped, so no items),
 //  - the caller's placed widgets (dashboardWidgets, ordered by position), and
 //  - the combined per-widget-type data (dashboardWidgetData) — server #772/#773.
 // The portal maps the server enum to WidgetType and fans the data out by type.
 export const DASHBOARD_QUERY = /* GraphQL */ `
   query Dashboard {
-    memories(filter: { memoryClasses: [personal, private] }, limit: 5) {
-      items {
-        id
-        name
-        urn
-        class
-      }
+    memories(filter: { memoryClasses: [personal, private] }, limit: 0) {
       total
     }
     agents(limit: 0) {
