@@ -12,6 +12,7 @@ import {
   ORGANIZATIONS_QUERY,
   ORGANIZATION_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
+  PERSONAL_MEMORIES_QUERY,
   GRAPH_NODES_QUERY,
   AGENT_APPS_QUERY,
   DELETE_AGENT_MUTATION,
@@ -101,6 +102,7 @@ function routeMock(opts: {
   myOrgs?: { data?: unknown; error?: unknown };
   org?: { data?: unknown; error?: unknown };
   orgSysMems?: { data?: unknown; error?: unknown };
+  personalMems?: { data?: unknown[]; error?: unknown };
   nodes?: { data?: unknown; error?: unknown };
   apps?: { data?: unknown; error?: unknown };
 }) {
@@ -123,6 +125,11 @@ function routeMock(opts: {
     if (query === ORG_SYSTEM_MEMORIES_QUERY) {
       if (opts.orgSysMems?.error !== undefined) throw opts.orgSysMems.error;
       return opts.orgSysMems?.data ?? { memories: { items: [], total: 0 } };
+    }
+    if (query === PERSONAL_MEMORIES_QUERY) {
+      if (opts.personalMems?.error !== undefined) throw opts.personalMems.error;
+      const items = opts.personalMems?.data ?? [];
+      return { memories: { items, total: items.length } };
     }
     if (query === GRAPH_NODES_QUERY) {
       if (opts.nodes?.error !== undefined) throw opts.nodes.error;
@@ -196,6 +203,33 @@ describe('/app/agents/[id] loader', () => {
     expect(result.allOrgs).toEqual([]);
     // ORGANIZATIONS_QUERY must NOT be called for an org-less agent.
     expect(mockRequest).not.toHaveBeenCalledWith(ORGANIZATIONS_QUERY, expect.anything());
+  });
+
+  // ── #642: personal memories in the "Add memory" picker ───────────────────
+
+  it("user-owned agent: offers the caller's own personal memories to attach (#642)", async () => {
+    routeMock({
+      agent: { data: { agent: personalAgent } },
+      personalMems: { data: [{ id: 'pm1', name: 'my notes', urn: 'hrn:mem:ada:notes', class: 'personal', organizationId: null }] },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-personal' }))) as { personalMemories: Array<{ id: string }> };
+    expect(result.personalMemories).toEqual([
+      { id: 'pm1', name: 'my notes', urn: 'hrn:mem:ada:notes', class: 'personal', organizationId: null },
+    ]);
+  });
+
+  it('org agent: does NOT fetch personal memories (no leak into an org-visible agent)', async () => {
+    routeMock({
+      agent: { data: { agent: agentInA } },
+      myOrgs: { data: { organizations: [orgA] } },
+      personalMems: { data: [{ id: 'pm1', name: 'my notes', urn: 'u', class: 'personal', organizationId: null }] },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-aaa' }))) as { personalMemories: unknown[] };
+    expect(result.personalMemories).toEqual([]);
+    // The personal-memories query must never run for an org agent.
+    expect(mockRequest).not.toHaveBeenCalledWith(PERSONAL_MEMORIES_QUERY, expect.anything());
   });
 
   // ── Resilience + not-found ───────────────────────────────────────────────
