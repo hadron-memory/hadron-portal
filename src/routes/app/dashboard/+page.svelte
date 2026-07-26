@@ -60,6 +60,7 @@
     <DashboardEditor
       {placements}
       {widgetData}
+      memoryOptions={data.memoryOptions ?? []}
       error={form?.error ?? null}
       onDone={() => (editing = false)}
     />

@@ -1968,6 +1968,12 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
     agents(limit: 0) {
       total
     }
+    pickerMemories: memories(limit: 100) {
+      items {
+        id
+        name
+      }
+    }
     dashboardWidgets {
       id
       type
@@ -1977,6 +1983,7 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
       config
     }
     dashboardWidgetData {
+      widgetId
       type
       data
     }

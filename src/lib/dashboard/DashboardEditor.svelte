@@ -15,16 +15,20 @@
   import { t } from '$lib/i18n/t';
   import { WIDGET_REGISTRY } from './widgets/registry';
   import { DEFAULT_PLACEMENTS } from './widgets/defaults';
+  import { widgetDataFor } from './widgets/types';
   import type { WidgetDataMap, WidgetPlacement, WidgetType } from './widgets/types';
 
   let {
     placements,
     widgetData,
+    memoryOptions = [],
     error = null,
     onDone,
   }: {
     placements: WidgetPlacement[];
     widgetData: WidgetDataMap;
+    /** Slim rows for the usage-activity scope picker. */
+    memoryOptions?: Array<{ id: string; name: string }>;
     error?: string | null;
     onDone: () => void;
   } = $props();
@@ -89,7 +93,10 @@
 
   function addWidget(type: WidgetType) {
     const def = WIDGET_REGISTRY[type];
-    items = [...items, withUid({ id: null, type, span: def?.defaultSpan ?? 4, rowSpan: 1 })];
+    items = [
+      ...items,
+      withUid({ id: null, type, span: def?.defaultSpan ?? 4, rowSpan: def?.defaultRowSpan ?? 1 }),
+    ];
   }
   function removeAt(i: number) {
     items = items.filter((_, idx) => idx !== i);
@@ -109,6 +116,44 @@
   }
   function resetToDefaults() {
     items = DEFAULT_PLACEMENTS.map(withUid);
+  }
+
+  // ── Per-widget settings (usage-activity, the first configurable type) ─────
+  // The uid whose settings row is expanded.
+  let openSettings = $state<string | null>(null);
+  const WINDOW_OPTIONS = [7, 14, 30, 90];
+  const browserTimeZone = (): string => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone;
+    } catch {
+      return 'UTC';
+    }
+  };
+  /** The usage-activity settings currently stored on a placement's config. */
+  function usageSettings(item: EditorItem): { windowDays: number; memoryRef: string } {
+    const c = item.config ?? {};
+    const raw = (c as Record<string, unknown>).windowDays;
+    return {
+      windowDays: typeof raw === 'number' && WINDOW_OPTIONS.includes(raw) ? raw : 7,
+      memoryRef:
+        typeof (c as Record<string, unknown>).memoryRef === 'string'
+          ? ((c as Record<string, unknown>).memoryRef as string)
+          : '',
+    };
+  }
+  /** Rebuild the placement's config from the settings controls. The browser's
+   *  time zone rides along so the server buckets days on the user's calendar. */
+  function patchUsageSettings(i: number, patch: Partial<{ windowDays: number; memoryRef: string }>) {
+    items = items.map((it, idx) => {
+      if (idx !== i) return it;
+      const next = { ...usageSettings(it), ...patch };
+      const config: Record<string, unknown> = {
+        windowDays: next.windowDays,
+        timeZone: browserTimeZone(),
+      };
+      if (next.memoryRef) config.memoryRef = next.memoryRef;
+      return { ...it, config };
+    });
   }
   function cancel() {
     if (dirty && !confirm(t('dashboard.edit.discard-confirm', 'Discard your unsaved dashboard changes?'))) {
@@ -238,6 +283,21 @@
 
           <span class="flex-1"></span>
 
+          {#if WIDGET_REGISTRY[item.type].hasSettings}
+            <button
+              type="button"
+              onclick={() => (openSettings = openSettings === item.uid ? null : item.uid)}
+              title={t('dashboard.edit.settings', 'Widget settings')}
+              aria-label={t('dashboard.edit.settings-aria', 'Settings for {name}').replace('{name}', titleOf(item.type))}
+              aria-expanded={openSettings === item.uid}
+              class="rounded-md p-1 {openSettings === item.uid
+                ? 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200'
+                : 'text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200'}"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 21v-7m0-4V3m8 18v-9m0-4V3m8 18v-5m0-4V3M1 14h6m2-6h6m2 8h6"/></svg>
+            </button>
+          {/if}
+
           <button
             type="button" onclick={() => move(i, -1)} disabled={i === 0}
             title={t('dashboard.edit.move-earlier', 'Move earlier')}
@@ -264,10 +324,49 @@
           </button>
         </div>
 
+        {#if WIDGET_REGISTRY[item.type].hasSettings && openSettings === item.uid}
+          {@const s = usageSettings(item)}
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-zinc-100 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-zinc-300">
+            <label class="flex items-center gap-1.5" for="win-{item.uid}">
+              {t('dashboard.edit.settings-window', 'Window')}
+              <select
+                id="win-{item.uid}"
+                value={s.windowDays}
+                onchange={(e) => patchUsageSettings(i, { windowDays: Number((e.currentTarget as HTMLSelectElement).value) })}
+                class="rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                {#each WINDOW_OPTIONS as d (d)}
+                  <option value={d}>{t('dashboard.edit.settings-window-days', '{n} days').replace('{n}', String(d))}</option>
+                {/each}
+              </select>
+            </label>
+            <label class="flex items-center gap-1.5" for="scope-{item.uid}">
+              {t('dashboard.edit.settings-scope', 'Scope')}
+              <select
+                id="scope-{item.uid}"
+                value={s.memoryRef}
+                onchange={(e) => patchUsageSettings(i, { memoryRef: (e.currentTarget as HTMLSelectElement).value })}
+                class="max-w-44 rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                <option value="">{t('dashboard.edit.settings-scope-me', 'My activity')}</option>
+                {#if s.memoryRef && !memoryOptions.some((m) => m.id === s.memoryRef)}
+                  <option value={s.memoryRef}>{t('dashboard.edit.settings-scope-current', '(current memory)')}</option>
+                {/if}
+                {#each memoryOptions as m (m.id)}
+                  <option value={m.id}>{m.name}</option>
+                {/each}
+              </select>
+            </label>
+            <span class="text-zinc-400 dark:text-zinc-500">
+              {t('dashboard.edit.settings-applies', 'Applies after save')}
+            </span>
+          </div>
+        {/if}
+
         <!-- Live preview of the real widget; `inert` so its links/buttons can't
              be activated (or reached by AT) while editing. -->
         <div inert class="min-h-0 flex-1">
-          <Widget {...(widgetData[item.type] ?? {})} />
+          <Widget {...(widgetDataFor(widgetData, item) ?? {})} widgetConfig={item.config ?? null} />
         </div>
     </div>
   {/each}

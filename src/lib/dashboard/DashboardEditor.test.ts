@@ -59,6 +59,7 @@ describe('DashboardEditor.svelte (#636 / #788)', () => {
     const body = renderEditor([
       { id: 'a', type: 'memory-stats', span: 4, rowSpan: 1 },
       { id: 'b', type: 'agent-stats', span: 4, rowSpan: 1 },
+      { id: 'c', type: 'usage-activity', span: 6, rowSpan: 2 },
     ]);
     expect(body).not.toContain('Add a widget');
   });
@@ -76,6 +77,25 @@ describe('DashboardEditor.svelte (#636 / #788)', () => {
       { id: 'row-a', type: 'agent-stats', span: 6, rowSpan: 2, config: { theme: 'x' } },
       { id: null, type: 'memory-stats', span: 12, rowSpan: 1, config: null },
     ]);
+  });
+
+  it('offers a settings toggle only for configurable widgets, with the scope picker options', () => {
+    const body = render(DashboardEditor, {
+      props: {
+        placements: [
+          { id: 'a', type: 'memory-stats', span: 4, rowSpan: 1 },
+          { id: 'b', type: 'usage-activity', span: 6, rowSpan: 2 },
+        ] as WidgetPlacement[],
+        widgetData,
+        memoryOptions: [{ id: 'm1', name: 'Nexus Notes' }],
+        onDone: () => {},
+      },
+    }).body;
+    // Exactly one settings toggle (the usage widget's), with an accessible name.
+    expect(body).toContain('Settings for Usage Activity');
+    expect(body).not.toContain('Settings for Memory Stats');
+    // Panel is collapsed until toggled (interaction is browser-verified).
+    expect(body).not.toContain('My activity');
   });
 
   it('skips an unregistered placement type without throwing', () => {
