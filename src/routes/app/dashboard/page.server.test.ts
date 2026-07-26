@@ -207,6 +207,17 @@ describe('/app/dashboard saveLayout action (#788)', () => {
     ]);
   });
 
+  it('forwards only plain-object configs (arrays and scalars become null)', async () => {
+    await runSave([
+      { id: null, type: 'memory-stats', span: 4, rowSpan: 1, config: ['not', 'a', 'config'] },
+      { id: null, type: 'agent-stats', span: 4, rowSpan: 1, config: 'nope' },
+    ]);
+    expect(saveVars()?.widgets).toEqual([
+      { id: null, type: 'MEMORY_STATS', span: 4, rowSpan: 1, config: null },
+      { id: null, type: 'AGENT_STATS', span: 4, rowSpan: 1, config: null },
+    ]);
+  });
+
   it('treats a non-string id as unsaved (null) rather than forwarding garbage', async () => {
     await runSave([{ id: 42, type: 'memory-stats', span: 4, rowSpan: 1 }]);
     expect(saveVars()?.widgets).toEqual([

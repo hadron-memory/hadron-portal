@@ -151,7 +151,12 @@ export const actions: Actions = {
           type: serverType,
           span: clampInt(rec.span, SPAN_MIN, SPAN_MAX, 4),
           rowSpan: clampInt(rec.rowSpan, ROW_SPAN_MIN, ROW_SPAN_MAX, 1),
-          config: rec.config != null && typeof rec.config === 'object' ? rec.config : null,
+          // Plain objects only — an array is `typeof 'object'` but doesn't
+          // match the widget config shape (Copilot on #660).
+          config:
+            rec.config != null && typeof rec.config === 'object' && !Array.isArray(rec.config)
+              ? rec.config
+              : null,
         },
       ];
     });

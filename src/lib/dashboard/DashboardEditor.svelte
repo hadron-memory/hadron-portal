@@ -148,9 +148,17 @@
 
   // Editing in place means normal navigation would silently drop the working
   // copy — confirm first. Saving exits via onDone (no navigation), so this
-  // only guards genuine leave-the-page moves.
+  // only guards genuine leave-the-page moves. Document-leave navigations
+  // (reload, tab close, external link) get cancel() alone: that raises the
+  // browser's native unload prompt, and a confirm() on top would double-prompt
+  // (Codex on #660).
   beforeNavigate((nav) => {
-    if (dirty && !confirm(t('dashboard.edit.discard-confirm', 'Discard your unsaved dashboard changes?'))) {
+    if (!dirty) return;
+    if (nav.type === 'leave') {
+      nav.cancel();
+      return;
+    }
+    if (!confirm(t('dashboard.edit.discard-confirm', 'Discard your unsaved dashboard changes?'))) {
       nav.cancel();
     }
   });
