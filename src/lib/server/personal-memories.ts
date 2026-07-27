@@ -4,12 +4,37 @@
 // the ones this user owns directly (chk_memory_owner_xor → organizationId NULL).
 import { gqlClient } from './api';
 import { fetchAllItems } from './paginate';
-import { PERSONAL_MEMORIES_QUERY, SHARED_MEMORIES_QUERY } from './queries';
+import {
+  PERSONAL_MEMORIES_QUERY,
+  PERSONAL_MEMORIES_LITE_QUERY,
+  SHARED_MEMORIES_QUERY,
+} from './queries';
 import type { Memory } from '$lib/types';
 
 /** Throws on query failure — callers decide how to surface it. */
 export async function fetchOwnedMemories(token: string | null): Promise<Memory[]> {
   const memories = await fetchAllItems<Memory>(gqlClient(token), PERSONAL_MEMORIES_QUERY, 'memories');
+  return memories.filter((m) => m.organizationId == null);
+}
+
+/** A slim owner-only memory for pickers (#642). */
+export interface OwnedMemoryLite {
+  id: string;
+  name: string;
+  urn: string;
+  class: string;
+  organizationId: string | null;
+  visibility: string | null;
+}
+
+/** Slim variant of {@link fetchOwnedMemories} — id/name/urn/class only, for the
+ *  agent "Add memory" picker. Still filters to USER-OWNED (org-less) memories. */
+export async function fetchOwnedMemoriesLite(token: string | null): Promise<OwnedMemoryLite[]> {
+  const memories = await fetchAllItems<OwnedMemoryLite>(
+    gqlClient(token),
+    PERSONAL_MEMORIES_LITE_QUERY,
+    'memories',
+  );
   return memories.filter((m) => m.organizationId == null);
 }
 
