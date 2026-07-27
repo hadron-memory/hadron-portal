@@ -1880,6 +1880,26 @@ export const PERSONAL_MEMORIES_QUERY = /* GraphQL */ `
   }
 `;
 
+// #642: a SLIM projection of the caller's owner-only memories — just what a
+// picker needs (id/name/urn/class/organizationId/visibility). Avoids pulling the
+// heavy MemoryFields fragment (relations, timestamps) when only the list shape
+// is needed (Copilot review on #661).
+export const PERSONAL_MEMORIES_LITE_QUERY = /* GraphQL */ `
+  query PersonalMemoriesLite($limit: Int, $offset: Int) {
+    memories(filter: { memoryClasses: [personal, private] }, limit: $limit, offset: $offset) {
+      items {
+        id
+        name
+        urn
+        class
+        organizationId
+        visibility
+      }
+      total
+    }
+  }
+`;
+
 // #778 (server): memories shared WITH the caller (they're a MemoryShare grantee).
 // Slim projection — the "Memories shared with me" tab renders id/name/urn/class
 // plus `myShare` (who shared it + the caller's role). `myShare` is the caller's

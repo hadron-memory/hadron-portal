@@ -396,6 +396,14 @@
         result.push({ ...m, orgName: org?.name ?? '' });
       }
     }
+    // #642: for a user-owned (org-less) agent, the caller's OWN personal memories
+    // are the "Add memory" source (the loader sends none for an org agent).
+    for (const m of ((data as any).personalMemories ?? []) as Array<{ id: string; urn: string; name: string; visibility?: string | null; class?: string }>) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        result.push({ ...m, orgName: '' });
+      }
+    }
     return result;
   });
   const availableMemories = $derived(allMemories.filter((m) => !memoryIdsInAgent.has(m.id) && m.class !== 'system'));

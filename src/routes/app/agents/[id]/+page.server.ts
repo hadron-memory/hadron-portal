@@ -4,6 +4,8 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
+import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
+import type { OwnedMemoryLite } from '$lib/server/personal-memories';
 import { extractGqlError } from '$lib/server/gqlError';
 import {
   AGENT_QUERY,
@@ -94,7 +96,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     agents?: Array<{ id: string }>;
   };
 
-  const [nodesResult, sysMemResult, configsResult, appsResult] = await Promise.all([
+  const [nodesResult, sysMemResult, configsResult, appsResult, personalMemsResult] = await Promise.all([
     allMemoryIds.length > 0
       ? client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
           GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
@@ -116,6 +118,16 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     // Apps this agent is installed into (member-scoped, all caller orgs).
     // Non-fatal: on failure the Apps tab just shows none.
     fetchAllItems<AgentAppLite>(client, AGENT_APPS_QUERY, 'apps').catch(() => [] as AgentAppLite[]),
+    // #642: the caller's OWN personal memories, offered as "Add memory" options
+    // for a personal agent. Gated on `!org && visibility !== 'PUBLIC'`, which
+    // means the caller OWNS a non-PUBLIC org-less agent: agent(ref:) only returns
+    // a non-PUBLIC user-owned agent to its owner (owner-only access), and a PUBLIC
+    // agent can't hold owner-only memories anyway (congruence). So this never
+    // offers personal memories on someone else's PUBLIC agent, nor on an
+    // org-visible agent (review #661). Slim projection; non-fatal.
+    !org && agent.visibility !== 'PUBLIC'
+      ? fetchOwnedMemoriesLite(locals.token).catch(() => [] as OwnedMemoryLite[])
+      : Promise.resolve([] as OwnedMemoryLite[]),
   ]);
 
   // An agent can be installed into several apps (as the primary agentId or via
@@ -172,6 +184,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     installedApps,
     allOrgs: orgs,
     orgSystemMemories,
+    // Empty for an org agent; the caller's own memories for a user-owned agent (#642).
+    personalMemories: personalMemsResult,
     agentConfigs: configsResult ?? [],
     configsError: configsResult === null,
     currentUserId: locals.user?.id ?? null,
