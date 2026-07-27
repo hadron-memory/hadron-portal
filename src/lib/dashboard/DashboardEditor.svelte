@@ -95,7 +95,19 @@
     const def = WIDGET_REGISTRY[type];
     items = [
       ...items,
-      withUid({ id: null, type, span: def?.defaultSpan ?? 4, rowSpan: def?.defaultRowSpan ?? 1 }),
+      withUid({
+        id: null,
+        type,
+        span: def?.defaultSpan ?? 4,
+        rowSpan: def?.defaultRowSpan ?? 1,
+        // A configurable widget gets its defaults stamped at add time — most
+        // importantly the browser time zone, so the server buckets days on the
+        // user's calendar even when they never open the settings row
+        // (Codex P1 on #666).
+        config: def?.hasSettings
+          ? { windowDays: 7, timeZone: browserTimeZone() }
+          : undefined,
+      }),
     ];
   }
   function removeAt(i: number) {
@@ -118,10 +130,6 @@
     items = DEFAULT_PLACEMENTS.map(withUid);
   }
 
-  // ── Per-widget settings (usage-activity, the first configurable type) ─────
-  // The uid whose settings row is expanded.
-  let openSettings = $state<string | null>(null);
-  const WINDOW_OPTIONS = [7, 14, 30, 90];
   const browserTimeZone = (): string => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -129,6 +137,11 @@
       return 'UTC';
     }
   };
+
+  // ── Per-widget settings (usage-activity, the first configurable type) ─────
+  // The uid whose settings row is expanded.
+  let openSettings = $state<string | null>(null);
+  const WINDOW_OPTIONS = [7, 14, 30, 90];
   /** The usage-activity settings currently stored on a placement's config. */
   function usageSettings(item: EditorItem): { windowDays: number; memoryRef: string } {
     const c = item.config ?? {};

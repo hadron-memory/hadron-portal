@@ -47,7 +47,6 @@ describe('/app/dashboard loader (#629 / #636)', () => {
     mockRequest.mockResolvedValue({
       memories: { total: 7 },
       agents: { total: 3 },
-      pickerMemories: { items: [{ id: 'm1', name: 'Notes' }] },
       dashboardWidgets: [],
       dashboardWidgetData: [],
     });
@@ -68,7 +67,6 @@ describe('/app/dashboard loader (#629 / #636)', () => {
     mockRequest.mockResolvedValue({
       memories: { total: 3 },
       agents: { total: 9 },
-      pickerMemories: { items: [] },
       dashboardWidgets: [
         serverWidget({ id: 'row-a', type: 'AGENT_STATS', span: 6, rowSpan: 2, position: 0, config: { theme: 'x' } }),
         serverWidget({ id: 'row-b', type: 'MEMORY_STATS', span: 3, position: 1 }),
@@ -96,7 +94,6 @@ describe('/app/dashboard loader (#629 / #636)', () => {
     mockRequest.mockResolvedValue({
       memories: { total: 0 },
       agents: { total: 0 },
-      pickerMemories: { items: [] },
       // Deliberately out of order: position 1 before position 0.
       dashboardWidgets: [
         serverWidget({ id: 'w1', span: 6, position: 1 }),
@@ -113,7 +110,6 @@ describe('/app/dashboard loader (#629 / #636)', () => {
     mockRequest.mockResolvedValue({
       memories: { total: 1 },
       agents: { total: 0 },
-      pickerMemories: { items: [] },
       dashboardWidgets: [serverWidget({ type: 'NOT_A_REAL_WIDGET' })],
       dashboardWidgetData: [],
     });
@@ -125,7 +121,6 @@ describe('/app/dashboard loader (#629 / #636)', () => {
     mockRequest.mockResolvedValue({
       memories: { total: 0 },
       agents: { total: 0 },
-      pickerMemories: { items: [] },
       dashboardWidgets: [],
       dashboardWidgetData: [],
     });

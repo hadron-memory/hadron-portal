@@ -26,12 +26,6 @@ interface ServerWidgetData {
   data: Record<string, unknown>;
 }
 
-/** Slim option row for the editor's memory picker (usage-activity settings). */
-export interface MemoryOption {
-  id: string;
-  name: string;
-}
-
 /** Map the server's placed-widget list → portal placements, ordered by the
  *  server's `position` (sorted defensively rather than trusting array order),
  *  skipping any unknown enum value. */
@@ -54,7 +48,6 @@ export const load: PageServerLoad = async ({ locals }) => {
     const data = await gqlClient(locals.token).request<{
       memories: { total: number };
       agents: { total: number };
-      pickerMemories: { items: MemoryOption[] };
       dashboardWidgets: ServerWidget[];
       dashboardWidgetData: ServerWidgetData[];
     }>(DASHBOARD_QUERY);
@@ -81,7 +74,6 @@ export const load: PageServerLoad = async ({ locals }) => {
     return {
       placements: effectivePlacements,
       widgetData,
-      memoryOptions: data.pickerMemories.items,
       loadFailed: false,
     };
   } catch (e) {
@@ -92,7 +84,6 @@ export const load: PageServerLoad = async ({ locals }) => {
         'memory-stats': { memoryCount: 0 },
         'agent-stats': { agentCount: 0 },
       } as WidgetDataMap,
-      memoryOptions: [] as MemoryOption[],
       loadFailed: true,
     };
   }

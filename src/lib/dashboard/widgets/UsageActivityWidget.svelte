@@ -49,14 +49,19 @@
     if (bucketSize !== 'DAY') return buckets ?? [];
     const days = windowDays ?? 7;
     const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz });
-    const out: Bucket[] = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const date = fmt.format(new Date(Date.now() - i * 86_400_000));
-      // A DST boundary can make two 24h steps land on one local date — dedupe.
-      if (out.length && out[out.length - 1].date === date) continue;
-      out.push(got.get(date) ?? { date, reads: 0, writes: 0 });
+    // Walk backwards in 12h steps collecting exactly `days` DISTINCT local
+    // dates. Fixed 24h steps mis-enumerate across DST (spring-forward can skip
+    // a local date entirely; fall-back duplicates one and a dedupe then
+    // shortens the window) — a local day is always ≥ 23h, so a 12h step can
+    // never jump over one (Codex/Copilot on #666).
+    const dates: string[] = [];
+    let t = Date.now();
+    while (dates.length < days) {
+      const date = fmt.format(new Date(t));
+      if (dates[dates.length - 1] !== date) dates.push(date);
+      t -= 43_200_000;
     }
-    return out;
+    return dates.reverse().map((date) => got.get(date) ?? { date, reads: 0, writes: 0 });
   });
 
   const total = $derived(series.reduce((s, b) => s + b.reads + b.writes, 0));
@@ -111,6 +116,11 @@
 
   // ── Hover tooltip (per-day band; the hit target is the full column) ───────
   let hover = $state<number | null>(null);
+  /** Tooltip left edge: centered on the band, kept inside the plot. Clamped in
+   *  JS because a CSS min(max(0px,…),…) inverts when the card is narrower than
+   *  the tooltip — the negative upper bound wins (Copilot on #666). */
+  const tooltipLeft = (i: number): number =>
+    Math.max(0, Math.min(xOfBand(i) + bandW / 2 - 60, plotWidth - 130));
 </script>
 
 <WidgetCard title={t('dashboard.widget.usage-activity.title', 'Usage Activity')}>
@@ -240,7 +250,7 @@
             {@const b = series[hover]}
             <div
               class="pointer-events-none absolute top-1 z-10 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs shadow-sm dark:border-zinc-700 dark:bg-zinc-900"
-              style="left: min(max(0px, {xOfBand(hover) + bandW / 2 - 60}px), {plotWidth - 130}px)"
+              style="left: {tooltipLeft(hover)}px"
             >
               <div class="font-medium text-zinc-900 dark:text-white">{b.date}</div>
               <div class="mt-0.5 flex items-center gap-1.5 text-zinc-600 dark:text-zinc-300">
