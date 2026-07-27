@@ -63,7 +63,7 @@ describe('/app/dashboard loader (#629 / #636)', () => {
     });
   });
 
-  it('maps the server widget selection (id/span/rowSpan/config) to placements and fans dashboardWidgetData out by type', async () => {
+  it('maps the server widget selection to placements and fans dashboardWidgetData out by widgetId (#797)', async () => {
     mockRequest.mockResolvedValue({
       memories: { total: 3 },
       agents: { total: 9 },
@@ -72,8 +72,8 @@ describe('/app/dashboard loader (#629 / #636)', () => {
         serverWidget({ id: 'row-b', type: 'MEMORY_STATS', span: 3, position: 1 }),
       ],
       dashboardWidgetData: [
-        { type: 'AGENT_STATS', data: { agentCount: 9 } },
-        { type: 'MEMORY_STATS', data: { memoryCount: 3 } },
+        { widgetId: 'row-a', type: 'AGENT_STATS', data: { agentCount: 9 } },
+        { widgetId: 'row-b', type: 'MEMORY_STATS', data: { memoryCount: 3 } },
       ],
     });
     const result = await runLoad();
@@ -82,9 +82,10 @@ describe('/app/dashboard loader (#629 / #636)', () => {
         { id: 'row-a', type: 'agent-stats', span: 6, rowSpan: 2, config: { theme: 'x' } },
         { id: 'row-b', type: 'memory-stats', span: 3, rowSpan: 1, config: null },
       ],
+      // #797: data is keyed by placement row id (plus the type seeds).
       widgetData: {
-        'agent-stats': { agentCount: 9 },
-        'memory-stats': { memoryCount: 3 },
+        'row-a': { agentCount: 9 },
+        'row-b': { memoryCount: 3 },
       },
     });
   });
@@ -98,7 +99,7 @@ describe('/app/dashboard loader (#629 / #636)', () => {
         serverWidget({ id: 'w1', span: 6, position: 1 }),
         serverWidget({ id: 'w2', span: 3, position: 0 }),
       ],
-      dashboardWidgetData: [{ type: 'MEMORY_STATS', data: { memoryCount: 0 } }],
+      dashboardWidgetData: [{ widgetId: 'w1', type: 'MEMORY_STATS', data: { memoryCount: 0 } }],
     });
     const result = (await runLoad()) as { placements: Array<{ span: number }> };
     // position 0 (span 3) must come first.

@@ -3,6 +3,7 @@
   // on desktop; each widget declares how many columns to span. On smaller
   // screens every widget is full-width (see the note on clamping below).
   import { WIDGET_REGISTRY } from './widgets/registry';
+  import { widgetDataFor } from './widgets/types';
   import type { WidgetDataMap, WidgetPlacement } from './widgets/types';
 
   // `widgetData` is the per-type combined data (from the server's
@@ -31,7 +32,7 @@
   {#each resolved as { placement, def }, i (i)}
     {@const Widget = def.component}
     <div class="slot" style="--span: {placement.span}; --row-span: {placement.rowSpan ?? 1}">
-      <Widget {...(widgetData[placement.type] ?? {})} />
+      <Widget {...(widgetDataFor(widgetData, placement) ?? {})} widgetConfig={placement.config ?? null} />
     </div>
   {/each}
 </div>

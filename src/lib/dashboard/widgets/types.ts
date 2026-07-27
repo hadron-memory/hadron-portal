@@ -10,24 +10,36 @@
 import type { Component } from 'svelte';
 
 /** Registered widget kinds (portal-side ids). Add a member when you add one. */
-export type WidgetType = 'memory-stats' | 'agent-stats';
+export type WidgetType = 'memory-stats' | 'agent-stats' | 'usage-activity';
 
 /** hadron-server `DashboardWidgetType` enum ⇄ portal `WidgetType`. */
 export const WIDGET_TYPE_FROM_SERVER: Record<string, WidgetType> = {
   MEMORY_STATS: 'memory-stats',
   AGENT_STATS: 'agent-stats',
+  USAGE_ACTIVITY: 'usage-activity',
 };
 export const WIDGET_TYPE_TO_SERVER: Record<WidgetType, string> = {
   'memory-stats': 'MEMORY_STATS',
   'agent-stats': 'AGENT_STATS',
+  'usage-activity': 'USAGE_ACTIVITY',
 };
 
 /**
- * The data handed to a widget: its own slice of the combined
- * `dashboardWidgetData` payload (e.g. memory-stats => { memoryCount }). Values
- * come from the server as JSON, so each widget reads its own known keys.
+ * The data handed to each widget. Since server #797 the combined
+ * `dashboardWidgetData` payload is per-PLACEMENT (each entry built from that
+ * placement's `config`), so the map is keyed by placement row id — with widget
+ * TYPE keys as the fallback for seeded default layouts, whose placements have
+ * no id. Values come from the server as JSON; each widget reads its own keys.
  */
-export type WidgetDataMap = Partial<Record<WidgetType, Record<string, unknown>>>;
+export type WidgetDataMap = Record<string, Record<string, unknown>>;
+
+/** The data slice for one placement: its own row's payload, else the type seed. */
+export function widgetDataFor(
+  map: WidgetDataMap,
+  p: Pick<WidgetPlacement, 'id' | 'type'>,
+): Record<string, unknown> | undefined {
+  return (p.id != null ? map[p.id] : undefined) ?? map[p.type];
+}
 
 /** How a widget is registered: its component plus grid + chrome defaults. */
 export interface WidgetDefinition {
@@ -35,9 +47,13 @@ export interface WidgetDefinition {
   component: Component<Record<string, unknown>>;
   /** Default number of grid columns to span (1–12) when placed. */
   defaultSpan: number;
+  /** Default number of grid rows to span (1–4) when placed. */
+  defaultRowSpan: number;
   /** i18n key + fallback for the widget's card title. */
   titleKey: string;
   titleDefault: string;
+  /** True when the editor offers a per-instance settings panel for this type. */
+  hasSettings?: boolean;
 }
 
 /** One widget placed on the dashboard grid. */

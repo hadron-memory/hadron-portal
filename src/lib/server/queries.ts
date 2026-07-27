@@ -1985,8 +1985,24 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
       config
     }
     dashboardWidgetData {
+      widgetId
       type
       data
+    }
+  }
+`;
+
+// #666: the usage-activity scope picker's option list — fetched lazily (only
+// when the user enters Customize) by /app/dashboard/memory-options, which
+// pages through the caller's full readable set rather than one capped page.
+export const MEMORY_OPTIONS_QUERY = /* GraphQL */ `
+  query MemoryOptions($limit: Int!, $offset: Int!) {
+    memories(limit: $limit, offset: $offset) {
+      items {
+        id
+        name
+      }
+      total
     }
   }
 `;

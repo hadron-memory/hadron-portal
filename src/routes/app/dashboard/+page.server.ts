@@ -21,6 +21,7 @@ interface ServerWidget {
   config: Record<string, unknown> | null;
 }
 interface ServerWidgetData {
+  widgetId: string;
   type: string;
   data: Record<string, unknown>;
 }
@@ -57,15 +58,16 @@ export const load: PageServerLoad = async ({ locals }) => {
     const placements = toPlacements(data.dashboardWidgets);
     const effectivePlacements = placements.length > 0 ? placements : DEFAULT_PLACEMENTS;
 
-    // Fan the combined data out by portal WidgetType.
+    // Fan the combined data out by placement row id (#797 — each entry is built
+    // from that placement's own config), skipping unknown types defensively.
     const widgetData: WidgetDataMap = {};
     for (const d of data.dashboardWidgetData) {
-      const type = WIDGET_TYPE_FROM_SERVER[d.type];
-      if (type) widgetData[type] = d.data;
+      if (WIDGET_TYPE_FROM_SERVER[d.type]) widgetData[d.widgetId] = d.data;
     }
     // Default widgets render before the user activates any widget server-side
-    // (dashboardWidgetData is empty until then), so seed each default widget's
-    // data from the counts already fetched — the same numbers the widgets show.
+    // (dashboardWidgetData is empty until then) and their placements carry no
+    // row id, so seed their data under TYPE keys from the counts already
+    // fetched — widgetDataFor falls back to the type key when id lookup misses.
     if (!widgetData['memory-stats']) widgetData['memory-stats'] = { memoryCount };
     if (!widgetData['agent-stats']) widgetData['agent-stats'] = { agentCount };
 

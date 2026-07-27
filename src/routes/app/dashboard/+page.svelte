@@ -13,6 +13,27 @@
   let editing = $state(false);
   const loadFailed = $derived(data.loadFailed === true);
 
+  // #666: the usage-activity scope picker's options — fetched lazily the first
+  // time the editor opens, so the plain dashboard view never pays for the
+  // memory list. The picker degrades gracefully (a stored ref stays selectable
+  // via its "(current memory)" fallback) when this fails or hasn't landed yet.
+  let memoryOptions = $state<Array<{ id: string; name: string }>>([]);
+  let memoryOptionsLoaded = false;
+  async function openEditor() {
+    editing = true;
+    if (memoryOptionsLoaded) return;
+    try {
+      const res = await fetch('/app/dashboard/memory-options');
+      if (res.ok) {
+        const body = (await res.json()) as { options?: Array<{ id: string; name: string }> };
+        memoryOptions = body.options ?? [];
+        memoryOptionsLoaded = true;
+      }
+    } catch {
+      // Leave the options empty — retried on the next editor open.
+    }
+  }
+
   // #636: layout + per-widget data come from the server (dashboardWidgets +
   // dashboardWidgetData), with a default layout when the user hasn't customized.
   const placements = $derived(data.placements ?? []);
@@ -40,7 +61,7 @@
     {#if !editing && !loadFailed}
       <button
         type="button"
-        onclick={() => (editing = true)}
+        onclick={openEditor}
         title={t('dashboard.customize.link-title', 'Customize dashboard')}
         aria-label={t('dashboard.customize.link-aria', 'Customize dashboard')}
         class="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
@@ -60,6 +81,7 @@
     <DashboardEditor
       {placements}
       {widgetData}
+      {memoryOptions}
       error={form?.error ?? null}
       onDone={() => (editing = false)}
     />
