@@ -85,10 +85,14 @@
   const payload = $derived(serialize(items));
   const dirty = $derived(payload !== initialJson);
 
-  // One widget per type: the per-type data payload means duplicates would show
-  // identical content, so only offer the not-yet-placed types.
+  // Stat tiles are one-per-type (duplicates would show identical content), but
+  // CONFIGURABLE widgets stay offered even when placed — per-instance config +
+  // per-instance data (#788/#797) are exactly what makes a second, differently
+  // scoped copy useful.
   const available = $derived(
-    Object.values(WIDGET_REGISTRY).filter((def) => !items.some((i) => i.type === def.type)),
+    Object.values(WIDGET_REGISTRY).filter(
+      (def) => def.hasSettings || !items.some((i) => i.type === def.type),
+    ),
   );
 
   function addWidget(type: WidgetType) {
