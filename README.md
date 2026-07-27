@@ -74,7 +74,7 @@ The frontend never sees or stores OAuth credentials or email tokens.
 |---|---|
 | `/` | Landing page — hero, features, public memory preview |
 | `/signup` | Create account (GitHub or email); accepts `?memory=<id>` (or legacy `?graph=<id>`) for marketplace intent |
-| `/signin` | Sign in (GitHub or email); accepts `?memory=<id>` (or legacy `?graph=<id>`) |
+| `/signin` | Sign in (Apple, GitHub, Google, or email); accepts `?memory=<id>` (or legacy `?graph=<id>`) |
 | `/browse` | Marketplace — browse all public memories, "Use this memory" buttons |
 | `/about` | About page |
 | `/contact` | Contact page |

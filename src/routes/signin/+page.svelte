@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import AppleLoginButton from '$lib/components/AppleLoginButton.svelte';
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
   import { authEmailSchema } from '$lib/forms/authEmail';
   import { isLocalPath } from '$lib/safeRedirect';
@@ -28,6 +29,9 @@
   );
   const googleUrl = $derived(
     `/auth/start/google?redirect=${encodeURIComponent(postAuthRedirect)}`
+  );
+  const appleUrl = $derived(
+    `/auth/start/apple?redirect=${encodeURIComponent(postAuthRedirect)}`
   );
 
   const initialEmailForm = untrack(() => form?.form ?? data.form);
@@ -68,6 +72,10 @@
     {:else}
       <div class="mb-3">
         <GoogleLoginButton href={googleUrl} />
+      </div>
+
+      <div class="mb-3">
+        <AppleLoginButton href={appleUrl} />
       </div>
 
       <!-- GitHub -->
