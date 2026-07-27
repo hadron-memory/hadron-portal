@@ -18,10 +18,20 @@
   import { widgetDataFor } from './widgets/types';
   import type { WidgetDataMap, WidgetPlacement, WidgetType } from './widgets/types';
 
+  interface PresetRow {
+    id: string;
+    type: WidgetType;
+    name: string;
+    config: Record<string, unknown>;
+  }
+
   let {
     placements,
     widgetData,
     memoryOptions = [],
+    presets = [],
+    onCreatePreset,
+    onDeletePreset,
     error = null,
     onDone,
   }: {
@@ -29,6 +39,14 @@
     widgetData: WidgetDataMap;
     /** Slim rows for the usage-activity scope picker. */
     memoryOptions?: Array<{ id: string; name: string }>;
+    /** The caller's saved widget configurations (#806), page-owned. */
+    presets?: PresetRow[];
+    onCreatePreset?: (
+      type: WidgetType,
+      name: string,
+      config: Record<string, unknown>,
+    ) => Promise<{ ok: boolean; error?: string; preset?: PresetRow }>;
+    onDeletePreset?: (id: string) => Promise<boolean>;
     error?: string | null;
     onDone: () => void;
   } = $props();
@@ -143,33 +161,150 @@
   };
 
   // ── Per-widget settings (usage-activity, the first configurable type) ─────
-  // The uid whose settings row is expanded.
+  // The uid whose settings row is expanded, plus that panel's transient UI
+  // state (scope-mode choice, save-as-preset draft) — reset on toggle.
   let openSettings = $state<string | null>(null);
+  let scopeMode = $state<'me' | 'memories'>('me');
+  let presetSaveOpen = $state(false);
+  let presetNameDraft = $state('');
+  let presetError = $state<string | null>(null);
   const WINDOW_OPTIONS = [7, 14, 30, 90];
+  /** Server-side cap on memoryRefs (#805) — mirror it in the picker. */
+  const MAX_SCOPE_REFS = 20;
+
+  function toggleSettings(item: EditorItem) {
+    openSettings = openSettings === item.uid ? null : item.uid;
+    presetSaveOpen = false;
+    presetNameDraft = '';
+    presetError = null;
+    scopeMode = usageSettings(item).memoryRefs.length > 0 ? 'memories' : 'me';
+  }
+
+  /** The #805 memory-scope list of a config, normalizing a legacy single
+   *  `memoryRef` (pre-#805) to a one-element list like the server does. The
+   *  ONE normalization every consumer shares — settings display, scope-mode
+   *  derivation, and patching (Codex on #671). */
+  function readRefs(c: Record<string, unknown>): string[] {
+    let refs: string[] = [];
+    if (Array.isArray(c.memoryRefs)) {
+      refs = c.memoryRefs.filter((r): r is string => typeof r === 'string' && r.length > 0);
+    } else if (typeof c.memoryRef === 'string' && c.memoryRef) {
+      refs = [c.memoryRef];
+    }
+    return refs.slice(0, MAX_SCOPE_REFS);
+  }
   /** The usage-activity settings currently stored on a placement's config. */
-  function usageSettings(item: EditorItem): { windowDays: number; memoryRef: string } {
-    const c = item.config ?? {};
-    const raw = (c as Record<string, unknown>).windowDays;
+  function usageSettings(item: EditorItem): {
+    windowDays: number;
+    memoryRefs: string[];
+    presetId: string | null;
+  } {
+    const c = (item.config ?? {}) as Record<string, unknown>;
+    const raw = c.windowDays;
     return {
       windowDays: typeof raw === 'number' && WINDOW_OPTIONS.includes(raw) ? raw : 7,
-      memoryRef:
-        typeof (c as Record<string, unknown>).memoryRef === 'string'
-          ? ((c as Record<string, unknown>).memoryRef as string)
-          : '',
+      memoryRefs: readRefs(c),
+      presetId: typeof c.presetId === 'string' ? c.presetId : null,
     };
   }
-  /** Rebuild the placement's config from the settings controls. The browser's
-   *  time zone rides along so the server buckets days on the user's calendar. */
-  function patchUsageSettings(i: number, patch: Partial<{ windowDays: number; memoryRef: string }>) {
+  /** Patch the placement's config from the settings controls, PRESERVING every
+   *  key the editor doesn't own (a preset may carry fields like `bucket` these
+   *  controls never touch — Copilot on #671). The browser's time zone rides
+   *  along so the server buckets days on the user's calendar. An empty
+   *  selection OMITS `memoryRefs` — the server treats an empty list as an
+   *  empty scope, not "my activity" (#805); the legacy `memoryRef` key is
+   *  retired on write. Any manual edit detaches the preset provenance
+   *  (copy-on-apply: presets are seeds, not live links). */
+  function patchUsageSettings(
+    i: number,
+    patch: Partial<{ windowDays: number; memoryRefs: string[] }>,
+  ) {
     items = items.map((it, idx) => {
       if (idx !== i) return it;
+      const current = (it.config ?? {}) as Record<string, unknown>;
       const next = { ...usageSettings(it), ...patch };
+      const {
+        presetId: _detach,
+        memoryRef: _legacy,
+        memoryRefs: _refs,
+        ...kept
+      } = current;
       const config: Record<string, unknown> = {
+        ...kept,
         windowDays: next.windowDays,
         timeZone: browserTimeZone(),
       };
-      if (next.memoryRef) config.memoryRef = next.memoryRef;
+      if (next.memoryRefs.length > 0) config.memoryRefs = next.memoryRefs.slice(0, MAX_SCOPE_REFS);
       return { ...it, config };
+    });
+  }
+  function toggleScopeRef(i: number, item: EditorItem, id: string) {
+    const refs = usageSettings(item).memoryRefs;
+    patchUsageSettings(i, {
+      memoryRefs: refs.includes(id) ? refs.filter((r) => r !== id) : [...refs, id],
+    });
+  }
+  /** Stored refs not present in the fetched options (lost access, >1000, or the
+   *  list failed to load) — shown so they stay visible and de-selectable. */
+  function unknownRefs(item: EditorItem): string[] {
+    return usageSettings(item).memoryRefs.filter((r) => !memoryOptions.some((m) => m.id === r));
+  }
+
+  // ── Presets (#806): copy-on-apply — applying copies the preset's config into
+  // the placement (with `presetId` as provenance so the dropdown shows the
+  // source); any later edit detaches. Deleting never touches placements.
+  function presetsFor(type: WidgetType): PresetRow[] {
+    return presets.filter((p) => p.type === type);
+  }
+  function applyPreset(i: number, item: EditorItem, presetId: string) {
+    if (!presetId) {
+      // "Custom" is an explicit DETACH: the settings stay, only the provenance
+      // goes — otherwise the dropdown snaps back and there is no way to leave
+      // a preset without editing some other setting (Copilot on #671).
+      items = items.map((it, idx) => {
+        if (idx !== i) return it;
+        const { presetId: _drop, ...rest } = (it.config ?? {}) as Record<string, unknown>;
+        return { ...it, config: rest };
+      });
+      return;
+    }
+    const preset = presetsFor(item.type).find((p) => p.id === presetId);
+    if (!preset) return;
+    items = items.map((it, idx) =>
+      idx === i ? { ...it, config: { ...preset.config, presetId: preset.id } } : it,
+    );
+    // Same legacy normalization as everywhere else — a preset saved from a
+    // pre-#805 config carries `memoryRef`, which is still a memory scope
+    // (Codex on #671).
+    scopeMode = readRefs(preset.config).length > 0 ? 'memories' : 'me';
+  }
+  async function savePreset(item: EditorItem) {
+    const name = presetNameDraft.trim();
+    if (!name || !onCreatePreset) return;
+    // The preset stores the settings, never the provenance marker.
+    const { presetId: _drop, ...config } = (item.config ?? {}) as Record<string, unknown>;
+    const result = await onCreatePreset(item.type, name, config);
+    if (!result.ok || !result.preset) {
+      presetError = result.error ?? null;
+      return;
+    }
+    // Stamp provenance so the dropdown now shows the new preset as selected.
+    const savedId = result.preset.id;
+    items = items.map((it) =>
+      it.uid === item.uid ? { ...it, config: { ...config, presetId: savedId } } : it,
+    );
+    presetSaveOpen = false;
+    presetNameDraft = '';
+    presetError = null;
+  }
+  async function removePreset(item: EditorItem, presetId: string) {
+    if (!onDeletePreset || !(await onDeletePreset(presetId))) return;
+    // Configs seeded from it keep their settings; only the provenance goes.
+    items = items.map((it) => {
+      const c = (it.config ?? {}) as Record<string, unknown>;
+      if (c.presetId !== presetId) return it;
+      const { presetId: _drop, ...rest } = c;
+      return { ...it, config: rest };
     });
   }
   function cancel() {
@@ -303,7 +438,7 @@
           {#if WIDGET_REGISTRY[item.type].hasSettings}
             <button
               type="button"
-              onclick={() => (openSettings = openSettings === item.uid ? null : item.uid)}
+              onclick={() => toggleSettings(item)}
               title={t('dashboard.edit.settings', 'Widget settings')}
               aria-label={t('dashboard.edit.settings-aria', 'Settings for {name}').replace('{name}', titleOf(item.type))}
               aria-expanded={openSettings === item.uid}
@@ -343,40 +478,149 @@
 
         {#if WIDGET_REGISTRY[item.type].hasSettings && openSettings === item.uid}
           {@const s = usageSettings(item)}
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-zinc-100 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-zinc-300">
-            <label class="flex items-center gap-1.5" for="win-{item.uid}">
-              {t('dashboard.edit.settings-window', 'Window')}
-              <select
-                id="win-{item.uid}"
-                value={s.windowDays}
-                onchange={(e) => patchUsageSettings(i, { windowDays: Number((e.currentTarget as HTMLSelectElement).value) })}
-                class="rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-              >
-                {#each WINDOW_OPTIONS as d (d)}
-                  <option value={d}>{t('dashboard.edit.settings-window-days', '{n} days').replace('{n}', String(d))}</option>
-                {/each}
-              </select>
-            </label>
-            <label class="flex items-center gap-1.5" for="scope-{item.uid}">
-              {t('dashboard.edit.settings-scope', 'Scope')}
-              <select
-                id="scope-{item.uid}"
-                value={s.memoryRef}
-                onchange={(e) => patchUsageSettings(i, { memoryRef: (e.currentTarget as HTMLSelectElement).value })}
-                class="max-w-44 rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
-              >
-                <option value="">{t('dashboard.edit.settings-scope-me', 'My activity')}</option>
-                {#if s.memoryRef && !memoryOptions.some((m) => m.id === s.memoryRef)}
-                  <option value={s.memoryRef}>{t('dashboard.edit.settings-scope-current', '(current memory)')}</option>
+          {@const typePresets = presetsFor(item.type)}
+          <div class="flex flex-col gap-1.5 border-b border-zinc-100 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-950/50 dark:text-zinc-300">
+            <!-- Row 1: preset palette (#806, copy-on-apply). -->
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <label class="flex items-center gap-1.5" for="preset-{item.uid}">
+                {t('dashboard.edit.settings-preset', 'Preset')}
+                <select
+                  id="preset-{item.uid}"
+                  value={s.presetId && typePresets.some((p) => p.id === s.presetId) ? s.presetId : ''}
+                  onchange={(e) => applyPreset(i, item, (e.currentTarget as HTMLSelectElement).value)}
+                  class="max-w-44 rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  <option value="">{t('dashboard.edit.settings-preset-custom', 'Custom')}</option>
+                  {#each typePresets as p (p.id)}
+                    <option value={p.id}>{p.name}</option>
+                  {/each}
+                </select>
+              </label>
+              {#if s.presetId && typePresets.some((p) => p.id === s.presetId)}
+                <button
+                  type="button"
+                  onclick={() => removePreset(item, s.presetId!)}
+                  title={t('dashboard.edit.settings-preset-delete', 'Delete preset')}
+                  aria-label={t('dashboard.edit.settings-preset-delete-aria', 'Delete preset {name}').replace('{name}', typePresets.find((p) => p.id === s.presetId)?.name ?? '')}
+                  class="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50"
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
+                </button>
+              {/if}
+              {#if onCreatePreset}
+                {#if presetSaveOpen}
+                  <label class="sr-only" for="preset-name-{item.uid}">
+                    {t('dashboard.edit.settings-preset-name', 'Preset name')}
+                  </label>
+                  <input
+                    id="preset-name-{item.uid}"
+                    type="text"
+                    maxlength="60"
+                    bind:value={presetNameDraft}
+                    placeholder={t('dashboard.edit.settings-preset-name-ph', 'Preset name…')}
+                    onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), savePreset(item))}
+                    class="w-36 rounded-md border border-zinc-300 bg-white px-1.5 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                  />
+                  <button
+                    type="button"
+                    onclick={() => savePreset(item)}
+                    disabled={presetNameDraft.trim().length === 0}
+                    class="rounded-md bg-indigo-600 px-2 py-0.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-40"
+                  >
+                    {t('dashboard.edit.settings-preset-save', 'Save')}
+                  </button>
+                {:else}
+                  <button
+                    type="button"
+                    onclick={() => { presetSaveOpen = true; presetError = null; }}
+                    class="rounded-md border border-zinc-300 bg-white px-2 py-0.5 text-xs text-zinc-600 hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-700"
+                  >
+                    {t('dashboard.edit.settings-preset-save-as', 'Save as preset…')}
+                  </button>
                 {/if}
-                {#each memoryOptions as m (m.id)}
-                  <option value={m.id}>{m.name}</option>
-                {/each}
-              </select>
-            </label>
-            <span class="text-zinc-400 dark:text-zinc-500">
-              {t('dashboard.edit.settings-applies', 'Applies after save')}
-            </span>
+              {/if}
+              {#if presetError}
+                <span role="alert" class="text-red-600 dark:text-red-400">{presetError}</span>
+              {/if}
+            </div>
+
+            <!-- Row 2: window + scope mode. -->
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <label class="flex items-center gap-1.5" for="win-{item.uid}">
+                {t('dashboard.edit.settings-window', 'Window')}
+                <select
+                  id="win-{item.uid}"
+                  value={s.windowDays}
+                  onchange={(e) => patchUsageSettings(i, { windowDays: Number((e.currentTarget as HTMLSelectElement).value) })}
+                  class="rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  {#each WINDOW_OPTIONS as d (d)}
+                    <option value={d}>{t('dashboard.edit.settings-window-days', '{n} days').replace('{n}', String(d))}</option>
+                  {/each}
+                </select>
+              </label>
+              <label class="flex items-center gap-1.5" for="scope-{item.uid}">
+                {t('dashboard.edit.settings-scope', 'Scope')}
+                <select
+                  id="scope-{item.uid}"
+                  value={scopeMode}
+                  onchange={(e) => {
+                    scopeMode = (e.currentTarget as HTMLSelectElement).value as 'me' | 'memories';
+                    if (scopeMode === 'me') patchUsageSettings(i, { memoryRefs: [] });
+                  }}
+                  class="rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  <option value="me">{t('dashboard.edit.settings-scope-me', 'My activity')}</option>
+                  <option value="memories">{t('dashboard.edit.settings-scope-memories', 'Selected memories')}</option>
+                </select>
+              </label>
+              <span class="text-zinc-400 dark:text-zinc-500">
+                {t('dashboard.edit.settings-applies', 'Applies after save')}
+              </span>
+            </div>
+
+            <!-- Row 3: multi-memory picker (#805 — union scope, max 20). -->
+            {#if scopeMode === 'memories'}
+              <fieldset class="max-h-28 overflow-y-auto rounded-md border border-zinc-200 bg-white p-1.5 dark:border-zinc-700 dark:bg-zinc-900">
+                <legend class="sr-only">{t('dashboard.edit.settings-scope-legend', 'Memories to include')}</legend>
+                {#if memoryOptions.length === 0 && unknownRefs(item).length === 0}
+                  <p class="px-1 text-zinc-400 dark:text-zinc-500">
+                    {t('dashboard.edit.settings-scope-empty', 'No memories available.')}
+                  </p>
+                {/if}
+                <div class="grid grid-cols-1 gap-0.5 sm:grid-cols-2">
+                  {#each unknownRefs(item) as ref (ref)}
+                    <label class="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                      <input
+                        type="checkbox"
+                        checked
+                        onchange={() => toggleScopeRef(i, item, ref)}
+                        class="rounded border-zinc-300 dark:border-zinc-600"
+                      />
+                      <span class="truncate italic">{t('dashboard.edit.settings-scope-current', '(current memory)')}</span>
+                    </label>
+                  {/each}
+                  {#each memoryOptions as m (m.id)}
+                    {@const checked = s.memoryRefs.includes(m.id)}
+                    <label class="flex items-center gap-1.5 rounded px-1 py-0.5 hover:bg-zinc-50 dark:hover:bg-zinc-800">
+                      <input
+                        type="checkbox"
+                        {checked}
+                        disabled={!checked && s.memoryRefs.length >= MAX_SCOPE_REFS}
+                        onchange={() => toggleScopeRef(i, item, m.id)}
+                        class="rounded border-zinc-300 dark:border-zinc-600"
+                      />
+                      <span class="truncate">{m.name}</span>
+                    </label>
+                  {/each}
+                </div>
+              </fieldset>
+              {#if s.memoryRefs.length === 0}
+                <p class="text-zinc-400 dark:text-zinc-500">
+                  {t('dashboard.edit.settings-scope-none', 'Nothing selected yet — the chart will show your own activity until a memory is picked.')}
+                </p>
+              {/if}
+            {/if}
           </div>
         {/if}
 

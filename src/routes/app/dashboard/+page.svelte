@@ -7,30 +7,83 @@
   import DashboardGrid from '$lib/dashboard/DashboardGrid.svelte';
   import DashboardEditor from '$lib/dashboard/DashboardEditor.svelte';
   import { t } from '$lib/i18n/t';
+  import type { WidgetPreset } from './editor-options/+server';
   import type { ActionData, PageData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   let editing = $state(false);
   const loadFailed = $derived(data.loadFailed === true);
 
-  // #666: the usage-activity scope picker's options — fetched lazily the first
-  // time the editor opens, so the plain dashboard view never pays for the
-  // memory list. The picker degrades gracefully (a stored ref stays selectable
-  // via its "(current memory)" fallback) when this fails or hasn't landed yet.
+  // #666/#806: the editor's option lists — the scope picker's memories and the
+  // caller's saved widget presets — fetched lazily the first time the editor
+  // opens, so the plain dashboard view never pays for them. The editor degrades
+  // gracefully (a stored ref stays selectable via its "(current)" fallback)
+  // when this fails or hasn't landed yet.
   let memoryOptions = $state<Array<{ id: string; name: string }>>([]);
-  let memoryOptionsLoaded = false;
+  let presets = $state<WidgetPreset[]>([]);
+  let editorOptionsLoaded = false;
   async function openEditor() {
     editing = true;
-    if (memoryOptionsLoaded) return;
+    if (editorOptionsLoaded) return;
     try {
-      const res = await fetch('/app/dashboard/memory-options');
+      const res = await fetch('/app/dashboard/editor-options');
       if (res.ok) {
-        const body = (await res.json()) as { options?: Array<{ id: string; name: string }> };
+        const body = (await res.json()) as {
+          options?: Array<{ id: string; name: string }>;
+          presets?: WidgetPreset[];
+          loadFailed?: boolean;
+          presetsFailed?: boolean;
+        };
         memoryOptions = body.options ?? [];
-        memoryOptionsLoaded = true;
+        // MERGE with the current list rather than replacing it: a preset saved
+        // while this GET was in flight would otherwise vanish under the fetch's
+        // older snapshot (Codex on #671). Local rows win on id collision.
+        const fetched = (body.presets ?? []).filter((p) => !presets.some((q) => q.id === p.id));
+        presets = [...presets, ...fetched].sort((a, b) => a.name.localeCompare(b.name));
+        // Only cache a fully successful load; a partial failure retries on the
+        // next editor open (each list degrades independently server-side).
+        editorOptionsLoaded = body.loadFailed !== true && body.presetsFailed !== true;
       }
     } catch {
-      // Leave the options empty — retried on the next editor open.
+      // Leave the lists as they are — retried on the next editor open.
+    }
+  }
+
+  // Preset palette CRUD (#806) — page-owned so the list survives editor
+  // remounts; the editor calls these and renders the updated prop.
+  async function createPreset(
+    type: string,
+    name: string,
+    config: Record<string, unknown>,
+  ): Promise<{ ok: boolean; error?: string; preset?: WidgetPreset }> {
+    try {
+      const res = await fetch('/app/dashboard/widget-presets', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ type, name, config }),
+      });
+      const body = (await res.json()) as { preset?: WidgetPreset; error?: string };
+      if (!res.ok || !body.preset) {
+        return { ok: false, error: body.error ?? t('dashboard.edit.preset-save-failed', 'Failed to save the preset.') };
+      }
+      presets = [...presets, body.preset].sort((a, b) => a.name.localeCompare(b.name));
+      return { ok: true, preset: body.preset };
+    } catch {
+      return { ok: false, error: t('dashboard.edit.preset-save-failed', 'Failed to save the preset.') };
+    }
+  }
+  async function deletePreset(id: string): Promise<boolean> {
+    try {
+      const res = await fetch('/app/dashboard/widget-presets', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ presetRef: id }),
+      });
+      if (!res.ok) return false;
+      presets = presets.filter((p) => p.id !== id);
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -82,6 +135,9 @@
       {placements}
       {widgetData}
       {memoryOptions}
+      {presets}
+      onCreatePreset={createPreset}
+      onDeletePreset={deletePreset}
       error={form?.error ?? null}
       onDone={() => (editing = false)}
     />
