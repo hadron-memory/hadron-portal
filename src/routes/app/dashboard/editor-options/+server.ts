@@ -29,8 +29,12 @@ const PAGE_SIZE = 100;
 const MAX_OPTIONS = 1000;
 
 export const GET: RequestHandler = async ({ locals }) => {
+  // The two lists fail INDEPENDENTLY (Codex/Copilot on #671): a transient
+  // preset failure must not blank the unrelated memory picker, and vice versa.
+  // Each failed list comes back empty with its own flag; the page retries on
+  // the next editor open while the editor degrades gracefully in the meantime.
   const options: MemoryOption[] = [];
-  let presets: WidgetPreset[] = [];
+  let optionsFailed = false;
   let offset = 0;
   let total = Number.POSITIVE_INFINITY;
   try {
@@ -43,7 +47,15 @@ export const GET: RequestHandler = async ({ locals }) => {
       if (data.memories.items.length < PAGE_SIZE) break;
       offset += PAGE_SIZE;
     }
+  } catch (e) {
+    console.error('[dashboard/editor-options] memory options failed to load:', e);
+    options.length = 0;
+    optionsFailed = true;
+  }
 
+  let presets: WidgetPreset[] = [];
+  let presetsFailed = false;
+  try {
     const presetData = await gqlClient(locals.token).request<{
       dashboardWidgetPresets: Array<{
         id: string;
@@ -59,11 +71,15 @@ export const GET: RequestHandler = async ({ locals }) => {
       return type ? [{ id: p.id, type, name: p.name, config: p.config }] : [];
     });
   } catch (e) {
-    // The editor degrades gracefully ("My activity" + stored refs stay usable);
-    // this response says explicitly that loading failed rather than 500ing the
-    // whole editor over its option lists.
-    console.error('[dashboard/editor-options] failed to load:', e);
-    return json({ options: [], presets: [], loadFailed: true }, { status: 200 });
+    console.error('[dashboard/editor-options] presets failed to load:', e);
+    presetsFailed = true;
   }
-  return json({ options, presets, truncated: options.length >= MAX_OPTIONS, loadFailed: false });
+
+  return json({
+    options,
+    presets,
+    truncated: options.length >= MAX_OPTIONS,
+    loadFailed: optionsFailed,
+    presetsFailed,
+  });
 };

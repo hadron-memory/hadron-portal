@@ -32,13 +32,20 @@
           options?: Array<{ id: string; name: string }>;
           presets?: WidgetPreset[];
           loadFailed?: boolean;
+          presetsFailed?: boolean;
         };
         memoryOptions = body.options ?? [];
-        presets = body.presets ?? [];
-        editorOptionsLoaded = body.loadFailed !== true;
+        // MERGE with the current list rather than replacing it: a preset saved
+        // while this GET was in flight would otherwise vanish under the fetch's
+        // older snapshot (Codex on #671). Local rows win on id collision.
+        const fetched = (body.presets ?? []).filter((p) => !presets.some((q) => q.id === p.id));
+        presets = [...presets, ...fetched].sort((a, b) => a.name.localeCompare(b.name));
+        // Only cache a fully successful load; a partial failure retries on the
+        // next editor open (each list degrades independently server-side).
+        editorOptionsLoaded = body.loadFailed !== true && body.presetsFailed !== true;
       }
     } catch {
-      // Leave the lists empty — retried on the next editor open.
+      // Leave the lists as they are — retried on the next editor open.
     }
   }
 

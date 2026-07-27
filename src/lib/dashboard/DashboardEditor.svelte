@@ -180,9 +180,20 @@
     scopeMode = usageSettings(item).memoryRefs.length > 0 ? 'memories' : 'me';
   }
 
-  /** The usage-activity settings currently stored on a placement's config.
-   *  Reads the #805 `memoryRefs` list, normalizing a legacy single `memoryRef`
-   *  (pre-#805 configs) to a one-element list like the server does. */
+  /** The #805 memory-scope list of a config, normalizing a legacy single
+   *  `memoryRef` (pre-#805) to a one-element list like the server does. The
+   *  ONE normalization every consumer shares — settings display, scope-mode
+   *  derivation, and patching (Codex on #671). */
+  function readRefs(c: Record<string, unknown>): string[] {
+    let refs: string[] = [];
+    if (Array.isArray(c.memoryRefs)) {
+      refs = c.memoryRefs.filter((r): r is string => typeof r === 'string' && r.length > 0);
+    } else if (typeof c.memoryRef === 'string' && c.memoryRef) {
+      refs = [c.memoryRef];
+    }
+    return refs.slice(0, MAX_SCOPE_REFS);
+  }
+  /** The usage-activity settings currently stored on a placement's config. */
   function usageSettings(item: EditorItem): {
     windowDays: number;
     memoryRefs: string[];
@@ -190,31 +201,36 @@
   } {
     const c = (item.config ?? {}) as Record<string, unknown>;
     const raw = c.windowDays;
-    let memoryRefs: string[] = [];
-    if (Array.isArray(c.memoryRefs)) {
-      memoryRefs = c.memoryRefs.filter((r): r is string => typeof r === 'string' && r.length > 0);
-    } else if (typeof c.memoryRef === 'string' && c.memoryRef) {
-      memoryRefs = [c.memoryRef];
-    }
     return {
       windowDays: typeof raw === 'number' && WINDOW_OPTIONS.includes(raw) ? raw : 7,
-      memoryRefs: memoryRefs.slice(0, MAX_SCOPE_REFS),
+      memoryRefs: readRefs(c),
       presetId: typeof c.presetId === 'string' ? c.presetId : null,
     };
   }
-  /** Rebuild the placement's config from the settings controls. The browser's
-   *  time zone rides along so the server buckets days on the user's calendar.
-   *  An empty selection OMITS `memoryRefs` — the server treats an empty list as
-   *  an empty scope, not "my activity" (#805). Any manual edit detaches the
-   *  preset provenance (copy-on-apply: presets are seeds, not live links). */
+  /** Patch the placement's config from the settings controls, PRESERVING every
+   *  key the editor doesn't own (a preset may carry fields like `bucket` these
+   *  controls never touch — Copilot on #671). The browser's time zone rides
+   *  along so the server buckets days on the user's calendar. An empty
+   *  selection OMITS `memoryRefs` — the server treats an empty list as an
+   *  empty scope, not "my activity" (#805); the legacy `memoryRef` key is
+   *  retired on write. Any manual edit detaches the preset provenance
+   *  (copy-on-apply: presets are seeds, not live links). */
   function patchUsageSettings(
     i: number,
     patch: Partial<{ windowDays: number; memoryRefs: string[] }>,
   ) {
     items = items.map((it, idx) => {
       if (idx !== i) return it;
+      const current = (it.config ?? {}) as Record<string, unknown>;
       const next = { ...usageSettings(it), ...patch };
+      const {
+        presetId: _detach,
+        memoryRef: _legacy,
+        memoryRefs: _refs,
+        ...kept
+      } = current;
       const config: Record<string, unknown> = {
+        ...kept,
         windowDays: next.windowDays,
         timeZone: browserTimeZone(),
       };
@@ -241,15 +257,26 @@
     return presets.filter((p) => p.type === type);
   }
   function applyPreset(i: number, item: EditorItem, presetId: string) {
-    if (!presetId) return; // "Custom" — keep the current config untouched.
+    if (!presetId) {
+      // "Custom" is an explicit DETACH: the settings stay, only the provenance
+      // goes — otherwise the dropdown snaps back and there is no way to leave
+      // a preset without editing some other setting (Copilot on #671).
+      items = items.map((it, idx) => {
+        if (idx !== i) return it;
+        const { presetId: _drop, ...rest } = (it.config ?? {}) as Record<string, unknown>;
+        return { ...it, config: rest };
+      });
+      return;
+    }
     const preset = presetsFor(item.type).find((p) => p.id === presetId);
     if (!preset) return;
     items = items.map((it, idx) =>
       idx === i ? { ...it, config: { ...preset.config, presetId: preset.id } } : it,
     );
-    scopeMode = Array.isArray(preset.config.memoryRefs) && preset.config.memoryRefs.length > 0
-      ? 'memories'
-      : 'me';
+    // Same legacy normalization as everywhere else — a preset saved from a
+    // pre-#805 config carries `memoryRef`, which is still a memory scope
+    // (Codex on #671).
+    scopeMode = readRefs(preset.config).length > 0 ? 'memories' : 'me';
   }
   async function savePreset(item: EditorItem) {
     const name = presetNameDraft.trim();

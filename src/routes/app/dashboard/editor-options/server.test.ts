@@ -82,10 +82,24 @@ describe('GET /app/dashboard/editor-options (#666/#806)', () => {
     ]);
   });
 
-  it('degrades to an explicit loadFailed payload on a GraphQL error', async () => {
-    mockRequest.mockRejectedValueOnce(new Error('boom'));
+  it('degrades to an explicit loadFailed payload when the memory pages fail', async () => {
+    mockRequest
+      .mockRejectedValueOnce(new Error('boom'))
+      .mockResolvedValueOnce({ dashboardWidgetPresets: [] });
     const { status, body } = await runGet();
     expect(status).toBe(200);
-    expect(body).toMatchObject({ options: [], presets: [], loadFailed: true });
+    expect(body).toMatchObject({ options: [], presets: [], loadFailed: true, presetsFailed: false });
+  });
+
+  it('keeps the loaded memory options when only the presets query fails', async () => {
+    // The two lists degrade independently (Codex/Copilot on #671) — a preset
+    // hiccup must not blank the unrelated scope picker.
+    mockRequest
+      .mockResolvedValueOnce(page(0, 3, 3))
+      .mockRejectedValueOnce(new Error('presets boom'));
+    const { status, body } = await runGet();
+    expect(status).toBe(200);
+    expect(body.options).toHaveLength(3);
+    expect(body).toMatchObject({ presets: [], loadFailed: false, presetsFailed: true });
   });
 });
