@@ -48,20 +48,26 @@ describe('DashboardEditor.svelte (#636 / #788)', () => {
     expect(body).toContain('Height of Memory Stats');
   });
 
-  it('offers only not-yet-placed widget types in the add tile', () => {
+  it('offers not-yet-placed types, and configurable types even when placed', () => {
     const body = renderEditor([{ id: 'row-a', type: 'memory-stats', span: 4, rowSpan: 1 }]);
     expect(body).toContain('Add a widget');
     expect(body).toContain('+ Agent Stats');
+    // Stat tiles are one-per-type…
     expect(body).not.toContain('+ Memory Stats');
+    // …but configurable widgets can be placed again with another config.
+    expect(body).toContain('+ Usage Activity');
   });
 
-  it('hides the add tile when every widget type is placed', () => {
+  it('keeps offering a placed configurable widget (duplicates carry their own config)', () => {
     const body = renderEditor([
       { id: 'a', type: 'memory-stats', span: 4, rowSpan: 1 },
       { id: 'b', type: 'agent-stats', span: 4, rowSpan: 1 },
       { id: 'c', type: 'usage-activity', span: 6, rowSpan: 2 },
     ]);
-    expect(body).not.toContain('Add a widget');
+    expect(body).toContain('Add a widget');
+    expect(body).toContain('+ Usage Activity');
+    expect(body).not.toContain('+ Memory Stats');
+    expect(body).not.toContain('+ Agent Stats');
   });
 
   it('posts the uid-stripped placements as the hidden widgets payload, in order', () => {
