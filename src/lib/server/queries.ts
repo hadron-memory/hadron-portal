@@ -1992,8 +1992,39 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
   }
 `;
 
+// #806: named, user-scoped widget configurations — a palette the editor copies
+// into a placement's config on apply (no live link). Fetched lazily alongside
+// the memory options by /app/dashboard/editor-options.
+export const DASHBOARD_WIDGET_PRESETS_QUERY = /* GraphQL */ `
+  query DashboardWidgetPresets {
+    dashboardWidgetPresets {
+      id
+      type
+      name
+      config
+    }
+  }
+`;
+
+export const CREATE_DASHBOARD_WIDGET_PRESET_MUTATION = /* GraphQL */ `
+  mutation CreateDashboardWidgetPreset($type: DashboardWidgetType!, $name: String!, $config: JSON!) {
+    createDashboardWidgetPreset(type: $type, name: $name, config: $config) {
+      id
+      type
+      name
+      config
+    }
+  }
+`;
+
+export const DELETE_DASHBOARD_WIDGET_PRESET_MUTATION = /* GraphQL */ `
+  mutation DeleteDashboardWidgetPreset($presetRef: ID!) {
+    deleteDashboardWidgetPreset(presetRef: $presetRef)
+  }
+`;
+
 // #666: the usage-activity scope picker's option list — fetched lazily (only
-// when the user enters Customize) by /app/dashboard/memory-options, which
+// when the user enters Customize) by /app/dashboard/editor-options, which
 // pages through the caller's full readable set rather than one capped page.
 export const MEMORY_OPTIONS_QUERY = /* GraphQL */ `
   query MemoryOptions($limit: Int!, $offset: Int!) {

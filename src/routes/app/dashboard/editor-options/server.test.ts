@@ -1,9 +1,8 @@
 /**
- * #666: the lazily-fetched option list for the usage-activity scope picker.
- * Pages through the caller's full readable memory set (Codex on #666 — a
- * single capped page made memories past it unselectable), degrading to an
- * explicit loadFailed payload rather than a 500 (the picker still works with
- * "My activity" + the stored ref).
+ * #666/#806: the lazily-fetched editor option lists — scope-picker memories
+ * (paged through the caller's full readable set; Codex on #666) plus the
+ * caller's saved widget presets, degrading to an explicit loadFailed payload
+ * rather than a 500 (the editor still works with "My activity" + stored refs).
  */
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -42,9 +41,16 @@ const page = (start: number, count: number, total: number) => ({
   },
 });
 
-describe('GET /app/dashboard/memory-options (#666)', () => {
-  it('returns a single short page as-is, projected to id+name', async () => {
-    mockRequest.mockResolvedValueOnce(page(0, 3, 3));
+describe('GET /app/dashboard/editor-options (#666/#806)', () => {
+  it('returns a single short page as-is, projected to id+name, plus mapped presets', async () => {
+    mockRequest
+      .mockResolvedValueOnce(page(0, 3, 3))
+      .mockResolvedValueOnce({
+        dashboardWidgetPresets: [
+          { id: 'p1', type: 'USAGE_ACTIVITY', name: 'Team 30d', config: { windowDays: 30 } },
+          { id: 'p2', type: 'NOT_A_REAL_TYPE', name: 'stale', config: {} },
+        ],
+      });
     const { status, body } = await runGet();
     expect(status).toBe(200);
     expect(body.options).toEqual([
@@ -53,19 +59,24 @@ describe('GET /app/dashboard/memory-options (#666)', () => {
       { id: 'm2', name: 'Memory 2' },
     ]);
     expect(body).toMatchObject({ truncated: false, loadFailed: false });
-    expect(mockRequest).toHaveBeenCalledTimes(1);
+    // Presets mapped to portal ids; unknown server types dropped.
+    expect(body.presets).toEqual([
+      { id: 'p1', type: 'usage-activity', name: 'Team 30d', config: { windowDays: 30 } },
+    ]);
+    expect(mockRequest).toHaveBeenCalledTimes(2);
   });
 
   it('pages past the first 100 rows until the set is exhausted', async () => {
     mockRequest
       .mockResolvedValueOnce(page(0, 100, 150))
-      .mockResolvedValueOnce(page(100, 50, 150));
+      .mockResolvedValueOnce(page(100, 50, 150))
+      .mockResolvedValueOnce({ dashboardWidgetPresets: [] });
     const { body } = await runGet();
     expect(body.options).toHaveLength(150);
     expect(body.options[149]).toEqual({ id: 'm149', name: 'Memory 149' });
-    expect(mockRequest).toHaveBeenCalledTimes(2);
-    // Offsets advanced by page size.
-    expect(mockRequest.mock.calls.map((c) => c[1])).toEqual([
+    expect(mockRequest).toHaveBeenCalledTimes(3);
+    // Offsets advanced by page size (presets call carries no variables).
+    expect(mockRequest.mock.calls.slice(0, 2).map((c) => c[1])).toEqual([
       { limit: 100, offset: 0 },
       { limit: 100, offset: 100 },
     ]);
@@ -75,6 +86,6 @@ describe('GET /app/dashboard/memory-options (#666)', () => {
     mockRequest.mockRejectedValueOnce(new Error('boom'));
     const { status, body } = await runGet();
     expect(status).toBe(200);
-    expect(body).toMatchObject({ options: [], loadFailed: true });
+    expect(body).toMatchObject({ options: [], presets: [], loadFailed: true });
   });
 });
