@@ -60,7 +60,8 @@
 
 <div class="flex min-h-[60vh] items-center justify-center px-4">
   <div class="w-full max-w-sm">
-    <h1 class="mb-2 text-center text-2xl font-bold text-zinc-900 dark:text-white">Sign In</h1>
+    <!-- #669: match the breathing room below "Welcome back to Hadron". -->
+    <h1 class="mt-8 mb-2 text-center text-2xl font-bold text-zinc-900 dark:text-white">Sign In</h1>
     <p class="mb-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
       Welcome back to Hadron
     </p>

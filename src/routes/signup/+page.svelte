@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import AppleLoginButton from '$lib/components/AppleLoginButton.svelte';
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
   import { authEmailSchema } from '$lib/forms/authEmail';
   import { isLocalPath } from '$lib/safeRedirect';
@@ -29,6 +30,9 @@
   const googleUrl = $derived(
     `/auth/start/google?redirect=${encodeURIComponent(postAuthRedirect)}`
   );
+  const appleUrl = $derived(
+    `/auth/start/apple?redirect=${encodeURIComponent(postAuthRedirect)}`
+  );
 
   const initialEmailForm = untrack(() => form?.form ?? data.form);
   const {
@@ -56,7 +60,8 @@
 
 <div class="flex min-h-[60vh] items-center justify-center px-4">
   <div class="w-full max-w-sm">
-    <h1 class="mb-2 text-center text-2xl font-bold text-zinc-900 dark:text-white">Create Account</h1>
+    <!-- #669: keep the heading spacing in step with /signin. -->
+    <h1 class="mt-8 mb-2 text-center text-2xl font-bold text-zinc-900 dark:text-white">Create Account</h1>
     <p class="mb-8 text-center text-sm text-zinc-500 dark:text-zinc-400">
       Get started with Hadron
     </p>
@@ -68,6 +73,10 @@
     {:else}
       <div class="mb-3">
         <GoogleLoginButton href={googleUrl} />
+      </div>
+
+      <div class="mb-3">
+        <AppleLoginButton href={appleUrl} />
       </div>
 
       <!-- GitHub -->
