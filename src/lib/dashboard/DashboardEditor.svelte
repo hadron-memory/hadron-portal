@@ -197,6 +197,7 @@
   function usageSettings(item: EditorItem): {
     windowDays: number;
     memoryRefs: string[];
+    chartStyle: 'auto' | 'bars' | 'lines';
     presetId: string | null;
   } {
     const c = (item.config ?? {}) as Record<string, unknown>;
@@ -204,6 +205,7 @@
     return {
       windowDays: typeof raw === 'number' && WINDOW_OPTIONS.includes(raw) ? raw : 7,
       memoryRefs: readRefs(c),
+      chartStyle: c.chartStyle === 'bars' || c.chartStyle === 'lines' ? c.chartStyle : 'auto',
       presetId: typeof c.presetId === 'string' ? c.presetId : null,
     };
   }
@@ -217,7 +219,7 @@
    *  (copy-on-apply: presets are seeds, not live links). */
   function patchUsageSettings(
     i: number,
-    patch: Partial<{ windowDays: number; memoryRefs: string[] }>,
+    patch: Partial<{ windowDays: number; memoryRefs: string[]; chartStyle: 'auto' | 'bars' | 'lines' }>,
   ) {
     items = items.map((it, idx) => {
       if (idx !== i) return it;
@@ -227,6 +229,7 @@
         presetId: _detach,
         memoryRef: _legacy,
         memoryRefs: _refs,
+        chartStyle: _style,
         ...kept
       } = current;
       const config: Record<string, unknown> = {
@@ -235,6 +238,8 @@
         timeZone: browserTimeZone(),
       };
       if (next.memoryRefs.length > 0) config.memoryRefs = next.memoryRefs.slice(0, MAX_SCOPE_REFS);
+      // 'auto' is the default — keep configs lean by omitting it.
+      if (next.chartStyle !== 'auto') config.chartStyle = next.chartStyle;
       return { ...it, config };
     });
   }
@@ -557,6 +562,19 @@
                   {#each WINDOW_OPTIONS as d (d)}
                     <option value={d}>{t('dashboard.edit.settings-window-days', '{n} days').replace('{n}', String(d))}</option>
                   {/each}
+                </select>
+              </label>
+              <label class="flex items-center gap-1.5" for="style-{item.uid}">
+                {t('dashboard.edit.settings-style', 'Style')}
+                <select
+                  id="style-{item.uid}"
+                  value={s.chartStyle}
+                  onchange={(e) => patchUsageSettings(i, { chartStyle: (e.currentTarget as HTMLSelectElement).value as 'auto' | 'bars' | 'lines' })}
+                  class="rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  <option value="auto">{t('dashboard.edit.settings-style-auto', 'Auto')}</option>
+                  <option value="bars">{t('dashboard.edit.settings-style-bars', 'Bars')}</option>
+                  <option value="lines">{t('dashboard.edit.settings-style-lines', 'Lines')}</option>
                 </select>
               </label>
               <label class="flex items-center gap-1.5" for="scope-{item.uid}">

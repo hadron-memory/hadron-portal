@@ -65,8 +65,15 @@
   });
 
   const total = $derived(series.reduce((s, b) => s + b.reads + b.writes, 0));
-  // Bars read well up to a month of pairs; past that, lines.
-  const asLines = $derived(series.length > 31);
+  // Chart form: an explicit config choice wins (it's the user's chart); 'auto'
+  // keeps the density heuristic — bars read well up to a month of pairs, past
+  // that, lines.
+  const chartStyle = $derived(
+    widgetConfig?.chartStyle === 'bars' || widgetConfig?.chartStyle === 'lines'
+      ? (widgetConfig.chartStyle as 'bars' | 'lines')
+      : 'auto',
+  );
+  const asLines = $derived(chartStyle === 'lines' || (chartStyle === 'auto' && series.length > 31));
 
   // ── Scales ────────────────────────────────────────────────────────────────
   // Width tracks the card (bind:clientWidth); SSR falls back to the viewBox.
