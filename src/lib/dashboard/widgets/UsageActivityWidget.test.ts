@@ -55,6 +55,37 @@ describe('UsageActivityWidget.svelte', () => {
     expect(body).not.toContain('viz-line"><!'); // sanity: paths have d attrs
   });
 
+  it('honors an explicit chartStyle over the density heuristic, both ways', () => {
+    // Lines at 7 buckets (auto would pick bars)…
+    const lines = renderWidget({
+      windowDays: 7,
+      buckets: [{ date: todayUtc, reads: 5, writes: 2 }],
+      widgetConfig: { chartStyle: 'lines' },
+    });
+    expect(lines).toContain('viz-line');
+    // The accessible description follows the rendered form (Codex on #672).
+    expect(lines).toContain('Line chart of read and write events');
+    // …and bars at 90 buckets (auto would pick lines) — the user's chart.
+    const buckets = Array.from({ length: 90 }, (_, i) => ({
+      date: `2026-0${1 + Math.floor(i / 30)}-${String((i % 30) + 1).padStart(2, '0')}`,
+      reads: i,
+      writes: 1,
+    }));
+    const bars = renderWidget({
+      windowDays: 90,
+      buckets,
+      widgetConfig: { bucket: 'WEEK', chartStyle: 'bars' },
+    });
+    expect(bars).not.toContain('viz-line');
+    // An unknown value falls back to auto (bars at this density).
+    const junk = renderWidget({
+      windowDays: 7,
+      buckets: [{ date: todayUtc, reads: 5, writes: 2 }],
+      widgetConfig: { chartStyle: 'sparkles' },
+    });
+    expect(junk).not.toContain('viz-line');
+  });
+
   it('shows the empty state when the window has no activity', () => {
     const body = renderWidget({ windowDays: 7, buckets: [] });
     expect(body).toContain('No activity in this window.');

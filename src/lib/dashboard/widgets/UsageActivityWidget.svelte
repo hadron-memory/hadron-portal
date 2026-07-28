@@ -65,8 +65,15 @@
   });
 
   const total = $derived(series.reduce((s, b) => s + b.reads + b.writes, 0));
-  // Bars read well up to a month of pairs; past that, lines.
-  const asLines = $derived(series.length > 31);
+  // Chart form: an explicit config choice wins (it's the user's chart); 'auto'
+  // keeps the density heuristic — bars read well up to a month of pairs, past
+  // that, lines.
+  const chartStyle = $derived(
+    widgetConfig?.chartStyle === 'bars' || widgetConfig?.chartStyle === 'lines'
+      ? (widgetConfig.chartStyle as 'bars' | 'lines')
+      : 'auto',
+  );
+  const asLines = $derived(chartStyle === 'lines' || (chartStyle === 'auto' && series.length > 31));
 
   // ── Scales ────────────────────────────────────────────────────────────────
   // Width tracks the card (bind:clientWidth); SSR falls back to the viewBox.
@@ -170,10 +177,15 @@
             viewBox="0 0 {plotWidth} {PAD_T + H + 18}"
             preserveAspectRatio="none"
             role="img"
-            aria-label={t(
-              'dashboard.widget.usage-activity.aria',
-              'Bar chart of read and write events per day; details in the table below.',
-            )}
+            aria-label={asLines
+              ? t(
+                  'dashboard.widget.usage-activity.aria-lines',
+                  'Line chart of read and write events per day; details in the table below.',
+                )
+              : t(
+                  'dashboard.widget.usage-activity.aria-bars',
+                  'Bar chart of read and write events per day; details in the table below.',
+                )}
           >
             <!-- Hairline gridlines at the clean ticks; recessive. -->
             {#each [0, yMax / 2, yMax] as tick (tick)}
