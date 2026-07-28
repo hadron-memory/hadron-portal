@@ -2012,6 +2012,19 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
   }
 `;
 
+// #796/#805: the public usage-activity time series — first used by the memory
+// Usage tab's chart mode (the dashboard widget gets the same numbers through
+// its data provider, which shares the server-side aggregation code path).
+export const USAGE_ACTIVITY_QUERY = /* GraphQL */ `
+  query UsageActivity($from: String, $to: String, $memoryRefs: [ID!], $timeZone: String) {
+    usageActivity(from: $from, to: $to, memoryRefs: $memoryRefs, timeZone: $timeZone) {
+      date
+      reads
+      writes
+    }
+  }
+`;
+
 // #806: named, user-scoped widget configurations — a palette the editor copies
 // into a placement's config on apply (no live link). Fetched lazily alongside
 // the memory options by /app/dashboard/editor-options.
