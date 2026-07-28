@@ -177,10 +177,15 @@
             viewBox="0 0 {plotWidth} {PAD_T + H + 18}"
             preserveAspectRatio="none"
             role="img"
-            aria-label={t(
-              'dashboard.widget.usage-activity.aria',
-              'Bar chart of read and write events per day; details in the table below.',
-            )}
+            aria-label={asLines
+              ? t(
+                  'dashboard.widget.usage-activity.aria-lines',
+                  'Line chart of read and write events per day; details in the table below.',
+                )
+              : t(
+                  'dashboard.widget.usage-activity.aria-bars',
+                  'Bar chart of read and write events per day; details in the table below.',
+                )}
           >
             <!-- Hairline gridlines at the clean ticks; recessive. -->
             {#each [0, yMax / 2, yMax] as tick (tick)}

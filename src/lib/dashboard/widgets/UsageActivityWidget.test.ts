@@ -63,6 +63,8 @@ describe('UsageActivityWidget.svelte', () => {
       widgetConfig: { chartStyle: 'lines' },
     });
     expect(lines).toContain('viz-line');
+    // The accessible description follows the rendered form (Codex on #672).
+    expect(lines).toContain('Line chart of read and write events');
     // …and bars at 90 buckets (auto would pick lines) — the user's chart.
     const buckets = Array.from({ length: 90 }, (_, i) => ({
       date: `2026-0${1 + Math.floor(i / 30)}-${String((i % 30) + 1).padStart(2, '0')}`,

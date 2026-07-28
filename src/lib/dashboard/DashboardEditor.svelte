@@ -569,7 +569,10 @@
                 <select
                   id="style-{item.uid}"
                   value={s.chartStyle}
-                  onchange={(e) => patchUsageSettings(i, { chartStyle: (e.currentTarget as HTMLSelectElement).value as 'auto' | 'bars' | 'lines' })}
+                  onchange={(e) => {
+                    const v = (e.currentTarget as HTMLSelectElement).value;
+                    patchUsageSettings(i, { chartStyle: v === 'bars' || v === 'lines' ? v : 'auto' });
+                  }}
                   class="rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
                 >
                   <option value="auto">{t('dashboard.edit.settings-style-auto', 'Auto')}</option>
