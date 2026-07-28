@@ -177,11 +177,6 @@
     Make AI work for your business — grounded in your team's knowledge, and locked to
     exactly what each person and agent should see.
   </p>
-  {#if !data.user}
-    <p class="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-1.5 text-sm text-amber-600 dark:text-amber-400">
-      In pilot — invitation needed for new accounts
-    </p>
-  {/if}
 </section>
 
 <!-- The hook: what makes Hadron different -->
