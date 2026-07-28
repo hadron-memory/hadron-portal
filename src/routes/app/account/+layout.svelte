@@ -4,7 +4,7 @@
   //   Account      → /app/account               (profile, sign out)
   //   Organization → /app/account/organizations  (memberships / create org)
   //   Invite       → /app/account/invite         (invite a user)
-  //   App Keys     → /app/account/api-keys        (API keys)
+  //   API Keys     → /app/account/api-keys        (API keys)
   import { page } from '$app/stores';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { t } from '$lib/i18n/t';
@@ -15,7 +15,7 @@
     { id: 'account', label: t('app.account.tab.account', 'Account'), href: '/app/account' },
     { id: 'organization', label: t('app.account.tab.organization', 'Organization'), href: '/app/account/organizations' },
     { id: 'invite', label: t('app.account.tab.invite', 'Invite'), href: '/app/account/invite' },
-    { id: 'api-keys', label: t('app.account.tab.api-keys', 'App Keys'), href: '/app/account/api-keys' },
+    { id: 'api-keys', label: t('app.account.tab.api-keys', 'API Keys'), href: '/app/account/api-keys' },
   ];
   const activeTab = $derived(
     $page.url.pathname.startsWith('/app/account/api-keys')
