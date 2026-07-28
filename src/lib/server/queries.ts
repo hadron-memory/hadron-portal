@@ -208,12 +208,6 @@ export const DELETE_USER_MUTATION = /* GraphQL */ `
   mutation DeleteUser { deleteUser }
 `;
 
-export const JOIN_WAITING_LIST_MUTATION = /* GraphQL */ `
-  mutation JoinWaitingList($email: String!, $requestedFeatures: String) {
-    joinWaitingList(email: $email, requestedFeatures: $requestedFeatures)
-  }
-`;
-
 export const SEND_CONTACT_MESSAGE_MUTATION = /* GraphQL */ `
   mutation SendContactMessage($name: String!, $email: String!, $message: String!) {
     sendContactMessage(name: $name, email: $email, message: $message)
