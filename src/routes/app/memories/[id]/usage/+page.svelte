@@ -19,24 +19,33 @@
   // effect — seeding $state from localStorage directly would diverge from the
   // server-rendered markup and trip a hydration mismatch.
   const PANE_KEY = 'hadron:memoryUsage:pane';
+  const STYLE_KEY = 'hadron:memoryUsage:chartStyle';
   let pane = $state<'table' | 'chart'>('table');
+  // Chart form: 'auto' keeps the density heuristic (bars ≤31 buckets, lines
+  // beyond); an explicit choice pins the form across window changes.
+  let chartStyle = $state<'auto' | 'bars' | 'lines'>('auto');
   let paneHydrated = false;
   $effect(() => {
     if (!paneHydrated) {
       paneHydrated = true;
       try {
-        // The comparison READS `pane`, registering it as a dependency on this
-        // first run — without that the effect would never re-run to persist
-        // later changes (same shape as MemoryBrowser's Tree/Table toggle).
-        const stored = window.localStorage.getItem(PANE_KEY) === 'chart' ? 'chart' : 'table';
-        if (stored !== pane) pane = stored;
+        // The comparisons READ `pane`/`chartStyle`, registering them as
+        // dependencies on this first run — without that the effect would never
+        // re-run to persist later changes (same shape as MemoryBrowser's
+        // Tree/Table toggle).
+        const storedPane = window.localStorage.getItem(PANE_KEY) === 'chart' ? 'chart' : 'table';
+        if (storedPane !== pane) pane = storedPane;
+        const s = window.localStorage.getItem(STYLE_KEY);
+        const storedStyle = s === 'bars' || s === 'lines' ? s : 'auto';
+        if (storedStyle !== chartStyle) chartStyle = storedStyle;
       } catch {
-        // Storage unavailable — keep the default.
+        // Storage unavailable — keep the defaults.
       }
       return;
     }
     try {
       window.localStorage.setItem(PANE_KEY, pane);
+      window.localStorage.setItem(STYLE_KEY, chartStyle);
     } catch {
       // Best-effort persistence only.
     }
@@ -91,6 +100,22 @@
     <h2 class="font-semibold text-zinc-900 dark:text-white">{t('usage.heading', 'Usage events')}</h2>
     <div class="flex items-center gap-3">
       {#if pane === 'chart'}
+        <label class="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400" for="usage-style">
+          {t('usage.style', 'Style')}
+          <select
+            id="usage-style"
+            value={chartStyle}
+            onchange={(e) => {
+              const v = (e.currentTarget as HTMLSelectElement).value;
+              chartStyle = v === 'bars' || v === 'lines' ? v : 'auto';
+            }}
+            class="rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+          >
+            <option value="auto">{t('usage.style-auto', 'Auto')}</option>
+            <option value="bars">{t('usage.style-bars', 'Bars')}</option>
+            <option value="lines">{t('usage.style-lines', 'Lines')}</option>
+          </select>
+        </label>
         <label class="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400" for="usage-window">
           {t('usage.window', 'Window')}
           <select
@@ -139,6 +164,7 @@
             windowDays={activity.windowDays}
             buckets={activity.buckets}
             timeZone={activity.timeZone}
+            {chartStyle}
           />
         </div>
       {/if}
