@@ -74,14 +74,18 @@
     } catch {
       // Keep UTC.
     }
+    // Every failure path — non-2xx, invalid JSON, network/session error —
+    // normalizes to an explicit loadFailed payload so the pane always renders
+    // the error state, never an unexplained empty card (Codex/Copilot on #673).
+    const failed: Activity = { windowDays, timeZone: tz, buckets: [], loadFailed: true };
     try {
       const res = await fetch(
         `/app/memories/${g.id}/usage/activity?window=${windowDays}&tz=${encodeURIComponent(tz)}`,
       );
-      if (seq !== fetchSeq) return;
-      activity = res.ok ? ((await res.json()) as Activity) : null;
+      const body = res.ok ? ((await res.json()) as Activity) : failed;
+      if (seq === fetchSeq) activity = body;
     } catch {
-      if (seq === fetchSeq) activity = null;
+      if (seq === fetchSeq) activity = failed;
     } finally {
       if (seq === fetchSeq) loading = false;
     }
@@ -129,15 +133,21 @@
           </select>
         </label>
       {/if}
-      <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+      <div
+        role="group"
+        aria-label={t('usage.pane-label', 'Usage representation')}
+        class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
+      >
         <button
           onclick={() => (pane = 'table')}
+          aria-pressed={pane === 'table'}
           class="px-2.5 py-1 text-xs {pane === 'table'
             ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white'
             : 'text-zinc-500'}"
         >{t('usage.pane-table', 'Table')}</button>
         <button
           onclick={() => (pane = 'chart')}
+          aria-pressed={pane === 'chart'}
           class="px-2.5 py-1 text-xs {pane === 'chart'
             ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white'
             : 'text-zinc-500'}"
