@@ -1083,11 +1083,13 @@
           class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
         >
           <button
+            type="button"
             onclick={() => storedView = 'graph'}
             aria-pressed={activeView === 'graph'}
             class="px-2.5 py-1 text-xs {activeView === 'graph' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
           >Graph</button>
           <button
+            type="button"
             onclick={() => storedView = 'nodes'}
             aria-pressed={activeView === 'nodes'}
             class="px-2.5 py-1 text-xs {activeView === 'nodes' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
@@ -1108,11 +1110,13 @@
           class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
         >
           <button
+            type="button"
             onclick={() => nodesPane = 'tree'}
             aria-pressed={nodesPane === 'tree'}
             class="px-2.5 py-1 text-xs {nodesPane === 'tree' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
           >Tree</button>
           <button
+            type="button"
             onclick={() => nodesPane = 'table'}
             aria-pressed={nodesPane === 'table'}
             class="px-2.5 py-1 text-xs {nodesPane === 'table' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
