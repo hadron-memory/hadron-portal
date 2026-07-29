@@ -1077,13 +1077,19 @@
          whenever the nodes view is active. -->
     <div class="ml-auto flex items-center gap-3">
       {#if !forcedView}
-        <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+        <div
+          role="group"
+          aria-label={t('memory-browser.view-toggle-label', 'Browser view')}
+          class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
+        >
           <button
             onclick={() => storedView = 'graph'}
+            aria-pressed={activeView === 'graph'}
             class="px-2.5 py-1 text-xs {activeView === 'graph' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
           >Graph</button>
           <button
             onclick={() => storedView = 'nodes'}
+            aria-pressed={activeView === 'nodes'}
             class="px-2.5 py-1 text-xs {activeView === 'nodes' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
           >Nodes</button>
         </div>
@@ -1096,13 +1102,19 @@
             Show hidden
           </label>
         {/if}
-        <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+        <div
+          role="group"
+          aria-label={t('memory-browser.nodes-pane-label', 'Nodes layout')}
+          class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
+        >
           <button
             onclick={() => nodesPane = 'tree'}
+            aria-pressed={nodesPane === 'tree'}
             class="px-2.5 py-1 text-xs {nodesPane === 'tree' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
           >Tree</button>
           <button
             onclick={() => nodesPane = 'table'}
+            aria-pressed={nodesPane === 'table'}
             class="px-2.5 py-1 text-xs {nodesPane === 'table' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
           >Table</button>
         </div>
