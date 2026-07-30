@@ -166,9 +166,21 @@
     revokeFormData.update((current) => ({ ...current, id: '' }), { taint: false });
   }
 
-  function formatTimestamp(iso: string | null): string {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleString();
+  // Epoch milliseconds (or null when absent/unparseable) so the date columns sort
+  // by instant rather than by the raw wire string. The `DateTime` scalar only
+  // guarantees a `Date.parse`-able value — NOT byte-for-byte ISO UTC — so a
+  // pass-through value carrying a non-UTC offset makes lexicographic string order
+  // differ from chronological order. See hadron-server
+  // conventions:datetime-scalar-for-date-fields.
+  function dateMs(iso: string | null): number | null {
+    if (!iso) return null;
+    const ms = new Date(iso).getTime();
+    return isNaN(ms) ? null : ms;
+  }
+
+  function formatTimestamp(ms: number | null): string {
+    if (ms == null) return '—';
+    return new Date(ms).toLocaleString();
   }
 
   // Source-label badge text for a row.
@@ -197,15 +209,15 @@
       size: 100,
     },
     { accessorFn: (row) => sourceLabel(row.issuedVia), id: 'source', header: i18n.columnSource(), size: 160 },
-    { accessorKey: 'createdAt', header: i18n.columnCreated(), size: 170 },
-    { accessorKey: 'lastUsedAt', header: i18n.columnLastUsed(), size: 170 },
+    { accessorFn: (row) => dateMs(row.createdAt), id: 'createdAt', header: i18n.columnCreated(), size: 170 },
+    { accessorFn: (row) => dateMs(row.lastUsedAt), id: 'lastUsedAt', header: i18n.columnLastUsed(), size: 170 },
     { id: 'actions', header: i18n.columnAction(), enableSorting: false, size: 100 },
   ];
 
   const fmt: Record<string, (v: unknown) => string> = {
     label: (v) => (v as string | null) ?? '—',
-    createdAt: (v) => formatTimestamp(v as string | null),
-    lastUsedAt: (v) => formatTimestamp(v as string | null),
+    createdAt: (v) => formatTimestamp(v as number | null),
+    lastUsedAt: (v) => formatTimestamp(v as number | null),
   };
 
   const table = createSvelteTable<UserApiKey>({

@@ -1130,9 +1130,21 @@
     return r.editedByUser?.handle ? `@${r.editedByUser.handle}` : (r.editedByInfo ?? '—');
   }
 
+  // Epoch milliseconds (or null when absent/unparseable) so the When column sorts
+  // by instant rather than by the raw wire string. The `DateTime` scalar only
+  // guarantees a `Date.parse`-able value — NOT byte-for-byte ISO UTC — so a
+  // pass-through value carrying a non-UTC offset makes lexicographic string order
+  // differ from chronological order. See hadron-server
+  // conventions:datetime-scalar-for-date-fields.
+  function revisionDateMs(val: string | null): number | null {
+    if (!val) return null;
+    const ms = new Date(val).getTime();
+    return isNaN(ms) ? null : ms;
+  }
+
   let revisionFilter = $state('');
   const revisionColumns: ColumnDef<NodeRevision>[] = [
-    { accessorKey: 'createdAt', id: 'when', header: t('node.history.col.when', 'When'), size: 200 },
+    { accessorFn: (r) => revisionDateMs(r.createdAt), id: 'when', header: t('node.history.col.when', 'When'), size: 200 },
     { accessorFn: (r) => r.revLabel ?? '', id: 'label', header: t('node.history.col.label', 'Label'), size: 280 },
     // #620: changed fields (empty on legacy rows). Filterable by field name.
     { accessorFn: (r) => (r.changes ?? []).join(' '), id: 'changes', header: t('node.history.col.changes', 'Changes'), enableSorting: false, size: 220 },

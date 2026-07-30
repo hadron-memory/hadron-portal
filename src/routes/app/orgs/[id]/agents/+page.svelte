@@ -214,6 +214,18 @@
       : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
   }
 
+  // Epoch milliseconds (or null when absent/unparseable) so the Since column sorts
+  // by instant rather than by the raw wire string. The `DateTime` scalar only
+  // guarantees a `Date.parse`-able value — NOT byte-for-byte ISO UTC — so a
+  // pass-through value carrying a non-UTC offset makes lexicographic string order
+  // differ from chronological order. The cell renders from the row via `fmtDate`.
+  // See hadron-server conventions:datetime-scalar-for-date-fields.
+  function dateMs(s: string | null): number | null {
+    if (!s) return null;
+    const ms = new Date(s).getTime();
+    return isNaN(ms) ? null : ms;
+  }
+
   let grantsFilter = $state('');
 
   const grantColumns: ColumnDef<AgentGrant>[] = [
@@ -221,7 +233,7 @@
     { accessorFn: (g) => g.agent?.urn ?? '', id: 'urn', header: t('org-agents.subscribed.column.urn', 'URN'), size: 280 },
     { accessorFn: (g) => (g.agent ? ownerSlugOf(g.agent.urn) : '—'), id: 'owner', header: t('org-agents.subscribed.column.owner', 'Owner'), size: 140 },
     { accessorFn: (g) => grantStatusLabel[grantStatusKind(g)], id: 'status', header: t('org-agents.subscribed.column.status', 'Status'), size: 100 },
-    { accessorFn: (g) => g.activatedAt ?? g.createdAt, id: 'since', header: t('org-agents.subscribed.column.since', 'Since'), size: 120 },
+    { accessorFn: (g) => dateMs(g.activatedAt ?? g.createdAt), id: 'since', header: t('org-agents.subscribed.column.since', 'Since'), size: 120 },
     { id: 'actions', header: t('org-agents.subscribed.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 130 },
   ];
 

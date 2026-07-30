@@ -20,11 +20,21 @@
     maxHeight = 'calc(100vh - 23rem)',
   }: { events: UsageEvent[]; listKey: string; maxHeight?: string } = $props();
 
-  function formatDate(val: string | null): string {
-    if (!val) return '—';
-    const d = new Date(val);
-    if (isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  // Epoch milliseconds (or null when absent/unparseable) so the Time column sorts
+  // by instant rather than by the raw wire string. The `DateTime` scalar only
+  // guarantees a `Date.parse`-able value — NOT byte-for-byte ISO UTC — so a
+  // pass-through value carrying a non-UTC offset makes lexicographic string order
+  // differ from chronological order. See hadron-server
+  // conventions:datetime-scalar-for-date-fields.
+  function dateMs(val: string | null): number | null {
+    if (!val) return null;
+    const ms = new Date(val).getTime();
+    return isNaN(ms) ? null : ms;
+  }
+
+  function formatDate(ms: number | null): string {
+    if (ms == null) return '—';
+    return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
   let globalFilter = $state('');
@@ -32,7 +42,7 @@
   // Columns hold raw, sortable accessor values; display formatting is applied
   // at render time via `fmt` (keyed by column id) so numeric/date sort is kept.
   const columns: ColumnDef<UsageEvent>[] = [
-    { accessorKey: 'createdAt', header: 'Time', enableHiding: false, size: 120 }, // identity column
+    { accessorFn: (r) => dateMs(r.createdAt), id: 'createdAt', header: 'Time', enableHiding: false, size: 120 }, // identity column
     { accessorKey: 'type', header: 'Type', size: 100 },
     { accessorKey: 'nodeLoc', header: 'Node', size: 320 },
     { accessorKey: 'model', header: 'Model', size: 160 },
@@ -40,7 +50,7 @@
   ];
 
   const fmt: Record<string, (v: unknown) => string> = {
-    createdAt: (v) => formatDate(v as string | null),
+    createdAt: (v) => formatDate(v as number | null),
     nodeLoc: (v) => (v as string | null) ?? '—',
     model: (v) => (v as string | null) ?? '—',
     tokens: (v) => ((v as number) > 0 ? (v as number).toLocaleString() : '—'),

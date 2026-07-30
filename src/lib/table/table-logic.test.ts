@@ -88,6 +88,75 @@ describe('TanStack table logic (headless, no DOM)', () => {
   });
 });
 
+// Date columns must sort by INSTANT, not by the raw wire string. The `DateTime`
+// scalar only guarantees a `Date.parse`-able value — NOT byte-for-byte ISO UTC —
+// so a provider pass-through value can carry a non-UTC offset. Handed a date
+// string, TanStack auto-selects its `alphanumeric` comparator, which orders by
+// the wall-clock digit groups and IGNORES the offset entirely, so two rows an
+// hour apart can come out in the wrong order. Every portal date column therefore
+// uses an `accessorFn` returning epoch millis (with the rendered text produced
+// separately at display time).
+describe('date-column sorting (DateTime scalar is only Date.parse-able)', () => {
+  interface Ev {
+    label: string;
+    at: string;
+  }
+
+  // Same calendar day, three different offsets. Chronologically it is
+  // B (21:00Z) → A (22:00Z) → C (23:00Z), but the wall-clock hours are
+  // C=18, A=22, B=23 — so offset-blind ordering yields C → A → B instead.
+  const EVENTS: Ev[] = [
+    { label: 'A', at: '2026-07-30T22:00:00Z' }, // 22:00Z
+    { label: 'B', at: '2026-07-30T23:00:00+02:00' }, // 21:00Z
+    { label: 'C', at: '2026-07-30T18:00:00-05:00' }, // 23:00Z
+  ];
+
+  function dateTable(col: ColumnDef<Ev>) {
+    let state = {} as TableState;
+    const table = createTable<Ev>({
+      data: EVENTS,
+      columns: [{ accessorKey: 'label', header: 'Label' }, col],
+      state,
+      onStateChange: (updater) => {
+        state = updater instanceof Function ? updater(state) : updater;
+        table.setOptions((prev) => ({ ...prev, state }));
+      },
+      getCoreRowModel: getCoreRowModel(),
+      getSortedRowModel: getSortedRowModel(),
+      renderFallbackValue: null,
+    } as TableOptionsResolved<Ev>);
+    state = table.initialState;
+    table.setOptions((prev) => ({ ...prev, state }));
+    table.setSorting([{ id: 'at', desc: false }]);
+    return table;
+  }
+
+  it('sorts chronologically with a numeric (epoch-millis) accessor', () => {
+    const table = dateTable({
+      accessorFn: (r) => new Date(r.at).getTime(),
+      id: 'at',
+      header: 'When',
+    });
+    expect(table.getRowModel().rows.map((r) => r.original.label)).toEqual(['B', 'A', 'C']);
+  });
+
+  it('pins the defect: a raw-string accessor orders by wall clock, ignoring the offset', () => {
+    const table = dateTable({ accessorKey: 'at', id: 'at', header: 'When' });
+    expect(table.getRowModel().rows.map((r) => r.original.label)).toEqual(['C', 'A', 'B']);
+  });
+
+  it('keeps missing/unparseable dates out of the ordering as null', () => {
+    const ms = (val: string | null): number | null => {
+      if (!val) return null;
+      const t = new Date(val).getTime();
+      return isNaN(t) ? null : t;
+    };
+    expect(ms(null)).toBeNull();
+    expect(ms('not a date')).toBeNull();
+    expect(ms('2026-07-30T23:00:00+02:00')).toBe(Date.parse('2026-07-30T21:00:00Z'));
+  });
+});
+
 describe('saved-view serialization', () => {
   it('round-trips a view through JSON', () => {
     const table = makeTable();
