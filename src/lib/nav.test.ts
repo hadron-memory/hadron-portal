@@ -47,6 +47,7 @@ describe('buildNavItems', () => {
       '/app/search',
       '/app/memories',
       '/app/orgs/personal-1/tasks',
+      '/app/orgs/personal-1/runs',
       '/app/agents',
       '/app/apps',
     ]);
@@ -59,13 +60,20 @@ describe('buildNavItems', () => {
     const items = hrefs({ activeOrgId: 'org-1', isConsumerMode: false });
     expect(items).toContain('/app/orgs/org-1/agents');
     expect(items).toContain('/app/orgs/org-1/apps');
-    // Dashboard, Search, Memories (org), My memories, Task Nodes, Agents, Apps.
-    expect(items).toHaveLength(7);
+    // Dashboard, Search, Memories (org), My memories, Task Nodes, App Runs,
+    // Agents, Apps.
+    expect(items).toHaveLength(8);
+  });
+
+  it('App Runs sits right after Task Nodes and needs an active org', () => {
+    const items = hrefs({ activeOrgId: 'org-1', isConsumerMode: false });
+    expect(items.indexOf('/app/orgs/org-1/runs')).toBe(items.indexOf('/app/orgs/org-1/tasks') + 1);
+    expect(hrefs({ activeOrgId: null, isConsumerMode: false })).not.toContain('/app/orgs/null/runs');
   });
 
   it('without an active org, still shows the org-independent items (so no empty sidebar)', () => {
     // #628 review (Copilot): an org-less user must be able to reach /app/memories;
-    // only the truly org-scoped items (Task Nodes / Agents / Apps) drop out.
+    // only the truly org-scoped items (Task Nodes / App Runs / Agents / Apps) drop out.
     const items = hrefs({ activeOrgId: null, isConsumerMode: false });
     expect(items).toEqual(['/app/dashboard', '/app/search', '/app/memories']);
     expect(items.some((h) => h.startsWith('/app/orgs/'))).toBe(false);

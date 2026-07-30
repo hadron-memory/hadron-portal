@@ -10,6 +10,7 @@
   import {
     RUN_STATUSES,
     describeTrigger,
+    entryNodeLabel,
     failureCode,
     fmtRunTime,
     runDuration,
@@ -53,12 +54,6 @@
     if (status) qs.set('status', status);
     const s = qs.toString();
     return `${basePath}/runs${s ? `?${s}` : ''}`;
-  }
-
-  /** Entry-node display: the loc, with the memory prefix as a title. */
-  function entryLabel(urn: string): string {
-    const sep = urn.lastIndexOf('::');
-    return sep >= 0 ? urn.slice(sep + 2) : urn;
   }
 
   function prepareRun(entryUrn: string) {
@@ -191,7 +186,7 @@
               </td>
               <td class="px-3 py-2 text-zinc-700 dark:text-zinc-300">{describeTrigger(run)}</td>
               <td class="px-3 py-2 font-mono text-xs text-zinc-600 dark:text-zinc-300" title={run.entryNodeUrn}>
-                {entryLabel(run.entryNodeUrn)}
+                {entryNodeLabel(run.entryNodeUrn)}
               </td>
               <td class="px-3 py-2 whitespace-nowrap text-zinc-600 dark:text-zinc-300">{fmtRunTime(run.startedAt ?? run.createdAt)}</td>
               <td class="px-3 py-2 whitespace-nowrap text-zinc-600 dark:text-zinc-300">{runDuration(run)}</td>

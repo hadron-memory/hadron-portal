@@ -2192,6 +2192,20 @@ export const APP_RUNS_QUERY = /* GraphQL */ `
   }
 `;
 
+// The ORG-wide runs audit list ("App Runs" sidebar section) — every run of
+// every app in one org, not just one app's. Same resolver/gate as
+// APP_RUNS_QUERY (org-READER, limit hard-capped 200); only the scope arg
+// differs, and `orgRef` accepts an org id or URN.
+export const ORG_APP_RUNS_QUERY = /* GraphQL */ `
+  ${APP_RUN_FIELDS}
+  query OrgAppRuns($orgRef: String, $status: AppRunStatus, $limit: Int, $offset: Int) {
+    appRuns(orgRef: $orgRef, status: $status, limit: $limit, offset: $offset) {
+      items { ...AppRunFields }
+      total
+    }
+  }
+`;
+
 export const APP_RUN_QUERY = /* GraphQL */ `
   ${APP_RUN_FIELDS}
   query AppRun($id: ID!) {

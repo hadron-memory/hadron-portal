@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   defaultRunRecordUrn,
   describeTrigger,
+  entryNodeLabel,
   failureCode,
   fmtRunTime,
   isCancellable,
@@ -63,6 +64,13 @@ describe('visibleEnvelope', () => {
     expect(visibleEnvelope({ intent: 'x', __aiConfigName: 'default' })).toEqual({ intent: 'x' });
     expect(visibleEnvelope({ __only: 1 })).toBeNull();
     expect(visibleEnvelope(null)).toBeNull();
+  });
+});
+
+describe('entryNodeLabel', () => {
+  it('strips the memory prefix and passes a prefix-less urn through', () => {
+    expect(entryNodeLabel('hrn:node:acme.com::flows::entry')).toBe('entry');
+    expect(entryNodeLabel('flows:entry')).toBe('flows:entry');
   });
 });
 
