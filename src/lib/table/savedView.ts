@@ -17,7 +17,14 @@ import type {
   RowData,
 } from '@tanstack/table-core';
 
-/** A persisted view: exactly the slices a user can customize. */
+/**
+ * A persisted view: exactly the slices a user can customize.
+ *
+ * `pagination.pageIndex` is deliberately NOT part of a view — see
+ * `extractView`. Only `pageSize` is a user preference; the page NUMBER is
+ * ephemeral position. The field stays in the shape (it's `PaginationState`)
+ * but is always normalized to 0.
+ */
 export interface SavedView {
   sorting: SortingState;
   columnFilters: ColumnFiltersState;
@@ -28,7 +35,25 @@ export interface SavedView {
   pagination: PaginationState;
 }
 
-/** Pull the persistable slices out of live table state. */
+/**
+ * Pull the persistable slices out of live table state.
+ *
+ * `pageIndex` is pinned to 0 rather than captured (Codex review on #677). Two
+ * reasons, both bugs:
+ *
+ * 1. **Restoring a stale page can strand the user.** A view saved on page 5
+ *    that is later applied to a SMALLER row set — a different server-side
+ *    slice (`?status=FAILED`), a later server page, or just fewer rows —
+ *    leaves `getPaginationRowModel()` slicing past the end. The body renders
+ *    blank while the list is non-empty (so the page's empty state doesn't
+ *    show either), and `DataTable` hides Prev/Next at a single page, so
+ *    there's no way back.
+ * 2. **Paging would mark the view "modified".** `isModified` compares
+ *    `extractView(live)` against the stored view, so clicking Next used to
+ *    pop the Save/Reset buttons for what isn't an arrangement change at all.
+ *
+ * `pageSize` IS a real preference and is preserved.
+ */
 export function extractView(state: TableState): SavedView {
   return {
     sorting: state.sorting,
@@ -37,7 +62,7 @@ export function extractView(state: TableState): SavedView {
     columnVisibility: state.columnVisibility,
     columnOrder: state.columnOrder,
     columnSizing: state.columnSizing,
-    pagination: state.pagination,
+    pagination: { pageIndex: 0, pageSize: state.pagination.pageSize },
   };
 }
 
@@ -54,12 +79,15 @@ export function applyView<T extends RowData>(table: Table<T>, view: SavedView): 
   table.setColumnVisibility(view.columnVisibility ?? {});
   table.setColumnOrder(view.columnOrder ?? []);
   table.setColumnSizing(view.columnSizing ?? {});
-  table.setPagination(view.pagination ?? { pageIndex: 0, pageSize: 25 });
+  // Land on the first page, keeping the view's page SIZE — see extractView.
+  table.setPagination({ pageIndex: 0, pageSize: view.pagination?.pageSize ?? 25 });
 }
 
 /** Turn a saved view into a partial TableState usable as `initialState`. */
 export function viewToInitialState(view: SavedView | null | undefined): Partial<TableState> {
-  return view ? { ...view } : {};
+  return view
+    ? { ...view, pagination: { pageIndex: 0, pageSize: view.pagination?.pageSize ?? 25 } }
+    : {};
 }
 
 export const serializeView = (view: SavedView): string => JSON.stringify(view);
@@ -67,9 +95,12 @@ export const serializeView = (view: SavedView): string => JSON.stringify(view);
 const isObject = (x: unknown): x is Record<string, unknown> =>
   typeof x === 'object' && x !== null && !Array.isArray(x);
 
+// pageIndex is normalized to 0 on the way IN too, so a legacy view stored
+// before that rule (or a hand-edited one) compares equal to freshly-extracted
+// state instead of reading as permanently "modified".
 function validPagination(p: unknown): PaginationState {
-  if (isObject(p) && typeof p.pageIndex === 'number' && typeof p.pageSize === 'number') {
-    return { pageIndex: p.pageIndex, pageSize: p.pageSize };
+  if (isObject(p) && typeof p.pageSize === 'number') {
+    return { pageIndex: 0, pageSize: p.pageSize };
   }
   return { pageIndex: 0, pageSize: 25 };
 }

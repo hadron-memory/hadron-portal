@@ -4,7 +4,7 @@
  * The org itself (incl. 404 handling) is loaded by +layout.server.ts; this
  * loader only fetches the run window + the app-name map.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ORG_APP_RUNS_QUERY, ORG_APP_INSTALLS_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -12,10 +12,18 @@ vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
 }));
 
+// Module-scope spies + an explicit restore, matching the repo's other loader
+// tests (dashboard, usage/activity). Re-spying in beforeEach would wrap an
+// already-wrapped method once per test and never unwind it.
+const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+afterAll(() => {
+  errorSpy.mockRestore();
+  warnSpy.mockRestore();
+});
+
 beforeEach(() => {
   mockRequest.mockReset();
-  vi.spyOn(console, 'error').mockImplementation(() => {});
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 const run = {

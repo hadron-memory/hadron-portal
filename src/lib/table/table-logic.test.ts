@@ -122,6 +122,59 @@ describe('saved-view serialization', () => {
     expect(v!.pagination).toEqual({ pageIndex: 0, pageSize: 25 });
   });
 
+  // Codex review on #677: a view saved on page 5 and later applied to a
+  // SMALLER row set (a different server-side slice, a later page, fewer rows)
+  // used to slice past the end — blank body on a non-empty list, and no pager
+  // to escape with. pageSize is a preference; the page NUMBER is not.
+  describe('pageIndex is never part of a view', () => {
+    const asView = (over: Partial<SavedView>): SavedView => ({
+      sorting: [],
+      columnFilters: [],
+      globalFilter: '',
+      columnVisibility: {},
+      columnOrder: [],
+      columnSizing: {},
+      pagination: { pageIndex: 0, pageSize: 25 },
+      ...over,
+    });
+
+    it('extractView pins pageIndex to 0 but keeps pageSize', () => {
+      const table = makeTable();
+      table.setPageSize(2);
+      table.nextPage();
+      expect(table.getState().pagination.pageIndex).toBe(1);
+
+      expect(extractView(table.getState()).pagination).toEqual({ pageIndex: 0, pageSize: 2 });
+    });
+
+    it('paging does not make the live state differ from its saved view', () => {
+      const table = makeTable();
+      table.setPageSize(2);
+      const saved = extractView(table.getState());
+      table.nextPage();
+
+      // What isModified() compares — paging must not pop Save/Reset.
+      expect(serializeView(extractView(table.getState()))).toBe(serializeView(saved));
+    });
+
+    it('applyView lands on the first page even from a stale stored pageIndex', () => {
+      const table = makeTable();
+      table.setPageSize(2);
+      table.nextPage();
+
+      applyView(table, asView({ pagination: { pageIndex: 4, pageSize: 2 } }));
+
+      expect(table.getState().pagination).toEqual({ pageIndex: 0, pageSize: 2 });
+      // The row model must actually have rows — the bug was a blank body.
+      expect(table.getRowModel().rows.length).toBeGreaterThan(0);
+    });
+
+    it('normalizes a legacy stored pageIndex on read', () => {
+      const v = deserializeView('{"pagination":{"pageIndex":7,"pageSize":10}}');
+      expect(v!.pagination).toEqual({ pageIndex: 0, pageSize: 10 });
+    });
+  });
+
   it('round-trips the global search term (spec 020 FR-002)', () => {
     const view: SavedView = {
       sorting: [],
