@@ -81,7 +81,18 @@
     // Identity column: when it ran. Numeric accessor sorts chronologically;
     // `started` carries the rendered string for display and search.
     { accessorFn: (row) => row.startedMs, id: 'started', header: t('org-runs.column.started', 'Started'), enableHiding: false, size: 180 },
-    { accessorKey: 'status', header: t('org-runs.column.status', 'Status'), size: 120 },
+    {
+      accessorKey: 'status',
+      header: t('org-runs.column.status', 'Status'),
+      size: 120,
+      // Multi-select: the filter value is an ARRAY of statuses, so a view can
+      // pin "not finished yet" (PENDING + RUNNING). None of TanStack's built-in
+      // filterFns fit — `arrIncludesSome` expects the ROW value to be the array,
+      // and ours is a scalar — so match membership the other way round. An
+      // empty/absent selection means no filtering.
+      filterFn: (row, columnId, value: AppRunStatus[]) =>
+        !value?.length || value.includes(row.getValue(columnId) as AppRunStatus),
+    },
     { accessorKey: 'app', header: t('org-runs.column.app', 'App'), size: 160 },
     { accessorKey: 'trigger', header: t('org-runs.column.trigger', 'Trigger'), size: 170 },
     { accessorKey: 'entry', header: t('org-runs.column.entry', 'Entry node'), size: 280 },
@@ -115,10 +126,26 @@
     getPaginationRowModel: getPaginationRowModel(),
   });
 
-  /** Status filter is a SERVER arg (it reaches runs outside the window). */
-  function statusHref(status: AppRunStatus | null): string {
-    return status ? `/app/orgs/${data.org.id}/runs?status=${status}` : `/app/orgs/${data.org.id}/runs`;
+  // ── Status filter ─────────────────────────────────────────────────────────
+  // A COLUMN filter, not a server arg: `columnFilters` is one of the slices a
+  // saved view persists, so "show me everything that hasn't finished yet"
+  // (PENDING + RUNNING) becomes a named view. A server arg couldn't do that —
+  // it lives in the URL, which views don't capture — and it only took ONE
+  // status, so it couldn't express "unfinished" at all.
+  const statusColumn = $derived(table.getColumn('status'));
+  const selectedStatuses = $derived((statusColumn?.getFilterValue() as AppRunStatus[] | undefined) ?? []);
+
+  function toggleStatus(status: AppRunStatus) {
+    const next = selectedStatuses.includes(status)
+      ? selectedStatuses.filter((s) => s !== status)
+      : [...selectedStatuses, status];
+    // Undefined (not []) clears the filter, so the column reports no active
+    // filter rather than an empty-array one.
+    statusColumn?.setFilterValue(next.length ? next : undefined);
   }
+
+  /** Rows surviving every filter — drives the "nothing matches" state below. */
+  const visibleRowCount = $derived(table.getFilteredRowModel().rows.length);
 </script>
 
 <svelte:head><title>App Runs · {org.name} · Hadron</title></svelte:head>
@@ -131,26 +158,39 @@
     </p>
   </div>
 
-  <!-- Status filter. Links, not buttons: the filter is a server-side query arg,
-       so it reaches runs older than the window the table holds. -->
-  <nav aria-label={t('org-runs.filter.aria-label', 'Filter runs by status')} class="flex flex-wrap items-center gap-1.5">
-    <a
-      href={statusHref(null)}
-      aria-current={data.status === null ? 'page' : undefined}
-      class="rounded-full px-2.5 py-1 text-xs font-medium {data.status === null
+  <!-- Multi-select status filter. Buttons, not links: this is a COLUMN filter,
+       so the selection rides in `columnFilters` and a saved view captures it
+       ("Unfinished" = PENDING + RUNNING). Toggles expose state via aria-pressed
+       in a labelled group (review:segmented-control-aria-pressed). -->
+  <div
+    role="group"
+    aria-label={t('org-runs.filter.aria-label', 'Filter runs by status')}
+    class="flex flex-wrap items-center gap-1.5"
+  >
+    <button
+      type="button"
+      onclick={() => statusColumn?.setFilterValue(undefined)}
+      aria-pressed={selectedStatuses.length === 0}
+      class="rounded-full px-2.5 py-1 text-xs font-medium {selectedStatuses.length === 0
         ? 'bg-indigo-600 text-white'
         : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}"
-    >{t('org-runs.filter.all', 'All')}</a>
+    >{t('org-runs.filter.all', 'All')}</button>
     {#each RUN_STATUSES as status (status)}
-      <a
-        href={statusHref(status)}
-        aria-current={data.status === status ? 'page' : undefined}
-        class="rounded-full px-2.5 py-1 text-xs font-medium {data.status === status
+      <button
+        type="button"
+        onclick={() => toggleStatus(status)}
+        aria-pressed={selectedStatuses.includes(status)}
+        class="rounded-full px-2.5 py-1 text-xs font-medium {selectedStatuses.includes(status)
           ? 'bg-indigo-600 text-white'
           : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700'}"
-      >{status}</a>
+      >{status}</button>
     {/each}
-  </nav>
+    {#if selectedStatuses.length > 0}
+      <span class="ml-1 text-xs text-zinc-500">
+        {t('org-runs.filter.matching', '{n} matching').replace('{n}', String(visibleRowCount))}
+      </span>
+    {/if}
+  </div>
 
   {#if data.failed}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
@@ -159,26 +199,47 @@
   {:else if rows.length === 0}
     <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center dark:border-zinc-800 dark:bg-zinc-900">
       <p class="text-sm font-medium text-zinc-600 dark:text-zinc-300">
-        {data.status
-          ? t('org-runs.empty.filtered', 'No runs with this status.')
-          : t('org-runs.empty.title', 'No runs yet.')}
+        {t('org-runs.empty.title', 'No runs yet.')}
       </p>
-      {#if !data.status}
-        <p class="mx-auto mt-2 max-w-lg text-xs text-zinc-500 dark:text-zinc-400">
-          {t(
-            'org-runs.empty.explainer',
-            'Runs start from a trigger: a schedule (run every morning), a webhook (run when an outside system calls), or manually — the “Test flow” button on any runnable node mints one.',
-          )}
-        </p>
-      {/if}
+      <p class="mx-auto mt-2 max-w-lg text-xs text-zinc-500 dark:text-zinc-400">
+        {t(
+          'org-runs.empty.explainer',
+          'Runs start from a trigger: a schedule (run every morning), a webhook (run when an outside system calls), or manually — the “Test flow” button on any runnable node mints one.',
+        )}
+      </p>
     </div>
   {:else}
     {#if data.truncated}
       <p class="text-sm text-amber-600 dark:text-amber-400">
-        {t('org-runs.truncated', 'Showing the {shown} most recent of {total} runs — filter by status to reach older ones.')
-          .replace('{shown}', String(rows.length))
+        {t('org-runs.truncated', 'Showing the {shown} most recent of {total} runs. Filters apply to these {shown}.')
+          .replace(/\{shown\}/g, String(rows.length))
           .replace('{total}', String(data.total))}
       </p>
+    {/if}
+
+    <!-- Filters exclude every row. This is a BANNER above a still-mounted
+         DataTable, not a branch that replaces it (Codex P1 on #680): DataTable
+         owns ViewTabs, and ViewTabs re-runs `ctrl.init()` on mount, which
+         re-applies the persisted active view. Swapping the table out for an
+         empty state would therefore trap the user — "Clear filters" restores
+         rows, the table remounts, init() re-applies the same zero-match view,
+         and they're back here with no way to switch, edit or delete it.
+         Keeping the chrome mounted also keeps the truncation line above
+         visible, so a zero-match result still says only the newest N were
+         searched (Codex P2). -->
+    {#if visibleRowCount === 0}
+      <div role="status" class="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60">
+        <span class="font-medium text-zinc-600 dark:text-zinc-300">
+          {data.truncated
+            ? t('org-runs.empty.filtered-truncated', 'No runs match the current filters — and only the {shown} most recent runs were searched.').replace('{shown}', String(rows.length))
+            : t('org-runs.empty.filtered', 'No runs match the current filters.')}
+        </span>
+        <button
+          type="button"
+          onclick={() => { statusColumn?.setFilterValue(undefined); globalFilter = ''; }}
+          class="ml-2 rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >{t('org-runs.empty.clear-filters', 'Clear filters')}</button>
+      </div>
     {/if}
 
     <DataTable
@@ -197,10 +258,10 @@
         {:else if cell.column.id === 'app'}
           <a href="/app/apps/{run.appId}/runs" class="block truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{run.app}</a>
         {:else if cell.column.id === 'entry'}
-          <div class="min-w-0">
-            <div class="truncate font-mono text-xs" title={run.entryUrn}>{run.entry}</div>
-            <div class="mt-0.5"><Urn value={run.entryUrn} type="node" size={8} /></div>
-          </div>
+          <!-- The <Urn> chip alone: it already renders the loc, so the separate
+               loc line above it was duplicate text in every row. The column
+               still SORTS and SEARCHES on the loc via the `entry` accessor. -->
+          <div class="min-w-0" title={run.entryUrn}><Urn value={run.entryUrn} type="node" size={8} /></div>
         {:else if cell.column.id === 'duration'}
           <span class="whitespace-nowrap">{run.duration}</span>
         {:else if cell.column.id === 'failure'}
