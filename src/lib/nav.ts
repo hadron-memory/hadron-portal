@@ -13,8 +13,9 @@ export interface NavItem {
  * Org-independent items (Dashboard, Search, and — for individuals — the org-less
  * Memories surface) show even without an active org, so an org-less user is
  * never stranded with an empty sidebar (Copilot review on #628; matters more as
- * #627 removes the personal org). Task Nodes and App Runs need an active org;
- * Agents and Apps only show for non-consumer (org) members.
+ * #627 removes the personal org). Task Nodes and App Runs need an active org
+ * (App Runs sits last, below Apps); Agents and Apps only show for non-consumer
+ * (org) members.
  *
  * #629: EVERY user's "Dashboard" now points at /app/dashboard (a stats page) —
  * an org page is the wrong content for a dashboard, individual or not.
@@ -57,11 +58,6 @@ export function buildNavItems(data: {
 
   if (activeOrgId) {
     items.push({ href: `/app/orgs/${activeOrgId}/tasks`, label: t('app.nav.task-nodes', 'Task Nodes'), match: 'prefix' });
-    // "App Runs" sits next to Task Nodes deliberately: the pair is "what can
-    // run" / "what actually ran". Same org gate as Task Nodes — the appRuns
-    // audit query is org-scoped (orgRef + org-READER), so it needs an active
-    // org but no non-consumer gate.
-    items.push({ href: `/app/orgs/${activeOrgId}/runs`, label: t('app.nav.app-runs', 'App Runs'), match: 'prefix' });
   }
 
   if (activeOrgId && !isConsumerMode) {
@@ -72,6 +68,16 @@ export function buildNavItems(data: {
     // labels as the org items — a consumer has no org list to disambiguate from.
     items.push({ href: '/app/agents', label: t('app.nav.agents', 'Agents'), match: 'prefix' });
     items.push({ href: '/app/apps', label: t('app.nav.apps', 'Apps'), match: 'prefix' });
+  }
+
+  // "App Runs" — the org-wide headless-run audit list, placed directly below
+  // Apps (maintainer's call): a run belongs to an app, so it reads as the
+  // app section's tail rather than as a sibling of Task Nodes. Gated on an
+  // active org ONLY — the appRuns audit query is org-scoped (orgRef +
+  // org-READER), so unlike Agents/Apps it needs no non-consumer gate, and a
+  // consumer with an active org still gets it after their org-less Apps link.
+  if (activeOrgId) {
+    items.push({ href: `/app/orgs/${activeOrgId}/runs`, label: t('app.nav.app-runs', 'App Runs'), match: 'prefix' });
   }
 
   return items;

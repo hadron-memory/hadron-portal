@@ -67,6 +67,41 @@ When a non-obvious finding emerges — a convention you discovered, a gotcha you
 
 The `speckit.hadron.capture` hook (bound at `after_plan` and `after_implement`) is a backstop, not the primary mechanism. Propose and capture in real-time.
 
+## Driving the local app as a signed-in user (dev login)
+
+Most of the portal is behind auth, so an unauthenticated preview just bounces to
+`/signin` and nothing can be verified. **Never ask the user for a password and
+never type credentials** — hadron-server ships a dev-only sign-in for exactly
+this (`hadron-server#792`, `src/auth/devLogin.ts`):
+
+```
+GET http://localhost:4000/auth/dev/login?email=<your-email>&redirect=/app/dashboard
+```
+
+It signs in as an **existing** user (never creates one) by minting a real #477
+login handoff code and 302-ing into the portal's `/auth/callback`, so the session
+is identical to a genuine magic-link login. Three gates, all required per request:
+`DEV_LOGIN_ENABLED=true`, `NODE_ENV !== 'production'`, and a loopback TCP peer
+with a raw `localhost`/`127.0.0.1` Host header. Any gate failing yields a plain
+404, indistinguishable from a route that doesn't exist.
+
+**Port gotcha.** The server redirects to its `FRONTEND_URL`, which is
+`http://localhost:5173` by default. The default `portal-dev` launch config runs
+on **5175**, so the handoff lands on a dead port. Use the **`portal-dev-authed`**
+config in `.claude/launch.json` (same dev server, pinned to 5173), then navigate
+the browser straight at the `/auth/dev/login` URL and let it follow the redirect
+through. Doing it that way keeps the single-use code inside the browser — don't
+capture it into a file or echo it into the transcript.
+
+Two things that are NOT acceptable workarounds: querying the database for user
+emails (enumerating PII the task didn't call for — use an address the user has
+already given you, and ask if it doesn't resolve), and persisting the handoff
+code anywhere on disk.
+
+If `curl` gets a 404 with an empty body, a gate is failing — check
+`DEV_LOGIN_ENABLED` in the running server's `.env`. A `{"error":"No user with
+that email"}` 404 means the gates passed and only the lookup missed.
+
 ## Git and PR conventions
 
 - **Branch naming**: Use `feature/`, `fix/`, `refactor/`, or `docs/` prefixes (e.g., `feature/node-detail-redesign`)

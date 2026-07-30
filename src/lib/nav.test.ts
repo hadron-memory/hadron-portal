@@ -47,9 +47,9 @@ describe('buildNavItems', () => {
       '/app/search',
       '/app/memories',
       '/app/orgs/personal-1/tasks',
-      '/app/orgs/personal-1/runs',
       '/app/agents',
       '/app/apps',
+      '/app/orgs/personal-1/runs',
     ]);
     // …never the org-scoped variants for an individual.
     expect(items).not.toContain('/app/orgs/personal-1/agents');
@@ -60,14 +60,19 @@ describe('buildNavItems', () => {
     const items = hrefs({ activeOrgId: 'org-1', isConsumerMode: false });
     expect(items).toContain('/app/orgs/org-1/agents');
     expect(items).toContain('/app/orgs/org-1/apps');
-    // Dashboard, Search, Memories (org), My memories, Task Nodes, App Runs,
-    // Agents, Apps.
+    // Dashboard, Search, Memories (org), My memories, Task Nodes, Agents,
+    // Apps, App Runs.
     expect(items).toHaveLength(8);
   });
 
-  it('App Runs sits right after Task Nodes and needs an active org', () => {
-    const items = hrefs({ activeOrgId: 'org-1', isConsumerMode: false });
-    expect(items.indexOf('/app/orgs/org-1/runs')).toBe(items.indexOf('/app/orgs/org-1/tasks') + 1);
+  it('App Runs sits directly below Apps and needs an active org', () => {
+    // Org member: Apps is the org-scoped link.
+    const orgItems = hrefs({ activeOrgId: 'org-1', isConsumerMode: false });
+    expect(orgItems.indexOf('/app/orgs/org-1/runs')).toBe(orgItems.indexOf('/app/orgs/org-1/apps') + 1);
+    // Consumer: Apps is the org-LESS link, and App Runs still follows it.
+    const consumerItems = hrefs({ activeOrgId: 'personal-1', isConsumerMode: true });
+    expect(consumerItems.indexOf('/app/orgs/personal-1/runs')).toBe(consumerItems.indexOf('/app/apps') + 1);
+    // Still org-gated: no active org, no App Runs.
     expect(hrefs({ activeOrgId: null, isConsumerMode: false })).not.toContain('/app/orgs/null/runs');
   });
 
