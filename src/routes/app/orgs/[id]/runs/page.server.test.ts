@@ -80,7 +80,6 @@ async function runLoad(search = '') {
     total: number;
     failed: boolean;
     truncated: boolean;
-    status: string | null;
     appNames: Record<string, string>;
   }>;
 }
@@ -103,22 +102,18 @@ describe('org App Runs load()', () => {
     expect(result.truncated).toBe(false);
   });
 
-  it('passes a valid status through as a server filter', async () => {
-    routeQueries({ runs: { items: [], total: 0 } });
+  // Status filtering moved client-side (a `columnFilters` entry, so a saved
+  // view can pin "Unfinished" = PENDING + RUNNING). The loader must therefore
+  // fetch the window UNFILTERED — a leftover ?status= narrowing the server
+  // query would silently hide rows the client filter expects to have.
+  it('always fetches the window unfiltered, ignoring a ?status= query param', async () => {
+    routeQueries();
 
     const result = await runLoad('?status=FAILED');
 
-    expect(result.status).toBe('FAILED');
-    expect(mockRequest).toHaveBeenCalledWith(ORG_APP_RUNS_QUERY, expect.objectContaining({ status: 'FAILED' }));
-  });
-
-  it('ignores an unknown status rather than sending it to the server', async () => {
-    routeQueries({ runs: { items: [], total: 0 } });
-
-    const result = await runLoad('?status=BOGUS');
-
-    expect(result.status).toBeNull();
     expect(mockRequest).toHaveBeenCalledWith(ORG_APP_RUNS_QUERY, expect.objectContaining({ status: null }));
+    expect(result.runs).toHaveLength(1);
+    expect(result).not.toHaveProperty('status');
   });
 
   it('flags truncation when the org has more runs than the window holds', async () => {
