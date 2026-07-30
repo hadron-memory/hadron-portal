@@ -61,7 +61,11 @@
   let globalFilter = $state('');
 
   const columns: ColumnDef<Session>[] = [
-    { accessorFn: (row) => dateMs(row.startedAt), id: 'started', header: t('sessions.column.started', 'Started'), enableHiding: false, size: 110 }, // identity column
+    // id stays 'startedAt' (the pre-accessorFn accessorKey): saved views for
+    // listKey "usage:sessions" store sorting/visibility/order/sizing BY COLUMN
+    // ID, and applyView silently drops ids that no longer exist — so renaming
+    // the column would quietly discard that state in every existing view.
+    { accessorFn: (row) => dateMs(row.startedAt), id: 'startedAt', header: t('sessions.column.started', 'Started'), enableHiding: false, size: 110 }, // identity column
     { accessorKey: 'type', header: t('sessions.column.type', 'Type'), size: 90 },
     {
       accessorFn: (row) => row.summary ?? (row.repo ? `${row.repo}${row.branch ? ` (${row.branch})` : ''}` : '—'),
@@ -77,7 +81,7 @@
   ];
 
   const fmt: Record<string, (v: unknown) => string> = {
-    started: (v) => formatDate(v as number | null),
+    startedAt: (v) => formatDate(v as number | null),
     llmModel: (v) => (v as string | null) ?? '—',
     duration: (v) => formatDuration(v as number | null),
     turnCount: (v) => (v == null ? '—' : String(v)),
