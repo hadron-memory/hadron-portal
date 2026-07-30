@@ -42,9 +42,11 @@ export function isCancellable(status: AppRunStatus): boolean {
 }
 
 /**
- * API dates arrive as epoch-millis strings (the spec-040 surfaces
- * serialize every date that way) — but accept ISO too so this survives
- * a future toISO mapping server-side.
+ * API dates are ISO 8601 as of hadron-server#205 (PR #834), which retyped
+ * every date-valued OUTPUT field to a `DateTime` scalar; the spec-040
+ * surfaces previously emitted epoch-millis strings. The numeric branch is
+ * kept as tolerance for a portal running ahead of its server during a
+ * deploy — it can go once no pre-#834 server is reachable.
  */
 export function parseApiDate(s: string | null | undefined): Date | null {
   if (!s) return null;
@@ -103,6 +105,16 @@ export function describeTrigger(run: Pick<AppRun, 'triggerKind' | 'eventData'>):
         (run.eventData as Record<string, unknown>).webhookName
       : null;
   return typeof name === 'string' && name !== '' ? `${kind} · ${name}` : kind;
+}
+
+/**
+ * Entry-node display label: the node's loc, with the memory prefix dropped
+ * (the full URN belongs in a title/<Urn> chip). Returns the input unchanged
+ * when there's no memory separator to strip.
+ */
+export function entryNodeLabel(urn: string): string {
+  const sep = urn.lastIndexOf('::');
+  return sep >= 0 ? urn.slice(sep + 2) : urn;
 }
 
 /** The failure code (EDGE_CONDITION_ERROR, MAX_HOPS_EXCEEDED, …), if any. */

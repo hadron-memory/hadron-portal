@@ -13,8 +13,8 @@ export interface NavItem {
  * Org-independent items (Dashboard, Search, and — for individuals — the org-less
  * Memories surface) show even without an active org, so an org-less user is
  * never stranded with an empty sidebar (Copilot review on #628; matters more as
- * #627 removes the personal org). Task Nodes needs an active org; Agents and
- * Apps only show for non-consumer (org) members.
+ * #627 removes the personal org). Task Nodes and App Runs need an active org;
+ * Agents and Apps only show for non-consumer (org) members.
  *
  * #629: EVERY user's "Dashboard" now points at /app/dashboard (a stats page) —
  * an org page is the wrong content for a dashboard, individual or not.
@@ -57,6 +57,11 @@ export function buildNavItems(data: {
 
   if (activeOrgId) {
     items.push({ href: `/app/orgs/${activeOrgId}/tasks`, label: t('app.nav.task-nodes', 'Task Nodes'), match: 'prefix' });
+    // "App Runs" sits next to Task Nodes deliberately: the pair is "what can
+    // run" / "what actually ran". Same org gate as Task Nodes — the appRuns
+    // audit query is org-scoped (orgRef + org-READER), so it needs an active
+    // org but no non-consumer gate.
+    items.push({ href: `/app/orgs/${activeOrgId}/runs`, label: t('app.nav.app-runs', 'App Runs'), match: 'prefix' });
   }
 
   if (activeOrgId && !isConsumerMode) {
