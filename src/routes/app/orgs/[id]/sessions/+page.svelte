@@ -18,11 +18,21 @@
   let { data }: { data: PageData } = $props();
   const org = $derived(data.org);
 
-  function formatDate(val: string | null): string {
-    if (!val) return '—';
-    const d = new Date(val);
-    if (isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  // Epoch milliseconds (or null when absent/unparseable) so date columns sort by
+  // instant rather than by the raw wire string. The `DateTime` scalar only
+  // guarantees a `Date.parse`-able value — NOT byte-for-byte ISO UTC — so a
+  // pass-through value carrying a non-UTC offset makes lexicographic string
+  // order differ from chronological order. Formatting happens in `fmt` at render
+  // time. See hadron-server conventions:datetime-scalar-for-date-fields.
+  function dateMs(val: string | null): number | null {
+    if (!val) return null;
+    const ms = new Date(val).getTime();
+    return isNaN(ms) ? null : ms;
+  }
+
+  function formatDate(ms: number | null): string {
+    if (ms == null) return '—';
+    return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
   }
 
   // Raw elapsed milliseconds (or null) so the Duration column sorts numerically;
@@ -51,7 +61,7 @@
   let globalFilter = $state('');
 
   const columns: ColumnDef<Session>[] = [
-    { accessorKey: 'startedAt', header: t('sessions.column.started', 'Started'), enableHiding: false, size: 110 }, // identity column
+    { accessorFn: (row) => dateMs(row.startedAt), id: 'started', header: t('sessions.column.started', 'Started'), enableHiding: false, size: 110 }, // identity column
     { accessorKey: 'type', header: t('sessions.column.type', 'Type'), size: 90 },
     {
       accessorFn: (row) => row.summary ?? (row.repo ? `${row.repo}${row.branch ? ` (${row.branch})` : ''}` : '—'),
@@ -67,7 +77,7 @@
   ];
 
   const fmt: Record<string, (v: unknown) => string> = {
-    startedAt: (v) => formatDate(v as string | null),
+    started: (v) => formatDate(v as number | null),
     llmModel: (v) => (v as string | null) ?? '—',
     duration: (v) => formatDuration(v as number | null),
     turnCount: (v) => (v == null ? '—' : String(v)),
