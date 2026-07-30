@@ -208,22 +208,6 @@
         )}
       </p>
     </div>
-  {:else if visibleRowCount === 0}
-    <!-- The list is non-empty but the filters exclude everything. Without this
-         branch the table would render a blank body with no explanation — the
-         exact trap review:saved-view-arrangement-not-position calls out, and it
-         is reachable here because a saved view can restore a status selection
-         that matches nothing in the current window. -->
-    <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center dark:border-zinc-800 dark:bg-zinc-900">
-      <p class="text-sm font-medium text-zinc-600 dark:text-zinc-300">
-        {t('org-runs.empty.filtered', 'No runs match the current filters.')}
-      </p>
-      <button
-        type="button"
-        onclick={() => { statusColumn?.setFilterValue(undefined); globalFilter = ''; }}
-        class="mt-3 rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-      >{t('org-runs.empty.clear-filters', 'Clear filters')}</button>
-    </div>
   {:else}
     {#if data.truncated}
       <p class="text-sm text-amber-600 dark:text-amber-400">
@@ -231,6 +215,31 @@
           .replace(/\{shown\}/g, String(rows.length))
           .replace('{total}', String(data.total))}
       </p>
+    {/if}
+
+    <!-- Filters exclude every row. This is a BANNER above a still-mounted
+         DataTable, not a branch that replaces it (Codex P1 on #680): DataTable
+         owns ViewTabs, and ViewTabs re-runs `ctrl.init()` on mount, which
+         re-applies the persisted active view. Swapping the table out for an
+         empty state would therefore trap the user — "Clear filters" restores
+         rows, the table remounts, init() re-applies the same zero-match view,
+         and they're back here with no way to switch, edit or delete it.
+         Keeping the chrome mounted also keeps the truncation line above
+         visible, so a zero-match result still says only the newest N were
+         searched (Codex P2). -->
+    {#if visibleRowCount === 0}
+      <div role="status" class="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60">
+        <span class="font-medium text-zinc-600 dark:text-zinc-300">
+          {data.truncated
+            ? t('org-runs.empty.filtered-truncated', 'No runs match the current filters — and only the {shown} most recent runs were searched.').replace('{shown}', String(rows.length))
+            : t('org-runs.empty.filtered', 'No runs match the current filters.')}
+        </span>
+        <button
+          type="button"
+          onclick={() => { statusColumn?.setFilterValue(undefined); globalFilter = ''; }}
+          class="ml-2 rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >{t('org-runs.empty.clear-filters', 'Clear filters')}</button>
+      </div>
     {/if}
 
     <DataTable
