@@ -6,6 +6,13 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev", "--port", "5175", "--strictPort"],
       "port": 5175
+    },
+    {
+      "//": "Port 5173 matches the dev server's FRONTEND_URL, so the #792 dev-login handoff (GET :4000/auth/dev/login) lands back here instead of a dead port.",
+      "name": "portal-dev-authed",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev", "--port", "5173", "--strictPort"],
+      "port": 5173
     }
   ]
 }
