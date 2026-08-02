@@ -883,32 +883,32 @@ export const AGENT_QUERY = /* GraphQL */ `
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
   mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility) {
-    updateAgent(id: $id, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
+    updateAgent(ref: $id, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
   }
 `;
 
 export const DELETE_AGENT_MUTATION = /* GraphQL */ `
-  mutation DeleteAgent($id: ID!) { deleteAgent(id: $id) }
+  mutation DeleteAgent($id: ID!) { deleteAgent(ref: $id) }
 `;
 
 export const ADD_MEMORY_TO_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
   mutation AddMemoryToAgent($agentId: ID!, $memoryId: ID!, $role: String) {
-    addMemoryToAgent(agentId: $agentId, memoryId: $memoryId, role: $role) { ...AgentFields }
+    addMemoryToAgent(agentRef: $agentId, memoryRef: $memoryId, role: $role) { ...AgentFields }
   }
 `;
 
 export const UPDATE_AGENT_MEMORY_ROLE_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
   mutation UpdateAgentMemoryRole($agentId: ID!, $memoryId: ID!, $role: String!) {
-    updateAgentMemoryRole(agentId: $agentId, memoryId: $memoryId, role: $role) { ...AgentFields }
+    updateAgentMemoryRole(agentRef: $agentId, memoryRef: $memoryId, role: $role) { ...AgentFields }
   }
 `;
 
 export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
   mutation RemoveMemoryFromAgent($agentId: ID!, $memoryId: ID!) {
-    removeMemoryFromAgent(agentId: $agentId, memoryId: $memoryId) { ...AgentFields }
+    removeMemoryFromAgent(agentRef: $agentId, memoryRef: $memoryId) { ...AgentFields }
   }
 `;
 
@@ -937,7 +937,7 @@ export const CREATE_APP_MUTATION = /* GraphQL */ `
     $sessionTimeoutSeconds: Int, $anonymousTtlDays: Int
   ) {
     createApp(
-      orgId: $orgId, agentId: $agentId, name: $name, urn: $urn,
+      orgRef: $orgId, agentRef: $agentId, name: $name, urn: $urn,
       appType: $appType, role: $role,
       description: $description,
       surfaces: $surfaces,
@@ -964,7 +964,7 @@ export const CREATE_PERSONAL_APP_MUTATION = /* GraphQL */ `
     $appType: AppType, $surfaces: [String!]
   ) {
     createApp(
-      agentId: $agentId, name: $name, urn: $urn,
+      agentRef: $agentId, name: $name, urn: $urn,
       appType: $appType, surfaces: $surfaces
     ) {
       ...AppFields
@@ -985,7 +985,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
     $sessionTimeoutSeconds: Int, $anonymousTtlDays: Int
   ) {
     updateApp(
-      id: $id, name: $name, urn: $urn, appType: $appType, role: $role,
+      ref: $id, name: $name, urn: $urn, appType: $appType, role: $role,
       description: $description, systemPrompt: $systemPrompt,
       agentTools: $agentTools,
       aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey,
@@ -1003,7 +1003,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
 export const REGENERATE_APP_KEY_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
   mutation RegenerateAppKey($id: ID!) {
-    regenerateAppKey(id: $id) { rawKey app { ...AppFields } }
+    regenerateAppKey(appRef: $id) { rawKey app { ...AppFields } }
   }
 `;
 
@@ -1023,7 +1023,7 @@ export const APP_KEYS_QUERY = /* GraphQL */ `
 
 export const CREATE_APP_KEY_MUTATION = /* GraphQL */ `
   mutation CreateAppKey($appId: ID!, $label: String) {
-    createAppKey(appId: $appId, label: $label) {
+    createAppKey(appRef: $appId, label: $label) {
       key { id label keyPreview createdAt }
       rawKey
     }
@@ -1037,7 +1037,7 @@ export const REVOKE_APP_KEY_MUTATION = /* GraphQL */ `
 `;
 
 export const DELETE_APP_MUTATION = /* GraphQL */ `
-  mutation DeleteApp($id: ID!) { deleteApp(id: $id) }
+  mutation DeleteApp($id: ID!) { deleteApp(ref: $id) }
 `;
 
 // 008-agent-installation: addAgentToApp is now a setter on App.agent_id —
@@ -1046,7 +1046,7 @@ export const DELETE_APP_MUTATION = /* GraphQL */ `
 export const ADD_AGENT_TO_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
   mutation AddAgentToApp($appId: ID!, $agentId: ID!, $trainingMode: Boolean) {
-    addAgentToApp(appId: $appId, agentId: $agentId, trainingMode: $trainingMode) {
+    addAgentToApp(appRef: $appId, agentRef: $agentId, trainingMode: $trainingMode) {
       ...AppFields
     }
   }
@@ -1056,7 +1056,7 @@ export const ADD_AGENT_TO_APP_MUTATION = /* GraphQL */ `
 export const REMOVE_AGENT_FROM_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
   mutation RemoveAgentFromApp($appId: ID!, $agentId: ID!) {
-    removeAgentFromApp(appId: $appId, agentId: $agentId) {
+    removeAgentFromApp(appRef: $appId, agentRef: $agentId) {
       ...AppFields
     }
   }
