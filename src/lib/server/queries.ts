@@ -1011,18 +1011,29 @@ export const REGENERATE_APP_KEY_MUTATION = /* GraphQL */ `
 // App Keys
 // ---------------------------------------------------------------------------
 
-// hadron-server#598: read-surface args renamed <entity>Id → <entity>Ref
-// (ref accepts a PK or URN); #864 did the same for the agent/app WRITE surface.
+// <entity>Id → <entity>Ref (a ref accepts a PK or a URN). This landed in TWO
+// migrations that made DIFFERENT calls about the $variable names, so read the
+// surface you're editing before copying either:
 //
-// The convention in this file: the GraphQL ARGUMENT name tracks the server, but
-// the $variable name is a local binding inside the operation document and is
-// deliberately left alone — renaming it would churn every caller's variables
-// object for no wire-level effect. So `createAppKey(appRef: $appId)` and
-// `agent(ref: $id)` are both intentional, not oversights.
+//   READ surface — hadron-server#598, done here in #519: arguments AND
+//   $variables renamed, with all 7 caller files updated in the same commit.
+//   `APP_KEYS_QUERY` below is that shape: `appKeys(appRef: $appRef)`.
 //
-// (Flagged in review on #682: an earlier version of this note claimed variable
-// names followed suit, which was never true — `agent(ref: $id)` predates that
-// PR.)
+//   WRITE surface — hadron-server#864, done here in #682: arguments renamed,
+//   $variables deliberately NOT renamed. That change was a fix for a
+//   runtime-breaking rename, so it was kept caller-neutral (a $variable is a
+//   local binding with no wire-level effect); renaming them means touching
+//   ~36 caller files across 12 mutations. Hence `createAppKey(appRef: $appId)`
+//   and `updateAgent(ref: $id)` — intentional, not oversights.
+//
+// The write-side variable rename is DEFERRED, not declined; it belongs with
+// the build-time GraphQL validation proposed in #681, which would make a
+// change that size verifiable. Until then, expect the mismatch here.
+//
+// (`agent(ref: $id)` has looked like this since #641 — an earlier version of
+// this note claimed variables always follow suit, which was never true of the
+// write side; a later version claimed they never do, which is not true of the
+// read side. Review on #682 and #683 caught both.)
 export const APP_KEYS_QUERY = /* GraphQL */ `
   query AppKeys($appRef: ID!) {
     appKeys(appRef: $appRef) {
