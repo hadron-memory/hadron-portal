@@ -1012,7 +1012,17 @@ export const REGENERATE_APP_KEY_MUTATION = /* GraphQL */ `
 // ---------------------------------------------------------------------------
 
 // hadron-server#598: read-surface args renamed <entity>Id → <entity>Ref
-// (ref accepts a PK or URN). Variable names + call-site keys follow suit.
+// (ref accepts a PK or URN); #864 did the same for the agent/app WRITE surface.
+//
+// The convention in this file: the GraphQL ARGUMENT name tracks the server, but
+// the $variable name is a local binding inside the operation document and is
+// deliberately left alone — renaming it would churn every caller's variables
+// object for no wire-level effect. So `createAppKey(appRef: $appId)` and
+// `agent(ref: $id)` are both intentional, not oversights.
+//
+// (Flagged in review on #682: an earlier version of this note claimed variable
+// names followed suit, which was never true — `agent(ref: $id)` predates that
+// PR.)
 export const APP_KEYS_QUERY = /* GraphQL */ `
   query AppKeys($appRef: ID!) {
     appKeys(appRef: $appRef) {
