@@ -23,6 +23,7 @@
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
+  import { wikilinkExtension } from '$lib/markdown/wikilink';
   import { t } from '$lib/i18n/t';
   import { NODE_TYPES, isCanonicalNodeType } from '$lib/node-types';
   import { declaredObjectType, readMemorySchema } from '$lib/schema/memory-schema';
@@ -169,26 +170,42 @@
     markedReady = true;
   });
 
+  // #374 — `[[loc]]` wikilink resolutions, keyed by the authored target. The
+  // loader resolves them (bare locs against this memory, per spec
+  // cor:urn:020:01); a target that is absent or null renders as a visibly
+  // broken reference rather than inert prose.
+  const wikilinks = $derived(data.wikilinks ?? {});
+  const wikilinkStrings = {
+    unresolvedTitle: t(
+      'node-detail.wikilink.unresolved',
+      'Unresolved reference: no node at {target}',
+    ),
+  };
+
   // Shared renderer for both content and abstract. The Marked instance is
-  // cached once MarkedClass loads (its renderer config is static) so we
-  // don't reinstantiate per render. Portal Invariant P4: markdown → HTML →
-  // DOMPurify before insertion — escaping raw-HTML tokens alone leaves
-  // anchor-based vectors (e.g. javascript: URLs) through.
-  let markedInstance: import('marked').Marked | null = null;
-  function renderMarkdown(src: string): string {
-    if (!MarkedClass) return '';
-    if (!markedInstance) {
-      markedInstance = new MarkedClass({
-        renderer: {
-          html(token: { text: string }) {
-            return token.text
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;');
-          },
+  // rebuilt whenever the resolution map changes (a save can add or fix a
+  // wikilink) — the extension closes over that map. Portal Invariant P4:
+  // markdown → HTML → DOMPurify before insertion — escaping raw-HTML tokens
+  // alone leaves anchor-based vectors (e.g. javascript: URLs) through.
+  const markedInstance = $derived.by(() => {
+    // `markedReady` is the reactive half of the dynamic import — MarkedClass
+    // is a plain binding, so reading it alone would memoize this at null.
+    if (!markedReady || !MarkedClass) return null;
+    return new MarkedClass({
+      extensions: [wikilinkExtension(wikilinks, wikilinkStrings)],
+      renderer: {
+        html(token: { text: string }) {
+          return token.text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
         },
-      });
-    }
+      },
+    });
+  });
+
+  function renderMarkdown(src: string): string {
+    if (!markedInstance) return '';
     return DOMPurify.sanitize(markedInstance.parse(src, { async: false }) as string);
   }
 
@@ -223,11 +240,11 @@
   const contentBody = $derived(parsedContent.body);
 
   $effect(() => {
-    renderedHtml = markedReady && contentBody ? renderMarkdown(contentBody) : '';
+    renderedHtml = markedInstance && contentBody ? renderMarkdown(contentBody) : '';
   });
 
   $effect(() => {
-    renderedAbstractHtml = markedReady && node.abstract ? renderMarkdown(node.abstract) : '';
+    renderedAbstractHtml = markedInstance && node.abstract ? renderMarkdown(node.abstract) : '';
   });
 
   async function copyContent() {

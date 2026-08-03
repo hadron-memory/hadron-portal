@@ -38,7 +38,7 @@ describe('flowRoots', () => {
     expect(flows[0].entry).toMatchObject({
       id: 'n1',
       name: 'Flow One',
-      urn: 'hrn:node:acme.com::flows::flow1',
+      urn: 'hrn:node:acme.com:flows:flow1',
     });
     expect(flows[0].branchCount).toBe(1);
     expect(flows[0].stepCount).toBe(3);

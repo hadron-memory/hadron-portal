@@ -65,7 +65,7 @@ describe('move action (#503 / #489)', () => {
       status: 303,
       location: '/app/memories/mem-1/nodes/pk',
     });
-    expect(moveVars()).toEqual({ sourceRef: 'pk', targetUrn: 'hrn:node:acme.com::flows::flows:renamed' });
+    expect(moveVars()).toEqual({ sourceRef: 'pk', targetUrn: 'hrn:node:acme.com:flows:flows:renamed' });
   });
 
   it('passes a full cross-memory URN straight through as targetUrn', async () => {
@@ -99,6 +99,27 @@ describe('move action (#503 / #489)', () => {
     });
 
     const result = await runMove('hrn:node:acme.com::flows::flows:classify');
+
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'success' });
+    expect(moveVars()).toBeUndefined();
+  });
+
+  // The no-op check must be blind to URN GRAMMAR, not just to the prefix.
+  // composeNodeUrn emits v2 (single colon) per cor:urn:010:01, but a URN pasted
+  // from an older screen or another tool may still be v1 (`::`). Both spell the
+  // same node, so both must no-op — otherwise the user gets a pointless move
+  // mutation instead of "already at that destination".
+  it.each([
+    ['v1 `::` grammar', 'hrn:node:acme.com::flows::flows:classify'],
+    ['v2 flat grammar', 'hrn:node:acme.com:flows:flows:classify'],
+    ['v2 flat, no prefix', 'acme.com:flows:flows:classify'],
+  ])('no-ops when the target is the current node written in %s', async (_label, target) => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === NODE_BY_ID_QUERY) return { node };
+      throw new Error('unexpected query');
+    });
+
+    const result = await runMove(target);
 
     expect(superFormFrom(result)?.message).toMatchObject({ type: 'success' });
     expect(moveVars()).toBeUndefined();

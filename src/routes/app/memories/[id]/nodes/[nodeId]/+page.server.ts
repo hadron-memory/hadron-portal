@@ -9,6 +9,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+import { resolveWikilinks } from '$lib/server/wikilinks';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
@@ -115,6 +116,25 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     breadcrumb.push({ label: parts[i], path: ancestorLoc, nodeId });
   }
 
+  // #374 / spec cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body
+  // and abstract so the renderer can make them clickable (and mark the dangling
+  // ones visibly broken). Bare locs resolve against `memoryNodes` above at zero
+  // cost; only a cross-memory `[[org::memory::loc]]` costs a round-trip, so
+  // this is free for the overwhelming majority of nodes. Started here and
+  // awaited below so it overlaps the remaining fetches.
+  // `nodesFailed` matters as much as the node list: the layout returns an empty
+  // `graphNodes` for BOTH an empty memory and a failed graph fetch, and without
+  // the flag an outage would repaint every valid link as corpus rot.
+  const { graph, nodesFailed } = parentData as {
+    graph?: { urn?: string | null } | null;
+    nodesFailed?: boolean;
+  };
+  const wikilinksPromise = resolveWikilinks(
+    gqlClient(locals.token),
+    [node.content, node.abstract],
+    { memoryId: params.id, memoryUrn: graph?.urn ?? null, nodes: memoryNodes, nodesFailed },
+  );
+
   // "Test flow" (#478 phase 3): a runnable node can be executed as a MANUAL
   // headless run via runTask(appRef:) — the button needs the org's Apps to
   // run as. Best-effort: only offered to org members (org present) on
@@ -204,9 +224,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }, nodeUpdateEdgesFormAdapter, { errors: false }),
   ]);
 
+  const wikilinks = await wikilinksPromise;
+
   return {
     node,
     breadcrumb,
+    wikilinks,
     testFlowApps,
     memories,
     revisions,
@@ -614,10 +637,17 @@ export const actions: Actions = {
     const raw = form.data.target;
     const isFullUrn = raw.includes('::') || /^(?:hrn|urn):node:/.test(raw);
     const targetUrn = isFullUrn ? raw : composeNodeUrn(node.memory.urn, cleanLocInput(raw));
-    // No-op when the destination is where the node already lives. Compare with
-    // the hrn:/urn: prefix stripped — the composed form is canonical (hrn:node:),
-    // but a pasted URN may omit the prefix; both are valid targetUrn inputs.
-    const bare = (u: string) => u.replace(/^(?:hrn|urn):node:/, '');
+    // No-op when the destination is where the node already lives. Normalize
+    // both sides before comparing, because a pasted URN and the composed one
+    // need not be spelled the same way:
+    //   - the prefix may be absent (`hrn:node:` / `urn:node:` / bare are all
+    //     valid targetUrn inputs), and
+    //   - the GRAMMAR may differ. composeNodeUrn emits v2 (single colon) per
+    //     cor:urn:010:01, while a URN pasted from an older screen or another
+    //     tool may still be v1 (`::`). Both spellings denote the same node, so
+    //     comparing them raw would miss the no-op and fire a pointless move.
+    const bare = (u: string) =>
+      u.replace(/^(?:hrn|urn):node:/, '').split('::').join(':');
     if (bare(targetUrn) === bare(composeNodeUrn(node.memory.urn, node.loc))) {
       return message(form, { type: 'success', text: t('node-actions.move.noop', 'Node is already at that destination.') });
     }

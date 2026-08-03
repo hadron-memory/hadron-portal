@@ -61,7 +61,7 @@ describe('testFlow action Superforms validation', () => {
       location: '/app/apps/app-1/runs/run-1',
     });
     expect(mockRequest.mock.calls.find(([query]) => query === RUN_TASK_APP_MUTATION)?.[1]).toEqual({
-      urn: 'hrn:node:acme.com::flows::flows:classify',
+      urn: 'hrn:node:acme.com:flows:flows:classify',
       args: { confidence: 0.9 },
       appRef: 'app-1',
       runAsSelf: false,
