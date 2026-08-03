@@ -84,3 +84,34 @@ html:not(.dark) textarea::placeholder {
   background-color: rgb(39 39 42); /* zinc-800 */
   color: rgb(228 228 231); /* zinc-200 */
 }
+
+/*
+ * `[[loc]]` wikilink references in rendered node bodies (#374,
+ * spec cor:urn:020:01).
+ *
+ * A resolved wikilink reads as a link but is deliberately distinguishable from
+ * a plain markdown link: dotted underline, so a reader can tell an intra-graph
+ * reference from an outbound one at a glance.
+ *
+ * An UNRESOLVED one must be visible as such — the spec's whole point is that
+ * rot is detectable rather than silent. It keeps its `[[…]]` brackets, renders
+ * in the danger colour with a wavy underline, and gets `cursor: help` so the
+ * title tooltip is discoverable. Colour is never the only signal (the brackets
+ * and the underline style both carry it), so it survives a colour-vision
+ * deficiency and a monochrome print.
+ */
+.prose a.wikilink {
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.wikilink-unresolved {
+  color: rgb(190 18 60); /* rose-700 */
+  text-decoration: underline wavy;
+  text-underline-offset: 2px;
+  cursor: help;
+}
+
+.dark .wikilink-unresolved {
+  color: rgb(253 164 175); /* rose-300 */
+}

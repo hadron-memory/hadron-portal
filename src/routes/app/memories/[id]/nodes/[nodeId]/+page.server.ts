@@ -9,6 +9,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+import { resolveWikilinks } from '$lib/server/wikilinks';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
@@ -115,6 +116,19 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     breadcrumb.push({ label: parts[i], path: ancestorLoc, nodeId });
   }
 
+  // #374 / spec cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body
+  // and abstract so the renderer can make them clickable (and mark the dangling
+  // ones visibly broken). Bare locs resolve against `memoryNodes` above at zero
+  // cost; only a cross-memory `[[org::memory::loc]]` costs a round-trip, so
+  // this is free for the overwhelming majority of nodes. Started here and
+  // awaited below so it overlaps the remaining fetches.
+  const graph = (parentData as { graph?: { urn?: string | null } | null }).graph;
+  const wikilinksPromise = resolveWikilinks(
+    gqlClient(locals.token),
+    [node.content, node.abstract],
+    { memoryId: params.id, memoryUrn: graph?.urn ?? null, nodes: memoryNodes },
+  );
+
   // "Test flow" (#478 phase 3): a runnable node can be executed as a MANUAL
   // headless run via runTask(appRef:) — the button needs the org's Apps to
   // run as. Best-effort: only offered to org members (org present) on
@@ -204,9 +218,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }, nodeUpdateEdgesFormAdapter, { errors: false }),
   ]);
 
+  const wikilinks = await wikilinksPromise;
+
   return {
     node,
     breadcrumb,
+    wikilinks,
     testFlowApps,
     memories,
     revisions,
