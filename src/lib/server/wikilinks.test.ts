@@ -75,6 +75,98 @@ describe('resolveWikilinks — same-memory (bare loc)', () => {
   });
 });
 
+describe('resolveWikilinks — graph fetch failed (nodesFailed)', () => {
+  // The layout returns `graphNodes: []` for BOTH an empty memory and a failed
+  // graph fetch. Reading the empty list as "no such node" would repaint every
+  // valid link as permanent corpus rot on a transient outage. PR #684, Codex P2.
+  it('does not mark same-memory links broken when the graph fetch failed', async () => {
+    const links = await resolveWikilinks(noClient, ['[[findings:x]]'], {
+      memoryId: MEM,
+      memoryUrn: MEM_URN,
+      nodes: [],
+      nodesFailed: true,
+    });
+    expect(links['findings:x']).toEqual({
+      href: '/app/u/hrn:node:hadronmemory.com:hadron-portal:findings:x',
+      label: 'findings:x',
+    });
+  });
+
+  it('still marks them broken for a genuinely empty memory (nodesFailed false)', async () => {
+    const links = await resolveWikilinks(noClient, ['[[findings:x]]'], {
+      memoryId: MEM,
+      memoryUrn: MEM_URN,
+      nodes: [],
+      nodesFailed: false,
+    });
+    expect(links['findings:x']).toBeNull();
+  });
+});
+
+describe('resolveWikilinks — grammar v2 (cor:urn:010:01)', () => {
+  it('resolves an explicitly-prefixed v2 flat cross-memory target', async () => {
+    const request = vi.fn().mockResolvedValue({ w0: { id: 'r1', name: 'R', memoryId: 'mem-R' } });
+    const links = await resolveWikilinks(
+      { request },
+      ['[[hrn:node:hadronmemory.com:dev:findings:a]]'],
+      ctx(),
+    );
+    expect(request.mock.calls[0][1]).toEqual({ r0: 'hrn:node:hadronmemory.com:dev:findings:a' });
+    expect(links['hrn:node:hadronmemory.com:dev:findings:a']?.href).toBe(
+      '/app/memories/mem-R/nodes/r1',
+    );
+  });
+
+  it('resolves a prefixed v2 target that names THIS memory locally', async () => {
+    const client = { request: vi.fn() };
+    const links = await resolveWikilinks(
+      client,
+      ['[[hrn:node:hadronmemory.com:hadron-portal:findings:x]]'],
+      ctx(),
+    );
+    expect(links['hrn:node:hadronmemory.com:hadron-portal:findings:x']?.href).toContain('/nodes/n1');
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it('gives a bare loc FIRST refusal — a local hit is never reinterpreted as v2 flat', async () => {
+    // `findings:x` exists here. Even though a 2-atom loc could never be a v2
+    // URN, the ordering is the rule that matters: the spec's bare-loc scope
+    // always wins when it resolves. Guarded here with a 3-atom local loc.
+    const client = { request: vi.fn() };
+    const links = await resolveWikilinks(client, ['[[a:b:c]]'], {
+      ...ctx(),
+      nodes: [{ id: 'local', memoryId: MEM, loc: 'a:b:c', name: 'Deep Local' }],
+    });
+    expect(links['a:b:c']).toEqual({ href: `/app/memories/${MEM}/nodes/local`, label: 'Deep Local' });
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it('gives a MISSED bare loc a second chance as an unprefixed v2 flat URN', async () => {
+    // The spelling you get by copying a canonical URN and dropping the prefix.
+    const request = vi.fn().mockResolvedValue({ w0: { id: 'r1', name: 'R', memoryId: 'mem-R' } });
+    const links = await resolveWikilinks(
+      { request },
+      ['[[hadronmemory.com:dev:findings:a]]'],
+      ctx(),
+    );
+    expect(request.mock.calls[0][1]).toEqual({ r0: 'hrn:node:hadronmemory.com:dev:findings:a' });
+    expect(links['hadronmemory.com:dev:findings:a']?.href).toBe('/app/memories/mem-R/nodes/r1');
+  });
+
+  it('leaves a missed 2-atom bare loc broken — too short to be a v2 URN', async () => {
+    const client = { request: vi.fn() };
+    const links = await resolveWikilinks(client, ['[[findings:nope]]'], ctx());
+    expect(links['findings:nope']).toBeNull();
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it('marks a missed deep loc broken when the v2 reading also finds nothing', async () => {
+    const request = vi.fn().mockResolvedValue({ w0: null });
+    const links = await resolveWikilinks({ request }, ['[[ops:incidents:2026:thing]]'], ctx());
+    expect(links['ops:incidents:2026:thing']).toBeNull();
+  });
+});
+
 describe('resolveWikilinks — cross-memory', () => {
   it('batches cross-memory targets into ONE aliased node(ref:) request', async () => {
     const request = vi.fn().mockResolvedValue({
@@ -89,13 +181,16 @@ describe('resolveWikilinks — cross-memory', () => {
 
     expect(request).toHaveBeenCalledTimes(1);
     const [doc, vars] = request.mock.calls[0];
-    expect(doc).toContain('w0: node(ref: $r0)');
-    expect(doc).toContain('w1: node(ref: $r1)');
+    expect(doc).toContain('w0: node(ref: $r0, raw: true)');
+    expect(doc).toContain('w1: node(ref: $r1, raw: true)');
+    // raw: true keeps this a metadata lookup — without it the server
+    // Mustache-compiles every target's content on read (PR #684 review).
     // The full node URN is passed as a variable, never interpolated into the
     // document — authored content must not reach the GraphQL parser as syntax.
+    // Composed in grammar v2 (cor:urn:010:01) — flat, single colon.
     expect(vars).toEqual({
-      r0: 'hrn:node:hadronmemory.com::dev::findings:a',
-      r1: 'hrn:node:hadronmemory.com::dev::findings:b',
+      r0: 'hrn:node:hadronmemory.com:dev:findings:a',
+      r1: 'hrn:node:hadronmemory.com:dev:findings:b',
     });
 
     expect(links['hadronmemory.com::dev::findings:a']).toEqual({
@@ -118,7 +213,7 @@ describe('resolveWikilinks — cross-memory', () => {
     expect(links['hrn:org:x::conventions:y']).toBeNull();
     expect(links['hadronmemory.com::dev::findings:a']).not.toBeNull();
     expect(request.mock.calls[0][1]).toEqual({
-      r0: 'hrn:node:hadronmemory.com::dev::findings:a',
+      r0: 'hrn:node:hadronmemory.com:dev:findings:a',
     });
   });
 
@@ -157,7 +252,7 @@ describe('resolveWikilinks — cross-memory', () => {
     const request = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
     const links = await resolveWikilinks({ request }, ['[[o::m::findings:a]]'], ctx());
     expect(links['o::m::findings:a']).toEqual({
-      href: '/app/u/hrn:node:o::m::findings:a',
+      href: '/app/u/hrn:node:o:m:findings:a',
       label: 'findings:a',
     });
   });

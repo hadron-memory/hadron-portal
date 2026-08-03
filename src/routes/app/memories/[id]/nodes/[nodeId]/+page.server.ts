@@ -122,11 +122,17 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // cost; only a cross-memory `[[org::memory::loc]]` costs a round-trip, so
   // this is free for the overwhelming majority of nodes. Started here and
   // awaited below so it overlaps the remaining fetches.
-  const graph = (parentData as { graph?: { urn?: string | null } | null }).graph;
+  // `nodesFailed` matters as much as the node list: the layout returns an empty
+  // `graphNodes` for BOTH an empty memory and a failed graph fetch, and without
+  // the flag an outage would repaint every valid link as corpus rot.
+  const { graph, nodesFailed } = parentData as {
+    graph?: { urn?: string | null } | null;
+    nodesFailed?: boolean;
+  };
   const wikilinksPromise = resolveWikilinks(
     gqlClient(locals.token),
     [node.content, node.abstract],
-    { memoryId: params.id, memoryUrn: graph?.urn ?? null, nodes: memoryNodes },
+    { memoryId: params.id, memoryUrn: graph?.urn ?? null, nodes: memoryNodes, nodesFailed },
   );
 
   // "Test flow" (#478 phase 3): a runnable node can be executed as a MANUAL
@@ -631,10 +637,17 @@ export const actions: Actions = {
     const raw = form.data.target;
     const isFullUrn = raw.includes('::') || /^(?:hrn|urn):node:/.test(raw);
     const targetUrn = isFullUrn ? raw : composeNodeUrn(node.memory.urn, cleanLocInput(raw));
-    // No-op when the destination is where the node already lives. Compare with
-    // the hrn:/urn: prefix stripped — the composed form is canonical (hrn:node:),
-    // but a pasted URN may omit the prefix; both are valid targetUrn inputs.
-    const bare = (u: string) => u.replace(/^(?:hrn|urn):node:/, '');
+    // No-op when the destination is where the node already lives. Normalize
+    // both sides before comparing, because a pasted URN and the composed one
+    // need not be spelled the same way:
+    //   - the prefix may be absent (`hrn:node:` / `urn:node:` / bare are all
+    //     valid targetUrn inputs), and
+    //   - the GRAMMAR may differ. composeNodeUrn emits v2 (single colon) per
+    //     cor:urn:010:01, while a URN pasted from an older screen or another
+    //     tool may still be v1 (`::`). Both spellings denote the same node, so
+    //     comparing them raw would miss the no-op and fire a pointless move.
+    const bare = (u: string) =>
+      u.replace(/^(?:hrn|urn):node:/, '').split('::').join(':');
     if (bare(targetUrn) === bare(composeNodeUrn(node.memory.urn, node.loc))) {
       return message(form, { type: 'success', text: t('node-actions.move.noop', 'Node is already at that destination.') });
     }

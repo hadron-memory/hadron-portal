@@ -63,14 +63,25 @@ const WIKILINK_GLOBAL = new RegExp(WIKILINK.source, 'g');
 const NODE_URN_PREFIX = /^(?:hrn|urn):node:/i;
 
 /**
- * Split a wikilink target into `{ memoryUrn, loc }`.
+ * Split a wikilink target into `{ memoryUrn, loc }`, in either URN grammar.
  *
- * Fully-qualified targets are recognised by the `::` hierarchy separator, and
- * the split is at the **last** `::`: the loc is the final leaf and the memory
- * URN is everything before it. Memory URNs can span more than two hierarchy
- * levels (per-user `<org>::<agent>::app-user:<id>`), so a fixed two-segment
- * prefix would mis-split those. Matches hadron-server's own `node(ref:)`
- * canonical-form dispatch.
+ * Both are accepted, mirroring the platform's own accept-v1-forever posture
+ * ([`cor:urn:010:01`](hrn:node:hadronmemory.com:specs:cor:urn:010:01)):
+ *
+ * - **v1** — recognised by the `::` hierarchy separator, split at the **last**
+ *   `::`: the loc is the final leaf, the memory URN is everything before it.
+ *   Memory URNs can span more than two v1 levels (the
+ *   `<org>::<app>::<agent>::<memory>` ownership chain), so a fixed two-segment
+ *   prefix would mis-split those. Matches hadron-server's `node(ref:)` dispatch.
+ * - **v2** — flat and single-colon, so it carries no marker for where the
+ *   memory ends. It is only *unambiguously* cross-memory when the target
+ *   carries an explicit `hrn:node:` prefix; then v2's fixed positional arity
+ *   applies — `<root>:<memory-slug>:<loc…>`.
+ * - **bare** — anything else is a loc in the containing node's own memory, per
+ *   the spec's scope rule. An unprefixed flat cross-memory target
+ *   (`hadronmemory.com:dev:findings:x`) is indistinguishable from a deep loc,
+ *   so the bare rule wins here; {@link flatV2Candidate} offers it as a
+ *   second chance only after the bare lookup actually misses.
  *
  * Returns null for a target that can't be a reference at all (empty, or a
  * qualified form with an empty half).
@@ -79,14 +90,43 @@ export function parseWikilinkTarget(raw: string): WikilinkRef | null {
   const target = raw.trim();
   if (!target) return null;
 
+  const prefixed = NODE_URN_PREFIX.test(target);
   const body = target.replace(NODE_URN_PREFIX, '').trim();
-  const cut = body.lastIndexOf('::');
-  if (cut === -1) return { target, memoryUrn: null, loc: body };
+  if (!body) return null;
 
-  const memoryUrn = body.slice(0, cut).trim();
-  const loc = body.slice(cut + 2).trim();
-  if (!memoryUrn || !loc) return null;
-  return { target, memoryUrn, loc };
+  const cut = body.lastIndexOf('::');
+  if (cut !== -1) {
+    const memoryUrn = body.slice(0, cut).trim();
+    const loc = body.slice(cut + 2).trim();
+    if (!memoryUrn || !loc) return null;
+    return { target, memoryUrn, loc };
+  }
+
+  // Explicit `hrn:node:` + no `::` ⇒ grammar v2, positionally parsed.
+  if (prefixed) {
+    const flat = flatV2Candidate(body);
+    return flat ? { target, ...flat } : null;
+  }
+
+  return { target, memoryUrn: null, loc: body };
+}
+
+/**
+ * Read a single-colon string as a grammar-v2 flat cross-memory reference —
+ * `<root>:<memory-slug>:<loc…>` — or null when it can't be one.
+ *
+ * Used two ways: to parse an explicitly-prefixed v2 target, and as the
+ * **fallback** interpretation of a bare target whose loc doesn't exist in the
+ * containing memory. The fallback is safe because the bare reading always gets
+ * first refusal: the spec's "bare = this memory" rule can never be overridden,
+ * only backstopped when it finds nothing. It mirrors hadron-server's own
+ * `node(ref:)` Form-3b fallthrough, which reads a 3+-segment unprefixed ref as
+ * a full URN when its prefix names a live memory.
+ */
+export function flatV2Candidate(loc: string): { memoryUrn: string; loc: string } | null {
+  const atoms = loc.split(':');
+  if (atoms.length < 3 || atoms.some((a) => a === '')) return null;
+  return { memoryUrn: `${atoms[0]}:${atoms[1]}`, loc: atoms.slice(2).join(':') };
 }
 
 /**
@@ -148,9 +188,13 @@ export function renderWikilink(
 ): string {
   const target = escapeHtml(ref.target);
   if (!resolution) {
+    // Keep the AUTHORED inner text verbatim, display half included
+    // (`[[glossary:ns1|NS1]]`, not `[[NS1]]`). On a broken reference the target
+    // is the actionable half — it's what has to be fixed — so hiding it behind
+    // the display text would defeat the affordance. PR #684 review, Copilot.
     const title = escapeHtml(strings.unresolvedTitle.replace('{target}', ref.target));
-    const text = escapeHtml(ref.label ?? ref.target);
-    return `<span class="wikilink ${WIKILINK_UNRESOLVED_CLASS}" title="${title}">[[${text}]]</span>`;
+    const inner = ref.label === null ? target : `${target}|${escapeHtml(ref.label)}`;
+    return `<span class="wikilink ${WIKILINK_UNRESOLVED_CLASS}" title="${title}">[[${inner}]]</span>`;
   }
   const text = escapeHtml(ref.label ?? resolution.label);
   return `<a class="wikilink" href="${escapeHtml(resolution.href)}" title="${target}">${text}</a>`;

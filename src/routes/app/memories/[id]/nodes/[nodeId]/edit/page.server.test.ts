@@ -220,7 +220,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
 
     const [, moveVars] = mockRequest.mock.calls[1]! as [unknown, { sourceRef: string; targetUrn: string }];
     expect(moveVars.sourceRef).toBe('pk');
-    expect(moveVars.targetUrn).toBe('hrn:node:acme.com::brain::new-loc');
+    expect(moveVars.targetUrn).toBe('hrn:node:acme.com:brain:new-loc');
   });
 
   it('an occupied destination fails as 409, not 500 (#501 fail-loud)', async () => {

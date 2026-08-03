@@ -2,13 +2,15 @@
  * #374 — `[[loc]]` wikilink parsing and rendering.
  *
  * The rules under test come from spec cor:urn:020:01: bare loc = the containing
- * node's memory, `[[org::memory::loc]]` for cross-memory, resolve-to-one or show
- * visibly unresolved, never inert.
+ * node's memory, an explicit memory prefix for cross-memory, resolve-to-one or
+ * show visibly unresolved, never inert. Both URN grammars are accepted — v2
+ * flat single-colon and legacy v1 `::` (cor:urn:010:01).
  */
 import { describe, expect, it } from 'vitest';
 import { Marked } from 'marked';
 import {
   extractWikilinks,
+  flatV2Candidate,
   parseWikilinkTarget,
   renderWikilink,
   wikilinkExtension,
@@ -55,10 +57,57 @@ describe('parseWikilinkTarget', () => {
     expect(parseWikilinkTarget('urn:node:hadronmemory.com::dev::a:b')?.loc).toBe('a:b');
   });
 
+  // cor:urn:010:01 — v2 is flat and single-colon. It carries no marker for
+  // where the memory ends, so it is only unambiguously cross-memory when the
+  // `hrn:node:` prefix is present; then v2's fixed positional arity applies.
+  it('parses a prefixed grammar-v2 flat target positionally', () => {
+    expect(parseWikilinkTarget('hrn:node:hadronmemory.com:dev:findings:x')).toEqual({
+      target: 'hrn:node:hadronmemory.com:dev:findings:x',
+      memoryUrn: 'hadronmemory.com:dev',
+      loc: 'findings:x',
+    });
+  });
+
+  it('keeps a multi-atom loc together in a prefixed v2 target', () => {
+    expect(parseWikilinkTarget('hrn:node:acme.com:mem:a:b:c')?.loc).toBe('a:b:c');
+  });
+
+  it('rejects a prefixed v2 target too short to carry a loc', () => {
+    expect(parseWikilinkTarget('hrn:node:acme.com:mem')).toBeNull();
+  });
+
+  it('still reads an UNPREFIXED single-colon target as a bare loc (spec scope rule)', () => {
+    // Indistinguishable from a deep loc, so the containing memory wins here.
+    // `flatV2Candidate` offers the other reading only after a local miss.
+    expect(parseWikilinkTarget('hadronmemory.com:dev:findings:x')).toEqual({
+      target: 'hadronmemory.com:dev:findings:x',
+      memoryUrn: null,
+      loc: 'hadronmemory.com:dev:findings:x',
+    });
+  });
+
   it('rejects empty and half-empty targets', () => {
     expect(parseWikilinkTarget('   ')).toBeNull();
     expect(parseWikilinkTarget('::loc')).toBeNull();
     expect(parseWikilinkTarget('org::mem::')).toBeNull();
+  });
+});
+
+describe('flatV2Candidate', () => {
+  it('splits a 3+-atom string positionally into memory + loc', () => {
+    expect(flatV2Candidate('hadronmemory.com:dev:findings:x')).toEqual({
+      memoryUrn: 'hadronmemory.com:dev',
+      loc: 'findings:x',
+    });
+  });
+
+  it('returns null below 3 atoms — too short to name a memory AND a loc', () => {
+    expect(flatV2Candidate('findings:x')).toBeNull();
+    expect(flatV2Candidate('top')).toBeNull();
+  });
+
+  it('returns null when any atom is empty', () => {
+    expect(flatV2Candidate('a::b:c')).toBeNull();
   });
 });
 
@@ -117,6 +166,14 @@ describe('renderWikilink', () => {
       '<span class="wikilink wikilink-unresolved" ' +
         'title="Unresolved reference: no node at findings:gone">[[findings:gone]]</span>',
     );
+  });
+
+  it('keeps the authored TARGET visible on an unresolved labelled link', () => {
+    // `[[glossary:gone|NS1]]` must not render as `[[NS1]]` — on a broken
+    // reference the target is the half that has to be fixed, so hiding it
+    // behind the display text defeats the affordance. PR #684 review, Copilot.
+    const html = renderWikilink({ target: 'glossary:gone', label: 'NS1' }, null, strings);
+    expect(html).toContain('[[glossary:gone|NS1]]');
   });
 
   it('treats a target missing from the map exactly like an explicit null', () => {

@@ -76,7 +76,7 @@ describe('duplicate action (#501)', () => {
     });
     expect(cloneCalls()[0][1]).toMatchObject({
       sourceRef: 'pk',
-      targetUrn: 'hrn:node:acme.com::flows::classify-copy',
+      targetUrn: 'hrn:node:acme.com:flows:classify-copy',
     });
   });
 
@@ -93,9 +93,9 @@ describe('duplicate action (#501)', () => {
     });
     await expect(runDuplicate()).rejects.toMatchObject({ status: 303 });
     expect(cloneCalls().map(([, vars]) => (vars as { targetUrn: string }).targetUrn)).toEqual([
-      'hrn:node:acme.com::flows::classify-copy',
-      'hrn:node:acme.com::flows::classify-copy-2',
-      'hrn:node:acme.com::flows::classify-copy-3',
+      'hrn:node:acme.com:flows:classify-copy',
+      'hrn:node:acme.com:flows:classify-copy-2',
+      'hrn:node:acme.com:flows:classify-copy-3',
     ]);
   });
 

@@ -4,37 +4,41 @@ import { CANONICAL_SCHEME, hasSchemePrefix, normalizeScheme } from './parse-urn'
  * Compose a canonical node URN from a memory URN and a value (loc, or PK
  * as a defect-fallback chosen by the caller). Strict at input: throws on
  * wrong-type prefix, empty inputs. Forgiving at shape: accepts the memory
- * URN with or without its `hrn:memory:` prefix, AND with either spec-010
- * single-`:` grammar OR spec-021 `::` grammar (during the migration period,
- * both coexist).
+ * URN with or without its `hrn:mem:` / `hrn:memory:` prefix, and in either
+ * grammar.
  *
- * Spec history:
- *   - spec 010 (always-show-full-urn): introduced this composer, joined
- *     memory-slug-path and value with single `:`.
- *   - spec 021 (urn-composition) FR-009: hierarchy separator changed
- *     from `:` to `::`. The composer joins memory-path and value with
- *     `::`; the value (node loc) keeps its internal `:` separators
- *     unchanged.
+ * ## Emits grammar v2 (flat, single-colon)
  *
- * Mixed-grammar handling: during the spec-021 online migration, some
- * memory rows still carry legacy single-`:` URNs. To keep the composed
- * output spec-021-parseable, this function detects a legacy slug-path
- * (no `::`) and rewrites every `:` to `::` before composing — the
- * result is always a well-formed spec-021 node URN. This is a
- * transitional convenience; once migration completes, every memory URN
- * the portal sees will already be in spec-021 form.
+ * Per [`cor:urn:010:01`](hrn:node:hadronmemory.com:specs:cor:urn:010:01), a v2
+ * node URN is `hrn:node:<root>:<memory-slug>:<loc>` — **single colon
+ * throughout**. The `::` hierarchy separator is v1; the platform emits v2
+ * (#697/#720) and `parseUrnV2` rejects `::` outright. v1 stays accepted on
+ * *input* forever, which is why this composer still takes it.
  *
- * Example (spec-021 install-shape memory):
+ *   memoryUrn: hrn:mem:hadronmemory.com:dev   (or the v1 `hadronmemory.com::dev`)
+ *   value:     auth:tokens
+ *   result:    hrn:node:hadronmemory.com:dev:auth:tokens
+ *
+ * This reverses the spec-021 FR-009 behaviour this function used to
+ * implement (rewriting every `:` into `::`), which `cor:urn:010:01`
+ * supersedes.
+ *
+ * ## The one case that stays v1: ownership chains
+ *
+ * A v1 memory URN with MORE than two atoms is an ownership chain
+ * (`<org>::<app>::<agent>::<memory>`) — the shape v2 removed. It has no
+ * string-derivable v2 form: v2's fixed positional arity would read atom 1 as
+ * the memory slug and fold the rest into the loc, silently addressing the
+ * wrong node. The spec is explicit that migration may reassign slugs, so
+ * "an old chain URN can't be string-rewritten to its flat form" — it resolves
+ * through a **stored alias map** on the server instead.
+ *
+ * So a chain URN is emitted unchanged in v1 form, which the server accepts
+ * forever. Flattening it would be a correctness bug, not a modernization.
+ *
  *   memoryUrn: hrn:memory:micromentor.org::coding-app::coding-agent::system
  *   value:     review:sort-imports
  *   result:    hrn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports
- *
- * Example (legacy single-`:` memory):
- *   memoryUrn: hrn:memory:hadronmemory.com:dev
- *   value:     auth:tokens
- *   result:    hrn:node:hadronmemory.com::dev::auth:tokens
- *              (slug-path auto-converted from `hadronmemory.com:dev` to
- *              `hadronmemory.com::dev` so the result parses cleanly)
  *
  * The result is in `hrn:node:` form. D11 cat 2 (node-role polymorphism —
  * rewrite to `hrn:<role>:...` when the node has a known role) is a
@@ -68,18 +72,17 @@ export function composeNodeUrn(memoryUrn: string, value: string): string {
     slugPath = memoryUrn;
   }
 
-  // If the slug-path is in legacy single-`:` grammar (no `::`), rewrite
-  // every `:` to `::` so the composed result is spec-021-parseable
-  // (first-segment-must-be-one-atom rule). Spec-021 slug-paths already
-  // contain `::` and pass through unchanged.
-  if (!slugPath.includes('::')) {
-    slugPath = slugPath.split(':').join('::');
+  // An ownership CHAIN (>2 atoms) has no string-derivable v2 form — see the
+  // doc comment. Emit it unchanged in v1 so the server's alias map resolves it.
+  // Count atoms in whichever grammar the caller supplied.
+  const atoms = slugPath.includes('::') ? slugPath.split('::') : slugPath.split(':');
+  if (atoms.length > 2) {
+    const chain = atoms.join('::');
+    return `${CANONICAL_SCHEME}:node:${chain}::${value}`;
   }
 
-  // Spec 021 FR-009: hierarchy separator is `::`. The memory's slug-path
-  // is one or more `::`-separated path-segments; appending the loc adds
-  // one more `::`-separated piece. Internally the loc keeps its own `:`
-  // separators unchanged (node locs are intra-memory paths, not
-  // hierarchy-separated by `::`).
-  return `${CANONICAL_SCHEME}:node:${slugPath}::${value}`;
+  // Grammar v2 (cor:urn:010:01): flat, single colon throughout. `<root>:<slug>`
+  // then the loc, whose own internal `:` separators are already v2-shaped —
+  // v2 treats the loc as opaque colon-joined atoms, so it appends verbatim.
+  return `${CANONICAL_SCHEME}:node:${atoms.join(':')}:${value}`;
 }

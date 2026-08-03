@@ -105,13 +105,13 @@ html:not(.dark) textarea::placeholder {
   text-underline-offset: 2px;
 }
 
-.wikilink-unresolved {
+.prose .wikilink-unresolved {
   color: rgb(190 18 60); /* rose-700 */
   text-decoration: underline wavy;
   text-underline-offset: 2px;
   cursor: help;
 }
 
-.dark .wikilink-unresolved {
+.dark .prose .wikilink-unresolved {
   color: rgb(253 164 175); /* rose-300 */
 }
