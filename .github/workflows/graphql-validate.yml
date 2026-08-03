@@ -40,6 +40,13 @@ jobs:
       - name: Validate operations against the schema snapshot
         run: pnpm gql:validate
 
+      # tsconfig.json extends ./.svelte-kit/tsconfig.json, which `svelte-kit
+      # sync` generates — absent in a fresh checkout, so vitest cannot transform
+      # any .ts test without this. It passes locally only because a previous
+      # `pnpm check` left the directory behind.
+      - name: Generate the SvelteKit tsconfig
+        run: pnpm exec svelte-kit sync
+
       # The gate's own test — proves the validator still FAILS on a drifted
       # operation. A validator that silently passes everything is worse than no
       # validator, and nothing else in CI would notice it had gone blind.
