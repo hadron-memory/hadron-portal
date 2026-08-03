@@ -1,21 +1,6 @@
-import { fail, isRedirect, redirect } from '@sveltejs/kit';
-import type { Infer } from 'sveltekit-superforms';
-import { message, superValidate } from 'sveltekit-superforms/server';
-import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
-import {
-  MARKETPLACE_QUERY,
-  ADD_TO_MY_MEMORIES_MUTATION,
-  ORGANIZATIONS_NAV_QUERY,
-} from '$lib/server/queries';
-import { filterToMemberOrgs, resolveActiveOrg } from '$lib/server/active-org';
-import type { Organization } from '$lib/types';
-import type { Actions, PageServerLoad } from './$types';
-import { addMarketplaceMemorySchema } from './schema';
-
-const addMarketplaceMemoryFormAdapter = zod4(addMarketplaceMemorySchema);
-type AddMarketplaceMemoryForm = Infer<typeof addMarketplaceMemorySchema, 'zod4'>;
+import { MARKETPLACE_QUERY } from '$lib/server/queries';
+import type { PageServerLoad } from './$types';
 
 /** A sanitized marketplace ref (cor:acl:080:02/04). */
 export interface MarketplaceRef {
@@ -35,12 +20,6 @@ const EMPTY: MarketplaceSection = { items: [], total: 0 };
 // when present but the server queries require no membership. Loads the first
 // page of each section.
 export const load: PageServerLoad = async ({ locals }) => {
-  const form = await superValidate<AddMarketplaceMemoryForm>(
-    { memoryId: '' },
-    addMarketplaceMemoryFormAdapter,
-    { errors: false },
-  );
-
   try {
     const data = await gqlClient(locals.token).request<{
       marketplaceOrganizations: MarketplaceSection;
@@ -51,52 +30,14 @@ export const load: PageServerLoad = async ({ locals }) => {
       organizations: data.marketplaceOrganizations,
       agents: data.marketplaceAgents,
       memories: data.marketplaceMemories,
-      form,
     };
   } catch {
-    return { organizations: EMPTY, agents: EMPTY, memories: EMPTY, form };
+    return { organizations: EMPTY, agents: EMPTY, memories: EMPTY };
   }
 };
 
-export const actions: Actions = {
-  addToMyMemories: async ({ request, locals }) => {
-    const form = await superValidate<AddMarketplaceMemoryForm>(
-      await request.formData(),
-      addMarketplaceMemoryFormAdapter,
-    );
-    if (!form.valid) return fail(400, { form });
-
-    if (!locals.token) {
-      redirect(303, `/signup?memory=${encodeURIComponent(form.data.memoryId)}`);
-    }
-
-    try {
-      await gqlClient(locals.token).request(ADD_TO_MY_MEMORIES_MUTATION, {
-        memoryId: form.data.memoryId,
-      });
-      // Resolve the active org and redirect straight to /app/orgs/<id>/
-      // to avoid the /app/dashboard 303→302 chain. One extra GQL call
-      // server-side is cheaper than a full browser redirect hop.
-      const orgs = await fetchAllItems<Organization>(gqlClient(locals.token), ORGANIZATIONS_NAV_QUERY, 'organizations')
-        .catch(() => [] as Organization[]);
-      // hadron-server#473: resolve against memberships only — the nav query
-      // is server-filtered (filter.memberOnly, admins included);
-      // filterToMemberOrgs stays as defense-in-depth.
-      const { activeOrgId } = resolveActiveOrg({
-        paramsId: undefined,
-        lastActiveOrgId: null,
-        myOrganizations: filterToMemberOrgs(orgs, locals.user?.id),
-      });
-      // No org (an org-less individual, post-#627) → their memories surface,
-      // NOT `/app/orgs/`, which would bounce them back off requireNonConsumer.
-      redirect(303, activeOrgId ? `/app/orgs/${activeOrgId}/` : '/app/memories');
-    } catch (e: unknown) {
-      if (isRedirect(e)) throw e;
-      return message(
-        form,
-        { type: 'error', text: e instanceof Error ? e.message : 'Failed to add memory' },
-        { status: 500 },
-      );
-    }
-  },
-};
+// The `addToMyMemories` action that used to live here (and its "Use this
+// memory" button) was removed in #681: hadron-server#771 retired the mutation
+// with spec 048's personal orgs, so it had been throwing at runtime. The
+// catalogue stays browsable; there is no server-side capability to re-point it
+// at yet.

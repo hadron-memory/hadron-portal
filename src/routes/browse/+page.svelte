@@ -1,41 +1,9 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
-  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
-  import { zod4Client } from 'sveltekit-superforms/adapters';
-  import type { PageData, ActionData } from './$types';
-  import { addPublicMemorySchema } from './schema';
+  import type { PageData } from './$types';
 
-  type AddPublicMemoryForm = Infer<typeof addPublicMemorySchema, 'zod4'>;
-  type AddPublicMemorySuperform = SuperValidated<AddPublicMemoryForm, App.Superforms.Message, AddPublicMemoryForm>;
-
-  let { data, form }: { data: PageData; form: ActionData } = $props();
+  let { data }: { data: PageData } = $props();
 
   let search = $state('');
-  let pendingMemoryId = $state<string | null>(null);
-
-  const initialAddForm = untrack(() => submittedAdd(form) ?? (data.form as AddPublicMemorySuperform));
-  const {
-    form: addForm,
-    errors: addErrors,
-    message: addMessage,
-    submitting: addSubmitting,
-    enhance: addEnhance,
-  } = superForm<AddPublicMemoryForm, App.Superforms.Message, AddPublicMemoryForm>(initialAddForm, {
-    validators: zod4Client(addPublicMemorySchema),
-    validationMethod: 'oninput',
-    scrollToError: 'smooth',
-    autoFocusOnError: 'detect',
-    clearOnSubmit: 'none',
-  });
-
-  function submittedAdd(actionData: ActionData): AddPublicMemorySuperform | null {
-    const candidate = actionData && 'form' in actionData ? actionData.form : null;
-    const candidateData = candidate?.data;
-    const kind = candidateData && typeof candidateData === 'object' && '_kind' in candidateData
-      ? String(candidateData._kind)
-      : null;
-    return kind === 'addPublicMemory' ? candidate as AddPublicMemorySuperform : null;
-  }
 
   const filtered = $derived(
     data.memories.filter((m) => {
@@ -44,16 +12,6 @@
       return m.name.toLowerCase().includes(q);
     })
   );
-  const addError = $derived(
-    $addMessage?.type === 'error'
-      ? $addMessage.text
-      : $addErrors.memoryId?.[0] ?? $addErrors._kind?.[0] ?? null,
-  );
-
-  function prepareAdd(memoryId: string) {
-    pendingMemoryId = memoryId;
-    addForm.update((current) => ({ ...current, _kind: 'addPublicMemory', memoryId }), { taint: false });
-  }
 </script>
 
 <svelte:head>
@@ -65,10 +23,6 @@
     <h1 class="text-3xl font-bold text-zinc-900 dark:text-white">Memories</h1>
     <p class="mt-2 text-zinc-500 dark:text-zinc-400">Find AI knowledge memories for any purpose.</p>
   </div>
-
-  {#if addError}
-    <div role="alert" class="mb-6 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{addError}</div>
-  {/if}
 
   <div class="mb-6">
     <input
@@ -106,23 +60,6 @@
               {/if}
             </div>
           </div>
-
-          {#if data.isAuthenticated}
-            <!-- Keep both handlers: onclick updates before client validation for button activation;
-                 onsubmit covers keyboard/requestSubmit paths. -->
-            <form method="POST" action="?/addToMyMemories" use:addEnhance onsubmit={() => prepareAdd(memory.id)} novalidate>
-              <input type="hidden" name="_kind" value={$addForm._kind} />
-              <input type="hidden" name="memoryId" value={memory.id} />
-              <button
-                type="submit"
-                disabled={$addSubmitting}
-                onclick={() => prepareAdd(memory.id)}
-                class="w-full rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {$addSubmitting && pendingMemoryId === memory.id ? 'Adding...' : 'Use this memory'}
-              </button>
-            </form>
-          {/if}
         </div>
       {/each}
     </div>
