@@ -30,6 +30,17 @@ import {
   updateAgentMemoryRoleSchema,
 } from './schema';
 
+// Route-local, but a `/* GraphQL */` const rather than an inline string so
+// `pnpm gql:validate` sees it — an inline document is invisible to the gate
+// (#690 review), which is how this one kept `ref: $id` after the sweep.
+const AGENT_ORG_QUERY = /* GraphQL */ `
+  query AgentOrg($ref: ID!) {
+    agent(ref: $ref) {
+      organizationId
+    }
+  }
+`;
+
 const agentSettingsFormAdapter = zod4(agentSettingsSchema);
 const addAgentMemoryFormAdapter = zod4(addAgentMemorySchema);
 const updateAgentMemoryRoleFormAdapter = zod4(updateAgentMemoryRoleSchema);
@@ -313,8 +324,8 @@ export const actions: Actions = {
       let orgId: string | null = null;
       try {
         const res = await client.request<{ agent: { organizationId: string | null } | null }>(
-          'query AgentOrg($id: ID!) { agent(ref: $id) { organizationId } }',
-          { id: params.id },
+          AGENT_ORG_QUERY,
+          { ref: params.id },
         );
         orgId = res.agent?.organizationId ?? null;
       } catch {

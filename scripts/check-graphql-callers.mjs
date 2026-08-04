@@ -77,11 +77,43 @@ function readObject(node) {
   return { keys, exact };
 }
 
+/** Is this node inside a branch/loop, i.e. might it not execute? */
+function isConditional(node) {
+  for (let p = node.parent; p; p = p.parent) {
+    if (
+      ts.isIfStatement(p) ||
+      ts.isConditionalExpression(p) ||
+      ts.isSwitchStatement(p) ||
+      ts.isForStatement(p) ||
+      ts.isForOfStatement(p) ||
+      ts.isForInStatement(p) ||
+      ts.isWhileStatement(p) ||
+      ts.isDoStatement(p) ||
+      ts.isCatchClause(p) ||
+      (ts.isBinaryExpression(p) &&
+        (p.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+          p.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+          p.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
- * Objects held in a local `const vars = {…}` and then mutated (`vars.x = …`)
- * before being passed — a shape the portal uses for conditionally-sent
- * variables. A name declared more than once in the file is ambiguous (we do no
- * scope analysis), so it is dropped rather than risk a false report.
+ * Objects held in a local `const vars = {…}` and then mutated (`vars.x = …`) —
+ * a shape the portal uses for conditionally-sent variables.
+ *
+ * Assignments are recorded with their POSITION and whether they sit in a
+ * branch, because a whole-file union would accept
+ * `const v = {}; request(DOC, v); v.ref = x` as supplying `ref` when the
+ * request already went out without it (#690 review). A call site resolves only
+ * the assignments that precede it, and an assignment inside a branch widens the
+ * key set for the stale-key check without ever satisfying a required variable.
+ *
+ * A name declared more than once in the file is ambiguous (we do no scope
+ * analysis), so it is dropped rather than risk a false report.
  */
 function collectLocalObjects(source) {
   const objects = new Map();
@@ -96,21 +128,32 @@ function collectLocalObjects(source) {
     ) {
       const name = node.name.text;
       if (objects.has(name)) ambiguous.add(name);
-      objects.set(name, readObject(node.initializer));
+      objects.set(name, { base: readObject(node.initializer), assignments: [] });
     }
 
     // `vars.key = …` and `vars['key'] = …` widen the known key set.
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
       const lhs = node.left;
+      let owner = null;
+      let key = null;
       if (ts.isPropertyAccessExpression(lhs) && ts.isIdentifier(lhs.expression)) {
-        objects.get(lhs.expression.text)?.keys.add(lhs.name.text);
+        owner = lhs.expression.text;
+        key = lhs.name.text;
       } else if (
         ts.isElementAccessExpression(lhs) &&
         ts.isIdentifier(lhs.expression) &&
         lhs.argumentExpression &&
         ts.isStringLiteral(lhs.argumentExpression)
       ) {
-        objects.get(lhs.expression.text)?.keys.add(lhs.argumentExpression.text);
+        owner = lhs.expression.text;
+        key = lhs.argumentExpression.text;
+      }
+      if (owner && objects.has(owner)) {
+        objects.get(owner).assignments.push({
+          key,
+          pos: node.getStart(source),
+          conditional: isConditional(node),
+        });
       }
     }
     ts.forEachChild(node, visit);
@@ -121,11 +164,44 @@ function collectLocalObjects(source) {
   return objects;
 }
 
-/** Resolve a call's variables argument to { keys, exact }, or null if opaque. */
-function readVariablesArg(node, locals) {
+/** The object's shape as of `pos` — see collectLocalObjects. */
+function shapeAt(entry, pos) {
+  const keys = new Set(entry.base.keys);
+  let exact = entry.base.exact;
+  for (const a of entry.assignments) {
+    if (a.pos >= pos) continue; // happens after the call — cannot have applied
+    keys.add(a.key);
+    // A branch may not have run, so we can no longer claim to see every key.
+    if (a.conditional) exact = false;
+  }
+  return { keys, exact };
+}
+
+/**
+ * Does this argument look like a GraphQL operation written inline?
+ * A string/template literal naming an operation type is one; anything else
+ * (a helper call, a member access) is left to the opaque path.
+ */
+function isInlineDocument(node) {
+  const text = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
+    ? node.text
+    : ts.isTemplateExpression(node)
+      ? node.head.text
+      : null;
+  return text !== null && /\b(query|mutation|subscription|fragment)\b/.test(text);
+}
+
+/**
+ * Resolve a call's variables argument to { keys, exact }, or null if opaque.
+ * `callPos` bounds which local-object assignments can have applied yet.
+ */
+function readVariablesArg(node, locals, callPos) {
   if (node === undefined) return { keys: new Set(), exact: true }; // no variables passed
   if (ts.isObjectLiteralExpression(node)) return readObject(node);
-  if (ts.isIdentifier(node)) return locals.get(node.text) ?? null;
+  if (ts.isIdentifier(node)) {
+    const entry = locals.get(node.text);
+    return entry ? shapeAt(entry, callPos) : null;
+  }
   return null;
 }
 
@@ -157,13 +233,23 @@ function callSites(source) {
         injected = PAGER_INJECTED;
       }
 
-      if (docArg && ts.isIdentifier(docArg)) {
-        found.push({
-          docName: docArg.text,
-          vars: readVariablesArg(varsArg, locals),
-          injected,
-          line: source.getLineAndCharacterOfPosition(docArg.getStart(source)).line + 1,
-        });
+      if (docArg) {
+        const line = source.getLineAndCharacterOfPosition(docArg.getStart(source)).line + 1;
+        if (ts.isIdentifier(docArg)) {
+          found.push({
+            docName: docArg.text,
+            vars: readVariablesArg(varsArg, locals, node.getStart(source)),
+            injected,
+            line,
+          });
+        } else if (isInlineDocument(docArg)) {
+          // An operation written inline never reaches the `/* GraphQL */`
+          // extractor, so it is validated by NOTHING — not the schema check,
+          // not the naming rule, not this one. Two such documents sat in the
+          // portal with the pre-sweep `ref: $id` spelling while the gate
+          // reported success (#690 review). Report, never skip silently.
+          found.push({ inline: true, line });
+        }
       }
     }
     ts.forEachChild(node, visit);
@@ -188,6 +274,18 @@ export function findCallerMismatches(files, declared, root) {
     const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
 
     for (const site of callSites(source)) {
+      if (site.inline) {
+        failures.push({
+          file: rel,
+          line: site.line,
+          name: '(inline document)',
+          errors: [
+            'a GraphQL operation written inline is validated by nothing — ' +
+              'move it to a `const NAME = /* GraphQL */ `…`` so the gate can see it',
+          ],
+        });
+        continue;
+      }
       const spec = declared.get(site.docName);
       if (!spec) continue; // not one of our documents (or fragment-only)
 

@@ -128,6 +128,68 @@ describe('findCallerMismatches', () => {
     expect(r.skipped).toHaveLength(2);
   });
 
+  // #690 review (Codex): an operation written inline never reaches the
+  // `/* GraphQL */` extractor, so nothing validates it. Two such documents were
+  // sitting in the portal with the pre-sweep `ref: $id` spelling while the gate
+  // reported success.
+  it('reports an inline document rather than skipping it', () => {
+    const r = check("client.request('query AgentOrg($id: ID!) { agent(ref: $id) { organizationId } }', { id: 'x' });");
+    expect(r.failures).toHaveLength(1);
+    expect(r.failures[0].name).toBe('(inline document)');
+    expect(r.failures[0].errors[0]).toMatch(/validated by nothing/);
+  });
+
+  it('reports an inline document written as a template literal', () => {
+    const r = check('client.request(`mutation M($id: ID!) { doIt(ref: $id) }`, { id: "x" });');
+    expect(r.failures).toHaveLength(1);
+    expect(r.failures[0].name).toBe('(inline document)');
+  });
+
+  it('does not mistake an ordinary string argument for a document', () => {
+    const r = check("client.request(notADocument, 'some-field');");
+    expect(r.failures).toEqual([]);
+  });
+
+  // #690 review (Codex): a whole-file union of assignments accepted a key that
+  // is only set AFTER the request, or inside a branch that may not run.
+  it('ignores an assignment that happens after the request', () => {
+    const r = check(`
+      const vars: Record<string, unknown> = {};
+      client.request(UPDATE_THING_MUTATION, vars);
+      vars.ref = "x";
+    `);
+    expect(r.failures[0].errors.join(' ')).toMatch(/omits required variable "\$ref"/);
+  });
+
+  it('does not let a conditional assignment satisfy a required variable', () => {
+    const r = check(`
+      const vars: Record<string, unknown> = {};
+      if (cond) vars.ref = "x";
+      client.request(UPDATE_THING_MUTATION, vars);
+    `);
+    // Cannot prove it was set, so the required check is suppressed rather than
+    // wrongly satisfied — and no false positive is raised either.
+    expect(r.failures).toEqual([]);
+  });
+
+  it('still flags a stale key assigned conditionally', () => {
+    const r = check(`
+      const vars: Record<string, unknown> = {};
+      if (cond) vars.id = "x";
+      client.request(UPDATE_THING_MUTATION, vars);
+    `);
+    expect(r.failures[0].errors.join(' ')).toMatch(/passes "id"/);
+  });
+
+  it('accepts an unconditional assignment before the request', () => {
+    const r = check(`
+      const vars: Record<string, unknown> = {};
+      vars.ref = "x";
+      client.request(UPDATE_THING_MUTATION, vars);
+    `);
+    expect(r.failures).toEqual([]);
+  });
+
   it('ignores request() calls for documents it does not know', () => {
     const r = check('client.request(SOME_OTHER_THING, { whatever: 1 });');
     expect(r.failures).toEqual([]);

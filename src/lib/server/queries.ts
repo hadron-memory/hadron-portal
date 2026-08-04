@@ -215,8 +215,7 @@ export const SEND_CONTACT_MESSAGE_MUTATION = /* GraphQL */ `
 `;
 
 // hadron-server#473: uniform read surface — find-one queries take \`ref\`
-// (PK or URN) instead of \`id\`. Variable names stay \`$id\` so call sites
-// keep passing \`{ id: ... }\`.
+// (PK or URN) instead of \`id\`.
 export const MEMORY_BY_ID_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
   query MemoryById($ref: ID!) {
@@ -2244,8 +2243,7 @@ export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
 // returns its id (#529) — the walker executes it in the background.
 // `urn:` -> `nodeRef:` per hadron-server#542. That rename shipped a while ago
 // and broke this mutation at runtime until #681; nothing caught it because the
-// portal had no build-time validation. Per the write-surface convention above,
-// only the ARGUMENT moves — `$urn` stays, so both callers are untouched.
+// portal had no build-time validation.
 export const RUN_TASK_APP_MUTATION = /* GraphQL */ `
   mutation RunTaskApp($nodeRef: String!, $args: JSON, $appRef: ID!, $runAsSelf: Boolean) {
     runTask(nodeRef: $nodeRef, args: $args, appRef: $appRef, runAsSelf: $runAsSelf)

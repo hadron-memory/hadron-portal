@@ -41,6 +41,17 @@ type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
 type RevokeAppKeyForm = Infer<typeof revokeAppKeySchema, 'zod4'>;
 type UpdateAppAgentToolsForm = Infer<typeof updateAppAgentToolsSchema, 'zod4'>;
 
+// Route-local, but a `/* GraphQL */` const rather than an inline string so
+// `pnpm gql:validate` sees it — an inline document is invisible to the gate
+// (#690 review), which is how this one kept `ref: $id` after the sweep.
+const APP_ORG_QUERY = /* GraphQL */ `
+  query AppOrg($ref: ID!) {
+    app(ref: $ref) {
+      organizationId
+    }
+  }
+`;
+
 const addAgentFormAdapter = zod4(addAgentSchema);
 const appSettingsFormAdapter = zod4(appSettingsSchema);
 const createAppKeyFormAdapter = zod4(createAppKeySchema);
@@ -370,8 +381,8 @@ export const actions: Actions = {
     let orgId: string | null = null;
     try {
       const res = await client.request<{ app: { organizationId: string | null } | null }>(
-        'query AppOrg($id: ID!) { app(ref: $id) { organizationId } }',
-        { id: params.appId },
+        APP_ORG_QUERY,
+        { ref: params.appId },
       );
       orgId = res.app?.organizationId ?? null;
     } catch {
