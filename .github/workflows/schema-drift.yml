@@ -1,0 +1,130 @@
+name: Schema drift
+
+# Nightly detector for GraphQL contract drift (#681), the portal companion to
+# hadron-cli's workflow of the same name.
+#
+# Why this exists separately from the `graphql-validate` PR gate: that gate only
+# checks operations against the *committed* snapshot, so it cannot see the
+# snapshot itself lagging the live server. A server rename would then sail
+# through CI and break at runtime — which is precisely what happened with
+# `runTask(urn:)` (hadron-server#542). This job re-exports the SDL from
+# hadron-server and validates against THAT.
+#
+# It is low-noise by construction: it only fails for an operation the portal
+# actually sends, so unrelated server-side changes stay quiet. It is
+# deliberately NOT a PR gate — it depends on a cross-repo checkout and is a
+# heads-up ("run pnpm gql:schema"), not a blocker.
+#
+# Setup: add a repo secret HADRON_SERVER_RO_TOKEN — a fine-grained PAT with
+# Contents: Read on hadron-memory/hadron-server. Without it the job no-ops with
+# a notice so forks and unconfigured clones stay green.
+#
+# Third-party actions are pinned to a full commit SHA (tag in a trailing
+# comment). Bump SHA + comment together when upgrading.
+
+on:
+  schedule:
+    - cron: '37 6 * * *' # 06:37 UTC daily, offset from hadron-cli's 06:17 run
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write # file a tracking issue when drift is found
+
+jobs:
+  schema-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Gate on server-access token
+        id: gate
+        env:
+          TOKEN: ${{ secrets.HADRON_SERVER_RO_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::notice::HADRON_SERVER_RO_TOKEN not set — skipping schema-drift check."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Sparse checkout of just the SDL source + export script — typeDefs.ts is
+      # a self-contained SDL string, so nothing else of the server is needed
+      # (and we pull as little of the private repo as possible).
+      - name: Check out hadron-server SDL source
+        if: steps.gate.outputs.enabled == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          repository: hadron-memory/hadron-server
+          token: ${{ secrets.HADRON_SERVER_RO_TOKEN }}
+          path: .hadron-server
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/export-graphql-sdl.mjs
+            src/api/graphql/schema/typeDefs.ts
+          sparse-checkout-cone-mode: false
+
+      # Export the SDL without a full server `pnpm install`: typeDefs.ts is a
+      # self-contained SDL string, so a throwaway install of just tsx + graphql
+      # (the export script's only runtime deps) suffices. Install chatter goes
+      # to stderr so stdout stays clean SDL for the redirect.
+      - name: Export the live server SDL
+        if: steps.gate.outputs.enabled == 'true'
+        run: |
+          cd .hadron-server
+          npm install --no-save --no-package-lock --silent tsx graphql@16 1>&2
+          node_modules/.bin/tsx scripts/export-graphql-sdl.mjs > "$GITHUB_WORKSPACE/.server-schema.graphql"
+
+      - name: Validate operations against the live SDL
+        id: check
+        if: steps.gate.outputs.enabled == 'true'
+        continue-on-error: true
+        run: node scripts/validate-graphql.mjs --schema .server-schema.graphql
+
+      # Only on a genuine drift failure — not an infra failure (e.g. a bad
+      # checkout), which leaves steps.check.outcome != 'failure'.
+      - name: File a drift tracking issue
+        if: steps.check.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="GraphQL schema drift vs hadron-server"
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          # De-dupe: don't stack issues if one is already open.
+          existing=$(gh issue list --state open --search "\"$title\" in:title" \
+            --json title,number --jq "[.[] | select(.title==\"$title\")][0].number // empty")
+          if [ -n "$existing" ]; then
+            echo "Drift issue already open (#$existing); adding a note instead."
+            gh issue comment "$existing" --body "Still drifting as of $run_url"
+            exit 0
+          fi
+          cat > /tmp/drift-body.md <<'EOF'
+          The nightly schema-drift check found that the committed `schema/schema.graphql` snapshot is stale for an operation the portal actually sends. Left alone this breaks at runtime, on that one flow, with no CI signal — see #681.
+
+          Refresh locally and open a PR:
+
+          ```sh
+          pnpm gql:schema     # re-export from ../hadron-server
+          pnpm gql:validate   # reconcile whatever the server renamed
+          ```
+          EOF
+          printf '\nSee the failing run: %s\n' "$run_url" >> /tmp/drift-body.md
+          gh issue create --title "$title" --body-file /tmp/drift-body.md
+
+      # Surface the drift as a red run too — the issue alone is easy to miss.
+      - name: Fail the run when drift was found
+        if: steps.check.outcome == 'failure'
+        run: |
+          echo "::error::GraphQL schema drift detected — see the tracking issue."
+          exit 1

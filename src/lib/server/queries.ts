@@ -262,11 +262,12 @@ export const PUBLIC_MEMORIES_QUERY = /* GraphQL */ `
   }
 `;
 
-export const ADD_TO_MY_MEMORIES_MUTATION = /* GraphQL */ `
-  mutation AddToMyMemories($memoryId: ID!) {
-    addToMyMemories(memoryId: $memoryId)
-  }
-`;
+// `addToMyMemories` was retired server-side in hadron-server#771 (spec 048,
+// Phase D): it bookmarked a public memory by subscribing the caller's PERSONAL
+// ORG, and personal orgs no longer exist — `MemorySubscription` has no
+// user-scoped form, so there is no replacement mutation to point at. The
+// portal's callers and the "Use this memory" affordance went with it in #681.
+// Re-introducing that flow needs a server-side capability first.
 
 // cor:acl:080:04 — the marketplace catalogue: listedOnMarketplace + publicly
 // accessible orgs / agents / memories, as sanitized flat refs. One request
@@ -2261,9 +2262,13 @@ export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
 
 // "Test this flow" (#478): runTask with appRef mints a MANUAL AppRun and
 // returns its id (#529) — the walker executes it in the background.
+// `urn:` -> `nodeRef:` per hadron-server#542. That rename shipped a while ago
+// and broke this mutation at runtime until #681; nothing caught it because the
+// portal had no build-time validation. Per the write-surface convention above,
+// only the ARGUMENT moves — `$urn` stays, so both callers are untouched.
 export const RUN_TASK_APP_MUTATION = /* GraphQL */ `
   mutation RunTaskApp($urn: String!, $args: JSON, $appRef: ID!, $runAsSelf: Boolean) {
-    runTask(urn: $urn, args: $args, appRef: $appRef, runAsSelf: $runAsSelf)
+    runTask(nodeRef: $urn, args: $args, appRef: $appRef, runAsSelf: $runAsSelf)
   }
 `;
 

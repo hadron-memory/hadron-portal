@@ -14,7 +14,9 @@ import { resolve } from 'path';
 export default defineConfig({
   plugins: [svelte()],
   test: {
-    include: ['src/**/*.test.ts'],
+    // `scripts/` is in scope for the GraphQL drift gate's own test (#681),
+    // which proves the validator still fails on a drifted operation.
+    include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'],
     environment: 'node',
   },
   resolve: {

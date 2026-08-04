@@ -1,0 +1,54 @@
+name: GraphQL validate
+
+# PR gate for #681. The portal sends raw GraphQL strings through
+# graphql-request — no codegen — so before this existed a server-side rename
+# failed at RUNTIME, on the one flow that used it, instead of in CI. That is how
+# `runTask(urn:)` (hadron-server#542) and `addToMyMemories` (hadron-server#771)
+# both stayed broken in production, unnoticed, for months.
+#
+# This job validates every `/* GraphQL */` document in src/ against the
+# committed `schema/schema.graphql` snapshot. It cannot see the snapshot itself
+# lagging the live server — that gap is covered by the nightly schema-drift
+# workflow, exactly as hadron-cli splits the two checks.
+#
+# Third-party actions are pinned to a full commit SHA (tag in a trailing
+# comment), matching hadron-cli. Bump SHA + comment together when upgrading.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  graphql-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+
+      # corepack honours the `packageManager` field in package.json, so the
+      # pnpm version stays pinned in one place.
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate operations against the schema snapshot
+        run: pnpm gql:validate
+
+      # tsconfig.json extends ./.svelte-kit/tsconfig.json, which `svelte-kit
+      # sync` generates — absent in a fresh checkout, so vitest cannot transform
+      # any .ts test without this. It passes locally only because a previous
+      # `pnpm check` left the directory behind.
+      - name: Generate the SvelteKit tsconfig
+        run: pnpm exec svelte-kit sync
+
+      # The gate's own test — proves the validator still FAILS on a drifted
+      # operation. A validator that silently passes everything is worse than no
+      # validator, and nothing else in CI would notice it had gone blind.
+      - name: Test the validator itself
+        run: pnpm vitest run scripts/validate-graphql.test.ts
