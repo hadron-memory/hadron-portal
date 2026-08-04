@@ -142,6 +142,38 @@ The transition is automatic — when a user creates a real organization or is in
 ```bash
 pnpm run dev        # start dev server on :5173
 pnpm run check      # svelte-check type checking
+pnpm run test       # vitest
 pnpm run build      # production build
 pnpm run preview    # preview production build
 ```
+
+### GraphQL validation
+
+The portal sends raw GraphQL strings through `graphql-request` — there is no
+codegen — so a server-side rename would otherwise fail at *runtime*, on the one
+flow that uses it, rather than in CI. `schema/schema.graphql` is a committed
+snapshot of hadron-server's SDL, and the `graphql-validate` workflow checks
+every operation against it on each PR.
+
+```bash
+pnpm run gql:validate   # validate operations + call sites against the snapshot
+pnpm run gql:schema     # refresh the snapshot from ../hadron-server
+```
+
+`gql:validate` checks four things:
+
+1. every `/* GraphQL */` document is valid against the snapshot;
+2. each caller's variable keys match the operation's `$variables` — a `$variable`
+   is internal to the document, so a rename leaves it valid while stale callers
+   break at runtime;
+3. an argument and the `$variable` filling it share a name
+   (`appKeys(appRef: $appRef)`);
+4. no operation is written as an inline string — an inline document reaches none
+   of the above, so declare `const X_QUERY = /* GraphQL */ ...` even for a
+   route-local query.
+
+When it fails because the server changed on purpose, run `pnpm run gql:schema`
+(needs a sibling `../hadron-server` checkout, or set `HADRON_SERVER_DIR`) and
+reconcile whatever was renamed. The `schema-drift` workflow runs the same check
+nightly against the live server SDL, which is what catches the snapshot itself
+going stale.
