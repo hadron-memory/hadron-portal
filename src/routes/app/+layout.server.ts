@@ -156,6 +156,10 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
 
   return {
     user,
+    // Admin impersonation: the acting-as facts for the banner (null normally).
+    // `user` above already IS the target under impersonation — hooks.server
+    // swapped locals.token/user, and `me` resolves as the target.
+    impersonation: locals.impersonation,
     // The nav/OrgSwitcher list — memberships only (an admin reaches the
     // all-orgs view on /app/orgs). memberOrgs, not the raw fetch, so the
     // client-side defense-in-depth applies to what the UI renders too.

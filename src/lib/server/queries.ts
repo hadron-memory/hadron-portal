@@ -602,6 +602,31 @@ export const DELETE_ORGANIZATION_MUTATION = /* GraphQL */ `
   }
 `;
 
+// Admin impersonation (read-only support sessions). The token is returned
+// exactly once; the portal seats it in the hadron_impersonation cookie and
+// never persists it anywhere else.
+export const START_IMPERSONATION_MUTATION = /* GraphQL */ `
+  mutation StartImpersonation($orgRef: String!, $userRef: String!, $reason: String) {
+    startImpersonation(orgRef: $orgRef, userRef: $userRef, reason: $reason) {
+      token
+      session {
+        id
+        expiresAt
+        targetUser { id handle name }
+      }
+    }
+  }
+`;
+
+export const STOP_IMPERSONATION_MUTATION = /* GraphQL */ `
+  mutation StopImpersonation($id: ID) {
+    stopImpersonation(id: $id) {
+      id
+      endedAt
+    }
+  }
+`;
+
 export const ADD_MEMBER_MUTATION = /* GraphQL */ `
   mutation AddOrgMember($orgId: ID!, $userId: ID!, $role: Role!) {
     addOrgMember(orgId: $orgId, userId: $userId, role: $role) {
