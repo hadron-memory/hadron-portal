@@ -31,7 +31,10 @@ export const load: PageServerLoad = async ({ locals }) => {
       agents: data.marketplaceAgents,
       memories: data.marketplaceMemories,
     };
-  } catch {
+  } catch (e: unknown) {
+    // Log before degrading — an outage otherwise renders as "The marketplace is
+    // empty for now." with no trace. Surfacing it to the user is tracked in #687.
+    console.error('[marketplace] catalogue query failed; rendering empty sections', e);
     return { organizations: EMPTY, agents: EMPTY, memories: EMPTY };
   }
 };

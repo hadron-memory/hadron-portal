@@ -132,6 +132,15 @@ export function collectPortalDocuments(srcDir = SRC_DIR) {
 function main(argv) {
   const asJson = argv.includes('--json');
   const schemaFlag = argv.indexOf('--schema');
+  // `--schema` with no path (or followed by another flag) would otherwise throw
+  // inside resolve() before printing anything useful — reported on #681 review.
+  if (schemaFlag !== -1) {
+    const value = argv[schemaFlag + 1];
+    if (value === undefined || value.startsWith('-')) {
+      console.error('✗ --schema needs a path to an SDL file, e.g. --schema schema/schema.graphql');
+      return 1;
+    }
+  }
   const schemaPath = schemaFlag === -1 ? DEFAULT_SCHEMA : resolve(argv[schemaFlag + 1]);
 
   let schema;

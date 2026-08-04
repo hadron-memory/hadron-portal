@@ -13,7 +13,11 @@ export const load: PageServerLoad = async () => {
   try {
     const memories = await fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories');
     return { memories };
-  } catch {
+  } catch (e: unknown) {
+    // Log before degrading: the page renders "No public memories yet" either
+    // way, so without this an outage is indistinguishable from an empty
+    // catalogue. Surfacing it to the user is tracked separately in #687.
+    console.error('[browse] public memories query failed; rendering an empty list', e);
     return { memories: [] as Memory[] };
   }
 };
