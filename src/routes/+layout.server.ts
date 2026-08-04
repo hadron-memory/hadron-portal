@@ -21,8 +21,19 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
     }>(ME_QUERY);
     return { user: data.me };
   } catch {
-    // Token is invalid or backend is unreachable — clear stale cookie
-    cookies.delete('hadron_token', { path: '/' });
+    // Token is invalid or backend is unreachable — clear the stale cookie.
+    // Which cookie is stale depends on which one backed locals.token: under
+    // impersonation that is `hadron_impersonation`, so deleting hadron_token
+    // here would sign the ADMIN out over a revoked/demoted impersonation
+    // session and leave the orphaned impersonation cookie behind (PR #692
+    // review, P1). Dropping the impersonation cookie instead restores the
+    // admin's untouched session on the very next request.
+    if (locals.impersonation) {
+      cookies.delete('hadron_impersonation', { path: '/' });
+      locals.impersonation = null;
+    } else {
+      cookies.delete('hadron_token', { path: '/' });
+    }
     locals.token = null;
     locals.user = null;
     return { user: null };

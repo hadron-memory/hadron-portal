@@ -3,6 +3,7 @@
   import { page } from '$app/stores';
   import { t } from '$lib/i18n/t';
   import OrgSwitcher from '$lib/components/OrgSwitcher.svelte';
+  import ImpersonationBanner from '$lib/components/ImpersonationBanner.svelte';
   import { buildNavItems } from '$lib/nav';
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
 
@@ -30,6 +31,12 @@
   let menuOpen = $state(true);
 </script>
 
+{#if data.impersonation}
+  <ImpersonationBanner
+    targetName={data.user?.name ?? data.user?.handle ?? data.user?.id ?? ''}
+    expiresAt={data.impersonation.expiresAt}
+  />
+{/if}
 <div class="flex gap-8 px-6 py-8">
   <!-- Sidebar — sticky, sized to the available height; the nav scrolls
        internally (`flex-1 min-h-0 overflow-y-auto`) while the account block

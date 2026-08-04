@@ -41,6 +41,48 @@ const authHandle: Handle = async ({ event, resolve }) => {
     event.locals.user = null;
   }
 
+  // Admin impersonation: a live hadron_impersonation cookie SUPERSEDES the
+  // admin session for this request — locals.token/user become the TARGET
+  // (the server enforces read-only + shared-org scope on every request; this
+  // local decode is only routing, exactly like hadron_token above). The
+  // admin's hadron_token cookie is untouched, so stopping impersonation
+  // restores their session with no re-login.
+  event.locals.impersonation = null;
+  const impToken = event.cookies.get('hadron_impersonation') ?? null;
+  if (impToken && event.locals.user) {
+    const payload = decodeJwtPayload(impToken);
+    const imp = payload?.imp as { sid?: string; act?: string; org?: string } | undefined;
+    const exp = payload?.exp as number | undefined;
+    // `sub` is validated as a non-empty string, not just cast: a
+    // malformed-but-decodable JWT would otherwise put `undefined` in
+    // locals.user.id and break every downstream consumer expecting a real id
+    // (PR #692 review).
+    const sub = typeof payload?.sub === 'string' && payload.sub ? payload.sub : null;
+    if (payload && sub && imp?.sid && imp.act && imp.org && exp && exp * 1000 > Date.now()) {
+      event.locals.token = impToken;
+      event.locals.user = {
+        id: sub,
+        githubUsername: null,
+        email: null,
+        name: null,
+        avatarUrl: null,
+        roles: [], // impersonated sessions never carry roles
+      };
+      event.locals.impersonation = {
+        sessionId: imp.sid,
+        actorUserId: imp.act,
+        orgId: imp.org,
+        expiresAt: exp * 1000,
+      };
+    } else {
+      // Expired or malformed — drop it; the admin session takes over again.
+      event.cookies.delete('hadron_impersonation', { path: '/' });
+    }
+  } else if (impToken) {
+    // Imp cookie without an admin session is meaningless — clear it.
+    event.cookies.delete('hadron_impersonation', { path: '/' });
+  }
+
   return resolve(event);
 };
 

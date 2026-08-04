@@ -20,6 +20,7 @@
   import type { PageData, ActionData } from './$types';
   import {
     addOrgMemberSchema,
+    impersonateMemberSchema,
     inviteMemberSchema,
     leaveOrgSchema,
     removeOrgMemberSchema,
@@ -36,12 +37,30 @@
   type RemoveOrgMemberSuperform = SuperValidated<RemoveOrgMemberForm, App.Superforms.Message, RemoveOrgMemberForm>;
   type InviteMemberSuperform = SuperValidated<InviteMemberForm, App.Superforms.Message, InviteMemberForm>;
   type LeaveOrgSuperform = SuperValidated<LeaveOrgForm, App.Superforms.Message, LeaveOrgForm>;
+  type ImpersonateMemberForm = Infer<typeof impersonateMemberSchema, 'zod4'>;
+  type ImpersonateMemberSuperform = SuperValidated<ImpersonateMemberForm, App.Superforms.Message, ImpersonateMemberForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
   const members = $derived((org.members ?? []) as OrgMember[]);
 
   const isOwner = $derived(members.some((m) => m.role === 'OWNER' && m.user.id === data.currentUserId));
+  // The caller's own role in this org — drives the impersonation affordance
+  // (ADMIN or OWNER; the server re-enforces every gate regardless).
+  const callerRole = $derived(
+    members.find((m) => m.user.id === data.currentUserId)?.role ?? null,
+  );
+  const isAdminOrOwner = $derived(callerRole === 'ADMIN' || callerRole === 'OWNER');
+  // Peer-or-below: an org ADMIN may not impersonate an org OWNER. Never self,
+  // and never while already impersonating. Mirrors the server rule so the UI
+  // doesn't offer a button that would 403.
+  function canImpersonate(m: OrgMember): boolean {
+    if (data.isImpersonating) return false;
+    if (!isAdminOrOwner) return false;
+    if (m.user.id === data.currentUserId) return false;
+    if (m.role === 'OWNER' && callerRole !== 'OWNER') return false;
+    return true;
+  }
   const ownerCount = $derived(members.filter((m) => m.role === 'OWNER').length);
   const memberCount = $derived(members.length);
   const isOnlyOwner = $derived(isOwner && ownerCount === 1);
@@ -178,6 +197,27 @@
   );
   const updateActionSuccess = $derived($updateMessage?.type === 'success' ? $updateMessage.text : null);
 
+  // Wired through superForm like its siblings so a rejected start (the target's
+  // membership or the caller's role changed since page load) surfaces in the
+  // alert instead of silently reloading the page (PR #692 review).
+  const initialImpersonateForm = untrack(() => submittedForm<ImpersonateMemberForm>(form, 'impersonateMember') as ImpersonateMemberSuperform | null ?? data.impersonateForm);
+  const {
+    form: impersonateForm,
+    errors: impersonateErrors,
+    message: impersonateMessage,
+    enhance: impersonateEnhance,
+  } = superForm<ImpersonateMemberForm, App.Superforms.Message, ImpersonateMemberForm>(initialImpersonateForm, {
+    validators: zod4Client(impersonateMemberSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    clearOnSubmit: 'none',
+  });
+  const impersonateActionError = $derived(
+    $impersonateMessage?.type === 'error'
+      ? $impersonateMessage.text
+      : $impersonateErrors.userId?.[0] ?? $impersonateErrors._kind?.[0] ?? null,
+  );
+
   const initialRemoveForm = untrack(() => submittedForm<RemoveOrgMemberForm>(form, 'removeOrgMember') as RemoveOrgMemberSuperform | null ?? data.removeForm);
   const {
     form: removeForm,
@@ -281,9 +321,9 @@
        document outline (per the caption-ownership convention; PR #378). -->
   <h1 class="sr-only">Team</h1>
 
-  {#if updateActionError || removeActionError || leaveActionError}
+  {#if updateActionError || removeActionError || leaveActionError || impersonateActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
-      {updateActionError ?? removeActionError ?? leaveActionError}
+      {updateActionError ?? removeActionError ?? leaveActionError ?? impersonateActionError}
     </div>
   {:else if updateActionSuccess || removeActionSuccess}
     <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
@@ -339,22 +379,45 @@
             <span class="text-xs text-zinc-500">{m.role}</span>
           {/if}
         {:else if cell.column.id === 'actions'}
-          {#if isOwner && m.user.id !== data.currentUserId}
-            <!-- Keep both handlers: onclick updates before client validation for button activation;
-                 onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
-            <form method="POST" action="?/remove" use:removeEnhance
-              onsubmit={(e) => {
-                if (!confirm(`Remove ${memberName(m)} from "${org.name}"?`)) {
-                  e.preventDefault();
-                  return;
-                }
-                setRemoveUser(m.user.id);
-              }}>
-              <input type="hidden" name="_kind" value="removeOrgMember" />
-              <input type="hidden" name="userId" value={m.user.id} />
-              <button type="submit" disabled={$removeSubmitting} onclick={() => setRemoveUser(m.user.id)} class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">Remove</button>
-            </form>
-          {/if}
+          <div class="flex items-center justify-end gap-2">
+            {#if canImpersonate(m)}
+              <!-- Admin impersonation (read-only support session). Confirm
+                   before starting; the server enforces peer-or-below + scope. -->
+              <form method="POST" action="?/impersonate" use:impersonateEnhance
+                onsubmit={(e) => {
+                  if (!confirm(
+                    t('org-members.impersonate.confirm', 'View the portal as {name} (read-only)?')
+                      .replace('{name}', memberName(m)),
+                  )) {
+                    e.preventDefault();
+                    return;
+                  }
+                  impersonateForm.update((current) => ({ ...current, userId: m.user.id }), { taint: false });
+                }}>
+                <input type="hidden" name="_kind" value="impersonateMember" />
+                <input type="hidden" name="userId" value={m.user.id} />
+                <button type="submit" class="rounded-lg border border-amber-400 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950" title={t('org-members.impersonate.title', 'View the portal as this member (read-only, for support)')}>
+                  {t('org-members.impersonate.button', 'Impersonate')}
+                </button>
+              </form>
+            {/if}
+            {#if isOwner && m.user.id !== data.currentUserId}
+              <!-- Keep both handlers: onclick updates before client validation for button activation;
+                   onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
+              <form method="POST" action="?/remove" use:removeEnhance
+                onsubmit={(e) => {
+                  if (!confirm(`Remove ${memberName(m)} from "${org.name}"?`)) {
+                    e.preventDefault();
+                    return;
+                  }
+                  setRemoveUser(m.user.id);
+                }}>
+                <input type="hidden" name="_kind" value="removeOrgMember" />
+                <input type="hidden" name="userId" value={m.user.id} />
+                <button type="submit" disabled={$removeSubmitting} onclick={() => setRemoveUser(m.user.id)} class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">Remove</button>
+              </form>
+            {/if}
+          </div>
         {/if}
       {/snippet}
     </DataTable>

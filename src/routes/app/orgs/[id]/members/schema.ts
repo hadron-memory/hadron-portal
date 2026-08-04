@@ -31,6 +31,13 @@ export const leaveOrgSchema = z.object({
   _kind: z.literal('leaveOrg').default('leaveOrg'),
 });
 
+export const impersonateMemberSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('impersonateMember').default('impersonateMember'),
+  userId: z.string().trim().min(1, 'User is required.').prefault(''),
+});
+
 export const inviteMemberSchema = z
   .object({
     // Defaulted _kind accepts omitted hidden inputs while still rejecting a
@@ -55,6 +62,7 @@ export const inviteMemberSchema = z
     });
   });
 
+export type ImpersonateMemberSchema = typeof impersonateMemberSchema;
 export type AddOrgMemberSchema = typeof addOrgMemberSchema;
 export type UpdateOrgMemberSchema = typeof updateOrgMemberSchema;
 export type RemoveOrgMemberSchema = typeof removeOrgMemberSchema;

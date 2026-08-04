@@ -10,11 +10,13 @@ import {
   UPDATE_MEMBER_MUTATION,
   REMOVE_MEMBER_MUTATION,
   CREATE_USER_INVITATION_MUTATION,
+  START_IMPERSONATION_MUTATION,
 } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
   addOrgMemberSchema,
+  impersonateMemberSchema,
   inviteMemberSchema,
   leaveOrgSchema,
   removeOrgMemberSchema,
@@ -26,6 +28,7 @@ const updateOrgMemberFormAdapter = zod4(updateOrgMemberSchema);
 const removeOrgMemberFormAdapter = zod4(removeOrgMemberSchema);
 const leaveOrgFormAdapter = zod4(leaveOrgSchema);
 const inviteMemberFormAdapter = zod4(inviteMemberSchema);
+const impersonateMemberFormAdapter = zod4(impersonateMemberSchema);
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
@@ -36,21 +39,25 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const orgData = await client.request<{ organization: Organization }>(ORGANIZATION_QUERY, {
     ref: params.id,
   });
-  const [addForm, updateForm, removeForm, inviteForm, leaveForm] = await Promise.all([
-    superValidate({}, addOrgMemberFormAdapter, { errors: false }),
-    superValidate({}, updateOrgMemberFormAdapter, { errors: false }),
-    superValidate({}, removeOrgMemberFormAdapter, { errors: false }),
-    superValidate({}, inviteMemberFormAdapter, { errors: false }),
-    superValidate({}, leaveOrgFormAdapter, { errors: false }),
-  ]);
+  const [addForm, updateForm, removeForm, inviteForm, leaveForm, impersonateForm] =
+    await Promise.all([
+      superValidate({}, addOrgMemberFormAdapter, { errors: false }),
+      superValidate({}, updateOrgMemberFormAdapter, { errors: false }),
+      superValidate({}, removeOrgMemberFormAdapter, { errors: false }),
+      superValidate({}, inviteMemberFormAdapter, { errors: false }),
+      superValidate({}, leaveOrgFormAdapter, { errors: false }),
+      superValidate({}, impersonateMemberFormAdapter, { errors: false }),
+    ]);
   return {
     org: orgData.organization,
     currentUserId: locals.user?.id ?? null,
+    isImpersonating: locals.impersonation !== null,
     addForm,
     updateForm,
     removeForm,
     inviteForm,
     leaveForm,
+    impersonateForm,
   };
 };
 
@@ -128,6 +135,54 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to create invitation') }, { status: 500 });
     }
+  },
+
+  // Admin impersonation: start a read-only session as the selected member.
+  // Runs with the ADMIN's token; the returned short-TTL impersonation JWT is
+  // seated in its own httpOnly cookie (hadron_token stays the admin's, so
+  // stopping restores their session without re-login). The server enforces
+  // every gate (org role, peer-or-below, liveness) — a failed start surfaces
+  // as a form error.
+  impersonate: async ({ request, params, locals, cookies }) => {
+    const form = await superValidate(await request.formData(), impersonateMemberFormAdapter);
+    if (!form.valid) return fail(400, { form });
+    if (locals.impersonation) {
+      return message(
+        form,
+        { type: 'error', text: 'Already impersonating — stop the current session first.' },
+        { status: 400 },
+      );
+    }
+
+    let result: {
+      startImpersonation: { token: string; session: { id: string; expiresAt: string } };
+    };
+    try {
+      result = await gqlClient(locals.token).request(START_IMPERSONATION_MUTATION, {
+        orgRef: params.id,
+        userRef: form.data.userId,
+        reason: 'portal member-page impersonation',
+      });
+    } catch (e: unknown) {
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to start impersonation') },
+        { status: 500 },
+      );
+    }
+    const { token, session } = result.startImpersonation;
+    const maxAge = Math.max(
+      60,
+      Math.floor((new Date(session.expiresAt).getTime() - Date.now()) / 1000),
+    );
+    cookies.set('hadron_impersonation', token, {
+      path: '/',
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      maxAge,
+    });
+    redirect(303, `/app/orgs/${params.id}`);
   },
 
   leave: async ({ request, params, locals }) => {
