@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { buildSchema } from 'graphql';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error — plain .mjs helper, no type declarations by design.
-import { ROOT, collectPortalDocuments, extractDocuments, findInvalid, resolveInterpolations } from './validate-graphql.mjs';
+import { ROOT, collectPortalDocuments, extractDocuments, findArgVariableMismatches, findInvalid, resolveInterpolations } from './validate-graphql.mjs';
 
 const schema = buildSchema(readFileSync(join(ROOT, 'schema', 'schema.graphql'), 'utf8'));
 
@@ -121,6 +121,32 @@ query Q { memories { items { ...F } } }\`;
   });
 });
 
+// The convention the #681 sweep unified: an argument and its $variable share a
+// name. The one-line comment above APP_KEYS_QUERY claims the gate enforces
+// this, so the gate had better actually fail when it is violated.
+describe('findArgVariableMismatches', () => {
+  const check = (src: string) =>
+    findArgVariableMismatches(extractDocuments('t.ts', src), (d: { body: string }) => d.body);
+
+  it('accepts an argument whose variable shares its name', () => {
+    expect(check('const A = /* GraphQL */ `query A($ref: ID!) { thing(ref: $ref) { id } }`;')).toEqual([]);
+  });
+
+  it('rejects the pre-sweep spelling appKeys(appRef: $appId)', () => {
+    const failures = check('const A = /* GraphQL */ `query A($appId: ID!) { appKeys(appRef: $appId) { id } }`;');
+    expect(failures).toHaveLength(1);
+    expect(failures[0].errors[0]).toMatch(/fills "appRef:" with \$appId — name the variable \$appRef/);
+  });
+
+  it('rejects updateAgent(ref: $id)', () => {
+    expect(check('const A = /* GraphQL */ `mutation A($id: ID!) { updateAgent(ref: $id) { id } }`;')).toHaveLength(1);
+  });
+
+  it('ignores literal arguments — only $variables are subject to the rule', () => {
+    expect(check('const A = /* GraphQL */ `query A { node(ref: "x", raw: true) { id } }`;')).toEqual([]);
+  });
+});
+
 describe('the portal itself', () => {
   it('has every committed operation validating against the schema snapshot', () => {
     const documents = collectPortalDocuments();
@@ -128,5 +154,11 @@ describe('the portal itself', () => {
     // "passing" on an empty set.
     expect(documents.length).toBeGreaterThan(100);
     expect(findInvalid(schema, documents)).toEqual([]);
+  });
+
+  it('names every argument and its $variable alike (#681 sweep)', () => {
+    const documents = collectPortalDocuments();
+    const byName = new Map(documents.map((d: { name: string }) => [d.name, d]));
+    expect(findArgVariableMismatches(documents, (d: unknown) => resolveInterpolations(d, byName))).toEqual([]);
   });
 });

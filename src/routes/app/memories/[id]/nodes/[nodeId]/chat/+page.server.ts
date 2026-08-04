@@ -23,7 +23,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
         return { graphNodes: [], graph: null, org: null, treeEntries: [], graphViewData: null, usageByNode: {} };
       }),
       gqlClient(locals.token).request<{ node: MemoryNode | null }>(
-        NODE_BY_ID_QUERY, { id: params.nodeId },
+        NODE_BY_ID_QUERY, { ref: params.nodeId },
       ).catch((err) => {
         console.error('[chat-page] NODE_BY_ID_QUERY failed:', err);
         // Rethrow node query errors as they're critical
@@ -125,7 +125,7 @@ export const actions: Actions = {
     try {
       // Fetch the parent node to get its loc
       const { node } = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
-        NODE_BY_ID_QUERY, { id: params.nodeId },
+        NODE_BY_ID_QUERY, { ref: params.nodeId },
       );
       if (!node) {
         return message(form, { type: 'error', text: 'Chat node not found' }, { status: 404 });

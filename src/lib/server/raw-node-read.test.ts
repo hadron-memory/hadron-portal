@@ -17,11 +17,11 @@ import { NODE_BY_ID_QUERY, NODE_QUERY } from './queries';
 
 describe('editor node reads request the template source (#485)', () => {
   it('NODE_BY_ID_QUERY passes raw: true', () => {
-    expect(NODE_BY_ID_QUERY).toMatch(/node\(ref:\s*\$id,\s*raw:\s*true\)/);
+    expect(NODE_BY_ID_QUERY).toMatch(/node\(ref:\s*\$ref,\s*raw:\s*true\)/);
   });
 
   it('NODE_QUERY passes raw: true', () => {
     // #542: node(memory:) renamed to node(memoryRef:).
-    expect(NODE_QUERY).toMatch(/node\(ref:\s*\$loc,\s*memoryRef:\s*\$memory,\s*raw:\s*true\)/);
+    expect(NODE_QUERY).toMatch(/node\(ref:\s*\$ref,\s*memoryRef:\s*\$memoryRef,\s*raw:\s*true\)/);
   });
 });

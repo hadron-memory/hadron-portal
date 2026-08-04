@@ -64,7 +64,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // Load organization
   const orgData = await gqlClient(locals.token).request<{ organization: Organization | null }>(
     ORGANIZATION_QUERY,
-    { id: params.id },
+    { ref: params.id },
   ).catch(() => { throw error(404, 'Organization not found'); });
 
   if (!orgData.organization) throw error(404, 'Organization not found');

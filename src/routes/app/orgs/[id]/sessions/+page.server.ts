@@ -37,7 +37,7 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const client = gqlClient(locals.token);
   const [orgData, sessionsData] = await Promise.all([
     client
-      .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id })
+      .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: params.id })
       .catch(() => {
         throw error(404, 'Organization not found');
       }),

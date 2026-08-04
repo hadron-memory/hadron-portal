@@ -68,7 +68,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const [parentData, focusRes] = await Promise.all([
     parent(),
     client
-      .request<{ node: FlowHostNode | null }>(EDGE_HOST_NODE_QUERY, { id: params.nodeId })
+      .request<{ node: FlowHostNode | null }>(EDGE_HOST_NODE_QUERY, { ref: params.nodeId })
       .then(
         (res) => ({ ok: true as const, res }),
         (err: unknown) => ({ ok: false as const, err }),
@@ -134,7 +134,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       batch.map(async (id) => {
         try {
           const res = await client.request<{ node: FlowHostNode | null }>(EDGE_HOST_NODE_QUERY, {
-            id,
+            ref: id,
           });
           return res.node;
         } catch (err) {
@@ -278,7 +278,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_EDGE_MUTATION, {
-        edgeId,
+        edgeRef: edgeId,
         name,
         condition,
         priority,
@@ -305,7 +305,7 @@ export const actions: Actions = {
     let host: FlowHostNode | null;
     try {
       const res = await client.request<{ node: FlowHostNode | null }>(EDGE_HOST_NODE_QUERY, {
-        id: sourceId,
+        ref: sourceId,
       });
       host = res.node;
     } catch (e: unknown) {
@@ -336,8 +336,8 @@ export const actions: Actions = {
 
     try {
       const res = await client.request<{ createEdge: { id: string } }>(CREATE_EDGE_MUTATION, {
-        sourceNodeId: sourceId,
-        targetNodeId: targetId,
+        sourceRef: sourceId,
+        targetRef: targetId,
         name,
         // Absent variable = server default; only sent when a bump is needed.
         ...(priority !== undefined ? { priority } : {}),

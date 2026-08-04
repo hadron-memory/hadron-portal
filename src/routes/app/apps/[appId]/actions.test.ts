@@ -127,7 +127,7 @@ describe('update action', () => {
     expect(mockRequest.mock.calls[0]).toEqual([
       UPDATE_APP_MUTATION,
       {
-        id: 'app-1',
+        ref: 'app-1',
         name: 'Demo App',
         urn: 'demo-app',
         appType: 'CHATBOT',
@@ -217,14 +217,14 @@ describe('addAgent action', () => {
     });
     expect(mockRequest.mock.calls[0]).toEqual([
       ADD_AGENT_TO_APP_MUTATION,
-      { appId: 'app-1', agentId: 'agent-1', trainingMode: true },
+      { appRef: 'app-1', agentRef: 'agent-1', trainingMode: true },
     ]);
   });
 
   it('omits training mode when the form did not submit it', async () => {
     mockRequest.mockResolvedValueOnce({});
     await runAction('addAgent', { agentId: 'agent-1' });
-    expect(mockRequest.mock.calls[0][1]).toEqual({ appId: 'app-1', agentId: 'agent-1' });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ appRef: 'app-1', agentRef: 'agent-1' });
   });
 
   it('rejects missing agent ids before mutation', async () => {
@@ -271,7 +271,7 @@ describe('createKey action', () => {
     });
     expect(mockRequest.mock.calls[0]).toEqual([
       CREATE_APP_KEY_MUTATION,
-      { appId: 'app-1', label: 'production' },
+      { appRef: 'app-1', label: 'production' },
     ]);
   });
 
@@ -280,7 +280,7 @@ describe('createKey action', () => {
       createAppKey: { key: { id: 'key-1' }, rawKey: 'raw-key' },
     });
     await runAction('createKey', { label: '' });
-    expect(mockRequest.mock.calls[0][1]).toEqual({ appId: 'app-1', label: undefined });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ appRef: 'app-1', label: undefined });
   });
 
   it('rejects createKey POSTs with the wrong form discriminator', async () => {
@@ -318,7 +318,7 @@ describe('removeAgent action', () => {
     });
     expect(mockRequest.mock.calls[0]).toEqual([
       REMOVE_AGENT_FROM_APP_MUTATION,
-      { appId: 'app-1', agentId: 'agent-1' },
+      { appRef: 'app-1', agentRef: 'agent-1' },
     ]);
   });
 
@@ -369,7 +369,7 @@ describe('updateAgentTools action', () => {
     });
     expect(mockRequest.mock.calls[0]).toEqual([
       UPDATE_APP_MUTATION,
-      { id: 'app-1', agentTools: ['CLAUDE_CODE', 'MCP_INSPECTOR'] },
+      { ref: 'app-1', agentTools: ['CLAUDE_CODE', 'MCP_INSPECTOR'] },
     ]);
   });
 
@@ -379,7 +379,7 @@ describe('updateAgentTools action', () => {
 
     expect(mockRequest.mock.calls[0]).toEqual([
       UPDATE_APP_MUTATION,
-      { id: 'app-1', agentTools: [] },
+      { ref: 'app-1', agentTools: [] },
     ]);
   });
 
@@ -466,7 +466,7 @@ describe('deleteApp action', () => {
     });
     expect(mockRequest.mock.calls[1]).toEqual([
       DELETE_APP_MUTATION,
-      { id: 'app-1' },
+      { ref: 'app-1' },
     ]);
   });
 

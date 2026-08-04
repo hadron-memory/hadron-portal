@@ -147,7 +147,7 @@ export const actions: Actions = {
     let createdId: string;
     try {
       const res = await client.request<{ createApp: { id: string } }>(CREATE_PERSONAL_APP_MUTATION, {
-        agentId,
+        agentRef: agentId,
         name,
         urn,
         appType,

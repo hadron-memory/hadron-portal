@@ -336,7 +336,7 @@ describe('updateEdge', () => {
       },
     });
     expect(mockRequest.mock.calls[0][1]).toEqual({
-      edgeId: 'e1',
+      edgeRef: 'e1',
       name: 'needs profile',
       priority: 5,
       condition: { missing: ['memory.name'] },

@@ -28,7 +28,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // non-admin org member), hiding the add-member section entirely.
   const appData = await client
     .request<{ app: (App & { members?: AppMember[] }) | null }>(APP_WITH_MEMBERS_QUERY, {
-      id: params.appId,
+      ref: params.appId,
     })
     .catch(() => ({ app: null }));
   if (!appData.app) throw error(404, 'App not found');
@@ -42,7 +42,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   if (appData.app.organizationId) {
     const orgData = await client
       .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, {
-        id: appData.app.organizationId,
+        ref: appData.app.organizationId,
       })
       .catch(() => ({ organization: null }));
     if (!orgData.organization) throw error(404, 'Organization not found');

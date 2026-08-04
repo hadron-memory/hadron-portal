@@ -104,12 +104,12 @@ describe('create chatbot action', () => {
       visibility: 'PERSONAL',
     });
     expect(mockRequest).toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, {
-      id: 'agent-1',
+      ref: 'agent-1',
       name: 'Juno',
     });
     expect(mockRequest).toHaveBeenCalledWith(ADD_MEMORY_TO_AGENT_MUTATION, {
-      agentId: 'agent-1',
-      memoryId: 'memory-2',
+      agentRef: 'agent-1',
+      memoryRef: 'memory-2',
       role: 'read-write',
     });
   });

@@ -27,7 +27,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
   const [orgData, appsData] = await Promise.all([
-    client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id })
+    client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: params.id })
       .catch(() => { throw error(404, 'Organization not found'); }),
     fetchAllItems<App>(client, APPS_QUERY, 'apps', { orgId: params.id })
       .catch(() => [] as App[]),
@@ -53,7 +53,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     try {
-      await gqlClient(locals.token).request(DELETE_APP_MUTATION, { id: form.data.id });
+      await gqlClient(locals.token).request(DELETE_APP_MUTATION, { ref: form.data.id });
       return message(form, {
         type: 'success',
         text: t('org-apps.delete.success', 'App deleted.'),

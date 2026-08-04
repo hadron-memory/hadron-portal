@@ -28,7 +28,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
 
   const [appData, runsData, nodesData] = await Promise.all([
-    client.request<{ app: App | null }>(APP_QUERY, { id: params.appId }),
+    client.request<{ app: App | null }>(APP_QUERY, { ref: params.appId }),
     client.request<{ appRuns: { items: AppRun[]; total: number } }>(APP_RUNS_QUERY, {
       appRef: params.appId,
       status,
@@ -73,7 +73,7 @@ export const actions: Actions = {
     let runId: string;
     try {
       const res = await gqlClient(locals.token).request<{ runTask: string }>(RUN_TASK_APP_MUTATION, {
-        urn: form.data.entryUrn,
+        nodeRef: form.data.entryUrn,
         appRef: params.appId,
         runAsSelf: false,
       });

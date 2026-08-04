@@ -30,7 +30,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const client = gqlClient(locals.token);
   try {
-    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: String(sourceRef) });
+    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: String(sourceRef) });
     if (!node) return json({ error: 'Node not found' }, { status: 404 });
     if (!node.memory?.urn) return json({ error: 'Node has no memory URN to move by' }, { status: 500 });
 

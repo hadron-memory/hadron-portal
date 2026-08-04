@@ -510,8 +510,8 @@ export const actions: Actions = {
 
     try {
       const res = await client.request<{ createEdge: { id: string } }>(CREATE_EDGE_MUTATION, {
-        sourceNodeId: form.data.sourceNodeId,
-        targetNodeId: form.data.targetNodeId,
+        sourceRef: form.data.sourceNodeId,
+        targetRef: form.data.targetNodeId,
         name: form.data.name || 'edge',
         condition,
         priority,
@@ -559,7 +559,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_EDGE_MUTATION, {
-        edgeId,
+        edgeRef: edgeId,
         name,
         condition,
         priority,
@@ -609,7 +609,7 @@ export const actions: Actions = {
     const edgeId = String(fd.get('edgeId') ?? '');
     if (!edgeId) return fail(400, { error: 'edgeId is required' });
     try {
-      await client.request(DELETE_EDGE_MUTATION, { edgeId });
+      await client.request(DELETE_EDGE_MUTATION, { edgeRef: edgeId });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to delete edge' });
     }

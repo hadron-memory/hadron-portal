@@ -219,8 +219,8 @@ export const SEND_CONTACT_MESSAGE_MUTATION = /* GraphQL */ `
 // keep passing \`{ id: ... }\`.
 export const MEMORY_BY_ID_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
-  query MemoryById($id: ID!) {
-    memory(ref: $id) {
+  query MemoryById($ref: ID!) {
+    memory(ref: $ref) {
       ...MemoryFields
       subscriptions {
         id
@@ -341,8 +341,8 @@ export const PUBLIC_AGENTS_QUERY = /* GraphQL */ `
 // keeps the membership gate). Callers must still check visibility === PUBLIC
 // before treating a cross-org hit as installable.
 export const AGENT_PUBLIC_QUERY = /* GraphQL */ `
-  query AgentPublic($id: ID!) {
-    agent(ref: $id) {
+  query AgentPublic($ref: ID!) {
+    agent(ref: $ref) {
       id
       urn
       name
@@ -359,8 +359,8 @@ export const AGENT_PUBLIC_QUERY = /* GraphQL */ `
 // shared org payload has cross-route blast radius (review:shared-layout-
 // payload-consumers). AgentOrgGrant.agent lazily resolves server-side.
 export const ORG_AGENT_GRANTS_QUERY = /* GraphQL */ `
-  query OrgAgentGrants($id: ID!) {
-    organization(ref: $id) {
+  query OrgAgentGrants($ref: ID!) {
+    organization(ref: $ref) {
       id
       agentOrgGrants {
         agentId
@@ -445,8 +445,8 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
   ${AGENT_FIELDS}
   ${EXCHANGE_CONNECTION_FIELDS}
-  query Organization($id: ID!) {
-    organization(ref: $id) {
+  query Organization($ref: ID!) {
+    organization(ref: $ref) {
       ...OrgFields
       members {
         id
@@ -486,8 +486,8 @@ export const ORGANIZATION_QUERY = /* GraphQL */ `
 
 export const APP_QUERY = /* GraphQL */ `
   ${APP_FIELDS}
-  query App($id: ID!) {
-    app(ref: $id) {
+  query App($ref: ID!) {
+    app(ref: $ref) {
       ...AppFields
       # Spec 021 US1: canonical R2 install URN combining App + Agent
       # identities. Scoped to this query (rather than baked into
@@ -505,8 +505,8 @@ export const APP_QUERY = /* GraphQL */ `
 // myApps/app queries don't have to drag membership rows along.
 export const APP_WITH_MEMBERS_QUERY = /* GraphQL */ `
   ${APP_FIELDS}
-  query AppWithMembers($id: ID!) {
-    app(ref: $id) {
+  query AppWithMembers($ref: ID!) {
+    app(ref: $ref) {
       ...AppFields
       members {
         appId
@@ -876,40 +876,40 @@ export const CREATE_PERSONAL_AGENT_MUTATION = /* GraphQL */ `
 // organizations()-scan that only found org agents).
 export const AGENT_QUERY = /* GraphQL */ `
   ${AGENT_FIELDS}
-  query Agent($id: ID!) {
-    agent(ref: $id) { ...AgentFields }
+  query Agent($ref: ID!) {
+    agent(ref: $ref) { ...AgentFields }
   }
 `;
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($id: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility) {
-    updateAgent(ref: $id, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
+  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility) {
+    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
   }
 `;
 
 export const DELETE_AGENT_MUTATION = /* GraphQL */ `
-  mutation DeleteAgent($id: ID!) { deleteAgent(ref: $id) }
+  mutation DeleteAgent($ref: ID!) { deleteAgent(ref: $ref) }
 `;
 
 export const ADD_MEMORY_TO_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation AddMemoryToAgent($agentId: ID!, $memoryId: ID!, $role: String) {
-    addMemoryToAgent(agentRef: $agentId, memoryRef: $memoryId, role: $role) { ...AgentFields }
+  mutation AddMemoryToAgent($agentRef: ID!, $memoryRef: ID!, $role: String) {
+    addMemoryToAgent(agentRef: $agentRef, memoryRef: $memoryRef, role: $role) { ...AgentFields }
   }
 `;
 
 export const UPDATE_AGENT_MEMORY_ROLE_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgentMemoryRole($agentId: ID!, $memoryId: ID!, $role: String!) {
-    updateAgentMemoryRole(agentRef: $agentId, memoryRef: $memoryId, role: $role) { ...AgentFields }
+  mutation UpdateAgentMemoryRole($agentRef: ID!, $memoryRef: ID!, $role: String!) {
+    updateAgentMemoryRole(agentRef: $agentRef, memoryRef: $memoryRef, role: $role) { ...AgentFields }
   }
 `;
 
 export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation RemoveMemoryFromAgent($agentId: ID!, $memoryId: ID!) {
-    removeMemoryFromAgent(agentRef: $agentId, memoryRef: $memoryId) { ...AgentFields }
+  mutation RemoveMemoryFromAgent($agentRef: ID!, $memoryRef: ID!) {
+    removeMemoryFromAgent(agentRef: $agentRef, memoryRef: $memoryRef) { ...AgentFields }
   }
 `;
 
@@ -929,7 +929,7 @@ export const REMOVE_MEMORY_FROM_AGENT_MUTATION = /* GraphQL */ `
 export const CREATE_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
   mutation CreateApp(
-    $orgId: ID!, $agentId: ID!, $name: String!, $urn: String,
+    $orgRef: ID!, $agentRef: ID!, $name: String!, $urn: String,
     $appType: AppType, $role: AppMembershipRole,
     $description: String,
     $surfaces: [String!],
@@ -938,7 +938,7 @@ export const CREATE_APP_MUTATION = /* GraphQL */ `
     $sessionTimeoutSeconds: Int, $anonymousTtlDays: Int
   ) {
     createApp(
-      orgRef: $orgId, agentRef: $agentId, name: $name, urn: $urn,
+      orgRef: $orgRef, agentRef: $agentRef, name: $name, urn: $urn,
       appType: $appType, role: $role,
       description: $description,
       surfaces: $surfaces,
@@ -961,11 +961,11 @@ export const CREATE_APP_MUTATION = /* GraphQL */ `
 export const CREATE_PERSONAL_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
   mutation CreatePersonalApp(
-    $agentId: ID!, $name: String!, $urn: String,
+    $agentRef: ID!, $name: String!, $urn: String,
     $appType: AppType, $surfaces: [String!]
   ) {
     createApp(
-      agentRef: $agentId, name: $name, urn: $urn,
+      agentRef: $agentRef, name: $name, urn: $urn,
       appType: $appType, surfaces: $surfaces
     ) {
       ...AppFields
@@ -976,7 +976,7 @@ export const CREATE_PERSONAL_APP_MUTATION = /* GraphQL */ `
 export const UPDATE_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
   mutation UpdateApp(
-    $id: ID!, $name: String, $urn: String, $appType: AppType,
+    $ref: ID!, $name: String, $urn: String, $appType: AppType,
     $role: AppMembershipRole,
     $description: String, $systemPrompt: String, $agentTools: [String!],
     $aiProvider: String, $aiModel: String, $aiApiKey: String,
@@ -986,7 +986,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
     $sessionTimeoutSeconds: Int, $anonymousTtlDays: Int
   ) {
     updateApp(
-      ref: $id, name: $name, urn: $urn, appType: $appType, role: $role,
+      ref: $ref, name: $name, urn: $urn, appType: $appType, role: $role,
       description: $description, systemPrompt: $systemPrompt,
       agentTools: $agentTools,
       aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey,
@@ -1003,8 +1003,8 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
 
 export const REGENERATE_APP_KEY_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
-  mutation RegenerateAppKey($id: ID!) {
-    regenerateAppKey(appRef: $id) { rawKey app { ...AppFields } }
+  mutation RegenerateAppKey($appRef: ID!) {
+    regenerateAppKey(appRef: $appRef) { rawKey app { ...AppFields } }
   }
 `;
 
@@ -1012,29 +1012,9 @@ export const REGENERATE_APP_KEY_MUTATION = /* GraphQL */ `
 // App Keys
 // ---------------------------------------------------------------------------
 
-// <entity>Id → <entity>Ref (a ref accepts a PK or a URN). This landed in TWO
-// migrations that made DIFFERENT calls about the $variable names, so read the
-// surface you're editing before copying either:
-//
-//   READ surface — hadron-server#598, done here in #519: arguments AND
-//   $variables renamed, with all 7 caller files updated in the same commit.
-//   `APP_KEYS_QUERY` below is that shape: `appKeys(appRef: $appRef)`.
-//
-//   WRITE surface — hadron-server#864, done here in #682: arguments renamed,
-//   $variables deliberately NOT renamed. That change was a fix for a
-//   runtime-breaking rename, so it was kept caller-neutral (a $variable is a
-//   local binding with no wire-level effect); renaming them means touching
-//   ~36 caller files across 12 mutations. Hence `createAppKey(appRef: $appId)`
-//   and `updateAgent(ref: $id)` — intentional, not oversights.
-//
-// The write-side variable rename is DEFERRED, not declined; it belongs with
-// the build-time GraphQL validation proposed in #681, which would make a
-// change that size verifiable. Until then, expect the mismatch here.
-//
-// (`agent(ref: $id)` has looked like this since #641 — an earlier version of
-// this note claimed variables always follow suit, which was never true of the
-// write side; a later version claimed they never do, which is not true of the
-// read side. Review on #682 and #683 caught both.)
+// An argument and its $variable share a name — `appKeys(appRef: $appRef)`.
+// `pnpm gql:validate` checks that, and cross-checks the keys every caller
+// passes, so a mismatch is a build error rather than a convention to remember.
 export const APP_KEYS_QUERY = /* GraphQL */ `
   query AppKeys($appRef: ID!) {
     appKeys(appRef: $appRef) {
@@ -1044,8 +1024,8 @@ export const APP_KEYS_QUERY = /* GraphQL */ `
 `;
 
 export const CREATE_APP_KEY_MUTATION = /* GraphQL */ `
-  mutation CreateAppKey($appId: ID!, $label: String) {
-    createAppKey(appRef: $appId, label: $label) {
+  mutation CreateAppKey($appRef: ID!, $label: String) {
+    createAppKey(appRef: $appRef, label: $label) {
       key { id label keyPreview createdAt }
       rawKey
     }
@@ -1059,7 +1039,7 @@ export const REVOKE_APP_KEY_MUTATION = /* GraphQL */ `
 `;
 
 export const DELETE_APP_MUTATION = /* GraphQL */ `
-  mutation DeleteApp($id: ID!) { deleteApp(ref: $id) }
+  mutation DeleteApp($ref: ID!) { deleteApp(ref: $ref) }
 `;
 
 // 008-agent-installation: addAgentToApp is now a setter on App.agent_id —
@@ -1067,8 +1047,8 @@ export const DELETE_APP_MUTATION = /* GraphQL */ `
 // from any App context per R-10).
 export const ADD_AGENT_TO_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
-  mutation AddAgentToApp($appId: ID!, $agentId: ID!, $trainingMode: Boolean) {
-    addAgentToApp(appRef: $appId, agentRef: $agentId, trainingMode: $trainingMode) {
+  mutation AddAgentToApp($appRef: ID!, $agentRef: ID!, $trainingMode: Boolean) {
+    addAgentToApp(appRef: $appRef, agentRef: $agentRef, trainingMode: $trainingMode) {
       ...AppFields
     }
   }
@@ -1077,8 +1057,8 @@ export const ADD_AGENT_TO_APP_MUTATION = /* GraphQL */ `
 // 008-agent-installation: removeAgentFromApp clears App.agent_id.
 export const REMOVE_AGENT_FROM_APP_MUTATION = /* GraphQL */ `
   ${APP_FIELDS}
-  mutation RemoveAgentFromApp($appId: ID!, $agentId: ID!) {
-    removeAgentFromApp(appRef: $appId, agentRef: $agentId) {
+  mutation RemoveAgentFromApp($appRef: ID!, $agentRef: ID!) {
+    removeAgentFromApp(appRef: $appRef, agentRef: $agentRef) {
       ...AppFields
     }
   }
@@ -1287,16 +1267,16 @@ export const DELETE_CHAT_MUTATION = /* GraphQL */ `
 
 export const CREATE_EDGE_MUTATION = /* GraphQL */ `
   mutation CreateEdge(
-    $sourceNodeId: ID!
-    $targetNodeId: ID!
+    $sourceRef: ID!
+    $targetRef: ID!
     $name: String
     $condition: JSON
     $priority: Int
     $data: JSON
   ) {
     createEdge(
-      sourceRef: $sourceNodeId
-      targetRef: $targetNodeId
+      sourceRef: $sourceRef
+      targetRef: $targetRef
       name: $name
       condition: $condition
       priority: $priority
@@ -1309,7 +1289,7 @@ export const CREATE_EDGE_MUTATION = /* GraphQL */ `
 
 export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
   mutation UpdateEdge(
-    $edgeId: ID!
+    $edgeRef: ID!
     $name: String
     $description: String
     $isRunnable: Boolean
@@ -1318,7 +1298,7 @@ export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
     $data: JSON
   ) {
     updateEdge(
-      edgeRef: $edgeId
+      edgeRef: $edgeRef
       name: $name
       description: $description
       isRunnable: $isRunnable
@@ -1346,8 +1326,8 @@ export const UPDATE_EDGE_MUTATION = /* GraphQL */ `
 // typically via incomingEdges). Every consumer must treat a null endpoint as an
 // opaque "private" endpoint rather than dereferencing .name / .loc / .memory.
 export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
-  query EdgeHostNode($id: ID!) {
-    node(ref: $id) {
+  query EdgeHostNode($ref: ID!) {
+    node(ref: $ref) {
       id
       memoryId
       loc
@@ -1384,8 +1364,8 @@ export const EDGE_HOST_NODE_QUERY = /* GraphQL */ `
 // flow edges of ONE upstream node, with each edge's source node data.
 // Best-effort — the edge editor works without it.
 export const FLOW_UPSTREAM_NODE_QUERY = /* GraphQL */ `
-  query FlowUpstreamNode($id: ID!) {
-    node(ref: $id) {
+  query FlowUpstreamNode($ref: ID!) {
+    node(ref: $ref) {
       id
       incomingEdges {
         name
@@ -1397,8 +1377,8 @@ export const FLOW_UPSTREAM_NODE_QUERY = /* GraphQL */ `
 `;
 
 export const DELETE_EDGE_MUTATION = /* GraphQL */ `
-  mutation DeleteEdge($edgeId: ID!) {
-    deleteEdge(edgeRef: $edgeId)
+  mutation DeleteEdge($edgeRef: ID!) {
+    deleteEdge(edgeRef: $edgeRef)
   }
 `;
 
@@ -1751,8 +1731,8 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
 // read the source. (List queries — findNodes/appNodes — never compile.)
 export const NODE_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query Node($loc: ID!, $memory: ID!) {
-    node(ref: $loc, memoryRef: $memory, raw: true) {
+  query Node($ref: ID!, $memoryRef: ID!) {
+    node(ref: $ref, memoryRef: $memoryRef, raw: true) {
       ...NodeFields
     }
   }
@@ -1779,8 +1759,8 @@ export const RESOLVE_URN_QUERY = /* GraphQL */ `
 // content EDITOR; it must round-trip the template source verbatim.
 export const NODE_BY_ID_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query NodeById($id: ID!) {
-    node(ref: $id, raw: true) {
+  query NodeById($ref: ID!) {
+    node(ref: $ref, raw: true) {
       ...NodeFields
       # #518: properties is detail-only — kept OUT of the shared NodeFields
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
@@ -2230,8 +2210,8 @@ export const ORG_APP_RUNS_QUERY = /* GraphQL */ `
 
 export const APP_RUN_QUERY = /* GraphQL */ `
   ${APP_RUN_FIELDS}
-  query AppRun($id: ID!) {
-    appRun(ref: $id) {
+  query AppRun($ref: ID!) {
+    appRun(ref: $ref) {
       ...AppRunFields
     }
   }
@@ -2241,8 +2221,8 @@ export const APP_RUN_QUERY = /* GraphQL */ `
 // hadron-server#534 on; the detail loader degrades gracefully when the
 // field is unknown instead of erroring the whole page.
 export const APP_RUN_ENVELOPE_QUERY = /* GraphQL */ `
-  query AppRunEnvelope($id: ID!) {
-    appRun(ref: $id) {
+  query AppRunEnvelope($ref: ID!) {
+    appRun(ref: $ref) {
       id
       data
     }
@@ -2267,8 +2247,8 @@ export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
 // portal had no build-time validation. Per the write-surface convention above,
 // only the ARGUMENT moves — `$urn` stays, so both callers are untouched.
 export const RUN_TASK_APP_MUTATION = /* GraphQL */ `
-  mutation RunTaskApp($urn: String!, $args: JSON, $appRef: ID!, $runAsSelf: Boolean) {
-    runTask(nodeRef: $urn, args: $args, appRef: $appRef, runAsSelf: $runAsSelf)
+  mutation RunTaskApp($nodeRef: String!, $args: JSON, $appRef: ID!, $runAsSelf: Boolean) {
+    runTask(nodeRef: $nodeRef, args: $args, appRef: $appRef, runAsSelf: $runAsSelf)
   }
 `;
 

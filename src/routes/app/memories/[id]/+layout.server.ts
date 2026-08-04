@@ -155,7 +155,7 @@ function reconstructNodes(
 export const load: LayoutServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
   const [memoryData, graphData, usageData] = await Promise.all([
-    client.request<{ memory: Memory | null }>(MEMORY_BY_ID_QUERY, { id: params.id }),
+    client.request<{ memory: Memory | null }>(MEMORY_BY_ID_QUERY, { ref: params.id }),
     fetchGraph(client, params.id),
     client
       .request<{ memoryUsageSummary: UsageSummaryEntry[] }>(MEMORY_USAGE_SUMMARY_QUERY, {
@@ -176,7 +176,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   // GraphQL validation error.
   const orgData = memory.organizationId
     ? await client
-        .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: memory.organizationId })
+        .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: memory.organizationId })
         .catch(() => ({ organization: null }))
     : { organization: null };
 

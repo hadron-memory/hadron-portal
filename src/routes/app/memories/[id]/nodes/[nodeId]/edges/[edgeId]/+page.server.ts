@@ -65,7 +65,7 @@ async function loadFlowFields(token: string | null | undefined, host: HostNode) 
       try {
         const res = await gqlClient(token).request<{
           node: { incomingEdges: UpstreamEdge[] } | null;
-        }>(FLOW_UPSTREAM_NODE_QUERY, { id: e.source!.id });
+        }>(FLOW_UPSTREAM_NODE_QUERY, { ref: e.source!.id });
         return res.node?.incomingEdges ?? [];
       } catch (err) {
         console.warn(`[edge-editor] upstream fetch failed for ${e.source!.id}:`, err);
@@ -126,7 +126,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const [parentData, hostRes] = await Promise.all([
     parent(),
     gqlClient(locals.token)
-      .request<{ node: HostNode | null }>(EDGE_HOST_NODE_QUERY, { id: params.nodeId })
+      .request<{ node: HostNode | null }>(EDGE_HOST_NODE_QUERY, { ref: params.nodeId })
       .then(
         (res) => ({ ok: true as const, res }),
         (err: unknown) => ({ ok: false as const, err }),
@@ -187,7 +187,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_EDGE_MUTATION, {
-        edgeId: params.edgeId,
+        edgeRef: params.edgeId,
         name,
         description,
         isRunnable: form.data.isRunnable,
@@ -209,7 +209,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     try {
-      await gqlClient(locals.token).request(DELETE_EDGE_MUTATION, { edgeId: params.edgeId });
+      await gqlClient(locals.token).request(DELETE_EDGE_MUTATION, { edgeRef: params.edgeId });
     } catch (e: unknown) {
       return message(
         form,

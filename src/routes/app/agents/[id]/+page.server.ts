@@ -55,7 +55,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // non-member/non-owner gets null → 404 (no over-exposure). A THROWN error
   // (network/GraphQL) becomes a 500, distinct from a legitimate not-found.
   const agentRes = await client
-    .request<{ agent: Agent | null }>(AGENT_QUERY, { id: params.id })
+    .request<{ agent: Agent | null }>(AGENT_QUERY, { ref: params.id })
     .catch(() => {
       throw error(500, 'Failed to load agent');
     });
@@ -217,7 +217,7 @@ export const actions: Actions = {
     const visibility = form.data.visibility || undefined;
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
-        id: params.id, name, urn: urnSlug, description, systemPrompt, systemMemoryId, visibility,
+        ref: params.id, name, urn: urnSlug, description, systemPrompt, systemMemoryId, visibility,
       });
 
       // If a system memory was selected, ensure it has the chatbot scaffold
@@ -320,7 +320,7 @@ export const actions: Actions = {
       } catch {
         // Non-fatal — the redirect target degrades to the personal list.
       }
-      await client.request(DELETE_AGENT_MUTATION, { id: params.id });
+      await client.request(DELETE_AGENT_MUTATION, { ref: params.id });
       redirect(303, orgId ? `/app/orgs/${orgId}/agents` : '/app/agents');
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
@@ -341,8 +341,8 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(ADD_MEMORY_TO_AGENT_MUTATION, {
-        agentId: params.id,
-        memoryId: form.data.memoryId,
+        agentRef: params.id,
+        memoryRef: form.data.memoryId,
         role: form.data.role,
       });
       return message(form, { type: 'success', text: 'Memory added.' });
@@ -361,8 +361,8 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MEMORY_ROLE_MUTATION, {
-        agentId: params.id,
-        memoryId: form.data.memoryId,
+        agentRef: params.id,
+        memoryRef: form.data.memoryId,
         role: form.data.role,
       });
       return message(form, { type: 'success', text: 'Memory role updated.' });
@@ -377,8 +377,8 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(REMOVE_MEMORY_FROM_AGENT_MUTATION, {
-        agentId: params.id,
-        memoryId: form.data.memoryId,
+        agentRef: params.id,
+        memoryRef: form.data.memoryId,
       });
       return message(form, { type: 'success', text: 'Memory removed.' });
     } catch (e: unknown) {

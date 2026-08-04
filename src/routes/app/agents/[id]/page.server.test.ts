@@ -319,8 +319,8 @@ describe('/app/agents/[id] memory actions', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Memory role updated.' });
     expect(mockRequest).toHaveBeenCalledWith(UPDATE_AGENT_MEMORY_ROLE_MUTATION, {
-      agentId: 'agent-id-123',
-      memoryId: 'memory-1',
+      agentRef: 'agent-id-123',
+      memoryRef: 'memory-1',
       role: 'read-write',
     });
   });
@@ -357,8 +357,8 @@ describe('/app/agents/[id] memory actions', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Memory removed.' });
     expect(mockRequest).toHaveBeenCalledWith(REMOVE_MEMORY_FROM_AGENT_MUTATION, {
-      agentId: 'agent-id-123',
-      memoryId: 'memory-1',
+      agentRef: 'agent-id-123',
+      memoryRef: 'memory-1',
     });
   });
 
@@ -406,7 +406,7 @@ describe('/app/agents/[id] delete action', () => {
     expect(thrown).toBeDefined();
     expect((thrown as { status: number }).status).toBe(303);
     expect((thrown as { location: string }).location).toBe('/app/agents');
-    expect(mockRequest).toHaveBeenCalledWith(DELETE_AGENT_MUTATION, { id: 'agent-id-123' });
+    expect(mockRequest).toHaveBeenCalledWith(DELETE_AGENT_MUTATION, { ref: 'agent-id-123' });
   });
 
   it('deletes an org agent and redirects to that org’s agents grid', async () => {
