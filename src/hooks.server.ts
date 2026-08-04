@@ -53,10 +53,15 @@ const authHandle: Handle = async ({ event, resolve }) => {
     const payload = decodeJwtPayload(impToken);
     const imp = payload?.imp as { sid?: string; act?: string; org?: string } | undefined;
     const exp = payload?.exp as number | undefined;
-    if (payload && imp?.sid && imp.act && imp.org && exp && exp * 1000 > Date.now()) {
+    // `sub` is validated as a non-empty string, not just cast: a
+    // malformed-but-decodable JWT would otherwise put `undefined` in
+    // locals.user.id and break every downstream consumer expecting a real id
+    // (PR #692 review).
+    const sub = typeof payload?.sub === 'string' && payload.sub ? payload.sub : null;
+    if (payload && sub && imp?.sid && imp.act && imp.org && exp && exp * 1000 > Date.now()) {
       event.locals.token = impToken;
       event.locals.user = {
-        id: payload.sub as string,
+        id: sub,
         githubUsername: null,
         email: null,
         name: null,

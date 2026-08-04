@@ -20,6 +20,7 @@
   import type { PageData, ActionData } from './$types';
   import {
     addOrgMemberSchema,
+    impersonateMemberSchema,
     inviteMemberSchema,
     leaveOrgSchema,
     removeOrgMemberSchema,
@@ -36,6 +37,8 @@
   type RemoveOrgMemberSuperform = SuperValidated<RemoveOrgMemberForm, App.Superforms.Message, RemoveOrgMemberForm>;
   type InviteMemberSuperform = SuperValidated<InviteMemberForm, App.Superforms.Message, InviteMemberForm>;
   type LeaveOrgSuperform = SuperValidated<LeaveOrgForm, App.Superforms.Message, LeaveOrgForm>;
+  type ImpersonateMemberForm = Infer<typeof impersonateMemberSchema, 'zod4'>;
+  type ImpersonateMemberSuperform = SuperValidated<ImpersonateMemberForm, App.Superforms.Message, ImpersonateMemberForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const org = $derived(data.org);
@@ -194,6 +197,27 @@
   );
   const updateActionSuccess = $derived($updateMessage?.type === 'success' ? $updateMessage.text : null);
 
+  // Wired through superForm like its siblings so a rejected start (the target's
+  // membership or the caller's role changed since page load) surfaces in the
+  // alert instead of silently reloading the page (PR #692 review).
+  const initialImpersonateForm = untrack(() => submittedForm<ImpersonateMemberForm>(form, 'impersonateMember') as ImpersonateMemberSuperform | null ?? data.impersonateForm);
+  const {
+    form: impersonateForm,
+    errors: impersonateErrors,
+    message: impersonateMessage,
+    enhance: impersonateEnhance,
+  } = superForm<ImpersonateMemberForm, App.Superforms.Message, ImpersonateMemberForm>(initialImpersonateForm, {
+    validators: zod4Client(impersonateMemberSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    clearOnSubmit: 'none',
+  });
+  const impersonateActionError = $derived(
+    $impersonateMessage?.type === 'error'
+      ? $impersonateMessage.text
+      : $impersonateErrors.userId?.[0] ?? $impersonateErrors._kind?.[0] ?? null,
+  );
+
   const initialRemoveForm = untrack(() => submittedForm<RemoveOrgMemberForm>(form, 'removeOrgMember') as RemoveOrgMemberSuperform | null ?? data.removeForm);
   const {
     form: removeForm,
@@ -297,9 +321,9 @@
        document outline (per the caption-ownership convention; PR #378). -->
   <h1 class="sr-only">Team</h1>
 
-  {#if updateActionError || removeActionError || leaveActionError}
+  {#if updateActionError || removeActionError || leaveActionError || impersonateActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
-      {updateActionError ?? removeActionError ?? leaveActionError}
+      {updateActionError ?? removeActionError ?? leaveActionError ?? impersonateActionError}
     </div>
   {:else if updateActionSuccess || removeActionSuccess}
     <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
@@ -359,11 +383,16 @@
             {#if canImpersonate(m)}
               <!-- Admin impersonation (read-only support session). Confirm
                    before starting; the server enforces peer-or-below + scope. -->
-              <form method="POST" action="?/impersonate"
+              <form method="POST" action="?/impersonate" use:impersonateEnhance
                 onsubmit={(e) => {
-                  if (!confirm(`View the portal as ${memberName(m)} (read-only)?`)) {
+                  if (!confirm(
+                    t('org-members.impersonate.confirm', 'View the portal as {name} (read-only)?')
+                      .replace('{name}', memberName(m)),
+                  )) {
                     e.preventDefault();
+                    return;
                   }
+                  impersonateForm.update((current) => ({ ...current, userId: m.user.id }), { taint: false });
                 }}>
                 <input type="hidden" name="_kind" value="impersonateMember" />
                 <input type="hidden" name="userId" value={m.user.id} />

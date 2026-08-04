@@ -17,9 +17,13 @@ export const actions: Actions = {
     if (impToken && locals.impersonation) {
       try {
         await gqlClient(impToken).request(STOP_IMPERSONATION_MUTATION, {});
-      } catch (e) {
-        // Expired token / already-stopped session — the TTL covers us.
-        console.warn('[impersonation] stop mutation failed (session will lapse by TTL):', e);
+      } catch {
+        // Expected in normal use (token already expired, or the session was
+        // stopped elsewhere), so this is a terse note rather than a dumped
+        // error object — the TTL covers us either way, and the error can
+        // carry response detail that doesn't belong in server logs
+        // (PR #692 review).
+        console.info('[impersonation] server-side stop did not apply; session will lapse by TTL');
       }
     }
     cookies.delete('hadron_impersonation', { path: '/' });

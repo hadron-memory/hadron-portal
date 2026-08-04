@@ -26,18 +26,23 @@
   });
 </script>
 
+<!-- The live region wraps ONLY the static warning. The countdown re-renders
+     every 30s, and inside an assertive region that would make assistive tech
+     re-announce the whole impersonation warning on every tick — so it sits
+     outside, explicitly aria-live="off" (PR #692 review). -->
 <div
-  role="alert"
   class="sticky top-0 z-50 flex items-center justify-center gap-3 border-b border-amber-400 bg-amber-100 px-4 py-2 text-sm text-amber-900 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-200"
 >
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="shrink-0">
     <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
   </svg>
-  <span>
+  <span role="alert">
     {t('impersonation.banner.viewing-as', 'Viewing as')}
     <strong>{targetName}</strong>
-    — {t('impersonation.banner.read-only', 'read-only')} ·
-    {t('impersonation.banner.expires-in', 'expires in')} {remaining(now)}
+    — {t('impersonation.banner.read-only', 'read-only')}
+  </span>
+  <span aria-live="off">
+    · {t('impersonation.banner.expires-in', 'expires in')} {remaining(now)}
   </span>
   <form method="POST" action="/app/impersonation/stop">
     <button
