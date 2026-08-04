@@ -47,8 +47,9 @@ jobs:
       - name: Generate the SvelteKit tsconfig
         run: pnpm exec svelte-kit sync
 
-      # The gate's own test — proves the validator still FAILS on a drifted
-      # operation. A validator that silently passes everything is worse than no
-      # validator, and nothing else in CI would notice it had gone blind.
-      - name: Test the validator itself
-        run: pnpm vitest run scripts/validate-graphql.test.ts
+      # The gate's own tests — prove each check still FAILS on the drift shape
+      # it exists to catch. A validator that silently passes everything is worse
+      # than no validator, and nothing else in CI would notice it going blind.
+      # Whole directory, so a check added later is covered without editing this.
+      - name: Test the gate itself
+        run: pnpm vitest run scripts/
