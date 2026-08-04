@@ -80,8 +80,8 @@ describe('agent detail actions', () => {
       message: { type: 'success', text: 'Memory added.' },
     });
     expect(mockRequest).toHaveBeenCalledWith(ADD_MEMORY_TO_AGENT_MUTATION, {
-      agentId: 'agent-1',
-      memoryId: 'memory-1',
+      agentRef: 'agent-1',
+      memoryRef: 'memory-1',
       role: 'read-write',
     });
   });

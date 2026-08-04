@@ -24,8 +24,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
 
   const [appData, runData] = await Promise.all([
-    client.request<{ app: App | null }>(APP_QUERY, { id: params.appId }),
-    client.request<{ appRun: AppRun | null }>(APP_RUN_QUERY, { id: params.runId }),
+    client.request<{ app: App | null }>(APP_QUERY, { ref: params.appId }),
+    client.request<{ appRun: AppRun | null }>(APP_RUN_QUERY, { ref: params.runId }),
   ]);
   if (!appData.app) throw error(404, 'App not found');
   const run = runData.appRun;
@@ -47,7 +47,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   try {
     const res = await client.request<{ appRun: { data: Record<string, unknown> | null } | null }>(
       APP_RUN_ENVELOPE_QUERY,
-      { id: params.runId },
+      { ref: params.runId },
     );
     envelope = res.appRun?.data ?? null;
   } catch (e) {

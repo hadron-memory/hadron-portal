@@ -58,7 +58,7 @@ describe('personal (org-less) create-agent action (#636)', () => {
   it('updates the display name when it differs from the slug', async () => {
     await runCreate({ displayName: 'My Assistant', slug: 'my-assistant' });
     const update = mockRequest.mock.calls.find((c) => c[0] === UPDATE_AGENT_MUTATION);
-    expect(update?.[1]).toMatchObject({ id: 'a1', name: 'My Assistant' });
+    expect(update?.[1]).toMatchObject({ ref: 'a1', name: 'My Assistant' });
   });
 
   it('does not issue a display-name update when name equals the slug', async () => {

@@ -20,7 +20,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     for (const u of updates) {
       // #335: scope the read to the target memory — node(loc:) is otherwise
       // memory-blind and now errors on a cross-memory loc collision.
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc, memory: memoryId });
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { ref: u.loc, memoryRef: memoryId });
       if (!node) continue;
       // #235: explicit tags pass-through. updateNode preserves omitted
       // tags (unlike the old upsertNode resolver's `input.tags ?? []`

@@ -21,7 +21,7 @@ const createChatbotFormAdapter = zod4(createChatbotSchema);
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ organization: Organization | null }>(
-    ORGANIZATION_QUERY, { id: params.id },
+    ORGANIZATION_QUERY, { ref: params.id },
   ).catch(() => { throw error(404, 'Organization not found'); });
   if (!data.organization) throw error(404, 'Organization not found');
   const form = await superValidate({}, createChatbotFormAdapter, { errors: false });
@@ -107,7 +107,7 @@ export const actions: Actions = {
       // 4. Rename agent if displayName differs from slug
       if (agentSlug && agentName !== agentSlug) {
         await client.request(UPDATE_AGENT_MUTATION, {
-          id: agentId, name: agentName,
+          ref: agentId, name: agentName,
         }).catch(() => {});
       }
 
@@ -117,7 +117,7 @@ export const actions: Actions = {
       // Per-user memories are created on-demand by startChat.
       if (knowledgeMemoryId) {
         await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
-          agentId, memoryId: knowledgeMemoryId, role: 'read-write',
+          agentRef: agentId, memoryRef: knowledgeMemoryId, role: 'read-write',
         });
       }
 

@@ -23,7 +23,8 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildSchema, parse, validate, specifiedRules, GraphQLError } from 'graphql';
+import { buildSchema, parse, validate, visit, specifiedRules, GraphQLError } from 'graphql';
+import { declaredVariables, findCallerMismatches } from './check-graphql-callers.mjs';
 
 export const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SRC_DIR = join(ROOT, 'src');
@@ -118,6 +119,50 @@ export function findInvalid(schema, documents) {
   return failures;
 }
 
+/**
+ * Enforce that an argument and the $variable filling it share a name —
+ * `appKeys(appRef: $appRef)`, never `appKeys(appRef: $appId)`.
+ *
+ * The portal drifted into two different spellings of this (#519 renamed
+ * variables with their arguments, #682 deliberately did not), which left the
+ * file inconsistent and its explanatory comment wrong twice. The sweep that
+ * unified it is only durable if the convention is checked, so: checked.
+ *
+ * The one shape this cannot express is a single variable filling two
+ * differently-named arguments; there are none today, and the error says so.
+ */
+export function findArgVariableMismatches(documents, resolve) {
+  const failures = [];
+  for (const doc of documents) {
+    let ast;
+    try {
+      ast = parse(resolve(doc));
+    } catch {
+      continue; // findInvalid reports the parse failure
+    }
+    const errors = [];
+    visit(ast, {
+      OperationDefinition(op) {
+        visit(op, {
+          Argument(arg) {
+            if (arg.value.kind !== 'Variable') return;
+            const a = arg.name.value;
+            const v = arg.value.name.value;
+            if (a !== v) {
+              errors.push(
+                `${op.name?.value ?? '(anon)'} fills "${a}:" with $${v} — name the variable $${a} ` +
+                  '(or, if one variable must fill two differently-named arguments, split it)',
+              );
+            }
+          },
+        });
+      },
+    });
+    if (errors.length > 0) failures.push({ ...doc, errors });
+  }
+  return failures;
+}
+
 /** Every GraphQL document declared under `src/`. */
 export function collectPortalDocuments(srcDir = SRC_DIR) {
   const documents = [];
@@ -153,7 +198,15 @@ function main(argv) {
   }
 
   const documents = collectPortalDocuments();
+  const byName = new Map(documents.map((doc) => [doc.name, doc]));
   const failures = findInvalid(schema, documents);
+
+  // Caller-side half: a $variable is internal to the document, so a rename
+  // keeps the document valid while every stale caller breaks at runtime. See
+  // check-graphql-callers.mjs.
+  const declared = declaredVariables(documents, (doc) => resolveInterpolations(doc, byName));
+  const callers = findCallerMismatches(sourceFiles(SRC_DIR), declared, ROOT);
+  const naming = findArgVariableMismatches(documents, (doc) => resolveInterpolations(doc, byName));
 
   if (asJson) {
     console.log(
@@ -163,28 +216,44 @@ function main(argv) {
           documents: documents.length,
           invalid: failures.length,
           failures: failures.map(({ name, file, line, errors }) => ({ name, file, line, errors })),
+          callSites: callers.checked,
+          callerMismatches: callers.failures.length,
+          callerFailures: callers.failures,
+          callerSkipped: callers.skipped,
+          namingMismatches: naming.length,
+          namingFailures: naming.map(({ name, file, line, errors }) => ({ name, file, line, errors })),
         },
         null,
         2,
       ),
     );
   } else {
-    for (const failure of failures) {
+    for (const failure of [...failures, ...naming, ...callers.failures]) {
       console.error(`✗ ${failure.file}:${failure.line}  ${failure.name}`);
       for (const message of failure.errors) console.error(`    ${message}`);
     }
-    const summary = `${documents.length} documents, ${failures.length} invalid (schema: ${relative(ROOT, schemaPath)})`;
-    if (failures.length > 0) {
+    // Never let a skipped call site read as a passing one.
+    for (const skip of callers.skipped) console.warn(`… skipped ${skip}`);
+
+    const docSummary = `${documents.length} documents, ${failures.length} invalid, ${naming.length} misnamed`;
+    const callSummary = `${callers.checked} call sites, ${callers.failures.length} mismatched`;
+    const summary = `${docSummary}; ${callSummary} (schema: ${relative(ROOT, schemaPath)})`;
+    if (failures.length > 0 || naming.length > 0 || callers.failures.length > 0) {
       console.error(`\n✗ ${summary}`);
-      console.error(
-        '  If the server changed on purpose, run "pnpm gql:schema" and reconcile the operations.',
-      );
+      if (failures.length > 0) {
+        console.error(
+          '  If the server changed on purpose, run "pnpm gql:schema" and reconcile the operations.',
+        );
+      }
+      if (callers.failures.length > 0) {
+        console.error("  A caller's variable keys must match the operation's $variables.");
+      }
     } else {
       console.log(`✓ ${summary}`);
     }
   }
 
-  return failures.length > 0 ? 1 : 0;
+  return failures.length > 0 || naming.length > 0 || callers.failures.length > 0 ? 1 : 0;
 }
 
 // Only act as a CLI when executed directly, so the test can import the helpers.

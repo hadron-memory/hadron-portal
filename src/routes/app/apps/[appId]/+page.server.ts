@@ -41,6 +41,17 @@ type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
 type RevokeAppKeyForm = Infer<typeof revokeAppKeySchema, 'zod4'>;
 type UpdateAppAgentToolsForm = Infer<typeof updateAppAgentToolsSchema, 'zod4'>;
 
+// Route-local, but a `/* GraphQL */` const rather than an inline string so
+// `pnpm gql:validate` sees it — an inline document is invisible to the gate
+// (#690 review), which is how this one kept `ref: $id` after the sweep.
+const APP_ORG_QUERY = /* GraphQL */ `
+  query AppOrg($ref: ID!) {
+    app(ref: $ref) {
+      organizationId
+    }
+  }
+`;
+
 const addAgentFormAdapter = zod4(addAgentSchema);
 const appSettingsFormAdapter = zod4(appSettingsSchema);
 const createAppKeyFormAdapter = zod4(createAppKeySchema);
@@ -62,7 +73,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // null → 404 (no over-exposure).
   const client = gqlClient(locals.token);
   const [appData, configsData] = await Promise.all([
-    client.request<{ app: App | null }>(APP_QUERY, { id: params.appId })
+    client.request<{ app: App | null }>(APP_QUERY, { ref: params.appId })
       .catch((e) => {
         // graphql-request throws on ANY GraphQL error even when usable data is
         // present. A non-critical NULLABLE field erroring (e.g. installedAgentUrn,
@@ -98,7 +109,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   let availableAgents: Array<{ id: string; name: string; urn: string }> = [];
   if (app.organizationId) {
     const orgData = await client
-      .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: app.organizationId })
+      .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: app.organizationId })
       .catch(() => ({ organization: null }));
     if (!orgData.organization) throw error(404, 'Organization not found');
     org = orgData.organization;
@@ -219,7 +230,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_APP_MUTATION, {
-        id: params.appId,
+        ref: params.appId,
         name: form.data.name,
         urn: form.data.urn,
         appType: form.data.appType,
@@ -252,7 +263,7 @@ export const actions: Actions = {
     // universally read-only from any App context). `trainingMode` is
     // forwarded only when the form submits it explicitly so the server
     // default applies otherwise.
-    const variables: Record<string, unknown> = { appId: params.appId, agentId: form.data.agentId };
+    const variables: Record<string, unknown> = { appRef: params.appId, agentRef: form.data.agentId };
     if (typeof form.data.trainingMode === 'string') variables.trainingMode = form.data.trainingMode === 'true';
     try {
       await gqlClient(locals.token).request(ADD_AGENT_TO_APP_MUTATION, variables);
@@ -275,8 +286,8 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(REMOVE_AGENT_FROM_APP_MUTATION, {
-        appId: params.appId,
-        agentId: form.data.agentId,
+        appRef: params.appId,
+        agentRef: form.data.agentId,
       });
       return message(form, { type: 'success', text: t('app.agent.unlinked', 'Agent unlinked.') });
     } catch (e: unknown) {
@@ -297,7 +308,7 @@ export const actions: Actions = {
 
     try {
       await gqlClient(locals.token).request(UPDATE_APP_MUTATION, {
-        id: params.appId,
+        ref: params.appId,
         agentTools: form.data.agentTools,
       });
       return message(form, { type: 'success', text: t('app.agent-tools.saved', 'Client tools saved.') });
@@ -321,7 +332,7 @@ export const actions: Actions = {
     try {
       const result = await gqlClient(locals.token).request<{
         createAppKey: { key: { id: string }; rawKey: string };
-      }>(CREATE_APP_KEY_MUTATION, { appId: params.appId, label });
+      }>(CREATE_APP_KEY_MUTATION, { appRef: params.appId, label });
       return {
         form,
         rawKey: result.createAppKey.rawKey,
@@ -370,8 +381,8 @@ export const actions: Actions = {
     let orgId: string | null = null;
     try {
       const res = await client.request<{ app: { organizationId: string | null } | null }>(
-        'query AppOrg($id: ID!) { app(ref: $id) { organizationId } }',
-        { id: params.appId },
+        APP_ORG_QUERY,
+        { ref: params.appId },
       );
       orgId = res.app?.organizationId ?? null;
     } catch {
@@ -379,7 +390,7 @@ export const actions: Actions = {
     }
 
     try {
-      await client.request(DELETE_APP_MUTATION, { id: params.appId });
+      await client.request(DELETE_APP_MUTATION, { ref: params.appId });
     } catch (e: unknown) {
       return message(
         form,

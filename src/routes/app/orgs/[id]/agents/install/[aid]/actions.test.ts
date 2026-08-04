@@ -104,8 +104,8 @@ describe('install agent action', () => {
     expect(result).toMatchObject({ status: 303, location: '/app/apps/app-1' });
     expect(mockFetchAllItems).toHaveBeenCalled();
     expect(mockRequest).toHaveBeenCalledWith(CREATE_APP_MUTATION, {
-      orgId: 'org-1',
-      agentId: 'agent-1',
+      orgRef: 'org-1',
+      agentRef: 'agent-1',
       name: 'Helper',
       urn: 'helper',
       appType: 'WORKSTATION',

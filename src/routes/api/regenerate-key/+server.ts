@@ -17,7 +17,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   try {
     const result = await gqlClient(locals.token).request<{
       regenerateAppKey: { rawKey: string };
-    }>(REGENERATE_APP_KEY_MUTATION, { id: appId });
+    }>(REGENERATE_APP_KEY_MUTATION, { appRef: appId });
 
     return json({ rawKey: result.regenerateAppKey.rawKey });
   } catch (e: unknown) {

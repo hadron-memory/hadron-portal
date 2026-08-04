@@ -38,7 +38,7 @@ export const actions: Actions = {
       // mirrors the org create flow).
       if (displayName && displayName !== name) {
         await gqlClient(locals.token)
-          .request(UPDATE_AGENT_MUTATION, { id: result.createAgent.id, name: displayName })
+          .request(UPDATE_AGENT_MUTATION, { ref: result.createAgent.id, name: displayName })
           .catch(() => {});
       }
       redirect(303, `/app/agents/${result.createAgent.id}`);

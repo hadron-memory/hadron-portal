@@ -219,7 +219,7 @@ describe('memories-list syncAll action', () => {
       },
     });
     expect(mockRequest.mock.calls).toEqual([
-      [ORGANIZATION_QUERY, { id: 'org-1' }],
+      [ORGANIZATION_QUERY, { ref: 'org-1' }],
       [SYNC_MEMORY_MUTATION, { id: 'mem-1' }],
       [SYNC_MEMORY_MUTATION, { id: 'mem-3' }],
     ]);
@@ -267,7 +267,7 @@ describe('memories-list syncAll action', () => {
     expect(result.status).toBe(500);
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
     expect(mockRequest).toHaveBeenCalledTimes(1);
-    expect(mockRequest).toHaveBeenCalledWith(ORGANIZATION_QUERY, { id: 'org-1' });
+    expect(mockRequest).toHaveBeenCalledWith(ORGANIZATION_QUERY, { ref: 'org-1' });
   });
 });
 

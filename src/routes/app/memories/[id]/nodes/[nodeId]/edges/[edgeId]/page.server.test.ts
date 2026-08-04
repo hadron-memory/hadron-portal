@@ -63,7 +63,7 @@ describe('edge detail update action Superforms validation', () => {
       data: unknown;
     }];
     expect(vars).toMatchObject({
-      edgeId: 'edge-pk',
+      edgeRef: 'edge-pk',
       name: 'next.1.high',
       description: 'edge description',
       isRunnable: true,
@@ -193,7 +193,7 @@ describe('edge detail delete action Superforms validation', () => {
       result = e;
     }
 
-    expect(mockRequest).toHaveBeenCalledWith(DELETE_EDGE_MUTATION, { edgeId: 'edge-pk' });
+    expect(mockRequest).toHaveBeenCalledWith(DELETE_EDGE_MUTATION, { edgeRef: 'edge-pk' });
     expect(result).toMatchObject({
       status: 303,
       location: '/app/memories/mem-A/nodes/source-pk',

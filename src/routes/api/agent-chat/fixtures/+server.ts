@@ -212,8 +212,8 @@ export const DELETE: RequestHandler = async ({ url, locals }) => {
   // within the system memory to its PK first, then delete. A missing node is a
   // no-op (idempotent DELETE).
   const found = await client.request<{ node: { id: string } | null }>(NODE_QUERY, {
-    loc: fixtureLoc,
-    memory: resolved.systemMemoryId,
+    ref: fixtureLoc,
+    memoryRef: resolved.systemMemoryId,
   });
   if (found.node) {
     await client.request(DELETE_NODE_MUTATION, { nodeRef: found.node.id });

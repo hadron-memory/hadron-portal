@@ -118,7 +118,7 @@ describe('updateEdge', () => {
     });
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Edge saved.' });
     expect(mockRequest.mock.calls[0][1]).toEqual({
-      edgeId: 'e1',
+      edgeRef: 'e1',
       name: 'next.2.high',
       priority: 5,
       condition: { '>': [{ var: 'message.data.confidence' }, 0.8] },
@@ -206,8 +206,8 @@ describe('createEdge', () => {
     expect(result).toMatchObject({ created: true, edgeId: 'e-new' });
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Edge created.' });
     expect(mockRequest.mock.calls[1][1]).toEqual({
-      sourceNodeId: 'n1',
-      targetNodeId: 'n4',
+      sourceRef: 'n1',
+      targetRef: 'n4',
       name: 'next.2',
     });
   });
@@ -227,8 +227,8 @@ describe('createEdge', () => {
     mockRequest.mockResolvedValueOnce({ createEdge: { id: 'e-new' } });
     await runAction('createEdge', { sourceId: 'n1', targetId: 'n4' });
     expect(mockRequest.mock.calls[1][1]).toEqual({
-      sourceNodeId: 'n1',
-      targetNodeId: 'n4',
+      sourceRef: 'n1',
+      targetRef: 'n4',
       name: 'next.1',
       priority: 1,
     });

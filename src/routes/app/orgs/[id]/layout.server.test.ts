@@ -35,7 +35,7 @@ describe('org-detail layout load()', () => {
     const load = await importLoad();
     const result = await load(ev({}));
     expect(result).toEqual({ org: fakeOrg });
-    expect(mockRequest).toHaveBeenCalledWith(ORGANIZATION_QUERY, { id: 'org-id-123' });
+    expect(mockRequest).toHaveBeenCalledWith(ORGANIZATION_QUERY, { ref: 'org-id-123' });
   });
 
   it('ORGANIZATION_QUERY throws → 404', async () => {

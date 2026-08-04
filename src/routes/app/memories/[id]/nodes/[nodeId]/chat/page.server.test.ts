@@ -62,7 +62,7 @@ describe('chat sendMessage action', () => {
 
     expect(result).toMatchObject({ sent: true, messageNode: { id: 'message-1' } });
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Message sent.' });
-    expect(mockRequest).toHaveBeenNthCalledWith(1, NODE_BY_ID_QUERY, { id: 'chat-1' });
+    expect(mockRequest).toHaveBeenNthCalledWith(1, NODE_BY_ID_QUERY, { ref: 'chat-1' });
     expect(mockRequest).toHaveBeenNthCalledWith(2, CREATE_NODE_MUTATION, {
       input: expect.objectContaining({
         memoryId: 'mem-1',

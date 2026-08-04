@@ -61,7 +61,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     // Let transient GraphQL/network errors propagate (→ 500); a genuinely
     // missing org is handled by the `!data.organization` 404 below. (Coercing
     // every error to 404 here would hide real failures — the spec-018 lesson.)
-    client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id }),
+    client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: params.id }),
     // Which agents are already installed as an App → { agentId: { appId, appName } }.
     // Non-fatal: on failure the "Open" affordance simply doesn't render.
     fetchAllItems<AppInstall>(client, ORG_APP_INSTALLS_QUERY, 'apps', { orgId: params.id }).catch(
@@ -73,7 +73,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     // rather than a false "no subscriptions" (review:no-silent-loader-catch).
     client
       .request<{ organization: { agentOrgGrants: AgentGrant[] } | null }>(
-        ORG_AGENT_GRANTS_QUERY, { id: params.id },
+        ORG_AGENT_GRANTS_QUERY, { ref: params.id },
       )
       .then((r) => r.organization?.agentOrgGrants ?? [])
       .catch((e) => {

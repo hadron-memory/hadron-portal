@@ -41,7 +41,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const client = gqlClient(locals.token);
   const [orgData, systemMemories, publicMemories, myMemories] = await Promise.all([
     client.request<{ organization: Organization | null }>(
-      ORGANIZATION_QUERY, { id: params.id },
+      ORGANIZATION_QUERY, { ref: params.id },
     ),
     fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
       .catch(() => [] as Memory[]),
@@ -142,7 +142,7 @@ export const actions: Actions = {
     let data: { organization: Organization };
     try {
       data = await client.request<{ organization: Organization }>(
-        ORGANIZATION_QUERY, { id: params.id },
+        ORGANIZATION_QUERY, { ref: params.id },
       );
     } catch (e: unknown) {
       return message(

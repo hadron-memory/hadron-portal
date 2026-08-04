@@ -71,7 +71,7 @@ describe('create agent action', () => {
       visibility: 'ORGANIZATION',
     });
     expect(mockRequest).toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, {
-      id: 'agent-1',
+      ref: 'agent-1',
       name: 'Research Assistant',
     });
   });

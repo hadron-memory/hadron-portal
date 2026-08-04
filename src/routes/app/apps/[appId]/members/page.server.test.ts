@@ -131,8 +131,8 @@ describe('app members load()', () => {
     const { load } = await importMod();
     const result = await load(loadEv());
 
-    expect(mockRequest).toHaveBeenNthCalledWith(1, APP_WITH_MEMBERS_QUERY, { id: 'app-1' });
-    expect(mockRequest).toHaveBeenNthCalledWith(2, ORGANIZATION_QUERY, { id: 'org-1' });
+    expect(mockRequest).toHaveBeenNthCalledWith(1, APP_WITH_MEMBERS_QUERY, { ref: 'app-1' });
+    expect(mockRequest).toHaveBeenNthCalledWith(2, ORGANIZATION_QUERY, { ref: 'org-1' });
     expect(result).toMatchObject({ app: fakeApp, org: fakeOrg, members: fakeApp.members });
     // #653: no bulk user list is loaded any more.
     expect(result).not.toHaveProperty('allUsers');

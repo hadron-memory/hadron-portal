@@ -14,7 +14,7 @@ const createMemoryFormAdapter = zod4(createMemorySchema);
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ organization: Organization }>(
-    ORGANIZATION_QUERY, { id: params.id },
+    ORGANIZATION_QUERY, { ref: params.id },
   );
   const prefillSlug = (url.searchParams.get('slug') ?? '').trim();
   // #556: the Personal Memories tab deep-links here with ?class=personal so the

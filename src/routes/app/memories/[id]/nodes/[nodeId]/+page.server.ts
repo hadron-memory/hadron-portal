@@ -74,7 +74,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const [parentData, data] = await Promise.all([
     parent(),
     gqlClient(locals.token).request<{ node: MemoryNode | null }>(
-      NODE_BY_ID_QUERY, { id: params.nodeId },
+      NODE_BY_ID_QUERY, { ref: params.nodeId },
     ),
   ]);
   await requireNonConsumer(async () => parentData);
@@ -266,7 +266,7 @@ export const actions: Actions = {
     // #237: derive memoryId from the anchor (URL) node so a stale URL
     // doesn't write the new parent into the wrong memory.
     const { node: anchorNode } = await client.request<{ node: MemoryNode | null }>(
-      NODE_BY_ID_QUERY, { id: params.nodeId },
+      NODE_BY_ID_QUERY, { ref: params.nodeId },
     );
     if (!anchorNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
     try {
@@ -291,7 +291,7 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
 
     const { node: currentNode } = await client.request<{ node: MemoryNode | null }>(
-      NODE_BY_ID_QUERY, { id: params.nodeId },
+      NODE_BY_ID_QUERY, { ref: params.nodeId },
     );
     if (!currentNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
 
@@ -360,7 +360,7 @@ export const actions: Actions = {
     const hard = form.data.hard;
     // Load the node to get its loc AND its actual memoryId (#237).
     const data = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
-      NODE_BY_ID_QUERY, { id: params.nodeId },
+      NODE_BY_ID_QUERY, { ref: params.nodeId },
     );
     if (!data.node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
     const node = data.node;
@@ -381,7 +381,7 @@ export const actions: Actions = {
 
     const client = gqlClient(locals.token);
     try {
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
       await client.request(UPDATE_NODE_MUTATION, {
@@ -416,7 +416,7 @@ export const actions: Actions = {
 
     const client = gqlClient(locals.token);
     try {
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
       await client.request(UPDATE_NODE_MUTATION, {
@@ -462,7 +462,7 @@ export const actions: Actions = {
 
     const client = gqlClient(locals.token);
     try {
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
       await client.request(UPDATE_NODE_MUTATION, {
@@ -499,7 +499,7 @@ export const actions: Actions = {
 
     const client = gqlClient(locals.token);
     try {
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
       if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
 
       const merged: Record<string, unknown> = {
@@ -545,7 +545,7 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
     let runId: string;
     try {
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
       if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
       if (!node.memory?.urn) {
         return message(form, { type: 'error', text: 'Node has no memory URN to run by.' }, { status: 500 });
@@ -553,7 +553,7 @@ export const actions: Actions = {
       const urn = composeNodeUrn(node.memory.urn, node.loc);
 
       const res = await client.request<{ runTask: string }>(RUN_TASK_APP_MUTATION, {
-        urn,
+        nodeRef: urn,
         args,
         appRef: appId,
         runAsSelf: false,
@@ -577,7 +577,7 @@ export const actions: Actions = {
     );
     if (!form.valid) return fail(400, { form });
     const client = gqlClient(locals.token);
-    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
     if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
     if (!node.memory?.urn) {
       return message(form, { type: 'error', text: 'Node has no memory URN to clone by.' }, { status: 500 });
@@ -625,7 +625,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     const client = gqlClient(locals.token);
-    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
     if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
     if (!node.memory?.urn) {
       return message(form, { type: 'error', text: 'Node has no memory URN to move by.' }, { status: 500 });
@@ -687,7 +687,7 @@ export const actions: Actions = {
     );
     if (!form.valid) return fail(400, { form });
     const client = gqlClient(locals.token);
-    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { id: params.nodeId });
+    const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
     if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
     try {
       await client.request(UPDATE_NODE_MUTATION, {
@@ -722,7 +722,7 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
     try {
       const { node } = await client.request<{ node: MemoryNode | null }>(
-        NODE_BY_ID_QUERY, { id: params.nodeId },
+        NODE_BY_ID_QUERY, { ref: params.nodeId },
       );
       if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
       // #656: this replaces the WHOLE outgoing set, and an edge whose target is
@@ -779,7 +779,7 @@ export const actions: Actions = {
     // #237: derive memoryId from the URL's anchor node so a stale-URL
     // POST reorders within the actual memory, not the URL's gid.
     const { node: anchorNode } = await client.request<{ node: MemoryNode | null }>(
-      NODE_BY_ID_QUERY, { id: params.nodeId },
+      NODE_BY_ID_QUERY, { ref: params.nodeId },
     );
     if (!anchorNode) return fail(404, { error: 'Anchor node not found' });
     try {
@@ -788,7 +788,7 @@ export const actions: Actions = {
         // memory. Previously NODE_QUERY(loc:) was memory-blind, so a foreign
         // memory sharing the loc could win the resolver's first-match and feed
         // a wrong `name` into anchorNode.memoryId's row. Now it's pinned.
-        const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { loc: u.loc, memory: anchorNode.memoryId });
+        const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { ref: u.loc, memoryRef: anchorNode.memoryId });
         if (!node) continue;
         await client.request(UPDATE_NODE_MUTATION, {
           input: {

@@ -118,7 +118,7 @@ describe('app runs run action', () => {
       location: '/app/apps/app-1/runs/run-1',
     });
     expect(mockRequest).toHaveBeenCalledWith(RUN_TASK_APP_MUTATION, {
-      urn: 'hrn:node:acme.com::flows::entry',
+      nodeRef: 'hrn:node:acme.com::flows::entry',
       appRef: 'app-1',
       runAsSelf: false,
     });

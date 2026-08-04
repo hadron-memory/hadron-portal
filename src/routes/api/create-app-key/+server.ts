@@ -17,7 +17,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   try {
     const result = await gqlClient(locals.token).request<{
       createAppKey: { key: { id: string; label: string; createdAt: string }; rawKey: string };
-    }>(CREATE_APP_KEY_MUTATION, { appId, label: label || null });
+    }>(CREATE_APP_KEY_MUTATION, { appRef: appId, label: label || null });
 
     return json(result.createAppKey);
   } catch (e: unknown) {

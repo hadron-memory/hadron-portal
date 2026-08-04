@@ -88,7 +88,7 @@ async function resolveInstallTarget(
   // failure falls through to the member-org scan below.
   const publicAgent = await client
     .request<{ agent: (InstallableAgent & { visibility: string }) | null }>(
-      AGENT_PUBLIC_QUERY, { id: agentIdParam },
+      AGENT_PUBLIC_QUERY, { ref: agentIdParam },
     )
     .then((r) => r.agent)
     .catch(() => null);
@@ -179,8 +179,8 @@ export const actions: Actions = {
     let createdApp: App;
     try {
       const result = await client.request<{ createApp: App }>(CREATE_APP_MUTATION, {
-        orgId: params.id,
-        agentId: params.aid,
+        orgRef: params.id,
+        agentRef: params.aid,
         name,
         urn,
         appType,

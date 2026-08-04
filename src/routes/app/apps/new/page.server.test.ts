@@ -115,8 +115,8 @@ describe('/app/apps/new default action', () => {
     // createApp called WITHOUT orgId (personal create).
     const [doc, vars] = mockRequest.mock.calls[0];
     expect(doc).toBe(CREATE_PERSONAL_APP_MUTATION);
-    expect(vars).toMatchObject({ agentId: 'a-own', name: 'My App', urn: 'my-app', appType: 'WORKSTATION', surfaces: ['mcp'] });
-    expect(vars).not.toHaveProperty('orgId');
+    expect(vars).toMatchObject({ agentRef: 'a-own', name: 'My App', urn: 'my-app', appType: 'WORKSTATION', surfaces: ['mcp'] });
+    expect(vars).not.toHaveProperty('orgRef');
   });
 
   it('rejects an agent that is neither the caller’s own nor PUBLIC', async () => {

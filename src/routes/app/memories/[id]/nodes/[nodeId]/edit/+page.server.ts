@@ -47,7 +47,7 @@ function parseEdgesPayload(value: string): { targetId: string; name: string }[] 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
-    NODE_BY_ID_QUERY, { id: params.nodeId },
+    NODE_BY_ID_QUERY, { ref: params.nodeId },
   );
   if (!data.node) throw new Error(`Node not found: ${params.nodeId}`);
   // #237: same URL-acceptance guard as the detail page. Without it, an
@@ -78,7 +78,7 @@ export const actions: Actions = {
 
     // Load current node to get its loc
     const { node: currentNode } = await client.request<{ node: MemoryNode | null }>(
-      NODE_BY_ID_QUERY, { id: params.nodeId },
+      NODE_BY_ID_QUERY, { ref: params.nodeId },
     );
     if (!currentNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
 

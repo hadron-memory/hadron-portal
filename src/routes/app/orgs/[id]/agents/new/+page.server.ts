@@ -14,7 +14,7 @@ const createAgentFormAdapter = zod4(createAgentSchema);
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ organization: Organization | null }>(
-    ORGANIZATION_QUERY, { id: params.id },
+    ORGANIZATION_QUERY, { ref: params.id },
   ).catch(() => { throw error(404, 'Organization not found'); });
   if (!data.organization) throw error(404, 'Organization not found');
   // #320: the header command bar (Create mode) can deep-link here with the
@@ -40,7 +40,7 @@ export const actions: Actions = {
       });
       if (displayName && displayName !== name) {
         await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
-          id: result.createAgent.id, name: displayName,
+          ref: result.createAgent.id, name: displayName,
         }).catch(() => {});
       }
       redirect(303, `/app/orgs/${params.id}/agents`);

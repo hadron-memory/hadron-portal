@@ -15,7 +15,7 @@ import type { LayoutServerLoad } from './$types';
 // admin-only sub-routes keep their own guard.
 export const load: LayoutServerLoad = async ({ params, locals }) => {
   const data = await gqlClient(locals.token)
-    .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { id: params.id })
+    .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: params.id })
     .catch(() => {
       throw error(404, 'Organization not found');
     });

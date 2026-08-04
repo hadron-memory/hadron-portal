@@ -34,7 +34,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // we deliberately no longer bulk-load every user (with their emails) into the
   // page just to populate a dropdown (#414 privacy).
   const orgData = await client.request<{ organization: Organization }>(ORGANIZATION_QUERY, {
-    id: params.id,
+    ref: params.id,
   });
   const [addForm, updateForm, removeForm, inviteForm, leaveForm] = await Promise.all([
     superValidate({}, addOrgMemberFormAdapter, { errors: false }),

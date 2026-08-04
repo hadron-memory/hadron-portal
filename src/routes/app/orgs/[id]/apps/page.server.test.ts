@@ -93,7 +93,7 @@ describe('org apps delete action', () => {
         message: { type: 'success', text: 'App deleted.' },
       },
     });
-    expect(mockRequest).toHaveBeenCalledWith(DELETE_APP_MUTATION, { id: 'app-1' });
+    expect(mockRequest).toHaveBeenCalledWith(DELETE_APP_MUTATION, { ref: 'app-1' });
   });
 
   it('rejects missing app ids before deleting', async () => {
