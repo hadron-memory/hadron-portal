@@ -21,6 +21,7 @@
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
+  import { canUploadToMemory } from '$lib/assets/can-upload';
   import AttachAssetDialog from '$lib/components/assets/AttachAssetDialog.svelte';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -664,7 +665,8 @@
 
   // ── portal#696: attach a file ────────────────────────────────────────────
   // Creates a `reference` child node pointing at an asset. Offered whenever the
-  // memory is known: uploads may be refused (`acceptsUploads: false`), but
+  // memory is known: uploads may be unavailable (`acceptsUploads: false`, or a
+  // user-owned memory whose org-scoped storage key the server can't build), but
   // attaching a file ALREADY in the memory still works, so the action itself is
   // not gated on the upload flag — the dialog handles the split.
   let attachOpen = $state(false);
@@ -2721,7 +2723,7 @@
     memoryId={node.memory?.id ?? data.graph.id}
     {memoryUrn}
     parentLoc={cleanLoc}
-    acceptsUploads={data.graph.acceptsUploads !== false}
+    acceptsUploads={canUploadToMemory(data.graph)}
     onattached={() => invalidateAll()}
   />
 {/if}

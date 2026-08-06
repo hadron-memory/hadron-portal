@@ -14,6 +14,7 @@
   import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
   import { t } from '$lib/i18n/t';
   import { MEMORY_ASSETS_DEP } from '$lib/assets/deps';
+  import { canUploadToMemory } from '$lib/assets/can-upload';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -21,10 +22,12 @@
   const g = $derived(data.graph);
   const rows = $derived(data.assets);
 
-  // `acceptsUploads` defaults true and is false for system-class memories. It is
-  // optional on the type (not every projection selects it) — only `=== false`
-  // hides the control, so an unselected field never silently removes it.
-  const uploadsAccepted = $derived(g.acceptsUploads !== false);
+  // One gate: `acceptsUploads`. This also used to require an owning org,
+  // because the server derived the storage key from the ORG urn and refused
+  // a user-owned memory outright; hadron-server#891 derives it from the
+  // memory urn instead, so personal memories upload like any other. See
+  // $lib/assets/can-upload.
+  const uploadsAccepted = $derived(canUploadToMemory(g));
 
   let uploadError = $state<string | null>(null);
 
@@ -140,11 +143,16 @@
       <p class="text-sm font-medium text-zinc-600 dark:text-zinc-300">
         {t('memory-assets.empty.title', 'No files in this memory yet.')}
       </p>
-      <p class="mx-auto mt-2 max-w-lg text-xs text-zinc-500 dark:text-zinc-400">
-        {uploadsAccepted
-          ? t('memory-assets.empty.explainer', 'Upload one with the paperclip above, or let an agent run store one here.')
-          : t('memory-assets.empty.explainer-no-uploads', 'This memory does not accept uploads.')}
-      </p>
+      <!-- When uploads are refused, an agent run CANNOT store one either —
+           hadron_store_file runs the same assertMemoryAcceptsUploads gate
+           server-side. Offering that as a fallback left the user waiting for
+           a path that does not exist (PR #699 review). The banner above
+           already states the reason, so say nothing more here. -->
+      {#if uploadsAccepted}
+        <p class="mx-auto mt-2 max-w-lg text-xs text-zinc-500 dark:text-zinc-400">
+          {t('memory-assets.empty.explainer', 'Upload one with the paperclip above, or let an agent run store one here.')}
+        </p>
+      {/if}
     </div>
   {:else}
     {#if pendingCount > 0}
