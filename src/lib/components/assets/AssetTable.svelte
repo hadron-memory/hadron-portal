@@ -24,6 +24,7 @@
   import { Download, Link2, Trash2 } from 'lucide-svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import { t } from '$lib/i18n/t';
   import {
     getAssetDownloadUrl,
@@ -268,11 +269,16 @@
 >
   {#snippet cell(cell, row)}
     {#if cell.column.id === 'filename'}
-      <div class="min-w-0">
-        <span class="block truncate font-medium text-zinc-900 dark:text-white" title={row.filename}>{row.filename}</span>
-        {#if row.description}
-          <span class="block truncate text-xs text-zinc-500" title={row.description}>{row.description}</span>
-        {/if}
+      <div class="flex min-w-0 items-center gap-2.5">
+        <!-- Thumbnail for CLEAN images, mime icon otherwise — a consistent
+             leading slot so filenames align across mixed rows. -->
+        <AssetThumbnail asset={row} sizeClass="size-8" />
+        <div class="min-w-0">
+          <span class="block truncate font-medium text-zinc-900 dark:text-white" title={row.filename}>{row.filename}</span>
+          {#if row.description}
+            <span class="block truncate text-xs text-zinc-500" title={row.description}>{row.description}</span>
+          {/if}
+        </div>
       </div>
     {:else if cell.column.id === 'mimeType'}
       <span class="font-mono text-xs text-zinc-600 dark:text-zinc-400">{row.mimeType}</span>

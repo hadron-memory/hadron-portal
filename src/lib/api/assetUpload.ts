@@ -214,13 +214,20 @@ export async function createAssetReferenceNode(input: {
   return res.json();
 }
 
-export async function getAssetDownloadUrl(assetId: string): Promise<string> {
+/** Short-TTL presigned GET. `expiresAt` is surfaced for callers that cache the
+ *  URL across renders (AssetThumbnail); plain one-shot downloads ignore it. */
+export async function getAssetDownloadTicket(
+  assetId: string,
+): Promise<{ url: string; expiresAt: string }> {
   const res = await fetch(
     `/api/assets/download?${new URLSearchParams({ assetId })}`,
   );
   if (!res.ok) throw await asUploadError(res);
-  const body: { url: string } = await res.json();
-  return body.url;
+  return res.json();
+}
+
+export async function getAssetDownloadUrl(assetId: string): Promise<string> {
+  return (await getAssetDownloadTicket(assetId)).url;
 }
 
 export async function deleteAsset(assetId: string): Promise<void> {
