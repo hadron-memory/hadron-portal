@@ -10,6 +10,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { mapAssetError } from './assetErrors';
+import { LOC_CONFLICT_CODE } from '$lib/assets/error-codes';
 
 beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -46,6 +47,26 @@ describe('mapAssetError', () => {
     const [body, init] = mapAssetError(gqlError('MEMORY_NOT_ACCEPTING_UPLOADS'), 'x');
     expect(init.status).toBe(400);
     expect(body.code).toBe('MEMORY_NOT_ACCEPTING_UPLOADS');
+  });
+
+  it('maps a taken reference-node loc to 409, under the code the server really emits', () => {
+    // PR #697 review: reference-node writes go through writeNodeCore in 'create'
+    // mode, whose typed errors set extensions.code to the CLASS NAME. An earlier
+    // draft mapped a guessed `LOC_CONFLICT`, which matches nothing — so a
+    // collision fell through to a 500 and the attach dialog could not retry it.
+    const [body, init] = mapAssetError(gqlError(LOC_CONFLICT_CODE), 'x');
+    expect(init.status).toBe(409);
+    expect(body.code).toBe(LOC_CONFLICT_CODE);
+  });
+
+  it('exposes the conflict code as the class name, not a SCREAMING_CASE constant', () => {
+    // Pins the shape, since the whole retry path keys on this string matching what
+    // hadron-server throws (NodeLocConflictError in src/lib/entityRef/errors.ts).
+    expect(LOC_CONFLICT_CODE).toBe('NodeLocConflictError');
+  });
+
+  it('maps a malformed loc to 400', () => {
+    expect(mapAssetError(gqlError('InvalidLocError'), 'x')[1].status).toBe(400);
   });
 
   it('does NOT collapse an internal server error into a 4xx', () => {

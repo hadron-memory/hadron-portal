@@ -15,6 +15,9 @@
 <script lang="ts">
   import { Paperclip, X } from 'lucide-svelte';
   import { t } from '$lib/i18n/t';
+  import { focusTrap } from '$lib/a11y/focus-trap';
+  import { LOC_CONFLICT_CODE } from '$lib/assets/error-codes';
+  import { attachCandidateLoc, attachLocAtom } from '$lib/assets/attach-loc';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import {
     listMemoryAssets,
@@ -47,7 +50,15 @@
     onclose,
   }: Props = $props();
 
+  /** One page of the picker list. Small: the dialog is a picker, not a browser. */
+  const PAGE = 50;
+
+  /** Bound on loc-collision retries, so a pathological case can't spin. */
+  const MAX_LOC_ATTEMPTS = 20;
+
   let assets = $state<AssetSummary[]>([]);
+  let total = $state(0);
+  let hasMore = $state(false);
   let loading = $state(false);
   let listFailed = $state(false);
   let error = $state<string | null>(null);
@@ -55,24 +66,9 @@
   let loadedFor = $state<string | null>(null);
 
   /**
-   * A loc atom derived from the filename. The loc is colon-delimited, so a
-   * literal ':' in a filename would silently add a tree level; everything
-   * outside the safe set collapses to '-'.
-   */
-  function locAtom(filename: string): string {
-    const base = filename.replace(/\.[^./]+$/, '');
-    const slug = base
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 60);
-    return slug || 'file';
-  }
-
-  /**
    * Load the memory's files when the dialog opens. Keyed on `memoryId` so
    * reopening on a different memory refetches, and guarded so reopening on the
-   * same one doesn't.
+   * same one doesn't refetch needlessly.
    */
   $effect(() => {
     // Read both deps unconditionally — a short-circuit would drop `memoryId`
@@ -80,17 +76,23 @@
     const isOpen = open;
     const id = memoryId;
     if (!isOpen || loadedFor === id) return;
-    loadedFor = id;
-    void load(id);
+    void load(id, true);
   });
 
-  async function load(id: string) {
+  async function load(id: string, replace: boolean) {
     loading = true;
-    listFailed = false;
+    if (replace) listFailed = false;
     error = null;
     try {
-      const res = await listMemoryAssets(id, { count: 100 });
-      assets = res.assets;
+      const res = await listMemoryAssets(id, { skip: replace ? 0 : assets.length, count: PAGE });
+      assets = replace ? res.assets : [...assets, ...res.assets];
+      total = res.total;
+      hasMore = res.hasMore;
+      // Mark loaded only on SUCCESS. Setting it up-front meant a transient
+      // failure latched the guard: reopening returned immediately from the
+      // effect and the picker stayed permanently broken for the life of this
+      // component instance (PR #697 review, codex).
+      loadedFor = id;
     } catch (err) {
       // Surface it: an empty picker is otherwise indistinguishable from a
       // memory that genuinely holds no files.
@@ -104,15 +106,38 @@
   async function attach(asset: AssetSummary) {
     attaching = asset.id;
     error = null;
+    const base = attachLocAtom(asset.filename);
     try {
-      const nodeUrn = composeNodeUrn(memoryUrn, `${parentLoc}:${locAtom(asset.filename)}`);
-      // Address the asset by URN, not id: createAssetReferenceNode accepts
-      // either, and the URN carries its memory, so a copied handle stays
-      // unambiguous.
-      const node = await createAssetReferenceNode({ assetRef: asset.urn, nodeUrn });
-      onattached?.(node);
-      open = false;
-      onclose?.();
+      // Walk the ladder on conflict. Two attachments of genuinely the same
+      // filename are a legitimate thing to want (a revised upload beside the
+      // original), and the dialog has no loc field for the user to edit, so
+      // refusing outright would leave them with no way through.
+      for (let attempt = 0; attempt < MAX_LOC_ATTEMPTS; attempt++) {
+        const nodeUrn = composeNodeUrn(
+          memoryUrn,
+          `${parentLoc}:${attachCandidateLoc(base, attempt)}`,
+        );
+        try {
+          // Address the asset by URN, not id: createAssetReferenceNode accepts
+          // either, and the URN carries its memory, so a copied handle stays
+          // unambiguous.
+          const node = await createAssetReferenceNode({ assetRef: asset.urn, nodeUrn });
+          onattached?.(node);
+          open = false;
+          onclose?.();
+          return;
+        } catch (err) {
+          // Only a loc collision is retryable; anything else (no write access,
+          // asset gone, server down) must surface as-is rather than be retried
+          // twenty times.
+          if (err instanceof AssetUploadError && err.code === LOC_CONFLICT_CODE) continue;
+          throw err;
+        }
+      }
+      error = t(
+        'attach-asset.loc-exhausted',
+        'Couldn’t find a free place for this file under this node — {n} names were already taken.',
+      ).replace('{n}', String(MAX_LOC_ATTEMPTS));
     } catch (err) {
       error = err instanceof AssetUploadError ? err.message : (err as Error).message;
     } finally {
@@ -120,9 +145,20 @@
     }
   }
 
-  /** A fresh upload goes straight on: uploading it was the intent to attach. */
+  /**
+   * A fresh upload goes straight on: uploading it was the intent to attach.
+   *
+   * Guarded on `open`, because closing the dialog does NOT abort an in-flight
+   * upload — the button's AbortController is internal and unmounting it doesn't
+   * trip it — so this callback can still fire after the user dismissed the
+   * operation, silently creating a reference node they cancelled (PR #697
+   * review, codex). The uploaded file itself is kept: the bytes are already in
+   * the memory and it shows up in the Files tab, so discarding the row here
+   * would just hide it.
+   */
   function onUploaded(asset: AssetSummary) {
     assets = [asset, ...assets.filter((a) => a.id !== asset.id)];
+    if (!open) return;
     void attach(asset);
   }
 
@@ -147,11 +183,16 @@
       aria-label={t('attach-asset.close', 'Close attach-file dialog')}
       onclick={close}
     ></button>
+    <!-- use:focusTrap moves focus in on open, cycles Tab inside, and restores it
+         to the action-menu trigger on close. Without it `aria-modal="true"` is
+         a claim the browser doesn't enforce: Tab walked straight out and a
+         keyboard user could activate the node page behind the overlay. -->
     <div
       class="absolute right-4 top-24 flex max-h-[70vh] w-[26rem] flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
       role="dialog"
       aria-modal="true"
       aria-labelledby="attach-asset-heading"
+      use:focusTrap
     >
       <div class="mb-2 flex items-start justify-between gap-2">
         <div>
@@ -196,8 +237,17 @@
         </p>
       {/if}
 
-      <div class="mb-1 text-xs font-medium uppercase tracking-wide text-zinc-400">
-        {t('attach-asset.existing', 'Files in this memory')}
+      <div class="mb-1 flex items-baseline justify-between gap-2">
+        <span class="text-xs font-medium uppercase tracking-wide text-zinc-400">
+          {t('attach-asset.existing', 'Files in this memory')}
+        </span>
+        {#if total > assets.length}
+          <span class="text-xs text-zinc-500">
+            {t('attach-asset.count', '{shown} of {total}')
+              .replace('{shown}', String(assets.length))
+              .replace('{total}', String(total))}
+          </span>
+        {/if}
       </div>
 
       <div class="min-h-0 flex-1 overflow-y-auto">
@@ -235,6 +285,22 @@
               </li>
             {/each}
           </ul>
+          <!-- Without this, every file past the first page was unreachable from
+               the picker with nothing on screen saying so (PR #697 review,
+               codex). The memory's Files tab is the full, searchable surface;
+               this is the escape hatch for a picker that doesn't have search. -->
+          {#if hasMore}
+            <button
+              type="button"
+              onclick={() => load(memoryId, false)}
+              disabled={loading}
+              class="mt-2 w-full rounded-md border border-zinc-300 px-2 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              {loading
+                ? t('attach-asset.loading-more', 'Loading…')
+                : t('attach-asset.load-more', 'Load more files')}
+            </button>
+          {/if}
         {/if}
       </div>
     </div>

@@ -40,6 +40,54 @@
     uploadError = null;
     refresh();
   }
+
+  // ── Pending scans ────────────────────────────────────────────────────────
+  // A fresh upload lands PENDING and flips to CLEAN out of band, so one
+  // invalidation after the upload reloads a status that hasn't changed yet: the
+  // row stayed "Scanning" with download disabled until the user reloaded by hand
+  // (PR #697 review, codex).
+  //
+  // Poll while anything is pending, and only then. Interval backs off so a scan
+  // that is stuck (or an asset left PENDING because no scanner ran) settles into
+  // a slow heartbeat instead of hammering the server for as long as the tab is
+  // open; it gives up entirely after MAX_POLLS.
+  const POLL_START_MS = 3_000;
+  const POLL_MAX_MS = 30_000;
+  const MAX_POLLS = 40;
+
+  const pendingCount = $derived(rows.filter((a) => a.scanStatus === 'PENDING').length);
+
+  // Deliberately a plain `let`, NOT $state: the count drives nothing on screen,
+  // and making it reactive would mean the effect both reads and writes it —
+  // read-modify-write on $state (review:no-read-modify-write-state-in-effect)
+  // AND a self-subscribing counter bump
+  // (findings:effect-counter-bump-self-subscribes). A plain variable is invisible
+  // to the graph, so the effect's only dependency is the pending set.
+  let polls = 0;
+
+  $effect(() => {
+    // Read the trigger unconditionally so the effect re-subscribes whenever the
+    // pending set changes (review:effect-reads-all-reactive-deps).
+    const pending = pendingCount;
+    if (pending === 0) {
+      // Settled: hand a later upload a fresh budget instead of an exhausted one.
+      polls = 0;
+      return;
+    }
+    if (polls >= MAX_POLLS) return;
+
+    const delay = Math.min(POLL_START_MS * 2 ** Math.min(polls, 4), POLL_MAX_MS);
+    const timer = setTimeout(() => {
+      // Count BEFORE the reload: it replaces `rows`, which re-runs this effect,
+      // and a bump afterwards could let two timers overlap.
+      polls += 1;
+      void refresh();
+    }, delay);
+
+    // Cleanup on every re-run and on unmount — otherwise navigating away leaves a
+    // timer that invalidates the loader for a page nobody is looking at.
+    return () => clearTimeout(timer);
+  });
 </script>
 
 <svelte:head><title>{g.name} &middot; {t('memory-assets.tab', 'Files')} &middot; Hadron</title></svelte:head>
@@ -99,6 +147,17 @@
       </p>
     </div>
   {:else}
+    {#if pendingCount > 0}
+      <!-- Say that the wait is being watched. Otherwise a PENDING row with a
+           disabled Download reads as broken rather than as in-progress. -->
+      <p role="status" class="text-sm text-zinc-500">
+        {t(
+          'memory-assets.scanning',
+          '{n} file(s) are being scanned for malware — download unlocks when the scan passes. This list refreshes itself.',
+        ).replace('{n}', String(pendingCount))}
+      </p>
+    {/if}
+
     {#if data.truncated}
       <p class="text-sm text-amber-600 dark:text-amber-400">
         {t('memory-assets.truncated', 'Showing {shown} of {total} files. Search and sorting apply to these {shown}.')

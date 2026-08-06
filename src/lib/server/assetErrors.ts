@@ -13,6 +13,7 @@
 // "your request was bad", which is both wrong and unactionable.
 
 import { ClientError } from 'graphql-request';
+import { LOC_CONFLICT_CODE } from '$lib/assets/error-codes';
 
 /**
  * Codes hadron-server actually emits on the asset surface, each with the status
@@ -43,7 +44,14 @@ const KNOWN: Record<string, number> = {
   MIME_NOT_ALLOWED: 400,
   MEMORY_NOT_ACCEPTING_UPLOADS: 400,
   URN_NOT_QUALIFIED: 400,
-  LOC_CONFLICT: 409,
+  // Reference-node writes go through writeNodeCore in 'create' mode, which
+  // reports collisions and bad locs by throwing typed errors whose
+  // `extensions.code` is the CLASS NAME, not a SCREAMING_CASE constant. An
+  // earlier draft here guessed `LOC_CONFLICT`, which matches nothing — so an
+  // attach onto an occupied loc surfaced as an opaque 500 "the server had a
+  // problem" instead of the 409 the dialog now retries on.
+  [LOC_CONFLICT_CODE]: 409,
+  InvalidLocError: 400,
 };
 
 export interface AssetErrorBody {

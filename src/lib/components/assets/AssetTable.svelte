@@ -316,21 +316,25 @@
             <Download class="size-4" />
           </button>
           <!-- Hotlink. Deliberately NOT presented as access-controlled: the copy
-               says "public", and the control is absent (not merely disabled)
-               when the server returns no publicUrl — which it does for a
-               non-CLEAN asset, an encrypted memory, or an unset BASE_URL. -->
-          <button
-            type="button"
-            onclick={() => copyHotlink(row)}
-            disabled={!row.publicUrl}
-            title={row.publicUrl
-              ? t('assets.copy-link.title', 'Copy public link — anyone with it can download this file, no sign-in required')
-              : t('assets.copy-link.unavailable', 'No public link for this file')}
-            aria-label={t('assets.copy-link.aria', 'Copy public link to {file}').replace('{file}', row.filename)}
-            class="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-          >
-            <Link2 class="size-4" />
-          </button>
+               says "public", and the control is ABSENT — not disabled — when the
+               server minted no publicUrl, which it doesn't for a non-CLEAN
+               asset, an encrypted memory, or an unset BASE_URL.
+               A disabled button would read as "you lack permission", implying
+               the same file is hotlinkable for someone else; for an encrypted
+               memory it is hotlinkable for nobody, by construction. Matches
+               NodeAssetCard, which had it right while this didn't (PR #697
+               review, codex + Copilot both). -->
+          {#if row.publicUrl}
+            <button
+              type="button"
+              onclick={() => copyHotlink(row)}
+              title={t('assets.copy-link.title', 'Copy public link — anyone with it can download this file, no sign-in required')}
+              aria-label={t('assets.copy-link.aria', 'Copy public link to {file}').replace('{file}', row.filename)}
+              class="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+            >
+              <Link2 class="size-4" />
+            </button>
+          {/if}
           {#if copied === row.id}
             <span role="status" class="text-xs text-emerald-600 dark:text-emerald-400">{t('assets.copied', 'Copied')}</span>
           {/if}
