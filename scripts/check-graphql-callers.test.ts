@@ -195,4 +195,31 @@ describe('findCallerMismatches', () => {
     expect(r.failures).toEqual([]);
     expect(r.checked).toBe(0);
   });
+
+  // portal#696: the file pre-filter tested for the literal `.request(`, which
+  // never matches an inline response-type annotation. That silently dropped 46
+  // portal files — every endpoint and loader written this way — while the gate
+  // still reported a healthy call-site count, and it is how the broken
+  // completeAssetUpload caller survived from #182. Keep both spellings covered:
+  // a checked one proves the file is parsed at all, a failing one proves the
+  // check still bites there.
+  it('checks a call site whose response type is annotated inline', () => {
+    const r = check('client.request<{ updateThing: { id: string } }>(UPDATE_THING_MUTATION, { ref: "x" });');
+    expect(r.failures).toEqual([]);
+    expect(r.checked).toBe(1);
+  });
+
+  it('flags a stale key on a call site with an inline response type', () => {
+    const r = check('client.request<{ updateThing: unknown }>(UPDATE_THING_MUTATION, { id: "x" });');
+    expect(r.failures).toHaveLength(1);
+    expect(r.failures[0].errors.join(' ')).toMatch(/did you mean "ref"/);
+  });
+
+  it('parses a chained client call with an inline response type', () => {
+    const r = check(
+      'await gqlClient(locals.token).request<{ things: unknown }>(THINGS_QUERY, { orgId: "o" });',
+    );
+    expect(r.failures).toHaveLength(1);
+    expect(r.failures[0].errors.join(' ')).toMatch(/passes "orgId".*"orgRef"/);
+  });
 });

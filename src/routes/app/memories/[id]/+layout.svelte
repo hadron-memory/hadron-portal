@@ -124,6 +124,9 @@
     { id: 'info', label: t('memory-detail.tab.info', 'Info'), href: `${basePath}/info` },
     { id: 'nodes', label: t('memory-detail.tab.nodes', 'Nodes'), href: `${basePath}/nodes` },
     { id: 'graph', label: t('memory-detail.tab.graph', 'Graph'), href: `${basePath}/graph` },
+    // portal#696: the memory's files. Sits next to Nodes/Graph — it's content,
+    // not configuration.
+    { id: 'assets', label: t('memory-detail.tab.assets', 'Files'), href: `${basePath}/assets` },
     { id: 'settings', label: t('memory-detail.tab.settings', 'Settings'), href: `${basePath}/settings` },
     { id: 'integrations', label: t('memory-detail.tab.integrations', 'Integrations'), href: `${basePath}/integrations` },
     { id: 'subscriptions', label: t('memory-detail.tab.subscriptions', 'Subscriptions'), href: `${basePath}/subscriptions` },

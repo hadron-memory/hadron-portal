@@ -1,3 +1,8 @@
+// The asset projection lives in assetQueries.ts (the asset surface owns it);
+// NODE_BY_ID_QUERY spreads it for a reference node's `asset` field. One-way
+// dependency — assetQueries.ts imports nothing from here.
+import { ASSET_FIELDS } from './assetQueries';
+
 // ---------------------------------------------------------------------------
 // Fragments
 // ---------------------------------------------------------------------------
@@ -34,6 +39,10 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     # #588 (server #725): opt-in per-memory property schema — declared
     # collections + typed fields. NULL = unstructured.
     schema
+    # 006-asset-upload-redesign: per-memory upload gate. Default true, false for
+    # system-class. The upload affordance is hidden when false; the server
+    # rejects with MEMORY_NOT_ACCEPTING_UPLOADS regardless.
+    acceptsUploads
     userId
     userMemoryOfAgentId
     anonymousExpiresAt
@@ -1783,6 +1792,7 @@ export const RESOLVE_URN_QUERY = /* GraphQL */ `
 // content EDITOR; it must round-trip the template source verbatim.
 export const NODE_BY_ID_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
+  ${ASSET_FIELDS}
   query NodeById($ref: ID!) {
     node(ref: $ref, raw: true) {
       ...NodeFields
@@ -1790,6 +1800,16 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
       # spreads the same fragment; PR #523 review, codex).
       properties
+      # portal#696 / server#888: the asset a reference node points at (its
+      # data.asset), written either by createAssetReferenceNode or by
+      # hadron_store_file. NULL for every ordinary node, and ALSO null when the
+      # pointer dangles — there is no Asset-to-Node foreign key
+      # (cor:dmo:060:10 reserves it), so never assume a node carrying
+      # data.asset still has a live asset behind it. Detail-only, for the same
+      # reason as properties.
+      asset {
+        ...AssetFields
+      }
     }
   }
 `;

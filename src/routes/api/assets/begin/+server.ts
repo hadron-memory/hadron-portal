@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
-import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
 import { BEGIN_ASSET_UPLOAD_V2_MUTATION } from '$lib/server/assetQueries';
+import { mapAssetError } from '$lib/server/assetErrors';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -24,32 +24,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }>(BEGIN_ASSET_UPLOAD_V2_MUTATION, { input: body });
     return json(beginAssetUploadV2);
   } catch (err) {
-    return json(...mapError(err));
+    return json(...mapAssetError(err, 'beginAssetUploadV2'));
   }
 };
-
-function mapError(err: unknown): [Record<string, unknown>, { status: number }] {
-  if (err instanceof ClientError) {
-    const ext = err.response?.errors?.[0]?.extensions as { code?: string } | undefined;
-    const message = err.response?.errors?.[0]?.message ?? 'asset upload error';
-    return [{ code: ext?.code ?? 'UNKNOWN', message }, { status: statusFor(ext?.code) }];
-  }
-  return [{ code: 'INTERNAL', message: (err as Error).message ?? String(err) }, { status: 500 }];
-}
-
-function statusFor(code: string | undefined): number {
-  switch (code) {
-    case 'UNAUTHENTICATED': return 401;
-    case 'PERMISSION_DENIED': return 403;
-    case 'NOT_FOUND': return 404;
-    case 'SIZE_EXCEEDED':
-    case 'MIME_NOT_ALLOWED':
-    case 'INVALID_INPUT':
-    case 'SCAN_PENDING':
-    case 'SCAN_BLOCKED':
-    case 'MEMORY_NOT_ACCEPTING_UPLOADS':
-      return 400;
-    default:
-      return 500;
-  }
-}

@@ -20,6 +20,8 @@
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
+  import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
+  import AttachAssetDialog from '$lib/components/assets/AttachAssetDialog.svelte';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
@@ -660,10 +662,20 @@
   }
   let deleteOpen = $state(false);
 
+  // ── portal#696: attach a file ────────────────────────────────────────────
+  // Creates a `reference` child node pointing at an asset. Offered whenever the
+  // memory is known: uploads may be refused (`acceptsUploads: false`), but
+  // attaching a file ALREADY in the memory still works, so the action itself is
+  // not gated on the upload flag — the dialog handles the split.
+  let attachOpen = $state(false);
+  const memoryUrn = $derived(node.memory?.urn ?? data.graph?.urn ?? '');
+  const canAttachAsset = $derived(!!memoryUrn && !!cleanLoc);
+
   const menuActions = $derived<NodeMenuAction[]>([
     { id: 'edit', label: t('node-actions.edit', 'Edit') },
     { id: 'download', label: t('node-actions.download', 'Download') },
     { id: 'add-child', label: t('node-actions.add-child', 'Add child') },
+    ...(canAttachAsset ? [{ id: 'attach-asset', label: t('node-actions.attach-asset', 'Attach file') }] : []),
     { id: 'move', label: t('node-actions.move', 'Move') },
     { id: 'duplicate', label: t('node-actions.duplicate', 'Duplicate') },
     // Only offered for plain nodes — a task node is already runnable.
@@ -678,7 +690,9 @@
   function onMenuSelect(id: string) {
     // Close any sibling panel so only one opens at a time.
     testFlowOpen = false; downloadOpen = false; moveOpen = false; deleteOpen = false;
+    attachOpen = false;
     switch (id) {
+      case 'attach-asset': attachOpen = true; break;
       case 'edit':
         // Jump to the Settings tab and open its metadata form (#503).
         activeTab = 'settings';
@@ -1339,6 +1353,10 @@
       $moveFormData.target = '';
       deleteOpen = false;
       $deleteFormData.hard = false;
+      // portal#696: the attach-file dialog is transient too — SvelteKit reuses
+      // this component across nodes, so leaving it open would carry it (and its
+      // parentLoc, now stale) onto the next node.
+      attachOpen = false;
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -1355,6 +1373,7 @@
   // onMenuSelect closes siblings). PR-504 review (Copilot: Move/Delete a11y).
   if (e.key !== 'Escape') return;
   downloadOpen = false; testFlowOpen = false; moveOpen = false; deleteOpen = false;
+  attachOpen = false;
   historyMenuFor = null; // #529: close the History row menu on Escape too
 }} />
 
@@ -1708,6 +1727,16 @@
 
   {#if form?.error}
     <div class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{form.error}</div>
+  {/if}
+
+  <!-- portal#696: a reference node's file, downloadable from the node itself.
+       Sits ABOVE the tab strip rather than inside a tab because it is the whole
+       point of such a node — a reference node typically carries no content, so
+       burying it in the Content tab would hide it behind an empty state.
+       `node.asset` is null for every ordinary node AND when the pointer dangles
+       (the asset was deleted), so this one check covers both. -->
+  {#if node.asset}
+    <NodeAssetCard asset={node.asset} />
   {/if}
 
   <!-- Tabs: Content | Abstract | Children (when present) | Edges | Settings -->
@@ -2680,3 +2709,19 @@
     {/if}
   </div>
 </div>
+
+<!-- portal#696: attach a file to this node. Outside the page wrapper because it
+     renders a fixed-position overlay, matching the Move/Clone dialogs.
+     `invalidateAll()` on success rather than a local list update: the new
+     reference node has to appear in the memory layout's node tree and in this
+     node's Children tab, both of which come from loaders. -->
+{#if canAttachAsset}
+  <AttachAssetDialog
+    bind:open={attachOpen}
+    memoryId={node.memory?.id ?? data.graph.id}
+    {memoryUrn}
+    parentLoc={cleanLoc}
+    acceptsUploads={data.graph.acceptsUploads !== false}
+    onattached={() => invalidateAll()}
+  />
+{/if}

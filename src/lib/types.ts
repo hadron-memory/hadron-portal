@@ -1,3 +1,7 @@
+// The asset projection is owned by the asset surface ($lib/api/assetUpload),
+// which both the client helpers and the GraphQL fragment already speak.
+import type { AssetSummary } from '$lib/api/assetUpload';
+
 export interface Memory {
   id: string;
   /**
@@ -50,6 +54,11 @@ export interface Memory {
   // collections + typed fields. NULL = unstructured. Parse with
   // readMemorySchema() ($lib/schema/memory-schema) before driving editors.
   schema?: Record<string, unknown> | null;
+  // 006-asset-upload-redesign: per-memory upload-acceptance gate. Default true;
+  // false for system-class memories. Optional here because not every projection
+  // selects it — treat `undefined` as "unknown", not as "refuses uploads", or a
+  // slim projection would silently hide the affordance everywhere.
+  acceptsUploads?: boolean;
   userId?: string | null;
   userMemoryOfAgentId?: string | null;
   anonymousExpiresAt?: string | null;
@@ -357,6 +366,17 @@ export interface MemoryNode {
   createdAt: string;
   updatedAt: string;
   memory?: { id: string; urn: string; name: string; organizationId?: string } | null;
+  /**
+   * portal#696 / server#888: the asset this node references, for a `reference`
+   * node whose `data.asset` points at one (written by createAssetReferenceNode or
+   * hadron_store_file). Optional here because only the node-detail read selects
+   * it, and null for every ordinary node.
+   *
+   * Null ALSO means a DANGLING pointer — the asset was hard- or soft-deleted.
+   * There is no Asset→Node foreign key (cor:dmo:060:10 reserves it), so a node
+   * carrying `data.asset` is not a promise that a live asset is behind it.
+   */
+  asset?: AssetSummary | null;
   outgoingEdges: NodeEdge[];
   incomingEdges: NodeEdge[];
 }

@@ -34,12 +34,32 @@ export interface AssetSummary {
   // always attached at create time, so memoryId is non-null in
   // practice on those paths. Staged assets surface in US4.
   memoryId: string | null;
+  /** `<memory.urn>:assets:<asset.id>` — what createAssetReferenceNode accepts. */
+  urn: string;
   filename: string;
   mimeType: string;
   sizeBytes: number;
   uploadedAt: string;
+  /**
+   * Uploader (User id). NULL for a server-authored asset — hadron_store_file
+   * writes no uploader when the run has no on-behalf-of user. Before #888 the
+   * read gates compared this against the caller, which made every such asset
+   * undownloadable by everyone; the gate is the holding memory's read access now.
+   */
+  uploadedBy: string | null;
   scanStatus: 'PENDING' | 'CLEAN' | 'BLOCKED';
   description: string | null;
+  /**
+   * Stable UNAUTHENTICATED hotlink (`GET /assets/<id>`). Anyone holding this URL
+   * can fetch the bytes — there is no read gate on it. A deliberate, temporary
+   * posture (hadron-server `src/api/assetPublic.ts`); never present it in the UI
+   * as though it were access-controlled.
+   *
+   * Null is NORMAL, not an error: the server returns null when it has no
+   * BASE_URL, when the asset is not CLEAN, or when its memory is encrypted
+   * (an anonymous request holds no session key, so those are never hotlinkable).
+   */
+  publicUrl: string | null;
 }
 
 export interface UploadAssetOptions {
@@ -150,13 +170,46 @@ async function asUploadError(res: Response): Promise<AssetUploadError> {
 
 export async function listMemoryAssets(
   memoryId: string,
-  opts: { mimeType?: string; skip?: number; count?: number } = {},
+  opts: { mimeType?: string; skip?: number; count?: number; mine?: boolean } = {},
 ): Promise<{ assets: AssetSummary[]; total: number; hasMore: boolean }> {
   const params = new URLSearchParams({ memoryId });
   if (opts.mimeType) params.set('mimeType', opts.mimeType);
   if (opts.skip != null) params.set('skip', String(opts.skip));
   if (opts.count != null) params.set('count', String(opts.count));
+  // Only send `mine` when narrowing — the server default is false, and an
+  // explicit `mine=false` would be indistinguishable from an unset param anyway.
+  if (opts.mine) params.set('mine', 'true');
   const res = await fetch(`/api/assets/list?${params}`);
+  if (!res.ok) throw await asUploadError(res);
+  return res.json();
+}
+
+/** The reference node createAssetReferenceNode wrote. */
+export interface AssetReferenceNode {
+  id: string;
+  loc: string;
+  name: string;
+  nodeType: string;
+  memory: { id: string; urn: string } | null;
+}
+
+/**
+ * Attach an existing asset to the graph as a `reference` node at `nodeUrn`.
+ *
+ * Gated on BOTH sides server-side — read on the asset's memory, write on the
+ * target's — because the two need not be the same memory.
+ */
+export async function createAssetReferenceNode(input: {
+  assetRef: string;
+  nodeUrn: string;
+  name?: string;
+  description?: string;
+}): Promise<AssetReferenceNode> {
+  const res = await fetch('/api/assets/reference', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
   if (!res.ok) throw await asUploadError(res);
   return res.json();
 }
