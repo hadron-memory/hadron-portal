@@ -214,13 +214,30 @@ export async function createAssetReferenceNode(input: {
   return res.json();
 }
 
-export async function getAssetDownloadUrl(assetId: string): Promise<string> {
+/** Short-TTL presigned GET. `expiresAt` is surfaced for callers that cache the
+ *  URL across renders (the thumbnail ticket cache); plain one-shot downloads
+ *  ignore it. The shape is validated rather than trusted: a missing `url` is a
+ *  hard error, while a missing/odd `expiresAt` degrades to null so cachers
+ *  assign their own short lifetime (Copilot review, PR #702). */
+export async function getAssetDownloadTicket(
+  assetId: string,
+): Promise<{ url: string; expiresAt: string | null }> {
   const res = await fetch(
     `/api/assets/download?${new URLSearchParams({ assetId })}`,
   );
   if (!res.ok) throw await asUploadError(res);
-  const body: { url: string } = await res.json();
-  return body.url;
+  const body: { url?: unknown; expiresAt?: unknown } = await res.json();
+  if (typeof body.url !== 'string' || !body.url) {
+    throw new AssetUploadError('INVALID_RESPONSE', 'download ticket response carried no url');
+  }
+  return {
+    url: body.url,
+    expiresAt: typeof body.expiresAt === 'string' ? body.expiresAt : null,
+  };
+}
+
+export async function getAssetDownloadUrl(assetId: string): Promise<string> {
+  return (await getAssetDownloadTicket(assetId)).url;
 }
 
 export async function deleteAsset(assetId: string): Promise<void> {

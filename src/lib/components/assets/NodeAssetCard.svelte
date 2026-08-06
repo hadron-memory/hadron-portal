@@ -12,8 +12,9 @@
   key to prevent that (cor:dmo:060:10 reserves it).
 -->
 <script lang="ts">
-  import { Download, File, FileText, Image, Link2 } from 'lucide-svelte';
+  import { Download, Link2 } from 'lucide-svelte';
   import { t } from '$lib/i18n/t';
+  import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import { getAssetDownloadUrl, AssetUploadError, type AssetSummary } from '$lib/api/assetUpload';
 
   interface Props {
@@ -24,14 +25,6 @@
   let busy = $state(false);
   let error = $state<string | null>(null);
   let copied = $state(false);
-
-  const Icon = $derived(
-    asset.mimeType.startsWith('image/')
-      ? Image
-      : asset.mimeType === 'application/pdf' || asset.mimeType.startsWith('text/')
-        ? FileText
-        : File,
-  );
 
   function fmtSize(bytes: number): string {
     if (typeof bytes !== 'number' || !isFinite(bytes)) return '—';
@@ -71,7 +64,7 @@
   </h2>
 
   <div class="flex items-center gap-3">
-    <Icon class="size-8 shrink-0 text-zinc-400" />
+    <AssetThumbnail {asset} sizeClass="size-12" />
     <div class="min-w-0 flex-1">
       <p class="truncate font-medium text-zinc-900 dark:text-white" title={asset.filename}>{asset.filename}</p>
       <p class="mt-0.5 text-xs text-zinc-500">
