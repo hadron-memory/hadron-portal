@@ -9,18 +9,22 @@ import AssetThumbnail from './AssetThumbnail.svelte';
 // real <img> once hydrated state applies. The slot must exist in every branch
 // so rows never mis-align.
 
-function thumb(overrides: Partial<Parameters<typeof render>[1]['props']['asset']> = {}) {
-  return render(AssetThumbnail, {
-    props: {
-      asset: {
-        id: 'a1',
-        mimeType: 'image/jpeg',
-        scanStatus: 'CLEAN' as const,
-        publicUrl: null,
-        ...overrides,
-      },
-    },
-  }).body;
+interface ThumbAsset {
+  id: string;
+  mimeType: string;
+  scanStatus: 'PENDING' | 'CLEAN' | 'BLOCKED';
+  publicUrl: string | null;
+}
+
+function thumb(overrides: Partial<ThumbAsset> = {}) {
+  const asset: ThumbAsset = {
+    id: 'a1',
+    mimeType: 'image/jpeg',
+    scanStatus: 'CLEAN',
+    publicUrl: null,
+    ...overrides,
+  };
+  return render(AssetThumbnail, { props: { asset } }).body;
 }
 
 describe('AssetThumbnail.svelte', () => {
