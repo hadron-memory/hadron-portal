@@ -9,6 +9,21 @@ const dev = process.env.NODE_ENV !== 'production';
 // path would be an invalid/mismatching source.
 const serverOrigin = new URL(process.env.PUBLIC_SERVER_URL ?? 'http://localhost:4000').origin;
 
+// Asset uploads PUT the file bytes from the BROWSER straight to a presigned
+// object-store URL (that is the point of presigning — the bytes never
+// transit hadron-server), so the store's origin has to be in connect-src or
+// the upload dies at the final step with a CSP violation and no server-side
+// trace. Env-driven rather than hardcoded because the store is configurable
+// (`ASSET_STORAGE_ENDPOINT` server-side); currently Hetzner, e.g.
+// https://nbg1.your-objectstorage.com. MinIO in local dev.
+//
+// NOTE this is baked in at BUILD time, like PUBLIC_SERVER_URL above — the
+// variable must be present when the portal image is built, not merely at
+// runtime, and changing it needs a rebuild.
+const assetStorageOrigin = process.env.PUBLIC_ASSET_STORAGE_ORIGIN
+  ? new URL(process.env.PUBLIC_ASSET_STORAGE_ORIGIN).origin
+  : null;
+
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   preprocess: vitePreprocess(),
@@ -29,8 +44,14 @@ const config = {
         // GitHub avatars + user-supplied memory icon/hero URLs are arbitrary https.
         'img-src': ['self', 'data:', 'https:'],
         'font-src': ['self', 'data:'],
-        // Same-origin API + the auth server; ws(s) for the Vite HMR client in dev.
-        'connect-src': ['self', serverOrigin, ...(dev ? ['ws:', 'wss:'] : [])],
+        // Same-origin API + the auth server + the object store the browser
+        // PUTs asset bytes to; ws(s) for the Vite HMR client in dev.
+        'connect-src': [
+          'self',
+          serverOrigin,
+          ...(assetStorageOrigin ? [assetStorageOrigin] : []),
+          ...(dev ? ['ws:', 'wss:'] : []),
+        ],
         'object-src': ['none'],
         'base-uri': ['self'],
         'frame-ancestors': ['none'],
