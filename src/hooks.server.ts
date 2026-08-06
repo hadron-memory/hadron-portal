@@ -1,6 +1,8 @@
 import type { Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
-import { dev } from '$app/environment';
+import { building, dev } from '$app/environment';
+import { env as publicEnv } from '$env/dynamic/public';
+import { appendConnectSrc, resolveAssetStorageOrigin } from '$lib/server/csp';
 
 /** Decode the JWT payload without verifying the signature.
  *  Verification is the server's responsibility; we just read the claims. */
@@ -86,6 +88,31 @@ const authHandle: Handle = async ({ event, resolve }) => {
   return resolve(event);
 };
 
+/** #700: the object-store origin is RUNTIME config — resolved once at boot (so
+ *  an unset/invalid value logs loudly in startup output, not per request) and
+ *  appended to the connect-src SvelteKit emits. Runtime rather than a
+ *  svelte.config.js directive because build-time baking made a Doppler-only
+ *  change invisible to Docker's cached build and an unset value a silently
+ *  narrower CSP — see $lib/server/csp. The `building` guard keeps dynamic-env
+ *  reads out of the build step (they throw under prerendering). Reading
+ *  `$env/dynamic/public` (not `/private`) is deliberate: the var keeps its
+ *  existing PUBLIC_ name — no Doppler rename — and the origin is public
+ *  anyway, it goes out in every response header. */
+const assetStorageOrigin = building
+  ? null
+  : resolveAssetStorageOrigin(publicEnv.PUBLIC_ASSET_STORAGE_ORIGIN);
+
+const cspAssetStorage: Handle = async ({ event, resolve }) => {
+  const response = await resolve(event);
+  if (assetStorageOrigin) {
+    const csp = response.headers.get('content-security-policy');
+    if (csp) {
+      response.headers.set('content-security-policy', appendConnectSrc(csp, assetStorageOrigin));
+    }
+  }
+  return response;
+};
+
 /** #442: response security headers (defense-in-depth alongside the CSP set in
  *  svelte.config.js). Applied to every response via the handle sequence. */
 const securityHeaders: Handle = async ({ event, resolve }) => {
@@ -104,4 +131,4 @@ const securityHeaders: Handle = async ({ event, resolve }) => {
   return response;
 };
 
-export const handle: Handle = sequence(authHandle, securityHeaders);
+export const handle: Handle = sequence(authHandle, cspAssetStorage, securityHeaders);
