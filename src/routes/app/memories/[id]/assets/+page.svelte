@@ -14,7 +14,7 @@
   import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
   import { t } from '$lib/i18n/t';
   import { MEMORY_ASSETS_DEP } from '$lib/assets/deps';
-  import { canUploadToMemory, uploadBlockedReason } from '$lib/assets/can-upload';
+  import { canUploadToMemory } from '$lib/assets/can-upload';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -22,13 +22,12 @@
   const g = $derived(data.graph);
   const rows = $derived(data.assets);
 
-  // Two gates, not one: `acceptsUploads` AND an owning org. A user-owned
-  // (personal/private) memory is rejected by the server outright — its storage key
-  // is org-scoped — and `acceptsUploads` defaults TRUE there, so gating on that
-  // alone offered an Upload control on every "My memories" memory that could only
-  // fail with an opaque "the server had a problem". See $lib/assets/can-upload.
+  // One gate: `acceptsUploads`. This also used to require an owning org,
+  // because the server derived the storage key from the ORG urn and refused
+  // a user-owned memory outright; hadron-server#891 derives it from the
+  // memory urn instead, so personal memories upload like any other. See
+  // $lib/assets/can-upload.
   const uploadsAccepted = $derived(canUploadToMemory(g));
-  const blockedReason = $derived(uploadBlockedReason(g));
 
   let uploadError = $state<string | null>(null);
 
@@ -120,18 +119,9 @@
     {/if}
   </div>
 
-  {#if blockedReason === 'refuses-uploads'}
+  {#if !uploadsAccepted}
     <p class="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
       {t('memory-assets.uploads-disabled', 'This memory does not accept uploads, so no new files can be added here.')}
-    </p>
-  {:else if blockedReason === 'user-owned'}
-    <!-- Say WHY, and that it's a platform limitation rather than a setting they
-         can flip: nothing in this memory's Settings will turn it on. -->
-    <p class="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
-      {t(
-        'memory-assets.uploads-user-owned',
-        'Uploading isn’t available for a personal memory yet — file storage is organization-scoped. Files already stored here can still be downloaded and attached to nodes.',
-      )}
     </p>
   {/if}
 
@@ -153,15 +143,16 @@
       <p class="text-sm font-medium text-zinc-600 dark:text-zinc-300">
         {t('memory-assets.empty.title', 'No files in this memory yet.')}
       </p>
-      <!-- Don't repeat a "does not accept uploads" line under a banner that
-           already explains a personal memory's org-scoped-storage limitation —
-           the generic wording sends the user hunting Settings for a switch that
-           isn't there. The banner above carries the reason in that case. -->
-      <p class="mx-auto mt-2 max-w-lg text-xs text-zinc-500 dark:text-zinc-400">
-        {uploadsAccepted
-          ? t('memory-assets.empty.explainer', 'Upload one with the paperclip above, or let an agent run store one here.')
-          : t('memory-assets.empty.explainer-agent-only', 'An agent run can still store a file here.')}
-      </p>
+      <!-- When uploads are refused, an agent run CANNOT store one either —
+           hadron_store_file runs the same assertMemoryAcceptsUploads gate
+           server-side. Offering that as a fallback left the user waiting for
+           a path that does not exist (PR #699 review). The banner above
+           already states the reason, so say nothing more here. -->
+      {#if uploadsAccepted}
+        <p class="mx-auto mt-2 max-w-lg text-xs text-zinc-500 dark:text-zinc-400">
+          {t('memory-assets.empty.explainer', 'Upload one with the paperclip above, or let an agent run store one here.')}
+        </p>
+      {/if}
     </div>
   {:else}
     {#if pendingCount > 0}
