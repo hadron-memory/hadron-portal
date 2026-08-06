@@ -269,7 +269,15 @@ export function findCallerMismatches(files, declared, root) {
 
   for (const file of files) {
     const text = readFileSync(file, 'utf8');
-    if (!text.includes('.request(') && !text.includes('fetchAllItems(')) continue;
+    // Match `.request(` AND `.request<T>(` — the portal's endpoints and loaders
+    // overwhelmingly annotate the response type inline
+    // (`client.request<{ memory: Memory }>(DOC, vars)`), and a literal
+    // `.includes('.request(')` skipped every one of those files WHOLESALE: 46
+    // files, never parsed, while the gate reported a healthy call-site count.
+    // That is how the `completeAssetUpload` caller shipped passing `{ uploadId }`
+    // against `$input: CompleteAssetUploadInput!` and stayed broken from #182
+    // (portal#696). A pre-filter that silently drops files is worse than none.
+    if (!/\.request\s*[<(]/.test(text) && !text.includes('fetchAllItems(')) continue;
     const rel = relative(root, file);
     const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
 

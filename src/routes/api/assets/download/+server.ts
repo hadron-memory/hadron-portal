@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
-import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
 import { ASSET_DOWNLOAD_URL_QUERY } from '$lib/server/assetQueries';
+import { mapAssetError } from '$lib/server/assetErrors';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ url, locals }) => {
@@ -13,20 +13,15 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     return json({ code: 'INVALID_INPUT', message: 'assetId required' }, { status: 400 });
   }
   try {
+    // Short-TTL presigned GET, gated server-side on the holding memory's read
+    // access and a CLEAN scan. Since #888 it is no longer uploader-scoped: a
+    // co-member can download a colleague's file, and a run-created asset
+    // (uploadedBy NULL) is reachable at all.
     const { assetDownloadUrl } = await gqlClient(locals.token).request<{
       assetDownloadUrl: { url: string; expiresAt: string };
     }>(ASSET_DOWNLOAD_URL_QUERY, { assetId });
     return json(assetDownloadUrl);
   } catch (err) {
-    if (err instanceof ClientError) {
-      const ext = err.response?.errors?.[0]?.extensions as { code?: string } | undefined;
-      const message = err.response?.errors?.[0]?.message ?? 'download url failed';
-      const status = ext?.code === 'NOT_FOUND' ? 404
-        : ext?.code === 'SCAN_PENDING' || ext?.code === 'SCAN_BLOCKED' ? 409
-        : ext?.code === 'PERMISSION_DENIED' ? 403
-        : 400;
-      return json({ code: ext?.code ?? 'UNKNOWN', message }, { status });
-    }
-    return json({ code: 'INTERNAL', message: (err as Error).message }, { status: 500 });
+    return json(...mapAssetError(err, 'assetDownloadUrl'));
   }
 };

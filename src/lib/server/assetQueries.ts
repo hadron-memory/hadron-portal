@@ -3,6 +3,30 @@
 // /api/assets/* server endpoints (not directly by client components —
 // those go through $lib/api/assetUpload.ts).
 
+// The shared per-asset projection. Declared FIRST: the consts below interpolate
+// it at module-evaluation time, so a later declaration would be a TDZ error, not
+// a hoisted reference.
+//
+// `uploadedBy` is a User id, NULL for a server-authored asset
+// (hadron_store_file); `publicUrl` is the UNAUTHENTICATED hotlink and is null
+// unless the asset is CLEAN, its memory unencrypted, and the server has a
+// BASE_URL — so a caller must treat "no hotlink" as normal, not as an error.
+export const ASSET_FIELDS = /* GraphQL */ `
+  fragment AssetFields on Asset {
+    id
+    memoryId
+    urn
+    filename
+    mimeType
+    sizeBytes
+    uploadedAt
+    uploadedBy
+    scanStatus
+    description
+    publicUrl
+  }
+`;
+
 export const BEGIN_ASSET_UPLOAD_V2_MUTATION = /* GraphQL */ `
   mutation BeginAssetUploadV2($input: BeginAssetUploadV2Input!) {
     beginAssetUploadV2(input: $input) {
@@ -17,39 +41,48 @@ export const BEGIN_ASSET_UPLOAD_V2_MUTATION = /* GraphQL */ `
   }
 `;
 
+// Returns the same projection the listing uses, so a freshly-uploaded asset can
+// be prepended to a rendered list without a refetch.
 export const COMPLETE_ASSET_UPLOAD_MUTATION = /* GraphQL */ `
+  ${ASSET_FIELDS}
   mutation CompleteAssetUpload($input: CompleteAssetUploadInput!) {
     completeAssetUpload(input: $input) {
-      id
-      memoryId
-      urn
-      filename
-      mimeType
-      sizeBytes
-      uploadedAt
-      uploadedBy
-      description
-      scanStatus
+      ...AssetFields
       deletedAt
     }
   }
 `;
 
+// hadron-server#888 widened the gate from `uploadedBy = caller` to the holding
+// memory's read access, so this now returns a colleague's files too, and
+// run-created ones (uploadedBy NULL) at all. `mine` narrows to the caller's own
+// uploads — a filter ON TOP of the read gate, not a substitute for it.
 export const MEMORY_ASSETS_QUERY = /* GraphQL */ `
-  query MemoryAssets($memoryId: ID!, $mimeType: String, $skip: Int, $count: Int) {
-    memoryAssets(memoryId: $memoryId, mimeType: $mimeType, skip: $skip, count: $count) {
+  ${ASSET_FIELDS}
+  query MemoryAssets($memoryId: ID!, $mimeType: String, $skip: Int, $count: Int, $mine: Boolean) {
+    memoryAssets(memoryId: $memoryId, mimeType: $mimeType, skip: $skip, count: $count, mine: $mine) {
       total
       hasMore
       assets {
-        id
-        memoryId
-        filename
-        mimeType
-        sizeBytes
-        uploadedAt
-        scanStatus
-        description
+        ...AssetFields
       }
+    }
+  }
+`;
+
+// hadron-server#888: attach an existing asset to the graph as a `reference`
+// node whose data.asset points at it — the same shape hadron_store_file writes,
+// so a reader never branches on how the file arrived. There is no schema-level
+// Asset→Node link (cor:dmo:060:10 reserves it), so the pointer is soft and
+// Node.asset resolves to null once the asset is gone.
+export const CREATE_ASSET_REFERENCE_NODE_MUTATION = /* GraphQL */ `
+  mutation CreateAssetReferenceNode($input: CreateAssetReferenceNodeInput!) {
+    createAssetReferenceNode(input: $input) {
+      id
+      loc
+      name
+      nodeType
+      memory { id urn }
     }
   }
 `;
