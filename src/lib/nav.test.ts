@@ -46,6 +46,8 @@ describe('buildNavItems', () => {
       '/app/dashboard',
       '/app/search',
       '/app/memories',
+      // portal#696: the cross-memory Files section, org-independent.
+      '/app/assets',
       '/app/orgs/personal-1/tasks',
       '/app/agents',
       '/app/apps',
@@ -60,9 +62,9 @@ describe('buildNavItems', () => {
     const items = hrefs({ activeOrgId: 'org-1', isConsumerMode: false });
     expect(items).toContain('/app/orgs/org-1/agents');
     expect(items).toContain('/app/orgs/org-1/apps');
-    // Dashboard, Search, Memories (org), My memories, Task Nodes, Agents,
-    // Apps, App Runs.
-    expect(items).toHaveLength(8);
+    // Dashboard, Search, Memories (org), My memories, Files, Task Nodes,
+    // Agents, Apps, App Runs.
+    expect(items).toHaveLength(9);
   });
 
   it('App Runs sits directly below Apps and needs an active org', () => {
@@ -80,7 +82,10 @@ describe('buildNavItems', () => {
     // #628 review (Copilot): an org-less user must be able to reach /app/memories;
     // only the truly org-scoped items (Task Nodes / App Runs / Agents / Apps) drop out.
     const items = hrefs({ activeOrgId: null, isConsumerMode: false });
-    expect(items).toEqual(['/app/dashboard', '/app/search', '/app/memories']);
+    // Files is org-independent too: its default "My files" slice is the caller's
+    // own uploads, and the Organization slice degrades to an explanatory empty
+    // state rather than needing an org to render.
+    expect(items).toEqual(['/app/dashboard', '/app/search', '/app/memories', '/app/assets']);
     expect(items.some((h) => h.startsWith('/app/orgs/'))).toBe(false);
   });
 

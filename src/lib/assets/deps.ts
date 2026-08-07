@@ -13,3 +13,9 @@
  * also re-run the memory layout, which pages every node and edge in the memory.
  */
 export const MEMORY_ASSETS_DEP = 'hadron:memory-assets';
+
+/**
+ * The top-level Files section's loader (`/app/assets`). Separate key from the
+ * per-memory one so a delete on one surface doesn't re-run the other's loader.
+ */
+export const ALL_ASSETS_DEP = 'hadron:all-assets';

@@ -56,6 +56,13 @@ export function buildNavItems(data: {
   }
   items.push({ href: '/app/memories', label: t('app.nav.my-memories', 'My memories'), match: 'prefix' });
 
+  // portal#696 part 1: the cross-memory Files section, sitting with the memory
+  // links because that is what its rows belong to. Org-independent — its default
+  // "My files" slice is the caller's own uploads across every memory, and the
+  // Organization slice degrades to an explanatory empty state without an active
+  // org, so an org-less user is never stranded here.
+  items.push({ href: '/app/assets', label: t('app.nav.files', 'Files'), match: 'prefix' });
+
   if (activeOrgId) {
     items.push({ href: `/app/orgs/${activeOrgId}/tasks`, label: t('app.nav.task-nodes', 'Task Nodes'), match: 'prefix' });
   }

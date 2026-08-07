@@ -3,11 +3,14 @@
   size, scan status, the memory it belongs to, uploaded-at, and uploader, with
   download / copy-hotlink / delete row actions.
 
-  The `memory` column is opt-in (`showMemory`) so the same component serves the
-  per-memory Assets tab (where it would be the same value in every row) and the
-  cross-memory top-level Assets section, which lands once hadron-server grows a
-  uniform `assets(filter:, orgId:, limit:, offset:)` list query — `memoryAssets`
-  is per-memory only today, so there is no way to build those tabs yet.
+  The `memory` column is opt-in (`showMemory`) so the same component serves both
+  surfaces: the per-memory Files tab, where it would be the same value in every
+  row, and the cross-memory top-level Files section (`/app/assets`), which is
+  built on hadron-server#895's uniform `assets(filter:, orgId:, limit:, offset:)`
+  query. `memoryAssets` remains the per-memory listing.
+
+  `showMemory` and `listKey` are captured at MOUNT, so a caller switching between
+  slices must remount this component (`{#key}`) rather than swap the props.
 
   Chrome comes from the shared DataTable (findings:table-chrome-conventions):
   search, saved views, sortable/resizable sticky header, pagination footer.
@@ -25,6 +28,8 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
+  import Urn from '$lib/components/Urn.svelte';
+  import { memoryLabelFromAssetUrn, memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
   import { t } from '$lib/i18n/t';
   import {
     getAssetDownloadUrl,
@@ -67,6 +72,8 @@
     sizeBytes: number;
     scanStatus: AssetSummary['scanStatus'];
     memory: string;
+    /** Full memory URN for the link; null when the asset urn didn't parse. */
+    memoryUrn: string | null;
     /** Epoch millis so Uploaded sorts chronologically, not as text
      *  (review:date-column-sorts-by-instant). Null when unparseable. */
     uploadedMs: number | null;
@@ -121,7 +128,17 @@
         mimeType: a.mimeType,
         sizeBytes: a.sizeBytes,
         scanStatus: a.scanStatus,
-        memory: (a.memoryId && memoryNames[a.memoryId]) || a.memoryId || '—',
+        // Prefer a caller-supplied display name; otherwise derive the memory from
+        // the ASSET's own urn (`hrn:asset:<root>:<slug>:assets:<id>`). `Asset` has
+        // no `memory` relation, so the alternative was rendering a raw cuid — and
+        // the derivation needs no query at all. Falls all the way back to the id
+        // only when the urn doesn't parse.
+        memory:
+          (a.memoryId && memoryNames[a.memoryId]) ||
+          memoryLabelFromAssetUrn(a.urn) ||
+          a.memoryId ||
+          '—',
+        memoryUrn: memoryUrnFromAssetUrn(a.urn),
         uploadedMs: isNaN(parsed.getTime()) ? null : parsed.getTime(),
         uploaded: fmtDate(a.uploadedAt),
         uploader: uploaderLabel(a),
@@ -280,6 +297,17 @@
           {/if}
         </div>
       </div>
+    {:else if cell.column.id === 'memory'}
+      <!-- <Urn> links through the /app/u/<urn> resolver, so a row reaches its
+           memory without this grid needing the memory's id. Plain text when the
+           asset urn didn't parse — a guessed link could point at someone else's
+           memory, which is worse than no link. The column still SORTS and
+           SEARCHES on the `memory` label either way. -->
+      {#if row.memoryUrn}
+        <div class="min-w-0" title={row.memoryUrn}><Urn value={row.memoryUrn} type="memory" size={8} /></div>
+      {:else}
+        <span class="truncate text-xs text-zinc-500">{row.memory}</span>
+      {/if}
     {:else if cell.column.id === 'mimeType'}
       <span class="font-mono text-xs text-zinc-600 dark:text-zinc-400">{row.mimeType}</span>
     {:else if cell.column.id === 'size'}
