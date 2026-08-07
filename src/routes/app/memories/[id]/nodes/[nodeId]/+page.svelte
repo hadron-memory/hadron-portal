@@ -665,10 +665,15 @@
 
   // ── portal#696: attach a file ────────────────────────────────────────────
   // Creates a `reference` child node pointing at an asset. Offered whenever the
-  // memory is known: uploads may be unavailable (`acceptsUploads: false`, or a
-  // user-owned memory whose org-scoped storage key the server can't build), but
+  // memory is known: uploads may be refused (`acceptsUploads: false`), but
   // attaching a file ALREADY in the memory still works, so the action itself is
   // not gated on the upload flag — the dialog handles the split.
+  //
+  // This used to also name "a user-owned memory whose org-scoped storage key the
+  // server can't build" as a second reason. hadron-server#895 removed it — the
+  // storage key comes from the memory URN alone now, so a personal memory uploads
+  // like any other. `acceptsUploads` is the ONLY gate; see $lib/assets/can-upload,
+  // whose docblock explains why re-adding an org check would hide a working control.
   let attachOpen = $state(false);
   const memoryUrn = $derived(node.memory?.urn ?? data.graph?.urn ?? '');
   const canAttachAsset = $derived(!!memoryUrn && !!cleanLoc);
