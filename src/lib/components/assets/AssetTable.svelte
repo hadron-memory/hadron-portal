@@ -28,7 +28,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
-  import Urn from '$lib/components/Urn.svelte';
+  import { buildResolverUrl } from '$lib/urn/parse-urn';
   import { memoryLabelFromAssetUrn, memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
   import { t } from '$lib/i18n/t';
   import {
@@ -129,10 +129,14 @@
         sizeBytes: a.sizeBytes,
         scanStatus: a.scanStatus,
         // Prefer a caller-supplied display name; otherwise derive the memory from
-        // the ASSET's own urn (`hrn:asset:<root>:<slug>:assets:<id>`). `Asset` has
-        // no `memory` relation, so the alternative was rendering a raw cuid — and
-        // the derivation needs no query at all. Falls all the way back to the id
-        // only when the urn doesn't parse.
+        // the ASSET's own urn. `Asset` has no `memory` relation, so the
+        // alternative was rendering a raw cuid — and the derivation needs no query
+        // at all. Falls back to the id only when the urn doesn't parse.
+        //
+        // The exact spelling varies by which branch of the server's Asset.urn
+        // resolver produced it, so $lib/assets/asset-urn owns that; don't restate
+        // one shape here (PR #704 review, Copilot — the shape a comment names is
+        // the shape someone later "fixes" the parser to match).
         memory:
           (a.memoryId && memoryNames[a.memoryId]) ||
           memoryLabelFromAssetUrn(a.urn) ||
@@ -298,15 +302,23 @@
         </div>
       </div>
     {:else if cell.column.id === 'memory'}
-      <!-- <Urn> links through the /app/u/<urn> resolver, so a row reaches its
-           memory without this grid needing the memory's id. Plain text when the
-           asset urn didn't parse — a guessed link could point at someone else's
-           memory, which is worse than no link. The column still SORTS and
-           SEARCHES on the `memory` label either way. -->
+      <!-- A real anchor at the /app/u/<urn> resolver, which turns a URN into its
+           canonical page. NOT <Urn>: that renders spans plus two copy BUTTONS and
+           no anchor, so it never navigated — and wrapping it in a link would nest
+           buttons inside an anchor (invalid, and it would swallow the copy
+           clicks). PR #704 review, codex P2: the earlier version claimed to link
+           and didn't.
+           Plain text when the asset urn didn't parse — a guessed link could point
+           at someone else's memory, which is worse than no link. The column
+           SORTS and SEARCHES on the `memory` label either way. -->
       {#if row.memoryUrn}
-        <div class="min-w-0" title={row.memoryUrn}><Urn value={row.memoryUrn} type="memory" size={8} /></div>
+        <a
+          href={buildResolverUrl('', row.memoryUrn)}
+          title={row.memoryUrn}
+          class="block truncate font-mono text-xs text-indigo-600 hover:underline dark:text-indigo-300"
+        >{row.memory}</a>
       {:else}
-        <span class="truncate text-xs text-zinc-500">{row.memory}</span>
+        <span class="block truncate text-xs text-zinc-500" title={row.memory}>{row.memory}</span>
       {/if}
     {:else if cell.column.id === 'mimeType'}
       <span class="font-mono text-xs text-zinc-600 dark:text-zinc-400">{row.mimeType}</span>

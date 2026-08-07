@@ -3,19 +3,48 @@
  *
  * `Asset` exposes `memoryId` (an opaque id) but no `memory` relation, so the
  * cross-memory grid has no name to show and no id to link. The asset URN already
- * carries the memory, though — hadron-server emits
- * `hrn:asset:<root>:<mem-slug>:assets:<assetId>` — so the memory URN is a pure
- * string derivation. That beats resolving ids: no extra query per page, correct
- * for every memory including ones outside the first page of `memories()`, and the
- * result drops straight into `<Urn>`, which links it through the `/app/u/<urn>`
- * resolver.
+ * carries the memory, though, so this is a pure string derivation — no per-page
+ * fan-out, and correct for memories outside the first page of `memories()`.
+ *
+ * ## The shapes this has to accept
+ *
+ * `Asset.urn`'s resolver (hadron-server `resolvers.types.ts`) is:
+ *
+ *     emitAssetUrnV2(memory.urn, id)   →  hrn:asset:<root>:<mem…>:assets:<id>
+ *
+ * with two fallbacks that produce DIFFERENT prefixes, which is why the prefix
+ * strip below is permissive rather than a single literal:
+ *
+ *   - on emission failure it returns `${memory.urn}:assets:${id}` — so whatever
+ *     `Memory.urn` happens to hold, prefixed or bare, lands here verbatim;
+ *   - a memory it can't load yields `hrn:asset:unknown:assets:<id>`.
+ *
+ * (The `Asset.urn` SDL docstring still describes the pre-#697 form,
+ * `<memory.urn>:assets:<asset.id>`. The resolver is the contract; the docstring
+ * lags it. Both parse here.)
  */
 
-/** v2 emission is `hrn:asset:…`; a legacy fallback path can emit a bare form. */
-const ASSET_PREFIX = /^(?:hrn|urn):asset:/;
+/**
+ * Leading `<scheme>:<type>:` for any type that can front an asset URN. `mem` and
+ * `memory` appear via the `${memory.urn}:assets:${id}` fallback; without them a
+ * stored `hrn:mem:holger:jens` would survive the strip and compose into a
+ * doubled `hrn:mem:hrn:mem:holger:jens`.
+ */
+const URN_PREFIX = /^(?:hrn|urn):(?:asset|mem|memory):/;
 
 /** The segment that separates the memory part from the asset id. */
 const SEPARATOR = ':assets:';
+
+/**
+ * Split the memory part into atoms, in whichever grammar it arrived.
+ *
+ * A v1 `::` hierarchy and a v2 single-colon path are both possible: the v2
+ * emitter feeds `bareAtoms(memory.urn)` through `composeUrnV2`, so even a legacy
+ * CHAIN memory comes out single-colon.
+ */
+function atomsOf(memoryPart: string): string[] {
+  return memoryPart.includes('::') ? memoryPart.split('::') : memoryPart.split(':');
+}
 
 /**
  * `hrn:asset:holger:jens:assets:<id>` → `hrn:mem:holger:jens`
@@ -27,7 +56,7 @@ const SEPARATOR = ':assets:';
 export function memoryUrnFromAssetUrn(assetUrn: string | null | undefined): string | null {
   if (!assetUrn) return null;
 
-  const bare = assetUrn.replace(ASSET_PREFIX, '');
+  const bare = assetUrn.replace(URN_PREFIX, '');
 
   // lastIndexOf, not indexOf: a memory slug is free to contain the atom
   // "assets", and the separator we want is the final one before the asset id.
@@ -40,20 +69,36 @@ export function memoryUrnFromAssetUrn(assetUrn: string | null | undefined): stri
   // Nothing after the separator means a truncated URN, not a memory reference.
   if (!bare.slice(cut + SEPARATOR.length)) return null;
 
-  // Normalise a legacy `::` hierarchy to v2's single colon. Kept lenient on
-  // input by design (cor:urn:010:01 accepts v1 forever) while emitting v2.
-  return `hrn:mem:${memoryPart.replaceAll('::', ':')}`;
+  const atoms = atomsOf(memoryPart);
+  if (atoms.some((a) => !a)) return null; // an empty atom means a malformed path
+
+  // A v2 memory is root + slug, exactly two atoms (cor:urn:010:01). MORE than two
+  // is a legacy OWNERSHIP CHAIN (<org>::<app>::<agent>::<memory>) — the shape v2
+  // removed — and it has NO string-derivable v2 form: v2's fixed positional arity
+  // would read atom 1 as the whole memory slug and fold the rest in after it,
+  // silently addressing a different memory. Migration may also have reassigned
+  // slugs, so the flat spelling can't be computed at all.
+  //
+  // So emit a chain unchanged, in v1 (`hrn:memory:a::b::c`), which the server
+  // accepts forever and resolves through its stored alias map. Same rule
+  // `composeNodeUrn` implements for node URNs — flattening one is a correctness
+  // bug, not a modernisation (PR #704 review, codex P1).
+  if (atoms.length > 2) return `hrn:memory:${atoms.join('::')}`;
+
+  return `hrn:mem:${atoms.join(':')}`;
 }
 
 /**
- * A short label for the memory, for a narrow grid column: the memory's slug
- * atoms without the `hrn:mem:<root>:` prefix, falling back to the whole thing.
+ * A short label for the memory, for a narrow grid column: the slug atoms without
+ * the root, since every row in an org-scoped view shares it.
  */
 export function memoryLabelFromAssetUrn(assetUrn: string | null | undefined): string | null {
   const memoryUrn = memoryUrnFromAssetUrn(assetUrn);
   if (!memoryUrn) return null;
-  const atoms = memoryUrn.replace(/^hrn:mem:/, '').split(':');
-  // Drop the root (org name / user handle) — every row in an org-scoped view
-  // shares it, so it is noise in a column this narrow.
-  return atoms.length > 1 ? atoms.slice(1).join(':') : atoms.join(':');
+  const bare = memoryUrn.replace(/^hrn:(?:mem|memory):/, '');
+  const atoms = atomsOf(bare);
+  // Keep the chain's own separator in the label so a legacy chain still reads as
+  // one, rather than being silently re-spelled as a v2 path.
+  const sep = bare.includes('::') ? '::' : ':';
+  return atoms.length > 1 ? atoms.slice(1).join(sep) : atoms.join(sep);
 }

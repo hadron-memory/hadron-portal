@@ -1,6 +1,6 @@
 import { gqlClient } from '$lib/server/api';
 import { ASSETS_QUERY } from '$lib/server/assetQueries';
-import { USER_PROFILE_QUERY } from '$lib/server/queries';
+import { resolveUploaderNames } from '$lib/server/assetUploaders';
 import { ALL_ASSETS_DEP } from '$lib/assets/deps';
 import { assetQueryArgs, parseAssetTab } from '$lib/assets/tabs';
 // Type-only, so the client helper module never enters the server bundle.
@@ -26,9 +26,6 @@ const WINDOW = 500;
  */
 const PAGE = 200;
 
-/** Cap on uploader lookups, so a wide window can't fan out unboundedly. */
-const MAX_UPLOADER_LOOKUPS = 25;
-
 async function fetchWindow(
   client: GraphQLClient,
   args: { filter?: { mine?: boolean }; orgId?: string },
@@ -47,39 +44,6 @@ async function fetchWindow(
     if (page.items.length < PAGE || items.length >= total) break;
   }
   return { items, total };
-}
-
-/**
- * Resolve uploader ids to handles so the grid shows a person, not a cuid.
- *
- * NULL uploaders are never looked up — a server-authored asset
- * (`hadron_store_file` with no on-behalf-of user) has no user to resolve, and
- * that is a normal case, not missing data.
- */
-async function resolveUploaders(
-  client: GraphQLClient,
-  assets: AssetSummary[],
-): Promise<Record<string, string>> {
-  const ids = [...new Set(assets.map((a) => a.uploadedBy).filter((id): id is string => !!id))];
-  const names: Record<string, string> = {};
-  await Promise.all(
-    ids.slice(0, MAX_UPLOADER_LOOKUPS).map(async (id) => {
-      try {
-        const d = await client.request<{ user: { id: string; handle: string | null } | null }>(
-          USER_PROFILE_QUERY,
-          { ref: id },
-        );
-        // `user(ref:)` returns null when the caller may not see that user —
-        // denied and missing are indistinguishable by design — so an unresolved
-        // id is expected and the grid falls back to showing the id.
-        if (d.user?.handle) names[id] = `@${d.user.handle}`;
-      } catch (err) {
-        // One unresolvable uploader must not blank the whole list.
-        console.warn('[assets] uploader lookup failed for', id, err);
-      }
-    }),
-  );
-  return names;
 }
 
 // portal#696 part 1 — the top-level Files section: My / Available / Org, over
@@ -120,7 +84,7 @@ export const load: PageServerLoad = async ({ url, locals, parent, depends }) => 
       truncated: page.items.length < page.total,
       failed: false,
       noOrg: false,
-      uploaderNames: await resolveUploaders(client, page.items),
+      uploaderNames: await resolveUploaderNames(client, page.items),
     };
   } catch (err) {
     // Surface the failure rather than swallowing it

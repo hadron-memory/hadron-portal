@@ -16,15 +16,24 @@ describe('memoryUrnFromAssetUrn', () => {
   });
 
   it('accepts the bare form the legacy fallback path can emit', () => {
-    // createAssetReferenceNode falls back to `${memory.urn}:assets:${id}` when
-    // strict v2 emission throws.
+    // Asset.urn falls back to `${memory.urn}:assets:${id}` when strict v2
+    // emission throws.
     expect(memoryUrnFromAssetUrn('hadronmemory.com:dev:assets:abc')).toBe(
       'hrn:mem:hadronmemory.com:dev',
     );
   });
 
-  it('normalises a legacy :: hierarchy to v2 single colons', () => {
-    // v1 stays accepted on input forever (cor:urn:010:01); we emit v2.
+  it('accepts an hrn:mem:-prefixed asset urn without doubling the prefix', () => {
+    // Same fallback, but with a PREFIXED Memory.urn: `${memory.urn}:assets:${id}`
+    // then starts `hrn:mem:`. Stripping only `hrn:asset:` left the prefix in the
+    // memory part and composed `hrn:mem:hrn:mem:holger:jens` (PR #704 review,
+    // Copilot — reported against the SDL docstring, real against the fallback).
+    expect(memoryUrnFromAssetUrn('hrn:mem:holger:jens:assets:abc')).toBe('hrn:mem:holger:jens');
+    expect(memoryUrnFromAssetUrn('hrn:memory:holger:jens:assets:abc')).toBe('hrn:mem:holger:jens');
+  });
+
+  it('normalises a two-atom legacy :: memory to v2 single colons', () => {
+    // Two atoms is root + slug, so the flat v2 spelling is derivable.
     expect(memoryUrnFromAssetUrn('hadronmemory.com::dev:assets:abc')).toBe(
       'hrn:mem:hadronmemory.com:dev',
     );
@@ -39,10 +48,36 @@ describe('memoryUrnFromAssetUrn', () => {
     expect(memoryUrnFromAssetUrn('hrn:asset:acme:assets:assets:abc')).toBe('hrn:mem:acme:assets');
   });
 
-  it('handles a multi-atom (legacy ownership-chain) memory part', () => {
+  it('PRESERVES a legacy ownership chain instead of flattening it', () => {
+    // PR #704 review, codex P1. More than two atoms is an ownership chain
+    // (<org>::<app>::<agent>::<memory>), which has NO string-derivable v2 form —
+    // v2's fixed arity would read atom 1 as the whole slug and address a
+    // different memory. Emit v1, which the server resolves via its alias map.
+    // Same rule composeNodeUrn implements for nodes.
     expect(memoryUrnFromAssetUrn('hrn:asset:acme:app:agent:system:assets:abc')).toBe(
-      'hrn:mem:acme:app:agent:system',
+      'hrn:memory:acme::app::agent::system',
     );
+  });
+
+  it('preserves a chain that arrived already :: -separated', () => {
+    expect(memoryUrnFromAssetUrn('acme::app::agent::system:assets:abc')).toBe(
+      'hrn:memory:acme::app::agent::system',
+    );
+  });
+
+  it('never emits a flattened chain, in either input grammar', () => {
+    // The regression guard: a flat 4-atom v2 spelling would silently point at
+    // another memory.
+    for (const input of [
+      'hrn:asset:acme:app:agent:system:assets:abc',
+      'acme::app::agent::system:assets:abc',
+    ]) {
+      expect(memoryUrnFromAssetUrn(input)).not.toBe('hrn:mem:acme:app:agent:system');
+    }
+  });
+
+  it('rejects a path with an empty atom', () => {
+    expect(memoryUrnFromAssetUrn('hrn:asset:acme::assets:abc')).toBeNull();
   });
 
   it('returns null rather than guessing when the shape is unrecognised', () => {
@@ -68,9 +103,9 @@ describe('memoryLabelFromAssetUrn', () => {
     expect(memoryLabelFromAssetUrn('hrn:asset:hadronmemory.com:dev:assets:abc')).toBe('dev');
   });
 
-  it('keeps every slug atom below the root', () => {
+  it('keeps a chain reading as a chain, not as a v2 path', () => {
     expect(memoryLabelFromAssetUrn('hrn:asset:acme:app:agent:system:assets:abc')).toBe(
-      'app:agent:system',
+      'app::agent::system',
     );
   });
 
