@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isLegacyChainMemoryUrn, memoryUrnFromAssetUrn } from './asset-urn';
+import { memoryUrnFromAssetUrn } from './asset-urn';
 
 describe('memoryUrnFromAssetUrn', () => {
   it('derives the memory URN from the v2 asset URN the server emits', () => {
@@ -48,32 +48,25 @@ describe('memoryUrnFromAssetUrn', () => {
     expect(memoryUrnFromAssetUrn('hrn:asset:acme:assets:assets:abc')).toBe('hrn:mem:acme:assets');
   });
 
-  it('PRESERVES a legacy ownership chain instead of flattening it', () => {
-    // PR #704 review, codex P1. More than two atoms is an ownership chain
-    // (<org>::<app>::<agent>::<memory>), which has NO string-derivable v2 form —
-    // v2's fixed arity would read atom 1 as the whole slug and address a
-    // different memory. Emit v1, which the server resolves via its alias map.
-    // Same rule composeNodeUrn implements for nodes.
-    expect(memoryUrnFromAssetUrn('hrn:asset:acme:app:agent:system:assets:abc')).toBe(
-      'hrn:memory:acme::app::agent::system',
-    );
-  });
-
-  it('preserves a chain that arrived already :: -separated', () => {
-    expect(memoryUrnFromAssetUrn('acme::app::agent::system:assets:abc')).toBe(
-      'hrn:memory:acme::app::agent::system',
-    );
-  });
-
-  it('never emits a flattened chain, in either input grammar', () => {
-    // The regression guard: a flat 4-atom v2 spelling would silently point at
-    // another memory.
+  it('declines anything that is not exactly root + slug', () => {
+    // A v2 memory URN is two atoms and a slug can't contain a colon, so a longer
+    // path is not a memory this can address. Production data confirms two atoms is
+    // the only live shape, so rather than synthesize a v1 ownership-chain spelling
+    // for a case that no longer exists, decline — a guess could name a DIFFERENT
+    // memory, and the caller already renders null as plain text.
     for (const input of [
       'hrn:asset:acme:app:agent:system:assets:abc',
       'acme::app::agent::system:assets:abc',
     ]) {
-      expect(memoryUrnFromAssetUrn(input)).not.toBe('hrn:mem:acme:app:agent:system');
+      expect(memoryUrnFromAssetUrn(input)).toBeNull();
     }
+  });
+
+  it('never invents a flattened multi-atom memory urn', () => {
+    // The guard that matters: a flat 4-atom spelling would point somewhere else.
+    expect(memoryUrnFromAssetUrn('hrn:asset:acme:app:agent:system:assets:abc')).not.toBe(
+      'hrn:mem:acme:app:agent:system',
+    );
   });
 
   it('rejects a path with an empty atom', () => {
@@ -95,30 +88,5 @@ describe('memoryUrnFromAssetUrn', () => {
     expect(memoryUrnFromAssetUrn(null)).toBeNull();
     expect(memoryUrnFromAssetUrn(undefined)).toBeNull();
     expect(memoryUrnFromAssetUrn('')).toBeNull();
-  });
-});
-
-describe('isLegacyChainMemoryUrn', () => {
-  it('flags a v1 ownership chain', () => {
-    // The gate on whether <Urn> may render it: the chip collapses `::` to `:`,
-    // which names a different memory and is what its copy button hands over.
-    expect(isLegacyChainMemoryUrn('hrn:memory:acme::app::agent::system')).toBe(true);
-  });
-
-  it('does not flag an ordinary v2 memory urn', () => {
-    expect(isLegacyChainMemoryUrn('hrn:mem:hadronmemory.com:dev')).toBe(false);
-  });
-
-  it('is false for null/undefined/empty rather than throwing', () => {
-    expect(isLegacyChainMemoryUrn(null)).toBe(false);
-    expect(isLegacyChainMemoryUrn(undefined)).toBe(false);
-    expect(isLegacyChainMemoryUrn('')).toBe(false);
-  });
-
-  it('agrees with what memoryUrnFromAssetUrn produces', () => {
-    // The two have to stay in step: the derivation is the only thing that emits
-    // a chain, and this predicate is the only thing that detects one.
-    expect(isLegacyChainMemoryUrn(memoryUrnFromAssetUrn('hrn:asset:a:b:c:d:assets:x'))).toBe(true);
-    expect(isLegacyChainMemoryUrn(memoryUrnFromAssetUrn('hrn:asset:a:b:assets:x'))).toBe(false);
   });
 });

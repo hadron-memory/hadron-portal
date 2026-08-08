@@ -2,15 +2,10 @@
  * AssetTable — SSR smoke tests (this repo has no DOM test env for components;
  * see conventions:svelte-component-test-gap).
  *
- * Both URN columns now render through the shared <Urn> chip (maintainer's call),
- * which means the cell no longer navigates — that is deliberate, and asserted
- * below so nobody "restores" an anchor by accident.
- *
- * The load-bearing case is the LEGACY OWNERSHIP CHAIN: <Urn> normalises for
- * display via parseUrnV2(input.replaceAll('::', ':')), so handing it a chain would
- * render — and copy — a flat URN naming a DIFFERENT memory. That is the same
- * flattening codex flagged as P1 on #704, reappearing at the display layer, so a
- * chain is rendered as plain text instead.
+ * Both URN columns render through the shared <Urn> chip. Only the MEMORY one is
+ * `linked`: resolveUrn handles mem/node/org/agent/app/user, so an asset URN would
+ * be a link that resolves to nothing. Both halves are asserted, because "which
+ * chips are clickable" is the kind of thing that drifts silently.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
@@ -53,10 +48,19 @@ describe('AssetTable memory column', () => {
     expect(html).toContain('>mem:</span>');
   });
 
-  it('does NOT navigate — the chip is not an anchor, deliberately', () => {
-    // Reaching the memory is now copy-URL rather than a click. Pinned so the
-    // trade-off is a decision in the diff, not a surprise.
-    expect(body([asset()])).not.toContain('/app/u/');
+  it('links the memory chip to the /app/u/<urn> resolver', () => {
+    expect(body([asset()])).toContain('href="/app/u/hrn:mem:hadronmemory.com:dev"');
+  });
+
+  it('keeps the copy buttons OUTSIDE the anchor', () => {
+    // A <button> inside an <a> is invalid and the anchor swallows its clicks, so
+    // the link wraps only the chip. Two copy buttons survive per chip.
+    const html = body([asset()]);
+    expect(html).toContain('aria-label="Copy URN"');
+    expect(html).toContain('aria-label="Copy URL"');
+    // No button may appear between the opening <a> and its </a>.
+    const a = html.slice(html.indexOf('<a href="/app/u/'));
+    expect(a.slice(0, a.indexOf('</a>'))).not.toContain('<button');
   });
 
   it('shows the memory URN, not a raw memory id', () => {
@@ -65,20 +69,21 @@ describe('AssetTable memory column', () => {
     expect(html).not.toContain('mem-1');
   });
 
-  it('renders a legacy ownership chain as plain text, never through the chip', () => {
-    // <Urn> would collapse `::` and show hrn:mem:acme:app:agent:system — a
-    // different memory — and its copy button would hand that over. So the chain
-    // stays plain text, unflattened.
+  it('renders no memory chip for a urn that is not root + slug', () => {
+    // The derivation declines rather than guess, so there is nothing to link and
+    // certainly no invented flat spelling.
     const html = body([asset({ urn: 'hrn:asset:acme:app:agent:system:assets:a1' })]);
-    expect(html).toContain('hrn:memory:acme::app::agent::system');
     expect(html).not.toContain('hrn:mem:acme:app:agent:system');
+    expect(html).not.toContain('href="/app/u/hrn:mem:acme');
   });
 
-  it('falls back to plain text when the urn will not parse', () => {
-    // A chip built from a guess could name someone else's memory.
+  it('falls back to plain text — and no link — when the urn will not parse', () => {
+    // A chip built from a guess could name someone else's memory, and it would be
+    // clickable.
     const html = body([asset({ urn: 'garbage', memoryId: 'mem-9' })]);
     expect(html).toContain('mem-9');
     expect(html).not.toContain('>mem:</span>');
+    expect(html).not.toContain('/app/u/');
   });
 
   it('shows the memory URN rather than a short slug label', () => {
@@ -98,6 +103,12 @@ describe('AssetTable file column', () => {
   it('shows the asset URN rather than the filename', () => {
     const html = body([asset()]);
     expect(html).toContain('hrn:asset:hadronmemory.com:dev:assets:asset-1');
+  });
+
+  it('does NOT link the asset chip — resolveUrn has no asset kind', () => {
+    // It handles mem/node/org/agent/app/user; an asset link would 404.
+    const html = body([asset()]);
+    expect(html).not.toContain('href="/app/u/hrn:asset:');
   });
 
   it('keeps the filename SEARCHABLE even though it is no longer shown', () => {

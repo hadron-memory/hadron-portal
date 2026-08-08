@@ -29,7 +29,7 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import Urn from '$lib/components/Urn.svelte';
-  import { isLegacyChainMemoryUrn, memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
+  import { memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
   import { t } from '$lib/i18n/t';
   import {
     getAssetDownloadUrl,
@@ -71,8 +71,6 @@
     memory: string;
     /** Full memory URN; null when the asset urn didn't parse. */
     memoryUrn: string | null;
-    /** A v1 ownership chain, which <Urn> would render flattened (and wrong). */
-    memoryIsLegacyChain: boolean;
     /** Epoch millis so Uploaded sorts chronologically, not as text
      *  (review:date-column-sorts-by-instant). Null when unparseable. */
     uploadedMs: number | null;
@@ -138,7 +136,6 @@
         // the shape someone later "fixes" the parser to match).
         memory: memoryUrnFromAssetUrn(a.urn) || a.memoryId || '—',
         memoryUrn: memoryUrnFromAssetUrn(a.urn),
-        memoryIsLegacyChain: isLegacyChainMemoryUrn(memoryUrnFromAssetUrn(a.urn)),
         uploadedMs: isNaN(parsed.getTime()) ? null : parsed.getTime(),
         uploaded: fmtDate(a.uploadedAt),
         uploader: uploaderLabel(a),
@@ -309,24 +306,16 @@
         </div>
       </div>
     {:else if cell.column.id === 'memory'}
-      <!-- The memory's URN through <Urn> (maintainer's call), matching the asset
-           cell so both URN columns render identically — type badge plus
-           copy-URN / copy-URL.
-           Note this cell no longer NAVIGATES: <Urn> emits spans and buttons, not
-           an anchor, and wrapping it in one would nest buttons inside an anchor
-           (invalid, and it would swallow the copy clicks). Its "Copy URL" button
-           still yields the /app/u/<urn> resolver link, so reaching the memory is
-           a copy-paste rather than a click. Chosen deliberately over the anchor
-           that PR #704's review asked for.
-           Plain text when the asset urn didn't parse — a chip built from a guess
-           could name someone else's memory. -->
-      {#if row.memoryUrn && !row.memoryIsLegacyChain}
-        <div class="min-w-0"><Urn value={row.memoryUrn} type="memory" size={8} /></div>
+      <!-- The memory's URN through <Urn>, matching the asset cell — and `linked`,
+           so the chip navigates to the /app/u/<urn> resolver while its two copy
+           buttons keep working (the anchor wraps only the chip, not the buttons).
+           The asset cell is deliberately NOT linked: resolveUrn handles
+           mem/node/org/agent/app/user, so an asset URN resolves to nothing. -->
+      {#if row.memoryUrn}
+        <div class="min-w-0"><Urn value={row.memoryUrn} type="memory" size={8} linked /></div>
       {:else}
-        <!-- Plain text for two cases the chip can't represent honestly: an asset
-             urn that didn't parse, and a legacy ownership CHAIN — <Urn> collapses
-             `::` to `:` for display, which spells a different memory and is what
-             its copy button would hand over. See isLegacyChainMemoryUrn. -->
+        <!-- Plain text when the asset urn didn't parse: a chip built from a guess
+             could name someone else's memory, and it would be clickable. -->
         <span class="block truncate font-mono text-xs text-zinc-500" title={row.memory}>{row.memory}</span>
       {/if}
     {:else if cell.column.id === 'mimeType'}

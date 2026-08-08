@@ -72,33 +72,17 @@ export function memoryUrnFromAssetUrn(assetUrn: string | null | undefined): stri
   const atoms = atomsOf(memoryPart);
   if (atoms.some((a) => !a)) return null; // an empty atom means a malformed path
 
-  // A v2 memory is root + slug, exactly two atoms (cor:urn:010:01). MORE than two
-  // is a legacy OWNERSHIP CHAIN (<org>::<app>::<agent>::<memory>) — the shape v2
-  // removed — and it has NO string-derivable v2 form: v2's fixed positional arity
-  // would read atom 1 as the whole memory slug and fold the rest in after it,
-  // silently addressing a different memory. Migration may also have reassigned
-  // slugs, so the flat spelling can't be computed at all.
+  // A v2 memory URN is root + slug — exactly two atoms (cor:urn:010:01), and a slug
+  // is a single atom, so it cannot contain a colon. `Memory.urn` is stored bare and
+  // v2 across the board (checked against production data: 103 memories, none with
+  // `::`, none with more than two atoms, none scheme-prefixed), so two atoms is the
+  // only shape that actually occurs.
   //
-  // So emit a chain unchanged, in v1 (`hrn:memory:a::b::c`), which the server
-  // accepts forever and resolves through its stored alias map. Same rule
-  // `composeNodeUrn` implements for node URNs — flattening one is a correctness
-  // bug, not a modernisation (PR #704 review, codex P1).
-  if (atoms.length > 2) return `hrn:memory:${atoms.join('::')}`;
+  // Anything longer would be a v1 OWNERSHIP CHAIN, which v2 removed. Rather than
+  // synthesize a v1 spelling for a case the data no longer contains, decline:
+  // returning null costs the caller a chip and nothing else, whereas guessing could
+  // name a DIFFERENT memory. Callers already handle null.
+  if (atoms.length !== 2) return null;
 
   return `hrn:mem:${atoms.join(':')}`;
-}
-
-/**
- * Is this a legacy OWNERSHIP-CHAIN memory URN (the v1 `a::b::c` shape)?
- *
- * Callers need this because the shared `<Urn>` display component **cannot render
- * a chain faithfully**: it normalises for display via
- * `parseUrnV2(input.replaceAll('::', ':'))`, so `hrn:memory:acme::app::agent::system`
- * comes out as `hrn:mem:acme:app:agent:system` — a flat spelling that addresses a
- * DIFFERENT memory, and which its copy-URN button would hand the user verbatim.
- * That is the same flattening `memoryUrnFromAssetUrn` exists to avoid, so a chain
- * has to be rendered as plain text instead of through the chip.
- */
-export function isLegacyChainMemoryUrn(memoryUrn: string | null | undefined): boolean {
-  return !!memoryUrn && memoryUrn.includes('::');
 }

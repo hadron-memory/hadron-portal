@@ -17,11 +17,24 @@
   const V2_TYPE_HINTS = new Set<string>([...V2_URN_TYPES, 'memory']);
   const DISPLAY_TYPE_HINTS = new Set<string>(DISPLAY_URN_TYPES);
 
-  let { value, type, size = 12, compact = false }: {
+  let { value, type, size = 12, compact = false, linked = false }: {
     value: string;
     type?: UrnTypeHint;
     size?: number;
     compact?: boolean;
+    /**
+     * Make the URN text itself a link to the `/app/u/<urn>` resolver.
+     *
+     * Only the CODE CHIP becomes an anchor — the copy buttons stay siblings
+     * outside it. Wrapping the whole component would nest `<button>` inside `<a>`,
+     * which is invalid and would swallow the copy clicks.
+     *
+     * Opt-in rather than default-on because `resolveUrn` does not handle every
+     * type: it covers mem/memory, node, org, agent, app and user, so an `asset`
+     * or `edge` URN would render a link that resolves to nothing. Pass this only
+     * where the target actually resolves.
+     */
+    linked?: boolean;
   } = $props();
 
   let copied = $state(false);
@@ -117,7 +130,15 @@
 </script>
 
 <span class="inline-flex min-w-0 max-w-full items-center gap-1">
-  <code class="inline-flex min-w-0 items-center overflow-hidden rounded font-mono leading-tight" style="font-size: 0.6rem;">
+  <!-- The chip is an <a> when `linked`, a plain <code> otherwise. The anchor wraps
+       ONLY the chip: the copy buttons below are siblings, because a <button> inside
+       an <a> is invalid and the anchor would swallow their clicks. -->
+  <svelte:element
+    this={linked ? 'a' : 'code'}
+    href={linked ? `/app/u/${displayFullUrn}` : undefined}
+    class="inline-flex min-w-0 items-center overflow-hidden rounded font-mono leading-tight {linked ? 'hover:opacity-80' : ''}"
+    style="font-size: 0.6rem;"
+  >
     {#if compact}
       <span class="min-w-0 truncate bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={displayFullUrn}>{bareValue}</span>
     {:else}
@@ -125,7 +146,7 @@
       <span class="shrink-0 whitespace-nowrap pl-0 pr-0.5 py-0.5 font-medium {typeBadgeClass}">{displayType}:</span>
       <span class="min-w-0 truncate bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200" title={displayFullUrn}>{bareValue}</span>
     {/if}
-  </code>
+  </svelte:element>
   <button onclick={copy} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN" aria-label="Copy URN">
     {#if copied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
