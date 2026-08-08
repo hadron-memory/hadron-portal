@@ -28,8 +28,9 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
+  import Urn from '$lib/components/Urn.svelte';
   import { buildResolverUrl } from '$lib/urn/parse-urn';
-  import { memoryLabelFromAssetUrn, memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
+  import { memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
   import { t } from '$lib/i18n/t';
   import {
     getAssetDownloadUrl,
@@ -44,8 +45,6 @@
     uploaderNames?: Record<string, string>;
     /** Current user's id — their own uploads read as "You". */
     currentUserId?: string | null;
-    /** Memory display names by memory id — only used when showMemory is set. */
-    memoryNames?: Record<string, string>;
     showMemory?: boolean;
     /** Saved-views key; distinct per surface so views don't collide. */
     listKey?: string;
@@ -57,7 +56,6 @@
     assets,
     uploaderNames = {},
     currentUserId = null,
-    memoryNames = {},
     showMemory = false,
     listKey = 'memory:assets',
     maxHeight = 'max(200px, calc(100vh - 26rem))',
@@ -128,20 +126,16 @@
         mimeType: a.mimeType,
         sizeBytes: a.sizeBytes,
         scanStatus: a.scanStatus,
-        // Prefer a caller-supplied display name; otherwise derive the memory from
-        // the ASSET's own urn. `Asset` has no `memory` relation, so the
-        // alternative was rendering a raw cuid — and the derivation needs no query
-        // at all. Falls back to the id only when the urn doesn't parse.
+        // The memory's URN, derived from the ASSET's own urn. `Asset` has no
+        // `memory` relation, so the alternative was a raw cuid — and the
+        // derivation needs no query at all. Falls back to the id only when the
+        // urn doesn't parse.
         //
         // The exact spelling varies by which branch of the server's Asset.urn
         // resolver produced it, so $lib/assets/asset-urn owns that; don't restate
         // one shape here (PR #704 review, Copilot — the shape a comment names is
         // the shape someone later "fixes" the parser to match).
-        memory:
-          (a.memoryId && memoryNames[a.memoryId]) ||
-          memoryLabelFromAssetUrn(a.urn) ||
-          a.memoryId ||
-          '—',
+        memory: memoryUrnFromAssetUrn(a.urn) || a.memoryId || '—',
         memoryUrn: memoryUrnFromAssetUrn(a.urn),
         uploadedMs: isNaN(parsed.getTime()) ? null : parsed.getTime(),
         uploaded: fmtDate(a.uploadedAt),
@@ -170,10 +164,16 @@
 
   const columns: ColumnDef<AssetRow>[] = [
     {
-      accessorKey: 'filename',
+      // The cell shows the asset's URN, so the accessor leads with it — sorting
+      // then matches the screen (findings:table-chrome-conventions). The filename
+      // is appended so it stays SEARCHABLE: it is no longer visible, but "find the
+      // row for invoice.pdf" is the obvious thing to type, and an accessor of the
+      // urn alone would silently stop answering it.
+      accessorFn: (row) => `${row.urn} ${row.filename}`,
+      id: 'filename',
       header: t('assets.column.filename', 'File'),
       enableHiding: false,
-      size: 260,
+      size: 320,
     },
     { accessorKey: 'mimeType', header: t('assets.column.type', 'Type'), size: 150 },
     // Numeric accessor so Size sorts by bytes, not by the rendered "9.9 KB".
@@ -284,7 +284,7 @@
   {table}
   {listKey}
   {maxHeight}
-  searchPlaceholder={t('assets.search-placeholder', 'Search files by name, type, or uploader…')}
+  searchPlaceholder={t('assets.search-placeholder', 'Search files by URN, name, type, or uploader…')}
   searchAriaLabel={t('assets.search.aria-label', 'Search files')}
   bind:globalFilter
 >
@@ -295,22 +295,28 @@
              leading slot so filenames align across mixed rows. -->
         <AssetThumbnail asset={row} sizeClass="size-8" />
         <div class="min-w-0">
-          <span class="block truncate font-medium text-zinc-900 dark:text-white" title={row.filename}>{row.filename}</span>
+          <!-- The asset's URN rather than its filename (maintainer's call). <Urn>
+               is right here, unlike the memory cell: an asset has no canonical
+               page to navigate to, so there is nothing to lose by using the chip,
+               and its copy-URN button is the useful action — that URN is what
+               createAssetReferenceNode and the attach flow take. -->
+          <div class="min-w-0"><Urn value={row.urn} type="asset" size={8} /></div>
           {#if row.description}
             <span class="block truncate text-xs text-zinc-500" title={row.description}>{row.description}</span>
           {/if}
         </div>
       </div>
     {:else if cell.column.id === 'memory'}
-      <!-- A real anchor at the /app/u/<urn> resolver, which turns a URN into its
-           canonical page. NOT <Urn>: that renders spans plus two copy BUTTONS and
-           no anchor, so it never navigated — and wrapping it in a link would nest
-           buttons inside an anchor (invalid, and it would swallow the copy
-           clicks). PR #704 review, codex P2: the earlier version claimed to link
-           and didn't.
+      <!-- The memory's URN (maintainer's call), in a real anchor at the
+           /app/u/<urn> resolver, which turns a URN into its canonical page.
+           NOT <Urn> here, unlike the asset cell: <Urn> renders spans plus two
+           copy BUTTONS and no anchor, so it would stop navigating — and wrapping
+           it in a link would nest buttons inside an anchor (invalid, and it would
+           swallow the copy clicks). PR #704 review, codex P2: an earlier version
+           claimed to link and didn't. A memory HAS a canonical page, so keeping
+           the link matters more than the chip's copy buttons.
            Plain text when the asset urn didn't parse — a guessed link could point
-           at someone else's memory, which is worse than no link. The column
-           SORTS and SEARCHES on the `memory` label either way. -->
+           at someone else's memory, which is worse than no link. -->
       {#if row.memoryUrn}
         <a
           href={buildResolverUrl('', row.memoryUrn)}

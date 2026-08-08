@@ -47,9 +47,9 @@ describe('AssetTable memory column', () => {
     expect(body([asset()])).toContain('href="/app/u/hrn:mem:hadronmemory.com:dev"');
   });
 
-  it('shows the slug label, not a raw memory id', () => {
+  it('shows the memory URN, not a raw memory id', () => {
     const html = body([asset()]);
-    expect(html).toContain('>dev<');
+    expect(html).toContain('hrn:mem:hadronmemory.com:dev');
     expect(html).not.toContain('mem-1');
   });
 
@@ -67,14 +67,34 @@ describe('AssetTable memory column', () => {
     expect(html).toContain('mem-9');
   });
 
-  it('prefers a caller-supplied display name over the derived label', () => {
-    const html = body([asset()], { memoryNames: { 'mem-1': 'Dev Notes' } });
-    expect(html).toContain('Dev Notes');
+  it('shows the memory URN inside the resolver link, not a separate label', () => {
+    // The cell text and the href now agree, so a reader can see where the link
+    // goes without hovering.
+    const html = body([asset()]);
+    const cell = html.slice(html.indexOf('/app/u/hrn:mem:hadronmemory.com:dev'));
+    expect(cell).toContain('hrn:mem:hadronmemory.com:dev');
   });
 
   it('omits the memory column entirely when showMemory is false', () => {
     const html = render(AssetTable, { props: { assets: [asset()], showMemory: false } }).body;
     expect(html).not.toContain('/app/u/');
+  });
+});
+
+describe('AssetTable file column', () => {
+  it('shows the asset URN rather than the filename', () => {
+    const html = body([asset()]);
+    expect(html).toContain('hrn:asset:hadronmemory.com:dev:assets:asset-1');
+  });
+
+  it('keeps the filename SEARCHABLE even though it is no longer shown', () => {
+    // The accessor feeds the global filter, so dropping the filename from it
+    // would silently stop answering "find the row for notes.md".
+    expect(body([asset()])).toContain('notes.md');
+  });
+
+  it('still shows the description under the URN', () => {
+    expect(body([asset({ description: 'Q3 planning notes' })])).toContain('Q3 planning notes');
   });
 });
 

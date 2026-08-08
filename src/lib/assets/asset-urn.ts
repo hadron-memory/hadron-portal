@@ -87,18 +87,3 @@ export function memoryUrnFromAssetUrn(assetUrn: string | null | undefined): stri
 
   return `hrn:mem:${atoms.join(':')}`;
 }
-
-/**
- * A short label for the memory, for a narrow grid column: the slug atoms without
- * the root, since every row in an org-scoped view shares it.
- */
-export function memoryLabelFromAssetUrn(assetUrn: string | null | undefined): string | null {
-  const memoryUrn = memoryUrnFromAssetUrn(assetUrn);
-  if (!memoryUrn) return null;
-  const bare = memoryUrn.replace(/^hrn:(?:mem|memory):/, '');
-  const atoms = atomsOf(bare);
-  // Keep the chain's own separator in the label so a legacy chain still reads as
-  // one, rather than being silently re-spelled as a v2 path.
-  const sep = bare.includes('::') ? '::' : ':';
-  return atoms.length > 1 ? atoms.slice(1).join(sep) : atoms.join(sep);
-}

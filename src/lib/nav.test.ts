@@ -46,12 +46,12 @@ describe('buildNavItems', () => {
       '/app/dashboard',
       '/app/search',
       '/app/memories',
-      // portal#696: the cross-memory Files section, org-independent.
-      '/app/assets',
-      '/app/orgs/personal-1/tasks',
       '/app/agents',
       '/app/apps',
       '/app/orgs/personal-1/runs',
+      // Task Nodes then Files, below the whole Apps group.
+      '/app/orgs/personal-1/tasks',
+      '/app/assets',
     ]);
     // …never the org-scoped variants for an individual.
     expect(items).not.toContain('/app/orgs/personal-1/agents');
@@ -87,6 +87,17 @@ describe('buildNavItems', () => {
     // state rather than needing an org to render.
     expect(items).toEqual(['/app/dashboard', '/app/search', '/app/memories', '/app/assets']);
     expect(items.some((h) => h.startsWith('/app/orgs/'))).toBe(false);
+  });
+
+  it('puts Task Nodes then Files below the whole Apps group', () => {
+    // The ordering is a maintainer's call, so pin it rather than let a future
+    // insertion quietly reshuffle it. App Runs stays the Apps section's tail
+    // (asserted above), and these two sit after it.
+    const items = hrefs({ activeOrgId: 'org-1', isConsumerMode: false });
+    expect(items.slice(-2)).toEqual(['/app/orgs/org-1/tasks', '/app/assets']);
+    expect(items.indexOf('/app/orgs/org-1/tasks')).toBeGreaterThan(
+      items.indexOf('/app/orgs/org-1/runs'),
+    );
   });
 
   it('a consumer with no active org still gets the org-less Memories link', () => {

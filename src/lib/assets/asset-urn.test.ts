@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { memoryUrnFromAssetUrn, memoryLabelFromAssetUrn } from './asset-urn';
+import { memoryUrnFromAssetUrn } from './asset-urn';
 
 describe('memoryUrnFromAssetUrn', () => {
   it('derives the memory URN from the v2 asset URN the server emits', () => {
@@ -95,25 +95,5 @@ describe('memoryUrnFromAssetUrn', () => {
     expect(memoryUrnFromAssetUrn(null)).toBeNull();
     expect(memoryUrnFromAssetUrn(undefined)).toBeNull();
     expect(memoryUrnFromAssetUrn('')).toBeNull();
-  });
-});
-
-describe('memoryLabelFromAssetUrn', () => {
-  it('drops the root, which is shared by every row', () => {
-    expect(memoryLabelFromAssetUrn('hrn:asset:hadronmemory.com:dev:assets:abc')).toBe('dev');
-  });
-
-  it('keeps a chain reading as a chain, not as a v2 path', () => {
-    expect(memoryLabelFromAssetUrn('hrn:asset:acme:app:agent:system:assets:abc')).toBe(
-      'app::agent::system',
-    );
-  });
-
-  it('falls back to the whole thing when there is nothing below the root', () => {
-    expect(memoryLabelFromAssetUrn('hrn:asset:solo:assets:abc')).toBe('solo');
-  });
-
-  it('is null when the URN does not parse', () => {
-    expect(memoryLabelFromAssetUrn('nonsense')).toBeNull();
   });
 });
