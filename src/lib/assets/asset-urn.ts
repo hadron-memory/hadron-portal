@@ -87,3 +87,18 @@ export function memoryUrnFromAssetUrn(assetUrn: string | null | undefined): stri
 
   return `hrn:mem:${atoms.join(':')}`;
 }
+
+/**
+ * Is this a legacy OWNERSHIP-CHAIN memory URN (the v1 `a::b::c` shape)?
+ *
+ * Callers need this because the shared `<Urn>` display component **cannot render
+ * a chain faithfully**: it normalises for display via
+ * `parseUrnV2(input.replaceAll('::', ':'))`, so `hrn:memory:acme::app::agent::system`
+ * comes out as `hrn:mem:acme:app:agent:system` — a flat spelling that addresses a
+ * DIFFERENT memory, and which its copy-URN button would hand the user verbatim.
+ * That is the same flattening `memoryUrnFromAssetUrn` exists to avoid, so a chain
+ * has to be rendered as plain text instead of through the chip.
+ */
+export function isLegacyChainMemoryUrn(memoryUrn: string | null | undefined): boolean {
+  return !!memoryUrn && memoryUrn.includes('::');
+}

@@ -29,8 +29,7 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import Urn from '$lib/components/Urn.svelte';
-  import { buildResolverUrl } from '$lib/urn/parse-urn';
-  import { memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
+  import { isLegacyChainMemoryUrn, memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
   import { t } from '$lib/i18n/t';
   import {
     getAssetDownloadUrl,
@@ -70,8 +69,10 @@
     sizeBytes: number;
     scanStatus: AssetSummary['scanStatus'];
     memory: string;
-    /** Full memory URN for the link; null when the asset urn didn't parse. */
+    /** Full memory URN; null when the asset urn didn't parse. */
     memoryUrn: string | null;
+    /** A v1 ownership chain, which <Urn> would render flattened (and wrong). */
+    memoryIsLegacyChain: boolean;
     /** Epoch millis so Uploaded sorts chronologically, not as text
      *  (review:date-column-sorts-by-instant). Null when unparseable. */
     uploadedMs: number | null;
@@ -137,6 +138,7 @@
         // the shape someone later "fixes" the parser to match).
         memory: memoryUrnFromAssetUrn(a.urn) || a.memoryId || '—',
         memoryUrn: memoryUrnFromAssetUrn(a.urn),
+        memoryIsLegacyChain: isLegacyChainMemoryUrn(memoryUrnFromAssetUrn(a.urn)),
         uploadedMs: isNaN(parsed.getTime()) ? null : parsed.getTime(),
         uploaded: fmtDate(a.uploadedAt),
         uploader: uploaderLabel(a),
@@ -307,24 +309,25 @@
         </div>
       </div>
     {:else if cell.column.id === 'memory'}
-      <!-- The memory's URN (maintainer's call), in a real anchor at the
-           /app/u/<urn> resolver, which turns a URN into its canonical page.
-           NOT <Urn> here, unlike the asset cell: <Urn> renders spans plus two
-           copy BUTTONS and no anchor, so it would stop navigating — and wrapping
-           it in a link would nest buttons inside an anchor (invalid, and it would
-           swallow the copy clicks). PR #704 review, codex P2: an earlier version
-           claimed to link and didn't. A memory HAS a canonical page, so keeping
-           the link matters more than the chip's copy buttons.
-           Plain text when the asset urn didn't parse — a guessed link could point
-           at someone else's memory, which is worse than no link. -->
-      {#if row.memoryUrn}
-        <a
-          href={buildResolverUrl('', row.memoryUrn)}
-          title={row.memoryUrn}
-          class="block truncate font-mono text-xs text-indigo-600 hover:underline dark:text-indigo-300"
-        >{row.memory}</a>
+      <!-- The memory's URN through <Urn> (maintainer's call), matching the asset
+           cell so both URN columns render identically — type badge plus
+           copy-URN / copy-URL.
+           Note this cell no longer NAVIGATES: <Urn> emits spans and buttons, not
+           an anchor, and wrapping it in one would nest buttons inside an anchor
+           (invalid, and it would swallow the copy clicks). Its "Copy URL" button
+           still yields the /app/u/<urn> resolver link, so reaching the memory is
+           a copy-paste rather than a click. Chosen deliberately over the anchor
+           that PR #704's review asked for.
+           Plain text when the asset urn didn't parse — a chip built from a guess
+           could name someone else's memory. -->
+      {#if row.memoryUrn && !row.memoryIsLegacyChain}
+        <div class="min-w-0"><Urn value={row.memoryUrn} type="memory" size={8} /></div>
       {:else}
-        <span class="block truncate text-xs text-zinc-500" title={row.memory}>{row.memory}</span>
+        <!-- Plain text for two cases the chip can't represent honestly: an asset
+             urn that didn't parse, and a legacy ownership CHAIN — <Urn> collapses
+             `::` to `:` for display, which spells a different memory and is what
+             its copy button would hand over. See isLegacyChainMemoryUrn. -->
+        <span class="block truncate font-mono text-xs text-zinc-500" title={row.memory}>{row.memory}</span>
       {/if}
     {:else if cell.column.id === 'mimeType'}
       <span class="font-mono text-xs text-zinc-600 dark:text-zinc-400">{row.mimeType}</span>

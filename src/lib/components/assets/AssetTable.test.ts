@@ -2,11 +2,15 @@
  * AssetTable — SSR smoke tests (this repo has no DOM test env for components;
  * see conventions:svelte-component-test-gap).
  *
- * Written because PR #704's review (codex P2) caught the Memory cell claiming to
- * link to the holding memory while rendering a <Urn> chip, which emits spans and
- * copy buttons and no anchor at all. The comment said "links"; the markup didn't.
- * An assertion on the actual emitted href is the only thing that keeps those two
- * honest, so that is what these do.
+ * Both URN columns now render through the shared <Urn> chip (maintainer's call),
+ * which means the cell no longer navigates — that is deliberate, and asserted
+ * below so nobody "restores" an anchor by accident.
+ *
+ * The load-bearing case is the LEGACY OWNERSHIP CHAIN: <Urn> normalises for
+ * display via parseUrnV2(input.replaceAll('::', ':')), so handing it a chain would
+ * render — and copy — a flat URN naming a DIFFERENT memory. That is the same
+ * flattening codex flagged as P1 on #704, reappearing at the display layer, so a
+ * chain is rendered as plain text instead.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
@@ -41,10 +45,18 @@ function body(assets: AssetSummary[], props: Record<string, unknown> = {}) {
 }
 
 describe('AssetTable memory column', () => {
-  it('renders a real anchor at the /app/u/<urn> resolver', () => {
-    // The regression this file exists for: a <Urn> chip has no anchor, so the
-    // cell was inert.
-    expect(body([asset()])).toContain('href="/app/u/hrn:mem:hadronmemory.com:dev"');
+  it('renders the memory through the <Urn> chip', () => {
+    const html = body([asset()]);
+    // The chip splits the URN across spans but carries it whole in `title`.
+    expect(html).toContain('title="hrn:mem:hadronmemory.com:dev"');
+    // Its type badge, i.e. the chip really rendered rather than plain text.
+    expect(html).toContain('>mem:</span>');
+  });
+
+  it('does NOT navigate — the chip is not an anchor, deliberately', () => {
+    // Reaching the memory is now copy-URL rather than a click. Pinned so the
+    // trade-off is a decision in the diff, not a surprise.
+    expect(body([asset()])).not.toContain('/app/u/');
   });
 
   it('shows the memory URN, not a raw memory id', () => {
@@ -53,31 +65,32 @@ describe('AssetTable memory column', () => {
     expect(html).not.toContain('mem-1');
   });
 
-  it('PRESERVES a legacy ownership chain in the href', () => {
-    // codex P1: a flattened chain silently addresses a different memory.
+  it('renders a legacy ownership chain as plain text, never through the chip', () => {
+    // <Urn> would collapse `::` and show hrn:mem:acme:app:agent:system — a
+    // different memory — and its copy button would hand that over. So the chain
+    // stays plain text, unflattened.
     const html = body([asset({ urn: 'hrn:asset:acme:app:agent:system:assets:a1' })]);
-    expect(html).toContain('href="/app/u/hrn:memory:acme::app::agent::system"');
-    expect(html).not.toContain('/app/u/hrn:mem:acme:app:agent:system');
+    expect(html).toContain('hrn:memory:acme::app::agent::system');
+    expect(html).not.toContain('hrn:mem:acme:app:agent:system');
   });
 
-  it('falls back to plain text — no link — when the urn will not parse', () => {
-    // A guessed link could point at someone else's memory.
+  it('falls back to plain text when the urn will not parse', () => {
+    // A chip built from a guess could name someone else's memory.
     const html = body([asset({ urn: 'garbage', memoryId: 'mem-9' })]);
-    expect(html).not.toContain('/app/u/');
     expect(html).toContain('mem-9');
+    expect(html).not.toContain('>mem:</span>');
   });
 
-  it('shows the memory URN inside the resolver link, not a separate label', () => {
-    // The cell text and the href now agree, so a reader can see where the link
-    // goes without hovering.
+  it('shows the memory URN rather than a short slug label', () => {
     const html = body([asset()]);
-    const cell = html.slice(html.indexOf('/app/u/hrn:mem:hadronmemory.com:dev'));
-    expect(cell).toContain('hrn:mem:hadronmemory.com:dev');
+    expect(html).toContain('hadronmemory.com:dev');
   });
 
   it('omits the memory column entirely when showMemory is false', () => {
     const html = render(AssetTable, { props: { assets: [asset()], showMemory: false } }).body;
-    expect(html).not.toContain('/app/u/');
+    expect(html).not.toContain('title="hrn:mem:hadronmemory.com:dev"');
+    // The asset chip is still there — only the memory column drops out.
+    expect(html).toContain('hrn:asset:hadronmemory.com:dev:assets:asset-1');
   });
 });
 

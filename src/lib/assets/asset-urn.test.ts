@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { memoryUrnFromAssetUrn } from './asset-urn';
+import { isLegacyChainMemoryUrn, memoryUrnFromAssetUrn } from './asset-urn';
 
 describe('memoryUrnFromAssetUrn', () => {
   it('derives the memory URN from the v2 asset URN the server emits', () => {
@@ -95,5 +95,30 @@ describe('memoryUrnFromAssetUrn', () => {
     expect(memoryUrnFromAssetUrn(null)).toBeNull();
     expect(memoryUrnFromAssetUrn(undefined)).toBeNull();
     expect(memoryUrnFromAssetUrn('')).toBeNull();
+  });
+});
+
+describe('isLegacyChainMemoryUrn', () => {
+  it('flags a v1 ownership chain', () => {
+    // The gate on whether <Urn> may render it: the chip collapses `::` to `:`,
+    // which names a different memory and is what its copy button hands over.
+    expect(isLegacyChainMemoryUrn('hrn:memory:acme::app::agent::system')).toBe(true);
+  });
+
+  it('does not flag an ordinary v2 memory urn', () => {
+    expect(isLegacyChainMemoryUrn('hrn:mem:hadronmemory.com:dev')).toBe(false);
+  });
+
+  it('is false for null/undefined/empty rather than throwing', () => {
+    expect(isLegacyChainMemoryUrn(null)).toBe(false);
+    expect(isLegacyChainMemoryUrn(undefined)).toBe(false);
+    expect(isLegacyChainMemoryUrn('')).toBe(false);
+  });
+
+  it('agrees with what memoryUrnFromAssetUrn produces', () => {
+    // The two have to stay in step: the derivation is the only thing that emits
+    // a chain, and this predicate is the only thing that detects one.
+    expect(isLegacyChainMemoryUrn(memoryUrnFromAssetUrn('hrn:asset:a:b:c:d:assets:x'))).toBe(true);
+    expect(isLegacyChainMemoryUrn(memoryUrnFromAssetUrn('hrn:asset:a:b:assets:x'))).toBe(false);
   });
 });
