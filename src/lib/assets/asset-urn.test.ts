@@ -48,25 +48,30 @@ describe('memoryUrnFromAssetUrn', () => {
     expect(memoryUrnFromAssetUrn('hrn:asset:acme:assets:assets:abc')).toBe('hrn:mem:acme:assets');
   });
 
-  it('declines anything that is not exactly root + slug', () => {
-    // A v2 memory URN is two atoms and a slug can't contain a colon, so a longer
-    // path is not a memory this can address. Production data confirms two atoms is
-    // the only live shape, so rather than synthesize a v1 ownership-chain spelling
-    // for a case that no longer exists, decline — a guess could name a DIFFERENT
-    // memory, and the caller already renders null as plain text.
-    for (const input of [
-      'hrn:asset:acme:app:agent:system:assets:abc',
-      'acme::app::agent::system:assets:abc',
-    ]) {
-      expect(memoryUrnFromAssetUrn(input)).toBeNull();
-    }
+  it('handles a COMPOUND memory part — the arity is not two', () => {
+    // composeUrnV2 has no arity rule for `asset`, so a compound memory urn
+    // lengthens the URN. `mentor-co:juno:mike-personal` is in prisma/seed.ts, so
+    // this is real: requiring exactly two atoms declined that memory's assets
+    // outright. See hadron-server:findings:asset-urn-shapes-are-variable.
+    expect(memoryUrnFromAssetUrn('hrn:asset:mentor-co:juno:mike-personal:assets:abc')).toBe(
+      'hrn:mem:mentor-co:juno:mike-personal',
+    );
   });
 
-  it('never invents a flattened multi-atom memory urn', () => {
-    // The guard that matters: a flat 4-atom spelling would point somewhere else.
-    expect(memoryUrnFromAssetUrn('hrn:asset:acme:app:agent:system:assets:abc')).not.toBe(
-      'hrn:mem:acme:app:agent:system',
+  it('strips a NESTED prefix instead of doubling it', () => {
+    // A legacy memories.urn row can hold a rendered `hrn:mem:…`, and the normal
+    // emission branch composes it straight through — chk_memory_urn_not_prefixed
+    // is NOT VALID, so such rows survive. Stripping once produced
+    // `hrn:mem:hrn:mem:acme.com:docs`.
+    expect(memoryUrnFromAssetUrn('hrn:asset:hrn:mem:acme.com:docs:assets:abc')).toBe(
+      'hrn:mem:acme.com:docs',
     );
+  });
+
+  it('declines the unknown-memory sentinel', () => {
+    // `hrn:asset:unknown:assets:<id>` is what the server emits when it cannot load
+    // the memory row — one atom, naming no memory.
+    expect(memoryUrnFromAssetUrn('hrn:asset:unknown:assets:abc')).toBeNull();
   });
 
   it('rejects a path with an empty atom', () => {

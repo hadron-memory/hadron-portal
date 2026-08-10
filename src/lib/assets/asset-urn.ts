@@ -63,7 +63,14 @@ export function memoryUrnFromAssetUrn(assetUrn: string | null | undefined): stri
   const cut = bare.lastIndexOf(SEPARATOR);
   if (cut <= 0) return null;
 
-  const memoryPart = bare.slice(0, cut);
+  // Strip a prefix from the memory part TOO. A legacy `memories.urn` row can hold
+  // a rendered `hrn:mem:acme.com:docs`, and the NORMAL emission branch composes
+  // that straight through (bareAtoms strips `@` and collapses `::` but never a
+  // scheme prefix), yielding `hrn:asset:hrn:mem:acme.com:docs:assets:<id>`. Such
+  // rows exist because chk_memory_urn_not_prefixed is NOT VALID — enforced on
+  // write, never re-checked against pre-existing rows. Stripping only once left the
+  // inner prefix in place and composed a doubled `hrn:mem:hrn:mem:…`.
+  const memoryPart = bare.slice(0, cut).replace(URN_PREFIX, '');
   if (!memoryPart) return null;
 
   // Nothing after the separator means a truncated URN, not a memory reference.
@@ -72,17 +79,18 @@ export function memoryUrnFromAssetUrn(assetUrn: string | null | undefined): stri
   const atoms = atomsOf(memoryPart);
   if (atoms.some((a) => !a)) return null; // an empty atom means a malformed path
 
-  // A v2 memory URN is root + slug — exactly two atoms (cor:urn:010:01), and a slug
-  // is a single atom, so it cannot contain a colon. `Memory.urn` is stored bare and
-  // v2 across the board (checked against production data: 103 memories, none with
-  // `::`, none with more than two atoms, none scheme-prefixed), so two atoms is the
-  // only shape that actually occurs.
+  // The memory part is VARIABLE-LENGTH — do not assume root + slug.
+  // `composeUrnV2` has an arity rule for secret/apprun/noderev/node/edge but NONE
+  // for `asset`, so a compound memory urn lengthens the URN instead of being
+  // rejected. `mentor-co:juno:mike-personal` is in prisma/seed.ts, so three atoms
+  // is real, not hypothetical — see
+  // hadronmemory.com:hadron-server:findings:asset-urn-shapes-are-variable.
   //
-  // Anything longer would be a v1 OWNERSHIP CHAIN, which v2 removed. Rather than
-  // synthesize a v1 spelling for a case the data no longer contains, decline:
-  // returning null costs the caller a chip and nothing else, whereas guessing could
-  // name a DIFFERENT memory. Callers already handle null.
-  if (atoms.length !== 2) return null;
+  // Requiring exactly two declined that memory's assets outright (no chip at all).
+  // The floor is two: a single atom is the `hrn:asset:unknown:assets:<id>`
+  // sentinel the server emits when it cannot load the memory row, which names no
+  // memory and must stay null.
+  if (atoms.length < 2) return null;
 
   return `hrn:mem:${atoms.join(':')}`;
 }
