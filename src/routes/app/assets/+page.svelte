@@ -24,7 +24,7 @@
     org: t('assets-page.tab.org', 'Organization files'),
   };
   const tabHints: Record<AssetTab, string> = {
-    mine: t('assets-page.hint.mine', 'Files you uploaded, across every memory.'),
+    mine: t('assets-page.hint.mine', 'Files that were attached to memories'),
     available: t(
       'assets-page.hint.available',
       'Every file in every memory you can read — including files a colleague uploaded and files an agent run stored.',

@@ -72,33 +72,17 @@ export function memoryUrnFromAssetUrn(assetUrn: string | null | undefined): stri
   const atoms = atomsOf(memoryPart);
   if (atoms.some((a) => !a)) return null; // an empty atom means a malformed path
 
-  // A v2 memory is root + slug, exactly two atoms (cor:urn:010:01). MORE than two
-  // is a legacy OWNERSHIP CHAIN (<org>::<app>::<agent>::<memory>) — the shape v2
-  // removed — and it has NO string-derivable v2 form: v2's fixed positional arity
-  // would read atom 1 as the whole memory slug and fold the rest in after it,
-  // silently addressing a different memory. Migration may also have reassigned
-  // slugs, so the flat spelling can't be computed at all.
+  // A v2 memory URN is root + slug — exactly two atoms (cor:urn:010:01), and a slug
+  // is a single atom, so it cannot contain a colon. `Memory.urn` is stored bare and
+  // v2 across the board (checked against production data: 103 memories, none with
+  // `::`, none with more than two atoms, none scheme-prefixed), so two atoms is the
+  // only shape that actually occurs.
   //
-  // So emit a chain unchanged, in v1 (`hrn:memory:a::b::c`), which the server
-  // accepts forever and resolves through its stored alias map. Same rule
-  // `composeNodeUrn` implements for node URNs — flattening one is a correctness
-  // bug, not a modernisation (PR #704 review, codex P1).
-  if (atoms.length > 2) return `hrn:memory:${atoms.join('::')}`;
+  // Anything longer would be a v1 OWNERSHIP CHAIN, which v2 removed. Rather than
+  // synthesize a v1 spelling for a case the data no longer contains, decline:
+  // returning null costs the caller a chip and nothing else, whereas guessing could
+  // name a DIFFERENT memory. Callers already handle null.
+  if (atoms.length !== 2) return null;
 
   return `hrn:mem:${atoms.join(':')}`;
-}
-
-/**
- * A short label for the memory, for a narrow grid column: the slug atoms without
- * the root, since every row in an org-scoped view shares it.
- */
-export function memoryLabelFromAssetUrn(assetUrn: string | null | undefined): string | null {
-  const memoryUrn = memoryUrnFromAssetUrn(assetUrn);
-  if (!memoryUrn) return null;
-  const bare = memoryUrn.replace(/^hrn:(?:mem|memory):/, '');
-  const atoms = atomsOf(bare);
-  // Keep the chain's own separator in the label so a legacy chain still reads as
-  // one, rather than being silently re-spelled as a v2 path.
-  const sep = bare.includes('::') ? '::' : ':';
-  return atoms.length > 1 ? atoms.slice(1).join(sep) : atoms.join(sep);
 }

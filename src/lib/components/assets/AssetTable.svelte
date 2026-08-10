@@ -28,8 +28,8 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
-  import { buildResolverUrl } from '$lib/urn/parse-urn';
-  import { memoryLabelFromAssetUrn, memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
+  import Urn from '$lib/components/Urn.svelte';
+  import { memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
   import { t } from '$lib/i18n/t';
   import {
     getAssetDownloadUrl,
@@ -44,8 +44,6 @@
     uploaderNames?: Record<string, string>;
     /** Current user's id — their own uploads read as "You". */
     currentUserId?: string | null;
-    /** Memory display names by memory id — only used when showMemory is set. */
-    memoryNames?: Record<string, string>;
     showMemory?: boolean;
     /** Saved-views key; distinct per surface so views don't collide. */
     listKey?: string;
@@ -57,7 +55,6 @@
     assets,
     uploaderNames = {},
     currentUserId = null,
-    memoryNames = {},
     showMemory = false,
     listKey = 'memory:assets',
     maxHeight = 'max(200px, calc(100vh - 26rem))',
@@ -72,7 +69,7 @@
     sizeBytes: number;
     scanStatus: AssetSummary['scanStatus'];
     memory: string;
-    /** Full memory URN for the link; null when the asset urn didn't parse. */
+    /** Full memory URN; null when the asset urn didn't parse. */
     memoryUrn: string | null;
     /** Epoch millis so Uploaded sorts chronologically, not as text
      *  (review:date-column-sorts-by-instant). Null when unparseable. */
@@ -121,6 +118,9 @@
   const rows = $derived<AssetRow[]>(
     assets.map((a) => {
       const parsed = new Date(a.uploadedAt);
+      // Parse once per row: this ran twice before, for `memory` and `memoryUrn`
+      // (PR #705 review, Copilot).
+      const memoryUrn = memoryUrnFromAssetUrn(a.urn);
       return {
         id: a.id,
         urn: a.urn,
@@ -128,21 +128,17 @@
         mimeType: a.mimeType,
         sizeBytes: a.sizeBytes,
         scanStatus: a.scanStatus,
-        // Prefer a caller-supplied display name; otherwise derive the memory from
-        // the ASSET's own urn. `Asset` has no `memory` relation, so the
-        // alternative was rendering a raw cuid — and the derivation needs no query
-        // at all. Falls back to the id only when the urn doesn't parse.
+        // The memory's URN, derived from the ASSET's own urn. `Asset` has no
+        // `memory` relation, so the alternative was a raw cuid — and the
+        // derivation needs no query at all. Falls back to the id only when the
+        // urn doesn't parse.
         //
         // The exact spelling varies by which branch of the server's Asset.urn
         // resolver produced it, so $lib/assets/asset-urn owns that; don't restate
         // one shape here (PR #704 review, Copilot — the shape a comment names is
         // the shape someone later "fixes" the parser to match).
-        memory:
-          (a.memoryId && memoryNames[a.memoryId]) ||
-          memoryLabelFromAssetUrn(a.urn) ||
-          a.memoryId ||
-          '—',
-        memoryUrn: memoryUrnFromAssetUrn(a.urn),
+        memory: memoryUrn || a.memoryId || '—',
+        memoryUrn,
         uploadedMs: isNaN(parsed.getTime()) ? null : parsed.getTime(),
         uploaded: fmtDate(a.uploadedAt),
         uploader: uploaderLabel(a),
@@ -170,10 +166,16 @@
 
   const columns: ColumnDef<AssetRow>[] = [
     {
-      accessorKey: 'filename',
+      // The cell shows the asset's URN, so the accessor leads with it — sorting
+      // then matches the screen (findings:table-chrome-conventions). The filename
+      // is appended so it stays SEARCHABLE: it is no longer visible, but "find the
+      // row for invoice.pdf" is the obvious thing to type, and an accessor of the
+      // urn alone would silently stop answering it.
+      accessorFn: (row) => `${row.urn} ${row.filename}`,
+      id: 'filename',
       header: t('assets.column.filename', 'File'),
       enableHiding: false,
-      size: 260,
+      size: 320,
     },
     { accessorKey: 'mimeType', header: t('assets.column.type', 'Type'), size: 150 },
     // Numeric accessor so Size sorts by bytes, not by the rendered "9.9 KB".
@@ -284,7 +286,7 @@
   {table}
   {listKey}
   {maxHeight}
-  searchPlaceholder={t('assets.search-placeholder', 'Search files by name, type, or uploader…')}
+  searchPlaceholder={t('assets.search-placeholder', 'Search files by URN, name, type, or uploader…')}
   searchAriaLabel={t('assets.search.aria-label', 'Search files')}
   bind:globalFilter
 >
@@ -295,30 +297,32 @@
              leading slot so filenames align across mixed rows. -->
         <AssetThumbnail asset={row} sizeClass="size-8" />
         <div class="min-w-0">
-          <span class="block truncate font-medium text-zinc-900 dark:text-white" title={row.filename}>{row.filename}</span>
+          <!-- The asset's URN rather than its filename. Its copy-URN button is the
+               useful action — that URN is what createAssetReferenceNode and the
+               attach flow take.
+               NOT linked, and copyUrl={false}: resolveUrn handles
+               mem/node/org/agent/app/user but has no asset kind, so both the
+               anchor and the generic "Copy URL" button would hand over a
+               /app/u/<asset-urn> that lands on an error page rather than the file
+               (PR #705 review, codex P2). -->
+          <div class="min-w-0"><Urn value={row.urn} type="asset" size={8} copyUrl={false} /></div>
           {#if row.description}
             <span class="block truncate text-xs text-zinc-500" title={row.description}>{row.description}</span>
           {/if}
         </div>
       </div>
     {:else if cell.column.id === 'memory'}
-      <!-- A real anchor at the /app/u/<urn> resolver, which turns a URN into its
-           canonical page. NOT <Urn>: that renders spans plus two copy BUTTONS and
-           no anchor, so it never navigated — and wrapping it in a link would nest
-           buttons inside an anchor (invalid, and it would swallow the copy
-           clicks). PR #704 review, codex P2: the earlier version claimed to link
-           and didn't.
-           Plain text when the asset urn didn't parse — a guessed link could point
-           at someone else's memory, which is worse than no link. The column
-           SORTS and SEARCHES on the `memory` label either way. -->
+      <!-- The memory's URN through <Urn>, matching the asset cell — and `linked`,
+           so the chip navigates to the /app/u/<urn> resolver while its two copy
+           buttons keep working (the anchor wraps only the chip, not the buttons).
+           The asset cell is deliberately NOT linked: resolveUrn handles
+           mem/node/org/agent/app/user, so an asset URN resolves to nothing. -->
       {#if row.memoryUrn}
-        <a
-          href={buildResolverUrl('', row.memoryUrn)}
-          title={row.memoryUrn}
-          class="block truncate font-mono text-xs text-indigo-600 hover:underline dark:text-indigo-300"
-        >{row.memory}</a>
+        <div class="min-w-0"><Urn value={row.memoryUrn} type="memory" size={8} linked /></div>
       {:else}
-        <span class="block truncate text-xs text-zinc-500" title={row.memory}>{row.memory}</span>
+        <!-- Plain text when the asset urn didn't parse: a chip built from a guess
+             could name someone else's memory, and it would be clickable. -->
+        <span class="block truncate font-mono text-xs text-zinc-500" title={row.memory}>{row.memory}</span>
       {/if}
     {:else if cell.column.id === 'mimeType'}
       <span class="font-mono text-xs text-zinc-600 dark:text-zinc-400">{row.mimeType}</span>

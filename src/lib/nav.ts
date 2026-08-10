@@ -13,9 +13,12 @@ export interface NavItem {
  * Org-independent items (Dashboard, Search, and — for individuals — the org-less
  * Memories surface) show even without an active org, so an org-less user is
  * never stranded with an empty sidebar (Copilot review on #628; matters more as
- * #627 removes the personal org). Task Nodes and App Runs need an active org
- * (App Runs sits last, below Apps); Agents and Apps only show for non-consumer
- * (org) members.
+ * #627 removes the personal org). Task Nodes and App Runs need an active org;
+ * Agents and Apps only show for non-consumer (org) members.
+ *
+ * Order: Dashboard, Search, Memories…, [Agents, Apps, App Runs], Task Nodes,
+ * Files. App Runs stays immediately after Apps — it is that section's tail, not
+ * a sibling — and Task Nodes + Files sit below the whole Apps group.
  *
  * #629: EVERY user's "Dashboard" now points at /app/dashboard (a stats page) —
  * an org page is the wrong content for a dashboard, individual or not.
@@ -56,17 +59,6 @@ export function buildNavItems(data: {
   }
   items.push({ href: '/app/memories', label: t('app.nav.my-memories', 'My memories'), match: 'prefix' });
 
-  // portal#696 part 1: the cross-memory Files section, sitting with the memory
-  // links because that is what its rows belong to. Org-independent — its default
-  // "My files" slice is the caller's own uploads across every memory, and the
-  // Organization slice degrades to an explanatory empty state without an active
-  // org, so an org-less user is never stranded here.
-  items.push({ href: '/app/assets', label: t('app.nav.files', 'Files'), match: 'prefix' });
-
-  if (activeOrgId) {
-    items.push({ href: `/app/orgs/${activeOrgId}/tasks`, label: t('app.nav.task-nodes', 'Task Nodes'), match: 'prefix' });
-  }
-
   if (activeOrgId && !isConsumerMode) {
     items.push({ href: `/app/orgs/${activeOrgId}/agents`, label: t('app.nav.agents', 'Agents'), match: 'prefix' });
     items.push({ href: `/app/orgs/${activeOrgId}/apps`, label: t('app.nav.apps', 'Apps'), match: 'prefix' });
@@ -86,6 +78,22 @@ export function buildNavItems(data: {
   if (activeOrgId) {
     items.push({ href: `/app/orgs/${activeOrgId}/runs`, label: t('app.nav.app-runs', 'App Runs'), match: 'prefix' });
   }
+
+  // Task Nodes, then Files — moved below the Apps section (maintainer's call).
+  //
+  // Placed after App Runs rather than between Apps and App Runs: App Runs is the
+  // TAIL of the Apps section, not a sibling item ("a run belongs to an app"), and
+  // splitting the two would contradict that and break the test pinning their
+  // adjacency. So "below Apps" is read as "below the Apps group".
+  if (activeOrgId) {
+    items.push({ href: `/app/orgs/${activeOrgId}/tasks`, label: t('app.nav.task-nodes', 'Task Nodes'), match: 'prefix' });
+  }
+
+  // portal#696 part 1: the cross-memory Files section. Org-independent — its
+  // default slice is the caller's own files across every memory, and the
+  // Organization slice degrades to an explanatory empty state without an active
+  // org, so an org-less user is never stranded here.
+  items.push({ href: '/app/assets', label: t('app.nav.files', 'Files'), match: 'prefix' });
 
   return items;
 }

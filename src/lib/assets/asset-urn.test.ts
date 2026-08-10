@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { memoryUrnFromAssetUrn, memoryLabelFromAssetUrn } from './asset-urn';
+import { memoryUrnFromAssetUrn } from './asset-urn';
 
 describe('memoryUrnFromAssetUrn', () => {
   it('derives the memory URN from the v2 asset URN the server emits', () => {
@@ -48,32 +48,25 @@ describe('memoryUrnFromAssetUrn', () => {
     expect(memoryUrnFromAssetUrn('hrn:asset:acme:assets:assets:abc')).toBe('hrn:mem:acme:assets');
   });
 
-  it('PRESERVES a legacy ownership chain instead of flattening it', () => {
-    // PR #704 review, codex P1. More than two atoms is an ownership chain
-    // (<org>::<app>::<agent>::<memory>), which has NO string-derivable v2 form —
-    // v2's fixed arity would read atom 1 as the whole slug and address a
-    // different memory. Emit v1, which the server resolves via its alias map.
-    // Same rule composeNodeUrn implements for nodes.
-    expect(memoryUrnFromAssetUrn('hrn:asset:acme:app:agent:system:assets:abc')).toBe(
-      'hrn:memory:acme::app::agent::system',
-    );
-  });
-
-  it('preserves a chain that arrived already :: -separated', () => {
-    expect(memoryUrnFromAssetUrn('acme::app::agent::system:assets:abc')).toBe(
-      'hrn:memory:acme::app::agent::system',
-    );
-  });
-
-  it('never emits a flattened chain, in either input grammar', () => {
-    // The regression guard: a flat 4-atom v2 spelling would silently point at
-    // another memory.
+  it('declines anything that is not exactly root + slug', () => {
+    // A v2 memory URN is two atoms and a slug can't contain a colon, so a longer
+    // path is not a memory this can address. Production data confirms two atoms is
+    // the only live shape, so rather than synthesize a v1 ownership-chain spelling
+    // for a case that no longer exists, decline — a guess could name a DIFFERENT
+    // memory, and the caller already renders null as plain text.
     for (const input of [
       'hrn:asset:acme:app:agent:system:assets:abc',
       'acme::app::agent::system:assets:abc',
     ]) {
-      expect(memoryUrnFromAssetUrn(input)).not.toBe('hrn:mem:acme:app:agent:system');
+      expect(memoryUrnFromAssetUrn(input)).toBeNull();
     }
+  });
+
+  it('never invents a flattened multi-atom memory urn', () => {
+    // The guard that matters: a flat 4-atom spelling would point somewhere else.
+    expect(memoryUrnFromAssetUrn('hrn:asset:acme:app:agent:system:assets:abc')).not.toBe(
+      'hrn:mem:acme:app:agent:system',
+    );
   });
 
   it('rejects a path with an empty atom', () => {
@@ -95,25 +88,5 @@ describe('memoryUrnFromAssetUrn', () => {
     expect(memoryUrnFromAssetUrn(null)).toBeNull();
     expect(memoryUrnFromAssetUrn(undefined)).toBeNull();
     expect(memoryUrnFromAssetUrn('')).toBeNull();
-  });
-});
-
-describe('memoryLabelFromAssetUrn', () => {
-  it('drops the root, which is shared by every row', () => {
-    expect(memoryLabelFromAssetUrn('hrn:asset:hadronmemory.com:dev:assets:abc')).toBe('dev');
-  });
-
-  it('keeps a chain reading as a chain, not as a v2 path', () => {
-    expect(memoryLabelFromAssetUrn('hrn:asset:acme:app:agent:system:assets:abc')).toBe(
-      'app::agent::system',
-    );
-  });
-
-  it('falls back to the whole thing when there is nothing below the root', () => {
-    expect(memoryLabelFromAssetUrn('hrn:asset:solo:assets:abc')).toBe('solo');
-  });
-
-  it('is null when the URN does not parse', () => {
-    expect(memoryLabelFromAssetUrn('nonsense')).toBeNull();
   });
 });

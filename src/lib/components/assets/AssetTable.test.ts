@@ -2,11 +2,10 @@
  * AssetTable — SSR smoke tests (this repo has no DOM test env for components;
  * see conventions:svelte-component-test-gap).
  *
- * Written because PR #704's review (codex P2) caught the Memory cell claiming to
- * link to the holding memory while rendering a <Urn> chip, which emits spans and
- * copy buttons and no anchor at all. The comment said "links"; the markup didn't.
- * An assertion on the actual emitted href is the only thing that keeps those two
- * honest, so that is what these do.
+ * Both URN columns render through the shared <Urn> chip. Only the MEMORY one is
+ * `linked`: resolveUrn handles mem/node/org/agent/app/user, so an asset URN would
+ * be a link that resolves to nothing. Both halves are asserted, because "which
+ * chips are clickable" is the kind of thing that drifts silently.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
@@ -41,40 +40,103 @@ function body(assets: AssetSummary[], props: Record<string, unknown> = {}) {
 }
 
 describe('AssetTable memory column', () => {
-  it('renders a real anchor at the /app/u/<urn> resolver', () => {
-    // The regression this file exists for: a <Urn> chip has no anchor, so the
-    // cell was inert.
+  it('renders the memory through the <Urn> chip', () => {
+    const html = body([asset()]);
+    // The chip splits the URN across spans but carries it whole in `title`.
+    expect(html).toContain('title="hrn:mem:hadronmemory.com:dev"');
+    // Its type badge, i.e. the chip really rendered rather than plain text.
+    expect(html).toContain('>mem:</span>');
+  });
+
+  it('links the memory chip to the /app/u/<urn> resolver', () => {
     expect(body([asset()])).toContain('href="/app/u/hrn:mem:hadronmemory.com:dev"');
   });
 
-  it('shows the slug label, not a raw memory id', () => {
+  it('keeps the copy buttons OUTSIDE the anchor', () => {
+    // A <button> inside an <a> is invalid and the anchor swallows its clicks, so
+    // the link wraps only the chip. Two copy buttons survive per chip.
     const html = body([asset()]);
-    expect(html).toContain('>dev<');
+    expect(html).toContain('aria-label="Copy URN"');
+    expect(html).toContain('aria-label="Copy URL"');
+    // No button may appear between the opening <a> and its </a>.
+    const a = html.slice(html.indexOf('<a href="/app/u/'));
+    expect(a.slice(0, a.indexOf('</a>'))).not.toContain('<button');
+  });
+
+  it('shows the memory URN, not a raw memory id', () => {
+    const html = body([asset()]);
+    expect(html).toContain('hrn:mem:hadronmemory.com:dev');
     expect(html).not.toContain('mem-1');
   });
 
-  it('PRESERVES a legacy ownership chain in the href', () => {
-    // codex P1: a flattened chain silently addresses a different memory.
+  it('renders no memory chip for a urn that is not root + slug', () => {
+    // The derivation declines rather than guess, so there is nothing to link and
+    // certainly no invented flat spelling.
     const html = body([asset({ urn: 'hrn:asset:acme:app:agent:system:assets:a1' })]);
-    expect(html).toContain('href="/app/u/hrn:memory:acme::app::agent::system"');
-    expect(html).not.toContain('/app/u/hrn:mem:acme:app:agent:system');
+    expect(html).not.toContain('hrn:mem:acme:app:agent:system');
+    expect(html).not.toContain('href="/app/u/hrn:mem:acme');
   });
 
-  it('falls back to plain text — no link — when the urn will not parse', () => {
-    // A guessed link could point at someone else's memory.
+  it('falls back to plain text — and no link — when the urn will not parse', () => {
+    // A chip built from a guess could name someone else's memory, and it would be
+    // clickable.
     const html = body([asset({ urn: 'garbage', memoryId: 'mem-9' })]);
-    expect(html).not.toContain('/app/u/');
     expect(html).toContain('mem-9');
+    expect(html).not.toContain('>mem:</span>');
+    expect(html).not.toContain('/app/u/');
   });
 
-  it('prefers a caller-supplied display name over the derived label', () => {
-    const html = body([asset()], { memoryNames: { 'mem-1': 'Dev Notes' } });
-    expect(html).toContain('Dev Notes');
+  it('shows the memory URN rather than a short slug label', () => {
+    const html = body([asset()]);
+    expect(html).toContain('hadronmemory.com:dev');
   });
 
   it('omits the memory column entirely when showMemory is false', () => {
     const html = render(AssetTable, { props: { assets: [asset()], showMemory: false } }).body;
-    expect(html).not.toContain('/app/u/');
+    expect(html).not.toContain('title="hrn:mem:hadronmemory.com:dev"');
+    // The asset chip is still there — only the memory column drops out.
+    expect(html).toContain('hrn:asset:hadronmemory.com:dev:assets:asset-1');
+  });
+});
+
+describe('AssetTable file column', () => {
+  it('shows the asset URN rather than the filename', () => {
+    const html = body([asset()]);
+    expect(html).toContain('hrn:asset:hadronmemory.com:dev:assets:asset-1');
+  });
+
+  it('does NOT link the asset chip — resolveUrn has no asset kind', () => {
+    // It handles mem/node/org/agent/app/user; an asset link would 404.
+    const html = body([asset()]);
+    expect(html).not.toContain('href="/app/u/hrn:asset:');
+  });
+
+  it('offers no "Copy URL" on the asset chip, only "Copy URN"', () => {
+    // The generic Copy URL button composes /app/u/<urn>, which for an asset lands
+    // on an error page rather than the file (PR #705 review, codex P2). The row
+    // has exactly two chips: memory keeps both buttons, asset keeps only Copy URN.
+    const html = body([asset()]);
+    expect((html.match(/aria-label="Copy URN"/g) ?? []).length).toBe(2);
+    expect((html.match(/aria-label="Copy URL"/g) ?? []).length).toBe(1);
+  });
+
+  it('copies the asset URN the server supplied, byte for byte', () => {
+    // codex P1 asked whether <Urn> alters what it copies. It normalises, so this
+    // pins that a server-emitted v2 asset URN round-trips unchanged — the copied
+    // value feeds createAssetReferenceNode and the attach flow, so a rewritten
+    // one could name another resource. `title` carries exactly what Copy URN uses.
+    const urn = 'hrn:asset:hadronmemory.com:dev:assets:asset-1';
+    expect(body([asset({ urn })])).toContain(`title="${urn}"`);
+  });
+
+  it('keeps the filename SEARCHABLE even though it is no longer shown', () => {
+    // The accessor feeds the global filter, so dropping the filename from it
+    // would silently stop answering "find the row for notes.md".
+    expect(body([asset()])).toContain('notes.md');
+  });
+
+  it('still shows the description under the URN', () => {
+    expect(body([asset({ description: 'Q3 planning notes' })])).toContain('Q3 planning notes');
   });
 });
 
