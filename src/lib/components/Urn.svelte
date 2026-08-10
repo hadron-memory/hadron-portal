@@ -17,7 +17,7 @@
   const V2_TYPE_HINTS = new Set<string>([...V2_URN_TYPES, 'memory']);
   const DISPLAY_TYPE_HINTS = new Set<string>(DISPLAY_URN_TYPES);
 
-  let { value, type, size = 12, compact = false, linked = false }: {
+  let { value, type, size = 12, compact = false, linked = false, copyUrl: showCopyUrl = true }: {
     value: string;
     type?: UrnTypeHint;
     size?: number;
@@ -35,6 +35,15 @@
      * where the target actually resolves.
      */
     linked?: boolean;
+    /**
+     * Show the "Copy URL" button, which copies the `/app/u/<urn>` resolver link.
+     *
+     * Defaults TRUE (every existing call site keeps it). Pass false for a type
+     * `resolveUrn` cannot resolve — it handles mem/memory, node, org, agent, app
+     * and user, so for an `asset` URN the button would copy a URL that lands on an
+     * error page rather than the file (PR #705 review, codex P2).
+     */
+    copyUrl?: boolean;
   } = $props();
 
   let copied = $state(false);
@@ -154,6 +163,7 @@
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
     {/if}
   </button>
+  {#if showCopyUrl}
   <button onclick={copyUrl} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URL" aria-label="Copy URL">
     {#if urlCopied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -161,4 +171,5 @@
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
     {/if}
   </button>
+  {/if}
 </span>

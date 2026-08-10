@@ -118,6 +118,9 @@
   const rows = $derived<AssetRow[]>(
     assets.map((a) => {
       const parsed = new Date(a.uploadedAt);
+      // Parse once per row: this ran twice before, for `memory` and `memoryUrn`
+      // (PR #705 review, Copilot).
+      const memoryUrn = memoryUrnFromAssetUrn(a.urn);
       return {
         id: a.id,
         urn: a.urn,
@@ -134,8 +137,8 @@
         // resolver produced it, so $lib/assets/asset-urn owns that; don't restate
         // one shape here (PR #704 review, Copilot — the shape a comment names is
         // the shape someone later "fixes" the parser to match).
-        memory: memoryUrnFromAssetUrn(a.urn) || a.memoryId || '—',
-        memoryUrn: memoryUrnFromAssetUrn(a.urn),
+        memory: memoryUrn || a.memoryId || '—',
+        memoryUrn,
         uploadedMs: isNaN(parsed.getTime()) ? null : parsed.getTime(),
         uploaded: fmtDate(a.uploadedAt),
         uploader: uploaderLabel(a),
@@ -294,12 +297,15 @@
              leading slot so filenames align across mixed rows. -->
         <AssetThumbnail asset={row} sizeClass="size-8" />
         <div class="min-w-0">
-          <!-- The asset's URN rather than its filename (maintainer's call). <Urn>
-               is right here, unlike the memory cell: an asset has no canonical
-               page to navigate to, so there is nothing to lose by using the chip,
-               and its copy-URN button is the useful action — that URN is what
-               createAssetReferenceNode and the attach flow take. -->
-          <div class="min-w-0"><Urn value={row.urn} type="asset" size={8} /></div>
+          <!-- The asset's URN rather than its filename. Its copy-URN button is the
+               useful action — that URN is what createAssetReferenceNode and the
+               attach flow take.
+               NOT linked, and copyUrl={false}: resolveUrn handles
+               mem/node/org/agent/app/user but has no asset kind, so both the
+               anchor and the generic "Copy URL" button would hand over a
+               /app/u/<asset-urn> that lands on an error page rather than the file
+               (PR #705 review, codex P2). -->
+          <div class="min-w-0"><Urn value={row.urn} type="asset" size={8} copyUrl={false} /></div>
           {#if row.description}
             <span class="block truncate text-xs text-zinc-500" title={row.description}>{row.description}</span>
           {/if}

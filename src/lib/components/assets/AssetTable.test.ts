@@ -111,6 +111,24 @@ describe('AssetTable file column', () => {
     expect(html).not.toContain('href="/app/u/hrn:asset:');
   });
 
+  it('offers no "Copy URL" on the asset chip, only "Copy URN"', () => {
+    // The generic Copy URL button composes /app/u/<urn>, which for an asset lands
+    // on an error page rather than the file (PR #705 review, codex P2). The row
+    // has exactly two chips: memory keeps both buttons, asset keeps only Copy URN.
+    const html = body([asset()]);
+    expect((html.match(/aria-label="Copy URN"/g) ?? []).length).toBe(2);
+    expect((html.match(/aria-label="Copy URL"/g) ?? []).length).toBe(1);
+  });
+
+  it('copies the asset URN the server supplied, byte for byte', () => {
+    // codex P1 asked whether <Urn> alters what it copies. It normalises, so this
+    // pins that a server-emitted v2 asset URN round-trips unchanged — the copied
+    // value feeds createAssetReferenceNode and the attach flow, so a rewritten
+    // one could name another resource. `title` carries exactly what Copy URN uses.
+    const urn = 'hrn:asset:hadronmemory.com:dev:assets:asset-1';
+    expect(body([asset({ urn })])).toContain(`title="${urn}"`);
+  });
+
   it('keeps the filename SEARCHABLE even though it is no longer shown', () => {
     // The accessor feeds the global filter, so dropping the filename from it
     // would silently stop answering "find the row for notes.md".
