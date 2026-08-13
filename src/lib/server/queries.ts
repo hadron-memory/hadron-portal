@@ -82,6 +82,12 @@ export const AGENT_FIELDS = /* GraphQL */ `
     visibility
     type
     surfaces
+    # #928 team personas (portal#712): pure metadata — a persona is an Agent
+    # with a display name, a role string, and an identity paragraph. Editable
+    # from the agent Settings tab.
+    personaName
+    personaRole
+    personaPrompt
     properties
     # 036-ai-service-config: hasAiApiKey is the server shim for "the agent's
     # 'default' config has a key" — kept for the Chat-tab readiness gate (any
@@ -98,7 +104,10 @@ export const AGENT_FIELDS = /* GraphQL */ `
     imports {
       parentAgentId
       importedAgentId
-      importedAgent { id urn name }
+      # description + persona fields feed the Bundled agents grid's Role and
+      # Description columns (#713) — without them an import-sourced row rendered
+      # an em dash even when the imported agent had values (PR #714 review).
+      importedAgent { id urn name description personaName personaRole }
       position
       required
       createdAt
@@ -916,8 +925,8 @@ export const AGENT_QUERY = /* GraphQL */ `
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility) {
-    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
+  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaName: String, $personaRole: String, $personaPrompt: String) {
+    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility, personaName: $personaName, personaRole: $personaRole, personaPrompt: $personaPrompt) { ...AgentFields }
   }
 `;
 
@@ -2301,10 +2310,44 @@ export const RUN_TASK_APP_MUTATION = /* GraphQL */ `
 // `agents` join list are selected so a many-to-many install is caught, and
 // `App.agents` is member-readable (unlike the admin-gated `Agent.apps`), so
 // non-admin members see this too.
+//
+// portal#713: the `agents` join also feeds the "Bundled agents" tab — the
+// SIBLINGS co-installed alongside this agent (that's how a Team Agent bundles
+// its personas: createTeamPersona installs each minted persona into the same
+// App, it does NOT write an AgentImport edge). Hence the full projection here
+// rather than a bare `{ id }`.
+const AGENT_APP_LITE_FIELDS = /* GraphQL */ `
+  fragment AgentAppLiteFields on App {
+    id
+    name
+    urn
+    organizationId
+    agentId
+    agents { id name urn description personaName personaRole }
+  }
+`;
+
 export const AGENT_APPS_QUERY = /* GraphQL */ `
+  ${AGENT_APP_LITE_FIELDS}
   query AgentApps($limit: Int, $offset: Int) {
     apps(limit: $limit, offset: $offset) {
-      items { id name urn organizationId agentId agents { id } }
+      items { ...AgentAppLiteFields }
+      total
+    }
+  }
+`;
+
+// The org-less companion. `apps()` unfiltered scopes to the caller's MEMBER-ORG
+// apps — App carries no userId, so org membership is the routing — and a
+// user-owned (org-less) App is reachable only through `filter.ownedByMe` (#782).
+// Without this second call an org-less team App is invisible to both the Apps
+// tab and the Bundled agents tab, and createTeamPersona explicitly supports
+// user-owned team Apps (PR #714 review, codex P2).
+export const AGENT_OWNED_APPS_QUERY = /* GraphQL */ `
+  ${AGENT_APP_LITE_FIELDS}
+  query AgentOwnedApps($limit: Int, $offset: Int) {
+    apps(filter: { ownedByMe: true }, limit: $limit, offset: $offset) {
+      items { ...AgentAppLiteFields }
       total
     }
   }

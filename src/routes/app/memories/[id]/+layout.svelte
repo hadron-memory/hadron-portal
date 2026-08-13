@@ -112,8 +112,11 @@
   // #260: org context comes from the memory's owning org, which may be one the
   // user isn't a member of (org is then null). Only link the section crumb back
   // to that org's list when the user is a member; otherwise render it as text.
+  // #709: always the org's MEMORIES list — this is a memory page whatever the
+  // class, and routing an agent system memory's crumb to the Agents grid made
+  // the page read as agent chrome (the owning agent is one link below).
   const orgListHref = $derived(
-    data.org ? `/app/orgs/${data.org.id}/${data.graph.class === 'system' ? 'agents' : 'memories'}` : undefined,
+    data.org ? `/app/orgs/${data.org.id}/memories` : undefined,
   );
 
   const path = $derived($page.url.pathname);
@@ -141,12 +144,15 @@
   {#if !isNodeDetail}
     {@const isAgentSystem = data.graph.class === 'system'}
     <div class="mb-4">
+      <!-- #709: memory chrome, whatever the class — an agent system memory is
+           still a memory. Its agent-ness shows as the single "Owned by agent"
+           link below, not as an Agents breadcrumb + an "Agent system:" title. -->
       <Breadcrumb items={[
-        { label: isAgentSystem ? 'Agents' : 'Memories', href: orgListHref },
+        { label: 'Memories', href: orgListHref },
         { label: data.graph.name },
       ]} />
       <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">
-        <span class="text-zinc-400 font-normal">{isAgentSystem ? 'Agent system:' : 'Memory:'}</span> {data.graph.name}
+        <span class="text-zinc-400 font-normal">Memory:</span> {data.graph.name}
       </h1>
       <Urn value={data.graph.urn} type="memory" />
       {#if isAgentSystem && data.graph.agent}

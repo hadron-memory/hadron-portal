@@ -502,12 +502,9 @@
       </form>
     {:else}
       <div class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
-        {#if isAgentSystem && g.agent}
-          <div class="flex items-center justify-between px-5 py-3">
-            <span class="text-sm text-zinc-500">Owned by agent</span>
-            <a href={`/app/agents/${g.agent.id}`} class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">{g.agent.name}</a>
-          </div>
-        {/if}
+        <!-- #709: the "Owned by agent" row lived here AND in the page header,
+             so an agent system memory showed its owner twice on this tab. The
+             header link (see the memory +layout.svelte) is the single one. -->
         {#if !isAgentSystem}
           <div class="flex items-center justify-between px-5 py-3">
             <span class="text-sm text-zinc-500">{isOwnerOnly ? 'Access' : 'Visibility'}</span>

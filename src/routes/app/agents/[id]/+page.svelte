@@ -41,6 +41,18 @@
   type RemoveAgentMemorySuperform = SuperValidated<RemoveAgentMemoryForm, App.Superforms.Message, RemoveAgentMemoryForm>;
   type DeleteAgentSuperform = SuperValidated<DeleteAgentForm, App.Superforms.Message, DeleteAgentForm>;
 
+  // #713: one row of the Bundled agents grid. `via` names what bundles it —
+  // the App it is co-installed in, or "Import" for an AgentImport edge.
+  interface BundledAgentRow {
+    id: string;
+    name: string;
+    urn: string;
+    description: string | null;
+    personaName: string | null;
+    personaRole: string | null;
+    via: string;
+  }
+
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const agent = $derived(data.agent);
   const org = $derived(data.org);
@@ -49,12 +61,11 @@
   // /app/agents stopped redirecting org members to their org grid, org-agent
   // exits (breadcrumb, delete) must target the org list explicitly.
   const agentsHref = $derived(org ? `/app/orgs/${org.id}/agents` : '/app/agents');
-  // #636: the edit form shows the agent's URN prefix. For an org agent that's
-  // the org URN; for a user-owned (org-less) agent there's no org, so derive it
-  // from the agent's own URN (everything before the final ':' slug segment).
-  const urnPrefix = $derived(
-    org ? org.urn : agent.urn.slice(0, Math.max(0, agent.urn.lastIndexOf(':'))),
-  );
+  // #636/#710: the edit form shows the agent's URN prefix — everything before
+  // the final ':' slug segment of the AGENT's own URN. Using the org URN here
+  // (the old org branch) rendered the wrong resource type: `hrn:org:acme.com:`
+  // in front of a slug that composes an `hrn:agent:acme.com:` URN.
+  const urnPrefix = $derived(agent.urn.slice(0, Math.max(0, agent.urn.lastIndexOf(':'))));
   const orgSystemMemories = $derived((data as any).orgSystemMemories ?? []);
   // Apps this agent is installed into (built server-side from the AppAgent join).
   const installedApps = $derived(
@@ -62,6 +73,12 @@
       .installedApps ?? [],
   );
   const writableMemoryIds = $derived((agent.memoryItems ?? []).filter((m) => m.role === 'read-write').map((m) => m.memory.id));
+  // #713: agents bundled with this one — co-installed siblings plus AgentImport
+  // edges, assembled server-side (see the loader for why siblings are the source
+  // of truth for a Team Agent's personas).
+  const bundledAgents = $derived(
+    (data as { bundledAgents?: BundledAgentRow[] }).bundledAgents ?? [],
+  );
 
   // Agents with a system memory get the Chatbot Control tab. The chatbot
   // sub-tab system opens per-conversation or per-partial sub-tabs when the
@@ -71,7 +88,7 @@
   // #352 tab reorg: Profile (agent info) is the landing tab; Memories and
   // AI Providers were split out of the old Settings tab; the old "Memory"
   // node browser is now "Nodes"; Settings keeps the danger zone.
-  type TabId = 'profile' | 'memories' | 'apps' | 'nodes' | 'chatbot' | 'ai' | 'settings';
+  type TabId = 'profile' | 'memories' | 'apps' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
   let activeTab = $state<TabId>('profile');
 
   // ── Chatbot Control sub-tab state ────────────────────────────────────
@@ -158,6 +175,10 @@
     { id: 'profile', label: 'Profile' },
     { id: 'memories', label: 'Memories' },
     { id: 'apps', label: 'Apps' },
+    // #713: only for an agent that actually bundles others (a Team Agent and
+    // its personas) — an always-empty tab on every ordinary agent is noise,
+    // same reasoning as Chatbot Control below.
+    ...(bundledAgents.length > 0 ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
     { id: 'nodes', label: 'Nodes' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
     { id: 'ai', label: 'AI Providers' },
@@ -293,6 +314,9 @@
       systemPrompt: agent.systemPrompt ?? '',
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
+      personaName: agent.personaName ?? '',
+      personaRole: agent.personaRole ?? '',
+      personaPrompt: agent.personaPrompt ?? '',
     }), { taint: false });
     isEditing = true;
   }
@@ -304,6 +328,7 @@
   );
   const agentNameError = $derived($agentSettingsErrors.name?.[0] ?? null);
   const agentUrnError = $derived($agentSettingsErrors.urnSlug?.[0] ?? null);
+  const personaNameError = $derived($agentSettingsErrors.personaName?.[0] ?? null);
   const addMemoryError = $derived($addMemoryErrors.memoryId?.[0] ?? null);
   const addMemoryActionError = $derived($addMemoryMessage?.type === 'error' ? $addMemoryMessage.text : $addMemoryErrors._kind?.[0] ?? null);
   const addMemoryActionSuccess = $derived($addMemoryMessage?.type === 'success' ? $addMemoryMessage.text : null);
@@ -454,6 +479,41 @@
     { id: 'actions', header: 'Actions', enableSorting: false, enableHiding: false, size: 100 },
   ];
 
+  // ── Bundled agents grid (#713) ────────────────────────────────────────
+  let bundledFilter = $state('');
+
+  const bundledColumns: ColumnDef<BundledAgentRow>[] = [
+    { accessorKey: 'name', header: 'Name', enableHiding: false, size: 200 }, // identity column
+    { accessorKey: 'urn', header: 'URN', size: 300 },
+    { accessorKey: 'personaRole', id: 'role', header: 'Role', size: 160 },
+    { accessorKey: 'via', header: 'Bundled via', size: 180 },
+    { accessorKey: 'description', header: 'Description', size: 260 },
+  ];
+
+  const bundledTable = createSvelteTable<BundledAgentRow>({
+    get data() {
+      return bundledAgents;
+    },
+    columns: bundledColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return bundledFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      bundledFilter = typeof u === 'function' ? u(bundledFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+  });
+
   const memoryTable = createSvelteTable<AgentMemoryRow>({
     get data() {
       return memoryRows;
@@ -577,9 +637,32 @@
               <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
             </div>
           {/if}
+          <!-- #712: persona metadata, shown only when this agent IS a persona. -->
+          {#if agent.personaName}
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Persona name</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaName}</span>
+            </div>
+          {/if}
+          {#if agent.personaRole}
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Persona role</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaRole}</span>
+            </div>
+          {/if}
+          {#if agent.personaPrompt}
+            <div class="px-5 py-3">
+              <span class="text-sm text-zinc-500">Persona prompt</span>
+              <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.personaPrompt}</p>
+            </div>
+          {/if}
           {#if agent.systemMemoryId}
             <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">System Memory</span>
+              <span class="text-sm text-zinc-500">Agent system memory</span>
+              <a href="/app/memories/{agent.systemMemoryId}" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">{systemMemory?.name ?? 'System memory'} →</a>
+            </div>
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Conversations</span>
               <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
             </div>
           {/if}
@@ -818,6 +901,41 @@
       {:else}
         <p class="text-sm text-zinc-500">This agent isn't installed into any apps yet.</p>
       {/if}
+    </section>
+  {/if}
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- BUNDLED AGENTS TAB — agents this one carries with it (#713)          -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'bundled'}
+    <section>
+      <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Bundled agents
+        <span class="ml-1 text-sm font-normal text-zinc-500">({bundledAgents.length})</span>
+      </h2>
+      <!-- 24rem offset tuned to this page's chrome (breadcrumb + header + tab
+           bar above) — per-page convention, same as the Memories grid. -->
+      <DataTable
+        table={bundledTable}
+        listKey="agent:bundled-agents"
+        searchPlaceholder="Search bundled agents..."
+        searchAriaLabel="Search bundled agents"
+        bind:globalFilter={bundledFilter}
+        maxHeight="max(200px, calc(100vh - 24rem))"
+      >
+        {#snippet cell(cell, a)}
+          {#if cell.column.id === 'name'}
+            <a href="/app/agents/{a.id}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{a.name}</a>
+          {:else if cell.column.id === 'urn'}
+            <Urn value={a.urn} type="agent" size={10} />
+          {:else if cell.column.id === 'role'}
+            <span class="text-sm text-zinc-600 dark:text-zinc-400">{a.personaRole ?? '—'}</span>
+          {:else if cell.column.id === 'via'}
+            <span class="text-sm text-zinc-600 dark:text-zinc-400">{a.via}</span>
+          {:else if cell.column.id === 'description'}
+            <span class="min-w-0 truncate text-sm text-zinc-600 dark:text-zinc-400" title={a.description ?? ''}>{a.description ?? '—'}</span>
+          {/if}
+        {/snippet}
+      </DataTable>
     </section>
   {/if}
 
@@ -1078,28 +1196,28 @@
                 <option value="PUBLIC">Public</option>
               </select>
             </div>
-            <div>
-              <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Memory <span class="text-zinc-500">(for conversations, automations, and more)</span></label>
-              {#if agent.systemMemoryId}
-                <!-- #488: once attached, the server forbids changing/unsetting
-                     the system memory — offering a select here was worse than
-                     useless: when the current memory was missing from the
-                     (membership-gated, best-effort) options list, the browser
-                     fell back to "— None —" and the save of ANY field failed
-                     with "Cannot unset or change...". A DISABLED input (never
-                     submitted) keeps the label association intact for screen
-                     readers; systemMemory resolves from allMemories, which
-                     still carries the entry when the system-memories list
-                     doesn't (PR-492 review). -->
-                <input
-                  id="editSystemMemoryId"
-                  type="text"
-                  disabled
-                  value={systemMemory?.name ?? `System Memory (${agent.systemMemoryId})`}
-                  class="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300"
-                />
-                <p class="mt-1 text-xs text-zinc-400">Can't be changed — delete the agent to replace its system memory.</p>
-              {:else}
+            {#if agent.systemMemoryId}
+              <!-- #488: once attached, the server forbids changing/unsetting the
+                   system memory, so there is no control here at all — #711 turned
+                   the old disabled text input (which only ever showed the name)
+                   into the memory itself: a hotlink to the memory page plus its
+                   URN chip. No <label> without a control: the field heading is a
+                   plain <div> so nothing dangles a `for=` at a missing input. -->
+              <div>
+                <div class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Agent system memory</div>
+                <div class="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+                  <a href="/app/memories/{agent.systemMemoryId}" class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">
+                    {systemMemory?.name ?? 'System memory'}
+                  </a>
+                  {#if systemMemory?.urn}
+                    <div class="mt-1"><Urn value={systemMemory.urn} type="memory" size={10} linked /></div>
+                  {/if}
+                </div>
+                <p class="mt-1 text-xs text-zinc-400">The agent system memory is like an operating system. Unless you are the agent builder, don't edit it.</p>
+              </div>
+            {:else}
+              <div>
+                <label for="editSystemMemoryId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Agent system memory <span class="text-zinc-500">(for conversations, automations, and more)</span></label>
                 <select id="editSystemMemoryId" name="systemMemoryId" bind:value={$agentSettingsForm.systemMemoryId} class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                   <option value="">— None —</option>
                   {#each orgSystemMemories as sm}
@@ -1107,7 +1225,35 @@
                   {/each}
                 </select>
                 <p class="mt-1 text-xs text-zinc-400">Memory the agent uses for conversations, automations, and other tasks.</p>
+              </div>
+            {/if}
+            <!-- #712 persona metadata. A persona — a named AI team member driven
+                 by coding sessions or portal chat — IS an Agent; these three
+                 fields are what make it one. Blank clears the field server-side,
+                 so an ordinary agent just leaves them empty. -->
+            <div>
+              <label for="editPersonaName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Persona name</label>
+              <input id="editPersonaName" name="personaName" type="text" placeholder="Iris" bind:value={$agentSettingsForm.personaName}
+                aria-invalid={!!personaNameError}
+                aria-describedby={personaNameError ? 'editPersonaNameError' : 'editPersonaNameHelp'}
+                class="{inputClass} {personaNameError ? 'border-red-500 focus:border-red-500' : ''}" />
+              {#if personaNameError}
+                <p id="editPersonaNameError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{personaNameError}</p>
+              {:else}
+                <p id="editPersonaNameHelp" class="mt-1 text-xs text-zinc-400">Display name of the team member. Must be unique for this owner; leave blank if this agent isn't a persona.</p>
               {/if}
+            </div>
+            <div>
+              <label for="editPersonaRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Persona role</label>
+              <input id="editPersonaRole" name="personaRole" type="text" placeholder="backend-engineer" bind:value={$agentSettingsForm.personaRole}
+                aria-describedby="editPersonaRoleHelp" class={inputClass} />
+              <p id="editPersonaRoleHelp" class="mt-1 text-xs text-zinc-400">Free-form role, by convention a slug like <code>backend-engineer</code>.</p>
+            </div>
+            <div>
+              <label for="editPersonaPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Persona prompt</label>
+              <textarea id="editPersonaPrompt" name="personaPrompt" rows="4" placeholder="Who this team member is and how they work" bind:value={$agentSettingsForm.personaPrompt}
+                aria-describedby="editPersonaPromptHelp" class={inputClass}></textarea>
+              <p id="editPersonaPromptHelp" class="mt-1 text-xs text-zinc-400">Identity paragraph; clients compose it into the system prompt.</p>
             </div>
             <div class="flex gap-3">
               <button type="submit" disabled={$agentSettingsSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">{$agentSettingsSubmitting ? 'Saving...' : 'Save'}</button>
@@ -1132,9 +1278,31 @@
                 <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
               </div>
             {/if}
+            {#if agent.personaName}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Persona name</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaName}</span>
+              </div>
+            {/if}
+            {#if agent.personaRole}
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Persona role</span>
+                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaRole}</span>
+              </div>
+            {/if}
+            {#if agent.personaPrompt}
+              <div class="px-5 py-3">
+                <span class="text-sm text-zinc-500">Persona prompt</span>
+                <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.personaPrompt}</p>
+              </div>
+            {/if}
             {#if agent.systemMemoryId}
               <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">System Memory</span>
+                <span class="text-sm text-zinc-500">Agent system memory</span>
+                <a href="/app/memories/{agent.systemMemoryId}" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">{systemMemory?.name ?? 'System memory'} →</a>
+              </div>
+              <div class="flex items-center justify-between px-5 py-3">
+                <span class="text-sm text-zinc-500">Conversations</span>
                 <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
               </div>
             {/if}
