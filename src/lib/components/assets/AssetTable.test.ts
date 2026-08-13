@@ -69,12 +69,19 @@ describe('AssetTable memory column', () => {
     expect(html).not.toContain('mem-1');
   });
 
-  it('renders no memory chip for a urn that is not root + slug', () => {
-    // The derivation declines rather than guess, so there is nothing to link and
-    // certainly no invented flat spelling.
-    const html = body([asset({ urn: 'hrn:asset:acme:app:agent:system:assets:a1' })]);
-    expect(html).not.toContain('hrn:mem:acme:app:agent:system');
-    expect(html).not.toContain('href="/app/u/hrn:mem:acme');
+  it('links a COMPOUND memory part — asset URNs are not fixed-arity', () => {
+    // composeUrnV2 has no arity rule for `asset`, so the memory part varies in
+    // length; `mentor-co:juno:mike-personal` is seeded. An earlier version required
+    // exactly two atoms and rendered no chip at all for those rows.
+    const html = body([asset({ urn: 'hrn:asset:mentor-co:juno:mike-personal:assets:a1' })]);
+    expect(html).toContain('href="/app/u/hrn:mem:mentor-co:juno:mike-personal"');
+  });
+
+  it('renders no memory chip for the unknown-memory sentinel', () => {
+    // hrn:asset:unknown:assets:<id> names no memory, so there is nothing to link.
+    const html = body([asset({ urn: 'hrn:asset:unknown:assets:a1', memoryId: 'mem-9' })]);
+    expect(html).not.toContain('href="/app/u/');
+    expect(html).toContain('mem-9');
   });
 
   it('falls back to plain text — and no link — when the urn will not parse', () => {

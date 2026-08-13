@@ -47,6 +47,26 @@ function atomsOf(memoryPart: string): string[] {
 }
 
 /**
+ * A v1 OWNERSHIP CHAIN — `<org>::<app>::<agent>::<memory>`, more than two atoms
+ * written with the `::` separator.
+ *
+ * This shape only reaches us through the `${memory.urn}:assets:${id}` fallback,
+ * which copies `Memory.urn` verbatim; the normal v2 emission path has already
+ * flattened via `bareAtoms`. It matters because a chain has NO string-derivable
+ * v2 form — `composeNodeUrn` says so and declines to flatten one, since the
+ * migration may reassign slugs and the server resolves chains through a stored
+ * alias map. Flattening here would compose a URN that resolves to a DIFFERENT
+ * memory, silently, with no error on either side (PR #708 review — codex P2,
+ * seconded by Copilot).
+ *
+ * Two atoms is root + slug, not a chain: `acme::docs` → `hrn:mem:acme:docs` is
+ * the documented v1→v2 rewrite and stays supported.
+ */
+function isOwnershipChain(memoryPart: string): boolean {
+  return memoryPart.includes('::') && memoryPart.split('::').length > 2;
+}
+
+/**
  * `hrn:asset:holger:jens:assets:<id>` → `hrn:mem:holger:jens`
  *
  * Returns null rather than guessing when the shape isn't recognised — a wrong
@@ -63,26 +83,38 @@ export function memoryUrnFromAssetUrn(assetUrn: string | null | undefined): stri
   const cut = bare.lastIndexOf(SEPARATOR);
   if (cut <= 0) return null;
 
-  const memoryPart = bare.slice(0, cut);
+  // Strip a prefix from the memory part TOO. A legacy `memories.urn` row can hold
+  // a rendered `hrn:mem:acme.com:docs`, and the NORMAL emission branch composes
+  // that straight through (bareAtoms strips `@` and collapses `::` but never a
+  // scheme prefix), yielding `hrn:asset:hrn:mem:acme.com:docs:assets:<id>`. Such
+  // rows exist because chk_memory_urn_not_prefixed is NOT VALID — enforced on
+  // write, never re-checked against pre-existing rows. Stripping only once left the
+  // inner prefix in place and composed a doubled `hrn:mem:hrn:mem:…`.
+  const memoryPart = bare.slice(0, cut).replace(URN_PREFIX, '');
   if (!memoryPart) return null;
 
   // Nothing after the separator means a truncated URN, not a memory reference.
   if (!bare.slice(cut + SEPARATOR.length)) return null;
 
+  // A v1 ownership chain can't be flattened into v2 — returning null costs a
+  // chip on a rare legacy row; guessing costs a link to the WRONG memory.
+  if (isOwnershipChain(memoryPart)) return null;
+
   const atoms = atomsOf(memoryPart);
   if (atoms.some((a) => !a)) return null; // an empty atom means a malformed path
 
-  // A v2 memory URN is root + slug — exactly two atoms (cor:urn:010:01), and a slug
-  // is a single atom, so it cannot contain a colon. `Memory.urn` is stored bare and
-  // v2 across the board (checked against production data: 103 memories, none with
-  // `::`, none with more than two atoms, none scheme-prefixed), so two atoms is the
-  // only shape that actually occurs.
+  // The memory part is VARIABLE-LENGTH — do not assume root + slug.
+  // `composeUrnV2` has an arity rule for secret/apprun/noderev/node/edge but NONE
+  // for `asset`, so a compound memory urn lengthens the URN instead of being
+  // rejected. `mentor-co:juno:mike-personal` is in prisma/seed.ts, so three atoms
+  // is real, not hypothetical — see
+  // hadronmemory.com:hadron-server:findings:asset-urn-shapes-are-variable.
   //
-  // Anything longer would be a v1 OWNERSHIP CHAIN, which v2 removed. Rather than
-  // synthesize a v1 spelling for a case the data no longer contains, decline:
-  // returning null costs the caller a chip and nothing else, whereas guessing could
-  // name a DIFFERENT memory. Callers already handle null.
-  if (atoms.length !== 2) return null;
+  // Requiring exactly two declined that memory's assets outright (no chip at all).
+  // The floor is two: a single atom is the `hrn:asset:unknown:assets:<id>`
+  // sentinel the server emits when it cannot load the memory row, which names no
+  // memory and must stay null.
+  if (atoms.length < 2) return null;
 
   return `hrn:mem:${atoms.join(':')}`;
 }
