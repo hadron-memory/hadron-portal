@@ -47,6 +47,26 @@ function atomsOf(memoryPart: string): string[] {
 }
 
 /**
+ * A v1 OWNERSHIP CHAIN — `<org>::<app>::<agent>::<memory>`, more than two atoms
+ * written with the `::` separator.
+ *
+ * This shape only reaches us through the `${memory.urn}:assets:${id}` fallback,
+ * which copies `Memory.urn` verbatim; the normal v2 emission path has already
+ * flattened via `bareAtoms`. It matters because a chain has NO string-derivable
+ * v2 form — `composeNodeUrn` says so and declines to flatten one, since the
+ * migration may reassign slugs and the server resolves chains through a stored
+ * alias map. Flattening here would compose a URN that resolves to a DIFFERENT
+ * memory, silently, with no error on either side (PR #708 review — codex P2,
+ * seconded by Copilot).
+ *
+ * Two atoms is root + slug, not a chain: `acme::docs` → `hrn:mem:acme:docs` is
+ * the documented v1→v2 rewrite and stays supported.
+ */
+function isOwnershipChain(memoryPart: string): boolean {
+  return memoryPart.includes('::') && memoryPart.split('::').length > 2;
+}
+
+/**
  * `hrn:asset:holger:jens:assets:<id>` → `hrn:mem:holger:jens`
  *
  * Returns null rather than guessing when the shape isn't recognised — a wrong
@@ -75,6 +95,10 @@ export function memoryUrnFromAssetUrn(assetUrn: string | null | undefined): stri
 
   // Nothing after the separator means a truncated URN, not a memory reference.
   if (!bare.slice(cut + SEPARATOR.length)) return null;
+
+  // A v1 ownership chain can't be flattened into v2 — returning null costs a
+  // chip on a rare legacy row; guessing costs a link to the WRONG memory.
+  if (isOwnershipChain(memoryPart)) return null;
 
   const atoms = atomsOf(memoryPart);
   if (atoms.some((a) => !a)) return null; // an empty atom means a malformed path

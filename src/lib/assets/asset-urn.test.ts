@@ -39,6 +39,25 @@ describe('memoryUrnFromAssetUrn', () => {
     );
   });
 
+  it('declines a v1 OWNERSHIP CHAIN rather than flattening it', () => {
+    // >2 atoms written with `::` is the `<org>::<app>::<agent>::<memory>` chain.
+    // It has no string-derivable v2 form (see composeNodeUrn): flattening would
+    // compose `hrn:mem:acme:app:agent:system`, which addresses a DIFFERENT
+    // memory than the chain's stored alias — a wrong link, silently.
+    // Only the `${memory.urn}:assets:${id}` fallback can deliver this shape;
+    // the v2 emitter flattens via bareAtoms before we ever see it.
+    // (PR #708 review — codex P2, seconded by Copilot.)
+    expect(memoryUrnFromAssetUrn('acme::app::agent::system:assets:abc')).toBeNull();
+    expect(memoryUrnFromAssetUrn('hrn:memory:acme::app::agent::system:assets:abc')).toBeNull();
+  });
+
+  it('still flattens a two-atom :: memory — that is not a chain', () => {
+    // The guard above must not swallow the ordinary v1 root::slug rewrite.
+    expect(memoryUrnFromAssetUrn('hrn:asset:acme.com::docs:assets:abc')).toBe(
+      'hrn:mem:acme.com:docs',
+    );
+  });
+
   it('accepts a urn: scheme as well as hrn:', () => {
     expect(memoryUrnFromAssetUrn('urn:asset:holger:jens:assets:abc')).toBe('hrn:mem:holger:jens');
   });
