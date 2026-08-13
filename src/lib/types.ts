@@ -130,7 +130,14 @@ export interface InstallationPolicy {
 export interface AgentImport {
   parentAgentId: string;
   importedAgentId: string;
-  importedAgent: { id: string; urn: string; name: string };
+  importedAgent: {
+    id: string;
+    urn: string;
+    name: string;
+    description?: string | null;
+    personaName?: string | null;
+    personaRole?: string | null;
+  };
   position: number;
   required: boolean;
   createdAt: string;

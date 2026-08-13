@@ -104,7 +104,10 @@ export const AGENT_FIELDS = /* GraphQL */ `
     imports {
       parentAgentId
       importedAgentId
-      importedAgent { id urn name }
+      # description + persona fields feed the Bundled agents grid's Role and
+      # Description columns (#713) — without them an import-sourced row rendered
+      # an em dash even when the imported agent had values (PR #714 review).
+      importedAgent { id urn name description personaName personaRole }
       position
       required
       createdAt
@@ -2313,17 +2316,38 @@ export const RUN_TASK_APP_MUTATION = /* GraphQL */ `
 // its personas: createTeamPersona installs each minted persona into the same
 // App, it does NOT write an AgentImport edge). Hence the full projection here
 // rather than a bare `{ id }`.
+const AGENT_APP_LITE_FIELDS = /* GraphQL */ `
+  fragment AgentAppLiteFields on App {
+    id
+    name
+    urn
+    organizationId
+    agentId
+    agents { id name urn description personaName personaRole }
+  }
+`;
+
 export const AGENT_APPS_QUERY = /* GraphQL */ `
+  ${AGENT_APP_LITE_FIELDS}
   query AgentApps($limit: Int, $offset: Int) {
     apps(limit: $limit, offset: $offset) {
-      items {
-        id
-        name
-        urn
-        organizationId
-        agentId
-        agents { id name urn description personaName personaRole }
-      }
+      items { ...AgentAppLiteFields }
+      total
+    }
+  }
+`;
+
+// The org-less companion. `apps()` unfiltered scopes to the caller's MEMBER-ORG
+// apps — App carries no userId, so org membership is the routing — and a
+// user-owned (org-less) App is reachable only through `filter.ownedByMe` (#782).
+// Without this second call an org-less team App is invisible to both the Apps
+// tab and the Bundled agents tab, and createTeamPersona explicitly supports
+// user-owned team Apps (PR #714 review, codex P2).
+export const AGENT_OWNED_APPS_QUERY = /* GraphQL */ `
+  ${AGENT_APP_LITE_FIELDS}
+  query AgentOwnedApps($limit: Int, $offset: Int) {
+    apps(filter: { ownedByMe: true }, limit: $limit, offset: $offset) {
+      items { ...AgentAppLiteFields }
       total
     }
   }

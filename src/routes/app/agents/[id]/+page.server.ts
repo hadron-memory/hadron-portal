@@ -13,6 +13,7 @@ import {
   ORG_SYSTEM_MEMORIES_QUERY,
   GRAPH_NODES_QUERY,
   AGENT_APPS_QUERY,
+  AGENT_OWNED_APPS_QUERY,
   UPDATE_AGENT_MUTATION,
   DELETE_AGENT_MUTATION,
   ADD_MEMORY_TO_AGENT_MUTATION,
@@ -114,7 +115,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }>;
   };
 
-  const [nodesResult, sysMemResult, configsResult, appsResult, personalMemsResult] = await Promise.all([
+  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult] = await Promise.all([
     allMemoryIds.length > 0
       ? client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
           GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
@@ -136,6 +137,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     // Apps this agent is installed into (member-scoped, all caller orgs).
     // Non-fatal: on failure the Apps tab just shows none.
     fetchAllItems<AgentAppLite>(client, AGENT_APPS_QUERY, 'apps').catch(() => [] as AgentAppLite[]),
+    // …plus the caller's OWN org-less apps. `apps()` routes on org membership,
+    // so a user-owned App is only reachable through filter.ownedByMe (#782) —
+    // without this a personal team App showed neither in the Apps tab nor in
+    // Bundled agents, though createTeamPersona supports one (#714 review).
+    fetchAllItems<AgentAppLite>(client, AGENT_OWNED_APPS_QUERY, 'apps').catch(() => [] as AgentAppLite[]),
     // #642: the caller's OWN personal memories, offered as "Add memory" options
     // for a personal agent. Gated on `!org && visibility !== 'PUBLIC'`, which
     // means the caller OWNS a non-PUBLIC org-less agent: agent(ref:) only returns
@@ -151,7 +157,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // An agent can be installed into several apps (as the primary agentId or via
   // the AppAgent join), and an app can host several agents — match on both.
   const agentId = agent.id;
-  const appsWithThisAgent = (appsResult ?? [])
+  // The two app lists can overlap for a platform admin, so de-dupe by app id
+  // before anything counts or lists them.
+  const appsById = new Map<string, AgentAppLite>();
+  for (const a of [...(orgAppsResult ?? []), ...(ownedAppsResult ?? [])]) {
+    if (!appsById.has(a.id)) appsById.set(a.id, a);
+  }
+  const appsWithThisAgent = [...appsById.values()]
     .filter((a) => a.agentId === agentId || (a.agents ?? []).some((x) => x.id === agentId));
   const installedApps = appsWithThisAgent
     .map((a) => ({ id: a.id, name: a.name, urn: a.urn, orgId: a.organizationId }))
@@ -189,9 +201,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       id: imported.id,
       name: imported.name,
       urn: imported.urn,
-      description: null,
-      personaName: null,
-      personaRole: null,
+      description: imported.description ?? null,
+      personaName: imported.personaName ?? null,
+      personaRole: imported.personaRole ?? null,
       via: imp.required ? 'Import (required)' : 'Import',
     });
   }
