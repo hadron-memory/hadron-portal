@@ -104,7 +104,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     urn: string;
     organizationId: string;
     agentId: string | null;
-    agents?: Array<{ id: string }>;
+    agents?: Array<{
+      id: string;
+      name: string;
+      urn: string;
+      description: string | null;
+      personaName: string | null;
+      personaRole: string | null;
+    }>;
   };
 
   const [nodesResult, sysMemResult, configsResult, appsResult, personalMemsResult] = await Promise.all([
@@ -144,10 +151,51 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // An agent can be installed into several apps (as the primary agentId or via
   // the AppAgent join), and an app can host several agents — match on both.
   const agentId = agent.id;
-  const installedApps = (appsResult ?? [])
-    .filter((a) => a.agentId === agentId || (a.agents ?? []).some((x) => x.id === agentId))
+  const appsWithThisAgent = (appsResult ?? [])
+    .filter((a) => a.agentId === agentId || (a.agents ?? []).some((x) => x.id === agentId));
+  const installedApps = appsWithThisAgent
     .map((a) => ({ id: a.id, name: a.name, urn: a.urn, orgId: a.organizationId }))
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  // #713 "Bundled agents": the agents this one carries with it. Two sources,
+  // de-duplicated by agent id (an import that is also co-installed appears once):
+  //   1. SIBLINGS co-installed in the same App(s) — how a Team Agent bundles its
+  //      personas (createTeamPersona installs each minted persona into the team
+  //      App; it writes no AgentImport edge, so `imports` is empty for eng-team).
+  //   2. AgentImport edges — the declarative 008-agent-installation bundling.
+  // `via` records which App (or the import edge) put it in the list.
+  const bundledById = new Map<string, {
+    id: string; name: string; urn: string; description: string | null;
+    personaName: string | null; personaRole: string | null; via: string;
+  }>();
+  for (const app of appsWithThisAgent) {
+    for (const sibling of app.agents ?? []) {
+      if (sibling.id === agentId || bundledById.has(sibling.id)) continue;
+      bundledById.set(sibling.id, {
+        id: sibling.id,
+        name: sibling.name,
+        urn: sibling.urn,
+        description: sibling.description ?? null,
+        personaName: sibling.personaName ?? null,
+        personaRole: sibling.personaRole ?? null,
+        via: app.name,
+      });
+    }
+  }
+  for (const imp of agent.imports ?? []) {
+    const imported = imp.importedAgent;
+    if (!imported || imported.id === agentId || bundledById.has(imported.id)) continue;
+    bundledById.set(imported.id, {
+      id: imported.id,
+      name: imported.name,
+      urn: imported.urn,
+      description: null,
+      personaName: null,
+      personaRole: null,
+      via: imp.required ? 'Import (required)' : 'Import',
+    });
+  }
+  const bundledAgents = [...bundledById.values()].sort((a, b) => a.name.localeCompare(b.name));
 
   if (nodesResult) {
     const memoryMap = new Map((agent.memoryItems ?? []).map((m) => [m.memory.id, m.memory]));
@@ -165,6 +213,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       systemPrompt: agent.systemPrompt ?? '',
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
+      personaName: agent.personaName ?? '',
+      personaRole: agent.personaRole ?? '',
+      personaPrompt: agent.personaPrompt ?? '',
     }, agentSettingsFormAdapter, { errors: false }),
     superValidate<AddAgentMemoryForm>(
       { memoryId: '', role: 'read' },
@@ -193,6 +244,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     org,
     agentNodes,
     installedApps,
+    bundledAgents,
     allOrgs: orgs,
     orgSystemMemories,
     // Empty for an org agent; the caller's own memories for a user-owned agent (#642).
@@ -226,9 +278,14 @@ export const actions: Actions = {
     // resolver skip the field; a real first-attach still sends the id.
     const systemMemoryId = form.data.systemMemoryId || undefined;
     const visibility = form.data.visibility || undefined;
+    // #712: send persona fields VERBATIM, including ''. Unlike systemMemoryId,
+    // blank is not "no opinion" here — the server normalizes blank-after-trim
+    // to null, which is how the user clears a persona field from this form.
+    const { personaName, personaRole, personaPrompt } = form.data;
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
         ref: params.id, name, urn: urnSlug, description, systemPrompt, systemMemoryId, visibility,
+        personaName, personaRole, personaPrompt,
       });
 
       // If a system memory was selected, ensure it has the chatbot scaffold

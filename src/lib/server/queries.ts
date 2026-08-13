@@ -82,6 +82,12 @@ export const AGENT_FIELDS = /* GraphQL */ `
     visibility
     type
     surfaces
+    # #928 team personas (portal#712): pure metadata — a persona is an Agent
+    # with a display name, a role string, and an identity paragraph. Editable
+    # from the agent Settings tab.
+    personaName
+    personaRole
+    personaPrompt
     properties
     # 036-ai-service-config: hasAiApiKey is the server shim for "the agent's
     # 'default' config has a key" — kept for the Chat-tab readiness gate (any
@@ -916,8 +922,8 @@ export const AGENT_QUERY = /* GraphQL */ `
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility) {
-    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
+  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaName: String, $personaRole: String, $personaPrompt: String) {
+    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility, personaName: $personaName, personaRole: $personaRole, personaPrompt: $personaPrompt) { ...AgentFields }
   }
 `;
 
@@ -2301,10 +2307,23 @@ export const RUN_TASK_APP_MUTATION = /* GraphQL */ `
 // `agents` join list are selected so a many-to-many install is caught, and
 // `App.agents` is member-readable (unlike the admin-gated `Agent.apps`), so
 // non-admin members see this too.
+//
+// portal#713: the `agents` join also feeds the "Bundled agents" tab — the
+// SIBLINGS co-installed alongside this agent (that's how a Team Agent bundles
+// its personas: createTeamPersona installs each minted persona into the same
+// App, it does NOT write an AgentImport edge). Hence the full projection here
+// rather than a bare `{ id }`.
 export const AGENT_APPS_QUERY = /* GraphQL */ `
   query AgentApps($limit: Int, $offset: Int) {
     apps(limit: $limit, offset: $offset) {
-      items { id name urn organizationId agentId agents { id } }
+      items {
+        id
+        name
+        urn
+        organizationId
+        agentId
+        agents { id name urn description personaName personaRole }
+      }
       total
     }
   }

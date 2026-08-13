@@ -460,3 +460,93 @@ describe('/app/agents/[id] delete action', () => {
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'delete failed' });
   });
 });
+
+// ── #713: Bundled agents ────────────────────────────────────────────────────
+//
+// "Bundled" has TWO sources, and the one that matters in practice is the
+// non-obvious one: createTeamPersona installs each minted persona into the
+// team App and writes NO AgentImport edge, so a Team Agent's personas are its
+// co-installed SIBLINGS. AgentImport edges are folded in on top.
+
+describe('/app/agents/[id] loader — bundled agents (#713)', () => {
+  const iris = {
+    id: 'agent-iris', name: 'Iris', urn: 'hrn:agent:acme.com:iris',
+    description: 'AI coding agent', personaName: 'Iris', personaRole: 'backend-engineer',
+  };
+  const rufus = {
+    id: 'agent-rufus', name: 'Rufus', urn: 'hrn:agent:acme.com:rufus',
+    description: null, personaName: 'Rufus', personaRole: 'frontend-engineer',
+  };
+  const selfLite = {
+    id: 'agent-aaa', name: 'Agent in A', urn: 'urn:agent:a',
+    description: null, personaName: null, personaRole: null,
+  };
+
+  async function loadBundled(opts: { agent?: unknown; apps?: unknown[] }) {
+    routeMock({
+      agent: { data: { agent: opts.agent ?? agentInA } },
+      myOrgs: { data: { organizations: [orgA] } },
+      apps: { data: opts.apps ?? [] },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-aaa' }))) as {
+      bundledAgents: Array<{ id: string; name: string; via: string; personaRole: string | null }>;
+    };
+    return result.bundledAgents;
+  }
+
+  it('lists the co-installed siblings, excluding the agent itself', async () => {
+    const bundled = await loadBundled({
+      apps: [{
+        id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a',
+        agentId: 'agent-aaa', agents: [selfLite, iris, rufus],
+      }],
+    });
+    expect(bundled.map((a) => a.id)).toEqual(['agent-iris', 'agent-rufus']);
+    expect(bundled[0]).toMatchObject({ name: 'Iris', personaRole: 'backend-engineer', via: 'Team App' });
+  });
+
+  it('ignores apps this agent is not installed in', async () => {
+    const bundled = await loadBundled({
+      apps: [{
+        id: 'app-2', name: 'Someone Else', urn: 'urn:app:2', organizationId: 'org-a',
+        agentId: 'agent-zzz', agents: [{ ...iris, id: 'agent-other' }],
+      }],
+    });
+    expect(bundled).toEqual([]);
+  });
+
+  it('folds in AgentImport edges, marking how they are bundled', async () => {
+    const bundled = await loadBundled({
+      agent: {
+        ...agentInA,
+        imports: [{
+          parentAgentId: 'agent-aaa', importedAgentId: 'agent-cal', position: 0, required: true,
+          importedAgent: { id: 'agent-cal', name: 'Calendar', urn: 'hrn:agent:acme.com:calendar' },
+        }],
+      },
+      apps: [],
+    });
+    expect(bundled).toHaveLength(1);
+    expect(bundled[0]).toMatchObject({ id: 'agent-cal', name: 'Calendar', via: 'Import (required)' });
+  });
+
+  it('de-duplicates an agent that is both imported and co-installed', async () => {
+    const bundled = await loadBundled({
+      agent: {
+        ...agentInA,
+        imports: [{
+          parentAgentId: 'agent-aaa', importedAgentId: 'agent-iris', position: 0, required: false,
+          importedAgent: { id: 'agent-iris', name: 'Iris', urn: 'hrn:agent:acme.com:iris' },
+        }],
+      },
+      apps: [{
+        id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a',
+        agentId: 'agent-aaa', agents: [selfLite, iris],
+      }],
+    });
+    expect(bundled).toHaveLength(1);
+    // The richer co-installed row wins — it carries the persona fields.
+    expect(bundled[0]).toMatchObject({ id: 'agent-iris', via: 'Team App', personaRole: 'backend-engineer' });
+  });
+});

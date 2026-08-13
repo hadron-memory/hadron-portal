@@ -27,6 +27,13 @@ export const agentSettingsSchema = z.object({
   systemPrompt: z.string().trim().default(''),
   visibility: z.enum(['PERSONAL', 'ORGANIZATION', 'PUBLIC']).default('ORGANIZATION'),
   systemMemoryId: z.string().trim().default(''),
+  // #712 persona metadata. All optional: an ordinary (non-persona) agent
+  // leaves them blank, and blank-after-trim CLEARS the field server-side
+  // (normalizePersonaField), so '' is a meaningful value here — it must reach
+  // updateAgent as '' rather than being omitted like systemMemoryId.
+  personaName: z.string().trim().default(''),
+  personaRole: z.string().trim().default(''),
+  personaPrompt: z.string().trim().default(''),
 });
 
 export const addAgentMemorySchema = z.object({

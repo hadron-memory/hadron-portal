@@ -95,6 +95,12 @@ export interface Agent {
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'ASSISTANT' | 'CHATBOT';
   surfaces?: string[];
+  // #928 team personas: a persona (a named AI team member) IS an Agent. Pure
+  // metadata — no server behavior forks on these. personaName is unique per
+  // owner, case-insensitively (a clash comes back as PERSONA_NAME_TAKEN).
+  personaName?: string | null;
+  personaRole?: string | null;
+  personaPrompt?: string | null;
   // 036-ai-service-config: server shim — true when the agent's `default`
   // config has a key. Used by the Chat-tab readiness gate.
   hasAiApiKey?: boolean;

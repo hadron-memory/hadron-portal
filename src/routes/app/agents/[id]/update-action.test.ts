@@ -72,3 +72,30 @@ describe('agent update action (#488)', () => {
     expect(updateAgentVariables().visibility).toBe('ORGANIZATION');
   });
 });
+
+/**
+ * #712 — the persona fields are the MIRROR IMAGE of systemMemoryId above:
+ * blank is a real value here (the server normalizes blank-after-trim to null,
+ * which is how the user clears one), so '' must be SENT, not omitted.
+ */
+describe('agent update action — persona fields (#712)', () => {
+  it('sends persona fields through', async () => {
+    await runUpdate({
+      name: 'Iris', urnSlug: 'iris',
+      personaName: 'Iris', personaRole: 'backend-engineer', personaPrompt: 'You are Iris.',
+    });
+    expect(updateAgentVariables()).toMatchObject({
+      personaName: 'Iris',
+      personaRole: 'backend-engineer',
+      personaPrompt: 'You are Iris.',
+    });
+  });
+
+  it('sends EMPTY persona fields as "" so the server clears them', async () => {
+    await runUpdate({ name: 'Agent', urnSlug: 'agent', personaName: '', personaRole: '', personaPrompt: '' });
+    const vars = updateAgentVariables();
+    expect(vars.personaName).toBe('');
+    expect(vars.personaRole).toBe('');
+    expect(vars.personaPrompt).toBe('');
+  });
+});
