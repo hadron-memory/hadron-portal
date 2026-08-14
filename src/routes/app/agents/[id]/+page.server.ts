@@ -110,7 +110,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       name: string;
       urn: string;
       description: string | null;
-      personaName: string | null;
       personaRole: string | null;
     }>;
   };
@@ -171,14 +170,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   // #713 "Bundled agents": the agents this one carries with it. Two sources,
   // de-duplicated by agent id (an import that is also co-installed appears once):
-  //   1. SIBLINGS co-installed in the same App(s) — how a Team Agent bundles its
-  //      personas (createTeamPersona installs each minted persona into the team
-  //      App; it writes no AgentImport edge, so `imports` is empty for eng-team).
+  //   1. SIBLINGS co-installed in the same App(s) — a co-install writes no
+  //      AgentImport edge, so `imports` is empty for a team App's roster.
   //   2. AgentImport edges — the declarative 008-agent-installation bundling.
   // `via` records which App (or the import edge) put it in the list.
+  //
+  // Post-#974 these are ROLE-ACTORS (the install roster), not named individuals:
+  // who is actually cast in an App is that App's Worker staff, listed on the App
+  // page. Hence a Role column and no name-of-a-person column.
   const bundledById = new Map<string, {
     id: string; name: string; urn: string; description: string | null;
-    personaName: string | null; personaRole: string | null; via: string;
+    personaRole: string | null; via: string;
   }>();
   for (const app of appsWithThisAgent) {
     for (const sibling of app.agents ?? []) {
@@ -188,7 +190,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
         name: sibling.name,
         urn: sibling.urn,
         description: sibling.description ?? null,
-        personaName: sibling.personaName ?? null,
         personaRole: sibling.personaRole ?? null,
         via: app.name,
       });
@@ -202,7 +203,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       name: imported.name,
       urn: imported.urn,
       description: imported.description ?? null,
-      personaName: imported.personaName ?? null,
       personaRole: imported.personaRole ?? null,
       via: imp.required ? 'Import (required)' : 'Import',
     });
@@ -225,7 +225,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       systemPrompt: agent.systemPrompt ?? '',
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
-      personaName: agent.personaName ?? '',
       personaRole: agent.personaRole ?? '',
       personaPrompt: agent.personaPrompt ?? '',
     }, agentSettingsFormAdapter, { errors: false }),
@@ -293,11 +292,11 @@ export const actions: Actions = {
     // #712: send persona fields VERBATIM, including ''. Unlike systemMemoryId,
     // blank is not "no opinion" here — the server normalizes blank-after-trim
     // to null, which is how the user clears a persona field from this form.
-    const { personaName, personaRole, personaPrompt } = form.data;
+    const { personaRole, personaPrompt } = form.data;
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
         ref: params.id, name, urn: urnSlug, description, systemPrompt, systemMemoryId, visibility,
-        personaName, personaRole, personaPrompt,
+        personaRole, personaPrompt,
       });
 
       // If a system memory was selected, ensure it has the chatbot scaffold

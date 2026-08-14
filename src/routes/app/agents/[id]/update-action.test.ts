@@ -77,25 +77,38 @@ describe('agent update action (#488)', () => {
  * #712 — the persona fields are the MIRROR IMAGE of systemMemoryId above:
  * blank is a real value here (the server normalizes blank-after-trim to null,
  * which is how the user clears one), so '' must be SENT, not omitted.
+ *
+ * #974 narrowed the set to the DRESSING pair: `personaName` was dropped from the
+ * schema when the Worker model made the named individual a Worker rather than an
+ * Agent. Sending it would fail the whole mutation (an unknown variable is a
+ * validation error, not an ignored field), which is what the last case pins.
  */
-describe('agent update action — persona fields (#712)', () => {
+describe('agent update action — persona dressing (#712, #974)', () => {
   it('sends persona fields through', async () => {
     await runUpdate({
-      name: 'Iris', urnSlug: 'iris',
-      personaName: 'Iris', personaRole: 'backend-engineer', personaPrompt: 'You are Iris.',
+      name: 'Backend Engineer', urnSlug: 'backend-engineer',
+      personaRole: 'backend-engineer', personaPrompt: 'You are {{name}}, a {{role}}.',
     });
     expect(updateAgentVariables()).toMatchObject({
-      personaName: 'Iris',
       personaRole: 'backend-engineer',
-      personaPrompt: 'You are Iris.',
+      personaPrompt: 'You are {{name}}, a {{role}}.',
     });
   });
 
   it('sends EMPTY persona fields as "" so the server clears them', async () => {
-    await runUpdate({ name: 'Agent', urnSlug: 'agent', personaName: '', personaRole: '', personaPrompt: '' });
+    await runUpdate({ name: 'Agent', urnSlug: 'agent', personaRole: '', personaPrompt: '' });
     const vars = updateAgentVariables();
-    expect(vars.personaName).toBe('');
     expect(vars.personaRole).toBe('');
     expect(vars.personaPrompt).toBe('');
+  });
+
+  it('never sends personaName — the field is gone from the schema (#974)', async () => {
+    await runUpdate({ name: 'Agent', urnSlug: 'agent', personaRole: 'backend-engineer' });
+    expect(updateAgentVariables()).not.toHaveProperty('personaName');
+    // Match the VARIABLE and ARGUMENT spellings, not the bare word: the
+    // document embeds AGENT_FIELDS, whose comments still mention the retired
+    // field by name to warn the next editor off it.
+    expect(UPDATE_AGENT_MUTATION).not.toMatch(/\$personaName\b/);
+    expect(UPDATE_AGENT_MUTATION).not.toMatch(/\bpersonaName\s*:/);
   });
 });

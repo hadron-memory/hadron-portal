@@ -95,10 +95,11 @@ export interface Agent {
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'ASSISTANT' | 'CHATBOT';
   surfaces?: string[];
-  // #928 team personas: a persona (a named AI team member) IS an Agent. Pure
-  // metadata — no server behavior forks on these. personaName is unique per
-  // owner, case-insensitively (a clash comes back as PERSONA_NAME_TAKEN).
-  personaName?: string | null;
+  // #974 (cor:agt:020 v0.0.3): persona is *dressing* on any Agent, not an
+  // identity — the Agent is the reusable role-actor ("backend-engineer") and
+  // `personaPrompt` is a TEMPLATE ({{name}}/{{role}} bound at casting time).
+  // The named individual is a Worker (see below); `Agent.personaName` was
+  // dropped from the schema with the Worker model.
   personaRole?: string | null;
   personaPrompt?: string | null;
   // 036-ai-service-config: server shim — true when the agent's `default`
@@ -135,7 +136,6 @@ export interface AgentImport {
     urn: string;
     name: string;
     description?: string | null;
-    personaName?: string | null;
     personaRole?: string | null;
   };
   position: number;
@@ -198,8 +198,13 @@ export interface App {
   memberCount: number;
   trainingMode: boolean;
   members?: AppMember[];
-  // Legacy convenience: `[App.agent]` or `[]`. Prefer `App.agent` directly.
-  agents: Array<{ id: string; urn: string; name: string }>;
+  /**
+   * The App's install ROSTER — every Agent installed via the AppAgent join.
+   * These are reusable ROLE-ACTORS, i.e. which agents are available to cast;
+   * the App's STAFF are its {@link Worker}s (the named castings). Do not read
+   * this list as "who works here".
+   */
+  agents: Array<{ id: string; urn: string; name: string; personaRole?: string | null }>;
   keys: AppKey[];
   createdAt: string;
   updatedAt: string | null;
@@ -207,6 +212,42 @@ export interface App {
 
 export type AppType = 'WORKSTATION' | 'CHATBOT' | 'AGENT' | 'AUTOMATION' | 'CLOUD' | 'IOT';
 export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
+
+/**
+ * A Worker (#974, `cor:dmo:050:11`) — the named casting of an installed Agent
+ * into an App: "Iris", the backend-engineer agent cast into the eng-team App.
+ * The Agent carries reusable persona dressing; the Worker is the local named
+ * identity that does attributable work.
+ *
+ * The App's **staff** are its Workers; the `AppAgent` join is only the install
+ * ROSTER (which agents are available to cast). Names are unique per App,
+ * case-insensitively, FOREVER — retirement and uninstall never free one — so
+ * inside an App context the bare `name` is unambiguous (`cor:agt:020:02`).
+ *
+ * Workers have **no URN** and their names never appear in slugs, so identity is
+ * always these columns; there is nothing to parse.
+ */
+export interface Worker {
+  id: string;
+  appId: string;
+  agentId: string;
+  /** The worker's name ("Iris") — the identity every surface renders. */
+  name: string;
+  /** The cast-list role this filling answers ("backend-engineer"). */
+  role: string | null;
+  /** Per-worker individuality layered over the agent's template prompt. */
+  promptOverride: string | null;
+  /** The worker-scoped working memory in the App's container (null until provisioned). */
+  memoryId: string | null;
+  /** The role-agent behind the casting. */
+  agent: { id: string; name: string; urn: string; personaRole?: string | null } | null;
+  /**
+   * Retirement instant — a retired worker stops authoring and takes no new
+   * sessions, but the row and its name reservation survive.
+   */
+  retiredAt: string | null;
+  createdAt: string;
+}
 
 export interface AppKey {
   id: string;
