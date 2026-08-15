@@ -69,7 +69,6 @@
       return a.name.localeCompare(b.name);
     }),
   );
-  const activeStaffCount = $derived((staff ?? []).filter((w) => !w.retiredAt).length);
   // Castable = the App's install roster. castWorker refuses an agent that isn't
   // installed (WORKER_AGENT_NOT_INSTALLED), so offering anything else would be
   // offering a guaranteed failure.

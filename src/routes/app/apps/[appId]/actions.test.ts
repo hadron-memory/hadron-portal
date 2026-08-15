@@ -664,6 +664,21 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).toContain('not installed');
   });
 
+  // Codex on PR #716: a reader can reach these controls, because the portal
+  // deliberately doesn't re-derive the server's three-branch staffing gate to
+  // pre-hide them. The refusal therefore has to be a sentence, not a raw
+  // server string.
+  it('translates FORBIDDEN into copy naming the access actually needed', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toContain('permission to staff this App');
+    expect(result.data.form.message.text).toContain('contributor access');
+  });
+
   it('falls back to the server message for an UNKNOWN code', async () => {
     // review:clienterror-map-known-codes-only — only known codes get friendly
     // copy; an internal error must not be relabelled as a user mistake.
@@ -717,5 +732,17 @@ describe('retireWorker action', () => {
     };
     expect(result.status).toBe(500);
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+
+  // Retiring shares castWorker's gate, so it must share its refusal copy —
+  // otherwise the same lack of access reads as two different failures.
+  it('translates FORBIDDEN the same way casting does', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('retireWorker', { workerId: 'worker-1' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toContain('permission to staff this App');
   });
 });

@@ -70,12 +70,37 @@ const revokeAppKeyFormAdapter = zod4(revokeAppKeySchema);
 const updateAppAgentToolsFormAdapter = zod4(updateAppAgentToolsSchema);
 
 /**
+ * Staffing is gated server-side on a three-branch OR (an org member with
+ * CONTRIBUTOR+ on the App's org, a non-`reader` AppMember of an org-owned App,
+ * or the owner of a user-owned App — never under impersonation). The portal
+ * deliberately does NOT re-derive that predicate to pre-hide the controls:
+ *
+ *   - `App.role` is the App's DEFAULT member role column (it feeds the Settings
+ *     form), NOT the caller's role — gating on it would hide casting from an
+ *     org CONTRIBUTOR/ADMIN who isn't an AppMember at all, i.e. the primary
+ *     intended caller.
+ *   - A wrong guess in the hiding direction is worse than one in the showing
+ *     direction: a hidden control is an unexplained dead end, a refused one is
+ *     a sentence. The server's gate IS the auth (see the loader's note on
+ *     `app(ref:)`), and duplicating it here is exactly the drift this repo
+ *     avoids elsewhere.
+ *
+ * So a caller who can't staff learns it from a legible refusal rather than a
+ * raw server string. Raised by Codex on PR #716.
+ */
+const STAFFING_FORBIDDEN = () => t(
+  'app.staff.error.forbidden',
+  'You don’t have permission to staff this App. Casting and retiring need contributor access to the organization, or a non-reader role in the App.',
+);
+
+/**
  * castWorker's typed refusals (#974), mapped to copy that says what to DO.
  * The raw server message names internals ("no installed agent matches role
  * X"), and the codes are a documented contract, so branching on the code is
  * both stabler and more actionable than echoing the message.
  */
 const CAST_WORKER_ERRORS: Record<string, () => string> = {
+  FORBIDDEN: STAFFING_FORBIDDEN,
   WORKER_NAME_TAKEN: () => t(
     'app.staff.error.name-taken',
     'That name is already taken in this App. Worker names are reserved permanently, including for retired workers — pick another.',
@@ -468,11 +493,15 @@ export const actions: Actions = {
         text: t('app.staff.retire.success', 'Worker retired. Its name stays reserved.'),
       });
     } catch (e: unknown) {
+      // Same staffing gate as castWorker, so the same legible refusal.
+      const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
       return message(
         form,
         {
           type: 'error',
-          text: extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.')),
+          text: forbidden
+            ? STAFFING_FORBIDDEN()
+            : extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.')),
         },
         { status: 500 },
       );
