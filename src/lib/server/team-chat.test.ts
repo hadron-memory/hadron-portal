@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CREATE_NODE_MUTATION, NODES_BY_LOC_PREFIX_QUERY } from '$lib/server/queries';
-import { chatAuthorName, isTeamChatNode, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
+import { chatAuthorName, isTeamChatNode, loadChatMessages, locSafeAuthor, postChatMessage } from '$lib/server/team-chat';
 import type { MemoryNode } from '$lib/types';
 
 function msg(loc: string, over: Partial<MemoryNode> = {}): MemoryNode {
@@ -74,6 +74,21 @@ describe('chatAuthorName', () => {
   });
 });
 
+describe('locSafeAuthor', () => {
+  it('squashes loc separators so a message cannot land a level deeper', () => {
+    // A `:` would make loadChatMessages read the message as nested and drop it.
+    expect(locSafeAuthor('Jane: Ops')).toBe('Jane-Ops');
+    expect(locSafeAuthor('hrn:node:acme.com:m:x')).toBe('hrn-node-acme.com-m-x');
+    expect(locSafeAuthor('a/b c')).toBe('a-b-c');
+  });
+
+  it('leaves an already-safe handle alone and never yields an empty segment', () => {
+    expect(locSafeAuthor('holger')).toBe('holger');
+    expect(locSafeAuthor('holger.s_1-x')).toBe('holger.s_1-x');
+    expect(locSafeAuthor(':::')).toBe('anon');
+  });
+});
+
 describe('postChatMessage', () => {
   it('creates a message node at a fresh timestamped loc under the chat', async () => {
     const client = { request: vi.fn().mockResolvedValue({ createNode: { id: 'm-1' } }) } as any;
@@ -95,6 +110,26 @@ describe('postChatMessage', () => {
         nodeType: 'message',
         data: { body: 'hello team', author: 'holger' },
       },
+    });
+  });
+
+  it('keeps a `:`-carrying author out of the loc but verbatim in the payload', async () => {
+    const client = { request: vi.fn().mockResolvedValue({ createNode: { id: 'm-1' } }) } as any;
+
+    await postChatMessage(client, {
+      memoryId: 'mem-1',
+      chatLoc: 'chats:team',
+      author: 'Jane: Ops',
+      content: 'hi',
+      now: new Date('2026-08-14T12:34:56.789Z'),
+    });
+
+    expect(client.request).toHaveBeenCalledWith(CREATE_NODE_MUTATION, {
+      input: expect.objectContaining({
+        loc: 'chats:team:messages:2026-08-14T123456789-Jane-Ops',
+        name: 'Jane: Ops',
+        data: { body: 'hi', author: 'Jane: Ops' },
+      }),
     });
   });
 });

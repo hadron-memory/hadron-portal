@@ -78,6 +78,19 @@ export function chatAuthorName(user: unknown): string {
 }
 
 /**
+ * The loc-safe form of an author name. A loc's `:` is a segment separator, so
+ * an author carrying one ("Jane: Ops", a pasted URN) would push the message a
+ * level deeper and `loadChatMessages` would drop it as nested — the message
+ * would vanish from the thread it was posted to. The human-readable name is
+ * still stored verbatim in `name` and `data.author`; only the address is
+ * squashed.
+ */
+export function locSafeAuthor(author: string): string {
+  const safe = author.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return safe || 'anon';
+}
+
+/**
  * Append a message to a chat node.
  *
  * Message locs embed an ISO timestamp + username, so each send targets a fresh
@@ -90,7 +103,7 @@ export async function postChatMessage(
 ): Promise<MemoryNode> {
   const now = args.now ?? new Date();
   const timestamp = now.toISOString().replace(/[:.]/g, '').slice(0, -1); // 2026-06-21T223100Z
-  const messageLoc = `${messagesPrefix(args.chatLoc)}${timestamp}-${args.author}`;
+  const messageLoc = `${messagesPrefix(args.chatLoc)}${timestamp}-${locSafeAuthor(args.author)}`;
 
   const { createNode } = await client.request<{ createNode: MemoryNode }>(CREATE_NODE_MUTATION, {
     input: {

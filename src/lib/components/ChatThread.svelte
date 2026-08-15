@@ -5,6 +5,7 @@
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import Urn from '$lib/components/Urn.svelte';
+  import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { scopedActionError } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { sendChatMessageSchema } from '$lib/forms/chat-message-schema';
@@ -109,6 +110,20 @@
     return colors[index % colors.length];
   }
 
+  // The chip has to carry a grammar-v2 NODE urn (`hrn:node:<root>:<mem>:<loc>`)
+  // — the old `${memoryUrn}::${loc}` concatenation was a memory-typed URN in
+  // the v1 grammar, which Urn.svelte can't parse into a message address.
+  // composeNodeUrn throws on empty inputs, so a message with no loc gets no chip.
+  function messageUrn(msg: ChatThreadMessage): string | null {
+    const loc = msg.nodeData?.loc;
+    if (!memoryUrn || !loc) return null;
+    try {
+      return composeNodeUrn(memoryUrn, loc);
+    } catch {
+      return null;
+    }
+  }
+
   // Track unique senders for consistent coloring
   const senderIndex: Record<string, number> = {};
   function getSenderColorClass(name: string) {
@@ -135,7 +150,7 @@
     {:else}
       {#each messages as msg (msg.id)}
         {@const color = getSenderColorClass(msg.author ?? 'Unknown')}
-        {@const msgUrn = memoryUrn ? `${memoryUrn}::${msg.nodeData?.loc || ''}` : null}
+        {@const msgUrn = messageUrn(msg)}
         <div
           role="group"
           class="flex gap-3 animate-in fade-in slide-in-from-bottom-2 duration-300 group"
@@ -157,9 +172,12 @@
                 {msg.author || 'Unknown'}
               </div>
               {#if msgUrn}
+                <!-- The chip is hover-revealed, but it stays in the tab order:
+                     without the focus- variants a keyboard user lands on an
+                     invisible link with no focus ring. -->
                 <a
                   href="{basePath}/nodes/{msg.id}"
-                  class="flex-shrink-0 transition-opacity duration-300 {hoveredMessageId === msg.id ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}"
+                  class="flex-shrink-0 transition-opacity duration-300 focus-visible:opacity-100 focus-visible:pointer-events-auto {hoveredMessageId === msg.id ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}"
                   title="Go to message node"
                 >
                   <Urn value={msgUrn} type="node" />
