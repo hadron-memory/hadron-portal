@@ -40,6 +40,10 @@ export interface Memory {
   // (free-standing, owned via Memory.userId); `group` is team-shared. All are
   // user-creatable via createMemory(memoryClass:).
   class?: 'system' | 'app' | 'knowledge' | 'personal' | 'private' | 'group';
+  // 008-agent-installation: App pivot for app/personal-class memories, NULL
+  // otherwise. Doubles as the appRef for App-scoped platform operations —
+  // notably team chat, which lives in its App's shared app-class memory.
+  appId?: string | null;
   isEncrypted?: boolean;
   // Spec 033-rag-vector-retrieval: per-memory vector-index config. Chunk
   // dials are nullable (null = platform default 512 / 64). vectorIndexEncryptedAckAt
@@ -419,7 +423,7 @@ export interface MemoryNode {
   isRunnable: boolean | null;
   createdAt: string;
   updatedAt: string;
-  memory?: { id: string; urn: string; name: string; organizationId?: string } | null;
+  memory?: { id: string; urn: string; name: string; organizationId?: string; appId?: string | null } | null;
   /**
    * portal#696 / server#888: the asset this node references, for a `reference`
    * node whose `data.asset` points at one (written by createAssetReferenceNode or

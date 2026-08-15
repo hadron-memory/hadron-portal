@@ -111,5 +111,6 @@
     memoryUrn={data.graph?.urn ?? null}
     sendForm={data.form}
     action="?/sendMessage"
+    canPost={data.canPost}
   />
 </div>

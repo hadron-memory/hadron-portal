@@ -108,9 +108,11 @@ export const createNodeStrings = {
   /** #505: label on the panel that surfaces a leading YAML frontmatter block. */
   contentFrontmatterLabel: (): string => t('node-detail.content.frontmatter-label', 'Frontmatter'),
 
-  /** Node-detail header caption prefix. "Task Node:" marks a runnable node (#322). */
+  /** Node-detail header caption prefix. "Task Node:" marks a runnable node (#322);
+   *  "Chat Node:" marks a chat root, whose thread is its content (#722). */
   nodeCaption: (): string => t('node-detail.caption.node', 'Node:'),
   taskNodeCaption: (): string => t('node-detail.caption.task-node', 'Task Node:'),
+  chatNodeCaption: (): string => t('node-detail.caption.chat-node', 'Chat Node:'),
 };
 
 /**

@@ -31,6 +31,7 @@
     form = null,
     action = '?/sendMessage',
     heightClass = 'flex-1 min-h-0',
+    canPost = true,
   }: {
     messages?: ChatThreadMessage[];
     basePath: string;
@@ -39,6 +40,9 @@
     form?: unknown;
     action?: string;
     heightClass?: string;
+    /** False when there is no App to post through — the thread reads, but the
+     *  composer would have nowhere to send. */
+    canPost?: boolean;
   } = $props();
 
   let messagesEl: HTMLDivElement | null = $state(null);
@@ -213,6 +217,11 @@
 
   <!-- Input area -->
   <div class="border-t border-zinc-200 dark:border-zinc-800 px-6 py-4 bg-zinc-50 dark:bg-zinc-900">
+    {#if !canPost}
+      <p class="text-sm text-zinc-500 dark:text-zinc-400">
+        This chat isn't attached to an app, so there's nowhere to post from here. It stays readable.
+      </p>
+    {:else}
     <form method="POST" {action} use:sendEnhance novalidate>
       <input type="hidden" name="_kind" value={$sendFormData._kind} />
       <div class="flex gap-3">
@@ -235,5 +244,6 @@
         </button>
       </div>
     </form>
+    {/if}
   </div>
 </div>
