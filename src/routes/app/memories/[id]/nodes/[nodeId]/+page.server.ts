@@ -10,7 +10,7 @@ import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATIO
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
-import { chatAuthorName, isChatNode, loadChatMessages, postChatMessage, type ChatMessage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, isChatNode, loadChatMessages, postChatMessage, type ChatMessage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
@@ -196,10 +196,11 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // for those nodes. Every other node pays nothing. Best-effort: an empty thread
   // beats failing the whole page.
   const isChat = isChatNode(node);
-  // Posting is App-scoped (createTeamChatMessage). A team chat lives in its
-  // App's shared app-class memory, so the memory's appId IS the appRef; a
-  // legacy tagged chat in a non-App memory posts through the node path instead.
-  const chatAppId = (parentData as { graph?: { appId?: string | null } | null }).graph?.appId ?? null;
+  // Whether the composer has anywhere to send. Derived from the NODE (the same
+  // input the action re-derives it from), not from the parent layout's memory —
+  // a partial/streamed layout must not be able to hide a composer the action
+  // would happily accept, or offer one it would reject.
+  const canPostChat = chatPostTarget(node).kind !== 'none';
   const chatMessagesPromise: Promise<ChatMessage[] | null> = isChat
     ? loadChatMessages(gqlClient(locals.token), params.id, node.loc).catch((e) => {
         console.warn('[node-detail] chat messages failed:', e);
@@ -254,7 +255,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     node,
     isChat,
     chatMessages,
-    chatAppId,
+    canPostChat,
     sendChatMessageForm,
     // `?tab=` deep-links a specific tab (the page falls back to its own default
     // for an unknown value). Used by the full-screen chat's "View node details"
@@ -423,13 +424,21 @@ export const actions: Actions = {
       }
       if (!locals.user) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
 
-      // #237: memoryId (and here the appId) from the node, not the URL, which
-      // may be stale. A platform chat posts through createTeamChatMessage; the
-      // appId off the node's memory is that operation's appRef.
+      // #237: the target is derived from the fetched node, not the URL, which
+      // may be stale. `none` means the message would land in some OTHER thread
+      // (or nowhere) — refuse rather than report a success that isn't one.
+      const target = chatPostTarget(node);
+      if (target.kind === 'none') {
+        return message(
+          form,
+          { type: 'error', text: "This chat isn't attached to an app, so there's nowhere to post from here." },
+          { status: 400 },
+        );
+      }
       await postChatMessage(client, {
+        target,
         memoryId: node.memoryId,
         chatLoc: node.loc,
-        appId: node.memory?.appId ?? null,
         author: chatAuthorName(locals.user),
         content: form.data.content,
       });

@@ -4,7 +4,14 @@ import {
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   NODES_BY_LOC_PREFIX_QUERY,
 } from '$lib/server/queries';
-import { chatAuthorName, isChatNode, loadChatMessages, locSafeAuthor, postChatMessage } from '$lib/server/team-chat';
+import {
+  chatAuthorName,
+  chatPostTarget,
+  isChatNode,
+  loadChatMessages,
+  locSafeAuthor,
+  postChatMessage,
+} from '$lib/server/team-chat';
 import type { MemoryNode } from '$lib/types';
 
 function msg(loc: string, over: Partial<MemoryNode> = {}): MemoryNode {
@@ -116,12 +123,44 @@ describe('locSafeAuthor', () => {
   });
 });
 
+describe('chatPostTarget', () => {
+  const teamChat = {
+    nodeType: 'chat', loc: 'chats:team', tags: [], memory: { appId: 'app-1' },
+  } as unknown as MemoryNode;
+
+  it('routes the App-s well-known team chat through the platform operation', () => {
+    expect(chatPostTarget(teamChat)).toEqual({ kind: 'platform', appId: 'app-1' });
+  });
+
+  it('refuses to route ANOTHER chat node through it, even in an App memory', () => {
+    // createTeamChatMessage takes an appRef, not a chat address — it would post
+    // to `chats:team`, so a success here would land the message elsewhere.
+    expect(chatPostTarget({ ...teamChat, loc: 'chats:design-review' } as MemoryNode)).toEqual({ kind: 'none' });
+  });
+
+  it('keeps a legacy tagged thread on the node path even when its memory has an App', () => {
+    expect(chatPostTarget({
+      nodeType: 'info', loc: 'chats:standup', tags: ['team-chat'], memory: { appId: 'app-1' },
+    } as unknown as MemoryNode)).toEqual({ kind: 'legacy' });
+  });
+
+  it('has nowhere to post for a platform chat whose memory has no App', () => {
+    expect(chatPostTarget({ ...teamChat, memory: { appId: null } } as MemoryNode)).toEqual({ kind: 'none' });
+  });
+
+  it('has nowhere to post for a node that is not a chat at all', () => {
+    expect(chatPostTarget({ nodeType: 'info', loc: 'notes:x', tags: [] } as unknown as MemoryNode))
+      .toEqual({ kind: 'none' });
+  });
+});
+
 describe('postChatMessage', () => {
   it('posts a platform chat through createTeamChatMessage, never a node write', async () => {
     const client = { request: vi.fn().mockResolvedValue({ createTeamChatMessage: { nodeId: 'm-1', seq: 4 } }) } as any;
 
     const posted = await postChatMessage(client, {
-      memoryId: 'mem-1', chatLoc: 'chats:team', appId: 'app-1',
+      target: { kind: 'platform', appId: 'app-1' },
+      memoryId: 'mem-1', chatLoc: 'chats:team',
       author: 'holger', content: 'hello team',
     });
 
@@ -132,10 +171,21 @@ describe('postChatMessage', () => {
     });
   });
 
-  it('falls back to a node create for a legacy chat with no App behind it', async () => {
+  it('refuses to write when the target says there is nowhere to post', async () => {
+    const client = { request: vi.fn() } as any;
+
+    await expect(postChatMessage(client, {
+      target: { kind: 'none' }, memoryId: 'mem-1', chatLoc: 'chats:team',
+      author: 'holger', content: 'hi',
+    })).rejects.toThrow(/no post target/);
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it('writes a node for a legacy chat', async () => {
     const client = { request: vi.fn().mockResolvedValue({ createNode: { id: 'm-1' } }) } as any;
 
     const posted = await postChatMessage(client, {
+      target: { kind: 'legacy' },
       memoryId: 'mem-1',
       chatLoc: 'chats:team',
       author: 'holger',
@@ -159,6 +209,7 @@ describe('postChatMessage', () => {
     const client = { request: vi.fn().mockResolvedValue({ createNode: { id: 'm-1' } }) } as any;
 
     await postChatMessage(client, {
+      target: { kind: 'legacy' },
       memoryId: 'mem-1',
       chatLoc: 'chats:team',
       author: 'Jane: Ops',

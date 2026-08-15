@@ -23,6 +23,10 @@ import type { MemoryNode } from '$lib/types';
 //     chat has no App to post through.
 export const TEAM_CHAT_TAG = 'team-chat';
 export const CHAT_NODE_TYPE = 'chat';
+/** Canonical loc of the ONE team chat in a team App's shared memory (server
+ *  #939, `TEAM_CHAT_LOC`). `createTeamChatMessage` addresses a chat by appRef
+ *  alone, so this loc is the only thread it can post to. */
+export const TEAM_CHAT_LOC = 'chats:team';
 /** The nodeTypes that ARE messages. Anything else under the prefix is off-road
  *  content (an attachment, a hand-written note) and is not a bubble. */
 const MESSAGE_NODE_TYPES = ['chat-message', 'message'];
@@ -30,6 +34,37 @@ const MESSAGE_NODE_TYPES = ['chat-message', 'message'];
 export function isChatNode(node: Pick<MemoryNode, 'tags' | 'nodeType'> | null | undefined): boolean {
   if (!node) return false;
   return node.nodeType === CHAT_NODE_TYPE || !!node.tags?.includes(TEAM_CHAT_TAG);
+}
+
+/**
+ * Where a post to this chat should go — and the answer is a property of the
+ * NODE, never of its memory.
+ *
+ * `createTeamChatMessage(appRef:)` writes to the App's one well-known team
+ * chat; it takes no chat address. So routing any other chat node through it
+ * would report success while the message landed in a different thread — which
+ * is what "the memory has an appId" as a discriminator would do to a legacy
+ * thread that happens to live in an App-class memory.
+ *
+ * `none` means the thread is readable but has nowhere to post: a chat node that
+ * is neither the App's team chat nor a legacy tagged thread. Better a missing
+ * composer than a message that silently lands somewhere else.
+ */
+export type ChatPostTarget =
+  | { kind: 'platform'; appId: string }
+  | { kind: 'legacy' }
+  | { kind: 'none' };
+
+export function chatPostTarget(
+  node: Pick<MemoryNode, 'tags' | 'nodeType' | 'loc'> & { memory?: { appId?: string | null } | null },
+): ChatPostTarget {
+  if (!isChatNode(node)) return { kind: 'none' };
+  const appId = node.memory?.appId ?? null;
+  if (node.nodeType === CHAT_NODE_TYPE && node.loc === TEAM_CHAT_LOC && appId) {
+    return { kind: 'platform', appId };
+  }
+  if (node.tags?.includes(TEAM_CHAT_TAG)) return { kind: 'legacy' };
+  return { kind: 'none' };
 }
 
 export type ChatMessage = {
@@ -128,14 +163,13 @@ export function locSafeAuthor(author: string): string {
 }
 
 /**
- * Append a message to a chat.
+ * Append a message to a chat, through the path `chatPostTarget` chose.
  *
- * With an `appId` (a platform chat, which always lives in an App's shared
- * app-class memory) this is `createTeamChatMessage` — the operation that owns
- * seq allocation, the chat root's counters, and mention extraction.
+ * `platform` is `createTeamChatMessage` — the operation that owns seq
+ * allocation, the chat root's counters, and mention extraction.
  *
- * Without one it falls back to the legacy node create for a `team-chat`-tagged
- * thread that has no App behind it. Message locs there embed an ISO timestamp +
+ * `legacy` is the node create for a `team-chat`-tagged thread, which has no
+ * platform operation behind it. Message locs there embed an ISO timestamp +
  * username, so each send targets a fresh loc — a pure create, which makes a
  * same-second double submit surface as a loud conflict error rather than
  * silently merging.
@@ -143,18 +177,23 @@ export function locSafeAuthor(author: string): string {
 export async function postChatMessage(
   client: GraphQLClient,
   args: {
+    target: ChatPostTarget;
     memoryId: string;
     chatLoc: string;
     author: string;
     content: string;
-    appId?: string | null;
     now?: Date;
   },
 ): Promise<{ nodeId: string }> {
-  if (args.appId) {
+  if (args.target.kind === 'none') {
+    // Callers gate on this first; the throw is the backstop that keeps a future
+    // caller from falling through to a write the target explicitly denied.
+    throw new Error('postChatMessage: this chat has no post target');
+  }
+  if (args.target.kind === 'platform') {
     const { createTeamChatMessage } = await client.request<{
       createTeamChatMessage: { nodeId: string };
-    }>(CREATE_TEAM_CHAT_MESSAGE_MUTATION, { appRef: args.appId, body: args.content });
+    }>(CREATE_TEAM_CHAT_MESSAGE_MUTATION, { appRef: args.target.appId, body: args.content });
     return { nodeId: createTeamChatMessage.nodeId };
   }
 

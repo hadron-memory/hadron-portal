@@ -5,7 +5,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
-import { chatAuthorName, isChatNode, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, isChatNode, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { sendChatMessageSchema } from './schema';
@@ -77,6 +77,9 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     node,
     fullUrn,
     messages,
+    // Same predicate the action re-derives from the node, so the composer is
+    // shown exactly when a post would be accepted.
+    canPost: chatPostTarget(node).kind !== 'none',
     form: await superValidate({}, sendChatMessageFormAdapter, { errors: false }),
   };
 };
@@ -94,17 +97,32 @@ export const actions: Actions = {
       if (!node) {
         return message(form, { type: 'error', text: 'Chat node not found' }, { status: 404 });
       }
+      // Form actions run BEFORE `load`, so the load's redirect can't be the
+      // gate: a direct POST to an ordinary node's ?/sendMessage would otherwise
+      // reach postChatMessage with an unrelated node.
+      if (!isChatNode(node)) {
+        return message(form, { type: 'error', text: 'This node is not a chat.' }, { status: 400 });
+      }
 
       // Get current user from JWT (available in locals)
       const user = locals.user;
       if (!user) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
 
-      // A platform chat posts through createTeamChatMessage; its appRef is the
-      // appId of the App-class memory the chat lives in.
+      // Which thread this actually writes to is a property of the node — see
+      // chatPostTarget. `none` would mean posting into a different chat.
+      const target = chatPostTarget(node);
+      if (target.kind === 'none') {
+        return message(
+          form,
+          { type: 'error', text: "This chat isn't attached to an app, so there's nowhere to post from here." },
+          { status: 400 },
+        );
+      }
       const posted = await postChatMessage(gqlClient(locals.token), {
-        memoryId: params.id,
+        target,
+        // #237: memoryId from the node, not the URL, which may be stale.
+        memoryId: node.memoryId,
         chatLoc: node.loc,
-        appId: node.memory?.appId ?? null,
         author: chatAuthorName(user),
         content: form.data.content,
       });

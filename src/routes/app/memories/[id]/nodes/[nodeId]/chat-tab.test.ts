@@ -56,7 +56,7 @@ async function runLoad(tab?: string) {
   } as unknown as Parameters<typeof load>[0];
   return (await load(event)) as unknown as {
     isChat: boolean;
-    chatAppId: string | null;
+    canPostChat: boolean;
     chatMessages: Array<{ id: string; content: string }> | null;
     initialTab: string | null;
   };
@@ -75,7 +75,7 @@ describe('node-detail load — Chat tab', () => {
     const data = await runLoad();
 
     expect(data.isChat).toBe(true);
-    expect(data.chatAppId).toBe('app-1');
+    expect(data.canPostChat).toBe(true);
     expect(data.chatMessages).toMatchObject([{ id: 'm-1', content: 'hi', author: 'holger', seq: 1 }]);
     expect(mockRequest).toHaveBeenCalledWith(NODES_BY_LOC_PREFIX_QUERY, expect.objectContaining({
       memoryId: MEM, locPrefix: 'chats:team:messages:',
@@ -83,9 +83,20 @@ describe('node-detail load — Chat tab', () => {
   });
 
   it('still loads the thread for a legacy `team-chat`-tagged node', async () => {
-    routeRequests({ node: nodeRow({ nodeType: 'info', tags: ['team-chat'] }) });
+    routeRequests({ node: nodeRow({ nodeType: 'info', loc: 'chats:standup', tags: ['team-chat'] }) });
 
-    expect((await runLoad()).isChat).toBe(true);
+    const data = await runLoad();
+    expect(data.isChat).toBe(true);
+    expect(data.canPostChat).toBe(true);
+  });
+
+  it('reads a chat that is not the App team chat, but offers no composer', async () => {
+    // createTeamChatMessage would post to `chats:team`, not to this thread.
+    routeRequests({ node: nodeRow({ loc: 'chats:design-review' }) });
+
+    const data = await runLoad();
+    expect(data.isChat).toBe(true);
+    expect(data.canPostChat).toBe(false);
   });
 
   it('does not query messages for an ordinary node', async () => {
@@ -149,12 +160,11 @@ describe('node-detail sendChatMessage action', () => {
     });
   });
 
-  it('falls back to a node write for a legacy chat with no App', async () => {
+  it('keeps a legacy tagged thread on the node path even inside an App memory', async () => {
+    // The memory's appId must NOT reroute this into the App's team chat — the
+    // message would land in a different thread than the one on screen.
     mockRequest.mockResolvedValueOnce({
-      node: nodeRow({
-        nodeType: 'info', tags: ['team-chat'],
-        memory: { id: MEM, urn: 'hrn:mem:acme.com:notes', name: 'notes', appId: null },
-      }),
+      node: nodeRow({ nodeType: 'info', loc: 'chats:standup', tags: ['team-chat'] }),
     });
     mockRequest.mockResolvedValueOnce({ createNode: { id: 'm-1' } });
 
@@ -163,10 +173,20 @@ describe('node-detail sendChatMessage action', () => {
     expect(mockRequest).toHaveBeenNthCalledWith(2, CREATE_NODE_MUTATION, {
       input: expect.objectContaining({
         memoryId: MEM,
-        loc: expect.stringMatching(/^chats:team:messages:/),
+        loc: expect.stringMatching(/^chats:standup:messages:/),
         nodeType: 'message',
       }),
     });
+  });
+
+  it('refuses to post to a chat node that has no post target', async () => {
+    mockRequest.mockResolvedValueOnce({ node: nodeRow({ loc: 'chats:design-review' }) });
+
+    const result = (await send({ _kind: 'sendChatMessage', content: 'hello' })) as { status: number };
+
+    expect(result.status).toBe(400);
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'error' });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 
   it('refuses to post to a node that is not a chat', async () => {

@@ -111,6 +111,6 @@
     memoryUrn={data.graph?.urn ?? null}
     sendForm={data.form}
     action="?/sendMessage"
-    canPost={!!node.memory?.appId || node.tags?.includes('team-chat')}
+    canPost={data.canPost}
   />
 </div>

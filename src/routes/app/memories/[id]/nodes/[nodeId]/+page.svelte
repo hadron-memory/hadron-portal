@@ -932,9 +932,9 @@
   // `team-chat` tag) — read it rather than re-deriving, so the tab can't
   // disagree with the load that fetched (or skipped) the thread.
   const isChat = $derived(!!data.isChat);
-  // Posting needs an App to post through; a chat in a non-App memory is
-  // read-only from here (see postChatMessage).
-  const canPostChat = $derived(!!data.chatAppId || node.tags.includes('team-chat'));
+  // Also the server's own predicate (chatPostTarget) — the composer shows
+  // exactly when the send action would accept a post.
+  const canPostChat = $derived(!!data.canPostChat);
 
   // ── Edge editing ────────────────────────────────────────────────────
   // Edge editing replaces the full outgoing set via updateNode(edges: [...]).
