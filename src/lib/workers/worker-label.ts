@@ -79,3 +79,24 @@ export function workerLabel(
   if (opts.context === 'app') return workerName;
   return qualifiedWorkerName(workerName, opts.appSlugOrUrn);
 }
+
+/** A worker reference as org-wide rows (e.g. `Session.worker`) carry it. */
+export interface QualifiableWorker {
+  name: string;
+  /** Nullable independently of the worker: `Worker.app` self-gates and masks on deny. */
+  app?: { urn: string } | null;
+}
+
+/**
+ * The org-wide label for a possibly-absent worker reference — the shape a
+ * session-style row carries (hadron-server#980).
+ *
+ * Returns the empty string when there is no worker, so a table accessor sorts
+ * and filters it as empty instead of matching an invented placeholder like
+ * "—" (a user searching for a dash would otherwise get every human-driven
+ * session). The cell renders the placeholder; the accessor stays honest.
+ */
+export function orgWideWorkerLabel(worker: QualifiableWorker | null | undefined): string {
+  if (!worker) return '';
+  return workerLabel(worker.name, { context: 'org-wide', appSlugOrUrn: worker.app?.urn });
+}

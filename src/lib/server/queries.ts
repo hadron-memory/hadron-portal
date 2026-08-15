@@ -1586,6 +1586,25 @@ export const SESSIONS_QUERY = /* GraphQL */ `
       errorCount
       startedAt
       endedAt
+      # hadron-server#980: who did the work, nested so the list renders the
+      # app-qualified compound ('eng-team/Iris') without a per-row round trip.
+      # A session list is org-wide, so the bare name is NOT sufficient there
+      # (cor:agt:020:02) — hence app.urn, whose slug is the qualifier.
+      #
+      # retiredAt is selected because retirement ends the casting, not the
+      # history: past sessions stay attributed, and the row should say so
+      # rather than presenting a retired worker as current staff.
+      #
+      # worker.app runs its OWN read gate and masks to null on deny (#552), so
+      # it is nullable independently of the worker itself — see the Worker
+      # column's degradation note. (No backticks in this template literal:
+      # a backtick here terminates the tagged string.)
+      worker {
+        id
+        name
+        retiredAt
+        app { id urn }
+      }
     }
   }
 `;

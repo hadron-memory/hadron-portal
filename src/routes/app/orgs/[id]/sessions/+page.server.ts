@@ -21,6 +21,15 @@ interface SessionSummary {
   errorCount: number | null;
   startedAt: string;
   endedAt: string | null;
+  // hadron-server#980. Null for a session that was never worker-bound (a plain
+  // user-driven session) — the common case, not an error. `app` is separately
+  // nullable: it runs its own read gate and masks on deny.
+  worker: {
+    id: string;
+    name: string;
+    retiredAt: string | null;
+    app: { id: string; urn: string } | null;
+  } | null;
 }
 
 // #323: Sessions moved here from /app/usage/sessions. The list is user-scoped —
