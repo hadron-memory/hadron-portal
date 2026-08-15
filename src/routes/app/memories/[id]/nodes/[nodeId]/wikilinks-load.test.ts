@@ -48,6 +48,7 @@ async function runLoad(opts: {
   const event = {
     params: { id: MEM, nodeId: 'leaf-pk' },
     locals: { token: 'tok' },
+    url: new URL(`http://localhost/app/memories/${MEM}/nodes/leaf-pk`),
     parent: vi.fn().mockResolvedValue({
       graphNodes: opts.graphNodes,
       graph: { id: MEM, urn: opts.memoryUrn ?? 'hrn:memory:hadronmemory.com::hadron-portal' },

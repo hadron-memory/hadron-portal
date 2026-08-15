@@ -16,6 +16,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NodeList from '$lib/components/NodeList.svelte';
+  import ChatThread from '$lib/components/ChatThread.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
@@ -1308,7 +1309,13 @@
   // full seq rewrite, so a race could land a stale order.
   let reordering = $state(false);
 
-  type NodeTab = 'content' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'history' | 'settings';
+  type NodeTab = 'chat' | 'content' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'history' | 'settings';
+
+  // A `team-chat` node is readable two ways: as a chat (bubbles, composer) and
+  // as an ordinary node. The Chat tab is the same thread the standalone
+  // /chat view renders, and it leads because that is what such a node IS —
+  // its "content" is the messages hanging under it, not its body.
+  const chatMessages = $derived(data.chatMessages ?? []);
 
   // Content / Abstract / Data / Properties / Flow / Edges / Settings are always
   // present; Children only when the node has children. (#256: Content is no
@@ -1318,16 +1325,21 @@
   // always-on for the same reason: turning a plain node into a flow node
   // needs a surface. Properties (#518) is read-only but always-on for
   // discoverability, same as Data.)
-  const availableTabs = $derived<NodeTab[]>(
-    hasChildren
-      ? ['content', 'abstract', 'data', 'properties', 'flow', 'children', 'references', 'history', 'settings']
-      : ['content', 'abstract', 'data', 'properties', 'flow', 'references', 'history', 'settings'],
-  );
+  const availableTabs = $derived<NodeTab[]>([
+    ...(isTeamChat ? (['chat'] as NodeTab[]) : []),
+    'content', 'abstract', 'data', 'properties', 'flow',
+    ...(hasChildren ? (['children'] as NodeTab[]) : []),
+    'references', 'history', 'settings',
+  ]);
 
   function defaultTab(): NodeTab {
-    // Content when present, else the Children list for a pure container
-    // node, else Content (its empty-state authoring surface).
-    return hasContent ? 'content' : hasChildren ? 'children' : 'content';
+    // An explicit `?tab=` wins (deep link), when that tab exists on this node.
+    const requested = data.initialTab as NodeTab | null;
+    if (requested && availableTabs.includes(requested)) return requested;
+    // Chat first for a chat node — the thread is the node. Otherwise Content
+    // when present, else the Children list for a pure container node, else
+    // Content (its empty-state authoring surface).
+    return isTeamChat ? 'chat' : hasContent ? 'content' : hasChildren ? 'children' : 'content';
   }
 
   let activeTab = $state<NodeTab>(defaultTab());
@@ -1439,11 +1451,12 @@
     </div>
     <div class="shrink-0 flex items-start gap-2">
       {#if isTeamChat}
+        <!-- The Chat tab below is the inline view; this is the full-screen one. -->
         <a
           href="{basePath}/nodes/{node.id}/chat"
           class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
         >
-          Open chat
+          Full-screen chat
         </a>
       {/if}
       <!-- #503: the "⋯" menu is the single entry point for node actions;
@@ -1749,6 +1762,15 @@
   <!-- Tabs: Content | Abstract | Children (when present) | Edges | Settings -->
   <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
     <div class="mb-3 flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
+      <!-- Chat nodes only: the thread as bubbles, same view as /chat. -->
+      {#if isTeamChat}
+        <button
+          class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'chat' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+          onclick={() => activeTab = 'chat'}
+        >Chat
+          {#if chatMessages.length}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{chatMessages.length}</span>{/if}
+        </button>
+      {/if}
       <!-- Always shown (#256) — an empty node still needs an authoring
            surface, or there's no portal path to add content. Mirrors the
            Abstract tab's always-on treatment below. -->
@@ -1815,6 +1837,21 @@
         onclick={() => activeTab = 'settings'}
       >Settings</button>
     </div>
+
+    <!-- ═══ CHAT TAB ═══ -->
+    {#if activeTab === 'chat'}
+      <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+        <ChatThread
+          messages={chatMessages}
+          {basePath}
+          {form}
+          {memoryUrn}
+          sendForm={data.sendChatMessageForm}
+          action="?/sendChatMessage"
+          heightClass="h-[calc(100vh-24rem)] min-h-[24rem]"
+        />
+      </div>
+    {/if}
 
     <!-- ═══ CONTENT TAB ═══ -->
     {#if activeTab === 'content'}

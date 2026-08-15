@@ -49,6 +49,7 @@ function loadEvent(opts: {
   return {
     params: { id: opts.gid, nodeId: opts.nodeId },
     locals: { token: 'tok' },
+    url: new URL(`http://localhost/app/memories/${opts.gid}/nodes/${opts.nodeId}`),
     parent: vi.fn().mockResolvedValue({
       graphNodes: opts.parentGraphNodes,
       isConsumerMode: false,
