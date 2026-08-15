@@ -10,11 +10,13 @@ import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATIO
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
+import { chatAuthorName, isTeamChatNode, loadChatMessages, postChatMessage, type ChatMessage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
 import type { MemoryNode, NodeRevision } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { sendChatMessageSchema } from '$lib/forms/chat-message-schema';
 import {
   nodeConvertToTaskSchema,
   nodeCreateParentSchema,
@@ -38,6 +40,7 @@ type NodeDuplicateForm = Infer<typeof nodeDuplicateSchema, 'zod4'>;
 type NodeConvertToTaskForm = Infer<typeof nodeConvertToTaskSchema, 'zod4'>;
 type NodeUpdateFlowForm = Infer<typeof nodeUpdateFlowSchema, 'zod4'>;
 type NodeUpdateEdgesForm = Infer<typeof nodeUpdateEdgesSchema, 'zod4'>;
+type SendChatMessageForm = Infer<typeof sendChatMessageSchema, 'zod4'>;
 
 const nodeMoveFormAdapter = zod4(nodeMoveSchema);
 const nodeTestFlowFormAdapter = zod4(nodeTestFlowSchema);
@@ -48,6 +51,7 @@ const nodeDuplicateFormAdapter = zod4(nodeDuplicateSchema);
 const nodeConvertToTaskFormAdapter = zod4(nodeConvertToTaskSchema);
 const nodeUpdateFlowFormAdapter = zod4(nodeUpdateFlowSchema);
 const nodeUpdateEdgesFormAdapter = zod4(nodeUpdateEdgesSchema);
+const sendChatMessageFormAdapter = zod4(sendChatMessageSchema);
 
 function parseValidatedFlowPayload(value: string): Record<string, unknown> | undefined {
   if (value === '') return undefined;
@@ -66,7 +70,7 @@ function parseValidatedFlowPayload(value: string): Record<string, unknown> | und
 // non-browser callers that skip the client-side check.
 const DATA_MAX = 262144; // 256 KB
 
-export const load: PageServerLoad = async ({ params, locals, parent }) => {
+export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // parent() and the node read are independent — fetch in parallel.
   // SvelteKit memoizes parent() across the load, so the guard's later call
   // does not refetch; passing a thunk that resolves to the already-fetched
@@ -185,6 +189,20 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }
   })();
 
+  // A node tagged `team-chat` is readable two ways: as a node (the usual tabs)
+  // and as a chat thread. The Chat tab renders the same bubbles as the
+  // standalone /chat view, so it is the node's default tab and is AWAITED
+  // rather than streamed — it is the primary content for those nodes. Every
+  // other node pays nothing. Best-effort: an empty thread beats failing the
+  // whole page (the tab says so).
+  const isChat = isTeamChatNode(node);
+  const chatMessagesPromise: Promise<ChatMessage[] | null> = isChat
+    ? loadChatMessages(gqlClient(locals.token), params.id, node.loc).catch((e) => {
+        console.warn('[node-detail] chat messages failed:', e);
+        return [];
+      })
+    : Promise.resolve(null);
+
   const flowRows = rowsFromNodeData(node.data);
   const output = outputFromNodeData(node.data);
   // #656: an edge whose target is null (unreadable memory) has no targetId to
@@ -193,7 +211,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const outgoingEdges = node.outgoingEdges
     .filter((e) => e.target != null)
     .map((e) => ({ targetId: e.target!.id, name: e.name ?? null }));
-  const [moveForm, testFlowForm, deleteForm, createParentForm, updateMetaForm, duplicateForm, convertToTaskForm, flowForm, edgesForm] = await Promise.all([
+  const [moveForm, testFlowForm, deleteForm, createParentForm, updateMetaForm, duplicateForm, convertToTaskForm, flowForm, edgesForm, sendChatMessageForm] = await Promise.all([
     superValidate<NodeMoveForm>({ target: '' }, nodeMoveFormAdapter, { errors: false }),
     superValidate<NodeTestFlowForm>(
       { appId: '', orgId: org?.id ?? '', payload: '' },
@@ -222,12 +240,21 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     superValidate<NodeUpdateEdgesForm>({
       edges: JSON.stringify(outgoingEdges),
     }, nodeUpdateEdgesFormAdapter, { errors: false }),
+    superValidate<SendChatMessageForm>({}, sendChatMessageFormAdapter, { errors: false }),
   ]);
 
   const wikilinks = await wikilinksPromise;
+  const chatMessages = await chatMessagesPromise;
 
   return {
     node,
+    isChat,
+    chatMessages,
+    sendChatMessageForm,
+    // `?tab=` deep-links a specific tab (the page falls back to its own default
+    // for an unknown value). Used by the full-screen chat's "View node details"
+    // link, which must land on Content — a chat node opens on Chat otherwise.
+    initialTab: url.searchParams.get('tab'),
     breadcrumb,
     wikilinks,
     testFlowApps,
@@ -373,6 +400,40 @@ export const actions: Actions = {
     // Redirect to the *actual* memory's list — not the URL's gid, which
     // may have been stale.
     redirect(303, `/app/memories/${node.memoryId}/nodes`);
+  },
+
+  // Chat tab composer. Mirrors the standalone /chat page's `sendMessage`
+  // (same schema, same `_kind`) and goes through the same team-chat module, so
+  // a message sent from either surface lands identically.
+  sendChatMessage: async ({ request, params, locals }) => {
+    const form = await superValidate<SendChatMessageForm>(await request.formData(), sendChatMessageFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
+    const client = gqlClient(locals.token);
+    try {
+      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
+      if (!node) return message(form, { type: 'error', text: 'Chat node not found' }, { status: 404 });
+      if (!isTeamChatNode(node)) {
+        return message(form, { type: 'error', text: 'This node is not a chat.' }, { status: 400 });
+      }
+      if (!locals.user) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
+
+      // #237: memoryId from the node, not the URL (which may be stale).
+      await postChatMessage(client, {
+        memoryId: node.memoryId,
+        chatLoc: node.loc,
+        author: chatAuthorName(locals.user),
+        content: form.data.content,
+      });
+      return message(form, { type: 'success', text: 'Message sent.' });
+    } catch (e: unknown) {
+      console.error('[node-detail] send chat message failed:', e);
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, 'Failed to send message') },
+        { status: 500 },
+      );
+    }
   },
 
   updateContent: async ({ request, params, locals }) => {

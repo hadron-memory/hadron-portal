@@ -4,7 +4,8 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, CREATE_NODE_MUTATION, NODES_BY_LOC_PREFIX_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY } from '$lib/server/queries';
+import { chatAuthorName, isTeamChatNode, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { sendChatMessageSchema } from './schema';
@@ -53,42 +54,15 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   }
 
   // Detect team-chat tag
-  if (!node.tags.includes('team-chat')) {
+  if (!isTeamChatNode(node)) {
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
   }
 
-  // Load children as messages. Messages are stored at: {chat.loc}:messages:{id}
-  // This allows other content (attachments, etc) under the chat without collision.
-  const messagesPrefix = `${node.loc}:messages:`;
-
-  // #447: the memory layout's graphNodes are now the slim projection (no
-  // content/data/createdAt), so fetch the message children directly with full
-  // fields via the loc-prefix query. Non-fatal on error — an empty thread beats
-  // crashing the chat page.
-  const messagesData = await gqlClient(locals.token)
-    .request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(NODES_BY_LOC_PREFIX_QUERY, {
-      memoryId: params.id,
-      locPrefix: messagesPrefix,
-      limit: 2000,
-    })
-    .catch((err) => {
-      console.error('[chat-page] messages query failed:', err);
-      return { findNodes: { hits: [] as Array<{ node: MemoryNode }> } };
-    });
-
-  let children = messagesData.findNodes.hits
-    .map((h) => h.node)
-    .filter((n: MemoryNode) => {
-      if (!n?.loc?.startsWith(messagesPrefix)) return false;
-      // Only include direct message children (no further nesting)
-      const rest = n.loc.slice(messagesPrefix.length);
-      return !rest.includes(':');
-    })
-    .sort((a: MemoryNode, b: MemoryNode) => {
-      const timeA = new Date(a.createdAt).getTime();
-      const timeB = new Date(b.createdAt).getTime();
-      return timeA - timeB;
-    });
+  // Non-fatal on error — an empty thread beats crashing the chat page.
+  const messages = await loadChatMessages(gqlClient(locals.token), params.id, node.loc).catch((err) => {
+    console.error('[chat-page] messages query failed:', err);
+    return [];
+  });
 
   // Compute fullUrn like the node detail page does
   let fullUrn = node.loc;
@@ -102,17 +76,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   return {
     node,
     fullUrn,
-    messages: children.map((msg: MemoryNode) => {
-      const msgData = msg.data as Record<string, unknown> | null;
-      return {
-        id: msg.id,
-        name: msg.name || 'Unknown',
-        author: (msgData?.author as string) || msg.name || 'Unknown',
-        content: msg.content || (msgData?.body as string) || '',
-        createdAt: msg.createdAt,
-        nodeData: { loc: msg.loc },
-      };
-    }),
+    messages,
     form: await superValidate({}, sendChatMessageFormAdapter, { errors: false }),
   };
 };
@@ -135,32 +99,11 @@ export const actions: Actions = {
       const user = locals.user;
       if (!user) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
 
-      // Create a new message node at: {chat.loc}:messages:{timestamp}-{sender}
-      // Use ISO timestamp for consistent, sortable message IDs
-      const now = new Date();
-      const timestamp = now.toISOString().replace(/[:.]/g, '').slice(0, -1); // e.g., 2026-06-21T223100Z
-      const username =
-        (user as any).handle ||
-        (user as any).githubUsername ||
-        (user as any).name ||
-        user.email?.split('@')[0] ||
-        'anon';
-      const messageId = `${timestamp}-${username}`;
-      const messageLoc = `${node.loc}:messages:${messageId}`;
-
-      // Message locs embed a timestamp + username, so each send targets a
-      // fresh loc — pure create (a same-second double submit surfaces as a
-      // loud conflict error rather than silently merging).
-      const { createNode } = await gqlClient(locals.token).request<{
-        createNode: MemoryNode;
-      }>(CREATE_NODE_MUTATION, {
-        input: {
-          memoryId: params.id,
-          loc: messageLoc,
-          name: username,
-          nodeType: 'message',
-          data: { body: form.data.content, author: username },
-        },
+      const createNode = await postChatMessage(gqlClient(locals.token), {
+        memoryId: params.id,
+        chatLoc: node.loc,
+        author: chatAuthorName(user),
+        content: form.data.content,
       });
 
       return {
