@@ -159,16 +159,32 @@
         {#if cell.column.id === 'worker'}
           {#if session.worker}
             <div class="flex items-center gap-1.5 truncate">
-              <span
-                class="truncate"
-                title={session.worker.app
-                  ? undefined
-                  : t(
-                      'sessions.worker.app-hidden',
-                      'The App behind this worker isn’t visible to you, so the name can’t be qualified.',
-                    )}
-              >{cell.getValue()}</span>
+              <span class="truncate">{cell.getValue()}</span>
               <WorkerBadge retired={!!session.worker.retiredAt} size="xs" />
+              {#if !session.worker.app}
+                <!--
+                  The name on this row is UNQUALIFIED (the App's own read gate
+                  masked it), which on an org-wide surface is the one thing
+                  cor:agt:020:02 says not to show silently. So the caveat is a
+                  visible text chip, not a `title`: a title on a non-focusable
+                  span is unreachable by keyboard and touch and is announced
+                  inconsistently by assistive tech (Codex, PR #717). Same
+                  text-not-colour-alone rule WorkerBadge follows; the sr-only
+                  span carries the full sentence so the terse chip isn't the
+                  only explanation a screen-reader user gets.
+                -->
+                <span
+                  class="inline-flex shrink-0 items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+                >
+                  {t('sessions.worker.unqualified', 'app hidden')}
+                  <span class="sr-only">
+                    {' — '}{t(
+                      'sessions.worker.app-hidden',
+                      'The App behind this worker isn’t visible to you, so this name can’t be qualified and may be ambiguous.',
+                    )}
+                  </span>
+                </span>
+              {/if}
             </div>
           {:else}
             <!-- Not an error: a session with no worker was driven by a person,

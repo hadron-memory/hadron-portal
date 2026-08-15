@@ -126,9 +126,14 @@ The sessions grid now carries a **Worker** column:
   sessions.
 - **Two distinct absences, two renderings.** No worker at all (an ordinary
   human-driven session) renders `—`; a worker whose `app` was masked by its own
-  read gate (#552) falls back to the bare name with a tooltip saying why it
-  couldn't be qualified. The accessor returns `''` for the first case rather
-  than the placeholder, so filtering on `—` doesn't match every human session.
+  read gate (#552) falls back to the bare name plus a visible "app hidden" chip.
+  The accessor returns `''` for the first case rather than the placeholder, so
+  filtering on `—` doesn't match every human session.
+  The caveat is a **text chip, not a `title`**: an unqualified name on an
+  org-wide surface is precisely what `cor:agt:020:02` says not to present
+  silently, and a `title` on a non-focusable span is unreachable by keyboard and
+  touch and announced inconsistently by assistive tech. An `sr-only` span
+  carries the full sentence behind the terse chip.
 - **Retired workers still attribute.** Retirement ends the casting, not the
   history, so the row keeps its name and `WorkerBadge` marks it retired.
 
@@ -136,3 +141,12 @@ The sessions grid now carries a **Worker** column:
 load-bearing but structurally optional, so dropping it wouldn't fail the build,
 the query, or the types — it would just silently degrade every row to a bare
 name. That is the one failure this feature can't afford to make quiet.
+
+It asserts against the **parsed AST**, not the source string. The first version
+regex-matched `SESSIONS_QUERY` and was a false positive by construction: the
+explanatory `#` comments in that document themselves contain the words "name"
+and "retiredAt", so the guard passed whether or not the fields were selected
+(caught by Codex and Copilot on #717). Parsing also scopes each assertion to the
+`worker` block. A fourth case asserts the guard *fails* when a subfield is
+removed — a regression test whose own failure mode is silence needs proof that
+it can fail.
