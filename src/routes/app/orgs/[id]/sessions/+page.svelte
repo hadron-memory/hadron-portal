@@ -12,6 +12,8 @@
   } from '@tanstack/table-core';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import WorkerBadge from '$lib/components/WorkerBadge.svelte';
+  import { orgWideWorkerLabel } from '$lib/workers/worker-label';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
@@ -52,11 +54,28 @@
     return `${(ms / 3600_000).toFixed(1)}h`;
   }
 
+  interface SessionWorker {
+    id: string;
+    name: string;
+    retiredAt: string | null;
+    app: { id: string; urn: string } | null;
+  }
+
   interface Session {
     id: string; type: string; appId: string | null; repo: string | null; branch: string | null;
     llmModel: string | null; summary: string | null; inputTokens: number | null; outputTokens: number | null;
     turnCount: number | null; errorCount: number | null; startedAt: string; endedAt: string | null;
+    worker: SessionWorker | null;
   }
+
+  // hadron-server#980 / cor:agt:020:02: this list is org-wide, so a worker is
+  // rendered app-qualified ("eng-team/Iris"). A bare name would be ambiguous —
+  // another App may have its own Iris, and a human org member may be called
+  // Iris too (which is what WorkerBadge disambiguates).
+  //
+  // The label is computed in the ACCESSOR, not just the cell, so sorting and
+  // the global filter operate on the string the user actually sees — searching
+  // "eng-team" finds that App's sessions.
 
   let globalFilter = $state('');
 
@@ -73,6 +92,11 @@
       header: t('sessions.column.summary', 'Summary'),
       size: 320,
     },
+    // New column id — existing saved views for listKey "usage:sessions" simply
+    // don't mention it, so it renders visible and TanStack appends it to a
+    // persisted columnOrder. No saved state is discarded (that only happens on
+    // a RENAMED id — review:saved-view-arrangement-not-position).
+    { accessorFn: (row) => orgWideWorkerLabel(row.worker), id: 'worker', header: t('sessions.column.worker', 'Worker'), size: 170 },
     { accessorKey: 'llmModel', header: t('sessions.column.model', 'Model'), size: 150 },
     { accessorFn: (row) => durationMs(row.startedAt, row.endedAt), id: 'duration', header: t('sessions.column.duration', 'Duration'), size: 90 },
     { accessorKey: 'turnCount', header: t('sessions.column.turns', 'Turns'), size: 70 },
@@ -131,9 +155,30 @@
       bind:globalFilter
       maxHeight="max(200px, calc(100vh - 23rem))"
     >
-      {#snippet cell(cell)}
-        {@const f = fmt[cell.column.id]}
-        <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
+      {#snippet cell(cell, session)}
+        {#if cell.column.id === 'worker'}
+          {#if session.worker}
+            <div class="flex items-center gap-1.5 truncate">
+              <span
+                class="truncate"
+                title={session.worker.app
+                  ? undefined
+                  : t(
+                      'sessions.worker.app-hidden',
+                      'The App behind this worker isn’t visible to you, so the name can’t be qualified.',
+                    )}
+              >{cell.getValue()}</span>
+              <WorkerBadge retired={!!session.worker.retiredAt} size="xs" />
+            </div>
+          {:else}
+            <!-- Not an error: a session with no worker was driven by a person,
+                 not a casting. -->
+            <div class="truncate text-zinc-400">—</div>
+          {/if}
+        {:else}
+          {@const f = fmt[cell.column.id]}
+          <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
+        {/if}
       {/snippet}
     </DataTable>
   {/if}

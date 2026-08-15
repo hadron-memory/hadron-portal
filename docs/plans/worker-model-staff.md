@@ -109,10 +109,30 @@ distinction in **text**, not colour alone. The Staff tab links to People
 what proves the `personaName` removal is complete — the portal has no codegen, so a
 stale field would otherwise fail silently at runtime (portal#681).
 
-## Known gap (not this PR)
+## Org-wide worker attribution (closed by hadron-server#980)
 
-**Org-wide worker attribution has no data to render yet.** `Session` exposes
-`workerId` but no nested `worker { name }`, and `/app/orgs/[id]/sessions` would need
-one lookup per row to show `eng-team/Iris`. The compound helper exists and is
-tested, but the only surface that renders a worker today is App-scoped. Showing
-worker attribution on the org sessions list needs a server-side field first.
+Originally deferred: `Session` exposed `workerId` but no nested worker, so
+`/app/orgs/[id]/sessions` would have needed one lookup per row to render
+`eng-team/Iris`. hadron-server#980 shipped `Session.worker: Worker`, resolved
+through `SESSION_INCLUDE` so the list path stays a single query.
+
+The sessions grid now carries a **Worker** column:
+
+- **Qualified, always.** The label comes from `orgWideWorkerLabel`, which builds
+  the compound from `worker.app.urn`'s slug. A session list is context-free, so
+  the bare name is never correct here (`cor:agt:020:02`).
+- **Computed in the accessor**, not only the cell, so sorting and the global
+  filter act on the string the user sees — searching `eng-team` finds that App's
+  sessions.
+- **Two distinct absences, two renderings.** No worker at all (an ordinary
+  human-driven session) renders `—`; a worker whose `app` was masked by its own
+  read gate (#552) falls back to the bare name with a tooltip saying why it
+  couldn't be qualified. The accessor returns `''` for the first case rather
+  than the placeholder, so filtering on `—` doesn't match every human session.
+- **Retired workers still attribute.** Retirement ends the casting, not the
+  history, so the row keeps its name and `WorkerBadge` marks it retired.
+
+`page.server.test.ts` pins the selection set itself: `worker.app.urn` is
+load-bearing but structurally optional, so dropping it wouldn't fail the build,
+the query, or the types — it would just silently degrade every row to a bare
+name. That is the one failure this feature can't afford to make quiet.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appSlugFromUrn, qualifiedWorkerName, workerLabel } from './worker-label';
+import { appSlugFromUrn, orgWideWorkerLabel, qualifiedWorkerName, workerLabel } from './worker-label';
 
 describe('appSlugFromUrn', () => {
   it('takes the slug atom off a canonical v2 App URN', () => {
@@ -61,6 +61,35 @@ describe('workerLabel', () => {
     // is ambiguous the moment the App context is gone.
     const a = workerLabel('Iris', { context: 'org-wide', appSlugOrUrn: 'hrn:app:acme.com:eng-team' });
     const b = workerLabel('Iris', { context: 'org-wide', appSlugOrUrn: 'hrn:app:acme.com:sales-team' });
+    expect(a).not.toBe(b);
+  });
+});
+
+// hadron-server#980: the shape a session row carries. `worker` is null for an
+// ordinary human-driven session, and `worker.app` is separately null when the
+// App self-gate masks it — so both absences need a defined rendering.
+describe('orgWideWorkerLabel', () => {
+  it('qualifies a session-shaped worker reference', () => {
+    expect(
+      orgWideWorkerLabel({ name: 'Iris', app: { urn: 'hrn:app:acme.com:eng-team' } }),
+    ).toBe('eng-team/Iris');
+  });
+
+  it('is empty for a session with no worker, not a placeholder', () => {
+    // The accessor feeds sorting and the global filter. Returning "—" here
+    // would make a user searching for a dash match every human-driven session.
+    expect(orgWideWorkerLabel(null)).toBe('');
+    expect(orgWideWorkerLabel(undefined)).toBe('');
+  });
+
+  it('degrades to the bare name when the App is masked by its own read gate', () => {
+    expect(orgWideWorkerLabel({ name: 'Iris', app: null })).toBe('Iris');
+    expect(orgWideWorkerLabel({ name: 'Iris' })).toBe('Iris');
+  });
+
+  it('still separates two Apps’ same-named workers', () => {
+    const a = orgWideWorkerLabel({ name: 'Iris', app: { urn: 'hrn:app:acme.com:eng-team' } });
+    const b = orgWideWorkerLabel({ name: 'Iris', app: { urn: 'hrn:app:acme.com:sales-team' } });
     expect(a).not.toBe(b);
   });
 });
