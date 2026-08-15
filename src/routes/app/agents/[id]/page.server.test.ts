@@ -473,22 +473,26 @@ describe('/app/agents/[id] delete action', () => {
 // ── #713: Bundled agents ────────────────────────────────────────────────────
 //
 // "Bundled" has TWO sources, and the one that matters in practice is the
-// non-obvious one: createTeamPersona installs each minted persona into the
-// team App and writes NO AgentImport edge, so a Team Agent's personas are its
-// co-installed SIBLINGS. AgentImport edges are folded in on top.
+// non-obvious one: co-installing an agent into the same App writes NO
+// AgentImport edge, so an App's roster-mates are its co-installed SIBLINGS.
+// AgentImport edges are folded in on top.
+//
+// #974: these rows are ROLE-ACTORS, so they carry `personaRole` and no name of
+// a person — `Agent.personaName` no longer exists. Who is cast in the App is
+// its Worker staff, listed on the App page.
 
 describe('/app/agents/[id] loader — bundled agents (#713)', () => {
-  const iris = {
-    id: 'agent-iris', name: 'Iris', urn: 'hrn:agent:acme.com:iris',
-    description: 'AI coding agent', personaName: 'Iris', personaRole: 'backend-engineer',
+  const backend = {
+    id: 'agent-backend', name: 'Backend Engineer', urn: 'hrn:agent:acme.com:backend-engineer',
+    description: 'AI coding agent', personaRole: 'backend-engineer',
   };
-  const rufus = {
-    id: 'agent-rufus', name: 'Rufus', urn: 'hrn:agent:acme.com:rufus',
-    description: null, personaName: 'Rufus', personaRole: 'frontend-engineer',
+  const frontend = {
+    id: 'agent-frontend', name: 'Frontend Engineer', urn: 'hrn:agent:acme.com:frontend-engineer',
+    description: null, personaRole: 'frontend-engineer',
   };
   const selfLite = {
     id: 'agent-aaa', name: 'Agent in A', urn: 'urn:agent:a',
-    description: null, personaName: null, personaRole: null,
+    description: null, personaRole: null,
   };
 
   async function loadBundled(opts: { agent?: unknown; apps?: unknown[]; ownedApps?: unknown[] }) {
@@ -513,18 +517,18 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
     const { bundledAgents: bundled } = await loadBundled({
       apps: [{
         id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a',
-        agentId: 'agent-aaa', agents: [selfLite, iris, rufus],
+        agentId: 'agent-aaa', agents: [selfLite, backend, frontend],
       }],
     });
-    expect(bundled.map((a) => a.id)).toEqual(['agent-iris', 'agent-rufus']);
-    expect(bundled[0]).toMatchObject({ name: 'Iris', personaRole: 'backend-engineer', via: 'Team App' });
+    expect(bundled.map((a) => a.id)).toEqual(['agent-backend', 'agent-frontend']);
+    expect(bundled[0]).toMatchObject({ name: 'Backend Engineer', personaRole: 'backend-engineer', via: 'Team App' });
   });
 
   it('ignores apps this agent is not installed in', async () => {
     const { bundledAgents: bundled } = await loadBundled({
       apps: [{
         id: 'app-2', name: 'Someone Else', urn: 'urn:app:2', organizationId: 'org-a',
-        agentId: 'agent-zzz', agents: [{ ...iris, id: 'agent-other' }],
+        agentId: 'agent-zzz', agents: [{ ...backend, id: 'agent-other' }],
       }],
     });
     expect(bundled).toEqual([]);
@@ -550,18 +554,18 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
       agent: {
         ...agentInA,
         imports: [{
-          parentAgentId: 'agent-aaa', importedAgentId: 'agent-iris', position: 0, required: false,
-          importedAgent: { id: 'agent-iris', name: 'Iris', urn: 'hrn:agent:acme.com:iris' },
+          parentAgentId: 'agent-aaa', importedAgentId: 'agent-backend', position: 0, required: false,
+          importedAgent: { id: 'agent-backend', name: 'Backend Engineer', urn: 'hrn:agent:acme.com:backend-engineer' },
         }],
       },
       apps: [{
         id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a',
-        agentId: 'agent-aaa', agents: [selfLite, iris],
+        agentId: 'agent-aaa', agents: [selfLite, backend],
       }],
     });
     expect(bundled).toHaveLength(1);
     // The richer co-installed row wins — it carries the persona fields.
-    expect(bundled[0]).toMatchObject({ id: 'agent-iris', via: 'Team App', personaRole: 'backend-engineer' });
+    expect(bundled[0]).toMatchObject({ id: 'agent-backend', via: 'Team App', personaRole: 'backend-engineer' });
   });
 });
 
@@ -570,11 +574,11 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
 describe('/app/agents/[id] loader — bundles across app OWNERSHIP classes (#714 review)', () => {
   const selfLite = {
     id: 'agent-aaa', name: 'Agent in A', urn: 'urn:agent:a',
-    description: null, personaName: null, personaRole: null,
+    description: null, personaRole: null,
   };
   const nova = {
-    id: 'agent-nova', name: 'Nova', urn: 'hrn:agent:ada:nova',
-    description: 'personal persona', personaName: 'Nova', personaRole: 'mobile-engineer',
+    id: 'agent-nova', name: 'Mobile Engineer', urn: 'hrn:agent:ada:mobile-engineer',
+    description: 'personal role-actor', personaRole: 'mobile-engineer',
   };
 
   it('finds siblings in a USER-OWNED app — apps() unfiltered never returns one', async () => {
@@ -632,7 +636,7 @@ describe('/app/agents/[id] loader — bundles across app OWNERSHIP classes (#714
           parentAgentId: 'agent-aaa', importedAgentId: 'agent-cal', position: 0, required: false,
           importedAgent: {
             id: 'agent-cal', name: 'Calendar', urn: 'hrn:agent:acme.com:calendar',
-            description: 'Books meetings', personaName: 'Cal', personaRole: 'scheduler',
+            description: 'Books meetings', personaRole: 'scheduler',
           },
         }],
       } } },

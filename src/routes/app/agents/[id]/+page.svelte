@@ -18,6 +18,7 @@
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
+  import { t } from '$lib/i18n/t';
   import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
@@ -48,7 +49,6 @@
     name: string;
     urn: string;
     description: string | null;
-    personaName: string | null;
     personaRole: string | null;
     via: string;
   }
@@ -314,7 +314,6 @@
       systemPrompt: agent.systemPrompt ?? '',
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
-      personaName: agent.personaName ?? '',
       personaRole: agent.personaRole ?? '',
       personaPrompt: agent.personaPrompt ?? '',
     }), { taint: false });
@@ -328,7 +327,6 @@
   );
   const agentNameError = $derived($agentSettingsErrors.name?.[0] ?? null);
   const agentUrnError = $derived($agentSettingsErrors.urnSlug?.[0] ?? null);
-  const personaNameError = $derived($agentSettingsErrors.personaName?.[0] ?? null);
   const addMemoryError = $derived($addMemoryErrors.memoryId?.[0] ?? null);
   const addMemoryActionError = $derived($addMemoryMessage?.type === 'error' ? $addMemoryMessage.text : $addMemoryErrors._kind?.[0] ?? null);
   const addMemoryActionSuccess = $derived($addMemoryMessage?.type === 'success' ? $addMemoryMessage.text : null);
@@ -637,22 +635,17 @@
               <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
             </div>
           {/if}
-          <!-- #712: persona metadata, shown only when this agent IS a persona. -->
-          {#if agent.personaName}
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Persona name</span>
-              <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaName}</span>
-            </div>
-          {/if}
+          <!-- #974: persona DRESSING on a reusable role-actor. Not an identity —
+               the named individual is a Worker cast into an App. -->
           {#if agent.personaRole}
             <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Persona role</span>
+              <span class="text-sm text-zinc-500">{t('agent.persona.role', 'Persona role')}</span>
               <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaRole}</span>
             </div>
           {/if}
           {#if agent.personaPrompt}
             <div class="px-5 py-3">
-              <span class="text-sm text-zinc-500">Persona prompt</span>
+              <span class="text-sm text-zinc-500">{t('agent.persona.prompt', 'Persona prompt template')}</span>
               <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.personaPrompt}</p>
             </div>
           {/if}
@@ -1227,33 +1220,23 @@
                 <p class="mt-1 text-xs text-zinc-400">Memory the agent uses for conversations, automations, and other tasks.</p>
               </div>
             {/if}
-            <!-- #712 persona metadata. A persona — a named AI team member driven
-                 by coding sessions or portal chat — IS an Agent; these three
-                 fields are what make it one. Blank clears the field server-side,
-                 so an ordinary agent just leaves them empty. -->
+            <!-- #974 persona DRESSING (cor:agt:020:01). An agent is a reusable
+                 ROLE-ACTOR ("backend-engineer"), not a named individual: the
+                 name belongs to a Worker cast into an App. These two fields are
+                 the template that every casting of this agent shares. Blank
+                 clears the field server-side, so an ordinary agent just leaves
+                 them empty. -->
             <div>
-              <label for="editPersonaName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Persona name</label>
-              <input id="editPersonaName" name="personaName" type="text" placeholder="Iris" bind:value={$agentSettingsForm.personaName}
-                aria-invalid={!!personaNameError}
-                aria-describedby={personaNameError ? 'editPersonaNameError' : 'editPersonaNameHelp'}
-                class="{inputClass} {personaNameError ? 'border-red-500 focus:border-red-500' : ''}" />
-              {#if personaNameError}
-                <p id="editPersonaNameError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{personaNameError}</p>
-              {:else}
-                <p id="editPersonaNameHelp" class="mt-1 text-xs text-zinc-400">Display name of the team member. Must be unique for this owner; leave blank if this agent isn't a persona.</p>
-              {/if}
-            </div>
-            <div>
-              <label for="editPersonaRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Persona role</label>
+              <label for="editPersonaRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('agent.persona.role', 'Persona role')}</label>
               <input id="editPersonaRole" name="personaRole" type="text" placeholder="backend-engineer" bind:value={$agentSettingsForm.personaRole}
                 aria-describedby="editPersonaRoleHelp" class={inputClass} />
-              <p id="editPersonaRoleHelp" class="mt-1 text-xs text-zinc-400">Free-form role, by convention a slug like <code>backend-engineer</code>.</p>
+              <p id="editPersonaRoleHelp" class="mt-1 text-xs text-zinc-400">{t('agent.persona.role.help', 'Free-form role, by convention a slug like backend-engineer. Casting an agent into an App defaults the worker’s role to this.')}</p>
             </div>
             <div>
-              <label for="editPersonaPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Persona prompt</label>
-              <textarea id="editPersonaPrompt" name="personaPrompt" rows="4" placeholder="Who this team member is and how they work" bind:value={$agentSettingsForm.personaPrompt}
+              <label for="editPersonaPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('agent.persona.prompt', 'Persona prompt template')}</label>
+              <textarea id="editPersonaPrompt" name="personaPrompt" rows="4" placeholder="You are {'{{name}}'}, a {'{{role}}'} on this team." bind:value={$agentSettingsForm.personaPrompt}
                 aria-describedby="editPersonaPromptHelp" class={inputClass}></textarea>
-              <p id="editPersonaPromptHelp" class="mt-1 text-xs text-zinc-400">Identity paragraph; clients compose it into the system prompt.</p>
+              <p id="editPersonaPromptHelp" class="mt-1 text-xs text-zinc-400">{t('agent.persona.prompt.help', 'Identity template shared by every casting of this agent. {{name}} and {{role}} are bound when a worker is cast; a worker can append its own prompt override.')}</p>
             </div>
             <div class="flex gap-3">
               <button type="submit" disabled={$agentSettingsSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">{$agentSettingsSubmitting ? 'Saving...' : 'Save'}</button>
@@ -1278,21 +1261,15 @@
                 <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
               </div>
             {/if}
-            {#if agent.personaName}
-              <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">Persona name</span>
-                <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaName}</span>
-              </div>
-            {/if}
             {#if agent.personaRole}
               <div class="flex items-center justify-between px-5 py-3">
-                <span class="text-sm text-zinc-500">Persona role</span>
+                <span class="text-sm text-zinc-500">{t('agent.persona.role', 'Persona role')}</span>
                 <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaRole}</span>
               </div>
             {/if}
             {#if agent.personaPrompt}
               <div class="px-5 py-3">
-                <span class="text-sm text-zinc-500">Persona prompt</span>
+                <span class="text-sm text-zinc-500">{t('agent.persona.prompt', 'Persona prompt template')}</span>
                 <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.personaPrompt}</p>
               </div>
             {/if}

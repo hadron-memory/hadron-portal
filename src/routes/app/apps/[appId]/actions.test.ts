@@ -3,10 +3,12 @@ import {
   ADD_AGENT_TO_APP_MUTATION,
   APP_NODES_QUERY,
   APP_QUERY,
+  CAST_WORKER_MUTATION,
   CREATE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
   ORGANIZATION_QUERY,
   REMOVE_AGENT_FROM_APP_MUTATION,
+  RETIRE_WORKER_MUTATION,
   REVOKE_APP_KEY_MUTATION,
   UPDATE_APP_MUTATION,
 } from '$lib/server/queries';
@@ -29,7 +31,9 @@ beforeEach(() => {
 });
 
 async function runAction(
-  name: 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey' | 'revokeKey' | 'deleteApp',
+  name:
+    | 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey'
+    | 'revokeKey' | 'deleteApp' | 'castWorker' | 'retireWorker',
   fields: Record<string, string | string[]>,
 ) {
   const { actions } = await import('./+page.server');
@@ -64,7 +68,9 @@ const validSettings = {
 
 describe('load', () => {
   it('seeds the link-agent form with an explicit empty choice', async () => {
-    mockFetchAllItems.mockResolvedValueOnce([]);
+    // mockResolvedValue (not …Once): the loader makes SEVERAL paginated calls —
+    // AI configs and, since #974, the App's Worker staff.
+    mockFetchAllItems.mockResolvedValue([]);
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) {
         return Promise.resolve({
@@ -110,6 +116,72 @@ describe('load', () => {
     } as unknown as Parameters<typeof load>[0])) as { addAgentForm: { data: { agentId: string } } };
 
     expect(result.addAgentForm.data.agentId).toBe('');
+  });
+
+  // #974: "couldn't load the staff" and "this App has no staff" are different
+  // statements, and the empty state must not tell the second lie. The loader
+  // therefore coerces a failed workers fetch to null, never [].
+  it('reports a failed staff fetch as null, distinct from an empty staff list', async () => {
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) {
+        return Promise.resolve({
+          app: {
+            id: 'app-1', name: 'Demo App', urn: 'hadronmemory.com:demo-org:demo-app',
+            organizationId: null, appType: 'CHATBOT', role: 'ADMIN',
+            description: null, systemPrompt: null,
+            createUserPermission: 'DENY', identifyUserMethod: 'USER_ID',
+            sessionTimeoutSeconds: 3600, anonymousTtlDays: 14,
+            agentId: 'agent-1', agent: null,
+          },
+        });
+      }
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      return Promise.resolve({ resolveAiServiceConfigs: [] });
+    });
+    // AI configs resolve; the workers page rejects.
+    mockFetchAllItems
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error('workers exploded'));
+
+    const { load } = await import('./+page.server');
+    const result = (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+    } as unknown as Parameters<typeof load>[0])) as { staff: unknown; staffError: boolean };
+
+    expect(result.staff).toBeNull();
+    expect(result.staffError).toBe(true);
+  });
+
+  it('returns an empty staff list as [] with no error flag', async () => {
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) {
+        return Promise.resolve({
+          app: {
+            id: 'app-1', name: 'Demo App', urn: 'hadronmemory.com:demo-org:demo-app',
+            organizationId: null, appType: 'CHATBOT', role: 'ADMIN',
+            description: null, systemPrompt: null,
+            createUserPermission: 'DENY', identifyUserMethod: 'USER_ID',
+            sessionTimeoutSeconds: 3600, anonymousTtlDays: 14,
+            agentId: 'agent-1', agent: null,
+          },
+        });
+      }
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      return Promise.resolve({ resolveAiServiceConfigs: [] });
+    });
+    mockFetchAllItems.mockResolvedValue([]);
+
+    const { load } = await import('./+page.server');
+    const result = (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+    } as unknown as Parameters<typeof load>[0])) as { staff: unknown[]; staffError: boolean };
+
+    expect(result.staff).toEqual([]);
+    expect(result.staffError).toBe(false);
   });
 });
 
@@ -499,5 +571,178 @@ describe('deleteApp action', () => {
     };
     expect(result.status).toBe(500);
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+});
+
+// ── Casting (#974, cor:dmo:050:11) ──────────────────────────────────────────
+//
+// castWorker CASTS an agent that is already installed; it mints nothing. The
+// interesting behaviour is at the edges: `name` and `role` are OPTIONAL, and
+// omitting them means something specific server-side (walk the cast-list
+// register / inherit the agent's persona role). Sending '' instead would be an
+// explicit-and-invalid name, so the blank→undefined coercion is the contract
+// this action has to hold up.
+
+describe('castWorker action', () => {
+  it('casts an installed agent under an explicit name and role', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('castWorker', {
+      agentId: 'agent-1',
+      name: 'Iris',
+      role: 'backend-engineer',
+    });
+    expect(result).toMatchObject({
+      form: { valid: true, message: { type: 'success', text: 'Worker cast.' } },
+    });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      CAST_WORKER_MUTATION,
+      {
+        appRef: 'app-1',
+        agentRef: 'agent-1',
+        name: 'Iris',
+        role: 'backend-engineer',
+        promptOverride: undefined,
+      },
+    ]);
+  });
+
+  it('sends a blank name and role as UNDEFINED, not ""', async () => {
+    // The whole point: undefined = "server, you choose" (walk the register /
+    // inherit personaRole). '' would be an explicit empty name — a different,
+    // invalid request.
+    mockRequest.mockResolvedValueOnce({});
+    await runAction('castWorker', { agentId: 'agent-1', name: '', role: '' });
+    const vars = mockRequest.mock.calls[0][1] as Record<string, unknown>;
+    expect(vars.name).toBeUndefined();
+    expect(vars.role).toBeUndefined();
+    expect(vars.agentRef).toBe('agent-1');
+  });
+
+  it('rejects a missing agent before the mutation', async () => {
+    const result = (await runAction('castWorker', { name: 'Iris' })) as {
+      status: number;
+      data: { form: { errors: { agentId?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.agentId?.[0]).toBe('Select an agent to cast.');
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('rejects castWorker POSTs with the wrong form discriminator', async () => {
+    const result = (await runAction('castWorker', {
+      agentId: 'agent-1',
+      _kind: 'addAgent',
+    })) as { status: number; data: { form: { errors: { _kind?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('translates WORKER_NAME_TAKEN into copy that says what to do', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'taken', extensions: { code: 'WORKER_NAME_TAKEN' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message.type).toBe('error');
+    expect(result.data.form.message.text).toContain('already taken');
+    // The permanence of the reservation is the non-obvious part — a user who
+    // isn't told it will just try the retired worker's name again.
+    expect(result.data.form.message.text).toContain('reserved permanently');
+  });
+
+  it('translates WORKER_AGENT_NOT_INSTALLED', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ extensions: { code: 'WORKER_AGENT_NOT_INSTALLED' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-9' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toContain('not installed');
+  });
+
+  // Codex on PR #716: a reader can reach these controls, because the portal
+  // deliberately doesn't re-derive the server's three-branch staffing gate to
+  // pre-hide them. The refusal therefore has to be a sentence, not a raw
+  // server string.
+  it('translates FORBIDDEN into copy naming the access actually needed', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toContain('permission to staff this App');
+    expect(result.data.form.message.text).toContain('contributor access');
+  });
+
+  it('falls back to the server message for an UNKNOWN code', async () => {
+    // review:clienterror-map-known-codes-only — only known codes get friendly
+    // copy; an internal error must not be relabelled as a user mistake.
+    mockRequest.mockRejectedValueOnce({
+      message: 'boom',
+      response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toBe('boom');
+  });
+
+  it('falls back to the server message for a payload-less transport failure', async () => {
+    // No `response.errors` at all — reading extensions.code off it would yield
+    // undefined and, with a catch-all, mislabel an outage.
+    mockRequest.mockRejectedValueOnce(new Error('bad gateway'));
+    const result = (await runAction('castWorker', { agentId: 'agent-1' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toBe('bad gateway');
+  });
+});
+
+describe('retireWorker action', () => {
+  it('retires a worker and says the name stays reserved', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('retireWorker', { workerId: 'worker-1' });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      RETIRE_WORKER_MUTATION,
+      { workerRef: 'worker-1' },
+    ]);
+    expect((result as { form: { message: { text: string } } }).form.message.text)
+      .toContain('name stays reserved');
+  });
+
+  it('rejects a missing worker id before the mutation', async () => {
+    const result = (await runAction('retireWorker', {})) as {
+      status: number;
+      data: { form: { errors: { workerId?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed error when retiring fails', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('retireWorker', { workerId: 'worker-1' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+
+  // Retiring shares castWorker's gate, so it must share its refusal copy —
+  // otherwise the same lack of access reads as two different failures.
+  it('translates FORBIDDEN the same way casting does', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('retireWorker', { workerId: 'worker-1' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toContain('permission to staff this App');
   });
 });

@@ -72,3 +72,24 @@ export const deleteAppSchema = z.object({
   // defined discriminator from the wrong action.
   _kind: z.literal('deleteApp').default('deleteApp'),
 });
+
+// ── Casting (#974) ────────────────────────────────────────────────────────
+//
+// Casting an INSTALLED agent into this App under a name creates a Worker: the
+// App's staff. `name` and `role` are both optional server-side — an omitted
+// name walks the Team Agent's cast-list register, an omitted role inherits the
+// agent's personaRole — so they must reach the mutation as UNDEFINED, not '',
+// or an empty string would be taken as an explicit (invalid) name. That is why
+// they are optional here rather than defaulted to ''.
+export const castWorkerSchema = z.object({
+  _kind: z.literal('castWorker').default('castWorker'),
+  agentId: z.string().trim().min(1, 'Select an agent to cast.').prefault(''),
+  name: z.string().trim().optional(),
+  role: z.string().trim().optional(),
+  promptOverride: z.string().trim().optional(),
+});
+
+export const retireWorkerSchema = z.object({
+  _kind: z.literal('retireWorker').default('retireWorker'),
+  workerId: z.string().trim().min(1, 'Worker is required').prefault(''),
+});

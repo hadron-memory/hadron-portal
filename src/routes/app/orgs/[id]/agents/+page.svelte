@@ -142,8 +142,15 @@
 
   let globalFilter = $state('');
 
+  // #974: the org list is a list of ROLE-ACTORS — reusable agents like
+  // "backend-engineer", not named individuals. There is no per-person fold and
+  // no persona-name column (Agent.personaName no longer exists): who is
+  // actually cast, and under what name, is a property of an App, shown as that
+  // App's staff. Role is surfaced here because it is what distinguishes one
+  // role-actor from another.
   const columns: ColumnDef<Agent>[] = [
     { accessorKey: 'name', header: t('org-agents.column.name', 'Name'), enableHiding: false, size: 200 }, // identity column
+    { accessorFn: (row) => row.personaRole ?? '', id: 'role', header: t('org-agents.column.role', 'Role'), size: 160 },
     { accessorKey: 'urn', header: t('org-agents.column.urn', 'URN'), size: 280 },
     { accessorKey: 'description', header: t('org-agents.column.description', 'Description'), size: 280 },
     // +1 for the agent's own system memory (when it has one) — it isn't part
@@ -154,6 +161,9 @@
 
   const fmt: Record<string, (v: unknown) => string> = {
     description: (v) => (v as string | null) ?? '—',
+    // The accessor maps a null role to '' so sorting groups the blanks; the
+    // em dash is a rendering concern only.
+    role: (v) => ((v as string) || '—'),
   };
 
   const table = createSvelteTable<Agent>({

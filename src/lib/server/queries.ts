@@ -82,10 +82,13 @@ export const AGENT_FIELDS = /* GraphQL */ `
     visibility
     type
     surfaces
-    # #928 team personas (portal#712): pure metadata — a persona is an Agent
-    # with a display name, a role string, and an identity paragraph. Editable
-    # from the agent Settings tab.
-    personaName
+    # #974 (cor:agt:020 v0.0.3): persona dressing on a reusable role-actor.
+    # personaPrompt is a TEMPLATE (name/role bound when the agent is cast as a
+    # Worker); the named individual is the Worker, not the Agent. personaName
+    # was dropped from the schema with the Worker model — do not reintroduce it
+    # (selecting an unknown field fails the whole request).
+    # NB: no backticks in this file's GraphQL comments — the operations are
+    # template literals, so a backtick terminates the string (portal#715).
     personaRole
     personaPrompt
     properties
@@ -107,7 +110,7 @@ export const AGENT_FIELDS = /* GraphQL */ `
       # description + persona fields feed the Bundled agents grid's Role and
       # Description columns (#713) — without them an import-sourced row rendered
       # an em dash even when the imported agent had values (PR #714 review).
-      importedAgent { id urn name description personaName personaRole }
+      importedAgent { id urn name description personaRole }
       position
       required
       createdAt
@@ -150,6 +153,12 @@ export const APP_FIELDS = /* GraphQL */ `
       }
       installationPolicy { maxMembers memberRoles }
     }
+    # #974: the App's install ROSTER (every installed Agent via the AppAgent
+    # join) — which role-actors are available to CAST as workers. Distinct from
+    # the App's STAFF, which are its Workers (WORKERS_QUERY). personaRole is
+    # selected because casting defaults a worker's role to it.
+    # Member-readable, unlike the admin-gated Agent.apps.
+    agents { id urn name personaRole }
     surfaces
     memberCount
     trainingMode
@@ -534,6 +543,66 @@ export const APP_WITH_MEMBERS_QUERY = /* GraphQL */ `
         user { id handle githubUsername name avatarUrl email }
       }
     }
+  }
+`;
+
+// ── Workers (#974, cor:dmo:050:11) ────────────────────────────────────────
+//
+// A Worker is the named CASTING of an installed Agent into an App — "Iris",
+// the backend-engineer agent cast into eng-team. The App's STAFF are its
+// Workers; the AppAgent join (App.agents) is only the install ROSTER, i.e.
+// which agents are available to cast.
+//
+// Workers have no URN, so every ref here is the PK. Names are unique per App
+// forever, which is what lets an App-context surface render the bare name.
+const WORKER_FIELDS = /* GraphQL */ `
+  fragment WorkerFields on Worker {
+    id
+    appId
+    agentId
+    name
+    role
+    promptOverride
+    memoryId
+    retiredAt
+    createdAt
+    # The role-actor behind the casting. Nullable in the schema, so every
+    # consumer must tolerate null rather than assuming the agent resolves.
+    agent { id name urn personaRole }
+  }
+`;
+
+// The App's staff. Retired castings are hidden unless includeRetired — they
+// keep their name reserved forever, so showing them is how a reader
+// understands why a name cannot be reused.
+export const WORKERS_QUERY = /* GraphQL */ `
+  ${WORKER_FIELDS}
+  query Workers($appRef: ID!, $includeRetired: Boolean, $limit: Int, $offset: Int) {
+    workers(appRef: $appRef, includeRetired: $includeRetired, limit: $limit, offset: $offset) {
+      items { ...WorkerFields }
+      total
+    }
+  }
+`;
+
+// Cast an ALREADY-INSTALLED agent under a name. Omitting name walks the Team
+// Agent's cast-list register; omitting role defaults to the agent's
+// personaRole. Typed refusals: WORKER_NAME_TAKEN, WORKER_AGENT_NOT_INSTALLED,
+// WORKER_AGENT_NOT_FOUND, WORKER_AGENT_AMBIGUOUS, WORKER_REGISTER_EXHAUSTED.
+export const CAST_WORKER_MUTATION = /* GraphQL */ `
+  ${WORKER_FIELDS}
+  mutation CastWorker($appRef: ID!, $agentRef: ID, $role: String, $name: String, $promptOverride: String) {
+    castWorker(appRef: $appRef, agentRef: $agentRef, role: $role, name: $name, promptOverride: $promptOverride) {
+      ...WorkerFields
+    }
+  }
+`;
+
+// End a casting while reserving its name FOREVER. Idempotent.
+export const RETIRE_WORKER_MUTATION = /* GraphQL */ `
+  ${WORKER_FIELDS}
+  mutation RetireWorker($workerRef: ID!) {
+    retireWorker(workerRef: $workerRef) { ...WorkerFields }
   }
 `;
 
@@ -925,8 +994,8 @@ export const AGENT_QUERY = /* GraphQL */ `
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaName: String, $personaRole: String, $personaPrompt: String) {
-    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility, personaName: $personaName, personaRole: $personaRole, personaPrompt: $personaPrompt) { ...AgentFields }
+  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String, $personaPrompt: String) {
+    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility, personaRole: $personaRole, personaPrompt: $personaPrompt) { ...AgentFields }
   }
 `;
 
@@ -2312,10 +2381,10 @@ export const RUN_TASK_APP_MUTATION = /* GraphQL */ `
 // non-admin members see this too.
 //
 // portal#713: the `agents` join also feeds the "Bundled agents" tab — the
-// SIBLINGS co-installed alongside this agent (that's how a Team Agent bundles
-// its personas: createTeamPersona installs each minted persona into the same
-// App, it does NOT write an AgentImport edge). Hence the full projection here
-// rather than a bare `{ id }`.
+// SIBLINGS co-installed alongside this agent in the same App's install roster
+// (a co-install writes no AgentImport edge). Hence the full projection here
+// rather than a bare `{ id }`. Post-#974 these are role-actors, not named
+// individuals: who is *cast* in that App is its Worker staff (WORKERS_QUERY).
 const AGENT_APP_LITE_FIELDS = /* GraphQL */ `
   fragment AgentAppLiteFields on App {
     id
@@ -2323,7 +2392,7 @@ const AGENT_APP_LITE_FIELDS = /* GraphQL */ `
     urn
     organizationId
     agentId
-    agents { id name urn description personaName personaRole }
+    agents { id name urn description personaRole }
   }
 `;
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { env } from '$env/dynamic/public';
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
@@ -9,6 +9,7 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
+  import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -18,25 +19,31 @@
   import {
     addAgentSchema,
     appSettingsSchema,
+    castWorkerSchema,
     createAppKeySchema,
     deleteAppSchema,
     removeAppAgentSchema,
+    retireWorkerSchema,
     revokeAppKeySchema,
     updateAppAgentToolsSchema,
   } from './schema';
 
   type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
   type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
+  type CastWorkerForm = Infer<typeof castWorkerSchema, 'zod4'>;
   type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
   type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
   type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
+  type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
   type RevokeAppKeyForm = Infer<typeof revokeAppKeySchema, 'zod4'>;
   type UpdateAppAgentToolsForm = Infer<typeof updateAppAgentToolsSchema, 'zod4'>;
   type AddAgentSuperform = SuperValidated<AddAgentForm, App.Superforms.Message, AddAgentForm>;
   type AppSettingsSuperform = SuperValidated<AppSettingsForm, App.Superforms.Message, AppSettingsForm>;
+  type CastWorkerSuperform = SuperValidated<CastWorkerForm, App.Superforms.Message, CastWorkerForm>;
   type CreateAppKeySuperform = SuperValidated<CreateAppKeyForm, App.Superforms.Message, CreateAppKeyForm>;
   type DeleteAppSuperform = SuperValidated<DeleteAppForm, App.Superforms.Message, DeleteAppForm>;
   type RemoveAppAgentSuperform = SuperValidated<RemoveAppAgentForm, App.Superforms.Message, RemoveAppAgentForm>;
+  type RetireWorkerSuperform = SuperValidated<RetireWorkerForm, App.Superforms.Message, RetireWorkerForm>;
   type RevokeAppKeySuperform = SuperValidated<RevokeAppKeyForm, App.Superforms.Message, RevokeAppKeyForm>;
   type UpdateAppAgentToolsSuperform = SuperValidated<UpdateAppAgentToolsForm, App.Superforms.Message, UpdateAppAgentToolsForm>;
 
@@ -44,6 +51,29 @@
   const app = $derived(data.app);
   const org = $derived(data.org);
   const availableAgents = $derived(data.availableAgents);
+
+  // ── Staff (#974) ─────────────────────────────────────────────────────
+  // The App's STAFF are its Workers — the named castings. `App.agents` is only
+  // the install ROSTER: which role-actors are available to cast. Two different
+  // lists, deliberately kept apart.
+  //
+  // null = the fetch failed, which is NOT the same as "no staff" — the empty
+  // state must not claim an App has no workers when we simply couldn't ask.
+  const staff = $derived(data.staff);
+  const staffError = $derived(data.staffError);
+  // Active first, then retired (a retired worker still holds its name forever,
+  // so it belongs in the list — just not at the top).
+  const sortedStaff = $derived(
+    [...(staff ?? [])].sort((a, b) => {
+      if (!!a.retiredAt !== !!b.retiredAt) return a.retiredAt ? 1 : -1;
+      return a.name.localeCompare(b.name);
+    }),
+  );
+  // Castable = the App's install roster. castWorker refuses an agent that isn't
+  // installed (WORKER_AGENT_NOT_INSTALLED), so offering anything else would be
+  // offering a guaranteed failure.
+  const castableAgents = $derived(app.agents ?? []);
+  let castOpen = $state(false);
   // #648: this page is canonical org-optional — an org-owned app renders its org
   // chrome, a user-owned (org-less) app does not. The "Apps" list this app
   // belongs to is the org grid for an org app, the personal "My apps" list for a
@@ -60,7 +90,7 @@
   // sets `surfaces = ['chat']` for chatbot Apps so existing apps keep their
   // tab without behavior change. Gate logic lives in `$lib/app-surfaces`
   // so it's unit-testable independent of the Svelte component lifecycle.
-  type TabId = 'chat' | 'memory' | 'settings' | 'client';
+  type TabId = 'chat' | 'staff' | 'memory' | 'settings' | 'client';
   const hasChatSurface = $derived(hasChatSurfaceFn(app.surfaces));
   // Chat tab renders the agent-chat platform when an Agent is linked;
   // shows an empty state otherwise.
@@ -89,6 +119,10 @@
   let activeTab = $state<TabId>(untrack(() => hasChatSurface ? 'chat' : 'memory'));
   const tabs = $derived<{ id: TabId; label: string }[]>([
     ...(hasChatSurface ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
+    // #974: the App's staff — its Workers. Always present, including when the
+    // staff list is empty: "this App has no workers cast yet" is information,
+    // and hiding the tab would hide the way to cast the first one.
+    { id: 'staff', label: t('app.tabs.staff', 'Staff') },
     { id: 'memory', label: 'Memory' },
     { id: 'settings', label: 'Settings' },
     ...(!hasChatSurface ? [{ id: 'client' as TabId, label: 'Client' }] : []),
@@ -222,6 +256,48 @@
     clearOnSubmit: 'none',
   });
 
+  // ── Casting (#974) ───────────────────────────────────────────────────
+  const initialCastWorkerForm = untrack(() => submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null ?? data.castWorkerForm);
+  const {
+    form: castWorkerForm,
+    errors: castWorkerErrors,
+    message: castWorkerMessage,
+    submitting: castWorkerSubmitting,
+    enhance: castWorkerEnhance,
+  } = superForm<CastWorkerForm, App.Superforms.Message, CastWorkerForm>(initialCastWorkerForm, {
+    validators: zod4Client(castWorkerSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+    onUpdated: ({ form: f }) => {
+      // Clear the composer only on a clean cast, so a WORKER_NAME_TAKEN
+      // refusal leaves the rejected name in the box to edit.
+      if (f.valid && f.message?.type === 'success') {
+        castWorkerForm.update(
+          (current) => ({ ...current, agentId: '', name: '', role: '', promptOverride: '' }),
+          { taint: false },
+        );
+        castOpen = false;
+      }
+    },
+  });
+
+  const initialRetireWorkerForm = untrack(() => submittedForm<RetireWorkerForm>(form, 'retireWorker') as RetireWorkerSuperform | null ?? data.retireWorkerForm);
+  const {
+    form: retireWorkerForm,
+    errors: retireWorkerErrors,
+    message: retireWorkerMessage,
+    submitting: retireWorkerSubmitting,
+    enhance: retireWorkerEnhance,
+  } = superForm<RetireWorkerForm, App.Superforms.Message, RetireWorkerForm>(initialRetireWorkerForm, {
+    validators: zod4Client(retireWorkerSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
   const settingsNameError = $derived($appSettingsErrors.name?.[0] ?? null);
   const settingsUrnError = $derived($appSettingsErrors.urn?.[0] ?? null);
   const settingsSessionTimeoutError = $derived($appSettingsErrors.sessionTimeoutSeconds?.[0] ?? null);
@@ -251,6 +327,36 @@
   );
   const revokeKeyActionSuccess = $derived($revokeKeyMessage?.type === 'success' ? $revokeKeyMessage.text : null);
   const deleteAppActionError = $derived($deleteAppMessage?.type === 'error' ? $deleteAppMessage.text : $deleteAppErrors._kind?.[0] ?? null);
+  const castWorkerAgentError = $derived($castWorkerErrors.agentId?.[0] ?? null);
+  const castWorkerActionError = $derived(
+    $castWorkerMessage?.type === 'error'
+      ? $castWorkerMessage.text
+      : $castWorkerErrors._kind?.[0] ?? null,
+  );
+  const castWorkerActionSuccess = $derived($castWorkerMessage?.type === 'success' ? $castWorkerMessage.text : null);
+  const retireWorkerActionError = $derived(
+    $retireWorkerMessage?.type === 'error'
+      ? $retireWorkerMessage.text
+      : $retireWorkerErrors.workerId?.[0] ?? $retireWorkerErrors._kind?.[0] ?? null,
+  );
+  const retireWorkerActionSuccess = $derived($retireWorkerMessage?.type === 'success' ? $retireWorkerMessage.text : null);
+
+  // Retire is confirmed because it is one-way in the sense that matters: the
+  // casting ends and the NAME stays reserved forever, so it can never be
+  // re-cast under the same name. Say that in the prompt rather than asking a
+  // bare "are you sure?".
+  let retireForm = $state<HTMLFormElement>();
+  async function retireWorkerNamed(workerId: string, workerName: string) {
+    if ($retireWorkerSubmitting) return;
+    const prompt = t(
+      'app.staff.retire.confirm',
+      'Retire this worker? Its work history stays, and its name stays reserved in this App permanently:',
+    );
+    if (!confirm(`${prompt} ${workerName}`)) return;
+    retireWorkerForm.update((current) => ({ ...current, workerId }), { taint: false });
+    await tick();
+    retireForm?.requestSubmit();
+  }
 
   $effect(() => {
     const submitted = submittedForm<AppSettingsForm>(form, 'updateApp') as AppSettingsSuperform | null;
@@ -272,6 +378,16 @@
   $effect(() => {
     if (submittedForm<UpdateAppAgentToolsForm>(form, 'updateAgentTools')) {
       activeTab = 'client';
+    }
+  });
+  // Land back on Staff after a cast/retire so the outcome banner is visible
+  // next to the list it changed.
+  $effect(() => {
+    if (
+      submittedForm<CastWorkerForm>(form, 'castWorker') ||
+      submittedForm<RetireWorkerForm>(form, 'retireWorker')
+    ) {
+      activeTab = 'staff';
     }
   });
 
@@ -797,6 +913,245 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             </button>
           </div>
         </div>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- ───────────── STAFF TAB (#974) ─────────────
+       The App's Workers: the named castings of its installed agents. This IS
+       App context, so names render BARE (`cor:agt:020:02` — per-App uniqueness
+       makes them unambiguous here). The app-qualified compound belongs on
+       org-wide surfaces, never here. -->
+  {#if activeTab === 'staff'}
+    <div class="space-y-4">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.staff.title', 'Staff')}</h2>
+          <p class="mt-1 max-w-2xl text-sm text-zinc-500">
+            {t(
+              'app.staff.description',
+              'The workers cast into this App — a named identity doing attributable work, backed by one of the installed agents. Human members are managed separately.',
+            )}
+          </p>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <a
+            href="/app/apps/{app.id}/members"
+            class="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {t('app.staff.members-link', 'People')}
+          </a>
+          <button
+            type="button"
+            onclick={() => (castOpen = !castOpen)}
+            aria-expanded={castOpen}
+            class="rounded-lg px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            style="background: #fb8500;"
+            disabled={castableAgents.length === 0}
+          >
+            {t('app.staff.cast', 'Cast a worker')}
+          </button>
+        </div>
+      </div>
+
+      {#if castWorkerActionError}
+        <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {castWorkerActionError}
+        </div>
+      {/if}
+      {#if castWorkerActionSuccess}
+        <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+          {castWorkerActionSuccess}
+        </div>
+      {/if}
+      {#if retireWorkerActionError}
+        <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {retireWorkerActionError}
+        </div>
+      {/if}
+      {#if retireWorkerActionSuccess}
+        <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+          {retireWorkerActionSuccess}
+        </div>
+      {/if}
+
+      {#if castableAgents.length === 0}
+        <p class="text-sm text-zinc-500">
+          {t(
+            'app.staff.no-roster',
+            'No agents are installed in this App yet, so there is nothing to cast. Install one from Settings first.',
+          )}
+        </p>
+      {/if}
+
+      <!-- Cast composer. Name and role are OPTIONAL: leaving the name blank
+           draws the next free name from the Team Agent's cast-list register,
+           and leaving the role blank inherits the agent's persona role. -->
+      {#if castOpen && castableAgents.length > 0}
+        <form
+          method="POST"
+          action="?/castWorker"
+          use:castWorkerEnhance
+          novalidate
+          class="max-w-lg space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+        >
+          <input type="hidden" name="_kind" value={$castWorkerForm._kind} />
+          <div>
+            <label for="castAgentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('app.staff.field.agent', 'Agent')}
+            </label>
+            <select
+              id="castAgentId"
+              name="agentId"
+              bind:value={$castWorkerForm.agentId}
+              aria-invalid={!!castWorkerAgentError}
+              aria-describedby={castWorkerAgentError ? 'castAgentIdError' : 'castAgentIdHelp'}
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+            >
+              <option value="">{t('app.staff.field.agent.placeholder', '— Select an installed agent —')}</option>
+              {#each castableAgents as candidate (candidate.id)}
+                <option value={candidate.id}>
+                  {candidate.name}{candidate.personaRole ? ` (${candidate.personaRole})` : ''}
+                </option>
+              {/each}
+            </select>
+            {#if castWorkerAgentError}
+              <p id="castAgentIdError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{castWorkerAgentError}</p>
+            {:else}
+              <p id="castAgentIdHelp" class="mt-1 text-xs text-zinc-400">
+                {t('app.staff.field.agent.help', 'One of this App’s installed agents. The same agent can be cast more than once, under different names.')}
+              </p>
+            {/if}
+          </div>
+          <div>
+            <label for="castName" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('app.staff.field.name', 'Name')}
+            </label>
+            <input
+              id="castName"
+              name="name"
+              type="text"
+              placeholder="Iris"
+              bind:value={$castWorkerForm.name}
+              aria-describedby="castNameHelp"
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+            />
+            <p id="castNameHelp" class="mt-1 text-xs text-zinc-400">
+              {t('app.staff.field.name.help', 'Leave blank to draw the next free name from this role’s cast list. A name is reserved in this App permanently — retiring a worker never frees it.')}
+            </p>
+          </div>
+          <div>
+            <label for="castRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('app.staff.field.role', 'Role')}
+            </label>
+            <input
+              id="castRole"
+              name="role"
+              type="text"
+              placeholder="backend-engineer"
+              bind:value={$castWorkerForm.role}
+              aria-describedby="castRoleHelp"
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+            />
+            <p id="castRoleHelp" class="mt-1 text-xs text-zinc-400">
+              {t('app.staff.field.role.help', 'Leave blank to inherit the agent’s persona role.')}
+            </p>
+          </div>
+          <div>
+            <label for="castPromptOverride" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('app.staff.field.prompt-override', 'Prompt override')}
+            </label>
+            <textarea
+              id="castPromptOverride"
+              name="promptOverride"
+              rows="3"
+              bind:value={$castWorkerForm.promptOverride}
+              aria-describedby="castPromptOverrideHelp"
+              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+            ></textarea>
+            <p id="castPromptOverrideHelp" class="mt-1 text-xs text-zinc-400">
+              {t('app.staff.field.prompt-override.help', 'Optional. Appended to the agent’s prompt template as this worker’s own paragraph.')}
+            </p>
+          </div>
+          <div class="flex gap-3">
+            <button
+              type="submit"
+              disabled={$castWorkerSubmitting}
+              class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+            >
+              {$castWorkerSubmitting ? t('app.staff.casting', 'Casting…') : t('app.staff.cast.submit', 'Cast')}
+            </button>
+            <button
+              type="button"
+              onclick={() => (castOpen = false)}
+              class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+            >
+              {t('app.staff.cast.cancel', 'Cancel')}
+            </button>
+          </div>
+        </form>
+      {/if}
+
+      <form bind:this={retireForm} method="POST" action="?/retireWorker" class="hidden" use:retireWorkerEnhance novalidate>
+        <input type="hidden" name="_kind" value={$retireWorkerForm._kind} />
+        <input type="hidden" name="workerId" value={$retireWorkerForm.workerId} />
+      </form>
+
+      {#if staffError}
+        <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+          {t('app.staff.unavailable', 'The staff list couldn’t be loaded — try again in a moment.')}
+        </div>
+      {:else if sortedStaff.length === 0}
+        <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center dark:border-zinc-800 dark:bg-zinc-900">
+          <p class="text-sm font-medium text-zinc-600 dark:text-zinc-300">
+            {t('app.staff.empty.title', 'No workers cast into this App yet.')}
+          </p>
+          <p class="mx-auto mt-2 max-w-lg text-xs text-zinc-500 dark:text-zinc-400">
+            {t(
+              'app.staff.empty.explainer',
+              'Casting gives an installed agent a name in this App, so its work can be attributed to someone rather than to a role.',
+            )}
+          </p>
+        </div>
+      {:else}
+        <ul class="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+          {#each sortedStaff as worker (worker.id)}
+            <li class="flex items-start justify-between gap-4 px-5 py-3">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <!-- BARE name: this is App context. -->
+                  <span class="text-sm font-medium text-zinc-900 dark:text-white {worker.retiredAt ? 'line-through opacity-60' : ''}">
+                    {worker.name}
+                  </span>
+                  <WorkerBadge retired={!!worker.retiredAt} />
+                </div>
+                <p class="mt-1 truncate text-xs text-zinc-500">
+                  {worker.role ?? t('app.staff.no-role', 'No role')}
+                  {#if worker.agent}
+                    · <a href="/app/agents/{worker.agent.id}" class="text-indigo-600 hover:underline dark:text-indigo-400">{worker.agent.name}</a>
+                  {:else}
+                    · <span class="italic">{t('app.staff.agent-unavailable', 'backing agent unavailable')}</span>
+                  {/if}
+                </p>
+                {#if worker.memoryId}
+                  <a href="/app/memories/{worker.memoryId}" class="mt-1 inline-block text-xs text-indigo-600 hover:underline dark:text-indigo-400">
+                    {t('app.staff.working-memory', 'Working memory →')}
+                  </a>
+                {/if}
+              </div>
+              {#if !worker.retiredAt}
+                <button
+                  type="button"
+                  onclick={() => retireWorkerNamed(worker.id, worker.name)}
+                  disabled={$retireWorkerSubmitting}
+                  class="shrink-0 text-xs text-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {t('app.staff.retire', 'Retire')}
+                </button>
+              {/if}
+            </li>
+          {/each}
+        </ul>
       {/if}
     </div>
   {/if}
