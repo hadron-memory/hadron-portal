@@ -10,7 +10,7 @@ import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATIO
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
-import { chatAuthorName, isTeamChatNode, loadChatMessages, postChatMessage, type ChatMessage } from '$lib/server/team-chat';
+import { chatAuthorName, isChatNode, loadChatMessages, postChatMessage, type ChatMessage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
@@ -189,13 +189,17 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     }
   })();
 
-  // A node tagged `team-chat` is readable two ways: as a node (the usual tabs)
-  // and as a chat thread. The Chat tab renders the same bubbles as the
-  // standalone /chat view, so it is the node's default tab and is AWAITED
-  // rather than streamed — it is the primary content for those nodes. Every
-  // other node pays nothing. Best-effort: an empty thread beats failing the
-  // whole page (the tab says so).
-  const isChat = isTeamChatNode(node);
+  // A chat node (`nodeType: 'chat'`, or the legacy `team-chat` tag) is readable
+  // two ways: as a node (the usual tabs) and as a chat thread. The Chat tab
+  // renders the same bubbles as the standalone /chat view, so it is the node's
+  // default tab and is AWAITED rather than streamed — it is the primary content
+  // for those nodes. Every other node pays nothing. Best-effort: an empty thread
+  // beats failing the whole page.
+  const isChat = isChatNode(node);
+  // Posting is App-scoped (createTeamChatMessage). A team chat lives in its
+  // App's shared app-class memory, so the memory's appId IS the appRef; a
+  // legacy tagged chat in a non-App memory posts through the node path instead.
+  const chatAppId = (parentData as { graph?: { appId?: string | null } | null }).graph?.appId ?? null;
   const chatMessagesPromise: Promise<ChatMessage[] | null> = isChat
     ? loadChatMessages(gqlClient(locals.token), params.id, node.loc).catch((e) => {
         console.warn('[node-detail] chat messages failed:', e);
@@ -250,6 +254,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     node,
     isChat,
     chatMessages,
+    chatAppId,
     sendChatMessageForm,
     // `?tab=` deep-links a specific tab (the page falls back to its own default
     // for an unknown value). Used by the full-screen chat's "View node details"
@@ -413,15 +418,18 @@ export const actions: Actions = {
     try {
       const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
       if (!node) return message(form, { type: 'error', text: 'Chat node not found' }, { status: 404 });
-      if (!isTeamChatNode(node)) {
+      if (!isChatNode(node)) {
         return message(form, { type: 'error', text: 'This node is not a chat.' }, { status: 400 });
       }
       if (!locals.user) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
 
-      // #237: memoryId from the node, not the URL (which may be stale).
+      // #237: memoryId (and here the appId) from the node, not the URL, which
+      // may be stale. A platform chat posts through createTeamChatMessage; the
+      // appId off the node's memory is that operation's appRef.
       await postChatMessage(client, {
         memoryId: node.memoryId,
         chatLoc: node.loc,
+        appId: node.memory?.appId ?? null,
         author: chatAuthorName(locals.user),
         content: form.data.content,
       });

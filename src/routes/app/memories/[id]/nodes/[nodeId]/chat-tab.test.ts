@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CREATE_NODE_MUTATION, NODES_BY_LOC_PREFIX_QUERY, NODE_BY_ID_QUERY } from '$lib/server/queries';
+import {
+  CREATE_NODE_MUTATION,
+  CREATE_TEAM_CHAT_MESSAGE_MUTATION,
+  NODES_BY_LOC_PREFIX_QUERY,
+  NODE_BY_ID_QUERY,
+} from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -13,9 +18,10 @@ beforeEach(() => {
 
 function nodeRow(over: Record<string, unknown> = {}) {
   return {
-    id: 'chat-pk', memoryId: MEM, loc: 'chats:team', name: 'team',
-    nodeType: 'info', alias: null, description: null, content: null, abstract: null,
-    data: null, properties: null, tags: ['team-chat'], seq: null, isRunnable: null,
+    id: 'chat-pk', memoryId: MEM, memory: { id: MEM, urn: 'hrn:mem:acme.com:notes', name: 'notes', appId: 'app-1' },
+    loc: 'chats:team', name: 'team',
+    nodeType: 'chat', alias: null, description: null, content: null, abstract: null,
+    data: null, properties: null, tags: [], seq: null, isRunnable: null,
     createdAt: '', updatedAt: '', outgoingEdges: [], incomingEdges: [],
     ...over,
   };
@@ -44,23 +50,24 @@ async function runLoad(tab?: string) {
     locals: { token: 'tok' },
     url,
     parent: vi.fn().mockResolvedValue({
-      graphNodes: [], graph: { id: MEM, urn: 'hrn:mem:acme.com:notes' },
+      graphNodes: [], graph: { id: MEM, urn: 'hrn:mem:acme.com:notes', appId: 'app-1' },
       isConsumerMode: false, activeOrgId: 'org-1',
     }),
   } as unknown as Parameters<typeof load>[0];
   return (await load(event)) as unknown as {
     isChat: boolean;
+    chatAppId: string | null;
     chatMessages: Array<{ id: string; content: string }> | null;
     initialTab: string | null;
   };
 }
 
 describe('node-detail load — Chat tab', () => {
-  it('loads the thread for a `team-chat` node', async () => {
+  it('loads the thread for a platform `chat` node', async () => {
     routeRequests({
       messages: {
         findNodes: {
-          hits: [{ node: { id: 'm-1', loc: 'chats:team:messages:a', name: 'holger', content: 'hi', data: null, createdAt: '2026-08-14T09:00:00Z' } }],
+          hits: [{ node: { id: 'm-1', loc: 'chats:team:messages:001-x-h', name: '001-holger', nodeType: 'chat-message', seq: 1, content: 'hi', data: { authorName: 'holger' }, createdAt: '2026-08-14T09:00:00Z' } }],
         },
       },
     });
@@ -68,14 +75,21 @@ describe('node-detail load — Chat tab', () => {
     const data = await runLoad();
 
     expect(data.isChat).toBe(true);
-    expect(data.chatMessages).toMatchObject([{ id: 'm-1', content: 'hi', author: 'holger' }]);
+    expect(data.chatAppId).toBe('app-1');
+    expect(data.chatMessages).toMatchObject([{ id: 'm-1', content: 'hi', author: 'holger', seq: 1 }]);
     expect(mockRequest).toHaveBeenCalledWith(NODES_BY_LOC_PREFIX_QUERY, expect.objectContaining({
       memoryId: MEM, locPrefix: 'chats:team:messages:',
     }));
   });
 
+  it('still loads the thread for a legacy `team-chat`-tagged node', async () => {
+    routeRequests({ node: nodeRow({ nodeType: 'info', tags: ['team-chat'] }) });
+
+    expect((await runLoad()).isChat).toBe(true);
+  });
+
   it('does not query messages for an ordinary node', async () => {
-    routeRequests({ node: nodeRow({ tags: [] }) });
+    routeRequests({ node: nodeRow({ nodeType: 'info', tags: [] }) });
 
     const data = await runLoad();
 
@@ -121,27 +135,42 @@ describe('node-detail sendChatMessage action', () => {
     return (r?.data?.form ?? r?.form) as { message?: unknown; errors?: Record<string, string[]> } | undefined;
   }
 
-  it('posts to the memory the node actually lives in, not the URL id (#237)', async () => {
+  it('posts through the platform operation, with the appRef off the node (#237)', async () => {
     mockRequest.mockResolvedValueOnce({ node: nodeRow() });
-    mockRequest.mockResolvedValueOnce({ createNode: { id: 'm-1' } });
+    mockRequest.mockResolvedValueOnce({ createTeamChatMessage: { nodeId: 'm-1' } });
 
     const result = await send({ _kind: 'sendChatMessage', content: '  hello team  ' });
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Message sent.' });
     expect(mockRequest).toHaveBeenNthCalledWith(1, NODE_BY_ID_QUERY, { ref: 'chat-pk' });
+    // The URL says `stale-mem`; the appRef and memory come from the node.
+    expect(mockRequest).toHaveBeenNthCalledWith(2, CREATE_TEAM_CHAT_MESSAGE_MUTATION, {
+      appRef: 'app-1', body: 'hello team',
+    });
+  });
+
+  it('falls back to a node write for a legacy chat with no App', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: nodeRow({
+        nodeType: 'info', tags: ['team-chat'],
+        memory: { id: MEM, urn: 'hrn:mem:acme.com:notes', name: 'notes', appId: null },
+      }),
+    });
+    mockRequest.mockResolvedValueOnce({ createNode: { id: 'm-1' } });
+
+    await send({ _kind: 'sendChatMessage', content: 'hello team' });
+
     expect(mockRequest).toHaveBeenNthCalledWith(2, CREATE_NODE_MUTATION, {
       input: expect.objectContaining({
         memoryId: MEM,
         loc: expect.stringMatching(/^chats:team:messages:/),
-        name: 'holger',
         nodeType: 'message',
-        data: { body: 'hello team', author: 'holger' },
       }),
     });
   });
 
   it('refuses to post to a node that is not a chat', async () => {
-    mockRequest.mockResolvedValueOnce({ node: nodeRow({ tags: [] }) });
+    mockRequest.mockResolvedValueOnce({ node: nodeRow({ nodeType: 'info', tags: [] }) });
 
     const result = (await send({ _kind: 'sendChatMessage', content: 'hello' })) as { status: number };
 

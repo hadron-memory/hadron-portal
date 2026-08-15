@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CREATE_NODE_MUTATION, NODE_BY_ID_QUERY } from '$lib/server/queries';
+import { CREATE_NODE_MUTATION, CREATE_TEAM_CHAT_MESSAGE_MUTATION, NODE_BY_ID_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -47,9 +47,9 @@ async function send(fields: Record<string, string>, user?: Record<string, unknow
 }
 
 describe('chat sendMessage action', () => {
-  it('creates a message node from validated trimmed content', async () => {
+  it('creates a message node from validated trimmed content (legacy, no App)', async () => {
     mockRequest.mockResolvedValueOnce({
-      node: { id: 'chat-1', loc: 'team:chat' },
+      node: { id: 'chat-1', loc: 'team:chat', memory: { id: 'mem-1', appId: null } },
     });
     mockRequest.mockResolvedValueOnce({
       createNode: { id: 'message-1', loc: 'team:chat:messages:20260720T120000Z-holger' },
@@ -60,7 +60,7 @@ describe('chat sendMessage action', () => {
       content: '  hello team  ',
     });
 
-    expect(result).toMatchObject({ sent: true, messageNode: { id: 'message-1' } });
+    expect(result).toMatchObject({ sent: true, messageNode: { nodeId: 'message-1' } });
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Message sent.' });
     expect(mockRequest).toHaveBeenNthCalledWith(1, NODE_BY_ID_QUERY, { ref: 'chat-1' });
     expect(mockRequest).toHaveBeenNthCalledWith(2, CREATE_NODE_MUTATION, {
@@ -71,6 +71,20 @@ describe('chat sendMessage action', () => {
         nodeType: 'message',
         data: { body: 'hello team', author: 'holger' },
       }),
+    });
+  });
+
+  it('posts a platform chat through createTeamChatMessage, using the memory appId', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: { id: 'chat-1', loc: 'chats:team', memory: { id: 'mem-1', appId: 'app-1' } },
+    });
+    mockRequest.mockResolvedValueOnce({ createTeamChatMessage: { nodeId: 'message-1' } });
+
+    const result = await send({ _kind: 'sendChatMessage', content: 'hello team' });
+
+    expect(result).toMatchObject({ sent: true, messageNode: { nodeId: 'message-1' } });
+    expect(mockRequest).toHaveBeenNthCalledWith(2, CREATE_TEAM_CHAT_MESSAGE_MUTATION, {
+      appRef: 'app-1', body: 'hello team',
     });
   });
 

@@ -5,7 +5,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
-import { chatAuthorName, isTeamChatNode, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
+import { chatAuthorName, isChatNode, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { sendChatMessageSchema } from './schema';
@@ -53,8 +53,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     redirect(303, `/app/memories/${node.memoryId}/nodes/${params.nodeId}/chat`);
   }
 
-  // Detect team-chat tag
-  if (!isTeamChatNode(node)) {
+  // Chat nodes only (`nodeType: 'chat'`, or the legacy `team-chat` tag).
+  if (!isChatNode(node)) {
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
   }
 
@@ -99,16 +99,19 @@ export const actions: Actions = {
       const user = locals.user;
       if (!user) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
 
-      const createNode = await postChatMessage(gqlClient(locals.token), {
+      // A platform chat posts through createTeamChatMessage; its appRef is the
+      // appId of the App-class memory the chat lives in.
+      const posted = await postChatMessage(gqlClient(locals.token), {
         memoryId: params.id,
         chatLoc: node.loc,
+        appId: node.memory?.appId ?? null,
         author: chatAuthorName(user),
         content: form.data.content,
       });
 
       return {
         sent: true,
-        messageNode: createNode,
+        messageNode: posted,
         ...message(form, { type: 'success', text: 'Message sent.' }),
       };
     } catch (error) {

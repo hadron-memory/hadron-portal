@@ -43,6 +43,10 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     # system-class. The upload affordance is hidden when false; the server
     # rejects with MEMORY_NOT_ACCEPTING_UPLOADS regardless.
     acceptsUploads
+    # 008-agent-installation: the App an app/personal-class memory pivots on.
+    # NULL for every other class. Carries the appRef the team-chat platform
+    # operations need (a team chat lives in its App's shared app-class memory).
+    appId
     userId
     userMemoryOfAgentId
     anonymousExpiresAt
@@ -1658,7 +1662,9 @@ export const NODE_FIELDS = /* GraphQL */ `
   fragment NodeFields on Node {
     id
     memoryId
-    memory { id urn name }
+    # appId: the App an app-class memory pivots on — the appRef App-scoped
+    # platform operations take (team-chat posting reads it off the node).
+    memory { id urn name appId }
     nodeType
     # #588 (server #725): collection discriminator (which domain object this
     # node is, e.g. "competitor"). NULL for an ordinary node. Orthogonal to
@@ -1743,6 +1749,24 @@ export const MEMORY_EDGES_QUERY = /* GraphQL */ `
     memoryEdges(memoryRef: $memoryRef, limit: $limit, offset: $offset) {
       edges { id loc name sourceId targetId }
       total
+    }
+  }
+`;
+
+// Team chat (server #939): posting is a PLATFORM operation, never a hand-rolled
+// node write. The resolver allocates the message's `seq` atomically under the
+// chat-root lock and updates the root's messageCount/lastMessageAt; a portal-side
+// createNode would land an off-road node the platform readers ignore. `appRef` is
+// the App the chat belongs to — a team chat lives in that App's shared app-class
+// memory, so `Memory.appId` supplies it.
+export const CREATE_TEAM_CHAT_MESSAGE_MUTATION = /* GraphQL */ `
+  mutation CreateTeamChatMessage($appRef: ID!, $body: String!) {
+    createTeamChatMessage(appRef: $appRef, body: $body) {
+      nodeId
+      seq
+      body
+      at
+      authorName
     }
   }
 `;

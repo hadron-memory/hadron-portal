@@ -928,7 +928,13 @@
   const hasContent = $derived(!!node.content);
   const hasAbstract = $derived(!!node.abstract);
   const hasData = $derived(node.data != null);
-  const isTeamChat = $derived(node.tags.includes('team-chat'));
+  // `data.isChat` is the server's own predicate (nodeType `chat`, or the legacy
+  // `team-chat` tag) — read it rather than re-deriving, so the tab can't
+  // disagree with the load that fetched (or skipped) the thread.
+  const isTeamChat = $derived(!!data.isChat);
+  // Posting needs an App to post through; a chat in a non-App memory is
+  // read-only from here (see postChatMessage).
+  const canPostChat = $derived(!!data.chatAppId || node.tags.includes('team-chat'));
 
   // ── Edge editing ────────────────────────────────────────────────────
   // Edge editing replaces the full outgoing set via updateNode(edges: [...]).
@@ -1848,6 +1854,7 @@
           {memoryUrn}
           sendForm={data.sendChatMessageForm}
           action="?/sendChatMessage"
+          canPost={canPostChat}
           heightClass="h-[calc(100vh-24rem)] min-h-[24rem]"
         />
       </div>
