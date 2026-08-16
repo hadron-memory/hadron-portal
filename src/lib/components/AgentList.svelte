@@ -1,12 +1,7 @@
 <script lang="ts">
   // Migrated off svelte-headless-table to @tanstack/table-core + the Svelte 5
   // runes adapter (src/lib/table/*). See docs/grid-bakeoff.md.
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { t } from '$lib/i18n/t';
   import Urn from './Urn.svelte';
@@ -43,7 +38,7 @@
 
   let globalFilter = $state('');
 
-  const columns: ColumnDef<AgentRow>[] = [
+  const columns: PortalColumnDef<AgentRow>[] = [
     { accessorKey: 'name', header: t('common.agent', 'Agent'), enableHiding: false, size: 300 }, // identity column
     { accessorFn: (a) => a.description ?? '', id: 'description', header: t('common.description', 'Description'), size: 400 },
   ];
@@ -65,9 +60,6 @@
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
     globalFilterFn: 'includesString',
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
   });
 
   function sortIndicator(state: false | 'asc' | 'desc'): string {
@@ -121,7 +113,12 @@
           {/each}
         </thead>
         <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
-          {#each table.getRowModel().rows as row (row.id)}
+          <!-- Pre-paginated: this grid shows every row and renders no pager.
+               The shared feature registry enables rowPaginationFeature for all
+               grids, and v9 resolves getRowModel() to getPaginatedRowModel()
+               (default pageSize 10) — so getRowModel() here would silently hide
+               rows 11+ with no way to reach them. -->
+          {#each table.getPrePaginatedRowModel().rows as row (row.id)}
             {@const agent = row.original}
             <tr class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900">
               {#each row.getVisibleCells() as cell (cell.id)}

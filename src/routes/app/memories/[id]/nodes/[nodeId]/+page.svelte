@@ -4,13 +4,7 @@
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import DOMPurify from 'dompurify';
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -1120,7 +1114,7 @@
 
   let edgeFilter = $state('');
 
-  const edgeColumns: ColumnDef<EdgeRow>[] = [
+  const edgeColumns: PortalColumnDef<EdgeRow>[] = [
     { accessorKey: 'direction', header: 'Direction', size: 110 },
     { accessorKey: 'name', id: 'relationship', header: 'Relationship', size: 150 },
     { accessorKey: 'endpointName', id: 'node', header: 'Node', enableHiding: false, size: 200 },
@@ -1146,10 +1140,6 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   // ── History (#529) — NodeRevision snapshots in the shared DataTable ───────
@@ -1188,7 +1178,7 @@
   }
 
   let revisionFilter = $state('');
-  const revisionColumns: ColumnDef<NodeRevision>[] = [
+  const revisionColumns: PortalColumnDef<NodeRevision>[] = [
     { accessorFn: (r) => revisionDateMs(r.createdAt), id: 'when', header: t('node.history.col.when', 'When'), size: 200 },
     { accessorFn: (r) => r.revLabel ?? '', id: 'label', header: t('node.history.col.label', 'Label'), size: 280 },
     // #620: changed fields (empty on legacy rows). Filterable by field name.
@@ -1218,10 +1208,6 @@
       pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'when', desc: true }], // most recent first
     },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   // #529 row actions (Display / Restore / Delete) + Clear-all. The per-row menu

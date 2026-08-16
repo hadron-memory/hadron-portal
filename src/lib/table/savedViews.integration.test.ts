@@ -1,15 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  createTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  type Table,
-  type TableState,
-  type TableOptionsResolved,
-  type ColumnDef,
-} from '@tanstack/table-core';
+import { makeHeadlessTable } from '$lib/table/headlessTable';
+import type { PortalColumnDef, PortalTable } from '$lib/table/features';
 import { extractView, applyView, serializeView } from './savedView';
 import { resolveInitialView } from './viewStore';
 import { LocalStorageViewStore } from './localStorageViewStore';
@@ -31,39 +22,22 @@ const DATA: Row[] = [
   { name: 'Alice', nodeType: 'info', description: 'a' },
   { name: 'Bob', nodeType: 'info', description: 'b' },
 ];
-const columns: ColumnDef<Row>[] = [
+const columns: PortalColumnDef<Row>[] = [
   { accessorKey: 'name', header: 'Name' },
   { accessorKey: 'nodeType', header: 'Type' },
   { accessorKey: 'description', header: 'Description' },
 ];
 
-// A headless table that fully self-manages state, including globalFilter (which
-// table-core only updates via onGlobalFilterChange — no default state updater).
-function makeTable(): Table<Row> {
-  let state = {} as TableState;
-  const table = createTable<Row>({
+// A headless table. Under v8 this had to self-manage every slice — including
+// globalFilter, which table-core had no default state updater for, so it needed
+// its own onGlobalFilterChange. v9 owns all registered slices internally, so
+// construction is just the options object.
+function makeTable(): PortalTable<Row> {
+  return makeHeadlessTable<Row>({
     data: DATA,
     columns,
-    state,
-    onStateChange: (u) => {
-      state = u instanceof Function ? u(state) : u;
-      table.setOptions((p) => ({ ...p, state }));
-    },
-    onGlobalFilterChange: (u) => {
-      const next = u instanceof Function ? (u as (o: unknown) => unknown)(state.globalFilter) : u;
-      state = { ...state, globalFilter: next } as TableState;
-      table.setOptions((p) => ({ ...p, state }));
-    },
     globalFilterFn: 'includesString',
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    renderFallbackValue: null,
-  } as TableOptionsResolved<Row>);
-  state = table.initialState;
-  table.setOptions((p) => ({ ...p, state }));
-  return table;
+  });
 }
 
 function fakeStorage(): Storage {
@@ -83,7 +57,7 @@ function fakeStorage(): Storage {
 const KEY = 'memory:m1:nodes';
 
 /** Simulate a page reload: a fresh table + re-resolve the view from storage. */
-async function reload(storage: Storage): Promise<Table<Row>> {
+async function reload(storage: Storage): Promise<PortalTable<Row>> {
   const store = new LocalStorageViewStore(storage);
   const table = makeTable();
   const target = resolveInitialView(await store.list(KEY), await store.getActiveId(KEY));
@@ -102,9 +76,9 @@ describe('US1 — save an arrangement and have it come back', () => {
     await createViewFrom(store, t, KEY, 'My view', true);
 
     const t2 = await reload(storage);
-    expect(t2.getState().sorting).toEqual([{ id: 'name', desc: true }]);
-    expect(t2.getState().globalFilter).toBe('bob');
-    expect(t2.getState().pagination.pageSize).toBe(10);
+    expect(t2.atoms.sorting.get()).toEqual([{ id: 'name', desc: true }]);
+    expect(t2.atoms.globalFilter.get()).toBe('bob');
+    expect(t2.atoms.pagination.get().pageSize).toBe(10);
   });
 });
 
@@ -121,7 +95,7 @@ describe('US2 — multiple views: switch + default-on-fresh', () => {
 
     // switch back to A → reload reapplies A (sticky)
     await applyAndActivate(store, t, KEY, a);
-    expect((await reload(storage)).getState().sorting).toEqual([{ id: 'name', desc: false }]);
+    expect((await reload(storage)).atoms.sorting.get()).toEqual([{ id: 'name', desc: false }]);
 
     // clear the active pointer (first-ever-open) → default (A) applies, not B
     await store.setActiveId(KEY, null);
@@ -145,17 +119,17 @@ describe('US3 — modified indicator + save/reset', () => {
     // tweak → modified
     t.setSorting([{ id: 'nodeType', desc: true }]);
     const active = (await store.get(KEY, v.id))!;
-    const isModified = serializeView(extractView(t.getState())) !== serializeView(active.view);
+    const isModified = serializeView(extractView(t.store.get())) !== serializeView(active.view);
     expect(isModified).toBe(true);
 
     // save → persisted; reload restores the new arrangement
     await overwriteView(store, t, KEY, v.id);
-    expect((await reload(storage)).getState().sorting).toEqual([{ id: 'nodeType', desc: true }]);
+    expect((await reload(storage)).atoms.sorting.get()).toEqual([{ id: 'nodeType', desc: true }]);
 
     // reset → reverts the live table to the (now-saved) active view
     t.setSorting([{ id: 'name', desc: false }]);
     applyView(t, (await store.get(KEY, v.id))!.view);
-    expect(t.getState().sorting).toEqual([{ id: 'nodeType', desc: true }]);
+    expect(t.atoms.sorting.get()).toEqual([{ id: 'nodeType', desc: true }]);
   });
 });
 
@@ -184,6 +158,6 @@ describe('US4 — delete with fallback', () => {
     const res = await removeAndResolve(store, t, KEY, only.id, true, only.id);
     expect(res.activeId).toBeNull();
     expect(await store.list(KEY)).toHaveLength(0);
-    expect(t.getState().sorting).toEqual([]); // table.reset() restored built-in
+    expect(t.atoms.sorting.get()).toEqual([]); // table.reset() restored built-in
   });
 });

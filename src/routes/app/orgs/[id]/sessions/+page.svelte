@@ -3,13 +3,7 @@
   // other org grids — @tanstack/table-core + the Svelte 5 runes adapter
   // (src/lib/table/*), shared chrome in DataTable.svelte. listKey is kept as
   // 'usage:sessions' so users' saved views carry over from the old route.
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
@@ -79,7 +73,7 @@
 
   let globalFilter = $state('');
 
-  const columns: ColumnDef<Session>[] = [
+  const columns: PortalColumnDef<Session>[] = [
     // id stays 'startedAt' (the pre-accessorFn accessorKey): saved views for
     // listKey "usage:sessions" store sorting/visibility/order/sizing BY COLUMN
     // ID, and applyView silently drops ids that no longer exist — so renaming
@@ -131,10 +125,6 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 </script>
 

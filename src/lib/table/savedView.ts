@@ -1,21 +1,12 @@
 // Saved "view" serialization for the unified data grid (TanStack side).
 //
 // The whole point of choosing TanStack: a view is just five plain-JSON state
-// slices. Extract them from `table.getState()` to persist; feed them back as
+// slices. Extract them from `table.store.get()` to persist; feed them back as
 // `initialState` (or controlled `state`) to rehydrate. No library-specific
 // (de)serialization, no imperative get/applyColumnState calls — it's data.
 
-import type {
-  TableState,
-  SortingState,
-  ColumnFiltersState,
-  VisibilityState,
-  ColumnOrderState,
-  ColumnSizingState,
-  PaginationState,
-  Table,
-  RowData,
-} from '@tanstack/table-core';
+import type { PortalTable, PortalTableState } from '$lib/table/features';
+import type { SortingState, ColumnFiltersState, ColumnVisibilityState, ColumnOrderState, ColumnSizingState, PaginationState, RowData } from '@tanstack/table-core';
 
 /**
  * A persisted view: exactly the slices a user can customize.
@@ -29,7 +20,7 @@ export interface SavedView {
   sorting: SortingState;
   columnFilters: ColumnFiltersState;
   globalFilter: string;
-  columnVisibility: VisibilityState;
+  columnVisibility: ColumnVisibilityState;
   columnOrder: ColumnOrderState;
   columnSizing: ColumnSizingState;
   pagination: PaginationState;
@@ -54,7 +45,7 @@ export interface SavedView {
  *
  * `pageSize` IS a real preference and is preserved.
  */
-export function extractView(state: TableState): SavedView {
+export function extractView(state: PortalTableState): SavedView {
   return {
     sorting: state.sorting,
     columnFilters: state.columnFilters,
@@ -72,7 +63,7 @@ export function extractView(state: TableState): SavedView {
  * never breaks the list (spec FR-013 / SC-005). Requires the table to have the
  * global-filter feature wired (all grid lists do).
  */
-export function applyView<T extends RowData>(table: Table<T>, view: SavedView): void {
+export function applyView<T extends RowData>(table: PortalTable<T>, view: SavedView): void {
   table.setSorting(view.sorting ?? []);
   table.setColumnFilters(view.columnFilters ?? []);
   table.setGlobalFilter(view.globalFilter ?? '');
@@ -83,8 +74,8 @@ export function applyView<T extends RowData>(table: Table<T>, view: SavedView): 
   table.setPagination({ pageIndex: 0, pageSize: view.pagination?.pageSize ?? 25 });
 }
 
-/** Turn a saved view into a partial TableState usable as `initialState`. */
-export function viewToInitialState(view: SavedView | null | undefined): Partial<TableState> {
+/** Turn a saved view into a partial PortalTableState usable as `initialState`. */
+export function viewToInitialState(view: SavedView | null | undefined): Partial<PortalTableState> {
   return view
     ? { ...view, pagination: { pageIndex: 0, pageSize: view.pagination?.pageSize ?? 25 } }
     : {};
@@ -120,7 +111,7 @@ export function normalizeView(v: unknown): SavedView {
     sorting: Array.isArray(o.sorting) ? (o.sorting as SortingState) : [],
     columnFilters: Array.isArray(o.columnFilters) ? (o.columnFilters as ColumnFiltersState) : [],
     globalFilter: typeof o.globalFilter === 'string' ? o.globalFilter : '',
-    columnVisibility: isObject(o.columnVisibility) ? (o.columnVisibility as VisibilityState) : {},
+    columnVisibility: isObject(o.columnVisibility) ? (o.columnVisibility as ColumnVisibilityState) : {},
     columnOrder: Array.isArray(o.columnOrder) ? (o.columnOrder as ColumnOrderState) : [],
     columnSizing: isObject(o.columnSizing) ? (o.columnSizing as ColumnSizingState) : {},
     pagination: validPagination(o.pagination),

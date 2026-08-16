@@ -1,12 +1,17 @@
-<script lang="ts">
+<script lang="ts" generics="T extends RowData">
   // Reusable column show/hide control for the unified grid. Lists already render
   // via row.getVisibleCells()/headerGroup.headers, so toggling a column's
   // visibility hides it everywhere automatically. Saved views capture/restore the
   // resulting columnVisibility for free.
-  import type { Table, Column } from '@tanstack/table-core';
+  //
+  // Generic over the row type rather than taking `PortalTable<any>`: TanStack v9
+  // declares `TData` invariant (`in out`), so a `PortalTable<AgentRow>` is NOT
+  // assignable to a `PortalTable<any>` the way it was under v8.
+  import type { PortalTable, PortalColumn } from '$lib/table/features';
+  import type { RowData } from '@tanstack/table-core';
   import { t } from '$lib/i18n/t';
 
-  let { table }: { table: Table<any> } = $props();
+  let { table }: { table: PortalTable<T> } = $props();
 
   // Only columns that are allowed to hide (the identity column opts out via
   // enableHiding:false in the list's column defs).
@@ -15,7 +20,7 @@
   let open = $state(false);
   let detailsEl = $state<HTMLDetailsElement>();
 
-  function label(c: Column<any>): string {
+  function label(c: PortalColumn<T>): string {
     const h = c.columnDef.header;
     return typeof h === 'string' ? h : c.id;
   }

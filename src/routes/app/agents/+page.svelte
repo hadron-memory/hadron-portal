@@ -1,13 +1,7 @@
 <script lang="ts">
   // #647: "My agents" — the caller's own (org-less, user-owned) agents. Uses the
   // shared TanStack DataTable, mirroring the /app/memories "My memories" list.
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -55,7 +49,7 @@
   };
 
   let globalFilter = $state('');
-  const columns: ColumnDef<AgentRow>[] = [
+  const columns: PortalColumnDef<AgentRow>[] = [
     { accessorKey: 'name', header: t('my-agents.col.name', 'Name'), enableHiding: false, size: 240 },
     { accessorKey: 'urn', header: 'URN', size: 300 },
     { accessorKey: 'description', header: t('my-agents.col.description', 'Description'), size: 280 },
@@ -72,10 +66,6 @@
     onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 </script>
 

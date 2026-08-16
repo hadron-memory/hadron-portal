@@ -11,13 +11,7 @@
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -62,7 +56,7 @@
 
   let globalFilter = $state('');
 
-  const columns: ColumnDef<HadronApp>[] = [
+  const columns: PortalColumnDef<HadronApp>[] = [
     { accessorKey: 'name', header: t('org-apps.column.name', 'Name'), enableHiding: false, size: 180 }, // identity column
     { accessorKey: 'urn', header: t('org-apps.column.urn', 'URN'), size: 260 },
     { accessorFn: (row) => row.agent?.name ?? null, id: 'agent', header: t('org-apps.column.agent', 'Agent'), size: 150 },
@@ -98,10 +92,6 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
 

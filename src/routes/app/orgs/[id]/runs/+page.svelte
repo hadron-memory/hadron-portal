@@ -6,13 +6,7 @@
   // than a bespoke table. The per-app audit list (/app/apps/[appId]/runs) stays
   // the drill-down; a row's Open link lands on that app's run detail page,
   // which owns the live view and the kill switch.
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -77,7 +71,7 @@
 
   let globalFilter = $state('');
 
-  const columns: ColumnDef<RunRow>[] = [
+  const columns: PortalColumnDef<RunRow>[] = [
     // Identity column: when it ran. Numeric accessor sorts chronologically;
     // `started` carries the rendered string for display and search.
     { accessorFn: (row) => row.startedMs, id: 'started', header: t('org-runs.column.started', 'Started'), enableHiding: false, size: 180 },
@@ -120,10 +114,6 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   // ── Status filter ─────────────────────────────────────────────────────────

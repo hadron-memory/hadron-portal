@@ -8,13 +8,7 @@
   cells, so neither wraps the other.
 -->
 <script lang="ts">
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { goto } from '$app/navigation';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -148,7 +142,7 @@
   // actually cast, and under what name, is a property of an App, shown as that
   // App's staff. Role is surfaced here because it is what distinguishes one
   // role-actor from another.
-  const columns: ColumnDef<Agent>[] = [
+  const columns: PortalColumnDef<Agent>[] = [
     { accessorKey: 'name', header: t('org-agents.column.name', 'Name'), enableHiding: false, size: 200 }, // identity column
     { accessorFn: (row) => row.personaRole ?? '', id: 'role', header: t('org-agents.column.role', 'Role'), size: 160 },
     { accessorKey: 'urn', header: t('org-agents.column.urn', 'URN'), size: 280 },
@@ -184,10 +178,6 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   // ── Subscribed tab table (#486) ───────────────────────────────────────
@@ -238,7 +228,7 @@
 
   let grantsFilter = $state('');
 
-  const grantColumns: ColumnDef<AgentGrant>[] = [
+  const grantColumns: PortalColumnDef<AgentGrant>[] = [
     { accessorFn: (g) => g.agent?.name ?? g.agentId, id: 'name', header: t('org-agents.subscribed.column.name', 'Name'), enableHiding: false, size: 200 },
     { accessorFn: (g) => g.agent?.urn ?? '', id: 'urn', header: t('org-agents.subscribed.column.urn', 'URN'), size: 280 },
     { accessorFn: (g) => (g.agent ? ownerSlugOf(g.agent.urn) : '—'), id: 'owner', header: t('org-agents.subscribed.column.owner', 'Owner'), size: 140 },
@@ -265,10 +255,6 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 </script>
 

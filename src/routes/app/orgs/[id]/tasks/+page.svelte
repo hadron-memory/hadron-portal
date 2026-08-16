@@ -4,13 +4,7 @@
   // sortable/resizable header, pagination footer) — same component and layout as
   // the org memories page — instead of a bespoke table. A name click opens the
   // node via the /app/u resolver.
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -42,7 +36,7 @@
 
   let globalFilter = $state('');
 
-  const columns: ColumnDef<TaskRow>[] = [
+  const columns: PortalColumnDef<TaskRow>[] = [
     { accessorKey: 'name', header: t('tasks.column.name', 'Name'), enableHiding: false, size: 320 }, // identity column
     { accessorKey: 'description', header: t('tasks.column.description', 'Description'), size: 520 },
   ];
@@ -65,10 +59,6 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 </script>
 

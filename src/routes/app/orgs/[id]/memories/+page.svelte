@@ -13,14 +13,7 @@
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type Cell,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalCell, PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -290,7 +283,7 @@
 
   let globalFilter = $state('');
 
-  const columns: ColumnDef<MemoryRow>[] = [
+  const columns: PortalColumnDef<MemoryRow>[] = [
     { accessorKey: 'name', header: t('org-memories.column.name', 'Name'), enableHiding: false, size: 200 }, // identity column
     { accessorKey: 'urn', header: t('org-memories.column.urn', 'URN'), size: 280 },
     { accessorKey: 'badge', id: 'type', header: t('org-memories.column.type', 'Type'), size: 110 },
@@ -303,7 +296,7 @@
 
   // #555: personal memories are owner-only and DB-only, so the grid drops the
   // git-oriented Storage/Branch/Last-synced columns entirely.
-  const personalColumns: ColumnDef<MemoryRow>[] = [
+  const personalColumns: PortalColumnDef<MemoryRow>[] = [
     { accessorKey: 'name', header: t('org-memories.column.name', 'Name'), enableHiding: false, size: 200 },
     { accessorKey: 'urn', header: t('org-memories.column.urn', 'URN'), size: 280 },
     { accessorKey: 'badge', id: 'type', header: t('org-memories.column.type', 'Type'), size: 110 },
@@ -340,10 +333,6 @@
       pagination: { pageIndex: 0, pageSize: 20 },
       columnVisibility: { storage: false, branch: false, lastSyncedAt: false },
     },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   // #555: independent table instance for the Personal Memories tab so its
@@ -369,10 +358,6 @@
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
     },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   const subTabBase = 'border-b-2 px-3 py-1.5 text-sm font-medium transition';
@@ -418,7 +403,7 @@
   <!-- #555: shared cell renderer — reused by the Personal and Org grids. The
        Delete action stays org-only (owner-only memories are managed from their
        detail page), so personal rows render just the Edit link. -->
-  {#snippet memoryCell(cell: Cell<MemoryRow, unknown>, m: MemoryRow)}
+  {#snippet memoryCell(cell: PortalCell<MemoryRow, unknown>, m: MemoryRow)}
     {#if cell.column.id === 'name'}
       <div class="truncate">
         <a href="/app/memories/{m.id}" class="font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{m.name}</a>

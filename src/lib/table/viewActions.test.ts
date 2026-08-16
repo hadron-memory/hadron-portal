@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { Table } from '@tanstack/table-core';
+import type { PortalTable } from '$lib/table/features';
 import { LocalStorageViewStore } from './localStorageViewStore';
 import { createViewFrom, overwriteView, applyAndActivate, removeAndResolve, duplicateView } from './viewActions';
 
@@ -17,8 +17,9 @@ function fakeStorage(): Storage {
   } as Storage;
 }
 
-// Minimal table stub recording applied setters; getState() is mutable so we can
-// simulate the user changing the live arrangement.
+// Minimal table stub recording applied setters; the backing state object is
+// mutable so we can simulate the user changing the live arrangement. v9 reads
+// whole state through `table.store.get()` (v8's `table.getState()`).
 function tableStub() {
   const state = {
     sorting: [],
@@ -34,7 +35,7 @@ function tableStub() {
   return {
     __state: state,
     calls,
-    getState: () => state,
+    store: { get: () => state },
     setSorting: push('setSorting'),
     setColumnFilters: push('setColumnFilters'),
     setGlobalFilter: push('setGlobalFilter'),
@@ -43,7 +44,12 @@ function tableStub() {
     setColumnSizing: push('setColumnSizing'),
     setPagination: push('setPagination'),
     reset: push('reset'),
-  } as unknown as Table<unknown> & { __state: typeof state; calls: string[] };
+    // v9 constrains TData to RowData (Record<string, any> | any[]), so the stub
+    // can no longer be typed as PortalTable<unknown>.
+  } as unknown as PortalTable<Record<string, unknown>> & {
+    __state: typeof state;
+    calls: string[];
+  };
 }
 
 const KEY = 'usage:sessions';

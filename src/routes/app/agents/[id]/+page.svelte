@@ -2,13 +2,7 @@
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -469,7 +463,7 @@
 
   let memoryFilter = $state('');
 
-  const memoryColumns: ColumnDef<AgentMemoryRow>[] = [
+  const memoryColumns: PortalColumnDef<AgentMemoryRow>[] = [
     { accessorKey: 'name', header: 'Name', enableHiding: false, size: 240 }, // identity column
     { accessorKey: 'urn', header: 'URN', size: 340 },
     { accessorKey: 'role', id: 'access', header: 'Access', size: 150 },
@@ -480,7 +474,7 @@
   // ── Bundled agents grid (#713) ────────────────────────────────────────
   let bundledFilter = $state('');
 
-  const bundledColumns: ColumnDef<BundledAgentRow>[] = [
+  const bundledColumns: PortalColumnDef<BundledAgentRow>[] = [
     { accessorKey: 'name', header: 'Name', enableHiding: false, size: 200 }, // identity column
     { accessorKey: 'urn', header: 'URN', size: 300 },
     { accessorKey: 'personaRole', id: 'role', header: 'Role', size: 160 },
@@ -506,10 +500,6 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   const memoryTable = createSvelteTable<AgentMemoryRow>({
@@ -530,10 +520,6 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 </script>
 

@@ -16,13 +16,7 @@
   search, saved views, sortable/resizable sticky header, pagination footer.
 -->
 <script lang="ts">
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { untrack } from 'svelte';
   import { Download, Link2, Trash2 } from 'lucide-svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -164,7 +158,7 @@
   // conventions:svelte5-initial-state-untrack, rather than silenced.
   const showMemoryColumn = untrack(() => showMemory);
 
-  const columns: ColumnDef<AssetRow>[] = [
+  const columns: PortalColumnDef<AssetRow>[] = [
     {
       // The cell shows the asset's URN, so the accessor leads with it — sorting
       // then matches the screen (findings:table-chrome-conventions). The filename
@@ -182,7 +176,7 @@
     { accessorFn: (row) => row.sizeBytes, id: 'size', header: t('assets.column.size', 'Size'), size: 90 },
     { accessorKey: 'scanStatus', header: t('assets.column.scan', 'Scan'), size: 100 },
     ...(showMemoryColumn
-      ? [{ accessorKey: 'memory', header: t('assets.column.memory', 'Memory'), size: 180 } as ColumnDef<AssetRow>]
+      ? [{ accessorKey: 'memory', header: t('assets.column.memory', 'Memory'), size: 180 } as PortalColumnDef<AssetRow>]
       : []),
     // Identity-ish column: sorts on the instant, displays the rendered string.
     { accessorFn: (row) => row.uploadedMs, id: 'uploaded', header: t('assets.column.uploaded', 'Uploaded'), size: 180 },
@@ -218,10 +212,6 @@
       pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'uploaded', desc: true }],
     },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   async function download(row: AssetRow) {

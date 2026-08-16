@@ -4,13 +4,7 @@
   // Public API (props) is unchanged so both call sites — MemoryBrowser (browse
   // list) and the node-detail Children tab (orderable) — keep working.
   import { onMount, untrack } from 'svelte';
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
   import ViewTabs from './table/ViewTabs.svelte';
@@ -86,7 +80,7 @@
   let globalFilter = $state('');
   const tableCanSortAndResize = untrack(() => !orderable);
 
-  const columns: ColumnDef<MemoryNode>[] = [
+  const columns: PortalColumnDef<MemoryNode>[] = [
     { accessorKey: 'name', header: 'Node', enableHiding: false, size: 280 }, // identity column — always shown
     { accessorKey: 'nodeType', header: 'Type', size: 120 },
     { accessorFn: (n) => n.description ?? '', id: 'description', header: 'Description', size: 400 },
@@ -117,10 +111,6 @@
     // Start at the default on both server and client; a stored preference is
     // applied after mount (below) to avoid an SSR hydration mismatch.
     initialState: { pagination: { pageIndex: 0, pageSize: DEFAULT_PAGE_SIZE } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   onMount(() => {
@@ -148,10 +138,10 @@
   // Orderable (children) list shows every row so drag indices stay stable;
   // the browse list shows the current page.
   const displayRows = $derived(
-    orderable ? table.getPrePaginationRowModel().rows : table.getRowModel().rows,
+    orderable ? table.getPrePaginatedRowModel().rows : table.getRowModel().rows,
   );
-  const pageSize = $derived(table.getState().pagination.pageSize);
-  const pageIndex = $derived(table.getState().pagination.pageIndex);
+  const pageSize = $derived(table.atoms.pagination.get().pageSize);
+  const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
   const pageCount = $derived(table.getPageCount());
 
   // ── Drag-and-drop reordering ──────────────────────────────────────────

@@ -1,14 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import {
-  createTable,
-  getCoreRowModel,
-  getSortedRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  type TableState,
-  type TableOptionsResolved,
-  type ColumnDef,
-} from '@tanstack/table-core';
+import { makeHeadlessTable } from '$lib/table/headlessTable';
+import type { PortalColumnDef, PortalTableState } from '$lib/table/features';
 import { extractView, applyView, serializeView, deserializeView } from './savedView';
 import type { SavedView } from './savedView';
 
@@ -30,31 +22,19 @@ const DATA: Row[] = [
   { name: 'Eve', nodeType: 'data' },
 ];
 
-const columns: ColumnDef<Row>[] = [
+const columns: PortalColumnDef<Row>[] = [
   { accessorKey: 'name', header: 'Name' },
   { accessorKey: 'nodeType', header: 'Type' },
 ];
 
-/** Headless table with self-fed state — mirrors what the runes adapter does. */
+/**
+ * Headless table. Under v8 this hand-fed state back through `setOptions` on
+ * every change, because table-core was fully controlled. v9 owns its state
+ * internally (base atoms), so construction is just the options object — the
+ * same shape the Svelte adapter passes.
+ */
 function makeTable() {
-  let state = {} as TableState;
-  const table = createTable<Row>({
-    data: DATA,
-    columns,
-    state,
-    onStateChange: (updater) => {
-      state = updater instanceof Function ? updater(state) : updater;
-      table.setOptions((prev) => ({ ...prev, state }));
-    },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    renderFallbackValue: null,
-  } as TableOptionsResolved<Row>);
-  state = table.initialState;
-  table.setOptions((prev) => ({ ...prev, state }));
-  return table;
+  return makeHeadlessTable<Row>({ data: DATA, columns });
 }
 
 describe('TanStack table logic (headless, no DOM)', () => {
@@ -84,7 +64,7 @@ describe('TanStack table logic (headless, no DOM)', () => {
     expect(table.getRowModel().rows).toHaveLength(2);
     expect(table.getPageCount()).toBe(3);
     table.nextPage();
-    expect(table.getState().pagination.pageIndex).toBe(1);
+    expect(table.atoms.pagination.get().pageIndex).toBe(1);
   });
 });
 
@@ -111,22 +91,11 @@ describe('date-column sorting (DateTime scalar is only Date.parse-able)', () => 
     { label: 'C', at: '2026-07-30T18:00:00-05:00' }, // 23:00Z
   ];
 
-  function dateTable(col: ColumnDef<Ev>) {
-    let state = {} as TableState;
-    const table = createTable<Ev>({
+  function dateTable(col: PortalColumnDef<Ev>) {
+    const table = makeHeadlessTable<Ev>({
       data: EVENTS,
       columns: [{ accessorKey: 'label', header: 'Label' }, col],
-      state,
-      onStateChange: (updater) => {
-        state = updater instanceof Function ? updater(state) : updater;
-        table.setOptions((prev) => ({ ...prev, state }));
-      },
-      getCoreRowModel: getCoreRowModel(),
-      getSortedRowModel: getSortedRowModel(),
-      renderFallbackValue: null,
-    } as TableOptionsResolved<Ev>);
-    state = table.initialState;
-    table.setOptions((prev) => ({ ...prev, state }));
+    });
     table.setSorting([{ id: 'at', desc: false }]);
     return table;
   }
@@ -164,7 +133,7 @@ describe('saved-view serialization', () => {
     table.setColumnVisibility({ nodeType: false });
     table.setPageSize(10);
 
-    const json = serializeView(extractView(table.getState()));
+    const json = serializeView(extractView(table.store.get()));
     const restored = deserializeView(json);
 
     expect(restored).not.toBeNull();
@@ -211,19 +180,19 @@ describe('saved-view serialization', () => {
       const table = makeTable();
       table.setPageSize(2);
       table.nextPage();
-      expect(table.getState().pagination.pageIndex).toBe(1);
+      expect(table.atoms.pagination.get().pageIndex).toBe(1);
 
-      expect(extractView(table.getState()).pagination).toEqual({ pageIndex: 0, pageSize: 2 });
+      expect(extractView(table.store.get()).pagination).toEqual({ pageIndex: 0, pageSize: 2 });
     });
 
     it('paging does not make the live state differ from its saved view', () => {
       const table = makeTable();
       table.setPageSize(2);
-      const saved = extractView(table.getState());
+      const saved = extractView(table.store.get());
       table.nextPage();
 
       // What isModified() compares — paging must not pop Save/Reset.
-      expect(serializeView(extractView(table.getState()))).toBe(serializeView(saved));
+      expect(serializeView(extractView(table.store.get()))).toBe(serializeView(saved));
     });
 
     it('applyView lands on the first page even from a stale stored pageIndex', () => {
@@ -233,7 +202,7 @@ describe('saved-view serialization', () => {
 
       applyView(table, asView({ pagination: { pageIndex: 4, pageSize: 2 } }));
 
-      expect(table.getState().pagination).toEqual({ pageIndex: 0, pageSize: 2 });
+      expect(table.atoms.pagination.get()).toEqual({ pageIndex: 0, pageSize: 2 });
       // The row model must actually have rows — the bug was a blank body.
       expect(table.getRowModel().rows.length).toBeGreaterThan(0);
     });
@@ -260,8 +229,8 @@ describe('saved-view serialization', () => {
   });
 
   it('extractView reads the global filter off table state', () => {
-    const state = { globalFilter: 'q' } as unknown as TableState;
-    expect(extractView({ ...state, sorting: [], columnFilters: [], columnVisibility: {}, columnOrder: [], pagination: { pageIndex: 0, pageSize: 10 } } as TableState).globalFilter).toBe('q');
+    const state = { globalFilter: 'q' } as unknown as PortalTableState;
+    expect(extractView({ ...state, sorting: [], columnFilters: [], columnVisibility: {}, columnOrder: [], pagination: { pageIndex: 0, pageSize: 10 } } as PortalTableState).globalFilter).toBe('q');
   });
 });
 
@@ -283,7 +252,7 @@ describe('applyView resilience (spec 020 FR-013 / SC-005)', () => {
       applyView(table, view({ sorting: [{ id: 'ghost', desc: false }], columnVisibility: { ghost: false }, pagination: { pageIndex: 0, pageSize: 5 } })),
     ).not.toThrow();
     // a valid slice (pagination) still applied; the list did not break
-    expect(table.getState().pagination.pageSize).toBe(5);
+    expect(table.atoms.pagination.get().pageSize).toBe(5);
     expect(table.getRowModel().rows.length).toBeGreaterThan(0);
   });
 
@@ -296,25 +265,11 @@ describe('applyView resilience (spec 020 FR-013 / SC-005)', () => {
 
 describe('column visibility (ColumnToggle mechanism)', () => {
   function visTable() {
-    let state = {} as TableState;
-    const cols: ColumnDef<Row>[] = [
+    const cols: PortalColumnDef<Row>[] = [
       { accessorKey: 'name', header: 'Name', enableHiding: false }, // identity column
       { accessorKey: 'nodeType', header: 'Type' },
     ];
-    const table = createTable<Row>({
-      data: DATA,
-      columns: cols,
-      state,
-      onStateChange: (u) => {
-        state = u instanceof Function ? u(state) : u;
-        table.setOptions((p) => ({ ...p, state }));
-      },
-      getCoreRowModel: getCoreRowModel(),
-      renderFallbackValue: null,
-    } as TableOptionsResolved<Row>);
-    state = table.initialState;
-    table.setOptions((p) => ({ ...p, state }));
-    return table;
+    return makeHeadlessTable<Row>({ data: DATA, columns: cols });
   }
 
   it('protects the identity column (enableHiding:false) and hides toggled columns', () => {

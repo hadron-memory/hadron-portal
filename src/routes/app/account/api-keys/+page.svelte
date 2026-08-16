@@ -20,13 +20,7 @@
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { scopedActionError } from '$lib/forms/scoped-message';
@@ -199,7 +193,7 @@
   // Status + Source accessors return the rendered i18n string (not the raw
   // field) so sorting groups rows the way the user sees them and the global
   // `includesString` filter matches what's on screen.
-  const columns: ColumnDef<UserApiKey>[] = [
+  const columns: PortalColumnDef<UserApiKey>[] = [
     { accessorKey: 'label', header: i18n.columnLabel(), enableHiding: false, size: 200 }, // identity column
     { accessorKey: 'keyPreview', header: i18n.columnKey(), size: 90 },
     {
@@ -238,10 +232,6 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
 </script>

@@ -2,19 +2,20 @@
 // delegates to these so the meaningful behavior is unit-testable in node with a
 // fake ViewStore + a minimal table stub (the project's vitest runs without the
 // Svelte plugin, so `*.svelte.ts` runes modules can't be instantiated in tests).
-import type { Table, RowData } from '@tanstack/table-core';
+import type { PortalTable } from '$lib/table/features';
+import type { RowData } from '@tanstack/table-core';
 import { extractView, applyView } from './savedView';
 import type { ViewStore, SavedViewRecord } from './viewStore';
 
 /** Create a view from the table's current arrangement; first view becomes default. */
 export async function createViewFrom<T extends RowData>(
   store: ViewStore,
-  table: Table<T>,
+  table: PortalTable<T>,
   listKey: string,
   name: string,
   isFirst: boolean,
 ): Promise<SavedViewRecord> {
-  const record = await store.create(listKey, name, extractView(table.getState()));
+  const record = await store.create(listKey, name, extractView(table.store.get()));
   if (isFirst) await store.setDefault(listKey, record.id);
   await store.setActiveId(listKey, record.id);
   return record;
@@ -23,17 +24,17 @@ export async function createViewFrom<T extends RowData>(
 /** Overwrite an existing view with the table's current arrangement. */
 export async function overwriteView<T extends RowData>(
   store: ViewStore,
-  table: Table<T>,
+  table: PortalTable<T>,
   listKey: string,
   id: string,
 ): Promise<void> {
-  await store.update(listKey, id, { view: extractView(table.getState()) });
+  await store.update(listKey, id, { view: extractView(table.store.get()) });
 }
 
 /** Apply a view to the table and mark it active. */
 export async function applyAndActivate<T extends RowData>(
   store: ViewStore,
-  table: Table<T>,
+  table: PortalTable<T>,
   listKey: string,
   view: SavedViewRecord,
 ): Promise<void> {
@@ -48,7 +49,7 @@ export async function applyAndActivate<T extends RowData>(
  */
 export async function removeAndResolve<T extends RowData>(
   store: ViewStore,
-  table: Table<T>,
+  table: PortalTable<T>,
   listKey: string,
   id: string,
   wasActive: boolean,
@@ -76,7 +77,7 @@ export async function removeAndResolve<T extends RowData>(
  */
 export async function duplicateView<T extends RowData>(
   store: ViewStore,
-  table: Table<T>,
+  table: PortalTable<T>,
   listKey: string,
   src: SavedViewRecord,
   name: string,
