@@ -165,7 +165,7 @@ Create it with the **`hadron coding review create` CLI command — not
 `hadron_create_node`**:
 
 ```bash
-hadron coding review create <check-name> -m hadronmemory.com::hadron-portal \
+hadron coding review create <check-name> -m hadronmemory.com:hadron-portal \
   --trigger "a helper wraps an options object carrying reactive getters" \
   --description "<what it checks> — applies when <condition>." \
   --content-file /tmp/check.md \
@@ -184,8 +184,8 @@ typically misses the `review-criteria` tag and has to be repaired afterwards.
 Then verify, and fix anything it flags:
 
 ```bash
-hadron coding review lint -m hadronmemory.com::hadron-portal   # errors exit 5
-hadron coding review list -m hadronmemory.com::hadron-portal   # each check + its trigger
+hadron coding review lint -m hadronmemory.com:hadron-portal   # errors exit 5
+hadron coding review list -m hadronmemory.com:hadron-portal   # each check + its trigger
 ```
 
 Edit an **existing** check with `hadron node update` / `hadron edge update`;
