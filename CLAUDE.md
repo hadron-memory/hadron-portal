@@ -16,11 +16,11 @@ At the start of **every change** — before drafting a plan — call `hadron_get
 with `urn: "hrn:node:hadronmemory.com:dev:preflight"`. It's a
 symptom-to-pattern routing index for hadron-server and shared concerns that apply across the Hadron ecosystem.
 
-Then consult **portal-specific** findings, conventions, and review criteria in the `hadronmemory.com:hadron-portal` memory:
+Then consult **portal-specific** findings, conventions, and review criteria in the `hrn:mem:hadronmemory.com:hadron-portal` memory:
 
 ```bash
 # Set the active memory
-hadron_set_active_memory hadronmemory.com:hadron-portal
+hadron_set_active_memory hrn:mem:hadronmemory.com:hadron-portal
 
 # Explore the branches (findings, conventions, review criteria, etc.)
 hadron_find_nodes "*"
@@ -42,7 +42,7 @@ The Hadron knowledge graph is split across component-specific memories. When con
 
 Use `hadron_set_active_memory <urn>` to scope queries to a specific memory. When reading code that touches another component (e.g., server API calls), consult that component's memory for context.
 
-### URN grammar: write v2 (flat, single colon)
+### URN grammar: always fully-qualified, and v2 (flat, single colon)
 
 Per [`cor:urn:010:01`](https://hadronmemory.com/app/u/hrn:node:hadronmemory.com:specs:cor:urn:010:01), a URN is
 `hrn:<type>:<root>[:<container>]:<name-or-loc>` — **single colon throughout**:
@@ -51,6 +51,31 @@ Per [`cor:urn:010:01`](https://hadronmemory.com/app/u/hrn:node:hadronmemory.com:
 hrn:mem:hadronmemory.com:hadron-portal                        # a memory
 hrn:node:hadronmemory.com:hadron-portal:findings:some-finding  # a node
 ```
+
+**Always write the fully-qualified form — including the `hrn:<type>:` prefix —
+in docs, node content, commit messages, and every tool or CLI argument.** Many
+surfaces also accept a shortened `<org>:<memory>` or bare-loc form. Don't use
+them. The `hrn:` prefix and the type word are the only things that make a
+reference self-describing, and dropping them costs more than it saves:
+
+(The bare forms below appear only as examples of what NOT to write.)
+
+- **`mem` vs `node` is not recoverable from the string.** Bare
+  `hadronmemory.com:hadron-portal` is a memory *and* a legal prefix of the node
+  `hrn:node:hadronmemory.com:hadron-portal:hadron-portal` — the overview node's
+  loc is literally `hadron-portal`. Which one a bare ref means depends entirely
+  on the argument slot it lands in, so the same text denotes different entities
+  in different commands.
+- **The memory/loc boundary is a guess.** In bare
+  `hadronmemory.com:hadron-portal:review` nothing marks where the memory ends
+  and the loc begins; you have to already know the slug to parse it.
+- **Some failures are silent.** A shortened ownership chain (below) resolves to a
+  *different node* rather than erroring — you get wrong data, not a stack trace.
+- **Loud failures point the wrong way.** `hadron node get hadronmemory.com:hadron-portal`
+  errors with `expected <org>::<memory>::<loc>` — v1 double-colon advice that
+  contradicts this section. A fully-qualified URN never lands in that branch.
+- **It survives copy-paste.** A fully-qualified URN works in any slot, in a chat
+  message, and in a commit message. A bare ref only works where it was written.
 
 The `::` hierarchy separator is **v1**. It is still accepted on input forever
 (via a stored alias map), and `hadron_get_node` / the MCP tool descriptions still
@@ -128,29 +153,29 @@ that email"}` 404 means the gates passed and only the lookup missed.
 - **Branch naming**: Use `feature/`, `fix/`, `refactor/`, or `docs/` prefixes (e.g., `feature/node-detail-redesign`)
 - **Commit messages**: Lead with the conventional type (e.g., `feat:`, `fix:`, `refactor:`, `docs:`). Include *why* the change, not just what.
 - **PRs**: Always link to related issues and include a test plan. If your change touches Hadron memory, note what was captured.
-- **Review**: Run `/code-review` before pushing. Portal-specific review criteria live in `hadronmemory.com:hadron-portal:review` — check those before opening a PR.
+- **Review**: Run `/code-review` before pushing. Portal-specific review criteria live in `hrn:node:hadronmemory.com:hadron-portal:review` — check those before opening a PR.
 
 ## Portal review criteria
 
 Portal code is reviewed against project-specific criteria stored in Hadron as a
 **review checklist tree**: each criterion is a child node under the
-`hadronmemory.com:hadron-portal:review` parent, and every child carries an
+`hrn:node:hadronmemory.com:hadron-portal:review` parent, and every child carries an
 `Applies when …` edge **back** to that parent. So the canonical way to discover
 the criteria is to read the parent and scan its **Referenced by** list — each
 entry is one check plus the condition it applies to.
 
 ```bash
-hadron_set_active_memory hadronmemory.com:hadron-portal
+hadron_set_active_memory hrn:mem:hadronmemory.com:hadron-portal
 
 # The canonical index: read the review parent, scan its "Referenced by" list.
-hadron_get_node hadronmemory.com:hadron-portal:review
+hadron_get_node hrn:node:hadronmemory.com:hadron-portal:review
 
 # Or browse/search the children directly (scope by memoryUrn, NOT a query: arg).
 hadron_list_nodes parentRel:"review"
-hadron_find_nodes "aria" memoryUrn:"hadronmemory.com:hadron-portal"
+hadron_find_nodes "aria" memoryUrn:"hrn:mem:hadronmemory.com:hadron-portal"
 
 # Then read the specific check by its URN.
-hadron_get_node hadronmemory.com:hadron-portal:review:<name>
+hadron_get_node hrn:node:hadronmemory.com:hadron-portal:review:<name>
 ```
 
 Before opening a PR, read the checks whose `Applies when …` condition matches
@@ -165,7 +190,7 @@ Create it with the **`hadron coding review create` CLI command — not
 `hadron_create_node`**:
 
 ```bash
-hadron coding review create <check-name> -m hadronmemory.com:hadron-portal \
+hadron coding review create <check-name> -m hrn:mem:hadronmemory.com:hadron-portal \
   --trigger "a helper wraps an options object carrying reactive getters" \
   --description "<what it checks> — applies when <condition>." \
   --content-file /tmp/check.md \
@@ -184,14 +209,14 @@ typically misses the `review-criteria` tag and has to be repaired afterwards.
 Then verify, and fix anything it flags:
 
 ```bash
-hadron coding review lint -m hadronmemory.com:hadron-portal   # errors exit 5
-hadron coding review list -m hadronmemory.com:hadron-portal   # each check + its trigger
+hadron coding review lint -m hrn:mem:hadronmemory.com:hadron-portal   # errors exit 5
+hadron coding review list -m hrn:mem:hadronmemory.com:hadron-portal   # each check + its trigger
 ```
 
 Edit an **existing** check with `hadron node update` / `hadron edge update`;
 `coding review create` deliberately fails rather than overwriting.
 
-The runnable task `hadronmemory.com:hadron-portal:tasks:add-review-node` governs
+The runnable task `hrn:node:hadronmemory.com:hadron-portal:tasks:add-review-node` governs
 the rest — the node body structure (`## Review:` heading, The Problem, a real
 Example, Review Checklist), and how to decide whether the check also warrants a
 preflight edge (usually not — prefer a `--link` cross-link from the
