@@ -1,5 +1,13 @@
 # hadron-portal
 
+> **`AGENTS.md` is a symlink to this file.** Edit `CLAUDE.md`; both names serve
+> the same content to every agent. They used to be parallel copies and drifted
+> three times: a URN-grammar change landed in one and needed a follow-up PR for
+> the other (#689); the dev-login section below sat in `CLAUDE.md` alone for
+> months (#679); and #727/#728 again updated only `CLAUDE.md`, leaving the other
+> file telling agents to do what this one forbids. Don't replace the symlink
+> with a copy.
+
 **hadron-portal** is a SvelteKit web UI for the Hadron knowledge memory platform. It provides the interface for managing memories, nodes, agents, and apps across the Hadron ecosystem.
 
 ## Quick start
@@ -157,7 +165,7 @@ that email"}` 404 means the gates passed and only the lookup missed.
 - **Branch naming**: Use `feature/`, `fix/`, `refactor/`, or `docs/` prefixes (e.g., `feature/node-detail-redesign`)
 - **Commit messages**: Lead with the conventional type (e.g., `feat:`, `fix:`, `refactor:`, `docs:`). Include *why* the change, not just what.
 - **PRs**: Always link to related issues and include a test plan. If your change touches Hadron memory, note what was captured.
-- **Review**: Run `/code-review` before pushing. Portal-specific review criteria live in `hrn:node:hadronmemory.com:hadron-portal:review` — check those before opening a PR.
+- **Review**: Run `/code-review` before pushing. Portal-specific review criteria live at `hrn:node:hadronmemory.com:hadron-portal:review` — check the incoming `Applies when …` review nodes before opening a PR.
 
 ## Portal review criteria
 
@@ -165,13 +173,17 @@ Portal code is reviewed against project-specific criteria stored in Hadron as a
 **review checklist tree**: each criterion is a child node under the
 `hrn:node:hadronmemory.com:hadron-portal:review` parent, and every child carries an
 `Applies when …` edge **back** to that parent. So the canonical way to discover
-the criteria is to read the parent and scan its **Referenced by** list — each
-entry is one check plus the condition it applies to.
+the criteria is to read the review parent and scan its incoming edges in the
+**Referenced by** list — each entry is one review node plus the condition it
+applies to.
 
 ```bash
 hadron_set_active_memory hrn:mem:hadronmemory.com:hadron-portal
+# `hadron_set_active_memory` takes a memory URN. Review-node reads below use
+# the explicit hrn:node form.
 
-# The canonical index: read the review parent, scan its "Referenced by" list.
+# The canonical index: read the review parent, scan its incoming
+# "Referenced by" edges.
 hadron_get_node hrn:node:hadronmemory.com:hadron-portal:review
 
 # Or browse/search the children directly (scope by memoryUrn, NOT a query: arg).
@@ -203,8 +215,8 @@ hadron coding review create <check-name> -m hrn:mem:hadronmemory.com:hadron-port
 
 The CLI is not sugar over the MCP tool. It writes the node **and** its
 `Applies when …` trigger edge in a single mutation, then reads the result back to
-confirm the edge landed — "creating the node and that edge separately is how
-checks end up invisible". It also sets the `review-criteria` tag that
+confirm the edge landed — creating the node and that edge separately is how
+checks end up invisible to the reviewer. It also sets the `review-criteria` tag that
 `coding review list`/`lint` trigger on, prepends the `Applies when` stem if you
 omit it, and refuses to overwrite an existing check. A check made this way passes
 `hadron coding review lint` as written; one hand-built via `hadron_create_node`
