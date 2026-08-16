@@ -159,9 +159,40 @@ Svelte 5 runes reactivity, data fetching / shared-layout payloads, GraphQL
 selection sets, loader error handling, `{@html}` sanitization, template-raw
 reads, and localization (the `t()` i18n helper).
 
-**Add a check when a defect or near-miss reveals a reusable pattern.** Don't just
-drop a node in — follow the runnable task
-`hadronmemory.com:hadron-portal:tasks:add-review-node`, which specifies the
-mandatory `Applies when …` edge back to the `review` parent (without it, the
-reviewer silently skips the check) and how to decide whether it also warrants a
-preflight cross-link.
+**Add a check when a defect or near-miss reveals a reusable pattern.**
+
+Create it with the **`hadron coding review create` CLI command — not
+`hadron_create_node`**:
+
+```bash
+hadron coding review create <check-name> -m hadronmemory.com:hadron-portal \
+  --trigger "a helper wraps an options object carrying reactive getters" \
+  --description "<what it checks> — applies when <condition>." \
+  --content-file /tmp/check.md \
+  --link findings:<originating-finding>
+```
+
+The CLI is not sugar over the MCP tool. It writes the node **and** its
+`Applies when …` trigger edge in a single mutation, then reads the result back to
+confirm the edge landed — "creating the node and that edge separately is how
+checks end up invisible". It also sets the `review-criteria` tag that
+`coding review list`/`lint` trigger on, prepends the `Applies when` stem if you
+omit it, and refuses to overwrite an existing check. A check made this way passes
+`hadron coding review lint` as written; one hand-built via `hadron_create_node`
+typically misses the `review-criteria` tag and has to be repaired afterwards.
+
+Then verify, and fix anything it flags:
+
+```bash
+hadron coding review lint -m hadronmemory.com:hadron-portal   # errors exit 5
+hadron coding review list -m hadronmemory.com:hadron-portal   # each check + its trigger
+```
+
+Edit an **existing** check with `hadron node update` / `hadron edge update`;
+`coding review create` deliberately fails rather than overwriting.
+
+The runnable task `hadronmemory.com:hadron-portal:tasks:add-review-node` governs
+the rest — the node body structure (`## Review:` heading, The Problem, a real
+Example, Review Checklist), and how to decide whether the check also warrants a
+preflight edge (usually not — prefer a `--link` cross-link from the
+coding-guideline node a coder already lands on).
