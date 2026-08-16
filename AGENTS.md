@@ -16,11 +16,11 @@ At the start of **every change** — before drafting a plan — call `hadron_get
 with `urn: "hrn:node:hadronmemory.com:dev:preflight"`. It's a
 symptom-to-pattern routing index for hadron-server and shared concerns that apply across the Hadron ecosystem.
 
-Then consult **portal-specific** findings, conventions, and review criteria in the `hadronmemory.com:hadron-portal` memory:
+Then consult **portal-specific** findings, conventions, and review criteria in the `hrn:mem:hadronmemory.com:hadron-portal` memory:
 
 ```bash
 # Set the active memory
-hadron_set_active_memory hadronmemory.com:hadron-portal
+hadron_set_active_memory hrn:mem:hadronmemory.com:hadron-portal
 
 # Explore the branches (findings, conventions, review criteria, etc.)
 hadron_find_nodes "*"
@@ -42,7 +42,7 @@ The Hadron knowledge graph is split across component-specific memories. When con
 
 Use `hadron_set_active_memory <urn>` to scope queries to a specific memory. When reading code that touches another component (e.g., server API calls), consult that component's memory for context.
 
-### URN grammar: write v2 (flat, single colon)
+### URN grammar: always fully-qualified, and v2 (flat, single colon)
 
 Per [`cor:urn:010:01`](https://hadronmemory.com/app/u/hrn:node:hadronmemory.com:specs:cor:urn:010:01), a URN is
 `hrn:<type>:<root>[:<container>]:<name-or-loc>` — **single colon throughout**:
@@ -51,6 +51,31 @@ Per [`cor:urn:010:01`](https://hadronmemory.com/app/u/hrn:node:hadronmemory.com:
 hrn:mem:hadronmemory.com:hadron-portal                        # a memory
 hrn:node:hadronmemory.com:hadron-portal:findings:some-finding  # a node
 ```
+
+**Always write the fully-qualified form — including the `hrn:<type>:` prefix —
+in docs, node content, commit messages, and every tool or CLI argument.** Many
+surfaces also accept a shortened `<org>:<memory>` or bare-loc form. Don't use
+them. The `hrn:` prefix and the type word are the only things that make a
+reference self-describing, and dropping them costs more than it saves:
+
+(The bare forms below appear only as examples of what NOT to write.)
+
+- **`mem` vs `node` is not recoverable from the string.** Bare
+  `hadronmemory.com:hadron-portal` is a memory *and* a legal prefix of the node
+  `hrn:node:hadronmemory.com:hadron-portal:hadron-portal` — the overview node's
+  loc is literally `hadron-portal`. Which one a bare ref means depends entirely
+  on the argument slot it lands in, so the same text denotes different entities
+  in different commands.
+- **The memory/loc boundary is a guess.** In bare
+  `hadronmemory.com:hadron-portal:review` nothing marks where the memory ends
+  and the loc begins; you have to already know the slug to parse it.
+- **Some failures are silent.** A shortened ownership chain (below) resolves to a
+  *different node* rather than erroring — you get wrong data, not a stack trace.
+- **Loud failures point the wrong way.** `hadron node get hadronmemory.com:hadron-portal`
+  errors with `expected <org>::<memory>::<loc>` — v1 double-colon advice that
+  contradicts this section. A fully-qualified URN never lands in that branch.
+- **It survives copy-paste.** A fully-qualified URN works in any slot, in a chat
+  message, and in a commit message. A bare ref only works where it was written.
 
 The `::` hierarchy separator is **v1**. It is still accepted on input forever
 (via a stored alias map), and `hadron_get_node` / the MCP tool descriptions still
@@ -63,14 +88,17 @@ than two atoms) has no string-derivable v2 form — the server resolves it throu
 the alias map. Leave those as-is; flattening one silently addresses a different
 node. `composeNodeUrn` in [src/lib/urn/compose-node-urn.ts](src/lib/urn/compose-node-urn.ts) implements exactly this split.
 
-
 ## Reading code with Hadron memory
 
 Before diving into the codebase, query Hadron:
 
 1. **Query the active memory** with `hadron_find_nodes` for the topics, entities, and decision areas in your task (e.g., "breadcrumb", "DataTable", "node detail page").
-2. **Read promising hits** with `hadron_get_node` to pull in context. Note the `loc` value so you can cite it later.
-3. **Cite findings** by `loc` when referencing what you found (e.g., "per `hadron-portal:findings:breadcrumb-active-org-resolution`").
+2. **Read promising hits** with `hadron_get_node` to pull in context. Note the node's full URN so you can cite it later.
+3. **Cite findings by their fully-qualified URN**, not a bare `loc` (e.g., "per
+   `hrn:node:hadronmemory.com:hadron-portal:findings:active-org-url-hint-chain`").
+   A citation usually outlives the context that made the memory obvious — it gets
+   pasted into a PR, a commit message, or another repo's issue, where a bare loc
+   no longer says which memory it belongs to.
 
 Hadron is the project's institutional memory — assume it covers things that aren't obvious from code alone: past incidents, decisions whose rationale isn't documented, conventions baked into multiple places.
 
@@ -107,7 +135,7 @@ the criteria is to read the review parent and scan its incoming edges in the
 applies to.
 
 ```bash
-hadron_set_active_memory hadronmemory.com:hadron-portal
+hadron_set_active_memory hrn:mem:hadronmemory.com:hadron-portal
 # `hadron_set_active_memory` takes a memory URN. Review-node reads below use
 # the explicit hrn:node form.
 
@@ -117,7 +145,7 @@ hadron_get_node hrn:node:hadronmemory.com:hadron-portal:review
 
 # Or browse/search the children directly (scope by memoryUrn, NOT a query: arg).
 hadron_list_nodes parentRel:"review"
-hadron_find_nodes "aria" memoryUrn:"hadronmemory.com:hadron-portal"
+hadron_find_nodes "aria" memoryUrn:"hrn:mem:hadronmemory.com:hadron-portal"
 
 # Then read the specific check by its URN.
 hadron_get_node hrn:node:hadronmemory.com:hadron-portal:review:<name>
@@ -129,9 +157,41 @@ Svelte 5 runes reactivity, data fetching / shared-layout payloads, GraphQL
 selection sets, loader error handling, `{@html}` sanitization, template-raw
 reads, and localization (the `t()` i18n helper).
 
-**Add a check when a defect or near-miss reveals a reusable pattern.** Don't just
-drop a node in — follow the runnable task
-`hrn:node:hadronmemory.com:hadron-portal:tasks:add-review-node`, which specifies the
-mandatory `Applies when …` edge back to the `review` parent (without it, the
-reviewer silently skips the check) and how to decide whether it also warrants a
-preflight cross-link.
+**Add a check when a defect or near-miss reveals a reusable pattern.**
+
+Create it with the **`hadron coding review create` CLI command — not
+`hadron_create_node`**:
+
+```bash
+hadron coding review create <check-name> -m hrn:mem:hadronmemory.com:hadron-portal \
+  --trigger "a helper wraps an options object carrying reactive getters" \
+  --description "<what it checks> — applies when <condition>." \
+  --content-file /tmp/check.md \
+  --link hrn:node:hadronmemory.com:hadron-portal:findings:<originating-finding>
+```
+
+The CLI is not sugar over the MCP tool. It writes the node **and** its
+`Applies when …` trigger edge in a single mutation, then reads the result back to
+confirm the edge landed — creating the node and that edge separately is how
+checks end up invisible to the reviewer. It also sets the `review-criteria` tag
+that `coding review list`/`lint` trigger on, prepends the `Applies when` stem if
+you omit it, and refuses to overwrite an existing check. A check made this way
+passes `hadron coding review lint` as written; one hand-built via
+`hadron_create_node` typically misses the `review-criteria` tag and has to be
+repaired afterwards.
+
+Then verify, and fix anything it flags:
+
+```bash
+hadron coding review lint -m hrn:mem:hadronmemory.com:hadron-portal   # errors exit 5
+hadron coding review list -m hrn:mem:hadronmemory.com:hadron-portal   # each check + its trigger
+```
+
+Edit an **existing** check with `hadron node update` / `hadron edge update`;
+`coding review create` deliberately fails rather than overwriting.
+
+The runnable task `hrn:node:hadronmemory.com:hadron-portal:tasks:add-review-node`
+governs the rest — the node body structure (`## Review:` heading, The Problem, a
+real Example, Review Checklist), and how to decide whether the check also
+warrants a preflight edge (usually not — prefer a `--link` cross-link from the
+coding-guideline node a coder already lands on).

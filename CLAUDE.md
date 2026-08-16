@@ -93,8 +93,12 @@ node. `composeNodeUrn` in [src/lib/urn/compose-node-urn.ts](src/lib/urn/compose-
 Before diving into the codebase, query Hadron:
 
 1. **Query the active memory** with `hadron_find_nodes` for the topics, entities, and decision areas in your task (e.g., "breadcrumb", "DataTable", "node detail page").
-2. **Read promising hits** with `hadron_get_node` to pull in context. Note the `loc` value so you can cite it later.
-3. **Cite findings** by `loc` when referencing what you found (e.g., "per `hadron-portal:findings:breadcrumb-active-org-resolution`").
+2. **Read promising hits** with `hadron_get_node` to pull in context. Note the node's full URN so you can cite it later.
+3. **Cite findings by their fully-qualified URN**, not a bare `loc` (e.g., "per
+   `hrn:node:hadronmemory.com:hadron-portal:findings:active-org-url-hint-chain`").
+   A citation usually outlives the context that made the memory obvious — it gets
+   pasted into a PR, a commit message, or another repo's issue, where a bare loc
+   no longer says which memory it belongs to.
 
 Hadron is the project's institutional memory — assume it covers things that aren't obvious from code alone: past incidents, decisions whose rationale isn't documented, conventions baked into multiple places.
 
@@ -194,7 +198,7 @@ hadron coding review create <check-name> -m hrn:mem:hadronmemory.com:hadron-port
   --trigger "a helper wraps an options object carrying reactive getters" \
   --description "<what it checks> — applies when <condition>." \
   --content-file /tmp/check.md \
-  --link findings:<originating-finding>
+  --link hrn:node:hadronmemory.com:hadron-portal:findings:<originating-finding>
 ```
 
 The CLI is not sugar over the MCP tool. It writes the node **and** its
