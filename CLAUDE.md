@@ -2,9 +2,11 @@
 
 > **`AGENTS.md` is a symlink to this file.** Edit `CLAUDE.md`; both names serve
 > the same content to every agent. They used to be parallel copies and drifted
-> twice — a URN-grammar change landed in one and needed a follow-up PR for the
-> other (#689), and the dev-login section below sat in `CLAUDE.md` alone for
-> months (#679). Don't replace the symlink with a copy.
+> three times: a URN-grammar change landed in one and needed a follow-up PR for
+> the other (#689); the dev-login section below sat in `CLAUDE.md` alone for
+> months (#679); and #727/#728 again updated only `CLAUDE.md`, leaving the other
+> file telling agents to do what this one forbids. Don't replace the symlink
+> with a copy.
 
 **hadron-portal** is a SvelteKit web UI for the Hadron knowledge memory platform. It provides the interface for managing memories, nodes, agents, and apps across the Hadron ecosystem.
 
