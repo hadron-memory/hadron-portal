@@ -35,8 +35,11 @@ const headlessFeatures = tableFeatures({
 export function makeHeadlessTable<TData extends RowData>(
   options: Omit<TableOptions<PortalFeatures, TData>, 'features'>,
 ): PortalTable<TData> {
-  return constructTable({
-    ...options,
-    features: headlessFeatures,
-  } as unknown as TableOptions<PortalFeatures, TData>) as PortalTable<TData>;
+  // Descriptor copy, not a spread — same reason as `withFeatures`: a spread
+  // would evaluate any reactive `get data()` once and freeze it.
+  const merged = Object.defineProperties({}, {
+    ...Object.getOwnPropertyDescriptors(options),
+    features: { value: headlessFeatures, enumerable: true, configurable: true },
+  });
+  return constructTable(merged as unknown as TableOptions<PortalFeatures, TData>) as PortalTable<TData>;
 }

@@ -112,7 +112,12 @@
           {/each}
         </thead>
         <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
-          {#each table.getRowModel().rows as row (row.id)}
+          <!-- Pre-paginated: this grid shows every row and renders no pager.
+               The shared feature registry enables rowPaginationFeature for all
+               grids, and v9 resolves getRowModel() to getPaginatedRowModel()
+               (default pageSize 10) — so getRowModel() here would silently hide
+               rows 11+ with no way to reach them. -->
+          {#each table.getPrePaginatedRowModel().rows as row (row.id)}
             {@const n = row.original}
             <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
             <tr

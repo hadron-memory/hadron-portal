@@ -113,7 +113,12 @@
           {/each}
         </thead>
         <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
-          {#each table.getRowModel().rows as row (row.id)}
+          <!-- Pre-paginated: this grid shows every row and renders no pager.
+               The shared feature registry enables rowPaginationFeature for all
+               grids, and v9 resolves getRowModel() to getPaginatedRowModel()
+               (default pageSize 10) — so getRowModel() here would silently hide
+               rows 11+ with no way to reach them. -->
+          {#each table.getPrePaginatedRowModel().rows as row (row.id)}
             {@const agent = row.original}
             <tr class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900">
               {#each row.getVisibleCells() as cell (cell.id)}

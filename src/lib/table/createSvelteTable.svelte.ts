@@ -13,17 +13,18 @@
 
 import { createTable } from '@tanstack/svelte-table';
 import type { RowData, TableOptions } from '@tanstack/table-core';
-import { features, type PortalFeatures, type PortalTable } from './features';
+import { withFeatures, type PortalFeatures, type PortalTable } from './features';
 
 /**
  * Create a portal grid. Identical to the official `createTable`, minus the
  * `features` option — that is supplied from `./features`.
  *
  * Reactive data is passed as a getter (`get data() { return rows; }`), and
- * state slices are read back with `table.atoms.<slice>.get()`.
+ * state slices are read back with `table.atoms.<slice>.get()`. `withFeatures`
+ * (NOT an object spread) is what keeps those getters live — see its docstring.
  */
 export function createSvelteTable<TData extends RowData>(
   options: Omit<TableOptions<PortalFeatures, TData>, 'features'>,
 ): PortalTable<TData> {
-  return createTable({ ...options, features } as TableOptions<PortalFeatures, TData>);
+  return createTable(withFeatures(options));
 }

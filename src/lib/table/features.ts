@@ -36,6 +36,7 @@ import {
   type ColumnDef,
   type RowData,
   type Table,
+  type TableOptions,
   type TableState,
 } from '@tanstack/table-core';
 
@@ -60,6 +61,25 @@ export const features = tableFeatures({
  * TData>`). These aliases pin the first parameter to the portal's registry so
  * call sites stay single-generic, exactly as they read under v8.
  */
+/**
+ * Inject the shared registry into a caller's table options.
+ *
+ * Must copy property DESCRIPTORS, not values. Call sites pass reactive data as
+ * a getter (`get data() { return rows; }`) so the adapter re-reads it whenever
+ * the `$derived` source changes. A plain spread (`{ ...options, features }`)
+ * would evaluate that getter once and freeze the table's data at creation —
+ * a later invalidation would never reach the grid, and nothing would type-error.
+ * This mirrors the `mergeObjects` the official adapter uses internally.
+ */
+export function withFeatures<TData extends RowData>(
+  options: Omit<TableOptions<PortalFeatures, TData>, 'features'>,
+): TableOptions<PortalFeatures, TData> {
+  return Object.defineProperties({} as TableOptions<PortalFeatures, TData>, {
+    ...Object.getOwnPropertyDescriptors(options),
+    features: { value: features, enumerable: true, configurable: true },
+  });
+}
+
 export type PortalFeatures = typeof features;
 export type PortalColumnDef<TData extends RowData> = ColumnDef<PortalFeatures, TData>;
 export type PortalTable<TData extends RowData> = Table<PortalFeatures, TData>;
