@@ -2,12 +2,7 @@
   // Modal picker for choosing a single organization — searchable + paginated.
   // Mirrors SelectMemory.svelte (same TanStack adapter, modal chrome, untrack
   // reset); orgs have a display URN so rows use the Urn component.
-  import {
-    getCoreRowModel,
-    getPaginationRowModel,
-    getFilteredRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { untrack } from 'svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
@@ -42,7 +37,7 @@
   // NOTE: Headers render from this list, but the <td> cells in <tbody> are
   // hardcoded (custom URN/link markup) — same approach as SelectMemory. Keep
   // this column order in sync with the cells below, or they misalign.
-  const columns: ColumnDef<Org>[] = [
+  const columns: PortalColumnDef<Org>[] = [
     { accessorKey: 'name', header: 'Name', enableHiding: false, size: 220 },
     { accessorKey: 'urn', header: 'URN', size: 280 },
   ];
@@ -52,9 +47,6 @@
       return Array.isArray(orgs) ? orgs.filter(Boolean) : [];
     },
     columns,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
     state: {
       get globalFilter() {
         return query;
@@ -74,13 +66,14 @@
     },
     initialState: {
       pagination: {
+        pageIndex: 0,
         pageSize: 5,
       },
     },
   });
 
   const rows = $derived(table.getRowModel().rows);
-  const pageIndex = $derived(table.getState().pagination.pageIndex);
+  const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
   const pageCount = $derived(table.getPageCount());
   const filteredRowCount = $derived(table.getFilteredRowModel().rows.length);
 

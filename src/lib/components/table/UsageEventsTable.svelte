@@ -2,13 +2,7 @@
   // Shared usage-events grid (@tanstack/table-core + the Svelte 5 runes adapter,
   // src/lib/table/*). Used by the per-memory Usage tab (#266). The `listKey`
   // keeps each list's saved views distinct (e.g. 'memory:<id>:usage').
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import ViewTabs from '$lib/components/table/ViewTabs.svelte';
   import ColumnToggle from '$lib/components/table/ColumnToggle.svelte';
@@ -41,7 +35,7 @@
 
   // Columns hold raw, sortable accessor values; display formatting is applied
   // at render time via `fmt` (keyed by column id) so numeric/date sort is kept.
-  const columns: ColumnDef<UsageEvent>[] = [
+  const columns: PortalColumnDef<UsageEvent>[] = [
     { accessorFn: (r) => dateMs(r.createdAt), id: 'createdAt', header: 'Time', enableHiding: false, size: 120 }, // identity column
     { accessorKey: 'type', header: 'Type', size: 100 },
     { accessorKey: 'nodeLoc', header: 'Node', size: 320 },
@@ -74,14 +68,10 @@
     },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
-  const pageSize = $derived(table.getState().pagination.pageSize);
-  const pageIndex = $derived(table.getState().pagination.pageIndex);
+  const pageSize = $derived(table.atoms.pagination.get().pageSize);
+  const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
   const pageCount = $derived(table.getPageCount());
 
   function sortIndicator(state: false | 'asc' | 'desc'): string {

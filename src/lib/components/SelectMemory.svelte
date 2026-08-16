@@ -1,10 +1,5 @@
 <script lang="ts">
-  import {
-    getCoreRowModel,
-    getPaginationRowModel,
-    getFilteredRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { untrack } from 'svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
@@ -39,7 +34,7 @@
     node.focus();
   }
 
-  const columns: ColumnDef<Memory>[] = [
+  const columns: PortalColumnDef<Memory>[] = [
     { accessorKey: 'name', header: 'Name', enableHiding: false, size: 200 },
     { accessorKey: 'urn', header: 'URN', size: 250 },
     { accessorKey: 'orgName', header: 'Organization', size: 150 },
@@ -58,9 +53,6 @@
       return rowData;
     },
     columns,
-    getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
     state: {
       get globalFilter() {
         return query;
@@ -79,13 +71,14 @@
     },
     initialState: {
       pagination: {
+        pageIndex: 0,
         pageSize: 5,
       },
     },
   });
 
   const rows = $derived(table.getRowModel().rows);
-  const pageIndex = $derived(table.getState().pagination.pageIndex);
+  const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
   const pageCount = $derived(table.getPageCount());
   const filteredRowCount = $derived(table.getFilteredRowModel().rows.length);
 

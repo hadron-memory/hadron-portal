@@ -1,62 +1,29 @@
-// Thin Svelte 5 (runes) adapter over @tanstack/table-core.
+// Portal factory over the OFFICIAL @tanstack/svelte-table (v9) adapter.
 //
-// The published @tanstack/svelte-table adapter targets Svelte 3/4 and is broken
-// on Svelte 5 (it imports the removed `svelte/internal`); a runes-native
-// official adapter only exists in the v9 alpha. This ~40-line file is the
-// supported interim path the docs recommend: hold table state in `$state`, feed
-// it back through `setOptions`, and let `mergeObjects` make reads reactive.
+// History: under v8 there was no usable Svelte 5 adapter — the published
+// @tanstack/svelte-table targeted Svelte 3/4 and imported the removed
+// `svelte/internal` — so this file hand-rolled one (hold state in `$state`,
+// feed it back through `setOptions`, `mergeObjects` for reactive reads,
+// `$effect.pre` to flush before paint). v9 ships that design natively, backed
+// by rune-aware TanStack Store atoms, so the hand-rolled adapter and its
+// `merge.svelte.ts` helper are gone.
 //
-// This is the ENTIRE framework-integration surface. Everything else
-// (sorting/filtering/pagination/visibility/order) is table-core and is
-// identical to its React/Vue/Solid usage.
+// What remains is a ~10-line factory whose only job is pre-binding the portal's
+// shared feature registry, so no call site has to repeat it.
 
-import {
-  createTable as createTableCore,
-  type RowData,
-  type TableOptions,
-  type TableOptionsResolved,
-  type TableState,
-  type Table,
-  type Updater,
-} from '@tanstack/table-core';
-import { mergeObjects } from './merge.svelte';
+import { createTable } from '@tanstack/svelte-table';
+import type { RowData, TableOptions } from '@tanstack/table-core';
+import { features, type PortalFeatures, type PortalTable } from './features';
 
-export function createSvelteTable<TData extends RowData>(options: TableOptions<TData>): Table<TData> {
-  const resolvedOptions: TableOptionsResolved<TData> = mergeObjects(
-    {
-      state: {},
-      onStateChange() {},
-      renderFallbackValue: null,
-      mergeOptions: (defaultOptions: TableOptions<TData>, opts: Partial<TableOptions<TData>>) =>
-        mergeObjects(defaultOptions, opts),
-    },
-    options,
-  );
-
-  const table = createTableCore(resolvedOptions);
-  let state = $state<Partial<TableState>>(table.initialState);
-
-  function updateOptions() {
-    table.setOptions((prev) =>
-      mergeObjects(prev, options, {
-        state: mergeObjects(() => state, () => options.state ?? {}),
-        // Uncontrolled-by-default: own the state here, but still forward to any
-        // caller-supplied onStateChange (e.g. to persist a saved view).
-        onStateChange: (updater: Updater<TableState>) => {
-          state = updater instanceof Function ? updater(state as TableState) : updater;
-          options.onStateChange?.(updater);
-        },
-      }),
-    );
-  }
-
-  updateOptions();
-  // `$effect.pre` (NOT deprecated — it's the documented "run before DOM update"
-  // rune) so options flush before the template reads the row model, avoiding a
-  // stale first paint when reactive options change.
-  $effect.pre(() => {
-    updateOptions();
-  });
-
-  return table;
+/**
+ * Create a portal grid. Identical to the official `createTable`, minus the
+ * `features` option — that is supplied from `./features`.
+ *
+ * Reactive data is passed as a getter (`get data() { return rows; }`), and
+ * state slices are read back with `table.atoms.<slice>.get()`.
+ */
+export function createSvelteTable<TData extends RowData>(
+  options: Omit<TableOptions<PortalFeatures, TData>, 'features'>,
+): PortalTable<TData> {
+  return createTable({ ...options, features } as TableOptions<PortalFeatures, TData>);
 }

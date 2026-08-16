@@ -1,7 +1,8 @@
 // Runes controller binding a grid `table` + `listKey` + `ViewStore` (spec 020).
 // Holds the reactive picker state and the actions; this is the testable logic
 // (the ViewTabs component is a thin shell over it).
-import type { Table, RowData } from '@tanstack/table-core';
+import type { PortalTable } from '$lib/table/features';
+import type { RowData } from '@tanstack/table-core';
 import { extractView, applyView, serializeView } from './savedView';
 import { type ViewStore, type SavedViewRecord, resolveInitialView } from './viewStore';
 import { localStorageViewStore } from './localStorageViewStore';
@@ -25,7 +26,7 @@ export interface ViewController {
 }
 
 export function createViewController<T extends RowData>(args: {
-  table: Table<T>;
+  table: PortalTable<T>;
   listKey: string;
   store?: ViewStore;
 }): ViewController {
@@ -40,7 +41,7 @@ export function createViewController<T extends RowData>(args: {
   // Canonical-JSON compare of the live arrangement vs the active view. Guarded so
   // there is no `activeView.view` deref when nothing is active (spec FR-006).
   const isModified = $derived.by(() =>
-    activeView ? serializeView(extractView(table.getState())) !== serializeView(activeView.view) : false,
+    activeView ? serializeView(extractView(table.store.get())) !== serializeView(activeView.view) : false,
   );
 
   async function refresh() {

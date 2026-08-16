@@ -1,12 +1,7 @@
 <script lang="ts">
   // Migrated off svelte-headless-table to @tanstack/table-core + the Svelte 5
   // runes adapter (src/lib/table/*). See docs/grid-bakeoff.md.
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { t } from '$lib/i18n/t';
   import Urn from './Urn.svelte';
@@ -43,7 +38,7 @@
 
   let globalFilter = $state('');
 
-  const columns: ColumnDef<AgentRow>[] = [
+  const columns: PortalColumnDef<AgentRow>[] = [
     { accessorKey: 'name', header: t('common.agent', 'Agent'), enableHiding: false, size: 300 }, // identity column
     { accessorFn: (a) => a.description ?? '', id: 'description', header: t('common.description', 'Description'), size: 400 },
   ];
@@ -65,9 +60,6 @@
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
     globalFilterFn: 'includesString',
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
   });
 
   function sortIndicator(state: false | 'asc' | 'desc'): string {

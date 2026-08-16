@@ -4,13 +4,7 @@
   // caller via MemoryShare (#778). Both lists use the shared TanStack DataTable.
   import { tick } from 'svelte';
   import { enhance } from '$app/forms';
-  import {
-    getCoreRowModel,
-    getSortedRowModel,
-    getFilteredRowModel,
-    getPaginationRowModel,
-    type ColumnDef,
-  } from '@tanstack/table-core';
+  import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -82,7 +76,7 @@
     memories.map((m) => ({ id: m.id, name: m.name, urn: m.urn, class: m.class ?? '' })),
   );
   let mineFilter = $state('');
-  const myColumns: ColumnDef<MyMemoryRow>[] = [
+  const myColumns: PortalColumnDef<MyMemoryRow>[] = [
     { accessorKey: 'name', header: NAME_COL(), enableHiding: false, size: 320 },
     { accessorKey: 'urn', header: 'URN', size: 320 },
     { accessorKey: 'class', id: 'kind', header: t('my-memories.col.kind', 'Kind'), size: 120 },
@@ -97,10 +91,6 @@
     onGlobalFilterChange: (u) => { mineFilter = typeof u === 'function' ? u(mineFilter) : u; },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
   // ── Memories shared with me table ────────────────────────────────────────
@@ -115,7 +105,7 @@
     })),
   );
   let sharedFilter = $state('');
-  const sharedColumns: ColumnDef<SharedRow>[] = [
+  const sharedColumns: PortalColumnDef<SharedRow>[] = [
     { accessorKey: 'name', header: NAME_COL(), enableHiding: false, size: 240 },
     { accessorKey: 'urn', header: 'URN', size: 240 },
     { accessorKey: 'sharedBy', id: 'sharedBy', header: t('my-memories.col.shared-by', 'Shared by'), size: 150 },
@@ -132,10 +122,6 @@
     onGlobalFilterChange: (u) => { sharedFilter = typeof u === 'function' ? u(sharedFilter) : u; },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 </script>
 

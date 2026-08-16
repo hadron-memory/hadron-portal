@@ -17,8 +17,9 @@
   resizing (role="separator", arrow keys), and a viewport-floored
   max-height whose rem offset is tuned per page via the `maxHeight` prop.
 -->
-<script lang="ts" generics="T">
-  import type { Cell, Table } from '@tanstack/table-core';
+<script lang="ts" generics="T extends RowData">
+  import type { PortalCell, PortalTable } from '$lib/table/features';
+  import type { RowData } from '@tanstack/table-core';
   import type { Snippet } from 'svelte';
   import ViewTabs from './ViewTabs.svelte';
   import ColumnToggle from './ColumnToggle.svelte';
@@ -35,7 +36,7 @@
     rowAttrs,
     cell,
   }: {
-    table: Table<T>;
+    table: PortalTable<T>;
     listKey: string;
     searchPlaceholder: string;
     searchAriaLabel: string;
@@ -49,11 +50,11 @@
     rowAttrs?: (item: T) => Record<string, string | undefined>;
     /** Renders every cell's content; receives the TanStack cell and
      *  `row.original`. */
-    cell: Snippet<[Cell<T, unknown>, T]>;
+    cell: Snippet<[PortalCell<T, unknown>, T]>;
   } = $props();
 
-  const pageSize = $derived(table.getState().pagination.pageSize);
-  const pageIndex = $derived(table.getState().pagination.pageIndex);
+  const pageSize = $derived(table.atoms.pagination.get().pageSize);
+  const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
   const pageCount = $derived(table.getPageCount());
 
   function sortIndicator(state: false | 'asc' | 'desc'): string {
