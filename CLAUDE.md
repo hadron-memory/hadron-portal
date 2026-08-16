@@ -191,9 +191,8 @@ hadron coding review list -m hadronmemory.com::hadron-portal   # each check + it
 Edit an **existing** check with `hadron node update` / `hadron edge update`;
 `coding review create` deliberately fails rather than overwriting.
 
-The runnable task `hadronmemory.com:hadron-portal:tasks:add-review-node` still
-governs the *content* — the node body structure (`## Review:` heading, The
-Problem, a real Example, Review Checklist), and how to decide whether the check
-also warrants a preflight cross-link (usually not — prefer a cross-link from the
-coding-guideline node a coder already lands on). Note that task's step 3 predates
-the CLI and still says `hadron_create_node`; use the CLI command above instead.
+The runnable task `hadronmemory.com:hadron-portal:tasks:add-review-node` governs
+the rest — the node body structure (`## Review:` heading, The Problem, a real
+Example, Review Checklist), and how to decide whether the check also warrants a
+preflight edge (usually not — prefer a `--link` cross-link from the
+coding-guideline node a coder already lands on).
