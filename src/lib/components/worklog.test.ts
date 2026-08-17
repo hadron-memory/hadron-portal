@@ -144,3 +144,36 @@ describe('actionClass', () => {
     expect(actionClass('')).toContain('zinc');
   });
 });
+
+// Codex P2 + Copilot on #739. The tool control previously derived its OPTIONS
+// from the fetched page, which failed twice: a tool present only in records
+// older than the page cap could never be selected, and once a tool filter
+// matched nothing its option vanished with the rows — leaving the control
+// showing "Any" while that filter was still applied.
+//
+// The fix is a free-text input with a datalist, so suggestions never limit what
+// can be typed, plus unioning the active filter into the suggestions so it
+// always shows itself. This pins the union rule.
+describe('tool filter suggestions', () => {
+  function suggestionsFor(items: Array<{ tool: string }>, selected: string): string[] {
+    return [...new Set([...items.map((i) => i.tool), ...(selected ? [selected] : [])])].sort();
+  }
+
+  it('offers the tools present on the page', () => {
+    expect(suggestionsFor([{ tool: 'github' }, { tool: 'gitlab' }], '')).toEqual(['github', 'gitlab']);
+  });
+
+  // The case that made the UI lie: filter returns nothing, so no row carries
+  // the tool, so the control lost the value it was actively filtering by.
+  it('keeps the selected tool even when no row matches it', () => {
+    expect(suggestionsFor([], 'linear')).toEqual(['linear']);
+  });
+
+  it('does not duplicate a selected tool that is also present', () => {
+    expect(suggestionsFor([{ tool: 'github' }], 'github')).toEqual(['github']);
+  });
+
+  it('adds nothing when no tool filter is applied', () => {
+    expect(suggestionsFor([{ tool: 'github' }], '')).toEqual(['github']);
+  });
+});

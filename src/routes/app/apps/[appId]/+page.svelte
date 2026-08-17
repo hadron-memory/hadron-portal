@@ -972,6 +972,11 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
            flex container. Without it the thread grows to its content height and
            `overflow-hidden` clips the composer out of the page entirely — the
            transcript reads fine and the reply box is simply gone. -->
+      <!-- `action` keeps `tab=team-chat` in the URL. A SvelteKit action URL
+           REPLACES the query string, so a bare `?/postTeamChatMessage` drops
+           it — and without JS (or if enhance fails) the POST lands back on a
+           URL with no tab, putting the user on the default tab with their
+           message posted somewhere they can no longer see. Copilot on #739. -->
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
         <TeamChatThread
           messages={data.teamChatMessages ?? []}
@@ -979,6 +984,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           loadError={data.teamChatError ?? false}
           postForm={data.postTeamChatMessageForm}
           {form}
+          action="?tab=team-chat&/postTeamChatMessage"
         />
       </div>
     </div>

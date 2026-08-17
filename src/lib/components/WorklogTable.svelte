@@ -37,9 +37,23 @@
   // the worklog is asked for, not duplication to clean up.
   const sessionCounts = $derived(sessionsPerRef(items));
 
-  // The tools actually present, so the filter offers what this App has rather
-  // than a hardcoded list that could omit a tool someone starts recording.
-  const toolsPresent = $derived([...new Set(items.map((i) => i.tool))].sort());
+  // Tool suggestions, NOT the allowed values — the control is a free-text input
+  // backed by a datalist for exactly that reason (Codex P2 + Copilot on #739).
+  //
+  // Two failures came from deriving *options* from the fetched page. A tool
+  // that appears only in records older than the page cap could never be picked,
+  // even though the server-side filter supports it. And once a tool filter
+  // returned no rows, the option vanished with them — so the control fell back
+  // to displaying "Any" while that filter was still applied, which is the UI
+  // stating the opposite of what it is doing.
+  //
+  // The selected tool is unioned in regardless, so a filter that matches
+  // nothing still shows itself. There is no server-side facet operation to ask
+  // for the complete tool list, so suggestions from the current page is the
+  // honest ceiling — but suggestions never limit what can be typed.
+  const toolSuggestions = $derived(
+    [...new Set([...items.map((i) => i.tool), ...(filters.tool ? [filters.tool] : [])])].sort(),
+  );
 
   function formatAt(at: string): string {
     const d = new Date(at);
@@ -87,17 +101,19 @@
       <label for="worklog-tool" class="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
         {t('app.worklog.filter.tool', 'Tool')}
       </label>
-      <select
+      <input
         id="worklog-tool"
         name="worklogTool"
         value={filters.tool}
-        class="mt-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-      >
-        <option value="">{t('app.worklog.filter.any', 'Any')}</option>
-        {#each toolsPresent as tool (tool)}
-          <option value={tool}>{tool}</option>
+        list="worklog-tool-options"
+        placeholder={t('app.worklog.filter.any', 'Any')}
+        class="mt-1 w-36 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+      />
+      <datalist id="worklog-tool-options">
+        {#each toolSuggestions as tool (tool)}
+          <option value={tool}></option>
         {/each}
-      </select>
+      </datalist>
     </div>
     <button
       type="submit"
