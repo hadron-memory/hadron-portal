@@ -62,6 +62,58 @@ function teamChat(over: Record<string, unknown> = {}) {
   };
 }
 
+describe('chat page load — fullUrn', () => {
+  async function loadWith(memoryUrn: string | null, node: Record<string, unknown>) {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === NODE_BY_ID_QUERY) return { node };
+      // loadChatMessages' NODES_BY_LOC_PREFIX_QUERY — an empty thread is fine,
+      // the URN is what's under test.
+      return { findNodes: { hits: [] } };
+    });
+    const { load } = await import('./+page.server');
+    return (await load({
+      params: { id: 'mem-1', nodeId: 'chat-1' },
+      locals: { token: 'tok', user: { handle: 'holger' } },
+      parent: async () => ({ graph: memoryUrn ? { id: 'mem-1', urn: memoryUrn } : null }),
+    } as any)) as any;
+  }
+
+  // The team chat's badge read `hrn:mem:…:chats:team` — a NODE URN wearing the
+  // MEMORY type word, because the old code concatenated `graph.urn` with the
+  // loc. cor:urn:010:01 makes `mem` vs `node` unrecoverable from the string, so
+  // that badge addressed a different entity class than the page showing it.
+  it('emits an hrn:node: URN, not the memory URN with the loc appended', async () => {
+    const data = await loadWith('hrn:mem:hadronmemory.com:hadron-dev-team-shared', teamChat());
+    expect(data.fullUrn).toBe('hrn:node:hadronmemory.com:hadron-dev-team-shared:chats:team');
+    expect(data.fullUrn.startsWith('hrn:mem:')).toBe(false);
+  });
+
+  // #728: v2 is flat, single-colon throughout. The old code joined with `::`,
+  // which `parseUrnV2` rejects outright.
+  it('emits grammar v2 (no `::` separator)', async () => {
+    const data = await loadWith('hrn:mem:hadronmemory.com:hadron-dev-team-shared', teamChat());
+    expect(data.fullUrn).not.toContain('::');
+  });
+
+  // An ownership chain (>2 atoms) has no string-derivable v2 form and must be
+  // emitted unchanged — `composeNodeUrn` owns that carve-out, so this pins that
+  // the loader routes through it rather than re-deriving the easy case itself.
+  it('leaves a v1 ownership chain in v1 form', async () => {
+    const data = await loadWith('hrn:memory:micromentor.org::coding-app::coding-agent::system', teamChat());
+    expect(data.fullUrn).toBe(
+      'hrn:node:micromentor.org::coding-app::coding-agent::system::chats:team',
+    );
+  });
+
+  // composeNodeUrn is strict at input and throws; the transcript must still
+  // render. Falls back to the bare loc rather than 500-ing the page.
+  it('falls back to the bare loc when the memory URN has a wrong-type prefix', async () => {
+    const data = await loadWith('hrn:app:hadronmemory.com:hadron-dev-team', teamChat());
+    expect(data.fullUrn).toBe('chats:team');
+    expect(data.messages).toEqual([]);
+  });
+});
+
 describe('chat sendMessage action', () => {
   it('creates a message node from validated trimmed content (legacy, no App)', async () => {
     mockRequest.mockResolvedValueOnce({

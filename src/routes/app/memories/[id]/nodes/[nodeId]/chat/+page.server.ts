@@ -6,6 +6,7 @@ import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
 import { chatAuthorName, chatPostTarget, isChatNode, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
+import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { sendChatMessageSchema } from './schema';
@@ -64,13 +65,29 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     return [];
   });
 
-  // Compute fullUrn like the node detail page does
-  let fullUrn = node.loc;
-  if (parentData?.graph?.urn && node.loc.startsWith(parentData.graph.urn + ':')) {
-    let loc = node.loc.slice(parentData.graph.urn.length + 1);
-    fullUrn = parentData.graph.urn && loc ? `${parentData.graph.urn}::${loc}` : node.loc;
-  } else if (parentData?.graph?.urn) {
-    fullUrn = `${parentData.graph.urn}::${node.loc}`;
+  // Compute fullUrn the way the node detail page does — through
+  // `composeNodeUrn`, NOT by concatenating the memory URN with the loc.
+  // Hand-rolling it produced `hrn:mem:<root>:<slug>:<loc>` for the team chat:
+  // the memory's own `hrn:mem:` type word survived onto what is a NODE URN,
+  // and the separator was v1 `::`. Both are exactly what cor:urn:010:01
+  // forbids — `mem` vs `node` is not recoverable from the string, so the
+  // badge was addressing a different entity class than the page it sat on.
+  // The composer strips the memory's type word, emits `hrn:node:`, and keeps
+  // the one case that must stay v1 (ownership chains) intact.
+  const memoryUrn: string | undefined = parentData?.graph?.urn;
+  const cleanLoc =
+    memoryUrn && node.loc.startsWith(`${memoryUrn}:`)
+      ? node.loc.slice(memoryUrn.length + 1)
+      : node.loc;
+  // Non-fatal: `composeNodeUrn` throws on a wrong-type/empty memory URN, and a
+  // malformed URN badge must not 500 a page whose job is the transcript.
+  let fullUrn = cleanLoc;
+  if (memoryUrn && cleanLoc) {
+    try {
+      fullUrn = composeNodeUrn(memoryUrn, cleanLoc);
+    } catch (err) {
+      console.error('[chat-page] composeNodeUrn failed:', err);
+    }
   }
 
   return {

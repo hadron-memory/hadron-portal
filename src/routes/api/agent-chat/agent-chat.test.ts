@@ -601,6 +601,43 @@ describe('GET /api/agent-chat/list', () => {
     expect(body.chats[0].lastMessageAt).toBe('2026-05-11T10:00:00Z');
     expect(body.chats[1].loc).toBe('chat-older');
   });
+
+  // A team App's chat lives at the canonical loc `chats:team` (server #939) in
+  // the same app-class memory `myChats` scans, so the resolver hands it back
+  // as if it were an agent conversation. Rendering it in this list hands the
+  // agent-chat surface — LLM composer, rename, delete-with-all-messages — a
+  // thread of real teammate posts. Filtered here until the resolver excludes
+  // it server-side.
+  it('excludes the canonical team chat from the agent-chat list', async () => {
+    mockRequest.mockResolvedValueOnce({
+      myChats: [
+        { loc: 'chats:team', title: 'First post — human-authored', scope: 'shared' },
+        { loc: 'chats:11111111-2222-3333-4444-555555555555', title: 'Real chat', scope: 'shared' },
+      ],
+    });
+    const { GET } = await import('./list/+server');
+    const res = await GET(ev({ searchParams: { agentId: 'a1' } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.chats.map((c: { loc: string }) => c.loc)).toEqual([
+      'chats:11111111-2222-3333-4444-555555555555',
+    ]);
+  });
+
+  // The negative case for the filter above (review:guard-must-be-proven-to-fail):
+  // the exclusion must key on the EXACT canonical loc, so a user chat whose loc
+  // merely starts with it keeps showing up. A `startsWith` implementation passes
+  // the test above and fails this one.
+  it('keeps a chat whose loc only starts with the team-chat loc', async () => {
+    mockRequest.mockResolvedValueOnce({
+      myChats: [{ loc: 'chats:team-retro', title: 'Retro' }],
+    });
+    const { GET } = await import('./list/+server');
+    const res = await GET(ev({ searchParams: { agentId: 'a1' } }));
+    expect((await jsonOf(res)).chats.map((c: { loc: string }) => c.loc)).toEqual([
+      'chats:team-retro',
+    ]);
+  });
 });
 
 // ── /api/agent-chat/title ──────────────────────────────────────────────────
