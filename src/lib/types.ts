@@ -211,7 +211,9 @@ export interface TeamChatMessage {
  * This is the authoritative artifact-to-session join (`cor:agt:020:05`), not a
  * display convenience. Several records sharing one `ref` is the DESIGNED shape,
  * not duplication: a PR worked across three worker sessions produces three
- * records, three workers, three transcripts. Deduping them destroys the answer
+ * records and three transcripts (how many distinct WORKERS that is depends on
+ * `workerName` — one worker driven across three sequential sessions produces
+ * the same three rows). Deduping them destroys the answer
  * the worklog exists to give.
  *
  * Append-only. There is no edit and no delete — a wrong record is corrected by
