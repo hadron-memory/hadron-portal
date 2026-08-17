@@ -127,10 +127,17 @@ describe('worker page load', () => {
 
   // A worker whose App URN predates flat grammar-v2 has no URN. That is a fact
   // about the App, not an error, so the page must still load.
-  it('loads a worker with no URN', async () => {
-    mockRequest.mockResolvedValueOnce({ worker: { ...WORKER, urn: null, slug: null } });
+  //
+  // `slug` stays populated: it is `String!` in the schema and deriving it never
+  // refuses, so a worker with a slug and no URN is the real shape. The first
+  // version of this test nulled both, which was a fixture the server cannot
+  // produce — and a fixture that cannot happen hides bugs in whatever depends
+  // on the field. Caught by Copilot on #742.
+  it('loads a worker with no URN (slug is still present — it is non-null)', async () => {
+    mockRequest.mockResolvedValueOnce({ worker: { ...WORKER, urn: null } });
     const data = await runLoad();
     expect(data.worker.urn).toBeNull();
+    expect(data.worker.slug).toBe('gil');
     expect(data.worker.name).toBe('Gil');
   });
 

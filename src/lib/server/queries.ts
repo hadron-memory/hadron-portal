@@ -557,7 +557,14 @@ export const APP_WITH_MEMBERS_QUERY = /* GraphQL */ `
 // Workers; the AppAgent join (App.agents) is only the install ROSTER, i.e.
 // which agents are available to cast.
 //
-// Workers have no URN, so every ref here is the PK. Names are unique per App
+// Since #991 a Worker DOES have a URN — `hrn:worker:<root>:<app-slug>:<slug>`,
+// computed from the App's URN plus the derived `slug`, not stored. It is the
+// identity a worker signs outward-facing artifacts with (hadron-server#1008)
+// and resolves through /app/u. `slug` is non-null; `urn` is nullable, and null
+// means the App's URN predates the flat grammar-v2 arity this shape needs —
+// a fact about the App, not an error.
+//
+// A PK is still a valid ref everywhere, and names remain unique per App
 // forever, which is what lets an App-context surface render the bare name.
 const WORKER_FIELDS = /* GraphQL */ `
   fragment WorkerFields on Worker {

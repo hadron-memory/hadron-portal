@@ -326,8 +326,11 @@ export interface Worker {
   agentId: string;
   /** The worker's name ("Iris") — the identity every surface renders. */
   name: string;
-  /** The URN atom derived from the name at cast time, permanent thereafter. */
-  slug?: string | null;
+  /** The URN atom derived from the name at cast time, permanent thereafter.
+   *  NON-NULL in the schema (`slug: String!`) — deriving it never refuses, so a
+   *  cast always has one. Optional here only because slim projections may not
+   *  select it; `undefined` means "not selected", never "absent". */
+  slug?: string;
   /** `hrn:worker:<root>:<app-slug>:<slug>`. Null when the App's URN predates
    *  the flat grammar-v2 arity this shape requires — not an error. */
   urn?: string | null;
