@@ -20,13 +20,26 @@ import type { PageServerLoad } from './$types';
  * children (dashboard, agents, …).
  */
 type UrnResolution = {
-  kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user';
+  kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker';
   id: string;
   memoryId: string | null;
   organizationId: string | null;
 };
 
-const KNOWN_KINDS = new Set<UrnResolution['kind']>(['memory', 'node', 'agent', 'org', 'app', 'user']);
+const KNOWN_KINDS = new Set<UrnResolution['kind']>([
+  'memory',
+  'node',
+  'agent',
+  'org',
+  'app',
+  'user',
+  // #735: the server has resolved `hrn:worker:` since #991, but the portal had
+  // no page for it — so every worker identity signature required by
+  // hadron-server#1008 landed the reader on this route's 404. That is the
+  // opposite of what a signature is for, and it made the platform look like it
+  // was pointing at something that did not exist.
+  'worker',
+]);
 
 export const load: PageServerLoad = async ({ params, locals }) => {
   const urn = normalizeUrn(params.urn);
@@ -115,6 +128,16 @@ function canonicalPath(r: UrnResolution): string | null {
       // user-owned (org-less) apps, so a copied /app/u/<app-urn> link works for
       // a personal app too.
       return `/app/apps/${r.id}`;
+    case 'worker':
+      // #735/#991. Deliberately its OWN page rather than a redirect to the
+      // App's Staff tab: the reader arriving from a signed GitHub issue is
+      // asking "who is this", and a staff roster answers "which team" — so a
+      // redirect would be both churn and the wrong answer (#737).
+      //
+      // Needs no id beyond `r.id`: `UrnResolution` carries no `appId`, but the
+      // worker page reads `Worker.app` directly, so there is nothing to be
+      // missing here.
+      return `/app/workers/${r.id}`;
     default:
       return null;
   }

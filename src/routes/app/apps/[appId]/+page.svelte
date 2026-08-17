@@ -1221,11 +1221,23 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
                   <!-- BARE name: this is App context. -->
-                  <span class="text-sm font-medium text-zinc-900 dark:text-white {worker.retiredAt ? 'line-through opacity-60' : ''}">
+                  <a
+                    href="/app/workers/{worker.id}"
+                    class="text-sm font-medium text-zinc-900 hover:underline dark:text-white {worker.retiredAt ? 'line-through opacity-60' : ''}"
+                  >
                     {worker.name}
-                  </span>
+                  </a>
                   <WorkerBadge retired={!!worker.retiredAt} />
                 </div>
+                <!-- #735: the URN below the name, per review:render-urn. This is
+                     the identity a worker signs outward-facing artifacts with
+                     (hadron-server#1008), and until now the portal never showed
+                     it anywhere — so the one place a reader could copy it was
+                     the CLI. Nullable by contract, so absent rather than empty
+                     when the App's URN predates the flat grammar. -->
+                {#if worker.urn}
+                  <div class="mt-1"><Urn value={worker.urn} type="worker" size={10} /></div>
+                {/if}
                 <p class="mt-1 truncate text-xs text-zinc-500">
                   {worker.role ?? t('app.staff.no-role', 'No role')}
                   {#if worker.agent}

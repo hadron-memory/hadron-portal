@@ -1402,6 +1402,31 @@ type DeleteMemorySharePayload {
   memoryId: ID!
 }
 
+"""Result of deleteTeamRole (#1002)."""
+type DeleteTeamRolePayload {
+  """
+  Nodes tombstoned — the roles:<role> definition plus any sub-nodes under it
+  (a roles:<role>:notes is content OF the role and retires with it). Soft,
+  so the subtree is recoverable.
+  """
+  nodesDeleted: Int!
+
+  """The role slug that was retired."""
+  role: String!
+
+  """
+  Register spellings handed to the successor, in the order they were added to
+  it. Empty when no transferTo was given.
+  """
+  transferredNames: [String!]!
+
+  """
+  The successor role AFTER the transfer, so a client can render the new
+  register without a second read. Null when no transferTo was given.
+  """
+  transferredTo: TeamRole
+}
+
 """Text representation a drive export can request."""
 enum DriveExportFormat {
   HTML
@@ -3224,6 +3249,47 @@ type Mutation {
   deleteSlackConnection(ref: ID!): Boolean!
 
   """
+  #1002 — retire a roles:<role> definition. Soft-deletes the role node and
+  any sub-nodes under it (roles:<role>:notes is content OF the role), so the
+  subtree is recoverable. Unknown role: WORKER_ROLE_NOT_FOUND. Same
+  authorization and same App-scoped critical section as createTeamRole, so a
+  retirement serializes with register-mode casting.
+  
+  MINTED names decide whether a bare delete is allowed. A minted register
+  entry is what records that a name was allocated to this role; dropping the
+  register without rehoming it would erase that ledger, so a role holding
+  minted names refuses TEAM_ROLE_IN_USE unless transferTo names a successor.
+  A role whose register is entirely free deletes with no ceremony.
+  
+  Note this does NOT free the names themselves: a Worker's name is permanent
+  per App (cor:agt:020:02, enforced by workers_app_name_uniq irrespective of
+  any register), so retiring a role can never make a taken name castable
+  again. The register is bookkeeping about ALLOCATION, not identity — which
+  is exactly why moving it between roles is safe.
+  
+  transferTo performs the supersede as ONE step: the old definition is
+  retired and its whole register is appended to the successor's, preserving
+  order and skipping spellings the successor already lists. This removes the
+  ordering trap a hand-run sequence has to rediscover (a name may not sit in
+  two of an App's registers, so the old role must be gone BEFORE the
+  successor can claim its names — TEAM_ROLE_NAME_DUPLICATE otherwise).
+  Transferred names are EXEMPT from the successor's nameRange: they are
+  re-homed allocations, not new ones, and the range governs what may be
+  allocated next. The successor's own conventions are left untouched —
+  changing them is updateTeamRole's job, not a side effect of a delete.
+  
+  The delete and the transfer are two operations that cannot share one
+  transaction, so the source role is RESTORED if the transfer fails — the
+  delete is soft, and the tombstone still holds the register verbatim. The
+  minted check is also re-run AFTER the delete, because an explicit-name
+  castWorker mints without taking the register lock and could otherwise slip
+  a freshly minted name past the pre-check. Should the restore itself fail,
+  TEAM_ROLE_DELETE_NOT_COMPENSATED reports the loc to recover by hand rather
+  than leaving the caller to retry against a role that is silently gone.
+  """
+  deleteTeamRole(appRef: ID!, role: String!, teamAgentRef: ID, transferTo: String): DeleteTeamRolePayload!
+
+  """
   Delete a user account (self-serve account deletion, Apple 5.1.1(v) /
   GDPR erasure posture). Requires a user credential (JWT or hdr_user key);
   App-key callers are rejected.
@@ -3701,7 +3767,7 @@ type Mutation {
   and refuses new session bindings; the row and its name reservation
   survive. Idempotent — retiring an already-retired worker returns it
   unchanged. Same authorization as castWorker. workerRef is the worker's id
-  (workers have no URN).
+  or its URN (#991).
   """
   retireWorker(workerRef: ID!): Worker!
 
@@ -4144,9 +4210,44 @@ type Mutation {
   data keys always survive (the single --data clobber hazard is unreachable
   through this surface). Unknown role: WORKER_ROLE_NOT_FOUND. Same
   authorization as createTeamRole.
+  
+  #987 — expectedNames turns the wholesale write into COMPARE-AND-SWAP:
+  when supplied, the write refuses TEAM_ROLE_STALE unless the STORED
+  register still equals it (ordered, exact spellings, after the same
+  trim/dedup canonicalization the register itself gets — pass back the
+  register exactly as teamRoles returned it). The refusal's extensions
+  carry the current storedNames, so a client rebases its edit without a
+  second read. This is what makes read-modify-write sugar (names
+  add/rm/mv) safe: the diff invariants deliberately protect only MINTED
+  names, so without the precondition two concurrent composed writes
+  silently drop each other's newly added FREE names — no refusal fires,
+  because removing an unminted name is legal by design.
   """
-  updateTeamRole(allowOutOfRange: Boolean, appRef: ID!, description: String, nameConvention: String, nameRange: String, names: [String!], role: String!, teamAgentRef: ID): TeamRole!
+  updateTeamRole(allowOutOfRange: Boolean, appRef: ID!, description: String, expectedNames: [String!], nameConvention: String, nameRange: String, names: [String!], role: String!, teamAgentRef: ID): TeamRole!
   updateUserRoles(roles: [Role!]!, userId: ID!): User!
+
+  """
+  #1010 — amend a casting's individuality after the fact.
+  
+  `promptOverride` is the per-worker escape hatch (cor:agt:020:01), but it
+  could only be set at CASTING time — fixing a casting's individuality at the
+  one moment nobody yet knows what makes it individual. The role agent's
+  `personaPrompt` cannot stand in (it is SHARED by every casting of that
+  role), and re-casting is barred by `WORKER_IN_USE` for any worker that has
+  done work — precisely the ones with an identity to record.
+  
+  Scope is one field on purpose: `name` is permanent by law (cor:agt:020:02)
+  and `role`/`agent` define the casting itself. OMITTING promptOverride
+  preserves it; explicit `null` or a blank string CLEARS it, matching the
+  nullable column and castWorker's blank-is-absent normalization.
+  
+  Refuses WORKER_RETIRED for a retired worker: an override is briefing text
+  delivered at bind time, and a retired worker takes no new bindings, so the
+  edit could never reach anyone.
+  
+  Same authorization as castWorker. workerRef is the worker's id or URN (#991).
+  """
+  updateWorker(promptOverride: String, workerRef: ID!): Worker!
 }
 
 type Node {
@@ -5619,24 +5720,34 @@ type Query {
   nodeRevisions(limit: Int, nodeRef: ID!): [NodeRevision!]!
 
   """
+  DEPRECATED: use usageEvents(loc: <loc>). Carried for source-compat;
+  there are no known callers (checked across portal / CLI / docs at #802).
+  
   Usage events for a node loc, most recent first.
   
-  'loc' names no memory, so this is a cross-memory exact nodeLoc match — the
-  same bare-loc semantics as usageEvents(nodeId:). It is a filter, not a
-  lookup: an unknown loc yields an empty list, not NODE_NOT_FOUND.
+  The migration is a rename, not a rewrite — usageEvents' loc argument is
+  the SAME verbatim exact nodeLoc match under the same gate, so
+  nodeUsage(loc: "x", limit: n) becomes usageEvents(loc: "x", limit: n)
+  with identical results and identical access scoping:
   
-  Access control (#802): results are scoped to the memories the caller may
-  read (org membership / subscriptions / public / owned personal+private per
-  spec 034; ADMIN/OWNER see all EXCEPT another user's personal/private
-  memories and, per spec 047, another user's user-owned memories), so this is
-  never cross-tenant. An unreadable loc and a nonexistent one both return an
-  empty list (no existence disclosure).
+    nodeUsage(loc: 'cor:acl:010:01', limit: 20)
+    usageEvents(loc: 'cor:acl:010:01', limit: 20)
   
-  Equivalent to usageEvents(nodeId: <loc>), which additionally supports a PK
-  or fully-qualified URN, type filtering, and paging — prefer it for new
-  callers.
+  Do NOT migrate to usageEvents(nodeId: <loc>): nodeId is shape-classified,
+  and a hierarchical loc with 3+ colon-separated segments (like the spec
+  citation above) qualifies as node-URN shape and routes to ref resolution
+  instead — NODE_NOT_FOUND, or another node's events (PR-986 review). The
+  loc argument exists precisely so the migration needs no shape caveats.
+  
+  usageEvents is a strict superset: nodeId accepts a PK or a fully-qualified
+  node URN (memory-precise — a bare loc cannot disambiguate the same loc in
+  two memories), plus type filtering, memoryId scoping and offset paging. It
+  is also the surface that gets extended; nodeUsage will not grow arguments.
+  
+  Access control is identical and unchanged (#802) — see usageEvents below.
+  Deprecated for redundancy, NOT because this field is unsafe.
   """
-  nodeUsage(limit: Int, loc: String!): [UsageEvent!]!
+  nodeUsage(limit: Int, loc: String!): [UsageEvent!]! @deprecated(reason: "Use usageEvents(loc: <loc>) — identical exact-match loc semantics and access scoping, plus PK/URN refs via nodeId, type filtering, memoryId scoping and paging (#802).")
 
   """
   #745 — read one object by its id (the object store's flat projection of a
@@ -5960,7 +6071,7 @@ type Query {
     """Window end, exclusive. Default: now."""
     to: String
   ): [UsageActivityBucket!]!
-  usageEvents(limit: Int, memoryId: ID, nodeId: ID, offset: Int, type: String): [UsageEvent!]!
+  usageEvents(limit: Int, loc: String, memoryId: ID, nodeId: ID, offset: Int, type: String): [UsageEvent!]!
 
   """
   The uniform single-user read (#473). 'ref' accepts a primary key or a
@@ -6001,12 +6112,24 @@ type Query {
   validateMemory(limit: Int, memoryRef: ID!): MemoryValidationResult!
 
   """
-  One Worker by id (#974; workers have no URN, so ref is the PK only).
+  One Worker by ref (#974) — its id, its URN (#991), or (with appRef) its
+  NAME (#1015), the ergonomic handle a human already knows. The name form is
+  ADDITIVE: it is activated by appRef, since a name is unique only within an
+  App. Without appRef the ref must be an id or URN, and anything else refuses
+  WORKER_NOT_FOUND as before. An id or URN wins over appRef rather than being
+  checked against it, so a typo'd URN never degrades into a roster search.
+  
+  Selecting `prompt` re-renders the worker's boot briefing live from the
+  role agent's template — the read that lets an agent recover a briefing it
+  lost to a context compaction, instead of opening a second session or
+  forcing a takeover of itself.
+  
   Authorization: an AppMember of the worker's App (any role), an org member
   with CONTRIBUTOR+ on its org, the owner of a user-owned App, or the App's
-  own key.
+  own key. For the NAME form the gate runs BEFORE the lookup and a denial is
+  reported as WORKER_NOT_FOUND, so the roster is not an existence oracle.
   """
-  worker(ref: ID!): Worker
+  worker(appRef: ID, ref: ID!): Worker
 
   """
   A team App's STAFF (#974, cor:agt:020:01 — Workers are the staff; the
@@ -6402,8 +6525,30 @@ input SessionInput {
   type: String
 
   """
-  #974 / cor:agt:020:03: the Worker (named casting) this session works as -
-  the worker's id (workers have no URN; names never enter URNs, cor:agt:020:02).
+  #974 / cor:agt:020:03: the Worker (named casting) this session works as.
+  Three forms resolve, told apart by SHAPE (never by trying each in turn, so
+  a typo'd URN can't silently fall through to a roster search):
+  
+  - the worker's NAME ("Iris") — #990. Unique per App, case-insensitively,
+    matched with the DATABASE's lower(), the expression
+    workers_app_name_uniq indexes. Requires App context (appRef, an App-key
+    credential, or an MCP active-App selection): a name means nothing without
+    one, so a nameless-App call refuses SESSION_WORKER_NAME_NEEDS_APP rather
+    than guessing across the caller's Apps. Gated on the STAFF READ GATE
+    before the lookup runs — resolving a name discloses roster membership,
+    which the id/URN forms never do.
+  
+    Which refusal you get depends on WHERE the denial happens, and clients
+    should not assume one code covers both: a caller who supplied appRef has
+    already been checked against the same participant predicate, so an
+    outsider is refused FORBIDDEN there, before any name is read. Only a
+    denial at the in-branch staff gate — reachable when the App came from an
+    App-key credential rather than appRef — is masked as WORKER_NOT_FOUND,
+    indistinguishable from an App with no such worker.
+  - the worker's URN (hrn:worker:<root>:<app-slug>:<slug>, #991); the URN's
+    leaf is the derived slug, never the display name (cor:agt:020:02).
+  - the worker's id.
+  
   Resolves to Session.workerId, and stamps Session.agentId with the worker's
   role-agent. The worker must belong to the session's App: with appRef (or an
   App-key credential) it must match the worker's App; without one, the
@@ -6823,10 +6968,12 @@ Result of resolving a Hadron URN to the ids a client needs to navigate to
 the resource's canonical page. Powers the portal's /app/u/<urn> redirect
 route (hadron-portal#262).
 
-`kind` is the URN's type segment: memory | node | agent | org | app | user.
+`kind` is the URN's type segment: memory | node | agent | org | app | user |
+apprun | worker | noderev.
 `id` is the resolved entity's primary id. `memoryId` is set only for
-nodes (their owning memory), `organizationId` only for apps (their owning
-org) — both are the extra ids those resources' canonical routes require.
+nodes (their owning memory), `organizationId` for apps, app runs, and
+workers (their owning org) — both are the extra ids those resources'
+canonical routes require.
 """
 type UrnResolution {
   """
@@ -6995,7 +7142,8 @@ into an App: 'Iris', the backend-engineer agent cast into the eng-team App.
 The Agent carries the reusable persona dressing; the Worker is the local
 named identity that does attributable work. Names are unique per App,
 case-insensitively, forever (retirement and uninstall never free them —
-cor:agt:020:02); rows survive the agent's uninstall. Workers have no URN.
+cor:agt:020:02); rows survive the agent's uninstall. A Worker is addressable
+by its id or by the computed `urn` below (#991).
 """
 type Worker {
   """The role-agent behind the casting."""
@@ -7036,6 +7184,24 @@ type Worker {
 
   """The cast-list role this filling answers ('backend-engineer')."""
   role: String
+
+  """
+  The URN atom, derived from the name at cast time and permanent thereafter
+  (#991). Lowercased, sanitized to the URN slug charset, and iterated
+  ('iris', 'iris-2', …) until free within the App — so deriving it NEVER
+  refuses a cast, and the name collision stays the only allocation failure a
+  caller sees (cor:agt:020:02).
+  """
+  slug: String!
+
+  """
+  hrn:worker:<root>:<app-slug>:<slug> (#991) — computed from the App's URN
+  plus `slug`, not stored. Accepted anywhere a workerRef is taken, and
+  resolvable via Query.resolveUrn, so a client can address a worker without
+  holding its id. Null only when the App's URN predates the flat grammar-v2
+  shape this arity requires.
+  """
+  urn: String
 }
 
 type WorkersPage {

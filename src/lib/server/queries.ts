@@ -565,6 +565,13 @@ const WORKER_FIELDS = /* GraphQL */ `
     appId
     agentId
     name
+    # The URN atom (#991), derived from the name at cast and permanent after.
+    slug
+    # hrn:worker:<root>:<app-slug>:<slug> — the identity every worker signs
+    # outward-facing artifacts with (hadron-server#1008). Nullable by contract:
+    # null when the App's URN predates the flat grammar-v2 arity, so every
+    # consumer must tolerate its absence rather than assume a URN exists.
+    urn
     role
     promptOverride
     memoryId
@@ -573,6 +580,24 @@ const WORKER_FIELDS = /* GraphQL */ `
     # The role-actor behind the casting. Nullable in the schema, so every
     # consumer must tolerate null rather than assuming the agent resolves.
     agent { id name urn personaRole }
+  }
+`;
+
+// One worker, for its own page (#735). Selects the App because the page names
+// the team a worker belongs to, and because the URN resolver hands over only a
+// worker id — Worker.app is what turns that into a link.
+//
+// `prompt` is deliberately NOT selected. Selecting it re-renders the full boot
+// briefing live, which is multi-KB, and dumping that into a page payload is the
+// same defect hadron-cli#459 is open about on `worker list --json`. #737 covers
+// showing it behind an explicit expand.
+export const WORKER_QUERY = /* GraphQL */ `
+  ${WORKER_FIELDS}
+  query Worker($ref: ID!) {
+    worker(ref: $ref) {
+      ...WorkerFields
+      app { id name urn }
+    }
   }
 `;
 
