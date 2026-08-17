@@ -91,10 +91,33 @@ describe('worker page load', () => {
   // review:clienterror-map-known-codes-only — an unknown code or a payload-less
   // transport failure must stay a 500, or an outage gets mislabelled as
   // "no such worker" and someone goes looking for a deleted row.
+  //
+  // The first version of this test was a guard that COULD NOT FAIL, caught by
+  // Codex on #742. It called `runLoad()` (consuming the one-shot rejection) and
+  // then `expectStatus()`, which ran the loader a second time against a mock
+  // now returning undefined — destructuring that threw a TypeError whose
+  // `.status` is undefined, and `undefined !== 404` passed trivially. It would
+  // have stayed green even if the loader started mapping INTERNAL_SERVER_ERROR
+  // to a 404, which is the only thing it was there to prevent.
+  //
+  // Now it asserts on the ONE rejection it seeds: the error must propagate, and
+  // must not be a 404. (review:guard-must-be-proven-to-fail — mutation-checked
+  // by making the loader map this code to 404, which reds it.)
   it('rethrows an unknown GraphQL error code rather than calling it a 404', async () => {
     mockRequest.mockRejectedValueOnce(gqlError('INTERNAL_SERVER_ERROR'));
-    await expect(runLoad()).rejects.toThrow();
-    expect(await expectStatus()).not.toBe(404);
+    const { load } = await import('./+page.server');
+    let thrown: unknown;
+    try {
+      await load(ev());
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeDefined();
+    // A SvelteKit `error(404, …)` throws an object with status 404; the
+    // rethrown ClientError has no `status` at all. Either way it must not be a
+    // 404, and it must have actually thrown.
+    expect((thrown as { status?: number }).status).not.toBe(404);
+    expect(thrown).toBeInstanceOf(ClientError);
   });
 
   it('rethrows a non-GraphQL failure (transient outage is not a not-found)', async () => {
@@ -133,6 +156,14 @@ describe('WORKER_QUERY selection', () => {
   it('selects urn and slug', () => {
     expect(WORKER_QUERY).toMatch(/^\s*urn\s*$/m);
     expect(WORKER_QUERY).toMatch(/^\s*slug\s*$/m);
+  });
+
+  // The breadcrumb's "Apps" link must go to the ORG app list for an org-owned
+  // App: /app/apps is the org-less "My apps" list (#647) and would not contain
+  // the team App the reader just came from. That destination is chosen from
+  // `app.organizationId`, so the query has to select it. Codex on #742.
+  it('selects the App organizationId the breadcrumb needs', () => {
+    expect(WORKER_QUERY).toMatch(/app\s*\{[^}]*\borganizationId\b/);
   });
 
   // The resolver hands over only a worker id, so Worker.app is what lets the

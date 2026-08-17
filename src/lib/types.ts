@@ -333,7 +333,7 @@ export interface Worker {
   urn?: string | null;
   /** The App whose staff this casting fills. Selected only where a page needs
    *  to name or link the team; absent from the slim staff-list projection. */
-  app?: { id: string; name: string; urn: string } | null;
+  app?: { id: string; name: string; urn: string; organizationId?: string | null } | null;
   /** The cast-list role this filling answers ("backend-engineer"). */
   role: string | null;
   /** Per-worker individuality layered over the agent's template prompt. */

@@ -596,7 +596,7 @@ export const WORKER_QUERY = /* GraphQL */ `
   query Worker($ref: ID!) {
     worker(ref: $ref) {
       ...WorkerFields
-      app { id name urn }
+      app { id name urn organizationId }
     }
   }
 `;

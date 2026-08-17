@@ -10,6 +10,16 @@
   const worker = $derived(data.worker);
   const retired = $derived(!!worker.retiredAt);
 
+  // Mirrors the App detail page's own `appsHref`. `/app/apps` is the ORG-LESS
+  // "My apps" list (#647) — it shows only the caller's user-owned Apps, so for
+  // an org-owned worker (the normal case for a team) sending the breadcrumb
+  // there lands the reader on a list that does not contain the App they just
+  // came from. Org-owned Apps live at `/app/orgs/<orgId>/apps`.
+  // Caught by Codex on #742.
+  const appsHref = $derived(
+    worker.app?.organizationId ? `/app/orgs/${worker.app.organizationId}/apps` : '/app/apps',
+  );
+
   function formatDate(s: string | null | undefined): string {
     if (!s) return '—';
     const d = new Date(s);
@@ -25,7 +35,7 @@
       items={[
         ...(worker.app
           ? [
-              { label: t('worker.breadcrumb.apps', 'Apps'), href: '/app/apps' },
+              { label: t('worker.breadcrumb.apps', 'Apps'), href: appsHref },
               { label: worker.app.name, href: `/app/apps/${worker.app.id}` },
             ]
           : []),
