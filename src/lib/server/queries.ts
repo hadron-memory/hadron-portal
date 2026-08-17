@@ -1807,6 +1807,56 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
   }
 `;
 
+// The team worklog (#947) — the AUTHORITATIVE artifact-to-session join
+// (cor:agt:020:05), which is what lets a merged PR trace back to the worker and
+// transcript that produced it.
+//
+// Read via this operation, never by walking nodes: the records live in the
+// App's class='app' shared memory, which appNodes cannot reach
+// (hadron-server#1031). Filtering and paging are server-side, so the portal
+// never scans.
+//
+// `ref` is matched TOOL-AWARELY server-side: with github (or no tool) the
+// spelling is normalized, so a pasted PR URL and the short form find the same
+// records. That normalization is exactly why ref lookup belongs on the server
+// rather than as a client-side string compare.
+//
+// `detail` is display extras (title, URL) and is documented as never
+// filterable — it is rendered, not searched.
+export const TEAM_WORK_ITEMS_QUERY = /* GraphQL */ `
+  query TeamWorkItems(
+    $appRef: ID!
+    $ref: String
+    $kind: String
+    $tool: String
+    $limit: Int
+    $offset: Int
+  ) {
+    teamWorkItems(
+      appRef: $appRef
+      ref: $ref
+      kind: $kind
+      tool: $tool
+      limit: $limit
+      offset: $offset
+    ) {
+      items {
+        nodeId
+        sessionId
+        workerName
+        workerId
+        tool
+        kind
+        ref
+        action
+        at
+        detail
+      }
+      total
+    }
+  }
+`;
+
 // Full nodes under a loc subtree (memoryId + loc prefix). Used where a caller
 // needs the heavy fields (content/data/createdAt) that the slim memoryNodes
 // projection omits — e.g. team-chat messages under `<chat>:messages:`, which

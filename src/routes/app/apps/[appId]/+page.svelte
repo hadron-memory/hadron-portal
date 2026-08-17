@@ -9,6 +9,7 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
+  import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
@@ -91,7 +92,7 @@
   // sets `surfaces = ['chat']` for chatbot Apps so existing apps keep their
   // tab without behavior change. Gate logic lives in `$lib/app-surfaces`
   // so it's unit-testable independent of the Svelte component lifecycle.
-  type TabId = 'chat' | 'team-chat' | 'staff' | 'memory' | 'settings' | 'client';
+  type TabId = 'chat' | 'team-chat' | 'worklog' | 'staff' | 'memory' | 'settings' | 'client';
   const hasChatSurface = $derived(hasChatSurfaceFn(app.surfaces));
   // Chat tab renders the agent-chat platform when an Agent is linked;
   // shows an empty state otherwise.
@@ -117,7 +118,22 @@
           ?? usableChatConfigs[0]?.name
           ?? null),
   );
-  let activeTab = $state<TabId>(untrack(() => hasChatSurface ? 'chat' : 'memory'));
+  // #733: the tab is addressable as `?tab=<id>`. This is not a nicety — the
+  // worklog's whole job is answering "which worker sessions produced this PR?",
+  // and an answer you cannot paste into an issue is half an answer. Its filters
+  // are server-side URL params, so the tab has to survive the round trip they
+  // cause.
+  //
+  // The loader validates `?tab=` and hands back `initialTab`, so URL parsing
+  // lives in ONE place alongside the worklog filters rather than being
+  // re-derived here.
+  //
+  // Read once at init rather than kept in sync: a filter submit is a real
+  // navigation that re-runs the loader, while clicking between tabs is UI state
+  // and must not push history entries.
+  let activeTab = $state<TabId>(
+    untrack(() => (data.initialTab as TabId | null) ?? (hasChatSurface ? 'chat' : 'memory')),
+  );
   const tabs = $derived<{ id: TabId; label: string }[]>([
     ...(hasChatSurface ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
     // #732: the App's TEAM CHAT — a different thing from the Chat tab above,
@@ -131,6 +147,11 @@
     // staff list is empty: "this App has no workers cast yet" is information,
     // and hiding the tab would hide the way to cast the first one.
     { id: 'staff', label: t('app.tabs.staff', 'Staff') },
+    // #733: the worklog — the authoritative artifact-to-worker-session join.
+    // Always present for the same reason as Staff: nine records nobody can see
+    // is the problem this tab exists to fix, and an empty worklog is
+    // information too.
+    { id: 'worklog', label: t('app.tabs.worklog', 'Worklog') },
     { id: 'memory', label: 'Memory' },
     { id: 'settings', label: 'Settings' },
     ...(!hasChatSurface ? [{ id: 'client' as TabId, label: 'Client' }] : []),
@@ -960,6 +981,34 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           {form}
         />
       </div>
+    </div>
+  {/if}
+
+  <!-- ───────────── WORKLOG TAB (#733) ─────────────
+       The authoritative artifact-to-worker-session join (cor:agt:020:05) — what
+       lets a merged PR trace back to the worker and transcript that produced
+       it. Read through `teamWorkItems`, not appNodes.
+
+       Append-only: no delete, no edit, no rename. -->
+  {#if activeTab === 'worklog'}
+    <div class="space-y-4">
+      <div>
+        <h2 class="font-semibold text-zinc-900 dark:text-white">
+          {t('app.worklog.title', 'Worklog')}
+        </h2>
+        <p class="mt-1 max-w-2xl text-sm text-zinc-500">
+          {t(
+            'app.worklog.description',
+            'Work milestones recorded by this App’s workers — the record that traces a merged PR back to the worker session that produced it. Append-only.',
+          )}
+        </p>
+      </div>
+      <WorklogTable
+        items={data.worklog ?? []}
+        total={data.worklogTotal ?? 0}
+        loadError={data.worklogError ?? false}
+        filters={data.worklogFilters ?? { ref: '', kind: '', tool: '' }}
+      />
     </div>
   {/if}
 

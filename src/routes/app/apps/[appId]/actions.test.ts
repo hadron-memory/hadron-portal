@@ -11,6 +11,7 @@ import {
   RETIRE_WORKER_MUTATION,
   REVOKE_APP_KEY_MUTATION,
   TEAM_CHAT_MESSAGES_QUERY,
+  TEAM_WORK_ITEMS_QUERY,
   UPDATE_APP_MUTATION,
 } from '$lib/server/queries';
 
@@ -131,6 +132,9 @@ describe('load', () => {
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
+      if (query === TEAM_WORK_ITEMS_QUERY) {
+        return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
+      }
       throw new Error('Unexpected query');
     });
 
@@ -139,6 +143,7 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
+      url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as { addAgentForm: { data: { agentId: string } } };
 
     expect(result.addAgentForm.data.agentId).toBe('');
@@ -165,6 +170,9 @@ describe('load', () => {
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
+      if (query === TEAM_WORK_ITEMS_QUERY) {
+        return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
+      }
       return Promise.resolve({ resolveAiServiceConfigs: [] });
     });
     // AI configs resolve; the workers page rejects.
@@ -177,6 +185,7 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
+      url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as { staff: unknown; staffError: boolean };
 
     expect(result.staff).toBeNull();
@@ -201,6 +210,9 @@ describe('load', () => {
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
+      if (query === TEAM_WORK_ITEMS_QUERY) {
+        return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
+      }
       return Promise.resolve({ resolveAiServiceConfigs: [] });
     });
     mockFetchAllItems.mockResolvedValue([]);
@@ -210,6 +222,7 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
+      url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as { staff: unknown[]; staffError: boolean };
 
     expect(result.staff).toEqual([]);
@@ -234,6 +247,7 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
+      url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as {
       teamChatMessages: unknown[];
       teamChatError: boolean;
@@ -253,6 +267,9 @@ describe('load', () => {
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
+      if (query === TEAM_WORK_ITEMS_QUERY) {
+        return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
+      }
       return Promise.resolve({ resolveAiServiceConfigs: [] });
     });
     mockFetchAllItems.mockResolvedValue([]);
@@ -262,6 +279,7 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
+      url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as {
       teamChatMessages: unknown[];
       teamChatTotal: number;
@@ -294,6 +312,7 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
+      url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as {
       teamChatMessages: unknown[];
       teamChatTotal: number;
@@ -310,6 +329,9 @@ describe('load', () => {
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
+      if (query === TEAM_WORK_ITEMS_QUERY) {
+        return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
+      }
       return Promise.resolve({ resolveAiServiceConfigs: [] });
     });
     mockFetchAllItems.mockResolvedValue([]);
@@ -319,6 +341,7 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
+      url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0]);
 
     const call = mockRequest.mock.calls.find((c) => c[0] === TEAM_CHAT_MESSAGES_QUERY);
@@ -975,6 +998,91 @@ describe('postTeamChatMessage action (#732)', () => {
   });
 });
 
+describe('worklog loading (#733)', () => {
+  function stubAll(worklog: unknown) {
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) {
+        return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
+      }
+      if (query === TEAM_WORK_ITEMS_QUERY) {
+        return worklog instanceof Error ? Promise.reject(worklog) : Promise.resolve(worklog);
+      }
+      return Promise.resolve({ resolveAiServiceConfigs: [] });
+    });
+    mockFetchAllItems.mockResolvedValue([]);
+  }
+
+  async function loadWithUrl(search: string) {
+    const { load } = await import('./+page.server');
+    return (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+      url: new URL(`http://localhost/app/apps/app-1${search}`),
+    } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
+  }
+
+  it('passes ref, kind and tool filters through to the server', async () => {
+    stubAll({ teamWorkItems: { items: [], total: 0 } });
+    await loadWithUrl('?worklogRef=owner/repo%23371&worklogKind=pr&worklogTool=github');
+    const call = mockRequest.mock.calls.find((c) => c[0] === TEAM_WORK_ITEMS_QUERY);
+    expect(call?.[1]).toMatchObject({
+      appRef: 'app-1',
+      ref: 'owner/repo#371',
+      kind: 'pr',
+      tool: 'github',
+    });
+  });
+
+  // teamWorkItems REFUSES an unknown kind, so forwarding a stray query param
+  // would turn a bookmarked or hand-edited URL into an error page instead of an
+  // unfiltered list.
+  it('drops an invalid kind rather than forwarding it into a server error', async () => {
+    stubAll({ teamWorkItems: { items: [], total: 0 } });
+    const result = await loadWithUrl('?worklogKind=pull-request');
+    const call = mockRequest.mock.calls.find((c) => c[0] === TEAM_WORK_ITEMS_QUERY);
+    expect(call?.[1].kind).toBeUndefined();
+    // And the echoed-back filter must not claim a filter that was never applied.
+    expect((result.worklogFilters as { kind: string }).kind).toBe('');
+  });
+
+  it('reports a failed worklog fetch as an error, not as an empty worklog', async () => {
+    stubAll(new Error('worklog exploded'));
+    const result = await loadWithUrl('');
+    expect(result.worklogError).toBe(true);
+    expect(result.worklog).toEqual([]);
+  });
+
+  // Negative case for the above (review:guard-must-be-proven-to-fail).
+  it('reports a genuinely empty worklog with no error flag', async () => {
+    stubAll({ teamWorkItems: { items: [], total: 0 } });
+    const result = await loadWithUrl('');
+    expect(result.worklogError).toBe(false);
+    expect(result.worklogTotal).toBe(0);
+  });
+
+  it('carries the server total through, not the fetched count', async () => {
+    stubAll({ teamWorkItems: { items: [{ nodeId: 'n1' }], total: 412 } });
+    const result = await loadWithUrl('');
+    expect((result.worklog as unknown[]).length).toBe(1);
+    expect(result.worklogTotal).toBe(412);
+  });
+
+  it('resolves a known ?tab= so a filtered worklog URL lands on the worklog', async () => {
+    stubAll({ teamWorkItems: { items: [], total: 0 } });
+    expect((await loadWithUrl('?tab=worklog')).initialTab).toBe('worklog');
+  });
+
+  // An unknown tab must fall back to the page default, not render a page where
+  // no tab body matches.
+  it('coerces an unknown ?tab= to null', async () => {
+    stubAll({ teamWorkItems: { items: [], total: 0 } });
+    expect((await loadWithUrl('?tab=nonsense')).initialTab).toBeNull();
+    expect((await loadWithUrl('')).initialTab).toBeNull();
+  });
+});
 // Codex P1 on PR #738. `teamChatMessages` is seq-ordered ASCENDING with an
 // offset cursor, so a bare `limit` returns the OLDEST page. Past the cap that
 // pins the transcript to the start of history and silently swallows every new
@@ -1002,6 +1110,7 @@ describe('team chat tail paging (#738)', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
+      url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
   }
 
