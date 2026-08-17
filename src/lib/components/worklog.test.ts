@@ -5,6 +5,7 @@ import {
   artifactTitle,
   normalizeFilter,
   normalizeKind,
+  isWorkerAttributed,
   sessionsPerRef,
 } from './worklog';
 import type { TeamWorkItem } from '$lib/types';
@@ -175,5 +176,39 @@ describe('tool filter suggestions', () => {
 
   it('adds nothing when no tool filter is applied', () => {
     expect(suggestionsFor([{ tool: 'github' }], '')).toEqual(['github']);
+  });
+});
+
+// Codex P2 on #741. `workerName` is display-only and cannot answer "is this a
+// Worker": the server writes the bound worker's name, ELSE the attributed
+// USER's handle for an unbound session, and pre-#974 records carry a stored
+// personaName. A human may also share a worker's name.
+//
+// This exact conflation shipped twice — once claiming three worker sessions
+// meant three workers, and once badging a human's own record "pre-worker" —
+// which is why the rule is a named predicate now rather than an inline check.
+describe('isWorkerAttributed', () => {
+  it('is true only when workerId is present', () => {
+    expect(isWorkerAttributed(item({ workerId: 'w1' }))).toBe(true);
+    expect(isWorkerAttributed(item({ workerId: null }))).toBe(false);
+  });
+
+  // The case that produced the mislabel: an unbound session records the
+  // person's handle in workerName. A name is present, a Worker is not.
+  it('is false for an unbound session even though workerName is populated', () => {
+    expect(isWorkerAttributed(item({ workerId: null, workerName: 'holger' }))).toBe(false);
+  });
+
+  // A pre-#974 record carries a personaName. Also a name, also not a Worker —
+  // and indistinguishable from the case above, which is why the badge must not
+  // claim a reason.
+  it('is false for a pre-worker-model record', () => {
+    expect(isWorkerAttributed(item({ workerId: null, workerName: 'Ada' }))).toBe(false);
+  });
+
+  // The trap in the other direction: a human sharing a worker's name must not
+  // become "a Worker" just because the string matches one.
+  it('does not infer attribution from the name matching a known worker', () => {
+    expect(isWorkerAttributed(item({ workerId: null, workerName: 'Gil' }))).toBe(false);
   });
 });

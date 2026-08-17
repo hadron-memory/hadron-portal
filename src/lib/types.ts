@@ -211,10 +211,20 @@ export interface TeamChatMessage {
  * This is the authoritative artifact-to-session join (`cor:agt:020:05`), not a
  * display convenience. Several records sharing one `ref` is the DESIGNED shape,
  * not duplication: a PR worked across three worker sessions produces three
- * records and three transcripts (how many distinct WORKERS that is depends on
- * `workerName` — one worker driven across three sequential sessions produces
- * the same three rows). Deduping them destroys the answer
- * the worklog exists to give.
+ * records and three transcripts. Deduping them destroys the answer the worklog
+ * exists to give.
+ *
+ * How many distinct WORKERS that represents is a different question, and only
+ * `workerId` can answer it. `workerName` is display-only and is NOT identity:
+ * the server sets it to the bound worker's name, ELSE to the attributed user's
+ * handle when the session was not worker-bound, and pre-#974 records carry
+ * their stored `personaName` there. A human may also share a worker's name —
+ * nothing reserves one (`cor:agt:020:02` scopes worker names, it does not
+ * forbid a person from having the same one), which is why `WorkerBadge` exists.
+ *
+ * So: render `workerName`, count on `workerId`, and treat a null `workerId` as
+ * "this record is not attributed to a Worker" rather than as any particular
+ * reason for that.
  *
  * Append-only. There is no edit and no delete — a wrong record is corrected by
  * recording a newer one.
