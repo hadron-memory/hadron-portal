@@ -75,13 +75,48 @@ const appSettingsFormAdapter = zod4(appSettingsSchema);
 const castWorkerFormAdapter = zod4(castWorkerSchema);
 const createAppKeyFormAdapter = zod4(createAppKeySchema);
 const deleteAppFormAdapter = zod4(deleteAppSchema);
-// The server caps `teamChatMessages` at 200. Ask for that cap: this team's own
-// chat is already past 30 messages days in, and a transcript silently missing
-// its tail reads as "nobody said anything" — the same failure shape as the
-// empty incremental read in hadron-cli#470. Paging older messages is follow-up
-// work, and the tab reports the count so a truncated view is visible rather
-// than assumed complete.
+// The server caps `teamChatMessages` at 200.
 const TEAM_CHAT_PAGE_SIZE = 200;
+
+/**
+ * Load the NEWEST page of a team chat.
+ *
+ * `teamChatMessages` is seq-ordered ASCENDING with an offset cursor, so
+ * `limit: 200` with no offset returns the OLDEST 200 — the opposite of what a
+ * chat transcript wants. Past 200 messages that silently pins the view to the
+ * start of history: every new post lands off-page, including the one the user
+ * just made (the composer invalidates and re-reads), and the tab would still
+ * caption it "showing the most recent messages". A chat that eats your own
+ * message while claiming to be current is worse than one that fails.
+ *
+ * So: page once, and if the server's `total` says there is more, ask again for
+ * the tail. One round trip in the common case, two only for a chat past the
+ * cap, and correct in both. Caught by Codex on PR #738.
+ */
+async function loadTeamChatTail(
+  client: ReturnType<typeof gqlClient>,
+  appRef: string,
+): Promise<{ items: TeamChatMessage[]; total: number }> {
+  const first = await client
+    .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
+      TEAM_CHAT_MESSAGES_QUERY,
+      { appRef, limit: TEAM_CHAT_PAGE_SIZE },
+    )
+    .then((r) => r.teamChatMessages);
+
+  if (first.total <= first.items.length) return first;
+
+  const offset = Math.max(0, first.total - TEAM_CHAT_PAGE_SIZE);
+  const tail = await client
+    .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
+      TEAM_CHAT_MESSAGES_QUERY,
+      { appRef, limit: TEAM_CHAT_PAGE_SIZE, offset },
+    )
+    .then((r) => r.teamChatMessages);
+  // `total` from the tail read, not the first: messages can be posted between
+  // the two requests, and the later count is the one that matches this page.
+  return tail;
+}
 
 const postTeamChatMessageFormAdapter = zod4(postTeamChatMessageSchema);
 const removeAppAgentFormAdapter = zod4(removeAppAgentSchema);
@@ -321,16 +356,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     // Coerced to null (never an empty page) on failure, for the same reason as
     // the staff fetch above: "couldn't load the team chat" and "the team chat
     // is empty" are different statements (review:no-silent-loader-catch).
-    client
-      .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
-        TEAM_CHAT_MESSAGES_QUERY,
-        { appRef: params.appId, limit: TEAM_CHAT_PAGE_SIZE },
-      )
-      .then((r) => r.teamChatMessages)
-      .catch((e) => {
-        console.warn(`[team-chat] transcript fetch failed for ${params.appId}:`, e);
-        return null;
-      }),
+    loadTeamChatTail(client, params.appId).catch((e) => {
+      console.warn(`[team-chat] transcript fetch failed for ${params.appId}:`, e);
+      return null;
+    }),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm] = await Promise.all([
     superValidate<AppSettingsForm>(
