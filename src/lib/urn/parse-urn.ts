@@ -55,6 +55,11 @@ export {
   parseUrnV2,
   composeUrnV2,
   isFlatV2,
+  // #991 / urn-lib-js 0.0.11 — `hrn:worker:<root>:<app>:<worker-slug>`. Both
+  // are exercised by the shared conformance corpus, so a missing re-export
+  // here fails `parse-urn.test.ts` rather than going unnoticed.
+  composeWorkerUrnV2,
+  isValidSlug,
   composeSecretUrnV2,
   composeAppRunUrnV2,
   composeNodeRevUrnV2,
