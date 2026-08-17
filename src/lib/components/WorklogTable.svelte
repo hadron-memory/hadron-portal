@@ -5,6 +5,7 @@
     actionClass,
     artifactHref,
     artifactTitle,
+    isWorkerAttributed,
     sessionsPerRef,
   } from './worklog';
   import type { TeamWorkItem } from '$lib/types';
@@ -195,15 +196,26 @@
                      A link that 404s is worse than no link — and shipping one
                      here would repeat the exact defect #735 exists to fix. -->
                 <span class="font-medium text-zinc-900 dark:text-white">{row.workerName}</span>
-                {#if !row.workerId}
-                  <!-- No worker id at all: a pre-#974 record, where workerName
-                       carries the stored personaName. Say so rather than
-                       implying a Worker row exists to link to later. -->
+                {#if !isWorkerAttributed(row)}
+                  <!-- A null workerId means this record is not attributed to a
+                       Worker. It does NOT say why, and the badge must not
+                       invent one: the server writes `workerName` from the bound
+                       worker's name, ELSE the attributed USER's handle for an
+                       unbound session, and pre-#974 records carry a stored
+                       personaName there.
+
+                       An earlier version of this badge said "pre-worker", which
+                       labelled a human's own record as an old worker — the same
+                       class of error as claiming three sessions means three
+                       workers. Codex caught both (#741). -->
                   <span
                     class="ml-1 rounded border border-zinc-300 bg-zinc-100 px-1 py-0.5 text-[10px] uppercase text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                    title={t('app.worklog.pre-worker.hint', 'Recorded before the worker model, so this row carries a name but no worker id.')}
+                    title={t(
+                      'app.worklog.no-worker.hint',
+                      'This record is not attributed to a worker. The name shown is whatever the record stored — an unbound session records the person’s handle, and records made before the worker model store a persona name.',
+                    )}
                   >
-                    {t('app.worklog.pre-worker', 'pre-worker')}
+                    {t('app.worklog.no-worker', 'no worker')}
                   </span>
                 {/if}
               </td>

@@ -58,6 +58,25 @@ export function artifactTitle(item: Pick<TeamWorkItem, 'detail'>): string | null
 }
 
 /**
+ * Whether a record is attributed to an actual Worker.
+ *
+ * `workerId` is the ONLY field that answers this. `workerName` is display-only:
+ * the server writes the bound worker's name, ELSE the attributed user's handle
+ * when the session was not worker-bound, and pre-#974 records carry a stored
+ * `personaName` there. A human may also share a worker's name — nothing
+ * reserves one — so counting or grouping by `workerName` conflates unrelated
+ * authors.
+ *
+ * A named predicate rather than an inline `!item.workerId` because this exact
+ * conflation has now been shipped twice: once claiming three worker sessions
+ * meant three workers, and once badging a human's own record as "pre-worker".
+ * Both read plausibly and both are wrong.
+ */
+export function isWorkerAttributed(item: Pick<TeamWorkItem, 'workerId'>): boolean {
+  return !!item.workerId;
+}
+
+/**
  * How many DISTINCT worker sessions touched each ref, over the given records.
  *
  * This exists to LABEL the fan-out, never to collapse it. A PR worked across
