@@ -204,6 +204,47 @@ export interface TeamChatMessage {
   mentions: string[];
 }
 
+/**
+ * One record in a team App's WORKLOG (server #947) — an externally visible work
+ * milestone: a PR opened, a branch pushed, an issue closed.
+ *
+ * This is the authoritative artifact-to-session join (`cor:agt:020:05`), not a
+ * display convenience. Several records sharing one `ref` is the DESIGNED shape,
+ * not duplication: a PR worked across three worker sessions produces three
+ * records, three workers, three transcripts. Deduping them destroys the answer
+ * the worklog exists to give.
+ *
+ * Append-only. There is no edit and no delete — a wrong record is corrected by
+ * recording a newer one.
+ */
+export interface TeamWorkItem {
+  /** The record node's id. */
+  nodeId: string;
+  /** The worker session the work is attributed to. */
+  sessionId: string;
+  /**
+   * Denormalized at write, and the field to RENDER. It resolves for a retired
+   * worker and, for pre-#974 records, carries the stored personaName — both of
+   * which a live join through `workerId` would lose.
+   */
+  workerName: string;
+  /** The Worker behind the record, when the session was worker-bound. The LINK
+   *  target; never the display source. */
+  workerId: string | null;
+  /** The external tool the artifact lives in ('github', …). Lowercased. */
+  tool: string;
+  /** Artifact kind: pr, issue, commit, branch, or repo. */
+  kind: string;
+  /** The canonical artifact ref — the equality-lookup key. */
+  ref: string;
+  /** What happened: opened, merged, reviewed, closed, pushed, … */
+  action: string;
+  /** When the record was made (server-stamped). */
+  at: string;
+  /** Display extras (title, URL). Documented as never filtered on. */
+  detail: Record<string, unknown> | null;
+}
+
 export interface App {
   id: string;
   name: string;

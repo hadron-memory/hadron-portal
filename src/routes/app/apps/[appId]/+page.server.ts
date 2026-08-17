@@ -25,7 +25,9 @@ import {
   RETIRE_WORKER_MUTATION,
   TEAM_CHAT_MESSAGES_QUERY,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
+  TEAM_WORK_ITEMS_QUERY,
 } from '$lib/server/queries';
+import { normalizeFilter, normalizeKind } from '$lib/components/worklog';
 import type {
   Organization,
   App,
@@ -33,6 +35,7 @@ import type {
   AiServiceConfig,
   Worker,
   TeamChatMessage,
+  TeamWorkItem,
 } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
@@ -243,7 +246,41 @@ function slugOfUrn(urn: string): string {
   return idx >= 0 ? urn.slice(idx + 1) : urn;
 }
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+// Same cap and same reasoning as TEAM_CHAT_PAGE_SIZE: ask for the server's
+// maximum, and report the server's `total` so a truncated view can say so
+// rather than reading as the whole worklog.
+const WORKLOG_PAGE_SIZE = 200;
+
+/** The App page's tab ids, for validating `?tab=`. Kept in sync with the
+ *  `TabId` union in +page.svelte; an unknown value falls back to the default. */
+const APP_TAB_IDS: readonly string[] = [
+  'chat',
+  'team-chat',
+  'worklog',
+  'staff',
+  'memory',
+  'settings',
+  'client',
+];
+
+export const load: PageServerLoad = async ({ params, locals, url }) => {
+  // Worklog filters ride the URL rather than component state, because `ref`
+  // lookup — "which worker sessions produced this PR?" — is the question the
+  // worklog exists to answer, and an answer you cannot link to is half an
+  // answer. They are applied SERVER-side: `teamWorkItems` normalizes a ref
+  // tool-awarely, so a pasted PR URL and the short form find the same records.
+  // A client-side compare over the loaded page would match neither reliably,
+  // and would silently search only the fetched window.
+  const worklogRef = normalizeFilter(url.searchParams.get('worklogRef'));
+  const worklogKind = normalizeKind(url.searchParams.get('worklogKind'));
+  const worklogTool = normalizeFilter(url.searchParams.get('worklogTool'));
+
+  // `?tab=` so a filtered worklog URL lands on the worklog rather than the
+  // page's default tab. Validated against the known set and coerced to null
+  // otherwise — an unknown value falls back to the default rather than
+  // rendering a blank page where no tab body matches.
+  const rawTab = url.searchParams.get('tab');
+  const initialTab = APP_TAB_IDS.includes(rawTab ?? '') ? rawTab : null;
   // #648: canonical org-optional App detail. No requireNonConsumer — this
   // resolves BOTH org-owned apps (member-gated) and user-owned (org-less) apps
   // (owner-gated) through one owner-accessible path, exactly like /app/agents/[id]
@@ -317,7 +354,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // LLM-readiness gate. App-membership gated; coerce errors to null (unknown
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
-  const [nodesData, chatConfigs, staff, teamChat] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -360,6 +397,22 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       console.warn(`[team-chat] transcript fetch failed for ${params.appId}:`, e);
       return null;
     }),
+    // #733: the App's WORKLOG — the authoritative artifact-to-session join
+    // (cor:agt:020:05). Same routing discipline as the team chat above: the
+    // canonical operation, never appNodes.
+    client
+      .request<{ teamWorkItems: { items: TeamWorkItem[]; total: number } }>(TEAM_WORK_ITEMS_QUERY, {
+        appRef: params.appId,
+        ref: worklogRef,
+        kind: worklogKind,
+        tool: worklogTool,
+        limit: WORKLOG_PAGE_SIZE,
+      })
+      .then((r) => r.teamWorkItems)
+      .catch((e) => {
+        console.warn(`[worklog] fetch failed for ${params.appId}:`, e);
+        return null;
+      }),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -441,6 +494,20 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     teamChatMessages: teamChat?.items ?? [],
     teamChatTotal: teamChat?.total ?? 0,
     teamChatError: teamChat === null,
+    // #733: the worklog page, plus the filters that produced it so the tab can
+    // render its own controls from the URL rather than keeping a second copy of
+    // that state in the component.
+    worklog: worklog?.items ?? [],
+    worklogTotal: worklog?.total ?? 0,
+    worklogError: worklog === null,
+    initialTab,
+    worklogFilters: {
+      ref: worklogRef ?? '',
+      // The NORMALIZED kind, not the raw param: echoing back a rejected value
+      // would render a filter chip for a filter the server never applied.
+      kind: worklogKind ?? '',
+      tool: worklogTool ?? '',
+    },
     currentUserId: locals.user?.id ?? null,
     appSettingsForm,
     addAgentForm,
