@@ -171,6 +171,39 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+/**
+ * One message in a team App's TEAM CHAT (server #939) — a different thing from
+ * `ChatMessage` above, which is a turn in an agent chat session.
+ *
+ * The distinction that matters when rendering: an agent chat message has a
+ * `role` (user vs assistant), while a team chat message has an AUTHOR — either
+ * a worker or a human, never both. Collapsing the two is what made the team
+ * chat unreadable when it was mistakenly listed on the agent-chat surface
+ * (hadron-server#1030): a renderer keyed on `role` has nothing to key on here
+ * and renders every teammate identically.
+ */
+export interface TeamChatMessage {
+  /** The message node's id. */
+  nodeId: string;
+  /** Ordering key, unique per chat, allocated atomically ascending from 1.
+   *  Also the address teammates cite each other by ("seq 14"), so it is shown. */
+  seq: number;
+  body: string;
+  at: string;
+  /** Set when a human posted. Mutually exclusive with `authorWorkerId`. */
+  authorUserId: string | null;
+  /** Set when a worker posted, via the driving worker session. */
+  authorWorkerId: string | null;
+  /** Display convenience: the worker name or the user handle. */
+  authorName: string | null;
+  /** The worker session driving the worker author, when posted via sessionRef. */
+  sessionId: string | null;
+  /** The seq this message replies to, when it is a reply. */
+  replyToSeq: number | null;
+  /** Extracted server-side at write time. The portal never parses bodies. */
+  mentions: string[];
+}
+
 export interface App {
   id: string;
   name: string;

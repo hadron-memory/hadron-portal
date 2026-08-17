@@ -23,8 +23,17 @@ import {
   WORKERS_QUERY,
   CAST_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
+  TEAM_CHAT_MESSAGES_QUERY,
+  CREATE_TEAM_CHAT_MESSAGE_MUTATION,
 } from '$lib/server/queries';
-import type { Organization, App, MemoryNode, AiServiceConfig, Worker } from '$lib/types';
+import type {
+  Organization,
+  App,
+  MemoryNode,
+  AiServiceConfig,
+  Worker,
+  TeamChatMessage,
+} from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
   addAgentSchema,
@@ -33,6 +42,7 @@ import {
   createAppKeySchema,
   deleteAppSchema,
   removeAppAgentSchema,
+  postTeamChatMessageSchema,
   retireWorkerSchema,
   revokeAppKeySchema,
   updateAppAgentToolsSchema,
@@ -43,6 +53,7 @@ type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
 type CastWorkerForm = Infer<typeof castWorkerSchema, 'zod4'>;
 type CreateAppKeyForm = Infer<typeof createAppKeySchema, 'zod4'>;
 type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
+type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
 type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
 type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
 type RevokeAppKeyForm = Infer<typeof revokeAppKeySchema, 'zod4'>;
@@ -64,6 +75,15 @@ const appSettingsFormAdapter = zod4(appSettingsSchema);
 const castWorkerFormAdapter = zod4(castWorkerSchema);
 const createAppKeyFormAdapter = zod4(createAppKeySchema);
 const deleteAppFormAdapter = zod4(deleteAppSchema);
+// The server caps `teamChatMessages` at 200. Ask for that cap: this team's own
+// chat is already past 30 messages days in, and a transcript silently missing
+// its tail reads as "nobody said anything" — the same failure shape as the
+// empty incremental read in hadron-cli#470. Paging older messages is follow-up
+// work, and the tab reports the count so a truncated view is visible rather
+// than assumed complete.
+const TEAM_CHAT_PAGE_SIZE = 200;
+
+const postTeamChatMessageFormAdapter = zod4(postTeamChatMessageSchema);
 const removeAppAgentFormAdapter = zod4(removeAppAgentSchema);
 const retireWorkerFormAdapter = zod4(retireWorkerSchema);
 const revokeAppKeyFormAdapter = zod4(revokeAppKeySchema);
@@ -124,6 +144,46 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
   APP_UNINSTALLED: () => t(
     'app.staff.error.app-uninstalled',
     'This App has been uninstalled, so nothing can be cast into it.',
+  ),
+};
+
+/**
+ * createTeamChatMessage's typed refusals (#939/#941/#974) worth naming.
+ *
+ * The session-related codes are deliberately ABSENT: the portal posts without a
+ * `sessionRef` (there is no worker session behind a browser), so
+ * SESSION_NOT_IN_APP, SESSION_ENDED, SESSION_NOT_WORKER_BOUND and
+ * WORKER_RETIRED are unreachable from here. Mapping them would be inventing
+ * copy for states this surface cannot produce, and would go stale invisibly
+ * (review:clienterror-map-known-codes-only).
+ */
+const TEAM_CHAT_POST_ERRORS: Record<string, () => string> = {
+  FORBIDDEN: () => t(
+    'app.team-chat.error.forbidden',
+    'You do not have access to post in this team chat. Posting needs App membership, or contributor access on the App’s organization.',
+  ),
+  TEAM_CHAT_BODY_TOO_LARGE: () => t(
+    'app.team-chat.error.too-large',
+    'That message is too long for the team chat (65536 characters max).',
+  ),
+  TEAM_CHAT_REPLY_NOT_FOUND: () => t(
+    'app.team-chat.error.reply-not-found',
+    'The message you are replying to no longer exists. Reload the team chat and try again.',
+  ),
+  // First-post bootstrap has to locate the Team Agent to create the chat root.
+  // Both of these mean the App is not shaped like a team yet, which is a
+  // configuration answer rather than a retry.
+  TEAM_AGENT_NOT_FOUND: () => t(
+    'app.team-chat.error.no-team-agent',
+    'This App has no team agent, so its team chat cannot be started. Install an agent into the App first.',
+  ),
+  TEAM_AGENT_AMBIGUOUS: () => t(
+    'app.team-chat.error.ambiguous-team-agent',
+    'Several installed agents could own this App’s team chat, so it cannot be started automatically. Mark one as the team agent.',
+  ),
+  APP_UNINSTALLED: () => t(
+    'app.team-chat.error.app-uninstalled',
+    'This App has been uninstalled, so its team chat is read-only.',
   ),
 };
 
@@ -222,7 +282,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // LLM-readiness gate. App-membership gated; coerce errors to null (unknown
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
-  const [nodesData, chatConfigs, staff] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -248,6 +308,29 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       console.warn(`[app-staff] workers fetch failed for ${params.appId}:`, e);
       return null;
     }),
+    // #732: the App's TEAM CHAT transcript, read through the canonical
+    // `teamChatMessages` operation. Deliberately NOT via appNodes — the chat
+    // lives in the App's class='app' shared memory, which that resolver cannot
+    // reach (hadron-server#1031); going through the operation keeps this
+    // surface off that dependency and returns the author envelope besides.
+    //
+    // Reads never provision: an App whose chat has not been bootstrapped
+    // answers with an empty page rather than erroring, so "no messages yet" is
+    // a real state and not a failure.
+    //
+    // Coerced to null (never an empty page) on failure, for the same reason as
+    // the staff fetch above: "couldn't load the team chat" and "the team chat
+    // is empty" are different statements (review:no-silent-loader-catch).
+    client
+      .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
+        TEAM_CHAT_MESSAGES_QUERY,
+        { appRef: params.appId, limit: TEAM_CHAT_PAGE_SIZE },
+      )
+      .then((r) => r.teamChatMessages)
+      .catch((e) => {
+        console.warn(`[team-chat] transcript fetch failed for ${params.appId}:`, e);
+        return null;
+      }),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -307,6 +390,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       { errors: false },
     ),
   ]);
+  const postTeamChatMessageForm = await superValidate<PostTeamChatMessageForm>(
+    {},
+    postTeamChatMessageFormAdapter,
+    { errors: false },
+  );
   return {
     app,
     org,
@@ -318,6 +406,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     // #974: the App's staff. null = the fetch failed (distinct from []).
     staff,
     staffError: staff === null,
+    // #732: the team chat transcript. null = the fetch failed (distinct from
+    // an empty chat), and `teamChatTotal` is the SERVER's count, so a
+    // transcript truncated at the page cap can say so instead of looking whole.
+    teamChatMessages: teamChat?.items ?? [],
+    teamChatTotal: teamChat?.total ?? 0,
+    teamChatError: teamChat === null,
     currentUserId: locals.user?.id ?? null,
     appSettingsForm,
     addAgentForm,
@@ -328,6 +422,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     deleteAppForm,
     castWorkerForm,
     retireWorkerForm,
+    postTeamChatMessageForm,
   };
 };
 
@@ -469,6 +564,59 @@ export const actions: Actions = {
         {
           type: 'error',
           text: known ? known() : extractGqlError(e, t('app.staff.cast.error', 'Failed to cast the worker.')),
+        },
+        { status: 500 },
+      );
+    }
+  },
+
+  // Post to the App's TEAM CHAT (#732).
+  //
+  // Note what this action does NOT accept: no chat address. The server owns the
+  // App's one well-known team chat and resolves it from `appRef`, which is why
+  // a portal post cannot land in the wrong thread the way a loc-addressed write
+  // could.
+  //
+  // No `sessionRef` either: a browser has no worker session, so the post is
+  // attributed to the signed-in HUMAN. That is correct and deliberate — a
+  // portal user posting as a worker would be forged attribution on the record
+  // the team uses to answer "who did this".
+  postTeamChatMessage: async ({ request, params, locals }) => {
+    const form = await superValidate<PostTeamChatMessageForm>(
+      await request.formData(),
+      postTeamChatMessageFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
+    // An unparseable or non-positive replyToSeq is dropped rather than sent:
+    // seq ascends from 1, so 0 or NaN could only ever be a client bug, and
+    // sending it would turn a stray hidden input into TEAM_CHAT_REPLY_NOT_FOUND
+    // on an ordinary post.
+    const parsedReplyTo = Number(form.data.replyToSeq);
+    const replyToSeq =
+      form.data.replyToSeq && Number.isInteger(parsedReplyTo) && parsedReplyTo > 0
+        ? parsedReplyTo
+        : undefined;
+
+    try {
+      await gqlClient(locals.token).request(CREATE_TEAM_CHAT_MESSAGE_MUTATION, {
+        appRef: params.appId,
+        body: form.data.body,
+        replyToSeq,
+      });
+      return message(form, {
+        type: 'success',
+        text: t('app.team-chat.post.success', 'Posted to the team chat.'),
+      });
+    } catch (e: unknown) {
+      const known = TEAM_CHAT_POST_ERRORS[gqlErrorCode(e) ?? ''];
+      return message(
+        form,
+        {
+          type: 'error',
+          text: known
+            ? known()
+            : extractGqlError(e, t('app.team-chat.post.error', 'Failed to post to the team chat.')),
         },
         { status: 500 },
       );

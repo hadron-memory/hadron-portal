@@ -93,3 +93,7 @@ export const retireWorkerSchema = z.object({
   _kind: z.literal('retireWorker').default('retireWorker'),
   workerId: z.string().trim().min(1, 'Worker is required').prefault(''),
 });
+
+// Posting to the App's TEAM CHAT (hadron-portal#732) is defined in $lib/forms
+// so the route action and TeamChatThread.svelte share one definition.
+export { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';

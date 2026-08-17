@@ -10,6 +10,7 @@ import {
   REMOVE_AGENT_FROM_APP_MUTATION,
   RETIRE_WORKER_MUTATION,
   REVOKE_APP_KEY_MUTATION,
+  TEAM_CHAT_MESSAGES_QUERY,
   UPDATE_APP_MUTATION,
 } from '$lib/server/queries';
 
@@ -25,6 +26,27 @@ vi.mock('$lib/server/guards', () => ({
   requireNonConsumer: vi.fn().mockResolvedValue(undefined),
 }));
 
+/** A minimal App row for loader tests that don't care about its fields. */
+function baseApp(over: Record<string, unknown> = {}) {
+  return {
+    id: 'app-1',
+    name: 'Demo App',
+    urn: 'hadronmemory.com:demo-org:demo-app',
+    organizationId: null,
+    appType: 'CHATBOT',
+    role: 'ADMIN',
+    description: null,
+    systemPrompt: null,
+    createUserPermission: 'DENY',
+    identifyUserMethod: 'USER_ID',
+    sessionTimeoutSeconds: 3600,
+    anonymousTtlDays: 14,
+    agentId: 'agent-1',
+    agent: null,
+    ...over,
+  };
+}
+
 beforeEach(() => {
   mockRequest.mockReset();
   mockFetchAllItems.mockReset();
@@ -33,7 +55,8 @@ beforeEach(() => {
 async function runAction(
   name:
     | 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey'
-    | 'revokeKey' | 'deleteApp' | 'castWorker' | 'retireWorker',
+    | 'revokeKey' | 'deleteApp' | 'castWorker' | 'retireWorker'
+    | 'postTeamChatMessage',
   fields: Record<string, string | string[]>,
 ) {
   const { actions } = await import('./+page.server');
@@ -105,6 +128,9 @@ describe('load', () => {
         });
       }
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) {
+        return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
+      }
       throw new Error('Unexpected query');
     });
 
@@ -136,6 +162,9 @@ describe('load', () => {
         });
       }
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) {
+        return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
+      }
       return Promise.resolve({ resolveAiServiceConfigs: [] });
     });
     // AI configs resolve; the workers page rejects.
@@ -169,6 +198,9 @@ describe('load', () => {
         });
       }
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) {
+        return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
+      }
       return Promise.resolve({ resolveAiServiceConfigs: [] });
     });
     mockFetchAllItems.mockResolvedValue([]);
@@ -182,6 +214,115 @@ describe('load', () => {
 
     expect(result.staff).toEqual([]);
     expect(result.staffError).toBe(false);
+  });
+
+  // #732: same discipline as the staff fetch above. A failed transcript fetch
+  // must not render as "no messages in the team chat yet" — that empty state is
+  // a claim about the team, and making it on a network failure is a lie the
+  // reader cannot detect.
+  it('reports a failed team chat fetch as an error flag, not as an empty chat', async () => {
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.reject(new Error('chat exploded'));
+      return Promise.resolve({ resolveAiServiceConfigs: [] });
+    });
+    mockFetchAllItems.mockResolvedValue([]);
+
+    const { load } = await import('./+page.server');
+    const result = (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+    } as unknown as Parameters<typeof load>[0])) as {
+      teamChatMessages: unknown[];
+      teamChatError: boolean;
+    };
+
+    expect(result.teamChatError).toBe(true);
+    expect(result.teamChatMessages).toEqual([]);
+  });
+
+  // The negative case for the above: an empty chat is NOT an error. Without
+  // this, an implementation that flagged every empty transcript as failed would
+  // pass the test above (review:guard-must-be-proven-to-fail).
+  it('reports a genuinely empty team chat with no error flag', async () => {
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) {
+        return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
+      }
+      return Promise.resolve({ resolveAiServiceConfigs: [] });
+    });
+    mockFetchAllItems.mockResolvedValue([]);
+
+    const { load } = await import('./+page.server');
+    const result = (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+    } as unknown as Parameters<typeof load>[0])) as {
+      teamChatMessages: unknown[];
+      teamChatTotal: number;
+      teamChatError: boolean;
+    };
+
+    expect(result.teamChatError).toBe(false);
+    expect(result.teamChatMessages).toEqual([]);
+    expect(result.teamChatTotal).toBe(0);
+  });
+
+  // The server's total is what tells the tab its view is a suffix of the real
+  // thread. Passing back `items.length` instead would make every truncated
+  // transcript look complete.
+  it('carries the server total through, not the fetched count', async () => {
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) {
+        return Promise.resolve({
+          teamChatMessages: { items: [{ nodeId: 'n1', seq: 42 }], total: 913 },
+        });
+      }
+      return Promise.resolve({ resolveAiServiceConfigs: [] });
+    });
+    mockFetchAllItems.mockResolvedValue([]);
+
+    const { load } = await import('./+page.server');
+    const result = (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+    } as unknown as Parameters<typeof load>[0])) as {
+      teamChatMessages: unknown[];
+      teamChatTotal: number;
+    };
+
+    expect(result.teamChatMessages).toHaveLength(1);
+    expect(result.teamChatTotal).toBe(913);
+  });
+
+  it('reads the team chat by appRef, never by walking appNodes', async () => {
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) {
+        return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
+      }
+      return Promise.resolve({ resolveAiServiceConfigs: [] });
+    });
+    mockFetchAllItems.mockResolvedValue([]);
+
+    const { load } = await import('./+page.server');
+    await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+    } as unknown as Parameters<typeof load>[0]);
+
+    const call = mockRequest.mock.calls.find((c) => c[0] === TEAM_CHAT_MESSAGES_QUERY);
+    expect(call?.[1]).toMatchObject({ appRef: 'app-1' });
   });
 });
 
@@ -744,5 +885,92 @@ describe('retireWorker action', () => {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toContain('permission to staff this App');
+  });
+});
+
+describe('postTeamChatMessage action (#732)', () => {
+  function gqlError(code: string) {
+    return { response: { errors: [{ extensions: { code }, message: 'raw server message' }] } };
+  }
+
+  it('posts to the App by appRef and returns a typed success', async () => {
+    mockRequest.mockResolvedValueOnce({ createTeamChatMessage: { nodeId: 'n1', seq: 36 } });
+    const result = await runAction('postTeamChatMessage', {
+      _kind: 'postTeamChatMessage',
+      body: 'Gil on shift.',
+    });
+    expect(result).toMatchObject({
+      form: { valid: true, message: { type: 'success' } },
+    });
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({
+      appRef: 'app-1',
+      body: 'Gil on shift.',
+    });
+  });
+
+  // The portal has no worker session, so a post from here is the signed-in
+  // human's. Sending a sessionRef would be forged attribution on the record the
+  // team uses to answer "who did this".
+  it('never sends a sessionRef', async () => {
+    mockRequest.mockResolvedValueOnce({ createTeamChatMessage: { nodeId: 'n1', seq: 1 } });
+    await runAction('postTeamChatMessage', { _kind: 'postTeamChatMessage', body: 'hi' });
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('sessionRef');
+  });
+
+  it('forwards a reply target as a number', async () => {
+    mockRequest.mockResolvedValueOnce({ createTeamChatMessage: { nodeId: 'n1', seq: 37 } });
+    await runAction('postTeamChatMessage', {
+      _kind: 'postTeamChatMessage',
+      body: 'answering',
+      replyToSeq: '14',
+    });
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ replyToSeq: 14 });
+  });
+
+  // seq ascends from 1, so 0 / NaN / negatives could only ever be a client bug.
+  // Forwarding one would turn a stray hidden input into TEAM_CHAT_REPLY_NOT_FOUND
+  // on what the user experienced as an ordinary post.
+  it.each([['', undefined], ['0', undefined], ['abc', undefined], ['-3', undefined], ['2.5', undefined]])(
+    'drops an unusable replyToSeq %j rather than sending it',
+    async (input) => {
+      mockRequest.mockResolvedValueOnce({ createTeamChatMessage: { nodeId: 'n1', seq: 2 } });
+      await runAction('postTeamChatMessage', {
+        _kind: 'postTeamChatMessage',
+        body: 'plain post',
+        replyToSeq: input as string,
+      });
+      expect(mockRequest.mock.calls[0][1].replyToSeq).toBeUndefined();
+    },
+  );
+
+  it('rejects an empty body before calling GraphQL', async () => {
+    const result = (await runAction('postTeamChatMessage', {
+      _kind: 'postTeamChatMessage',
+      body: '   ',
+    })) as { data: { form: { valid: boolean } } };
+    expect(result.data.form.valid).toBe(false);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('maps a known refusal to actionable copy instead of the raw server message', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('FORBIDDEN'));
+    const result = (await runAction('postTeamChatMessage', {
+      _kind: 'postTeamChatMessage',
+      body: 'hi',
+    })) as { data: { form: { message: { text: string } } } };
+    expect(result.data.form.message.text).toContain('App membership');
+    expect(result.data.form.message.text).not.toContain('raw server message');
+  });
+
+  // review:clienterror-map-known-codes-only — an unknown code (or a transport
+  // failure with no GraphQL payload) must fall through to the server's own
+  // message rather than being relabelled as a user mistake.
+  it('falls through to the server message for an unmapped code', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('SOME_NEW_CODE'));
+    const result = (await runAction('postTeamChatMessage', {
+      _kind: 'postTeamChatMessage',
+      body: 'hi',
+    })) as { data: { form: { message: { text: string } } } };
+    expect(result.data.form.message.text).toContain('raw server message');
   });
 });

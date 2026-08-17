@@ -1759,14 +1759,50 @@ export const MEMORY_EDGES_QUERY = /* GraphQL */ `
 // createNode would land an off-road node the platform readers ignore. `appRef` is
 // the App the chat belongs to — a team chat lives in that App's shared app-class
 // memory, so `Memory.appId` supplies it.
+// replyToSeq is optional and wires a replies-to edge server-side; it is
+// validated inside the allocating transaction, so a failed reply consumes no
+// seq. Callers with no reply target simply omit the variable.
 export const CREATE_TEAM_CHAT_MESSAGE_MUTATION = /* GraphQL */ `
-  mutation CreateTeamChatMessage($appRef: ID!, $body: String!) {
-    createTeamChatMessage(appRef: $appRef, body: $body) {
+  mutation CreateTeamChatMessage($appRef: ID!, $body: String!, $replyToSeq: Int) {
+    createTeamChatMessage(appRef: $appRef, body: $body, replyToSeq: $replyToSeq) {
       nodeId
       seq
       body
       at
       authorName
+    }
+  }
+`;
+
+// The team chat transcript, read through the CANONICAL operation rather than by
+// walking nodes (hadron-portal#732). Two reasons this matters beyond tidiness:
+//
+//   - The App's shared app-class memory is unreachable from appNodes
+//     (hadron-server#1031), so a node-walking reader could not see this chat at
+//     all. Reading through the operation keeps that issue off this surface.
+//   - The operation returns the ENVELOPE. authorWorkerId vs authorUserId is the
+//     worker/human discriminator that node content alone cannot express, and it
+//     is the whole point of the surface: a reader must be able to tell a
+//     teammate's post from a human's at a glance.
+//
+// mentions are extracted server-side at write time. Clients never re-parse
+// bodies, so this selection is the only supported source for them.
+export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
+  query TeamChatMessages($appRef: ID!, $sinceSeq: Int, $limit: Int, $offset: Int) {
+    teamChatMessages(appRef: $appRef, sinceSeq: $sinceSeq, limit: $limit, offset: $offset) {
+      items {
+        nodeId
+        seq
+        body
+        at
+        authorUserId
+        authorWorkerId
+        authorName
+        sessionId
+        replyToSeq
+        mentions
+      }
+      total
     }
   }
 `;
