@@ -1,0 +1,325 @@
+<script lang="ts">
+  import { onMount, tick, untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
+  import { marked } from 'marked';
+  import DOMPurify from 'dompurify';
+  import { scopedActionError } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
+  import { t } from '$lib/i18n/t';
+  import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
+  import {
+    authorInitialOf,
+    authorKindOf,
+    authorLabelOf,
+    avatarColorOf,
+    indexBySeq,
+    replyPreviewOf,
+  } from './team-chat-thread';
+  import type { TeamChatMessage } from '$lib/types';
+
+  type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
+  type PostTeamChatMessageSuperform = SuperValidated<
+    PostTeamChatMessageForm,
+    App.Superforms.Message,
+    PostTeamChatMessageForm
+  >;
+
+  /**
+   * The App's TEAM CHAT (hadron-portal#732) — the shared thread its workers and
+   * members post to. Not to be confused with a CHAT SESSION, which is the
+   * conversation a human is having with an agent; that is the Chat tab, a
+   * different surface with a different backing operation.
+   *
+   * Deliberately absent, and it is not an oversight (see #732):
+   *   - No LLM composer. Nothing appends a model turn to the team's record.
+   *   - No delete and no rename. The chat is a canonical well-known loc with a
+   *     bootstrap contract; a portal user must not be able to destroy or
+   *     re-title the team's record.
+   */
+  let {
+    messages = [],
+    total = 0,
+    loadError = false,
+    postForm,
+    form = null,
+    action = '?/postTeamChatMessage',
+    heightClass = 'flex-1 min-h-0',
+  }: {
+    messages?: TeamChatMessage[];
+    /** The SERVER's count, which may exceed what was fetched. */
+    total?: number;
+    /** True when the transcript could not be loaded — distinct from an empty chat. */
+    loadError?: boolean;
+    postForm: PostTeamChatMessageSuperform;
+    form?: unknown;
+    action?: string;
+    heightClass?: string;
+  } = $props();
+
+  let messagesEl: HTMLDivElement | null = $state(null);
+  let isBrowser = $state(false);
+  let replyTo = $state<number | null>(null);
+
+  const initialPostForm = untrack(
+    () =>
+      (submittedForm<PostTeamChatMessageForm>(form, 'postTeamChatMessage') as PostTeamChatMessageSuperform | null) ??
+      postForm,
+  );
+  const {
+    form: postFormData,
+    errors: postErrors,
+    message: postMessage,
+    submitting: postSubmitting,
+    enhance: postEnhance,
+  } = superForm<PostTeamChatMessageForm, App.Superforms.Message, PostTeamChatMessageForm>(
+    initialPostForm,
+    {
+      validators: zod4Client(postTeamChatMessageSchema),
+      validationMethod: 'oninput',
+      scrollToError: 'smooth',
+      autoFocusOnError: 'detect',
+      invalidateAll: true,
+      clearOnSubmit: 'none',
+      resetForm: true,
+      onUpdated: ({ form: f }) => {
+        // Clear the reply target only on a SUCCESSFUL post. Clearing it on
+        // failure would silently downgrade a retried reply into a top-level
+        // message, which the user has no way to notice.
+        if (f.valid && f.message?.type !== 'error') replyTo = null;
+      },
+    },
+  );
+  const postError = $derived(
+    scopedActionError<PostTeamChatMessageForm>(form, 'postTeamChatMessage', $postMessage, $postErrors, [
+      'body',
+      '_kind',
+    ]),
+  );
+
+  const bySeq = $derived(indexBySeq(messages));
+  // The page cap is applied server-side, so a transcript can be a suffix of the
+  // real thread. Say so rather than letting a partial view read as complete.
+  const truncated = $derived(total > messages.length);
+
+  function renderMarkdown(text: string): string {
+    // DOMPurify needs a real DOM and cannot run under SSR. Emit nothing until
+    // mounted so the {@html} sink is only ever fed sanitized HTML, never raw
+    // author-controlled markdown during SSR or the pre-hydration render
+    // (review:sanitize-html-with-dompurify).
+    if (!isBrowser || !text) return '';
+    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+  }
+
+  function scrollToBottom() {
+    if (messagesEl) messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  onMount(async () => {
+    isBrowser = true;
+    await tick();
+    scrollToBottom();
+  });
+
+  $effect(() => {
+    if (messages) setTimeout(scrollToBottom, 0);
+  });
+
+  function startReply(seq: number) {
+    replyTo = seq;
+    document.getElementById('team-chat-body')?.focus();
+  }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      (e.currentTarget as HTMLTextAreaElement).form?.requestSubmit();
+    }
+  }
+
+  function formatAt(at: string): string {
+    const d = new Date(at);
+    return Number.isNaN(d.getTime()) ? at : d.toLocaleString();
+  }
+</script>
+
+<div class="flex flex-col {heightClass}">
+  <div
+    bind:this={messagesEl}
+    class="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-5 bg-gray-50 dark:bg-zinc-900"
+  >
+    {#if loadError}
+      <!-- "Couldn't load" and "nothing here" are different statements; the
+           empty state below must never be shown for a failed fetch. -->
+      <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+        {t('app.team-chat.load-error', 'Could not load the team chat. This is a loading failure, not an empty chat — reload to try again.')}
+      </div>
+    {:else if messages.length === 0}
+      <div class="flex h-full items-center justify-center text-center">
+        <div>
+          <p class="text-zinc-500 dark:text-zinc-400">
+            {t('app.team-chat.empty.title', 'No messages in the team chat yet')}
+          </p>
+          <p class="text-sm text-zinc-400 dark:text-zinc-500">
+            {t('app.team-chat.empty.body', 'Workers post here from their sessions. You can post as yourself below.')}
+          </p>
+        </div>
+      </div>
+    {:else}
+      {#if truncated}
+        <p class="text-center text-xs text-zinc-500 dark:text-zinc-400">
+          {t('app.team-chat.truncated', 'Showing the most recent messages of')}
+          {total}.
+        </p>
+      {/if}
+      {#each messages as msg (msg.nodeId)}
+        {@const label = authorLabelOf(msg)}
+        {@const kind = authorKindOf(msg)}
+        {@const reply = replyPreviewOf(msg, bySeq)}
+        <div class="flex gap-3">
+          <div
+            class="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full {avatarColorOf(label)}"
+          >
+            <span class="text-xs font-semibold text-white">{authorInitialOf(label)}</span>
+          </div>
+
+          <div class="min-w-0 flex-1">
+            <div class="mb-1 flex flex-wrap items-center gap-2">
+              <span class="text-sm font-semibold text-zinc-900 dark:text-white">{label}</span>
+
+              <!-- The attribution badge is the reason this tab exists: a reader
+                   must be able to tell a teammate's post from a human's without
+                   reading the body. -->
+              {#if kind === 'worker'}
+                <span class="rounded border border-indigo-300 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">
+                  {t('app.team-chat.author.worker', 'worker')}
+                </span>
+              {:else if kind === 'human'}
+                <span class="rounded border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-600 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                  {t('app.team-chat.author.human', 'person')}
+                </span>
+              {:else if kind === 'legacy'}
+                <!-- Pre-#974: a persona-era author, stored as authorAgentId and
+                     not surfaced by the current envelope. The name is known;
+                     the worker id never existed. Say that rather than claiming
+                     a Worker or claiming ignorance. -->
+                <span
+                  class="rounded border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                  title={t('app.team-chat.author.legacy.hint', 'Posted before the worker model, so this message records a name but no worker id.')}
+                >
+                  {t('app.team-chat.author.legacy', 'pre-worker')}
+                </span>
+              {:else}
+                <span
+                  class="rounded border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-300"
+                  title={t('app.team-chat.author.unknown.hint', 'This message carries no author id, so it cannot be attributed.')}
+                >
+                  {t('app.team-chat.author.unknown', 'unattributed')}
+                </span>
+              {/if}
+
+              <!-- seq is how the team addresses messages to each other, in the
+                   CLI (--reply-to) and in prose ("seq 14"). It is content, not
+                   debug output. -->
+              <span class="font-mono text-xs text-zinc-400 dark:text-zinc-500">#{msg.seq}</span>
+
+              <span class="text-xs text-zinc-400 dark:text-zinc-500">{formatAt(msg.at)}</span>
+
+              <button
+                type="button"
+                onclick={() => startReply(msg.seq)}
+                class="ml-auto rounded px-1.5 py-0.5 text-xs text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+              >
+                {t('app.team-chat.reply', 'Reply')}
+              </button>
+            </div>
+
+            {#if reply}
+              <div class="mb-1 border-l-2 border-zinc-300 pl-2 text-xs text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">
+                {#if reply.excerpt}
+                  {t('app.team-chat.reply-to', 'Replying to')} <span class="font-mono">#{reply.seq}</span>
+                  {reply.author} — {reply.excerpt}
+                {:else}
+                  <!-- The cited message is older than this page. Not missing —
+                       off-screen. The seq is still the useful half. -->
+                  {t('app.team-chat.reply-to', 'Replying to')} <span class="font-mono">#{reply.seq}</span>
+                  <span class="italic">{t('app.team-chat.reply-offpage', '(earlier in the team chat)')}</span>
+                {/if}
+              </div>
+            {/if}
+
+            <div class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-zinc-900 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100">
+              <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>blockquote]:my-2">
+                {@html renderMarkdown(msg.body)}
+              </div>
+            </div>
+
+            {#if msg.mentions.length > 0}
+              <!-- Extracted server-side at write time. The portal never parses
+                   bodies for mentions, so this list is the only source. -->
+              <div class="mt-1 flex flex-wrap gap-1">
+                {#each msg.mentions as mention (mention)}
+                  <span class="rounded bg-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                    @{mention}
+                  </span>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        </div>
+      {/each}
+    {/if}
+  </div>
+
+  {#if postError}
+    <div role="alert" class="mx-6 mb-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+      {postError}
+    </div>
+  {/if}
+
+  <div class="border-t border-zinc-200 bg-zinc-50 px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <form method="POST" {action} use:postEnhance novalidate>
+      <input type="hidden" name="_kind" value={$postFormData._kind} />
+      <input type="hidden" name="replyToSeq" value={replyTo ?? ''} />
+
+      {#if replyTo !== null}
+        <div class="mb-2 flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+          <span>{t('app.team-chat.replying-to', 'Replying to')} <span class="font-mono">#{replyTo}</span></span>
+          <button
+            type="button"
+            onclick={() => (replyTo = null)}
+            class="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-700"
+          >
+            {t('app.team-chat.cancel-reply', 'Cancel reply')}
+          </button>
+        </div>
+      {/if}
+
+      <div class="flex gap-3">
+        <textarea
+          id="team-chat-body"
+          name="body"
+          bind:value={$postFormData.body}
+          placeholder={t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl+Enter to send). Mention a teammate with @name.')}
+          rows="3"
+          disabled={$postSubmitting}
+          onkeydown={handleKeydown}
+          aria-invalid={!!postError}
+          class="flex-1 resize-none rounded-lg border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
+        ></textarea>
+        <button
+          type="submit"
+          disabled={!$postFormData.body.trim() || $postSubmitting}
+          class="self-end rounded-lg bg-indigo-600 px-4 py-3 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-indigo-500 dark:hover:bg-indigo-600"
+        >
+          {$postSubmitting
+            ? t('app.team-chat.composer.posting', 'Posting…')
+            : t('app.team-chat.composer.post', 'Post')}
+        </button>
+      </div>
+      <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+        {t('app.team-chat.composer.attribution', 'Posts from here are attributed to you, not to a worker.')}
+      </p>
+    </form>
+  </div>
+</div>

@@ -8,6 +8,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
+  import TeamChatThread from '$lib/components/TeamChatThread.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
@@ -90,7 +91,7 @@
   // sets `surfaces = ['chat']` for chatbot Apps so existing apps keep their
   // tab without behavior change. Gate logic lives in `$lib/app-surfaces`
   // so it's unit-testable independent of the Svelte component lifecycle.
-  type TabId = 'chat' | 'staff' | 'memory' | 'settings' | 'client';
+  type TabId = 'chat' | 'team-chat' | 'staff' | 'memory' | 'settings' | 'client';
   const hasChatSurface = $derived(hasChatSurfaceFn(app.surfaces));
   // Chat tab renders the agent-chat platform when an Agent is linked;
   // shows an empty state otherwise.
@@ -119,6 +120,13 @@
   let activeTab = $state<TabId>(untrack(() => hasChatSurface ? 'chat' : 'memory'));
   const tabs = $derived<{ id: TabId; label: string }[]>([
     ...(hasChatSurface ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
+    // #732: the App's TEAM CHAT — a different thing from the Chat tab above,
+    // which is an agent chat session. Always present, for the same reason as
+    // Staff below: an App with no team chat yet is information, and the tab is
+    // how the first message gets posted. The label keeps "team" on it always,
+    // because a bare "Chat" next to the tab above is exactly the collision the
+    // ratified vocabulary exists to prevent (hadron-server#1034).
+    { id: 'team-chat', label: t('app.tabs.team-chat', 'Team chat') },
     // #974: the App's staff — its Workers. Always present, including when the
     // staff list is empty: "this App has no workers cast yet" is information,
     // and hiding the tab would hide the way to cast the first one.
@@ -914,6 +922,44 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           </div>
         </div>
       {/if}
+    </div>
+  {/if}
+
+  <!-- ───────────── TEAM CHAT TAB (#732) ─────────────
+       The App's team chat: the shared thread its workers and members post to.
+       NOT the Chat tab above — that is an agent chat session, a different
+       surface backed by a different operation. Read through the canonical
+       `teamChatMessages` operation, never by walking appNodes, which cannot
+       reach the App's shared memory at all (hadron-server#1031).
+
+       No LLM composer, no delete, no rename — see #732 and the component. -->
+  {#if activeTab === 'team-chat'}
+    <div class="flex flex-col" style="height: calc(100vh - 280px);">
+      <div class="mb-3">
+        <h2 class="font-semibold text-zinc-900 dark:text-white">
+          {t('app.team-chat.title', 'Team chat')}
+        </h2>
+        <p class="mt-1 max-w-2xl text-sm text-zinc-500">
+          {t(
+            'app.team-chat.description',
+            'The shared thread for this App’s team. Workers post here from their worker sessions; you post as yourself.',
+          )}
+        </p>
+      </div>
+      <!-- flex flex-col is load-bearing, not decoration: the thread's root sizes
+           itself with `flex-1 min-h-0`, which is inert unless its PARENT is a
+           flex container. Without it the thread grows to its content height and
+           `overflow-hidden` clips the composer out of the page entirely — the
+           transcript reads fine and the reply box is simply gone. -->
+      <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+        <TeamChatThread
+          messages={data.teamChatMessages ?? []}
+          total={data.teamChatTotal ?? 0}
+          loadError={data.teamChatError ?? false}
+          postForm={data.postTeamChatMessageForm}
+          {form}
+        />
+      </div>
     </div>
   {/if}
 
