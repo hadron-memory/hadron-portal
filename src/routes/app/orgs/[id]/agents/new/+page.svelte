@@ -118,7 +118,7 @@
       <textarea id="systemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent"
         bind:value={$formData.systemPrompt}
         class={inputClass}></textarea>
-      <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session. Used to define the agent's behavior and personality.</p>
+      <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each agent chat. Used to define the agent's behavior and personality.</p>
     </div>
 
     <div>

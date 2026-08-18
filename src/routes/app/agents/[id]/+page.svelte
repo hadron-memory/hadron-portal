@@ -1162,7 +1162,7 @@
             <div>
               <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
               <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent" bind:value={$agentSettingsForm.systemPrompt} class={inputClass}></textarea>
-              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
+              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each agent chat.</p>
             </div>
             <div>
               <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>

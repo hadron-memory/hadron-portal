@@ -161,7 +161,7 @@
             {t('app.team-chat.empty.title', 'No messages in the team chat yet')}
           </p>
           <p class="text-sm text-zinc-400 dark:text-zinc-500">
-            {t('app.team-chat.empty.body', 'Workers post here from their sessions. You can post as yourself below.')}
+            {t('app.team-chat.empty.body', 'Workers post here from their worker sessions. You can post as yourself below.')}
           </p>
         </div>
       </div>
