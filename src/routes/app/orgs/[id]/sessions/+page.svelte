@@ -148,9 +148,17 @@
        sessions. Raised with the coordinator as a gap in #1034. -->
   <h1 class="text-lg font-semibold text-zinc-900 dark:text-white">{t('sessions.title', 'Sessions')}</h1>
   <p class="text-sm text-zinc-500">
+    <!-- No proportion claim here. An earlier draft said "most sessions are not
+         worker-bound", which is a server-side generality this page cannot
+         verify: the loader fetches an arbitrary user-scoped page and never
+         computes the ratio, so for a worker-driven user the sentence would
+         contradict the rows directly beneath it. Describing the COLUMN is
+         true for every reader; describing the population is not. (Codex, #743
+         — and the same class of unsupported claim I declined to make by
+         renaming the page.) -->
     {t(
       'sessions.description',
-      'Agent and coding sessions recorded in Hadron — tokens, turns, duration and errors. A session driven by a worker names it in the Worker column; most sessions are not worker-bound. These are not your chat sessions.',
+      'Agent and coding sessions recorded in Hadron — tokens, turns, duration and errors. The Worker column names the worker a session was bound to, and is empty when the session was not worker-bound. These are not your chat sessions.',
     )}
   </p>
 

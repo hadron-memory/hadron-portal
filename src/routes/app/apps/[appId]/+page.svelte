@@ -135,15 +135,16 @@
     untrack(() => (data.initialTab as TabId | null) ?? (hasChatSurface ? 'chat' : 'memory')),
   );
   const tabs = $derived<{ id: TabId; label: string }[]>([
-    // #734: "Agent chat", not a bare "Chat". This tab is a CHAT SESSION with
-    // the App's linked agent, and it sits next to a Team chat tab — so a bare
-    // label makes "close the chat" mean two opposite things depending on which
-    // concept the reader has in mind. Naming the counterparty removes the
-    // ambiguity without inventing vocabulary: the render mode this tab already
-    // chooses is called `agent-chat`.
+    // #734: "Agent chat", not a bare "Chat". This tab is a conversation with
+    // the App's linked agent — a saved `Chat`, NOT a "chat session", which
+    // hadron-server#1034 reserves for the human's own conversation. It sits
+    // next to a Team chat tab, so a bare label makes "close the chat" mean two
+    // opposite things depending on which concept the reader has in mind.
+    // Naming the counterparty removes the ambiguity without inventing
+    // vocabulary: the render mode this tab already chooses is `agent-chat`.
     ...(hasChatSurface ? [{ id: 'chat' as TabId, label: t('app.tabs.agent-chat', 'Agent chat') }] : []),
-    // #732: the App's TEAM CHAT — a different thing from the Chat tab above,
-    // which is an agent chat session. Always present, for the same reason as
+    // #732: the App's TEAM CHAT — a different thing from the Agent chat tab
+    // above, which is a conversation with the linked agent. Always present, for the same reason as
     // Staff below: an App with no team chat yet is information, and the tab is
     // how the first message gets posted. The label keeps "team" on it always,
     // because a bare "Chat" next to the tab above is exactly the collision the

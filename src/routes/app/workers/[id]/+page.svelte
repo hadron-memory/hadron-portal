@@ -166,7 +166,7 @@
   <p class="text-xs text-zinc-500 dark:text-zinc-400">
     {t(
       'worker.phase2.note',
-      'This worker’s worker sessions and work records will appear here once the platform can filter the worklog by worker.',
+      'The worker sessions and work records for this worker will appear here once the platform can filter the worklog by worker.',
     )}
   </p>
 </div>
