@@ -123,6 +123,32 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
     const r = await expectRedirect('urn:app:alice:personal-bot');
     expect(r.location).toBe('/app/apps/app-2');
   });
+
+  // #735/#991. The server has resolved `hrn:worker:` since #991, but this route
+  // had no case for it — so every identity signature required by
+  // hadron-server#1008 landed its reader on a 404, which is the exact opposite
+  // of what a signature is for.
+  it('redirects a worker URN to its own page, not to the App', async () => {
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'worker', id: 'w-1', memoryId: null, organizationId: 'org-7' },
+    });
+    const r = await expectRedirect('hrn:worker:hadronmemory.com:hadron-dev-team:gil');
+    expect(r.location).toBe('/app/workers/w-1');
+    // A redirect to the App's staff roster would answer "which team" rather
+    // than "who is this" (#737), so it is explicitly not that.
+    expect(r.location).not.toContain('/app/apps/');
+  });
+
+  // UrnResolution carries no appId, so a worker resolution legitimately has
+  // nothing but its own id. That must not be mistaken for the "incomplete
+  // resolution" 500 that a node without a memoryId gets.
+  it('redirects a worker URN even when no organizationId is carried', async () => {
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'worker', id: 'w-2', memoryId: null, organizationId: null },
+    });
+    const r = await expectRedirect('hrn:worker:alice:solo-app:iris');
+    expect(r.location).toBe('/app/workers/w-2');
+  });
 });
 
 describe('/app/u/[urn] — unresolvable and inaccessible URNs 404', () => {

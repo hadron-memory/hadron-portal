@@ -314,8 +314,11 @@ export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
  * case-insensitively, FOREVER — retirement and uninstall never free one — so
  * inside an App context the bare `name` is unambiguous (`cor:agt:020:02`).
  *
- * Workers have **no URN** and their names never appear in slugs, so identity is
- * always these columns; there is nothing to parse.
+ * Since #991 a worker DOES have a URN — `hrn:worker:<root>:<app-slug>:<slug>`,
+ * computed from the App's URN plus the derived `slug`, not stored. It is the
+ * identity a worker signs outward-facing artifacts with (hadron-server#1008)
+ * and is resolvable through `/app/u/`. It is nullable by contract, so treat its
+ * absence as "this App's URN predates the flat grammar", never as an error.
  */
 export interface Worker {
   id: string;
@@ -323,6 +326,17 @@ export interface Worker {
   agentId: string;
   /** The worker's name ("Iris") — the identity every surface renders. */
   name: string;
+  /** The URN atom derived from the name at cast time, permanent thereafter.
+   *  NON-NULL in the schema (`slug: String!`) — deriving it never refuses, so a
+   *  cast always has one. Optional here only because slim projections may not
+   *  select it; `undefined` means "not selected", never "absent". */
+  slug?: string;
+  /** `hrn:worker:<root>:<app-slug>:<slug>`. Null when the App's URN predates
+   *  the flat grammar-v2 arity this shape requires — not an error. */
+  urn?: string | null;
+  /** The App whose staff this casting fills. Selected only where a page needs
+   *  to name or link the team; absent from the slim staff-list projection. */
+  app?: { id: string; name: string; urn: string; organizationId?: string | null } | null;
   /** The cast-list role this filling answers ("backend-engineer"). */
   role: string | null;
   /** Per-worker individuality layered over the agent's template prompt. */

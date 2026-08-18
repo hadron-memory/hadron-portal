@@ -557,7 +557,14 @@ export const APP_WITH_MEMBERS_QUERY = /* GraphQL */ `
 // Workers; the AppAgent join (App.agents) is only the install ROSTER, i.e.
 // which agents are available to cast.
 //
-// Workers have no URN, so every ref here is the PK. Names are unique per App
+// Since #991 a Worker DOES have a URN — `hrn:worker:<root>:<app-slug>:<slug>`,
+// computed from the App's URN plus the derived `slug`, not stored. It is the
+// identity a worker signs outward-facing artifacts with (hadron-server#1008)
+// and resolves through /app/u. `slug` is non-null; `urn` is nullable, and null
+// means the App's URN predates the flat grammar-v2 arity this shape needs —
+// a fact about the App, not an error.
+//
+// A PK is still a valid ref everywhere, and names remain unique per App
 // forever, which is what lets an App-context surface render the bare name.
 const WORKER_FIELDS = /* GraphQL */ `
   fragment WorkerFields on Worker {
@@ -565,6 +572,14 @@ const WORKER_FIELDS = /* GraphQL */ `
     appId
     agentId
     name
+    # The URN atom (#991): derived from the name at cast time and permanent
+    # thereafter, so it survives a rename and outlives retirement.
+    slug
+    # hrn:worker:<root>:<app-slug>:<slug> — the identity every worker signs
+    # outward-facing artifacts with (hadron-server#1008). Nullable by contract:
+    # null when the App's URN predates the flat grammar-v2 arity, so every
+    # consumer must tolerate its absence rather than assume a URN exists.
+    urn
     role
     promptOverride
     memoryId
@@ -573,6 +588,24 @@ const WORKER_FIELDS = /* GraphQL */ `
     # The role-actor behind the casting. Nullable in the schema, so every
     # consumer must tolerate null rather than assuming the agent resolves.
     agent { id name urn personaRole }
+  }
+`;
+
+// One worker, for its own page (#735). Selects the App because the page names
+// the team a worker belongs to, and because the URN resolver hands over only a
+// worker id — Worker.app is what turns that into a link.
+//
+// `prompt` is deliberately NOT selected. Selecting it re-renders the full boot
+// briefing live, which is multi-KB, and dumping that into a page payload is the
+// same defect hadron-cli#459 is open about on `worker list --json`. #737 covers
+// showing it behind an explicit expand.
+export const WORKER_QUERY = /* GraphQL */ `
+  ${WORKER_FIELDS}
+  query Worker($ref: ID!) {
+    worker(ref: $ref) {
+      ...WorkerFields
+      app { id name urn organizationId }
+    }
   }
 `;
 
