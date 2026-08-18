@@ -572,7 +572,8 @@ const WORKER_FIELDS = /* GraphQL */ `
     appId
     agentId
     name
-    # The URN atom (#991), derived from the name at cast and permanent after.
+    # The URN atom (#991): derived from the name at cast time and permanent
+    # thereafter, so it survives a rename and outlives retirement.
     slug
     # hrn:worker:<root>:<app-slug>:<slug> — the identity every worker signs
     # outward-facing artifacts with (hadron-server#1008). Nullable by contract:
