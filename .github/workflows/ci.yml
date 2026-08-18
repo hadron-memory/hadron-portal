@@ -1,0 +1,78 @@
+name: CI
+
+# The gate that runs the app: tests, type/svelte check, and a production build.
+# Closes #693.
+#
+# Before this existed, none of the three workflows in this directory executed
+# the app at all — `no-station-refs` is a git grep, `graphql-validate` checks
+# documents against the schema snapshot (and runs vitest over `scripts/` only),
+# and `schema-drift` is a nightly cross-repo SDL re-export. A PR could break
+# every test in the suite, or stop compiling, and every check would still be
+# green. Seven PRs merged on 2026-08-17/18 reported "CI green" truthfully and
+# far more weakly than it sounded.
+#
+# This buys VISIBILITY, not enforcement: no repo in the hadron-memory org has a
+# required status check (branch protection is unavailable on the org's plan for
+# the private repos), so a red run does not block a merge — whoever merges still
+# has to read the conclusions. See
+# hrn:node:hadronmemory.com:dev:findings:ci-checks-are-advisory-no-required-gates
+#
+# `graphql-validate` deliberately stays a separate workflow: it is a contract
+# check paired with the nightly `schema-drift`, and keeping that pairing legible
+# is worth one extra dependency install. Its `pnpm vitest run scripts/` step is
+# now a subset of `pnpm test` here (vitest.config.ts includes `scripts/`), which
+# is redundant on purpose — that workflow stays self-contained so the gate's own
+# tests run even if this file changes.
+#
+# Third-party actions are pinned to a full commit SHA (tag in a trailing
+# comment), matching `graphql-validate` and `schema-drift`. Bump SHA + comment
+# together when upgrading.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+
+      # corepack honours the `packageManager` field in package.json, so the
+      # pnpm version stays pinned in one place.
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # tsconfig.json extends ./.svelte-kit/tsconfig.json, which `svelte-kit
+      # sync` generates and which is not committed. Without it vitest cannot
+      # transform any .ts test and every test FILE fails to load — verified by
+      # removing the directory on main: 81 files failed, 0 tests ran. It passes
+      # locally only because an earlier `pnpm check` or `pnpm build` left the
+      # directory behind, so the suite has never run in a clean environment.
+      #
+      # `pnpm check` and `pnpm build` both sync on their own; `pnpm test` is the
+      # one that does not. This step stays explicit rather than being satisfied
+      # by reordering the steps below it — a test run that depends on a previous
+      # command's side effect is the exact bug this comment describes.
+      - name: Generate the SvelteKit tsconfig
+        run: pnpm exec svelte-kit sync
+
+      - name: Test
+        run: pnpm test
+
+      - name: Check
+        run: pnpm check
+
+      # adapter-node, and every `$env` import is `$env/dynamic/*` (resolved at
+      # runtime), so the build needs no environment variables. Verified with
+      # `.env` moved aside.
+      - name: Build
+        run: pnpm build
