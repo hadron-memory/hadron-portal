@@ -135,9 +135,16 @@
     untrack(() => (data.initialTab as TabId | null) ?? (hasChatSurface ? 'chat' : 'memory')),
   );
   const tabs = $derived<{ id: TabId; label: string }[]>([
-    ...(hasChatSurface ? [{ id: 'chat' as TabId, label: 'Chat' }] : []),
-    // #732: the App's TEAM CHAT — a different thing from the Chat tab above,
-    // which is an agent chat session. Always present, for the same reason as
+    // #734: "Agent chat", not a bare "Chat". This tab is a conversation with
+    // the App's linked agent — a saved `Chat`, NOT a "chat session", which
+    // hadron-server#1034 reserves for the human's own conversation. It sits
+    // next to a Team chat tab, so a bare label makes "close the chat" mean two
+    // opposite things depending on which concept the reader has in mind.
+    // Naming the counterparty removes the ambiguity without inventing
+    // vocabulary: the render mode this tab already chooses is `agent-chat`.
+    ...(hasChatSurface ? [{ id: 'chat' as TabId, label: t('app.tabs.agent-chat', 'Agent chat') }] : []),
+    // #732: the App's TEAM CHAT — a different thing from the Agent chat tab
+    // above, which is a conversation with the linked agent. Always present, for the same reason as
     // Staff below: an App with no team chat yet is information, and the tab is
     // how the first message gets posted. The label keeps "team" on it always,
     // because a bare "Chat" next to the tab above is exactly the collision the
@@ -906,7 +913,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
           <div class="max-w-md text-center">
             <p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('app-chat.no-llm.title', 'Connect an LLM provider to enable chat')}
+              {t('app-chat.no-llm.title', 'Connect an LLM provider to enable agent chat')}
             </p>
             <p class="mb-4 text-sm text-zinc-500">
               {t(
@@ -926,7 +933,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
           <div class="max-w-md text-center">
             <p class="mb-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('app-chat.empty.title', 'Link a chatbot agent to enable chat')}
+              {t('app-chat.empty.title', 'Link a chatbot agent to enable agent chat')}
             </p>
             <p class="mb-4 text-sm text-zinc-500">
               {t(
@@ -948,8 +955,11 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 
   <!-- ───────────── TEAM CHAT TAB (#732) ─────────────
        The App's team chat: the shared thread its workers and members post to.
-       NOT the Chat tab above — that is an agent chat session, a different
-       surface backed by a different operation. Read through the canonical
+       NOT the Agent chat tab above — that is a conversation with the App's
+       linked agent, a different surface backed by a different operation. (It
+       is not a "chat session" either: hadron-server#1034 reserves that for the
+       HUMAN's conversation — the Desktop window or Claude Code session — while
+       the agent's saved conversation is a Chat entity.) Read through the canonical
        `teamChatMessages` operation, never by walking appNodes, which cannot
        reach the App's shared memory at all (hadron-server#1031).
 
@@ -1340,7 +1350,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               <textarea id="systemPrompt" name="systemPrompt" rows="4" bind:value={$appSettingsForm.systemPrompt}
                 placeholder="Instructions for the LLM when using this app"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"></textarea>
-              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each session.</p>
+              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each agent chat.</p>
             </div>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>

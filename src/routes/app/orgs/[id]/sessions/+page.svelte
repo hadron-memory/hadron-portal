@@ -128,14 +128,42 @@
   });
 </script>
 
-<svelte:head><title>Sessions · {org.name} · Hadron</title></svelte:head>
+<svelte:head><title>{t('sessions.title', 'Sessions')} · {org.name} · Hadron</title></svelte:head>
 
 <div class="space-y-4">
-  <h1 class="text-lg font-semibold text-zinc-900 dark:text-white">Sessions</h1>
-  <p class="text-sm text-zinc-500">Agent and coding-session activity — tokens, turns, duration, and errors.</p>
+  <!-- #734 / hadron-server#1034 — the vocabulary sweep deliberately does NOT
+       rename this page.
+
+       `sessions` returns EVERY session recorded against the caller, and the
+       query's own note says `worker` is null "for a session that was never
+       worker-bound (a plain user-driven session) — the COMMON case". So
+       "Worker sessions" would be a heading that claims a filter this page does
+       not apply, and would mislabel the majority of its own rows.
+
+       The ratified vocabulary names two things — a WORKER session (the binding)
+       and a CHAT session (the human's conversation) — and this list is the
+       superset of the first, which has no ratified name. Rather than mint one,
+       the copy DESCRIBES what a row is and says plainly what this page is not,
+       which is the actual risk: a reader assuming these are their own chat
+       sessions. Raised with the coordinator as a gap in #1034. -->
+  <h1 class="text-lg font-semibold text-zinc-900 dark:text-white">{t('sessions.title', 'Sessions')}</h1>
+  <p class="text-sm text-zinc-500">
+    <!-- No proportion claim here. An earlier draft said "most sessions are not
+         worker-bound", which is a server-side generality this page cannot
+         verify: the loader fetches an arbitrary user-scoped page and never
+         computes the ratio, so for a worker-driven user the sentence would
+         contradict the rows directly beneath it. Describing the COLUMN is
+         true for every reader; describing the population is not. (Codex, #743
+         — and the same class of unsupported claim I declined to make by
+         renaming the page.) -->
+    {t(
+      'sessions.description',
+      'Agent and coding sessions recorded in Hadron — tokens, turns, duration and errors. The Worker column names the worker a session was bound to, and is empty when the session was not worker-bound. These are not your chat sessions.',
+    )}
+  </p>
 
   {#if data.sessions.length === 0}
-    <p class="text-sm text-zinc-500">No sessions found.</p>
+    <p class="text-sm text-zinc-500">{t('sessions.empty', 'No sessions found.')}</p>
   {:else}
     <DataTable
       {table}
