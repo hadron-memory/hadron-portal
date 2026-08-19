@@ -857,12 +857,18 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
     </div>
   {/if}
 
-  <!-- Tabs -->
-  <div class="flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
+  <!-- Tabs — #740: the strip scrolls horizontally instead of overflowing the
+       page. A team App shows seven of these (Team chat · Staff · Worklog ·
+       Memory · Settings · Client · Runs), which is ~570px of tabs; at 375px
+       they ran straight off the right edge and took the panel bodies with
+       them. `shrink-0` + `whitespace-nowrap` on each tab is what makes it
+       SCROLL rather than compress — without them flex squeezes every label
+       into an unreadable column instead. -->
+  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
     {#each tabs as tab}
       <button
         onclick={() => activeTab = tab.id}
-        class="border-b-2 px-4 py-2 text-sm font-medium transition
+        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
           {activeTab === tab.id
             ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
             : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
@@ -874,7 +880,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
          records), so it's a link styled as a tab, not an activeTab state. -->
     <a
       href="/app/apps/{app.id}/runs"
-      class="border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
     >
       {t('app.tabs.runs', 'Runs')}
     </a>
@@ -882,7 +888,11 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 
   <!-- ───────────── CHAT TAB (CHATBOT only) ───────────── -->
   {#if activeTab === 'chat'}
-    <div class="flex flex-col" style="height: calc(100vh - 280px);">
+    <!-- #740: `dvh` tracks the VISIBLE viewport, so the panel doesn't run
+         under a phone browser's address bar; the `vh` line before it is the
+         fallback for browsers without `dvh`. Same pattern, same reason as the
+         sidebar in src/routes/app/+layout.svelte. -->
+    <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
       {#if appChatRender === 'agent-chat' && app.agentId}
         <div class="flex-1 min-h-0 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden">
           <AgentChat
@@ -897,11 +907,26 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                lives — matching where model pickers appear in most chat apps. -->
           <div class="mt-2 flex items-center gap-2 text-sm">
             <label for="chat-config" class="text-zinc-500">{t('app-chat.config.label', 'AI config')}</label>
+            <!-- #740: `min-w-0` is the load-bearing half. A <select> sizes to
+                 its LONGEST OPTION, and these read
+                 "default (bedrock · us.anthropic.claude-sonnet-4-6)" — 370px,
+                 which pushed 94px past the right edge of a 390px viewport and
+                 was the last thing making the whole page scroll sideways after
+                 the shell and the tab strip were fixed. A flex item's default
+                 `min-width: auto` refuses to shrink below that intrinsic
+                 width, so `truncate` alone would not have helped.
+
+                 `min-w-0` WITHOUT `flex-1`, on purpose: the default
+                 `flex: 0 1 auto` already permits shrinking, so the control
+                 keeps its natural width wherever there is room — desktop is
+                 pixel-identical — and gives way only where there isn't.
+                 `flex-1` (which I tried first) makes it GROW to fill the row,
+                 changing a desktop surface to fix a phone one. -->
             <select
               id="chat-config"
               value={effectiveConfigName ?? ''}
               onchange={(e) => (selectedConfigName = e.currentTarget.value)}
-              class="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+              class="min-w-0 truncate rounded-lg border border-zinc-300 bg-white px-2 py-1 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
             >
               {#each usableChatConfigs as c (c.id)}
                 <option value={c.name}>{c.name} ({c.provider} · {c.model})</option>
@@ -965,7 +990,11 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 
        No LLM composer, no delete, no rename — see #732 and the component. -->
   {#if activeTab === 'team-chat'}
-    <div class="flex flex-col" style="height: calc(100vh - 280px);">
+    <!-- #740: `dvh` tracks the VISIBLE viewport, so the panel doesn't run
+         under a phone browser's address bar; the `vh` line before it is the
+         fallback for browsers without `dvh`. Same pattern, same reason as the
+         sidebar in src/routes/app/+layout.svelte. -->
+    <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
       <div class="mb-3">
         <h2 class="font-semibold text-zinc-900 dark:text-white">
           {t('app.team-chat.title', 'Team chat')}
