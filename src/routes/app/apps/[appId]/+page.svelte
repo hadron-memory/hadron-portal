@@ -14,6 +14,7 @@
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
+  import { workerHold } from '$lib/worker-hold';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t.js';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
@@ -1256,6 +1257,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       {:else}
         <ul class="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
           {#each sortedStaff as worker (worker.id)}
+            {@const hold = workerHold(worker, data.user?.id)}
             <li class="flex items-start justify-between gap-4 px-5 py-3">
               <div class="min-w-0">
                 <div class="flex flex-wrap items-center gap-2">
@@ -1289,6 +1291,36 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                   <a href="/app/memories/{worker.memoryId}" class="mt-1 inline-block text-xs text-indigo-600 hover:underline dark:text-indigo-400">
                     {t('app.staff.working-memory', 'Working memory →')}
                   </a>
+                {/if}
+                <!-- #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — whose name this is. A hold is
+                     STANDING: it survives expiry, a reap and a closed chat
+                     session, and only an explicit release frees it. That is a
+                     different question from "is a session bound right now",
+                     which this roster deliberately does not answer.
+
+                     Rendered ONLY when a hold is known. `none` is not "free" —
+                     the field is masked to null on a denied read, so the two
+                     are indistinguishable here and claiming "not held" would
+                     assert staffing we did not read. Absence of a claim beats
+                     a confident wrong one. -->
+                {#if hold.kind === 'self'}
+                  <p class="mt-1 text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                    {t('app.staff.held.you', 'Your name — held by you')}
+                    {#if hold.since}
+                      <span class="font-normal text-zinc-500"
+                        >· {t('app.staff.held.since', 'since')} {formatDate(hold.since)}</span
+                      >
+                    {/if}
+                  </p>
+                {:else if hold.kind === 'other'}
+                  <p class="mt-1 text-xs text-zinc-500">
+                    <!-- Unnamed until the server resolves the holder (#748) —
+                         resolving it here would be one query per roster row. -->
+                    {t('app.staff.held.other', 'Held by another member')}
+                    {#if hold.since}
+                      · {t('app.staff.held.since', 'since')} {formatDate(hold.since)}
+                    {/if}
+                  </p>
                 {/if}
               </div>
               {#if !worker.retiredAt}

@@ -350,6 +350,26 @@ export interface Worker {
    * sessions, but the row and its name reservation survive.
    */
   retiredAt: string | null;
+  /**
+   * hadron-server#1050 / `hrn:node:hadronmemory.com:specs:cor:agt:020:09` — the user id HOLDING this name, or
+   * null when nobody does.
+   *
+   * A name is held by a person, not by a live session: expiry, a reap and a
+   * closed chat session never free one, and only an explicit release does. So
+   * this is not "is someone using it right now" — that is a separate question
+   * about a live session, and only ever about your own worker.
+   *
+   * THREE-VALUED, and the third value is the one that bites. This is a
+   * WORKING-STATE field behind the worker read gate, MASKED TO NULL ON DENY
+   * (like `promptOverride` and `memoryId`, unlike `name`/`role`/`urn`). So
+   * `null` means EITHER "nobody holds it" OR "you may not see who does", and a
+   * UI that renders those the same is asserting something the data does not
+   * support. `undefined` additionally means "not selected".
+   */
+  heldByUserId?: string | null;
+  /** When the current hold was taken. Null exactly when `heldByUserId` is —
+   *  including when both are masked on deny. */
+  heldAt?: string | null;
   createdAt: string;
 }
 

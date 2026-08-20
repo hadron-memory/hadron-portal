@@ -3,12 +3,18 @@
   import Urn from '$lib/components/Urn.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import { t } from '$lib/i18n/t';
+  import { isHeld, workerHold } from '$lib/worker-hold';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
 
   const worker = $derived(data.worker);
   const retired = $derived(!!worker.retiredAt);
+
+  // #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — whose name this
+  // is. `data.user` merges down from the /app layout, so the viewer id needs
+  // no loader change.
+  const hold = $derived(workerHold(worker, data.user?.id));
 
   // Mirrors the App detail page's own `appsHref`. `/app/apps` is the ORG-LESS
   // "My apps" list (#647) — it shows only the caller's user-owned Apps, so for
@@ -149,6 +155,41 @@
       <dd class="mt-1 text-sm text-zinc-900 dark:text-white">{formatDate(worker.createdAt)}</dd>
     </div>
 
+    <!-- #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — the hold,
+         rendered ONLY when one is known.
+
+         Conditional for the same reason the Retired row is, plus a sharper
+         one: `heldByUserId` is a working-state field masked to null on a
+         denied read, so a null is "nobody holds it" OR "you may not see who
+         does". A row reading "Not held" would state the first as fact having
+         possibly received the second. Absence of a claim is the honest
+         rendering; there is no second signal that separates them.
+
+         A hold is STANDING — it survives expiry, a reap and a closed chat
+         session, and only an explicit release frees it. It deliberately does
+         NOT answer "is a session bound right now". -->
+    {#if isHeld(hold)}
+      <div class="bg-white p-4 dark:bg-zinc-950">
+        <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          {t('worker.field.held', 'Name held by')}
+        </dt>
+        <dd class="mt-1 text-sm text-zinc-900 dark:text-white">
+          {#if hold.kind === 'self'}
+            <span class="font-medium text-indigo-600 dark:text-indigo-400"
+              >{t('worker.field.held.you', 'You')}</span
+            >
+          {:else}
+            <!-- Unnamed until the server resolves a holder (#748); the portal
+                 has only the raw user id, and a UUID names nobody. -->
+            {t('worker.field.held.other', 'Another member')}
+          {/if}
+          {#if hold.kind !== 'none' && hold.kind !== 'unselected' && hold.since}
+            <span class="text-zinc-500">· {t('worker.field.held.since', 'since')} {formatDate(hold.since)}</span>
+          {/if}
+        </dd>
+      </div>
+    {/if}
+
     {#if retired}
       <div class="bg-white p-4 dark:bg-zinc-950">
         <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -158,6 +199,19 @@
       </div>
     {/if}
   </dl>
+
+  {#if isHeld(hold)}
+    <!-- The consequence a reader cannot infer from "held": a name is a person's
+         until released, and releasing it hands on the worker's memory and
+         handoff history too (hrn:node:hadronmemory.com:specs:cor:agt:020:09). Worth saying where someone might
+         otherwise treat a hold as bookkeeping. -->
+    <p class="text-xs text-zinc-500 dark:text-zinc-400">
+      {t(
+        'worker.held.explainer',
+        'A worker name belongs to a person until they explicitly release it — session expiry, a reap and a closed chat session never free it. Releasing a name also hands on this worker’s working memory and handoff history, so nothing private belongs there.',
+      )}
+    </p>
+  {/if}
 
   <!-- #737 adds the worker's worker-sessions and worklog here — the other half
        of "who is this, and what have they actually done". The worklog section

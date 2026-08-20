@@ -3367,9 +3367,29 @@ type Mutation {
   endAgentSession(sessionId: ID!): Boolean!
 
   """
-  Gate (#931): platform admin, the session's App, or the attributed user (not via impersonation).
+  End a session, and — for a worker-bound one — write its closing handoff
+  (#1029). This is the ONLY thing that ends a worker session; a client's chat
+  session ending does not, and never reaches this server (#1034). It ends the
+  SESSION, not the HOLD — the name stays held by its holder until explicitly
+  released (#1050, cor:agt:020:09), so this frees the worker to be bound
+  again by that holder, not by anyone else.
+  
+  Gate (#931): platform admin, the session's App, or the attributed user
+  (not via impersonation).
+  
+  `handoff` is agent-composed prose: what landed, what is open, what is
+  blocked, what the next driver should not repeat. The server owns where it
+  goes (the worker's working memory, under the `handoffs` parent, at a
+  lexically-ordered loc), so no client re-derives the convention.
+  
+  Written BEFORE the session ends, and a failed write REFUSES the end
+  (HANDOFF_WRITE_FAILED) rather than ending anyway: a still-bound worker is
+  recoverable — retry, or end without a handoff deliberately — while an ended
+  session whose handoff evaporated is not, because the context that composed
+  it is gone. Passing `handoff` on a session with no worker is refused rather
+  than dropped; there is no sequence to write it to.
   """
-  endSession(errorCount: Int, id: ID!, inputTokens: Int, outputTokens: Int, summary: String, turnCount: Int): Session!
+  endSession(errorCount: Int, handoff: String, id: ID!, inputTokens: Int, outputTokens: Int, summary: String, turnCount: Int): Session!
 
   """
   Idempotent UPSERT of an AppMember row. Per spec 008-agent-installation
@@ -3642,6 +3662,29 @@ type Mutation {
   releaseEditorLock(agentId: ID!): Boolean!
 
   """
+  #1050 — release a HELD name, so somebody else can hold it.
+  
+  A name is held by a person until released; nothing else frees one, which
+  is what makes availability a fact rather than a judgement about whether an
+  idle driver is really gone. Two principals may call this, and they are
+  different acts: the HOLDER, releasing their own name and owing nobody
+  notice; or an App/org ADMIN, force-releasing somebody else's — the path
+  that exists so a departed colleague's names are not held forever.
+  
+  An admin force-release POSTS TO THE TEAM CHAT, naming who released what
+  and from whom, because the incident this model answers is exactly the one
+  where notice was owed and there was no way to give it. Best-effort: an
+  unreachable chat never blocks the release.
+  
+  Releasing does NOT retire the worker, free the name for a different
+  casting, or touch its history — the name stays permanently allocated to
+  this casting, and the handoff sequence and worklog travel with the worker
+  to whoever holds it next. Idempotent: releasing an unheld worker returns
+  it unchanged.
+  """
+  releaseWorker(workerRef: ID!): Worker!
+
+  """
   DEPRECATED: use uninstallAgentFromApp. Carried for source-compat
   with pre-023 portal callers.
   
@@ -3866,10 +3909,14 @@ type Mutation {
   startAgentSession(agentId: ID!, dataKey: String, externalUserId: String, sessionTimeoutSeconds: Int): Session!
 
   """
-  Start a chat session (creates chat nodes, loads conversation, returns
-  compiled prompt). When called by a JWT user, the chat is created in
+  Start an AGENT CHAT (creates chat nodes, loads conversation, returns
+  compiled prompt). When called by a JWT user, the agent chat is created in
   that user's personal memory for the agent (provisioned lazily if
   needed).
+  
+  #1034: an **agent chat** — deliberately not "chat session", which is
+  reserved for the human's own conversation and names no row in this schema,
+  and not the **team chat**, which is the App's shared channel.
   
   Accepts the entity's ID or URN.
   """
@@ -3887,6 +3934,18 @@ type Mutation {
   row, so stopping it (or demoting the admin) kills the token immediately.
   """
   startImpersonation(orgRef: String!, reason: String, userRef: String!): StartImpersonationResult!
+
+  """
+  Open a session — and, when `input.workerRef` is given, a WORKER SESSION:
+  the binding that makes the work attributable to that named teammate.
+  
+  The binding is held server-side and is independent of the caller's CHAT
+  SESSION (the human's Desktop window, Claude Code session or IDE chat).
+  **Ending one does not end the other** (#1034): a chat session that closes
+  leaves this session open and its worker taken until endSession or the #930
+  reaper. A client that ties its lifetime to a conversation must call
+  endSession itself; nothing about closing a window reaches this server.
+  """
   startSession(input: SessionInput!): Session!
 
   """
@@ -5960,7 +6019,13 @@ type Query {
   session(id: ID!): Session
 
   """
-  workerRef (#974): only sessions bound to that Worker (by id), newest first - the 'taken right now' / 'last driven by' read (cor:agt:020:03).
+  Sessions recorded against the caller, newest first — unfiltered, this is
+  the GENERAL row of every `type`, worker-bound or not (#1034), so a client
+  rendering it must not label it a list of worker sessions.
+  
+  workerRef (#974): only sessions bound to that Worker (by id), newest first
+  - the 'taken right now' / 'last driven by' read (cor:agt:020:03). That
+  filter is what narrows this to worker sessions.
   """
   sessions(customerId: String, limit: Int, offset: Int, repo: String, type: String, workerRef: String): [Session!]!
 
@@ -6030,7 +6095,30 @@ type Query {
   
   appRef accepts the entity's ID or URN; sessionRef is the session id.
   """
-  teamWorkItems(appRef: ID!, kind: String, limit: Int, offset: Int, ref: String, sessionRef: ID, tool: String): TeamWorkItemsPage!
+  teamWorkItems(
+    appRef: ID!
+    kind: String
+    limit: Int
+    offset: Int
+    ref: String
+    sessionRef: ID
+    tool: String
+
+    """
+    #1035 — everything ONE worker has done, filtered server-side so the page
+    envelope stays correct. Without it a client must fan out over
+    sessions(workerRef:) and merge, which cannot reproduce `total` or a
+    stable offset on the one surface whose whole point is completeness.
+    
+    Accepts a worker id, its URN, or its NAME within this App. A RETIRED
+    worker still resolves — retirement ends the casting, not the history.
+    Records from a session that was never worker-bound carry no worker and
+    do not match. A ref that names nothing readable in this App yields an
+    EMPTY page rather than an error, so this is never an existence oracle
+    for another App's roster.
+    """
+    workerRef: ID
+  ): TeamWorkItemsPage!
 
   """
   #796 — read/write activity counts, bucketed by time.
@@ -6408,6 +6496,25 @@ type ServerInfo {
   version: String!
 }
 
+"""
+A unit of work recorded against a user or App: the general row, and what the
+bare word "session" means throughout this schema (#1034). `type` says which
+kind — DEVELOPER, CHATBOT, AUTOMATION, EDGE — and `workerId` is optional.
+
+A **worker session** is the subtype with `workerId` set: a Worker (named
+casting) bound to a driver, which is what makes work attributable to a
+teammate and what a merged PR traces back through. Binding is optional, so a
+list of these is not a staff view and may hold no worker sessions at all —
+read `workerId` per row rather than assuming either way.
+
+A **chat session** is NOT one of these and has no row here: it is the
+conversation a human is in — the Claude Desktop window, the Claude Code
+session, the IDE chat. The two are independent and **ending one does not end
+the other**: a chat session that closes leaves its worker session open, and
+its worker taken, until endSession or the #930 reaper. Do not use "chat
+session" for a Chat (the agent conversation entity) — that is an **agent
+chat**, a third concept.
+"""
 type Session {
   """
   The role-agent driving the session (with workerId set, the agent behind the casting).
@@ -6447,6 +6554,8 @@ type Session {
   """#928: where the driving tool's transcript lives on 'host'."""
   transcriptPath: String
   turnCount: Int
+
+  """Which kind of session this is: DEVELOPER, CHATBOT, AUTOMATION or EDGE."""
   type: String!
   userId: String
 
@@ -7153,8 +7262,40 @@ type Worker {
   """The App whose staff this casting fills."""
   app: App
   appId: ID!
+
+  """
+  #1029 — what a fresh binding of this worker inherits from the last one.
+  
+  Returned by startSession alongside the boot briefing (binding is briefing,
+  so binding is handoff) and by the worker read, which is the recovery path
+  after a context compaction — the reader who has most lost the handoff and
+  least knows one exists. Working-state field: behind the worker read gate,
+  masked to null on deny, like prompt/promptOverride/memoryId.
+  """
+  continuity: WorkerContinuity
   createdAt: DateTime!
   createdBy: String
+
+  """
+  When the current hold was taken. Null exactly when heldByUserId is — and likewise masked on deny.
+  """
+  heldAt: DateTime
+
+  """
+  #1050 — the human HOLDING this name, or null when nobody does.
+  
+  A name is held by a person, not by a live session: expiry, a reap, or a
+  closed chat session never free it, and only an explicit release does. This
+  is what separates the two meanings of "taken" — HELD is whose name it is,
+  while a live session is only ever a question about your own worker.
+  
+  WORKING-STATE field, behind the worker read gate and masked to null on
+  deny — like promptOverride and memoryId, and NOT like name/role/urn.
+  Session.worker reaches a Worker row through a wider gate that admits any
+  org member and survives a user leaving the App, so an ungated holder would
+  let a former member read current staffing off a historical session.
+  """
+  heldByUserId: ID
   id: ID!
 
   """
@@ -7202,6 +7343,67 @@ type Worker {
   shape this arity requires.
   """
   urn: String
+}
+
+"""
+#1029 — the continuity a worker carries between stints.
+
+Handoffs are ordinary nodes in the worker's working memory, so a client walks
+the whole sequence through the node surface. This type exists for the ONE
+handoff that cannot be discovered: the newest, which a fresh session does not
+know to look for.
+"""
+type WorkerContinuity {
+  """
+  The newest handoff node, or null when the worker has none. Present even
+  when status is MISSING — a stale handoff is still the best available
+  account of where this worker got to, and withholding it helps nobody.
+  """
+  handoff: Node
+
+  """
+  The worker's most recent ENDED session, as a SANITIZED projection — the
+  three facts continuity needs, and deliberately not the Session object.
+  
+  The worker read gate that admits this field is WIDER than the session read
+  gate: an AppMember who is not an org member passes the first and fails the
+  second. Returning a Session here would hand them another driver's
+  transcriptPath, host, repo and summary through its field resolvers, which
+  assume the outer query authorized them (#552 / #983).
+  """
+  previousSession: WorkerContinuitySession
+  status: WorkerContinuityStatus!
+}
+
+"""
+#1029 — the previous stint, reduced to what a successor needs to know: which
+session it was, when it ended, and whether the server reaped it. Not a
+Session, on purpose (see WorkerContinuity.previousSession).
+"""
+type WorkerContinuitySession {
+  """
+  Set when the #930 reaper ended it — nobody closed this stint deliberately.
+  """
+  autoExpiredAt: DateTime
+  endedAt: DateTime
+  id: ID!
+}
+
+"""
+#1029. MISSING is deliberately not "no handoff": it means the PREVIOUS stint
+did not write one, while `handoff` may still carry an older record. Silently
+presenting a stale handoff as current is the failure this distinction exists
+to prevent.
+"""
+enum WorkerContinuityStatus {
+  """The previous session wrote the handoff returned here."""
+  CURRENT
+
+  """No previous ended session — nothing to inherit, and that is not a gap."""
+  FIRST_STINT
+
+  """The previous session ended, or was auto-expired, without writing one."""
+  MISSING
 }
 
 type WorkersPage {
