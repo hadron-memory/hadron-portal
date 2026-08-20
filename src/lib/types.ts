@@ -341,6 +341,16 @@ export interface Worker {
   role: string | null;
   /** Per-worker individuality layered over the agent's template prompt. */
   promptOverride: string | null;
+  /**
+   * The RESOLVED boot briefing — the agent's template with {{name}}/{{role}}
+   * bound, then `promptOverride` appended. Multi-KB.
+   *
+   * Optional because only the single-worker read selects it: the roster
+   * projection deliberately does not, since shipping every worker's briefing on
+   * a list is hadron-cli#459 (68KB for seven workers, versus 3.7KB without).
+   * `undefined` here means "not selected", not "no briefing".
+   */
+  prompt?: string | null;
   /** The worker-scoped working memory in the App's container (null until provisioned). */
   memoryId: string | null;
   /** The role-agent behind the casting. */
@@ -371,6 +381,48 @@ export interface Worker {
    *  including when both are masked on deny. */
   heldAt?: string | null;
   createdAt: string;
+}
+
+/**
+ * One WORKER SESSION (#737) — a stint in which this worker was bound, as shown
+ * on the worker page.
+ *
+ * Named `WorkerSession`, not `Session`, per the ratified vocabulary
+ * (hadron-server#1034): a bare "session" is the general row, a WORKER session is
+ * the subtype with a worker bound, and a CHAT session is the driver's own
+ * conversation — which is not a Hadron entity at all, and which ending never
+ * ends this.
+ *
+ * Deliberately carries no `worker`: the page already knows whose these are, and
+ * `Session.worker` runs a wider read gate than the worker query itself.
+ */
+export interface WorkerSession {
+  id: string;
+  type: string;
+  repo: string | null;
+  branch: string | null;
+  tool: string | null;
+  host: string | null;
+  llmModel: string | null;
+  plan: string | null;
+  summary: string | null;
+  prNumber: number | null;
+  turnCount: number | null;
+  errorCount: number | null;
+  startedAt: string;
+  /** Null while the session is still open. */
+  endedAt: string | null;
+  /** When an OPEN session will be reaped. The only forward-looking signal
+   *  either surface has — four sessions expired in four days and every one was
+   *  discovered by a failed write (hadron-cli#484). */
+  expiresAt: string | null;
+  /** Set when the server REAPED it rather than someone closing it deliberately.
+   *  A session can be ended and not auto-expired, so this is what separates
+   *  "finished" from "died", and `endedAt` alone cannot. */
+  autoExpiredAt: string | null;
+  /** Host-local path. Meaningless to anyone not on that machine — render as
+   *  plain text, never as a link (#737). */
+  transcriptPath: string | null;
 }
 
 export interface AppKey {
