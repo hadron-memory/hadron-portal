@@ -1,5 +1,5 @@
 /**
- * #1050 / `cor:agt:020:09` — deriving what to say about a worker name's HOLD.
+ * #1050 / `hrn:node:hadronmemory.com:specs:cor:agt:020:09` — deriving what to say about a worker name's HOLD.
  *
  * A name is held by a PERSON until they explicitly release it. Expiry, a reap
  * and a closed chat session do not free one. That makes "taken" two different

@@ -1292,7 +1292,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                     {t('app.staff.working-memory', 'Working memory →')}
                   </a>
                 {/if}
-                <!-- #1050 / cor:agt:020:09 — whose name this is. A hold is
+                <!-- #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — whose name this is. A hold is
                      STANDING: it survives expiry, a reap and a closed chat
                      session, and only an explicit release frees it. That is a
                      different question from "is a session bound right now",

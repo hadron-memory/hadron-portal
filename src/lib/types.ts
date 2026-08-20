@@ -351,7 +351,7 @@ export interface Worker {
    */
   retiredAt: string | null;
   /**
-   * hadron-server#1050 / `cor:agt:020:09` — the user id HOLDING this name, or
+   * hadron-server#1050 / `hrn:node:hadronmemory.com:specs:cor:agt:020:09` — the user id HOLDING this name, or
    * null when nobody does.
    *
    * A name is held by a person, not by a live session: expiry, a reap and a

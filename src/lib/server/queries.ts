@@ -586,7 +586,7 @@ const WORKER_FIELDS = /* GraphQL */ `
     retiredAt
     # #1050 — who HOLDS this name, and since when. A hold belongs to a person
     # and survives expiry, a reap and a closed chat session; only an explicit
-    # release frees it (cor:agt:020:09).
+    # release frees it (hrn:node:hadronmemory.com:specs:cor:agt:020:09).
     #
     # WORKING-STATE fields: behind the worker read gate and MASKED TO NULL ON
     # DENY, exactly like promptOverride and memoryId above, and unlike

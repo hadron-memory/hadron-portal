@@ -11,8 +11,9 @@
   const worker = $derived(data.worker);
   const retired = $derived(!!worker.retiredAt);
 
-  // #1050 / cor:agt:020:09 — whose name this is. `data.user` merges down from
-  // the /app layout, so the viewer id needs no loader change.
+  // #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — whose name this
+  // is. `data.user` merges down from the /app layout, so the viewer id needs
+  // no loader change.
   const hold = $derived(workerHold(worker, data.user?.id));
 
   // Mirrors the App detail page's own `appsHref`. `/app/apps` is the ORG-LESS
@@ -154,7 +155,8 @@
       <dd class="mt-1 text-sm text-zinc-900 dark:text-white">{formatDate(worker.createdAt)}</dd>
     </div>
 
-    <!-- #1050 / cor:agt:020:09 — the hold, rendered ONLY when one is known.
+    <!-- #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — the hold,
+         rendered ONLY when one is known.
 
          Conditional for the same reason the Retired row is, plus a sharper
          one: `heldByUserId` is a working-state field masked to null on a
@@ -201,7 +203,7 @@
   {#if isHeld(hold)}
     <!-- The consequence a reader cannot infer from "held": a name is a person's
          until released, and releasing it hands on the worker's memory and
-         handoff history too (cor:agt:020:09). Worth saying where someone might
+         handoff history too (hrn:node:hadronmemory.com:specs:cor:agt:020:09). Worth saying where someone might
          otherwise treat a hold as bookkeeping. -->
     <p class="text-xs text-zinc-500 dark:text-zinc-400">
       {t(
