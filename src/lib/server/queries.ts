@@ -584,6 +584,23 @@ const WORKER_FIELDS = /* GraphQL */ `
     promptOverride
     memoryId
     retiredAt
+    # #1050 — who HOLDS this name, and since when. A hold belongs to a person
+    # and survives expiry, a reap and a closed chat session; only an explicit
+    # release frees it (cor:agt:020:09).
+    #
+    # WORKING-STATE fields: behind the worker read gate and MASKED TO NULL ON
+    # DENY, exactly like promptOverride and memoryId above, and unlike
+    # name/role/urn. Null therefore means "nobody holds it" OR "you may not
+    # see" — the renderer must not collapse the two.
+    #
+    # DO NOT add these to a Session.worker selection. That path runs a WIDER
+    # gate which admits any org member and survives a user leaving the App, so
+    # selecting the holder there would let a former member read current
+    # staffing off a historical session. SESSIONS_QUERY selects its worker
+    # subfields inline for this reason — keep it that way rather than reaching
+    # for this fragment when #737 puts sessions on the worker page.
+    heldByUserId
+    heldAt
     createdAt
     # The role-actor behind the casting. Nullable in the schema, so every
     # consumer must tolerate null rather than assuming the agent resolves.
