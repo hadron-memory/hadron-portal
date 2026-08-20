@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   EXPIRY_WARNING_MS,
-  formatExpiryDistance,
+  expiryDistance,
   workerSessionStatus,
 } from './worker-session-status';
 
@@ -74,26 +74,37 @@ describe('workerSessionStatus', () => {
   });
 });
 
-describe('formatExpiryDistance', () => {
-  it('renders future and past deadlines differently', () => {
-    expect(formatExpiryDistance(45 * 60_000)).toBe('in 45 min');
-    expect(formatExpiryDistance(3 * 3600_000)).toBe('in 3 h');
-    expect(formatExpiryDistance(-12 * 60_000)).toBe('12 min ago');
+describe('expiryDistance', () => {
+  it('returns a magnitude and a unit, in minutes below an hour', () => {
+    expect(expiryDistance(45 * 60_000)).toEqual({ value: 45, unit: 'min' });
+    expect(expiryDistance(3 * 3600_000)).toEqual({ value: 3, unit: 'h' });
   });
 
-  it('never rounds a deadline UP — 90 minutes is "1 h", not "2 h"', () => {
-    // Found by driving the page: the fixture expiring in 90 minutes rendered
+  it('returns no direction — "in" versus "ago" is the caller\'s sentence', () => {
+    // Codex P2 on #750: returning a phrase pushes an English fragment past the
+    // i18n boundary, so a translated "Expires" ends up in front of untranslated
+    // text no locale can reorder. Magnitude only; the caller picks a t() key.
+    expect(expiryDistance(-12 * 60_000)).toEqual(expiryDistance(12 * 60_000));
+  });
+
+  it('never rounds a deadline UP — 90 minutes is 1 h, not 2 h', () => {
+    // Found by driving the page: a fixture expiring in 90 minutes rendered
     // "in 2 h". On a deadline, erring long is the one direction that matters —
     // it hands the reader an hour of confidence they do not have. Flip the
     // floor back to a round and this is the assertion that dies.
-    expect(formatExpiryDistance(90 * 60_000)).toBe('in 1 h');
-    expect(formatExpiryDistance(119 * 60_000)).toBe('in 1 h');
-    expect(formatExpiryDistance(120 * 60_000)).toBe('in 2 h');
+    expect(expiryDistance(90 * 60_000)).toEqual({ value: 1, unit: 'h' });
+    expect(expiryDistance(119 * 60_000)).toEqual({ value: 1, unit: 'h' });
+    expect(expiryDistance(120 * 60_000)).toEqual({ value: 2, unit: 'h' });
   });
 
   it('does not round sub-minute time up to a full minute', () => {
-    // "in 1 min" on 30 seconds is the same overstatement in miniature.
-    expect(formatExpiryDistance(30_000)).toBe('in 0 min');
-    expect(formatExpiryDistance(59_000)).toBe('in 0 min');
+    // "1 min" on 30 seconds is the same overstatement in miniature.
+    expect(expiryDistance(30_000)).toEqual({ value: 0, unit: 'min' });
+    expect(expiryDistance(59_000)).toEqual({ value: 0, unit: 'min' });
+  });
+
+  it('switches unit exactly at the hour, not before', () => {
+    expect(expiryDistance(59 * 60_000).unit).toBe('min');
+    expect(expiryDistance(60 * 60_000).unit).toBe('h');
   });
 });
