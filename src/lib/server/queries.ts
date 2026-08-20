@@ -1637,8 +1637,25 @@ export const APP_NODES_QUERY = /* GraphQL */ `
 // Sessions
 // ---------------------------------------------------------------------------
 
-// One WORKER's worker sessions (#737) — the stints in which this worker was
-// bound, newest first, for the worker page.
+// The CALLER's worker sessions for one worker (#737) — for the worker page.
+//
+// SCOPE, and it is not what the name suggests. `sessions` returns "sessions
+// recorded against the CALLER" (its own schema description), and workerRef only
+// narrows that caller-scoped set. So this reads "the stints I drove as this
+// worker", NOT the worker's history: a worker driven entirely by a teammate
+// comes back EMPTY here rather than returning their sessions.
+//
+// The page must therefore never make an absolute claim from this data. #737
+// assumed otherwise — "sessions(workerRef:) accepts the worker and filters
+// server-side" — and the schema's own note says that filter exists for the
+// "taken right now / last driven by" read, which is a question about your own
+// binding rather than a history read. Caught by Codex on #752.
+//
+// Note the asymmetry with the worklog rendered directly beneath it:
+// teamWorkItems(workerRef:) IS App-scoped, so it returns EVERY driver's records
+// for this worker. A reader seeing a populated worklog beside an empty session
+// list would otherwise conclude something false, which is why the section says
+// whose sessions it is showing.
 //
 // Deliberately does NOT select `worker { ... }`: this page already knows whose
 // sessions these are, and Session.worker runs a WIDER read gate than the worker

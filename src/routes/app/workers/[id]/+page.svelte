@@ -227,13 +227,24 @@
        all (hadron-server#1034). -->
   <section class="space-y-3">
     <div>
+      <!-- "Your worker sessions", not "Worker sessions". The read is
+           CALLER-SCOPED — `sessions` returns sessions recorded against the
+           caller and workerRef only narrows that set — so an unqualified
+           heading would present one driver's stints as the worker's history.
+           Codex P1 on #752. -->
       <h2 class="font-semibold text-zinc-900 dark:text-white">
-        {t('worker.sessions.title', 'Worker sessions')}
+        {t('worker.sessions.title', 'Your worker sessions')}
       </h2>
       <p class="mt-1 text-sm text-zinc-500">
         {t(
           'worker.sessions.description',
-          'The stints in which this worker was bound. A worker session is what makes work attributable — it is not the driver’s own chat session, and closing one of those never ends one of these.',
+          'The stints YOU have driven as this worker. A worker session is what makes work attributable — it is not your own chat session, and closing one of those never ends one of these.',
+        )}
+      </p>
+      <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+        {t(
+          'worker.sessions.scope-caveat',
+          'Sessions other people drove as this worker are not listed here — the platform has no read for a worker’s full session history yet. The worklog below is not limited this way and does show everyone’s records.',
         )}
       </p>
     </div>
@@ -251,8 +262,12 @@
         )}
       </p>
     {:else if data.workerSessions.length === 0}
+      <!-- Says what was actually read. The old copy — "this worker has not been
+           bound to a worker session yet" — was an absolute claim about the
+           WORKER derived from a read scoped to the VIEWER, and it would have
+           been flatly false for any worker a teammate drives. -->
       <p class="text-sm text-zinc-500">
-        {t('worker.sessions.empty', 'This worker has not been bound to a worker session yet.')}
+        {t('worker.sessions.empty', 'You have not driven this worker in a worker session.')}
       </p>
     {:else}
       <ul

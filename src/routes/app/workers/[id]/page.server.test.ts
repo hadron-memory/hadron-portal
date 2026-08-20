@@ -361,3 +361,18 @@ describe('WORKER_SESSIONS_QUERY selection', () => {
     expect(WORKER_SESSIONS_QUERY).not.toMatch(/\bheldByUserId\b/);
   });
 });
+
+/**
+ * Codex P1 on #752 — SCOPE. `sessions` returns "sessions recorded against the
+ * caller" and `workerRef` only narrows that caller-scoped set, so the section
+ * shows the VIEWER's stints as this worker, never the worker's full history.
+ *
+ * #737 assumed otherwise. These guards keep the assumption from creeping back
+ * in through a query change, since nothing in the operation's shape reveals it.
+ */
+describe('WORKER_SESSIONS_QUERY scope (#752)', () => {
+  it('passes workerRef, which is the only thing narrowing the caller-scoped set', () => {
+    expect(WORKER_SESSIONS_QUERY).toMatch(/sessions\(\s*workerRef:\s*\$workerRef/);
+  });
+
+});
