@@ -28,7 +28,17 @@
     return pathname === href || pathname.startsWith(href + '/');
   }
 
-  let menuOpen = $state(true);
+  // #740: three states, not two. `null` means "nobody has chosen — follow the
+  // viewport", and is the initial state; `true`/`false` are an explicit user
+  // choice that holds at every width.
+  //
+  // The viewport half is decided by CSS breakpoints below, NOT by matchMedia in
+  // an $effect. The portal server-renders under adapter-node, so a JS-decided
+  // default is necessarily wrong in the SSR'd HTML and corrects itself on
+  // hydration — a visible flash of a 192px sidebar on the phone this exists to
+  // fix, and a hydration mismatch besides. CSS is evaluated before first paint
+  // and needs no JS at all.
+  let menuOpen: boolean | null = $state(null);
 </script>
 
 {#if data.impersonation}
@@ -37,7 +47,10 @@
     expiresAt={data.impersonation.expiresAt}
   />
 {/if}
-<div class="flex gap-8 px-6 py-8">
+<!-- #740: gutters and gap tighten below `sm`. At 375px the old fixed
+     `px-6`/`gap-8` spent 80px of 375 on whitespace before the content column
+     saw a single pixel. -->
+<div class="flex gap-4 px-4 py-8 sm:gap-8 sm:px-6">
   <!-- Sidebar — sticky, sized to the available height; the nav scrolls
        internally (`flex-1 min-h-0 overflow-y-auto`) while the account block
        stays pinned at the bottom (`shrink-0`) on long pages (#231/#245).
@@ -55,9 +68,11 @@
        fallback for browsers without `dvh` support. The offset is a CSS var so
        it's stated once (cf. --memory-browser-h in MemoryBrowser.svelte);
        min==max height collapses to a plain `height`. -->
-  {#if menuOpen}
+  {#if menuOpen !== false}
     <aside
-      class="sticky top-8 self-start flex w-48 shrink-0 flex-col"
+      class="sticky top-8 self-start w-48 shrink-0 flex-col {menuOpen === null
+        ? 'hidden sm:flex'
+        : 'flex'}"
       style="--sidebar-offset: 8rem; height: calc(100vh - var(--sidebar-offset)); height: calc(100dvh - var(--sidebar-offset));"
     >
       <div class="mb-4 flex items-center justify-end shrink-0">
@@ -131,10 +146,19 @@
         </a>
       </div>
   </aside>
-  {:else}
+  {/if}
+  <!-- The expand affordance is the complement of the aside above, and the two
+       {#if}s are deliberately independent rather than one if/else: in the
+       `null` state BOTH are in the DOM and the breakpoint picks which one is
+       displayed. `hidden` is `display:none`, so the one that loses is out of
+       the accessibility tree too, not merely invisible. -->
+  {#if menuOpen !== true}
     <button
       onclick={() => menuOpen = true}
-      class="self-start rounded-md border border-zinc-200 p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:border-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+      class="self-start rounded-md border border-zinc-200 p-2 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 dark:border-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 {menuOpen ===
+      null
+        ? 'sm:hidden'
+        : ''}"
       title={t('app.layout.expand-menu', 'Expand menu')}
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
