@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
-import { WORKER_QUERY } from '$lib/server/queries';
+import { WORKERS_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -15,6 +15,12 @@ vi.mock('$lib/server/api', () => ({
 
 beforeEach(() => {
   mockRequest.mockReset();
+  // #737 — every load now makes three requests: the worker, then its worker
+  // sessions and its worklog. This is the DEFAULT for the latter two, so the
+  // identity-half tests below can keep seeding only their one-shot worker
+  // response; a test that cares about a section seeds it with
+  // mockResolvedValueOnce, which takes precedence over this.
+  mockRequest.mockResolvedValue({ sessions: [], teamWorkItems: { items: [], total: 0 } });
 });
 
 function ev(id = 'w-1') {
@@ -151,11 +157,31 @@ describe('worker page load', () => {
 });
 
 describe('WORKER_QUERY selection', () => {
-  // Selecting `prompt` re-renders the multi-KB boot briefing live. Putting that
-  // in a page payload is the defect hadron-cli#459 is open about for
-  // `worker list --json`; #737 covers showing it behind an explicit expand.
-  it('does not select the boot prompt', () => {
-    expect(WORKER_QUERY).not.toMatch(/^\s*prompt\s*$/m);
+  // RATCHET FLIPPED, not deleted (review:convention-ratchets-must-be-flipped).
+  //
+  // Through #742 this asserted the OPPOSITE — that WORKER_QUERY must not select
+  // `prompt` — because the page had nowhere to put a multi-KB briefing and
+  // shipping it in the payload was pure cost. Its own comment named the
+  // condition for flipping: "#737 covers showing it behind an explicit expand."
+  // That is this change, so the guard moves forward rather than being removed.
+  //
+  // The invariant was never "never select prompt". It is "select it only where
+  // it is rendered, and never on a list" — which is why the sibling guard below
+  // now carries the half that actually risks hadron-cli#459.
+  it('selects the boot prompt, which the page renders behind an explicit expand', () => {
+    expect(WORKER_QUERY).toMatch(/^\s*prompt\s*$/m);
+  });
+
+  // The half of the old rule that still bites, and the one with real blast
+  // radius. WorkerFields feeds the Staff tab's ROSTER as well as this page, so
+  // a `prompt` added there would ship every worker's briefing on every roster
+  // render — hadron-cli#459 exactly, where `worker list` cost 68,245 bytes for
+  // seven workers against 3,732 without it.
+  //
+  // Asserted against the ROSTER operation rather than the fragment source, so
+  // it stays true however the fragment is composed.
+  it('keeps the boot prompt OFF the staff roster', () => {
+    expect(WORKERS_QUERY).not.toMatch(/^\s*prompt\s*$/m);
   });
 
   // The URN is the whole point of the page — without it the identity chip and
@@ -177,5 +203,161 @@ describe('WORKER_QUERY selection', () => {
   // page name and link the team.
   it('selects the App so the page can link it', () => {
     expect(WORKER_QUERY).toMatch(/app\s*\{[^}]*\bname\b/);
+  });
+});
+
+/**
+ * #737 — the two sections that answer "what has this worker actually done".
+ *
+ * The rule under test throughout: a section the viewer cannot read surfaces as
+ * UNAVAILABLE (null), never as empty ([]). Collapsing a refusal or an outage
+ * into an empty array is the portal telling the reader this worker has done
+ * nothing, which is a claim it did not read.
+ */
+describe('worker page sections (#737)', () => {
+  const SESSION = {
+    id: 's-1',
+    type: 'DEVELOPER',
+    repo: 'hadron-memory/hadron-portal',
+    branch: 'main',
+    tool: 'claude-code',
+    host: 'laptop',
+    llmModel: 'claude-opus-5',
+    plan: null,
+    summary: null,
+    prNumber: 749,
+    turnCount: 12,
+    errorCount: 0,
+    startedAt: '2026-08-20T09:00:00Z',
+    endedAt: null,
+    expiresAt: '2026-08-21T09:00:00Z',
+    autoExpiredAt: null,
+    transcriptPath: '/Users/x/.claude/t.jsonl',
+  };
+  const ITEM = {
+    nodeId: 'n-1',
+    sessionId: 's-1',
+    workerName: 'Gil',
+    workerId: 'w-1',
+    tool: 'github',
+    kind: 'pr',
+    ref: 'hadron-memory/hadron-portal#749',
+    action: 'opened',
+    at: '2026-08-20T10:00:00Z',
+    detail: null,
+  };
+
+  it('filters both sections by THIS worker, server-side', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ worker: WORKER })
+      .mockResolvedValueOnce({ sessions: [SESSION] })
+      .mockResolvedValueOnce({ teamWorkItems: { items: [ITEM], total: 1 } });
+    const data = (await runLoad()) as Record<string, unknown>;
+
+    expect(mockRequest.mock.calls[1][0]).toBe(WORKER_SESSIONS_QUERY);
+    expect(mockRequest.mock.calls[1][1]).toMatchObject({ workerRef: 'w-1' });
+    // The worklog needs BOTH: teamWorkItems is App-scoped and workerRef narrows
+    // within it. Dropping the workerRef would silently show the whole team's
+    // worklog on one worker's page.
+    expect(mockRequest.mock.calls[2][1]).toMatchObject({ appRef: 'app-1', workerRef: 'w-1' });
+    expect(data.worklogTotal).toBe(1);
+  });
+
+  it('reports a FAILED sessions read as unavailable (null), not as an empty history', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ worker: WORKER })
+      .mockRejectedValueOnce(gqlError('FORBIDDEN'))
+      .mockResolvedValueOnce({ teamWorkItems: { items: [], total: 0 } });
+    const data = (await runLoad()) as Record<string, unknown>;
+    expect(data.workerSessions).toBeNull();
+  });
+
+  it('reports a FAILED worklog read as unavailable (null), not as an empty worklog', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ worker: WORKER })
+      .mockResolvedValueOnce({ sessions: [] })
+      .mockRejectedValueOnce(new Error('socket hang up'));
+    const data = (await runLoad()) as Record<string, unknown>;
+    expect(data.worklog).toBeNull();
+    // An empty list is a DIFFERENT value and must stay distinguishable.
+    expect(data.worklog).not.toEqual([]);
+  });
+
+  it('distinguishes a genuinely empty section from an unavailable one', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ worker: WORKER })
+      .mockResolvedValueOnce({ sessions: [] })
+      .mockResolvedValueOnce({ teamWorkItems: { items: [], total: 0 } });
+    const data = (await runLoad()) as Record<string, unknown>;
+    expect(data.workerSessions).toEqual([]);
+    expect(data.worklog).toEqual([]);
+  });
+
+  // Neither section may take the page down: the identity half loaded fine, and
+  // a reader who came from a GitHub signature still gets their answer.
+  it('still returns the worker when BOTH sections fail', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ worker: WORKER })
+      .mockRejectedValueOnce(new Error('down'))
+      .mockRejectedValueOnce(new Error('down'));
+    const data = (await runLoad()) as Record<string, unknown>;
+    expect((data.worker as { name: string }).name).toBe('Gil');
+    expect(data.workerSessions).toBeNull();
+    expect(data.worklog).toBeNull();
+  });
+
+  // `worker.app` runs its own read gate and masks to null on deny (#552), and
+  // teamWorkItems REQUIRES an appRef. So a masked App is not an outage and not
+  // an empty worklog — it is a section that cannot even be asked for.
+  it('does not attempt the worklog when the App is masked, and reports unavailable', async () => {
+    mockRequest.mockResolvedValueOnce({ worker: { ...WORKER, app: null } });
+    const data = (await runLoad()) as Record<string, unknown>;
+    expect(data.worklog).toBeNull();
+    // Two calls, not three: the worklog request is never made.
+    expect(mockRequest.mock.calls).toHaveLength(2);
+  });
+
+  // `sessions` returns a bare [Session!]! with no total, so "is there more" can
+  // only be observed. The loader fetches limit+1 and slices.
+  it('detects more worker sessions by a full page, and does not show the probe row', async () => {
+    const many = Array.from({ length: 21 }, (_, i) => ({ ...SESSION, id: `s-${i}` }));
+    mockRequest
+      .mockResolvedValueOnce({ worker: WORKER })
+      .mockResolvedValueOnce({ sessions: many })
+      .mockResolvedValueOnce({ teamWorkItems: { items: [], total: 0 } });
+    const data = (await runLoad()) as Record<string, unknown>;
+    expect(data.sessionsTruncated).toBe(true);
+    expect((data.workerSessions as unknown[]).length).toBe(20);
+    // The +1 is a probe, not content — asking for exactly the page size would
+    // make a full page indistinguishable from the last one.
+    expect(mockRequest.mock.calls[1][1]).toMatchObject({ limit: 21 });
+  });
+
+  it('does not claim truncation on a short page', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ worker: WORKER })
+      .mockResolvedValueOnce({ sessions: [SESSION] })
+      .mockResolvedValueOnce({ teamWorkItems: { items: [], total: 0 } });
+    const data = (await runLoad()) as Record<string, unknown>;
+    expect(data.sessionsTruncated).toBe(false);
+  });
+});
+
+describe('WORKER_SESSIONS_QUERY selection', () => {
+  // The reap-vs-close distinction the whole page turns on. endedAt alone cannot
+  // draw it — the reaper sets endedAt too — so dropping autoExpiredAt would
+  // render every reaped session as a deliberate close.
+  it('selects autoExpiredAt and expiresAt, the two lifecycle signals no client shows', () => {
+    expect(WORKER_SESSIONS_QUERY).toMatch(/^\s*autoExpiredAt\s*$/m);
+    expect(WORKER_SESSIONS_QUERY).toMatch(/^\s*expiresAt\s*$/m);
+  });
+
+  // Session.worker runs a WIDER gate than worker(ref:) — it admits any org
+  // member and survives a user leaving the App. Selecting working state through
+  // it would let a former member read current staffing off a historical
+  // session, which would look like a working feature.
+  it('does not reach a Worker through the wider Session.worker gate', () => {
+    expect(WORKER_SESSIONS_QUERY).not.toMatch(/\bworker\s*\{/);
+    expect(WORKER_SESSIONS_QUERY).not.toMatch(/\bheldByUserId\b/);
   });
 });

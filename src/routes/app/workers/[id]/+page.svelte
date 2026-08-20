@@ -2,11 +2,19 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
+  import WorklogTable from '$lib/components/WorklogTable.svelte';
   import { t } from '$lib/i18n/t';
   import { isHeld, workerHold } from '$lib/worker-hold';
+  import { formatExpiryDistance, workerSessionStatus } from '$lib/worker-session-status';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
+
+  // Captured once per render rather than per row, so every countdown on the
+  // page is measured against the same instant. Not reactive: an expiry badge
+  // that silently ticks would imply a liveness we are not subscribed to — the
+  // honest refresh is a page load.
+  const now = Date.now();
 
   const worker = $derived(data.worker);
   const retired = $derived(!!worker.retiredAt);
@@ -213,14 +221,176 @@
     </p>
   {/if}
 
-  <!-- #737 adds the worker's worker-sessions and worklog here — the other half
-       of "who is this, and what have they actually done". The worklog section
-       is blocked on hadron-server#1035 (teamWorkItems has no workerRef filter),
-       and building the N+1 fan-out as an interim was explicitly ruled out. -->
-  <p class="text-xs text-zinc-500 dark:text-zinc-400">
-    {t(
-      'worker.phase2.note',
-      'The worker sessions and work records for this worker will appear here once the platform can filter the worklog by worker.',
-    )}
-  </p>
+  <!-- ───────── WORKER SESSIONS (#737) ─────────
+       "Worker sessions", never a bare "Sessions" heading: a reader could take
+       that to mean their own chat sessions, which are not Hadron entities at
+       all (hadron-server#1034). -->
+  <section class="space-y-3">
+    <div>
+      <h2 class="font-semibold text-zinc-900 dark:text-white">
+        {t('worker.sessions.title', 'Worker sessions')}
+      </h2>
+      <p class="mt-1 text-sm text-zinc-500">
+        {t(
+          'worker.sessions.description',
+          'The stints in which this worker was bound. A worker session is what makes work attributable — it is not the driver’s own chat session, and closing one of those never ends one of these.',
+        )}
+      </p>
+    </div>
+
+    {#if data.workerSessions === null}
+      <!-- Unavailable is NOT empty (#737). A refused or failed read must not
+           render as "this worker has never worked". -->
+      <p
+        role="status"
+        class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        {t(
+          'worker.sessions.unavailable',
+          'The worker sessions couldn’t be loaded — that is a read failure, not an empty history.',
+        )}
+      </p>
+    {:else if data.workerSessions.length === 0}
+      <p class="text-sm text-zinc-500">
+        {t('worker.sessions.empty', 'This worker has not been bound to a worker session yet.')}
+      </p>
+    {:else}
+      <ul
+        class="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        {#each data.workerSessions as s (s.id)}
+          {@const status = workerSessionStatus(s, now)}
+          <li class="px-5 py-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <!-- EXPIRED is its own state, deliberately not folded into
+                   "Ended". The reaper sets endedAt too, so rendering both the
+                   same would tell the reader somebody chose to stop when in
+                   fact the session died under them. -->
+              {#if status.state === 'open'}
+                <span
+                  class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-950 dark:text-green-300"
+                  >{t('worker.sessions.state.open', 'Open')}</span
+                >
+              {:else if status.state === 'expired'}
+                <span
+                  class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+                  >{t('worker.sessions.state.expired', 'Expired — reaped by the server')}</span
+                >
+              {:else}
+                <span
+                  class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                  >{t('worker.sessions.state.ended', 'Ended')}</span
+                >
+              {/if}
+
+              {#if status.expiringSoon && status.msUntilExpiry !== null}
+                <!-- The only forward-looking expiry signal any client shows.
+                     Every expiry on this team so far was discovered by a write
+                     failing (hadron-cli#484). -->
+                <span
+                  class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300"
+                >
+                  {status.msUntilExpiry >= 0
+                    ? t('worker.sessions.expiring', 'Expires') +
+                      ' ' +
+                      formatExpiryDistance(status.msUntilExpiry)
+                    : t('worker.sessions.overdue', 'Past its expiry — live only until the next reap')}
+                </span>
+              {/if}
+
+              <span class="text-xs text-zinc-500">{formatDate(s.startedAt)}</span>
+              {#if s.endedAt}
+                <span class="text-xs text-zinc-500">→ {formatDate(s.endedAt)}</span>
+              {/if}
+            </div>
+
+            {#if s.plan}
+              <p class="mt-1 text-sm text-zinc-900 dark:text-zinc-100">{s.plan}</p>
+            {/if}
+            {#if s.summary}
+              <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{s.summary}</p>
+            {/if}
+
+            <p class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
+              {#if s.repo}<span>{s.repo}{#if s.branch}@{s.branch}{/if}</span>{/if}
+              {#if s.tool}<span>{s.tool}</span>{/if}
+              {#if s.host}<span>{s.host}</span>{/if}
+              {#if s.llmModel}<span>{s.llmModel}</span>{/if}
+              {#if s.prNumber}<span>PR #{s.prNumber}</span>{/if}
+            </p>
+
+            {#if s.transcriptPath}
+              <!-- Host-local, and meaningless to anyone not on that machine —
+                   so plain text, never a link (#737). -->
+              <p class="mt-1 truncate font-mono text-[11px] text-zinc-400" title={s.transcriptPath}>
+                {s.transcriptPath}
+              </p>
+            {/if}
+          </li>
+        {/each}
+      </ul>
+      {#if data.sessionsTruncated}
+        <!-- `sessions` returns a bare list with no `total`, so this says "there
+             are more" and deliberately does not claim a number it cannot know. -->
+        <p class="text-xs text-zinc-500">
+          {t('worker.sessions.more', 'Older worker sessions are not shown.')}
+        </p>
+      {/if}
+    {/if}
+  </section>
+
+  <!-- ───────── WORKLOG (#737, unblocked by hadron-server#1035) ───────── -->
+  <section class="space-y-3">
+    <div>
+      <h2 class="font-semibold text-zinc-900 dark:text-white">
+        {t('worker.worklog.title', 'Worklog')}
+      </h2>
+      <p class="mt-1 text-sm text-zinc-500">
+        {t(
+          'worker.worklog.description',
+          'What this worker has actually done — the authoritative join from a merged PR back to the worker session that produced it.',
+        )}
+      </p>
+    </div>
+
+    {#if data.worklog === null}
+      <p
+        role="status"
+        class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        {t(
+          'worker.worklog.unavailable',
+          'The worklog couldn’t be loaded — that is a read failure, not an empty worklog.',
+        )}
+      </p>
+    {:else}
+      <!-- Filters are off: on this page the WORKER is the filter, and the
+           control's hidden `tab` field belongs to the App page's tab strip. -->
+      <WorklogTable items={data.worklog} total={data.worklogTotal} showFilters={false} />
+    {/if}
+  </section>
+
+  <!-- ───────── BOOT BRIEFING (#737) ─────────
+       The most literal answer to "who is this" — but multi-KB, and
+       hadron-cli#459 is an open issue about exactly this content appearing
+       where it was not wanted. So: collapsed by default, never inline.
+       <details> rather than a JS toggle, so it works without hydration and
+       carries the disclosure semantics for free. -->
+  {#if worker.prompt}
+    <details class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <summary class="cursor-pointer px-5 py-3 text-sm font-medium text-zinc-900 dark:text-white">
+        {t('worker.briefing.title', 'Boot briefing')}
+      </summary>
+      <div class="border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
+        <p class="mb-2 text-xs text-zinc-500">
+          {t(
+            'worker.briefing.description',
+            'What this worker is told at the start of every worker session: its role agent’s template with the name and role bound, plus any per-worker override. It renders live, so a copy goes stale.',
+          )}
+        </p>
+        <pre
+          class="max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-zinc-700 dark:text-zinc-300">{worker.prompt}</pre>
+      </div>
+    </details>
+  {/if}
 </div>

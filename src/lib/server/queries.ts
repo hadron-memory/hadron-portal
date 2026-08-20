@@ -622,6 +622,19 @@ export const WORKER_QUERY = /* GraphQL */ `
     worker(ref: $ref) {
       ...WorkerFields
       app { id name urn organizationId }
+      # The resolved boot briefing (#737): the agent's template with
+      # {{name}}/{{role}} bound, plus any per-worker override. The most literal
+      # answer to "who is this" — it is the worker's operating instructions in
+      # its own voice.
+      #
+      # SELECTED HERE, NOT IN WorkerFields, and that is the whole point. This
+      # is multi-KB per worker, and the fragment also feeds the Staff tab's
+      # roster — putting it there would ship every worker's briefing on every
+      # roster render. That is exactly hadron-cli#459, where worker list
+      # carried the prompt and cost 68,245 bytes for seven workers against
+      # 3,732 without it. One worker on its own page is the get surface, where
+      # the briefing belongs; a list is not.
+      prompt
     }
   }
 `;
@@ -1624,6 +1637,50 @@ export const APP_NODES_QUERY = /* GraphQL */ `
 // Sessions
 // ---------------------------------------------------------------------------
 
+// One WORKER's worker sessions (#737) — the stints in which this worker was
+// bound, newest first, for the worker page.
+//
+// Deliberately does NOT select `worker { ... }`: this page already knows whose
+// sessions these are, and Session.worker runs a WIDER read gate than the worker
+// query itself. Selecting working-state through it (heldByUserId, memoryId,
+// promptOverride) would let a former App member read current staffing off a
+// historical session. Keep this selection worker-free.
+//
+// `sessions` returns a BARE [Session!]! — no page envelope and no total, unlike
+// teamWorkItems. So paging observes a short page rather than counting: fetch
+// limit+1 and slice, the same trick the org sessions list uses.
+//
+// expiresAt and autoExpiredAt are selected on purpose. They are on the wire and
+// unselected by every client today, which is why four worker sessions expired
+// in four days and each was discovered only by a failed write. autoExpiredAt
+// separates a REAP from a deliberate close; expiresAt is the only forward-
+// looking signal either surface has (hadron-cli#484).
+export const WORKER_SESSIONS_QUERY = /* GraphQL */ `
+  query WorkerSessions($workerRef: String!, $limit: Int, $offset: Int) {
+    sessions(workerRef: $workerRef, limit: $limit, offset: $offset) {
+      id
+      type
+      repo
+      branch
+      tool
+      host
+      llmModel
+      plan
+      summary
+      prNumber
+      turnCount
+      errorCount
+      startedAt
+      endedAt
+      expiresAt
+      autoExpiredAt
+      # Host-local and meaningless to anyone not on that machine — rendered as
+      # plain text, NEVER as a link (#737).
+      transcriptPath
+    }
+  }
+`;
+
 export const SESSIONS_QUERY = /* GraphQL */ `
   query Sessions($limit: Int, $offset: Int) {
     sessions(limit: $limit, offset: $offset) {
@@ -1879,6 +1936,7 @@ export const TEAM_WORK_ITEMS_QUERY = /* GraphQL */ `
     $ref: String
     $kind: String
     $tool: String
+    $workerRef: ID
     $limit: Int
     $offset: Int
   ) {
@@ -1887,6 +1945,19 @@ export const TEAM_WORK_ITEMS_QUERY = /* GraphQL */ `
       ref: $ref
       kind: $kind
       tool: $tool
+      # hadron-server#1035 — everything ONE worker has done, filtered
+      # server-side so the page envelope stays correct. Omitted by the App-level
+      # worklog tab, which wants the whole team; supplied by the worker page.
+      #
+      # The alternative was a fan-out over sessions(workerRef:) plus a
+      # client-side merge, which cannot reproduce total or a stable offset on
+      # the one surface whose whole point is completeness. That interim was
+      # explicitly ruled out rather than merely avoided.
+      #
+      # A ref naming nothing readable in this App yields an EMPTY page, never an
+      # error — so this is not an existence oracle for another App's roster, and
+      # an empty result must not be reported as a failure.
+      workerRef: $workerRef
       limit: $limit
       offset: $offset
     ) {
