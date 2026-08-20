@@ -561,12 +561,17 @@
     {/if}
   </div>
 
-  <!-- Tabs -->
-  <div class="flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
+  <!-- Tabs — #747: the third instance of the strip #746 fixed on the App detail
+       page, and the one that gates a MemoryBrowser mount: the Nodes tab lives
+       behind it, so the component being usable at phone widths is moot if the
+       tab reaching it runs off the screen. Up to eight tabs here.
+       `shrink-0 whitespace-nowrap` is what makes it SCROLL rather than squash
+       the labels into unreadable columns. -->
+  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
     {#each tabs as tab}
       <button
         onclick={() => activeTab = tab.id}
-        class="border-b-2 px-4 py-2 text-sm font-medium transition
+        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
           {activeTab === tab.id
             ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
             : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"

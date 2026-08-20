@@ -164,11 +164,20 @@
     </div>
 
     <div class="mb-4 flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">
-      <div class="flex gap-0">
+      <!-- #747: the same un-scrollable tab strip #746 fixed on the App detail
+           page, on a second page. At 390px these tabs ran 374px past the right
+           edge and took the whole layout with them.
+
+           `min-w-0` is load-bearing next to `overflow-x-auto`: this sits in a
+           `justify-between` row beside the ⋯ menu, and without it the flex item
+           refuses to shrink below its content and never scrolls.
+           `shrink-0 whitespace-nowrap` on each tab is what makes the strip
+           SCROLL rather than squash the labels. -->
+      <div class="flex min-w-0 gap-0 overflow-x-auto">
         {#each tabs as tab (tab.id)}
           <a
             href={tab.href}
-            class="border-b-2 px-4 py-2 text-sm font-medium transition
+            class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
               {activeTab === tab.id
                 ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
                 : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"

@@ -141,7 +141,21 @@
     }
   });
 
-  let treeOpen = $state(true);
+  // #747: three states, not two. `null` means "nobody has chosen — follow the
+  // viewport" and is the initial value; true/false are an explicit user choice
+  // that holds at every width.
+  //
+  // Same shape as the /app shell's sidebar (#740), and deliberately so: this is
+  // the second two-pane layout to hit the same wall, and one pattern is better
+  // than two. As there, the viewport half is decided by CSS breakpoints rather
+  // than matchMedia in an $effect — the portal server-renders, so a JS-decided
+  // default is wrong in the SSR'd HTML and corrects on hydration, which is a
+  // visible flash of a 256px tree on the phone this exists to fix.
+  //
+  // Below `sm` the tree would leave the graph ~50px of a 390px viewport, and
+  // the panes CLIP rather than scroll — so the graph's own toolbar became
+  // unreachable, with no scrollbar to reveal it.
+  let treeOpen = $state<boolean | null>(null);
   let treeWidth = $state(256);
   let dragging = $state(false);
 
@@ -1181,9 +1195,28 @@
   {:else if activeView === 'graph'}
     <!-- Graph view: the tree stays as a navigation sidebar beside the graph —
          a complementary representation, not a duplicate of the table. -->
-    <div class="flex gap-0" style="--memory-browser-h: calc(100vh - 320px); min-height: var(--memory-browser-h);">
-      {#if treeOpen}
-        <aside class="shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="width: {treeWidth}px; max-height: var(--memory-browser-h);">
+    <!-- #747: below `sm` in the viewport-decided state the row becomes a
+         COLUMN, so the "Tree ›" affordance sits ABOVE the graph instead of
+         beside it. Hiding the tree alone was not enough — the button still held
+         a place in the row and cost ~125px of a 390px viewport, which is a
+         third of the screen spent on a control, with a dead gutter beside it.
+         Only the `null` state stacks: an explicit open/close keeps the row it
+         has always had at every width. -->
+    <div
+      class="flex gap-0 {treeOpen === null ? 'flex-col sm:flex-row' : ''}"
+      style="--memory-browser-h: calc(100vh - 320px); --memory-browser-h: calc(100dvh - 320px); min-height: var(--memory-browser-h);"
+    >
+      {#if treeOpen !== false}
+        <!-- `max-width: 100%` alongside the dragged pixel width: the drag
+             clamps to 500px, which is wider than a phone, so an explicitly
+             opened tree would otherwise push the graph off the row entirely. -->
+        <aside
+          class="shrink-0 overflow-y-auto rounded-l-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 {treeOpen ===
+          null
+            ? 'hidden sm:block'
+            : ''}"
+          style="width: {treeWidth}px; max-width: 100%; max-height: var(--memory-browser-h);"
+        >
           <div class="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
             <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
             <button onclick={() => treeOpen = false} class="text-zinc-500 hover:text-zinc-300" title="Close tree">&times;</button>
@@ -1197,23 +1230,48 @@
           <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onselect={handleTreeSelect} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
         </aside>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <!-- Hidden with the tree it resizes. It is also mouse-only
+             (`onmousedown`), so it does nothing on touch either way. -->
         <div
-          class="w-1 shrink-0 cursor-col-resize bg-zinc-200 hover:bg-indigo-400 transition-colors dark:bg-zinc-800 dark:hover:bg-indigo-500"
+          class="w-1 shrink-0 cursor-col-resize bg-zinc-200 hover:bg-indigo-400 transition-colors dark:bg-zinc-800 dark:hover:bg-indigo-500 {treeOpen ===
+          null
+            ? 'hidden sm:block'
+            : ''}"
           class:bg-indigo-400={dragging}
           class:dark:bg-indigo-500={dragging}
           onmousedown={startDrag}
         ></div>
-      {:else}
+      {/if}
+      <!-- The complement of the tree above, as two independent {#if}s rather
+           than one if/else: in the `null` state BOTH are in the DOM and the
+           breakpoint picks. `hidden` is display:none, so the loser leaves the
+           accessibility tree too rather than merely the screen. -->
+      {#if treeOpen !== true}
         <button
           onclick={() => treeOpen = true}
-          class="mr-2 self-start rounded-lg border border-zinc-200 bg-zinc-100 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-200 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          class="mr-2 self-start rounded-lg border border-zinc-200 bg-zinc-100 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-200 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 {treeOpen ===
+          null
+            ? 'sm:hidden'
+            : ''}"
           title="Show tree"
         >
           Tree &rsaquo;
         </button>
       {/if}
 
-      <div class="min-w-0 flex-1 overflow-hidden {treeOpen ? 'rounded-r-lg' : 'rounded-lg'} border border-zinc-200 dark:border-zinc-800">
+      <!-- Which corners are rounded follows whether the tree is actually
+           DISPLAYED, so in the `null` state it has to be a breakpoint too — a
+           plain truthiness test reads null as "closed" and rounds the left edge
+           where it sits flush against the tree. `rounded-lg` sets all four, so
+           the sm: override has to undo the left pair explicitly. -->
+      <div
+        class="min-w-0 flex-1 overflow-hidden border border-zinc-200 dark:border-zinc-800 {treeOpen ===
+        true
+          ? 'rounded-r-lg'
+          : treeOpen === false
+            ? 'rounded-lg'
+            : 'rounded-lg sm:rounded-l-none sm:rounded-r-lg'}"
+      >
         <div style="display: flex; height: 100%;">
           <!-- resultsVersion (#616): re-mount when the server working set
                changes, even at the same size — see setServerResults. -->
@@ -1228,7 +1286,7 @@
          Both are representations of the same node set, so we show one at a
          time rather than side-by-side. -->
     <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800"
-      style="--memory-browser-h: calc(100vh - 320px); min-height: var(--memory-browser-h);">
+      style="--memory-browser-h: calc(100vh - 320px); --memory-browser-h: calc(100dvh - 320px); min-height: var(--memory-browser-h);">
       {#if nodesPane === 'tree'}
         <div class="overflow-y-auto bg-zinc-50 dark:bg-zinc-950" style="max-height: var(--memory-browser-h);">
           {#if moveError}
