@@ -81,16 +81,28 @@ export function workerSessionStatus(
   };
 }
 
+/** A coarse magnitude for an expiry deadline: how many, and of what. */
+export interface ExpiryDistance {
+  value: number;
+  unit: 'min' | 'h';
+}
+
 /**
- * A coarse "in 1 h" / "12 min ago" for an expiry deadline.
+ * The MAGNITUDE of a deadline's distance — never a phrase.
+ *
+ * Returns the number and its unit separately, and deliberately says nothing
+ * about direction ("in" vs "ago") or word order: that is sentence structure and
+ * belongs to the i18n boundary, which picks a key per unit and interpolates the
+ * value. Returning "in 45 min" from here would push an English fragment past
+ * `t()`, so a translated "Expires" would sit in front of an untranslated
+ * remainder and no locale could reorder it (Codex P2 on #750).
  *
  * Hours are FLOORED, not rounded, and the direction is the point: this labels a
- * deadline, so erring long tells the reader they have more time than they do.
- * Rounding turned 90 minutes into "in 2 h" — an hour of borrowed confidence on
- * the one signal that exists to prevent a session dying mid-task.
+ * DEADLINE, so erring long tells the reader they have more time than they do.
+ * Rounding turned 90 minutes into "2 h" — an hour of borrowed confidence on the
+ * one signal that exists to stop a session dying mid-task.
  */
-export function formatExpiryDistance(ms: number): string {
+export function expiryDistance(ms: number): ExpiryDistance {
   const mins = Math.floor(Math.abs(ms) / 60000);
-  const unit = mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h`;
-  return ms >= 0 ? `in ${unit}` : `${unit} ago`;
+  return mins < 60 ? { value: mins, unit: 'min' } : { value: Math.floor(mins / 60), unit: 'h' };
 }

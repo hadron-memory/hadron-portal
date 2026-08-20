@@ -5,7 +5,7 @@
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import { t } from '$lib/i18n/t';
   import { isHeld, workerHold } from '$lib/worker-hold';
-  import { formatExpiryDistance, workerSessionStatus } from '$lib/worker-session-status';
+  import { expiryDistance, workerSessionStatus } from '$lib/worker-session-status';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -286,15 +286,31 @@
               {#if status.expiringSoon && status.msUntilExpiry !== null}
                 <!-- The only forward-looking expiry signal any client shows.
                      Every expiry on this team so far was discovered by a write
-                     failing (hadron-cli#484). -->
+                     failing (hadron-cli#484).
+
+                     The WHOLE sentence goes through t(), one key per unit, with
+                     only the number interpolated — the repo's established
+                     `t(id, 'text {n}').replace()` shape. Translating "Expires"
+                     and concatenating a formatted "in 45 min" would leave an
+                     English fragment past the i18n boundary and fix the word
+                     order in English (Codex P2). -->
+                {@const d = expiryDistance(status.msUntilExpiry)}
                 <span
                   class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300"
                 >
-                  {status.msUntilExpiry >= 0
-                    ? t('worker.sessions.expiring', 'Expires') +
-                      ' ' +
-                      formatExpiryDistance(status.msUntilExpiry)
-                    : t('worker.sessions.overdue', 'Past its expiry — live only until the next reap')}
+                  {#if status.msUntilExpiry < 0}
+                    {t('worker.sessions.overdue', 'Past its expiry — live only until the next reap')}
+                  {:else if d.unit === 'min'}
+                    {t('worker.sessions.expiring.minutes', 'Expires in {n} min').replace(
+                      '{n}',
+                      String(d.value),
+                    )}
+                  {:else}
+                    {t('worker.sessions.expiring.hours', 'Expires in {n} h').replace(
+                      '{n}',
+                      String(d.value),
+                    )}
+                  {/if}
                 </span>
               {/if}
 
