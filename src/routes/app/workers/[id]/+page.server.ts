@@ -1,9 +1,14 @@
 import { error } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
-import { WORKER_QUERY } from '$lib/server/queries';
-import type { Worker } from '$lib/types';
+import { TEAM_WORK_ITEMS_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
+import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
 import type { PageServerLoad } from './$types';
+
+/** Worker sessions shown before "…and N more". */
+const SESSION_PAGE_SIZE = 20;
+/** Worklog rows fetched; `total` tells the reader how many exist beyond them. */
+const WORKLOG_PAGE_SIZE = 50;
 
 /**
  * The worker page (#735) — the canonical destination for a `hrn:worker:` URN.
@@ -44,5 +49,56 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     throw error(404, 'No worker found here, or you do not have access to it.');
   }
 
-  return { worker };
+  // #737 — the two sections that answer "what have they actually done".
+  //
+  // Each fetch fails INDEPENDENTLY and reports null rather than []. The issue is
+  // explicit about why: "a section the viewer cannot read should surface as
+  // unavailable, not silently render as empty. An empty worklog and a hidden
+  // worklog must not look the same." Collapsing a refusal or an outage into an
+  // empty array is the portal telling the reader this worker has done nothing.
+  //
+  // They are also independent of each other and of the identity block above: a
+  // worklog outage must not blank the sessions list, and neither may 404 a page
+  // whose identity half loaded fine.
+  const client = gqlClient(locals.token);
+  const [sessions, worklog] = await Promise.all([
+    client
+      // limit+1: `sessions` has no `total`, so "is there more" is answered by
+      // observing a short page, not by counting.
+      .request<{ sessions: WorkerSession[] }>(WORKER_SESSIONS_QUERY, {
+        workerRef: worker.id,
+        limit: SESSION_PAGE_SIZE + 1,
+      })
+      .then((d) => d.sessions)
+      .catch((e) => {
+        console.warn(`[worker-page] worker-sessions fetch failed for ${params.id}:`, e);
+        return null;
+      }),
+    // teamWorkItems REQUIRES an appRef, and `worker.app` runs its own read gate
+    // and masks to null on deny (#552). So a masked App is not an outage and
+    // not an empty worklog — it is a section we cannot even ask for, and it
+    // reports as unavailable rather than as "no records".
+    worker.app?.id
+      ? client
+          .request<{ teamWorkItems: { items: TeamWorkItem[]; total: number } }>(
+            TEAM_WORK_ITEMS_QUERY,
+            { appRef: worker.app.id, workerRef: worker.id, limit: WORKLOG_PAGE_SIZE },
+          )
+          .then((d) => d.teamWorkItems)
+          .catch((e) => {
+            console.warn(`[worker-page] worklog fetch failed for ${params.id}:`, e);
+            return null;
+          })
+      : Promise.resolve(null),
+  ]);
+
+  const sessionsTruncated = !!sessions && sessions.length > SESSION_PAGE_SIZE;
+
+  return {
+    worker,
+    workerSessions: sessions ? sessions.slice(0, SESSION_PAGE_SIZE) : null,
+    sessionsTruncated,
+    worklog: worklog?.items ?? null,
+    worklogTotal: worklog?.total ?? 0,
+  };
 };

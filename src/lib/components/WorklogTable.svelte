@@ -24,12 +24,23 @@
     total = 0,
     loadError = false,
     filters = { ref: '', kind: '', tool: '' },
+    showFilters = true,
   }: {
     items?: TeamWorkItem[];
     /** The SERVER's count for the current filter, which may exceed what was fetched. */
     total?: number;
     loadError?: boolean;
     filters?: { ref: string; kind: string; tool: string };
+    /**
+     * #737 — off on the worker page, where the WORKER is already the filter and
+     * the form's hidden `tab` field belongs to the App page's tab strip. The
+     * rows themselves are shared deliberately: they carry the three #733 rules
+     * (render the denormalized workerName rather than joining, never dedupe the
+     * per-ref fan-out, and list a record whose session is unreadable by id
+     * rather than dropping it), and a second copy of that table is how those
+     * rules drift apart.
+     */
+    showFilters?: boolean;
   } = $props();
 
   const truncated = $derived(total > items.length);
@@ -68,69 +79,71 @@
        point of ref lookup. Server-side, because teamWorkItems normalizes a ref
        tool-awarely — a pasted PR URL and the short form find the same records,
        which a client-side compare could not do. -->
-  <form method="GET" class="flex flex-wrap items-end gap-3">
-    <input type="hidden" name="tab" value="worklog" />
-    <div class="min-w-64 flex-1">
-      <label for="worklog-ref" class="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
-        {t('app.worklog.filter.ref', 'Artifact')}
-      </label>
-      <input
-        id="worklog-ref"
-        name="worklogRef"
-        value={filters.ref}
-        placeholder={t('app.worklog.filter.ref.placeholder', 'owner/repo#123, a commit sha, or a pasted URL')}
-        class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
-      />
-    </div>
-    <div>
-      <label for="worklog-kind" class="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
-        {t('app.worklog.filter.kind', 'Kind')}
-      </label>
-      <select
-        id="worklog-kind"
-        name="worklogKind"
-        value={filters.kind}
-        class="mt-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+  {#if showFilters}
+    <form method="GET" class="flex flex-wrap items-end gap-3">
+      <input type="hidden" name="tab" value="worklog" />
+      <div class="min-w-64 flex-1">
+        <label for="worklog-ref" class="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
+          {t('app.worklog.filter.ref', 'Artifact')}
+        </label>
+        <input
+          id="worklog-ref"
+          name="worklogRef"
+          value={filters.ref}
+          placeholder={t('app.worklog.filter.ref.placeholder', 'owner/repo#123, a commit sha, or a pasted URL')}
+          class="mt-1 w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+        />
+      </div>
+      <div>
+        <label for="worklog-kind" class="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
+          {t('app.worklog.filter.kind', 'Kind')}
+        </label>
+        <select
+          id="worklog-kind"
+          name="worklogKind"
+          value={filters.kind}
+          class="mt-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+        >
+          <option value="">{t('app.worklog.filter.any', 'Any')}</option>
+          {#each WORK_ITEM_KINDS as k (k)}
+            <option value={k}>{k}</option>
+          {/each}
+        </select>
+      </div>
+      <div>
+        <label for="worklog-tool" class="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
+          {t('app.worklog.filter.tool', 'Tool')}
+        </label>
+        <input
+          id="worklog-tool"
+          name="worklogTool"
+          value={filters.tool}
+          list="worklog-tool-options"
+          placeholder={t('app.worklog.filter.any', 'Any')}
+          class="mt-1 w-36 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+        />
+        <datalist id="worklog-tool-options">
+          {#each toolSuggestions as tool (tool)}
+            <option value={tool}></option>
+          {/each}
+        </datalist>
+      </div>
+      <button
+        type="submit"
+        class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-600"
       >
-        <option value="">{t('app.worklog.filter.any', 'Any')}</option>
-        {#each WORK_ITEM_KINDS as k (k)}
-          <option value={k}>{k}</option>
-        {/each}
-      </select>
-    </div>
-    <div>
-      <label for="worklog-tool" class="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
-        {t('app.worklog.filter.tool', 'Tool')}
-      </label>
-      <input
-        id="worklog-tool"
-        name="worklogTool"
-        value={filters.tool}
-        list="worklog-tool-options"
-        placeholder={t('app.worklog.filter.any', 'Any')}
-        class="mt-1 w-36 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
-      />
-      <datalist id="worklog-tool-options">
-        {#each toolSuggestions as tool (tool)}
-          <option value={tool}></option>
-        {/each}
-      </datalist>
-    </div>
-    <button
-      type="submit"
-      class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 dark:bg-indigo-500 dark:hover:bg-indigo-600"
-    >
-      {t('app.worklog.filter.apply', 'Filter')}
-    </button>
-    {#if hasFilters}
-      <a
-        href="?tab=worklog"
-        class="rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-      >
-        {t('app.worklog.filter.clear', 'Clear')}
-      </a>
-    {/if}
-  </form>
+        {t('app.worklog.filter.apply', 'Filter')}
+      </button>
+      {#if hasFilters}
+        <a
+          href="?tab=worklog"
+          class="rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          {t('app.worklog.filter.clear', 'Clear')}
+        </a>
+      {/if}
+    </form>
+  {/if}
 
   {#if loadError}
     <!-- "Couldn't load" and "no records" are different statements. The empty

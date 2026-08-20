@@ -622,6 +622,19 @@ export const WORKER_QUERY = /* GraphQL */ `
     worker(ref: $ref) {
       ...WorkerFields
       app { id name urn organizationId }
+      # The resolved boot briefing (#737): the agent's template with
+      # {{name}}/{{role}} bound, plus any per-worker override. The most literal
+      # answer to "who is this" — it is the worker's operating instructions in
+      # its own voice.
+      #
+      # SELECTED HERE, NOT IN WorkerFields, and that is the whole point. This
+      # is multi-KB per worker, and the fragment also feeds the Staff tab's
+      # roster — putting it there would ship every worker's briefing on every
+      # roster render. That is exactly hadron-cli#459, where worker list
+      # carried the prompt and cost 68,245 bytes for seven workers against
+      # 3,732 without it. One worker on its own page is the get surface, where
+      # the briefing belongs; a list is not.
+      prompt
     }
   }
 `;
@@ -1624,6 +1637,67 @@ export const APP_NODES_QUERY = /* GraphQL */ `
 // Sessions
 // ---------------------------------------------------------------------------
 
+// The CALLER's worker sessions for one worker (#737) — for the worker page.
+//
+// SCOPE, and it is not what the name suggests. `sessions` returns "sessions
+// recorded against the CALLER" (its own schema description), and workerRef only
+// narrows that caller-scoped set. So this reads "the stints I drove as this
+// worker", NOT the worker's history: a worker driven entirely by a teammate
+// comes back EMPTY here rather than returning their sessions.
+//
+// The page must therefore never make an absolute claim from this data. #737
+// assumed otherwise — "sessions(workerRef:) accepts the worker and filters
+// server-side" — and the schema's own note says that filter exists for the
+// "taken right now / last driven by" read, which is a question about your own
+// binding rather than a history read. Caught by Codex on #752.
+//
+// Note the asymmetry with the worklog rendered directly beneath it:
+// teamWorkItems(workerRef:) IS App-scoped, so it returns EVERY driver's records
+// for this worker. A reader seeing a populated worklog beside an empty session
+// list would otherwise conclude something false, which is why the section says
+// whose sessions it is showing.
+//
+// Deliberately does NOT select `worker { ... }`: this page already knows whose
+// sessions these are, and Session.worker runs a WIDER read gate than the worker
+// query itself. Selecting working-state through it (heldByUserId, memoryId,
+// promptOverride) would let a former App member read current staffing off a
+// historical session. Keep this selection worker-free.
+//
+// `sessions` returns a BARE [Session!]! — no page envelope and no total, unlike
+// teamWorkItems. So paging observes a short page rather than counting: fetch
+// limit+1 and slice, the same trick the org sessions list uses.
+//
+// expiresAt and autoExpiredAt are selected on purpose. They are on the wire and
+// unselected by every client today, which is why four worker sessions expired
+// in four days and each was discovered only by a failed write. autoExpiredAt
+// separates a REAP from a deliberate close; expiresAt is the only forward-
+// looking signal either surface has (hadron-cli#484).
+export const WORKER_SESSIONS_QUERY = /* GraphQL */ `
+  query WorkerSessions($workerRef: String!, $limit: Int, $offset: Int) {
+    sessions(workerRef: $workerRef, limit: $limit, offset: $offset) {
+      id
+      type
+      repo
+      branch
+      tool
+      host
+      llmModel
+      plan
+      summary
+      prNumber
+      turnCount
+      errorCount
+      startedAt
+      endedAt
+      expiresAt
+      autoExpiredAt
+      # Host-local and meaningless to anyone not on that machine — rendered as
+      # plain text, NEVER as a link (#737).
+      transcriptPath
+    }
+  }
+`;
+
 export const SESSIONS_QUERY = /* GraphQL */ `
   query Sessions($limit: Int, $offset: Int) {
     sessions(limit: $limit, offset: $offset) {
@@ -1879,6 +1953,7 @@ export const TEAM_WORK_ITEMS_QUERY = /* GraphQL */ `
     $ref: String
     $kind: String
     $tool: String
+    $workerRef: ID
     $limit: Int
     $offset: Int
   ) {
@@ -1887,6 +1962,19 @@ export const TEAM_WORK_ITEMS_QUERY = /* GraphQL */ `
       ref: $ref
       kind: $kind
       tool: $tool
+      # hadron-server#1035 — everything ONE worker has done, filtered
+      # server-side so the page envelope stays correct. Omitted by the App-level
+      # worklog tab, which wants the whole team; supplied by the worker page.
+      #
+      # The alternative was a fan-out over sessions(workerRef:) plus a
+      # client-side merge, which cannot reproduce total or a stable offset on
+      # the one surface whose whole point is completeness. That interim was
+      # explicitly ruled out rather than merely avoided.
+      #
+      # A ref naming nothing readable in this App yields an EMPTY page, never an
+      # error — so this is not an existence oracle for another App's roster, and
+      # an empty result must not be reported as a failure.
+      workerRef: $workerRef
       limit: $limit
       offset: $offset
     ) {
