@@ -652,10 +652,21 @@ export const WORKERS_QUERY = /* GraphQL */ `
   }
 `;
 
-// Cast an ALREADY-INSTALLED agent under a name. Omitting name walks the Team
-// Agent's cast-list register; omitting role defaults to the agent's
-// personaRole. Typed refusals: WORKER_NAME_TAKEN, WORKER_AGENT_NOT_INSTALLED,
-// WORKER_AGENT_NOT_FOUND, WORKER_AGENT_AMBIGUOUS, WORKER_REGISTER_EXHAUSTED.
+// Cast an ALREADY-INSTALLED agent under a name.
+//
+// #760: `name` is REQUIRED. hadron-server#1050 removed the Team Agent's
+// cast-list register, so omitting it no longer draws the next free name — it is
+// refused with WORKER_NAME_REQUIRED. Omitting `role` still defaults to the
+// agent's personaRole, which that change did not touch.
+//
+// The argument stays `name: String` (nullable) in the SDL because the refusal
+// is a RUNTIME one, which keeps it typed and mappable rather than a schema
+// rejection; do not read the nullability as "optional".
+//
+// Typed refusals: WORKER_NAME_TAKEN, WORKER_NAME_REQUIRED,
+// WORKER_AGENT_NOT_INSTALLED, WORKER_AGENT_NOT_FOUND, WORKER_AGENT_AMBIGUOUS,
+// APP_UNINSTALLED. WORKER_ROLE_NOT_FOUND and the TEAM_AGENT_* codes went with
+// the register — they fired only because a nameless cast had to read one.
 export const CAST_WORKER_MUTATION = /* GraphQL */ `
   ${WORKER_FIELDS}
   mutation CastWorker($appRef: ID!, $agentRef: ID, $role: String, $name: String, $promptOverride: String) {
