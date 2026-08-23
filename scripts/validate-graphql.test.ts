@@ -268,6 +268,40 @@ describe('findCommentTerminatedDocuments catches a bare backtick in a # comment'
     ).toEqual([]);
   });
 
+  it('flags a TRAILING comment, where the line does not start with #', () => {
+    // Codex P2 on #757. GraphQL comments run to end-of-line, so a backtick in a
+    // trailing comment terminates just as early — and the earlier guard, which
+    // tested `line.trimStart().startsWith('#')`, could not see it.
+    const found = find(
+      lines(
+        `export const A = /* GraphQL */ ${BT}`,
+        `  query A { me { id } } # mention ${BT}me${BT}`,
+        `${BT};`,
+      ),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].line).toBe(2);
+  });
+
+  it('flags a backtick outside a comment entirely', () => {
+    // The rule is the precondition — no nested backtick — not "no backtick in a
+    // comment". A description string is just as fatal.
+    const found = find(
+      lines(
+        `export const A = /* GraphQL */ ${BT}`,
+        `  query A { me { id } } ${BT} trailing junk`,
+        `${BT};`,
+      ),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].errors[0]).toMatch(/^a backtick here ends/);
+  });
+
+  it('accepts a single-line document, which closes on its opening line', () => {
+    // The one legitimate shape where the terminator is not first on its line.
+    expect(find(`const B = /* GraphQL */ ${BT}query B { me { id } }${BT};`)).toEqual([]);
+  });
+
   it('does not fire on a legitimate fragment interpolation', () => {
     expect(
       find(

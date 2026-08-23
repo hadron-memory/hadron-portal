@@ -85,18 +85,29 @@ export function extractDocuments(file, text) {
  * Enforce the precondition `extractDocuments` above states and cannot check for
  * itself: a `/* GraphQL *\/` body never contains a nested backtick (#751).
  *
- * A backtick inside a `#` GraphQL comment — where it looks like ordinary prose
- * formatting — TERMINATES the tagged template literal. What follows is parsed
+ * A bare backtick anywhere in a body — most often inside a `#` GraphQL comment,
+ * where it looks like ordinary prose formatting — TERMINATES the tagged
+ * template literal. What follows is parsed
  * as TypeScript, so esbuild reports a syntax error on the NEXT GraphQL line,
  * naming a field as though it were a statement, and nothing anywhere says
  * "unterminated template literal". `queries.ts` is imported by nearly every
  * loader and action, so every route test fails to transform at once; the wall
  * of unrelated red is the only real tell, and only if you already know it.
  *
- * This is detected precisely rather than by grepping for backticks. The tell is
- * WHERE the literal ended: if the terminating backtick sits on a line whose
- * first non-space character is `#`, prose ended the document. A legitimate
- * terminator sits on its own line (`` `; ``). No heuristic, no false positives.
+ * Detected by WHERE the literal ended, which is the precondition itself rather
+ * than one symptom of breaking it. A legitimate terminator is one of exactly
+ * two shapes:
+ *
+ *   - a multi-line document closes with the backtick FIRST on its line (`` `; ``);
+ *     all 166 in queries.ts do
+ *   - a single-line document opens and closes on the same line
+ *
+ * Anything else means the literal ended in the MIDDLE of a body, which is a
+ * nested backtick by definition — wherever it sits. That matters because the
+ * `#` comment need not start the line: GraphQL comments run to end-of-line, so
+ * `query A { me { id } } # mention `me`` terminates just as early, and the
+ * truncated document left behind can still PARSE — so the validator would exit
+ * 0 and the gate would be a phantom (Codex P2 on #757).
  *
  * Written after the trap bit twice in one session (PRs #749 and #752), the
  * second time AFTER reading the finding that documents it and repairing that
@@ -108,6 +119,7 @@ export function findCommentTerminatedDocuments(file, text) {
   const declaration = /(?:export\s+)?const\s+([A-Za-z0-9_$]+)\s*=\s*\/\*\s*GraphQL\s*\*\/\s*`/g;
   let match;
   while ((match = declaration.exec(text)) !== null) {
+    const openIndex = declaration.lastIndex - 1;
     let i = declaration.lastIndex;
     while (i < text.length) {
       if (text[i] === '\\') i += 2;
@@ -115,16 +127,24 @@ export function findCommentTerminatedDocuments(file, text) {
       else i += 1;
     }
     if (i >= text.length) break; // unterminated; extractDocuments reports it
-    const lineStart = text.lastIndexOf('\n', i) + 1;
-    const lineEnd = text.indexOf('\n', i);
-    const line = text.slice(lineStart, lineEnd === -1 ? text.length : lineEnd);
-    if (line.trimStart().startsWith('#')) {
+
+    const openLineStart = text.lastIndexOf('\n', openIndex) + 1;
+    const closeLineStart = text.lastIndexOf('\n', i) + 1;
+    const sameLineAsOpening = openLineStart === closeLineStart;
+    const firstOnItsLine = text.slice(closeLineStart, i).trim() === '';
+
+    if (!sameLineAsOpening && !firstOnItsLine) {
+      const lineEnd = text.indexOf('\n', i);
+      const line = text.slice(closeLineStart, lineEnd === -1 ? text.length : lineEnd);
+      const inComment = line.slice(0, i - closeLineStart).includes('#');
       offenders.push({
         name: match[1],
         file,
         line: text.slice(0, i).split('\n').length,
         errors: [
-          'a backtick in this # comment ends the GraphQL template literal early —',
+          inComment
+            ? 'a backtick in this # comment ends the GraphQL template literal early —'
+            : 'a backtick here ends the GraphQL template literal early —',
           'the build then fails on the NEXT line with a TypeScript error that names',
           'the wrong thing. Write the identifier as plain prose, without backticks.',
           `    ${line.trim()}`,
