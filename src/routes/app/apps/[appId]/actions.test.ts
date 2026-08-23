@@ -12,6 +12,7 @@ import {
   REVOKE_APP_KEY_MUTATION,
   TEAM_CHAT_MESSAGES_QUERY,
   TEAM_WORK_ITEMS_QUERY,
+  APP_CHAT_ROOTS_QUERY,
   UPDATE_APP_MUTATION,
 } from '$lib/server/queries';
 
@@ -129,6 +130,9 @@ describe('load', () => {
         });
       }
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      // #744: chat-root discovery for the Chats selector. Shares the appNodes
+      // resolver but is its own document, so the strict mock needs it by name.
+      if (query === APP_CHAT_ROOTS_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -999,10 +1003,20 @@ describe('postTeamChatMessage action (#732)', () => {
 });
 
 describe('worklog loading (#733)', () => {
-  function stubAll(worklog: unknown) {
+  /**
+   * `worklog` may carry an `appChatRoots` key (#744) to drive chat discovery —
+   * an Error to make it fail, or an array of chat-root nodes. Kept on the same
+   * argument so the existing single-purpose calls read unchanged.
+   */
+  function stubAll(worklog: Record<string, unknown> | Error) {
+    const chatRoots = (worklog as Record<string, unknown>)?.appChatRoots;
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_CHAT_ROOTS_QUERY) {
+        if (chatRoots instanceof Error) return Promise.reject(chatRoots);
+        return Promise.resolve({ appNodes: chatRoots ?? [] });
+      }
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
       }
@@ -1081,6 +1095,58 @@ describe('worklog loading (#733)', () => {
     stubAll({ teamWorkItems: { items: [], total: 0 } });
     expect((await loadWithUrl('?tab=nonsense')).initialTab).toBeNull();
     expect((await loadWithUrl('')).initialTab).toBeNull();
+  });
+
+  /**
+   * #744 merged the `chat` and `team-chat` tabs into one `chats` tab. Those ids
+   * are in the wild — PR descriptions, team-chat messages, bookmarks — so they
+   * must still land somewhere sensible with the right conversation selected.
+   * Dropping them would silently show the default tab instead, which looks like
+   * the link worked.
+   */
+  it('keeps the retired ?tab=chat and ?tab=team-chat links working', async () => {
+    stubAll({ teamWorkItems: { items: [], total: 0 } });
+
+    const agent = await loadWithUrl('?tab=chat');
+    expect(agent.initialTab).toBe('chats');
+    expect(agent.selectedChatKey).toBe('agent chat');
+
+    const team = await loadWithUrl('?tab=team-chat');
+    expect(team.initialTab).toBe('chats');
+    expect(team.selectedChatKey).toBe('chats:team');
+  });
+
+  it('lets an explicit ?chat= win over the one a retired tab implies', async () => {
+    // A link carrying both is not silently overridden by the alias.
+    stubAll({ teamWorkItems: { items: [], total: 0 } });
+    const r = await loadWithUrl('?tab=team-chat&chat=agent%20chat');
+    expect(r.initialTab).toBe('chats');
+    expect(r.selectedChatKey).toBe('agent chat');
+  });
+
+  it('reports a ?chat= it could not honour instead of substituting silently', async () => {
+    // The reader followed a link to a specific conversation; showing a
+    // different one without saying so lets them misread whose chat it is.
+    stubAll({ teamWorkItems: { items: [], total: 0 } });
+    const r = await loadWithUrl('?tab=chats&chat=chats:gone');
+    expect(r.chatNotFound).toBe(true);
+    expect(r.selectedChatKey).not.toBe('chats:gone');
+  });
+
+  it('does not raise chatNotFound for a chat that resolves', async () => {
+    // Negative case (review:guard-must-be-proven-to-fail).
+    stubAll({ teamWorkItems: { items: [], total: 0 } });
+    const r = await loadWithUrl('?tab=chats&chat=chats:team');
+    expect(r.chatNotFound).toBe(false);
+    expect(r.selectedChatKey).toBe('chats:team');
+  });
+
+  it('distinguishes a failed chat-root discovery from an App with one chat', async () => {
+    stubAll({ teamWorkItems: { items: [], total: 0 }, appChatRoots: new Error('down') });
+    const r = await loadWithUrl('');
+    expect(r.chatsError).toBe(true);
+    // The team chat is still offered — it always is, bootstrapped or not.
+    expect((r.appChats as { key: string }[]).some((c) => c.key === 'chats:team')).toBe(true);
   });
 });
 // Codex P1 on PR #738. `teamChatMessages` is seq-ordered ASCENDING with an

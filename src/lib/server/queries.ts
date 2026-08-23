@@ -2000,6 +2000,31 @@ export const TEAM_WORK_ITEMS_QUERY = /* GraphQL */ `
 // projection omits — e.g. team-chat messages under `<chat>:messages:`, which
 // #447 stopped shipping via the memory layout's graphNodes. `locPrefix` maps to
 // a `loc startsWith` match server-side (resolvers.query.node).
+// #744 — the App's chat ROOTS, for the Chats tab's selector.
+//
+// nodeType 'chat' is the root; its messages hang under <loc>:messages: as
+// 'chat-message' nodes and are NOT wanted here. The filter is pushed
+// server-side, so the selector does not page through an App's whole node set
+// to find two chats.
+//
+// This only became possible with hadron-server#1066: appNodes builds its scope
+// from the installed agents' memories, and the App's team space — where the
+// team chat and the 1:1 chats actually live — was structurally unreachable, with
+// filter.memoryIds rejected so there was no way to opt in. That is why the 1:1
+// chat in #744 could not be reached from anywhere in the portal, including the
+// Memory tab.
+export const APP_CHAT_ROOTS_QUERY = /* GraphQL */ `
+  query AppChatRoots($appRef: ID!, $limit: Int) {
+    appNodes(appRef: $appRef, filter: { nodeType: "chat" }, limit: $limit) {
+      id
+      loc
+      name
+      memoryId
+      nodeType
+    }
+  }
+`;
+
 export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodesByLocPrefix($memoryId: ID!, $locPrefix: String!, $limit: Int) {
