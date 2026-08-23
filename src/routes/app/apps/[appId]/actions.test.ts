@@ -744,12 +744,16 @@ describe('deleteApp action', () => {
 
 // ── Casting (#974, cor:dmo:050:11) ──────────────────────────────────────────
 //
-// castWorker CASTS an agent that is already installed; it mints nothing. The
-// interesting behaviour is at the edges: `name` and `role` are OPTIONAL, and
-// omitting them means something specific server-side (walk the cast-list
-// register / inherit the agent's persona role). Sending '' instead would be an
-// explicit-and-invalid name, so the blank→undefined coercion is the contract
-// this action has to hold up.
+// castWorker CASTS an agent that is already installed; it mints nothing.
+//
+// #760: `name` is REQUIRED. hadron-server#1050 removed the cast-list register,
+// so "omit the name and the server picks one" is gone — the server refuses a
+// nameless cast with WORKER_NAME_REQUIRED. The interesting behaviour is now
+// asymmetric, and that asymmetry is what these tests hold up:
+//
+//   name — rejected client-side when blank, never coerced
+//   role — still blank→UNDEFINED, because omitting it inherits the agent's
+//          personaRole while '' would be an explicit-and-invalid role
 
 describe('castWorker action', () => {
   it('casts an installed agent under an explicit name and role', async () => {
@@ -774,16 +778,31 @@ describe('castWorker action', () => {
     ]);
   });
 
-  it('sends a blank name and role as UNDEFINED, not ""', async () => {
-    // The whole point: undefined = "server, you choose" (walk the register /
-    // inherit personaRole). '' would be an explicit empty name — a different,
-    // invalid request.
+  // RATCHET FLIPPED, not deleted (review:convention-ratchets-must-be-flipped).
+  // This asserted that a blank name reached the mutation as `undefined` —
+  // correct while an omitted name walked the register, and the exact behaviour
+  // #760 reports as broken now that hadron-server#1050 removed it. The
+  // invariant that survives is the ROLE half; the name half inverts.
+  it('rejects a blank name BEFORE the mutation, rather than coercing it', async () => {
+    const result = (await runAction('castWorker', {
+      agentId: 'agent-1',
+      name: '',
+      role: '',
+    })) as { status: number; data: { form: { errors: { name?: string[] } } } };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.name?.[0]).toMatch(/name/i);
+    // The point of the fix: the request the server would refuse is never sent.
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('still sends a blank ROLE as UNDEFINED, not ""', async () => {
+    // Unchanged by #1050: an omitted role inherits the agent's personaRole,
+    // while '' would be an explicit-and-invalid role.
     mockRequest.mockResolvedValueOnce({});
-    await runAction('castWorker', { agentId: 'agent-1', name: '', role: '' });
+    await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: '' });
     const vars = mockRequest.mock.calls[0][1] as Record<string, unknown>;
-    expect(vars.name).toBeUndefined();
     expect(vars.role).toBeUndefined();
-    expect(vars.agentRef).toBe('agent-1');
+    expect(vars.name).toBe('Iris');
   });
 
   it('rejects a missing agent before the mutation', async () => {
@@ -822,11 +841,29 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).toContain('reserved permanently');
   });
 
+  // #760: WORKER_NAME_REQUIRED had NO mapping — it replaced
+  // WORKER_REGISTER_EXHAUSTED when hadron-server#1050 removed the register, so
+  // the one refusal a user could actually hit fell through to the raw server
+  // string. The form now blocks it client-side, which is why this asserts the
+  // SERVER refusal is still translated: if the two ever drift, the screen
+  // should carry a sentence rather than a code.
+  it('translates WORKER_NAME_REQUIRED, which replaced the register refusal', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ extensions: { code: 'WORKER_NAME_REQUIRED' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toMatch(/needs a name/i);
+    // The dead register vocabulary must not come back with it.
+    expect(result.data.form.message.text).not.toMatch(/cast list|register/i);
+  });
+
   it('translates WORKER_AGENT_NOT_INSTALLED', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ extensions: { code: 'WORKER_AGENT_NOT_INSTALLED' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-9' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-9', name: 'Iris' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toContain('not installed');
@@ -840,7 +877,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toContain('permission to staff this App');
@@ -854,7 +891,7 @@ describe('castWorker action', () => {
       message: 'boom',
       response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toBe('boom');
@@ -864,7 +901,7 @@ describe('castWorker action', () => {
     // No `response.errors` at all — reading extensions.code off it would yield
     // undefined and, with a catch-all, mislabel an outage.
     mockRequest.mockRejectedValueOnce(new Error('bad gateway'));
-    const result = (await runAction('castWorker', { agentId: 'agent-1' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toBe('bad gateway');

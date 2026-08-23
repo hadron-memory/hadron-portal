@@ -374,6 +374,8 @@
   const revokeKeyActionSuccess = $derived($revokeKeyMessage?.type === 'success' ? $revokeKeyMessage.text : null);
   const deleteAppActionError = $derived($deleteAppMessage?.type === 'error' ? $deleteAppMessage.text : $deleteAppErrors._kind?.[0] ?? null);
   const castWorkerAgentError = $derived($castWorkerErrors.agentId?.[0] ?? null);
+  // #760: the name is required since hadron-server#1050 removed the register.
+  const castWorkerNameError = $derived($castWorkerErrors.name?.[0] ?? null);
   const castWorkerActionError = $derived(
     $castWorkerMessage?.type === 'error'
       ? $castWorkerMessage.text
@@ -1242,9 +1244,10 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         </p>
       {/if}
 
-      <!-- Cast composer. Name and role are OPTIONAL: leaving the name blank
-           draws the next free name from the Team Agent's cast-list register,
-           and leaving the role blank inherits the agent's persona role. -->
+      <!-- Cast composer. #760: the NAME is required — hadron-server#1050
+           removed the cast-list register, so there is no "leave it blank and
+           the platform picks one" path any more. The role stays optional and
+           still inherits the agent's persona role when blank. -->
       {#if castOpen && castableAgents.length > 0}
         <form
           method="POST"
@@ -1291,12 +1294,17 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               type="text"
               placeholder="Iris"
               bind:value={$castWorkerForm.name}
-              aria-describedby="castNameHelp"
+              aria-invalid={!!castWorkerNameError}
+              aria-describedby={castWorkerNameError ? 'castNameError' : 'castNameHelp'}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
             />
-            <p id="castNameHelp" class="mt-1 text-xs text-zinc-400">
-              {t('app.staff.field.name.help', 'Leave blank to draw the next free name from this role’s cast list. A name is reserved in this App permanently — retiring a worker never frees it.')}
-            </p>
+            {#if castWorkerNameError}
+              <p id="castNameError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{castWorkerNameError}</p>
+            {:else}
+              <p id="castNameHelp" class="mt-1 text-xs text-zinc-400">
+                {t('app.staff.field.name.help', 'Choose the name this worker signs its work with. It is reserved in this App permanently — retiring a worker never frees it, and casting does not hold it: a name becomes someone’s when they first bind it.')}
+              </p>
+            {/if}
           </div>
           <div>
             <label for="castRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">

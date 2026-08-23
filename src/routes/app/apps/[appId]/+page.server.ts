@@ -178,9 +178,19 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
     'app.staff.error.agent-ambiguous',
     'Several installed agents match that role. Pick an agent explicitly.',
   ),
-  WORKER_REGISTER_EXHAUSTED: () => t(
-    'app.staff.error.register-exhausted',
-    'Every name in this role’s cast list is taken. Enter a name explicitly.',
+  // #760: WORKER_NAME_REQUIRED replaced WORKER_REGISTER_EXHAUSTED when
+  // hadron-server#1050 removed the cast-list register. The old code can no
+  // longer fire — there is no register to exhaust — and the new one had no
+  // mapping, so the single refusal a user could actually hit fell through to
+  // the raw server string.
+  //
+  // The form now requires a name, so this should be unreachable from the
+  // portal. It is mapped anyway: a refusal that arrives despite client-side
+  // validation means the two have drifted, and a legible sentence beats a raw
+  // code for whoever is reading the screen when that happens.
+  WORKER_NAME_REQUIRED: () => t(
+    'app.staff.error.name-required',
+    'A worker needs a name. The platform no longer picks one — choose a name that is not already used in this App.',
   ),
   APP_UNINSTALLED: () => t(
     'app.staff.error.app-uninstalled',
@@ -707,10 +717,15 @@ export const actions: Actions = {
   // ── Casting (#974) ──────────────────────────────────────────────────────
   //
   // castWorker CASTS an agent that is ALREADY INSTALLED in this App; it mints
-  // nothing. Name and role are optional: an omitted name walks the Team Agent's
-  // cast-list register, an omitted role inherits the agent's personaRole. Both
-  // must therefore be sent as UNDEFINED when blank — '' would be an explicit
-  // (and invalid) name, which is a different request entirely.
+  // nothing.
+  //
+  // #760: `name` is now REQUIRED — hadron-server#1050 removed the cast-list
+  // register, so there is no "let the server choose" path left and the schema
+  // rejects a blank one before we get here.
+  //
+  // `role` is still optional and still must be sent as UNDEFINED when blank:
+  // an omitted role inherits the agent's personaRole, while '' would be an
+  // explicit (and invalid) role — a different request entirely.
   castWorker: async ({ request, params, locals }) => {
     const form = await superValidate<CastWorkerForm>(
       await request.formData(),
@@ -722,7 +737,11 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(CAST_WORKER_MUTATION, {
         appRef: params.appId,
         agentRef: form.data.agentId,
-        name: form.data.name || undefined,
+        // #760: sent as-is. The schema guarantees a non-empty name, so the
+        // `|| undefined` coercion that used to mean "server, you choose" now
+        // has nothing to express — and leaving it would quietly turn a
+        // validation gap into a nameless cast the server refuses.
+        name: form.data.name,
         role: form.data.role || undefined,
         promptOverride: form.data.promptOverride || undefined,
       });

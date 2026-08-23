@@ -73,18 +73,25 @@ export const deleteAppSchema = z.object({
   _kind: z.literal('deleteApp').default('deleteApp'),
 });
 
-// ── Casting (#974) ────────────────────────────────────────────────────────
+// ── Casting (#974, #760) ──────────────────────────────────────────────────
 //
 // Casting an INSTALLED agent into this App under a name creates a Worker: the
-// App's staff. `name` and `role` are both optional server-side — an omitted
-// name walks the Team Agent's cast-list register, an omitted role inherits the
-// agent's personaRole — so they must reach the mutation as UNDEFINED, not '',
-// or an empty string would be taken as an explicit (invalid) name. That is why
-// they are optional here rather than defaulted to ''.
+// App's staff.
+//
+// `name` is REQUIRED (#760). It was optional until hadron-server#1050 removed
+// the cast-list register: an omitted name used to walk the Team Agent's
+// register for the next free one, and the server now refuses a nameless cast
+// with WORKER_NAME_REQUIRED. Leaving it optional here does not make the cast
+// work — it makes the form recommend a request the server rejects, which is
+// exactly what #760 reports.
+//
+// `role` stays optional and must still reach the mutation as UNDEFINED rather
+// than '': an omitted role inherits the agent's personaRole, while an empty
+// string would be an explicit (invalid) role. That distinction is unchanged.
 export const castWorkerSchema = z.object({
   _kind: z.literal('castWorker').default('castWorker'),
   agentId: z.string().trim().min(1, 'Select an agent to cast.').prefault(''),
-  name: z.string().trim().optional(),
+  name: z.string().trim().min(1, 'Give the worker a name — the platform no longer picks one.').prefault(''),
   role: z.string().trim().optional(),
   promptOverride: z.string().trim().optional(),
 });
