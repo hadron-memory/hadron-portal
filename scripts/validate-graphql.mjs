@@ -82,6 +82,88 @@ export function extractDocuments(file, text) {
 }
 
 /**
+ * Enforce the precondition `extractDocuments` above states and cannot check for
+ * itself: a `/* GraphQL *\/` body never contains a nested backtick (#751).
+ *
+ * A bare backtick anywhere in a body — most often inside a `#` GraphQL comment,
+ * where it looks like ordinary prose formatting — TERMINATES the tagged
+ * template literal. What follows is parsed
+ * as TypeScript, so esbuild reports a syntax error on the NEXT GraphQL line,
+ * naming a field as though it were a statement, and nothing anywhere says
+ * "unterminated template literal". `queries.ts` is imported by nearly every
+ * loader and action, so every route test fails to transform at once; the wall
+ * of unrelated red is the only real tell, and only if you already know it.
+ *
+ * Detected by WHERE the literal ended, which is the precondition itself rather
+ * than one symptom of breaking it. A legitimate terminator is one of exactly
+ * two shapes:
+ *
+ *   - a multi-line document closes with the backtick FIRST on its line (`` `; ``);
+ *     all 166 in queries.ts do
+ *   - a single-line document opens and closes on the same line
+ *
+ * Anything else means the literal ended in the MIDDLE of a body, which is a
+ * nested backtick by definition — wherever it sits. That matters because the
+ * `#` comment need not start the line: GraphQL comments run to end-of-line, so
+ * `query A { me { id } } # mention `me`` terminates just as early, and the
+ * truncated document left behind can still PARSE — so the validator would exit
+ * 0 and the gate would be a phantom (Codex P2 on #757).
+ *
+ * Written after the trap bit twice in one session (PRs #749 and #752), the
+ * second time AFTER reading the finding that documents it and repairing that
+ * finding's review trigger. A review node fires at review time; this fails at
+ * authoring time, which is when the cost is paid.
+ */
+export function findCommentTerminatedDocuments(file, text) {
+  const offenders = [];
+  const declaration = /(?:export\s+)?const\s+([A-Za-z0-9_$]+)\s*=\s*\/\*\s*GraphQL\s*\*\/\s*`/g;
+  let match;
+  while ((match = declaration.exec(text)) !== null) {
+    const openIndex = declaration.lastIndex - 1;
+    let i = declaration.lastIndex;
+    while (i < text.length) {
+      if (text[i] === '\\') i += 2;
+      else if (text[i] === '`') break;
+      else i += 1;
+    }
+    if (i >= text.length) break; // unterminated; extractDocuments reports it
+
+    const openLineStart = text.lastIndexOf('\n', openIndex) + 1;
+    const closeLineStart = text.lastIndexOf('\n', i) + 1;
+    const sameLineAsOpening = openLineStart === closeLineStart;
+    const firstOnItsLine = text.slice(closeLineStart, i).trim() === '';
+
+    if (!sameLineAsOpening && !firstOnItsLine) {
+      const lineEnd = text.indexOf('\n', i);
+      const line = text.slice(closeLineStart, lineEnd === -1 ? text.length : lineEnd);
+      const inComment = line.slice(0, i - closeLineStart).includes('#');
+      offenders.push({
+        name: match[1],
+        file,
+        line: text.slice(0, i).split('\n').length,
+        errors: [
+          inComment
+            ? 'a backtick in this # comment ends the GraphQL template literal early —'
+            : 'a backtick here ends the GraphQL template literal early —',
+          'the build then fails on the NEXT line with a TypeScript error that names',
+          'the wrong thing. Write the identifier as plain prose, without backticks.',
+          `    ${line.trim()}`,
+        ],
+      });
+    }
+    declaration.lastIndex = i + 1;
+  }
+  return offenders;
+}
+
+/** Every comment-terminated document across `src/`. */
+export function collectCommentTerminated(srcDir = SRC_DIR) {
+  return sourceFiles(srcDir).flatMap((file) =>
+    findCommentTerminatedDocuments(relative(ROOT, file), readFileSync(file, 'utf8')),
+  );
+}
+
+/**
  * Splice `${FRAGMENT}` references in, recursively, so an operation is validated
  * together with the fragments it actually spreads. Interpolations that name
  * something we did not extract, or that form a cycle, are reported rather than
@@ -207,6 +289,11 @@ function main(argv) {
   const declared = declaredVariables(documents, (doc) => resolveInterpolations(doc, byName));
   const callers = findCallerMismatches(sourceFiles(SRC_DIR), declared, ROOT);
   const naming = findArgVariableMismatches(documents, (doc) => resolveInterpolations(doc, byName));
+  // #751: the precondition extractDocuments assumes — no nested backtick in a
+  // GraphQL body. Checked FIRST in the report because a comment-terminated
+  // document truncates everything after it, so the other checks are reasoning
+  // about a document the author never wrote.
+  const terminated = collectCommentTerminated();
 
   if (asJson) {
     console.log(
@@ -220,6 +307,8 @@ function main(argv) {
           callerMismatches: callers.failures.length,
           callerFailures: callers.failures,
           callerSkipped: callers.skipped,
+          commentTerminated: terminated.length,
+          commentTerminatedFailures: terminated.map(({ name, file, line }) => ({ name, file, line })),
           namingMismatches: naming.length,
           namingFailures: naming.map(({ name, file, line, errors }) => ({ name, file, line, errors })),
         },
@@ -228,7 +317,7 @@ function main(argv) {
       ),
     );
   } else {
-    for (const failure of [...failures, ...naming, ...callers.failures]) {
+    for (const failure of [...terminated, ...failures, ...naming, ...callers.failures]) {
       console.error(`✗ ${failure.file}:${failure.line}  ${failure.name}`);
       for (const message of failure.errors) console.error(`    ${message}`);
     }
@@ -238,8 +327,18 @@ function main(argv) {
     const docSummary = `${documents.length} documents, ${failures.length} invalid, ${naming.length} misnamed`;
     const callSummary = `${callers.checked} call sites, ${callers.failures.length} mismatched`;
     const summary = `${docSummary}; ${callSummary} (schema: ${relative(ROOT, schemaPath)})`;
-    if (failures.length > 0 || naming.length > 0 || callers.failures.length > 0) {
+    if (
+      terminated.length > 0 ||
+      failures.length > 0 ||
+      naming.length > 0 ||
+      callers.failures.length > 0
+    ) {
       console.error(`\n✗ ${summary}`);
+      if (terminated.length > 0) {
+        console.error(
+          '  A backtick inside a # comment ends the template literal — remove the backticks.',
+        );
+      }
       if (failures.length > 0) {
         console.error(
           '  If the server changed on purpose, run "pnpm gql:schema" and reconcile the operations.',
@@ -253,7 +352,12 @@ function main(argv) {
     }
   }
 
-  return failures.length > 0 || naming.length > 0 || callers.failures.length > 0 ? 1 : 0;
+  return terminated.length > 0 ||
+    failures.length > 0 ||
+    naming.length > 0 ||
+    callers.failures.length > 0
+    ? 1
+    : 0;
 }
 
 // Only act as a CLI when executed directly, so the test can import the helpers.

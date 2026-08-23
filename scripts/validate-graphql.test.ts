@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { buildSchema } from 'graphql';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error — plain .mjs helper, no type declarations by design.
-import { ROOT, collectPortalDocuments, extractDocuments, findArgVariableMismatches, findInvalid, resolveInterpolations } from './validate-graphql.mjs';
+import { ROOT, collectCommentTerminated, collectPortalDocuments, extractDocuments, findArgVariableMismatches, findCommentTerminatedDocuments, findInvalid, resolveInterpolations } from './validate-graphql.mjs';
 
 const schema = buildSchema(readFileSync(join(ROOT, 'schema', 'schema.graphql'), 'utf8'));
 
@@ -160,5 +160,201 @@ describe('the portal itself', () => {
     const documents = collectPortalDocuments();
     const byName = new Map(documents.map((d: { name: string }) => [d.name, d]));
     expect(findArgVariableMismatches(documents, (d: unknown) => resolveInterpolations(d, byName))).toEqual([]);
+  });
+});
+
+/**
+ * #751 — the backtick guard.
+ *
+ * The rule it enforces is `extractDocuments`' own documented precondition: a
+ * GraphQL body never contains a nested backtick. A BARE backtick inside a `#`
+ * comment terminates the tagged template literal; the build then fails on the
+ * NEXT line naming the wrong thing, and every route test importing queries.ts
+ * dies at once.
+ *
+ * A gate that cannot fail is worse than no gate, so these prove it FAILS on the
+ * real shape — including the two comments that actually caused it — before
+ * proving it stays quiet on everything legitimate.
+ *
+ * FIXTURES ARE BUILT FROM LINES, not written as template literals, and the
+ * reason is the bug itself: a bare backtick cannot appear inside a template
+ * literal, which is precisely why it ends one. Writing `\`` instead would be an
+ * ESCAPED backtick, which does not terminate anything — a fixture that cannot
+ * reproduce the defect, quietly passing. (That is the first version of this
+ * test, and it failed for exactly that reason.)
+ */
+const BT = String.fromCharCode(96);
+const lines = (...rows: string[]) => rows.join('\n');
+
+describe('findCommentTerminatedDocuments catches a bare backtick in a # comment', () => {
+  const find = (source: string) => findCommentTerminatedDocuments('test.ts', source);
+
+  it('flags the shape, and points at the comment rather than the const', () => {
+    const found = find(
+      lines(
+        '',
+        `export const A = /* GraphQL */ ${BT}`,
+        '  query A {',
+        `    # do not touch ${BT}me${BT} here`,
+        '    me { id }',
+        '  }',
+        `${BT};`,
+      ),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].name).toBe('A');
+    // Line 4 — where the literal actually ended, which is the one place the
+    // compiler's own error will NOT point.
+    expect(found[0].line).toBe(4);
+    expect(found[0].errors.join(' ')).toMatch(/ends the GraphQL template literal early/);
+  });
+
+  it('flags the two comments that actually caused this, verbatim', () => {
+    // PR #749 and PR #752, kept literally: a paraphrase would be a fixture of
+    // my memory of the bug rather than of the bug.
+    const first = find(
+      lines(
+        `export const F = /* GraphQL */ ${BT}`,
+        '  fragment WorkerFields on Worker {',
+        `    # DO NOT add these to a ${BT}Session.worker${BT} selection. That path is wider.`,
+        '    heldByUserId',
+        '  }',
+        `${BT};`,
+      ),
+    );
+    const second = find(
+      lines(
+        `export const Q = /* GraphQL */ ${BT}`,
+        '  query Q {',
+        `    # merge, which cannot reproduce ${BT}total${BT} or a stable offset on`,
+        '    teamWorkItems { total }',
+        '  }',
+        `${BT};`,
+      ),
+    );
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+  });
+
+  it('is silent on a correctly terminated document', () => {
+    expect(
+      find(
+        lines(
+          `export const A = /* GraphQL */ ${BT}`,
+          '  query A {',
+          '    # plain prose about total, with no backticks',
+          '    me { id }',
+          '  }',
+          `${BT};`,
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it('does not fire on an ESCAPED backtick, which terminates nothing', () => {
+    // \` inside a template literal is a legal character, not an end. Treating it
+    // as one would reject valid source.
+    expect(
+      find(
+        lines(
+          `export const A = /* GraphQL */ ${BT}`,
+          '  query A {',
+          '    # an escaped \\` is fine here',
+          '    me { id }',
+          '  }',
+          `${BT};`,
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it('flags a TRAILING comment, where the line does not start with #', () => {
+    // Codex P2 on #757. GraphQL comments run to end-of-line, so a backtick in a
+    // trailing comment terminates just as early — and the earlier guard, which
+    // tested `line.trimStart().startsWith('#')`, could not see it.
+    const found = find(
+      lines(
+        `export const A = /* GraphQL */ ${BT}`,
+        `  query A { me { id } } # mention ${BT}me${BT}`,
+        `${BT};`,
+      ),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].line).toBe(2);
+  });
+
+  it('flags a backtick outside a comment entirely', () => {
+    // The rule is the precondition — no nested backtick — not "no backtick in a
+    // comment". A description string is just as fatal.
+    const found = find(
+      lines(
+        `export const A = /* GraphQL */ ${BT}`,
+        `  query A { me { id } } ${BT} trailing junk`,
+        `${BT};`,
+      ),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].errors[0]).toMatch(/^a backtick here ends/);
+  });
+
+  it('accepts a single-line document, which closes on its opening line', () => {
+    // The one legitimate shape where the terminator is not first on its line.
+    expect(find(`const B = /* GraphQL */ ${BT}query B { me { id } }${BT};`)).toEqual([]);
+  });
+
+  it('does not fire on a legitimate fragment interpolation', () => {
+    expect(
+      find(
+        lines(
+          `export const A = /* GraphQL */ ${BT}`,
+          '  ${FIELDS}',
+          '  query A { me { ...Fields } }',
+          `${BT};`,
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it('ignores backticks in the TypeScript around the document', () => {
+    // Template literals elsewhere in the file are none of this check's business.
+    expect(
+      find(
+        lines(
+          `const url = ${BT}/app/workers/\${id}${BT};`,
+          `export const A = /* GraphQL */ ${BT}`,
+          '  query A { me { id } }',
+          `${BT};`,
+          `const msg = ${BT}done${BT};`,
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it('keeps checking documents that FOLLOW an offender', () => {
+    // The scan resumes past a premature terminator, so one bad comment must not
+    // hide a second further down the file.
+    const found = find(
+      lines(
+        `export const A = /* GraphQL */ ${BT}`,
+        '  query A {',
+        `    # bad ${BT}one${BT}`,
+        '    me { id }',
+        '  }',
+        `${BT};`,
+        `export const B = /* GraphQL */ ${BT}`,
+        '  query B {',
+        `    # bad ${BT}two${BT}`,
+        '    me { id }',
+        '  }',
+        `${BT};`,
+      ),
+    );
+    expect(found.map((f: { name: string }) => f.name)).toEqual(['A', 'B']);
+  });
+});
+
+describe('the portal itself has no comment-terminated documents', () => {
+  it('is clean today', () => {
+    expect(collectCommentTerminated()).toEqual([]);
   });
 });
