@@ -431,11 +431,23 @@
   // Land back on Staff after a cast/retire so the outcome banner is visible
   // next to the list it changed.
   $effect(() => {
-    if (
-      submittedForm<CastWorkerForm>(form, 'castWorker') ||
-      submittedForm<RetireWorkerForm>(form, 'retireWorker')
-    ) {
+    const cast = submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null;
+    if (cast || submittedForm<RetireWorkerForm>(form, 'retireWorker')) {
       activeTab = 'staff';
+    }
+    // #760 (Codex on #762): REOPEN the composer when the cast was refused.
+    //
+    // Without JS — or before `use:enhance` initializes — a rejected cast is a
+    // full navigation, and the fresh page starts with `castOpen = false`. The
+    // inline error and the preserved values live INSIDE the composer, so the
+    // user would land on Staff with their cast silently gone and nothing on
+    // screen explaining why. Same reasoning as the `updateApp` effect above,
+    // which reopens the editor on an invalid save.
+    //
+    // Only on failure: `onUpdated` already closes the composer on a clean cast,
+    // and reopening an emptied form after success would be noise.
+    if (cast && (!cast.valid || cast.message?.type === 'error')) {
+      castOpen = true;
     }
   });
 
