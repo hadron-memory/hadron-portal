@@ -1187,7 +1187,32 @@
 
   <!-- Main area. Shared height is a CSS variable so the scrolling panes inherit
        one value (NodeList reads --memory-browser-h to bound its own scroll).
-       Per code-review feedback on PR #211. -->
+       Per code-review feedback on PR #211.
+
+       #747: the `dvh` value is a DUPLICATED DIRECT DECLARATION, and the 320px
+       is repeated rather than routed through the variable. That looks like
+       something to tidy up and must not be.
+
+       The custom property holds the `vh` value ONLY. Declaring `dvh` into the
+       variable instead — `--memory-browser-h: calc(100vh …); --memory-browser-h:
+       calc(100dvh …)` — silently breaks the fallback, because custom properties
+       are not validated at declaration time: the second wins unconditionally,
+       and on a browser without `dvh` the later `var()` substitution is invalid
+       AT COMPUTED-VALUE TIME. That does not fall back to the previous
+       declaration — it falls back to the property's INITIAL value, so the
+       constraint disappears and the pane collapses.
+
+       Measured in-browser rather than reasoned about, substituting a definitely
+       unsupported unit for dvh:
+
+         --h: calc(100vh - 320px); --h: calc(100qq - 320px); min-height: var(--h)
+           → min-height computes to 0px          (constraint lost)
+         --h: calc(100vh - 320px); min-height: var(--h); min-height: calc(100qq - 320px)
+           → min-height computes to 400px        (bad declaration dropped at parse)
+
+       A duplicated DIRECT declaration is dropped at parse time when the unit is
+       unknown, which is what makes it a real fallback. Caught by Copilot on
+       PR #753. -->
   {#if nodes.length === 0}
     <div class="flex items-center justify-center rounded-xl border border-zinc-200 bg-white p-12 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900" style="min-height: 400px;">
       No nodes to display.
@@ -1204,7 +1229,7 @@
          has always had at every width. -->
     <div
       class="flex gap-0 {treeOpen === null ? 'flex-col sm:flex-row' : ''}"
-      style="--memory-browser-h: calc(100vh - 320px); --memory-browser-h: calc(100dvh - 320px); min-height: var(--memory-browser-h);"
+      style="--memory-browser-h: calc(100vh - 320px); min-height: var(--memory-browser-h); min-height: calc(100dvh - 320px);"
     >
       {#if treeOpen !== false}
         <!-- `max-width: 100%` alongside the dragged pixel width: the drag
@@ -1215,7 +1240,7 @@
           null
             ? 'hidden sm:block'
             : ''}"
-          style="width: {treeWidth}px; max-width: 100%; max-height: var(--memory-browser-h);"
+          style="width: {treeWidth}px; max-width: 100%; max-height: var(--memory-browser-h); max-height: calc(100dvh - 320px);"
         >
           <div class="flex items-center justify-between border-b border-zinc-200 px-3 py-2 dark:border-zinc-800">
             <span class="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Tree</span>
@@ -1286,9 +1311,9 @@
          Both are representations of the same node set, so we show one at a
          time rather than side-by-side. -->
     <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800"
-      style="--memory-browser-h: calc(100vh - 320px); --memory-browser-h: calc(100dvh - 320px); min-height: var(--memory-browser-h);">
+      style="--memory-browser-h: calc(100vh - 320px); min-height: var(--memory-browser-h); min-height: calc(100dvh - 320px);">
       {#if nodesPane === 'tree'}
-        <div class="overflow-y-auto bg-zinc-50 dark:bg-zinc-950" style="max-height: var(--memory-browser-h);">
+        <div class="overflow-y-auto bg-zinc-50 dark:bg-zinc-950" style="max-height: var(--memory-browser-h); max-height: calc(100dvh - 320px);">
           {#if moveError}
             <p class="m-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
               {moveError}
