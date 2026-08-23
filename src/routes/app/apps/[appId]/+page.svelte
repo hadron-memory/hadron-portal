@@ -15,6 +15,7 @@
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
+  import { AGENT_CHAT_KEY, TEAM_CHAT_LOC } from '$lib/app-chats';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t.js';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
@@ -87,16 +88,23 @@
     org ? org.urn : app.urn.slice(0, Math.max(0, app.urn.lastIndexOf(':'))),
   );
 
-  // ── Tab state — driven by App.surfaces (008-agent-installation T071) ─
-  // The chat tab appears iff the App's `surfaces` array contains 'chat'.
-  // Pre-008 this was gated on `app.appType === 'CHATBOT'`; 008's migration
-  // sets `surfaces = ['chat']` for chatbot Apps so existing apps keep their
-  // tab without behavior change. Gate logic lives in `$lib/app-surfaces`
-  // so it's unit-testable independent of the Svelte component lifecycle.
-  type TabId = 'chat' | 'team-chat' | 'worklog' | 'staff' | 'memory' | 'settings' | 'client';
+  // ── Tab state ─────────────────────────────────────────────────────────
+  // #744: `hasChatSurface` no longer gates a TAB. The Chats tab is always
+  // present, because the team chat always is — an App whose chat is not
+  // bootstrapped still needs the tab, since that is how the first message gets
+  // posted. What `surfaces` now decides is narrower: whether the AGENT-CHAT
+  // ENTRY appears in the Chats selector.
+  //
+  // The `surfaces` gate itself is unchanged (008-agent-installation T071): the
+  // agent chat is available iff the App's `surfaces` array contains 'chat'.
+  // Pre-008 this was gated on `app.appType === 'CHATBOT'`; 008's migration set
+  // `surfaces = ['chat']` for chatbot Apps so existing apps kept their chat
+  // without behaviour change. The predicate lives in `$lib/app-surfaces` so it
+  // is unit-testable independent of the Svelte component lifecycle.
+  type TabId = 'chats' | 'worklog' | 'staff' | 'memory' | 'settings' | 'client';
   const hasChatSurface = $derived(hasChatSurfaceFn(app.surfaces));
-  // Chat tab renders the agent-chat platform when an Agent is linked;
-  // shows an empty state otherwise.
+  // The agent-chat ENTRY renders the agent-chat platform when an Agent is
+  // linked, and an empty state otherwise.
   // 036-ai-service-config: configs resolvable for this app's chat context
   // (App→Agent→Org→Host, masked). Powers the picker + LLM-readiness gate.
   const usableChatConfigs = $derived((data.chatConfigs ?? []).filter((c) => c.hasApiKey));
@@ -133,24 +141,25 @@
   // navigation that re-runs the loader, while clicking between tabs is UI state
   // and must not push history entries.
   let activeTab = $state<TabId>(
-    untrack(() => (data.initialTab as TabId | null) ?? (hasChatSurface ? 'chat' : 'memory')),
+    // #744: `chats` always exists — the team chat is always offered, even
+    // unbootstrapped, because that is how the first message gets posted.
+    untrack(() => (data.initialTab as TabId | null) ?? 'chats'),
   );
   const tabs = $derived<{ id: TabId; label: string }[]>([
-    // #734: "Agent chat", not a bare "Chat". This tab is a conversation with
-    // the App's linked agent — a saved `Chat`, NOT a "chat session", which
-    // hadron-server#1034 reserves for the human's own conversation. It sits
-    // next to a Team chat tab, so a bare label makes "close the chat" mean two
-    // opposite things depending on which concept the reader has in mind.
-    // Naming the counterparty removes the ambiguity without inventing
-    // vocabulary: the render mode this tab already chooses is `agent-chat`.
-    ...(hasChatSurface ? [{ id: 'chat' as TabId, label: t('app.tabs.agent-chat', 'Agent chat') }] : []),
-    // #732: the App's TEAM CHAT — a different thing from the Agent chat tab
-    // above, which is a conversation with the linked agent. Always present, for the same reason as
-    // Staff below: an App with no team chat yet is information, and the tab is
-    // how the first message gets posted. The label keeps "team" on it always,
-    // because a bare "Chat" next to the tab above is exactly the collision the
-    // ratified vocabulary exists to prevent (hadron-server#1034).
-    { id: 'team-chat', label: t('app.tabs.team-chat', 'Team chat') },
+    // #744: ONE "Chats" tab over every conversation the App has — the team
+    // chat, any 1:1 chats, and the agent conversation — with a selector inside.
+    //
+    // This replaces the separate "Agent chat" and "Team chat" tabs, and the
+    // bare label is safe ONLY because of that. #734 qualified those labels
+    // because two chat tabs sat side by side and "close the chat" meant two
+    // different things; hadron-server#1034 ratified keeping "team chat"
+    // qualified for the same reason. Neither is violated here: the collision
+    // was BETWEEN the tabs, and there is now one. The qualified names survive
+    // where they still distinguish — inside, on the selector entries.
+    //
+    // Always present, like Staff: an App whose team chat is not bootstrapped
+    // still needs the tab, because that is how the first message gets posted.
+    { id: 'chats', label: t('app.tabs.chats', 'Chats') },
     // #974: the App's staff — its Workers. Always present, including when the
     // staff list is empty: "this App has no workers cast yet" is information,
     // and hiding the tab would hide the way to cast the first one.
@@ -887,8 +896,65 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
     </a>
   </div>
 
-  <!-- ───────────── CHAT TAB (CHATBOT only) ───────────── -->
-  {#if activeTab === 'chat'}
+  <!-- ───────────── CHATS TAB (#744) ─────────────
+       Every conversation the App has, behind one selector: the agent chat, the
+       team chat, and any other chat root in the App's shared memory (a 1:1
+       between two participants, at `chats:<a>-<b>`).
+
+       Those 1:1 chats had NO path in the portal at all before this — not even
+       through the Memory tab, because `appNodes` could not reach the App's
+       shared memory until hadron-server#1066.
+
+       The selection rides the URL (`?tab=chats&chat=<key>`), not component
+       state, so a chat can be linked to. Same reasoning as the worklog filters:
+       an answer you cannot link to is half an answer. It also means switching
+       chats re-runs the loader, which is what fetches a 1:1 transcript. -->
+  {#if activeTab === 'chats'}
+    <div class="mb-3 flex flex-wrap items-center gap-2">
+      {#if data.chatsError}
+        <!-- Discovery failed. NOT the same as "this App has one chat", so the
+             selector says so rather than quietly showing a shorter list. -->
+        <span
+          role="status"
+          class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+        >
+          {t(
+            'app.chats.discovery-error',
+            'Could not load this App’s chat list — others may exist beyond the ones shown.',
+          )}
+        </span>
+      {/if}
+      {#each data.appChats ?? [] as entry (entry.key)}
+        <a
+          href="?tab=chats&chat={encodeURIComponent(entry.key)}"
+          data-sveltekit-noscroll
+          aria-current={entry.key === data.selectedChatKey ? 'page' : undefined}
+          class="rounded-lg border px-3 py-1.5 text-xs font-medium transition {entry.key ===
+          data.selectedChatKey
+            ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
+            : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
+        >
+          {entry.labelKey ? t(entry.labelKey, entry.label) : entry.label}
+        </a>
+      {/each}
+    </div>
+
+    {#if data.chatNotFound}
+      <!-- The reader followed a link to a SPECIFIC chat. Substituting the
+           default silently would let them read one conversation believing it
+           is another. -->
+      <p
+        role="status"
+        class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+      >
+        {t(
+          'app.chats.not-found',
+          'That chat isn’t available — it may have been deleted, or you may not have access. Showing the first chat instead.',
+        )}
+      </p>
+    {/if}
+
+    {#if data.selectedChatKey === AGENT_CHAT_KEY}
     <!-- #740: `dvh` tracks the VISIBLE viewport, so the panel doesn't run
          under a phone browser's address bar; the `vh` line before it is the
          fallback for browsers without `dvh`. Same pattern, same reason as the
@@ -977,7 +1043,6 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         </div>
       {/if}
     </div>
-  {/if}
 
   <!-- ───────────── TEAM CHAT TAB (#732) ─────────────
        The App's team chat: the shared thread its workers and members post to.
@@ -990,7 +1055,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
        reach the App's shared memory at all (hadron-server#1031).
 
        No LLM composer, no delete, no rename — see #732 and the component. -->
-  {#if activeTab === 'team-chat'}
+    {:else if data.selectedChatKey === TEAM_CHAT_LOC}
     <!-- #740: `dvh` tracks the VISIBLE viewport, so the panel doesn't run
          under a phone browser's address bar; the `vh` line before it is the
          fallback for browsers without `dvh`. Same pattern, same reason as the
@@ -1012,11 +1077,16 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
            flex container. Without it the thread grows to its content height and
            `overflow-hidden` clips the composer out of the page entirely — the
            transcript reads fine and the reply box is simply gone. -->
-      <!-- `action` keeps `tab=team-chat` in the URL. A SvelteKit action URL
+      <!-- `action` keeps the tab selection in the URL. A SvelteKit action URL
            REPLACES the query string, so a bare `?/postTeamChatMessage` drops
            it — and without JS (or if enhance fails) the POST lands back on a
            URL with no tab, putting the user on the default tab with their
-           message posted somewhere they can no longer see. Copilot on #739. -->
+           message posted somewhere they can no longer see. Copilot on #739.
+
+           #744: this now emits the CANONICAL `tab=chats&chat=chats:team`
+           rather than the retired `tab=team-chat`. The alias still resolves,
+           but minting new links that depend on a back-compat shim is how a
+           shim stops being removable (Copilot on #759). -->
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
         <TeamChatThread
           messages={data.teamChatMessages ?? []}
@@ -1024,10 +1094,57 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           loadError={data.teamChatError ?? false}
           postForm={data.postTeamChatMessageForm}
           {form}
-          action="?tab=team-chat&/postTeamChatMessage"
+          action="?tab=chats&chat=chats%3Ateam&/postTeamChatMessage"
         />
       </div>
     </div>
+    {:else if data.selectedChatKey}
+      <!-- Any other chat root in the App's shared memory — a 1:1 between two
+           participants. READ-ONLY, and not by choice: the write surfaces are
+           `createTeamChatMessage` (team chat) and `sendChatMessage` (agent
+           chat), and there is no operation to post into an arbitrary App chat.
+           Rendering a composer that cannot work would be worse than saying so. -->
+      <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
+        {#if data.selectedChatError}
+          <p role="status" class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+            {t('app.chats.messages-error', 'Couldn’t load this chat — that is a read failure, not an empty chat.')}
+          </p>
+        {:else if (data.selectedChatMessages ?? []).length === 0}
+          <p class="text-sm text-zinc-500">
+            {t('app.chats.empty', 'No messages in this chat yet.')}
+          </p>
+        {:else}
+          <div class="min-h-0 flex-1 space-y-3 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            {#each data.selectedChatMessages ?? [] as msg (msg.id)}
+              <div>
+                <div class="flex flex-wrap items-baseline gap-2">
+                  <!-- `author` is resolved by the shared loader, which already
+                       reconciles the platform and legacy shapes — reading
+                       data.authorName here would re-derive it, worse. -->
+                  <span class="text-sm font-medium text-zinc-900 dark:text-white">{msg.author}</span>
+                  <span class="text-xs text-zinc-500">{formatDate(msg.createdAt)}</span>
+                </div>
+                <p class="mt-1 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">{msg.content}</p>
+              </div>
+            {/each}
+          </div>
+        {/if}
+        {#if data.selectedChatTruncated}
+          <p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+            {t(
+              'app.chats.truncated',
+              'Only the first part of this conversation is shown — it is longer than this view loads.',
+            )}
+          </p>
+        {/if}
+        <p class="mt-2 text-xs text-zinc-500">
+          {t(
+            'app.chats.read-only',
+            'This chat is read-only here — the platform has no operation for posting into it from the portal.',
+          )}
+        </p>
+      </div>
+    {/if}
   {/if}
 
   <!-- ───────────── WORKLOG TAB (#733) ─────────────

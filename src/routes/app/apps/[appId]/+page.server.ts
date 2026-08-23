@@ -26,8 +26,11 @@ import {
   TEAM_CHAT_MESSAGES_QUERY,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   TEAM_WORK_ITEMS_QUERY,
+  APP_CHAT_ROOTS_QUERY,
 } from '$lib/server/queries';
 import { normalizeFilter, normalizeKind } from '$lib/components/worklog';
+import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, buildAppChatList, resolveSelectedChat } from '$lib/app-chats';
+import { loadChatMessages } from '$lib/server/team-chat';
 import type {
   Organization,
   App,
@@ -250,18 +253,34 @@ function slugOfUrn(urn: string): string {
 // maximum, and report the server's `total` so a truncated view can say so
 // rather than reading as the whole worklog.
 const WORKLOG_PAGE_SIZE = 200;
+/**
+ * #744 — how much of an arbitrary chat's transcript is fetched.
+ *
+ * The tab discloses when it has hit this, rather than presenting a partial
+ * transcript as a whole one (Codex P2 on #759). Deliberately generous: a 1:1
+ * chat past 500 messages is unusual, and the honest caption costs nothing when
+ * it is not reached.
+ */
+const CHAT_PAGE_SIZE = 500;
 
 /** The App page's tab ids, for validating `?tab=`. Kept in sync with the
  *  `TabId` union in +page.svelte; an unknown value falls back to the default. */
-const APP_TAB_IDS: readonly string[] = [
-  'chat',
-  'team-chat',
-  'worklog',
-  'staff',
-  'memory',
-  'settings',
-  'client',
-];
+const APP_TAB_IDS: readonly string[] = ['chats', 'worklog', 'staff', 'memory', 'settings', 'client'];
+
+/**
+ * #744 folded the separate `chat` (agent) and `team-chat` tabs into one `chats`
+ * tab. Those ids are in the wild — in PR descriptions, team-chat messages and
+ * anyone's bookmarks — so they still resolve, to the Chats tab with the right
+ * conversation preselected. Dropping them would land the reader on the default
+ * tab with no indication anything was redirected.
+ *
+ * Kept as an explicit alias map rather than a silent fallback: an unknown tab
+ * SHOULD fall back, a retired-but-known one should land where it moved to.
+ */
+const RETIRED_TAB_ALIASES: Record<string, { tab: string; chat: string }> = {
+  chat: { tab: 'chats', chat: AGENT_CHAT_KEY },
+  'team-chat': { tab: 'chats', chat: TEAM_CHAT_LOC },
+};
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   // Worklog filters ride the URL rather than component state, because `ref`
@@ -280,7 +299,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // otherwise — an unknown value falls back to the default rather than
   // rendering a blank page where no tab body matches.
   const rawTab = url.searchParams.get('tab');
-  const initialTab = APP_TAB_IDS.includes(rawTab ?? '') ? rawTab : null;
+  const alias = rawTab ? RETIRED_TAB_ALIASES[rawTab] : undefined;
+  const initialTab = alias ? alias.tab : APP_TAB_IDS.includes(rawTab ?? '') ? rawTab : null;
+  // An explicit ?chat= wins over the one a retired tab id implies, so a link
+  // carrying both is not silently overridden by the alias.
+  const requestedChat = url.searchParams.get('chat') ?? alias?.chat ?? null;
   // #648: canonical org-optional App detail. No requireNonConsumer — this
   // resolves BOTH org-owned apps (member-gated) and user-owned (org-less) apps
   // (owner-gated) through one owner-accessible path, exactly like /app/agents/[id]
@@ -354,7 +377,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // LLM-readiness gate. App-membership gated; coerce errors to null (unknown
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
-  const [nodesData, chatConfigs, staff, teamChat, worklog] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -413,6 +436,21 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         console.warn(`[worklog] fetch failed for ${params.appId}:`, e);
         return null;
       }),
+    // #744: the App's CHAT ROOTS, for the Chats selector. Server-side
+    // nodeType filter, so this does not page an App's whole node set to find
+    // two chats. Coerced to null (never []) on failure, for the same reason as
+    // the staff and team-chat fetches: "couldn't load the chat list" and "this
+    // App has one chat" are different statements.
+    client
+      .request<{ appNodes: MemoryNode[] }>(APP_CHAT_ROOTS_QUERY, {
+        appRef: params.appId,
+        limit: 200,
+      })
+      .then((r) => r.appNodes)
+      .catch((e) => {
+        console.warn(`[app-chats] chat-root fetch failed for ${params.appId}:`, e);
+        return null;
+      })
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -477,6 +515,35 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     postTeamChatMessageFormAdapter,
     { errors: false },
   );
+
+  // #744 — the App's chats as one browsable set.
+  //
+  // The agent chat is offered only when the App actually has one, matching the
+  // condition the retired `chat` tab used, so an App with no linked agent does
+  // not gain an entry that cannot render.
+  const appChats = buildAppChatList(chatRoots ?? [], { hasAgentChat: !!app.agentId });
+  const { selected: selectedChat, requestedMissing: chatNotFound } = resolveSelectedChat(
+    appChats,
+    requestedChat,
+  );
+
+  // Only an `other` chat needs loading here: the team chat came through its own
+  // typed operation above (which returns the author envelope a node read
+  // cannot), and the agent chat is fetched by its own component.
+  //
+  // Read-only by necessity, not by choice: the write surfaces are
+  // `createTeamChatMessage` (team chat) and `sendChatMessage` (agent chat).
+  // There is no operation to post into an arbitrary App chat, so the tab says
+  // so rather than rendering a composer that cannot work.
+  const selectedChatMessages =
+    selectedChat?.kind === 'other' && selectedChat.memoryId
+      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key, CHAT_PAGE_SIZE)
+          .catch((e) => {
+            console.warn(`[app-chats] messages fetch failed for ${selectedChat.key}:`, e);
+            return null;
+          })
+      : [];
+
   return {
     app,
     org,
@@ -500,6 +567,20 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     worklog: worklog?.items ?? [],
     worklogTotal: worklog?.total ?? 0,
     worklogError: worklog === null,
+    // #744: the App's chats, the one selected, and its transcript when that
+    // chat is neither the team chat nor the agent chat. `chatsError` is the
+    // discovery failing — distinct from an App that genuinely has one chat.
+    appChats,
+    chatsError: chatRoots === null,
+    selectedChatKey: selectedChat?.key ?? null,
+    selectedChatMessages: selectedChatMessages ?? [],
+    selectedChatError: selectedChatMessages === null,
+    // #744: hitting the cap is DISCLOSED rather than presented as a whole
+    // transcript (Codex P2 on #759). `loadChatMessages` returns a plain list
+    // with no total, so a full page is the only signal that more exists — the
+    // same short-page reasoning as the worker page's sessions.
+    selectedChatTruncated: (selectedChatMessages?.length ?? 0) >= CHAT_PAGE_SIZE,
+    chatNotFound,
     initialTab,
     worklogFilters: {
       ref: worklogRef ?? '',
