@@ -27,16 +27,10 @@ import {
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   TEAM_WORK_ITEMS_QUERY,
   APP_CHAT_ROOTS_QUERY,
-  NODES_BY_LOC_PREFIX_QUERY,
 } from '$lib/server/queries';
 import { normalizeFilter, normalizeKind } from '$lib/components/worklog';
-import {
-  AGENT_CHAT_KEY,
-  TEAM_CHAT_LOC,
-  buildAppChatList,
-  resolveSelectedChat,
-  sortChatMessages,
-} from '$lib/app-chats';
+import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, buildAppChatList, resolveSelectedChat } from '$lib/app-chats';
+import { loadChatMessages } from '$lib/server/team-chat';
 import type {
   Organization,
   App,
@@ -259,6 +253,15 @@ function slugOfUrn(urn: string): string {
 // maximum, and report the server's `total` so a truncated view can say so
 // rather than reading as the whole worklog.
 const WORKLOG_PAGE_SIZE = 200;
+/**
+ * #744 — how much of an arbitrary chat's transcript is fetched.
+ *
+ * The tab discloses when it has hit this, rather than presenting a partial
+ * transcript as a whole one (Codex P2 on #759). Deliberately generous: a 1:1
+ * chat past 500 messages is unusual, and the honest caption costs nothing when
+ * it is not reached.
+ */
+const CHAT_PAGE_SIZE = 500;
 
 /** The App page's tab ids, for validating `?tab=`. Kept in sync with the
  *  `TabId` union in +page.svelte; an unknown value falls back to the default. */
@@ -534,13 +537,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // so rather than rendering a composer that cannot work.
   const selectedChatMessages =
     selectedChat?.kind === 'other' && selectedChat.memoryId
-      ? await client
-          .request<{ findNodes: { hits: { node: MemoryNode }[] } }>(NODES_BY_LOC_PREFIX_QUERY, {
-            memoryId: selectedChat.memoryId,
-            locPrefix: `${selectedChat.key}:messages:`,
-            limit: 500,
-          })
-          .then((r) => sortChatMessages(r.findNodes.hits.map((h) => h.node)))
+      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key, CHAT_PAGE_SIZE)
           .catch((e) => {
             console.warn(`[app-chats] messages fetch failed for ${selectedChat.key}:`, e);
             return null;
@@ -578,6 +575,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     selectedChatKey: selectedChat?.key ?? null,
     selectedChatMessages: selectedChatMessages ?? [],
     selectedChatError: selectedChatMessages === null,
+    // #744: hitting the cap is DISCLOSED rather than presented as a whole
+    // transcript (Codex P2 on #759). `loadChatMessages` returns a plain list
+    // with no total, so a full page is the only signal that more exists — the
+    // same short-page reasoning as the worker page's sessions.
+    selectedChatTruncated: (selectedChatMessages?.length ?? 0) >= CHAT_PAGE_SIZE,
     chatNotFound,
     initialTab,
     worklogFilters: {

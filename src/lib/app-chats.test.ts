@@ -27,7 +27,9 @@ describe('buildAppChatList', () => {
     // An App whose team chat is not bootstrapped still offers it — that is how
     // the first message gets posted, the same reasoning as the Staff tab.
     const list = buildAppChatList([], { hasAgentChat: false });
-    expect(list).toEqual([{ key: TEAM_CHAT_LOC, label: 'Team chat', kind: 'team' }]);
+    expect(list).toEqual([
+      { key: TEAM_CHAT_LOC, labelKey: 'app.chats.team', label: 'Team chat', kind: 'team' },
+    ]);
   });
 
   it('does not list the team chat twice when it comes back from discovery', () => {
@@ -50,6 +52,15 @@ describe('buildAppChatList', () => {
     // practice. `||` on a trimmed string, not `??`, which would keep the spaces.
     const list = buildAppChatList([root('chats:holger-fred', '   ')], { hasAgentChat: false });
     expect(list.find((c) => c.kind === 'other')!.label).toBe('holger-fred');
+  });
+
+  it('gives the well-known entries an i18n key and a discovered chat none', () => {
+    // The helper runs in the LOADER, so a label localized here would be baked
+    // into the payload before the renderer sees it. Well-known entries carry a
+    // key for the component to translate; a discovered chat's label is its own
+    // name — content, not UI copy, with nothing to translate.
+    const list = buildAppChatList([root('chats:a-b', 'A & B')], { hasAgentChat: true });
+    expect(list.map((c) => c.labelKey)).toEqual(['app.chats.agent', 'app.chats.team', null]);
   });
 
   it('carries the memory id, which the message read needs', () => {

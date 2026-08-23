@@ -21,6 +21,17 @@ export const TEAM_CHAT_LOC = 'chats:team';
 export interface AppChatEntry {
   /** `AGENT_CHAT_KEY`, `TEAM_CHAT_LOC`, or another chat root's loc. */
   key: string;
+  /**
+   * i18n key for the two WELL-KNOWN entries, null for a discovered chat whose
+   * label is its own name and is not translatable.
+   *
+   * The helper deliberately does not call `t()` itself: it runs in the loader,
+   * and a string localized there is baked into the payload before the renderer
+   * ever sees it. Every other user-visible string on this route goes through
+   * `t()` at render, and this must too (Copilot on #759).
+   */
+  labelKey: string | null;
+  /** The English default for `labelKey`, or the chat's own name. */
   label: string;
   /** Which renderer the tab should use. */
   kind: 'agent' | 'team' | 'other';
@@ -50,14 +61,17 @@ export function buildAppChatList(
 ): AppChatEntry[] {
   const out: AppChatEntry[] = [];
   if (opts.hasAgentChat) {
-    out.push({ key: AGENT_CHAT_KEY, label: 'Agent chat', kind: 'agent' });
+    out.push({ key: AGENT_CHAT_KEY, labelKey: 'app.chats.agent', label: 'Agent chat', kind: 'agent' });
   }
-  out.push({ key: TEAM_CHAT_LOC, label: 'Team chat', kind: 'team' });
+  out.push({ key: TEAM_CHAT_LOC, labelKey: 'app.chats.team', label: 'Team chat', kind: 'team' });
 
   const others = chatRoots
     .filter((n) => n.loc && n.loc !== TEAM_CHAT_LOC)
     .map((n) => ({
       key: n.loc,
+      // A discovered chat's label is its own name — content, not UI copy, so
+      // there is nothing to translate.
+      labelKey: null,
       // The node's name where it has one; the loc's last segment otherwise, so
       // an unnamed chat is still identifiable rather than blank.
       label: n.name?.trim() || n.loc.split(':').slice(-1)[0] || n.loc,

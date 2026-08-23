@@ -88,16 +88,23 @@
     org ? org.urn : app.urn.slice(0, Math.max(0, app.urn.lastIndexOf(':'))),
   );
 
-  // ── Tab state — driven by App.surfaces (008-agent-installation T071) ─
-  // The chat tab appears iff the App's `surfaces` array contains 'chat'.
-  // Pre-008 this was gated on `app.appType === 'CHATBOT'`; 008's migration
-  // sets `surfaces = ['chat']` for chatbot Apps so existing apps keep their
-  // tab without behavior change. Gate logic lives in `$lib/app-surfaces`
-  // so it's unit-testable independent of the Svelte component lifecycle.
+  // ── Tab state ─────────────────────────────────────────────────────────
+  // #744: `hasChatSurface` no longer gates a TAB. The Chats tab is always
+  // present, because the team chat always is — an App whose chat is not
+  // bootstrapped still needs the tab, since that is how the first message gets
+  // posted. What `surfaces` now decides is narrower: whether the AGENT-CHAT
+  // ENTRY appears in the Chats selector.
+  //
+  // The `surfaces` gate itself is unchanged (008-agent-installation T071): the
+  // agent chat is available iff the App's `surfaces` array contains 'chat'.
+  // Pre-008 this was gated on `app.appType === 'CHATBOT'`; 008's migration set
+  // `surfaces = ['chat']` for chatbot Apps so existing apps kept their chat
+  // without behaviour change. The predicate lives in `$lib/app-surfaces` so it
+  // is unit-testable independent of the Svelte component lifecycle.
   type TabId = 'chats' | 'worklog' | 'staff' | 'memory' | 'settings' | 'client';
   const hasChatSurface = $derived(hasChatSurfaceFn(app.surfaces));
-  // Chat tab renders the agent-chat platform when an Agent is linked;
-  // shows an empty state otherwise.
+  // The agent-chat ENTRY renders the agent-chat platform when an Agent is
+  // linked, and an empty state otherwise.
   // 036-ai-service-config: configs resolvable for this app's chat context
   // (App→Agent→Org→Host, masked). Powers the picker + LLM-readiness gate.
   const usableChatConfigs = $derived((data.chatConfigs ?? []).filter((c) => c.hasApiKey));
@@ -889,7 +896,6 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
     </a>
   </div>
 
-  <!-- ───────────── CHAT TAB (CHATBOT only) ───────────── -->
   <!-- ───────────── CHATS TAB (#744) ─────────────
        Every conversation the App has, behind one selector: the agent chat, the
        team chat, and any other chat root in the App's shared memory (a 1:1
@@ -928,7 +934,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
             : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
         >
-          {entry.label}
+          {entry.labelKey ? t(entry.labelKey, entry.label) : entry.label}
         </a>
       {/each}
     </div>
@@ -1071,11 +1077,16 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
            flex container. Without it the thread grows to its content height and
            `overflow-hidden` clips the composer out of the page entirely — the
            transcript reads fine and the reply box is simply gone. -->
-      <!-- `action` keeps `tab=team-chat` in the URL. A SvelteKit action URL
+      <!-- `action` keeps the tab selection in the URL. A SvelteKit action URL
            REPLACES the query string, so a bare `?/postTeamChatMessage` drops
            it — and without JS (or if enhance fails) the POST lands back on a
            URL with no tab, putting the user on the default tab with their
-           message posted somewhere they can no longer see. Copilot on #739. -->
+           message posted somewhere they can no longer see. Copilot on #739.
+
+           #744: this now emits the CANONICAL `tab=chats&chat=chats:team`
+           rather than the retired `tab=team-chat`. The alias still resolves,
+           but minting new links that depend on a back-compat shim is how a
+           shim stops being removable (Copilot on #759). -->
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
         <TeamChatThread
           messages={data.teamChatMessages ?? []}
@@ -1083,7 +1094,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           loadError={data.teamChatError ?? false}
           postForm={data.postTeamChatMessageForm}
           {form}
-          action="?tab=team-chat&/postTeamChatMessage"
+          action="?tab=chats&chat=chats%3Ateam&/postTeamChatMessage"
         />
       </div>
     </div>
@@ -1107,16 +1118,24 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             {#each data.selectedChatMessages ?? [] as msg (msg.id)}
               <div>
                 <div class="flex flex-wrap items-baseline gap-2">
-                  <span class="text-sm font-medium text-zinc-900 dark:text-white"
-                    >{(msg.data as { authorName?: string } | null)?.authorName ??
-                      t('app.chats.unknown-author', 'unknown')}</span
-                  >
+                  <!-- `author` is resolved by the shared loader, which already
+                       reconciles the platform and legacy shapes — reading
+                       data.authorName here would re-derive it, worse. -->
+                  <span class="text-sm font-medium text-zinc-900 dark:text-white">{msg.author}</span>
                   <span class="text-xs text-zinc-500">{formatDate(msg.createdAt)}</span>
                 </div>
                 <p class="mt-1 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">{msg.content}</p>
               </div>
             {/each}
           </div>
+        {/if}
+        {#if data.selectedChatTruncated}
+          <p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+            {t(
+              'app.chats.truncated',
+              'Only the first part of this conversation is shown — it is longer than this view loads.',
+            )}
+          </p>
         {/if}
         <p class="mt-2 text-xs text-zinc-500">
           {t(

@@ -4,6 +4,7 @@ import {
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   NODES_BY_LOC_PREFIX_QUERY,
 } from '$lib/server/queries';
+import { TEAM_CHAT_LOC } from '$lib/app-chats';
 import type { MemoryNode } from '$lib/types';
 
 // A chat node holds a message thread one level down, under `<chat.loc>:messages:`.
@@ -26,7 +27,12 @@ export const CHAT_NODE_TYPE = 'chat';
 /** Canonical loc of the ONE team chat in a team App's shared memory (server
  *  #939, `TEAM_CHAT_LOC`). `createTeamChatMessage` addresses a chat by appRef
  *  alone, so this loc is the only thread it can post to. */
-export const TEAM_CHAT_LOC = 'chats:team';
+// #744: re-exported from the CLIENT-safe module rather than declared twice.
+// Svelte components need this constant to render the Chats selector, and they
+// cannot import from `$lib/server/*`, so the definition lives there and this
+// module consumes it. Two copies of a well-known loc is exactly the drift
+// `cor:agt:020:04` warns about.
+export { TEAM_CHAT_LOC } from '$lib/app-chats';
 /** The nodeTypes that ARE messages. Anything else under the prefix is off-road
  *  content (an attachment, a hand-written note) and is not a bubble. */
 const MESSAGE_NODE_TYPES = ['chat-message', 'message'];
