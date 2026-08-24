@@ -274,6 +274,220 @@ describe('/app/u/[urn] — unresolvable and inaccessible URNs 404', () => {
   });
 });
 
+// #694 — a bare "not found" cannot distinguish a wrong-grammar link from a
+// deleted node from a typo, and those want different reactions. The hint is
+// computed from the INPUT STRING only, never from the resolution — so a
+// no-access URN and a nonexistent one still produce byte-identical messages
+// (hrn:node:hadronmemory.com:specs:cor:urn:030:02).
+describe('/app/u/[urn] — an unresolved URN explains itself by input shape', () => {
+  /** Run load against a null resolution and return the thrown error's message. */
+  async function messageFor(urn: string): Promise<string> {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    const load = await importLoad();
+    try {
+      await load(ev(urn));
+    } catch (e) {
+      return (e as { body?: { message?: string } }).body?.message ?? String(e);
+    }
+    throw new Error('Expected load to throw');
+  }
+
+  it('names the missing hrn:<type>: prefix on a bare URN', async () => {
+    const msg = await messageFor('hadronmemory.com::hadron-portal::review');
+    expect(msg).toContain('has no "hrn:<type>:" prefix');
+    expect(msg).toContain('hrn:node:<org>:<memory>:<loc>');
+    // It must NOT claim the spelling is fine — that is the other branch.
+    expect(msg).not.toContain('Possible causes:');
+  });
+
+  // @codex on #764, round 6. The mixed-separator advice was node-shaped
+  // (`hrn:node:<org>:<memory>:<loc>`) on a route serving seven kinds — handed
+  // to a reader holding `hrn:user:alice::extra`, whose kind has no hierarchy at
+  // all. The same defect was fixed in the fallback a round earlier and left
+  // standing in this sibling branch.
+  //
+  // Note: @codex's first example, `hrn:user:alice::extra`, does NOT reach this
+  // branch — `alice` precedes the first `::` and contains no `:`, so it reads
+  // as clean legacy. A one-atom kind like `hrn:user:<handle>` cannot be mixed
+  // in any plausible way. The concern was right, one of the two examples was
+  // not, so the cases below are kinds that genuinely do reach it.
+  it('keeps the mixed-separator advice kind-agnostic', async () => {
+    for (const urn of [
+      'hrn:app:acme.com:docs::extra',
+      'hrn:worker:acme.com:team::gil',
+      'hrn:mem:acme.com:dev::x',
+    ]) {
+      const msg = await messageFor(urn);
+      expect(msg, urn).toContain('uses both the ":" and "::" separators');
+      expect(msg, urn).toContain('Use one style throughout');
+      // Must not illustrate one kind's arity at another kind's reader.
+      expect(msg, urn).not.toContain('hrn:node:<org>:<memory>:<loc>');
+      expect(msg, urn).not.toContain('<memory>');
+    }
+  });
+
+  it('names a spelling that uses both ":" and "::"', async () => {
+    const msg = await messageFor('hrn:node:hadronmemory.com:hadron-portal::review');
+    expect(msg).toContain('uses both the ":" and "::" separators');
+  });
+
+  it('the well-formed fallback asserts nothing about the URN', async () => {
+    // Both accepted grammars reach this branch, as do spellings the checks
+    // never examine. So it enumerates causes and excludes none — the only
+    // form four rounds of counterexamples could not falsify.
+    for (const urn of [
+      'hrn:node:hadronmemory.com:hadron-portal:review',
+      'hrn:node:hadronmemory.com::hadron-portal::review',
+    ]) {
+      const msg = await messageFor(urn);
+      expect(msg, urn).toContain('Possible causes:');
+      expect(msg, urn).toContain('or you do not have access to it');
+    }
+  });
+
+  // @codex on #764, FOURTH round, and the reason the fallback now claims
+  // nothing at all. `acme.com::dev:review` uses v1 between org and memory and
+  // v2 before the loc — a genuine mixed spelling that the hierarchy check never
+  // sees, because it only inspects the text BEFORE the first '::'. Any message
+  // asserting "this is not the separator problem" is false for this input, and
+  // detecting it needs per-type arity, i.e. parsing, which this route must not
+  // do. So the fallback enumerates possible causes and excludes none.
+  it('makes no claim the input cannot support — mixing AFTER the first "::"', async () => {
+    const msg = await messageFor('hrn:node:acme.com::dev:review');
+    expect(msg).toContain('Possible causes:');
+    // The negative claims that four rounds falsified, none of which may return.
+    expect(msg).not.toContain('the spelling is not the problem');
+    expect(msg).not.toContain('grammar is fine');
+    expect(msg).not.toContain('is not the ":" versus "::"');
+  });
+
+  it('lists every cause as possible and rules none out', async () => {
+    const msg = await messageFor('hrn:node:acme.com:dev:missing');
+    for (const cause of ['typo', 'deleted or renamed', 'not visible to you', 'does not resolve']) {
+      expect(msg, cause).toContain(cause);
+    }
+  });
+
+  // @codex on #764, third round — two findings, one root cause: the sentence
+  // claimed more than the checks establish.
+  it('claims only the prefix and separators, never full grammar validity', async () => {
+    // Both reach the fallback with a type-SHAPED prefix and consistent
+    // separators, and both are invalid in ways this helper does not check —
+    // an unknown type word, and wrong arity. Saying "its grammar is fine"
+    // about either was a heuristic promoted into a guarantee.
+    for (const urn of ['hrn:bogus:x', 'hrn:user:alice:extra']) {
+      const msg = await messageFor(urn);
+      expect(msg, urn).toContain('Possible causes:');
+      expect(msg, urn).not.toMatch(/grammar is fine|is not the/);
+    }
+  });
+
+  it('gives kind-agnostic typo advice — this route resolves seven kinds', async () => {
+    // "a typo in the org, memory or loc" is node-shaped, and a user URN is
+    // `hrn:user:<handle>` with none of those parts. App, worker and org URNs
+    // differ again, so the advice must name the identifier, not its components.
+    const msg = await messageFor('hrn:user:missing-person');
+    expect(msg).toContain('typo');
+    for (const nodeShaped of ['the org, memory or loc', 'memory or loc']) {
+      expect(msg, nodeShaped).not.toContain(nodeShaped);
+    }
+  });
+
+  // @codex on #764, second round. Shape can only establish that the separators
+  // and prefix are plausible — never that the org, memory slug or loc are
+  // spelled right. `hadron-prtal` below is well-formed AND a typo, so a message
+  // claiming "the spelling is not the problem" steers that reader away from the
+  // one thing they should check. Rule out the GRAMMAR; leave the rest open.
+  it('keeps a typo on the table for a well-shaped URN', async () => {
+    const msg = await messageFor('hrn:node:hadronmemory.com:hadron-prtal:review');
+    expect(msg).toContain('Possible causes:');
+    expect(msg).toContain('typo');
+    // All three remaining causes stay live — none is ruled out by shape.
+    expect(msg).toContain('deleted');
+    expect(msg).toContain('not visible to you');
+    expect(msg).not.toContain('the spelling is not the problem');
+  });
+
+  // @codex on #764. A legacy loc routinely contains ':' (`findings:foo`) while
+  // only the HIERARCHY uses '::'. Scanning the whole body for a lone colon
+  // flagged a perfectly valid legacy URN as "mixed" and sent the reader off to
+  // fix a spelling that was already right — worse than the bare message it
+  // replaced. My original tests could not catch this: the legacy URN I checked
+  // by hand had a colon-free loc (`review`), and the one WITH a colon resolved,
+  // so the false positive needed both halves at once to appear.
+  it('does NOT call a valid legacy URN "mixed" just because its loc contains a colon', async () => {
+    for (const urn of [
+      'hrn:node:acme.com::dev::findings:foo',
+      'urn:node:acme.com::dev::findings:foo',
+      'hrn:node:acme.com::dev::a:b:c:d',
+      // An ownership chain — >2 atoms, no string-derivable v2 form. Its first
+      // atom is still the root, so it must read as clean legacy too.
+      'hrn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports',
+    ]) {
+      const msg = await messageFor(urn);
+      expect(msg, urn).not.toContain('uses both the');
+      expect(msg, urn).toContain('Possible causes:');
+    }
+  });
+
+  it('reports a URN that uses BOTH separators — v2-joined hierarchy, then "::"', async () => {
+    const msg = await messageFor('hrn:node:acme.com:dev::findings:foo');
+    expect(msg).toContain('uses both the ":" and "::" separators');
+  });
+
+  // @copilot on #764 — the type word may contain hyphens.
+  it('recognises a hyphenated type word as a prefix', async () => {
+    for (const urn of ['hrn:chat-message:acme.com:dev:x', 'hrn:ai-config:acme.com:cfg']) {
+      const msg = await messageFor(urn);
+      expect(msg, urn).not.toContain('has no "hrn:<type>:" prefix');
+    }
+  });
+
+  it('does not disclose existence — the message depends only on the input', async () => {
+    // The same URN must read identically whether the server declined it as
+    // absent (null resolution) or as forbidden (FORBIDDEN rejection). If these
+    // ever diverge, the route has started leaking whether the resource exists.
+    const urn = 'hrn:node:hadronmemory.com:hadron-portal:secret';
+    const whenNull = await messageFor(urn);
+
+    mockRequest.mockRejectedValueOnce(
+      new ClientError(
+        { errors: [{ message: 'x', extensions: { code: 'FORBIDDEN' } }], status: 200 } as unknown as ClientError['response'],
+        { query: 'query', variables: {} },
+      ),
+    );
+    const load = await importLoad();
+    let whenForbidden = '';
+    try {
+      await load(ev(urn));
+    } catch (e) {
+      whenForbidden = (e as { body?: { message?: string } }).body?.message ?? '';
+    }
+    expect(whenForbidden).toBe(whenNull);
+  });
+
+  it('adds the shape hint to the 400 without repeating the well-formed line', async () => {
+    mockRequest.mockRejectedValueOnce(
+      new ClientError(
+        { errors: [{ message: 'x', extensions: { code: 'BAD_USER_INPUT' } }], status: 200 } as unknown as ClientError['response'],
+        { query: 'query', variables: {} },
+      ),
+    );
+    const load = await importLoad();
+    let msg = '';
+    try {
+      await load(ev('total-garbage'));
+    } catch (e) {
+      msg = (e as { body?: { message?: string } }).body?.message ?? '';
+    }
+    expect(msg).toContain('is not a valid Hadron URN.');
+    expect(msg).toContain('has no "hrn:<type>:" prefix');
+    // The server already said it is malformed; "no resource found" would
+    // contradict that in the same sentence.
+    expect(msg).not.toContain('No resource found');
+  });
+});
+
 describe('/app/u/[urn] — GraphQL rejections do not surface as 500s (#567)', () => {
   function clientError(code?: string): ClientError {
     // graphql-request types the response with full GraphQLError objects and

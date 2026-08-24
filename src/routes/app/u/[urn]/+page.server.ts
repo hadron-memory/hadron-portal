@@ -72,7 +72,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     if (err instanceof ClientError && err.response?.errors?.length) {
       const code = (err.response.errors[0].extensions as { code?: string } | undefined)?.code;
       if (code === 'BAD_USER_INPUT' || code === 'GRAPHQL_VALIDATION_FAILED') {
-        throw error(400, `"${urn}" is not a valid Hadron URN.`);
+        // #694: the server rejected the spelling outright, so the shape hint is
+        // even more useful here than on a null resolution — this reader is
+        // definitely holding a malformed URN rather than a dead one.
+        const hint = shapeHint(urn);
+        throw error(400, `"${urn}" is not a valid Hadron URN.${hint ? ` ${hint}` : ''}`);
       }
       if (code === 'UNAUTHENTICATED' || code === 'SESSION_EXPIRED') {
         // #761: `url.search` too — signing in to reach a deep link must not be
@@ -88,14 +92,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         code === 'FORBIDDEN' ||
         code === 'PERMISSION_DENIED'
       ) {
-        throw error(404, 'No resource found for this URN, or you do not have access to it.');
+        throw error(404, notFoundMessage(urn));
       }
     }
     throw err;
   }
 
   if (!resolveUrn) {
-    throw error(404, 'No resource found for this URN, or you do not have access to it.');
+    throw error(404, notFoundMessage(urn));
   }
 
   const target = canonicalPath(resolveUrn);
@@ -128,6 +132,160 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // only in passing. The extra round-trip is the accepted cost.
   redirect(307, withQuery(target, url.search));
 };
+
+/**
+ * #694 — explain an unresolved URN by the SHAPE OF THE INPUT, never by anything
+ * learned about the data.
+ *
+ * A bare "not found" gives a reader no way to tell a wrong-grammar link from a
+ * deleted node from a typo, and the three want completely different reactions.
+ * The links this route exists to rescue are permanent — written into Slack
+ * threads, node bodies, PR descriptions long before the grammar settled — so
+ * "which of those am I looking at" is the reader's actual question.
+ *
+ * ## Why this is presentation and NOT resolution
+ *
+ * This runs only AFTER the server has already declined. It never pre-empts a
+ * lookup, never rewrites the URN, and never decides that a spelling is
+ * unresolvable — `resolveUrn` owns the alias map and is the only thing that can
+ * tell an ownership chain from a flat URN. So when the server learns to resolve
+ * a form listed here as unsupported, this hint stops appearing on its own,
+ * rather than the portal having to be taught twice.
+ *
+ * ## Why it discloses nothing
+ *
+ * Per `hrn:node:hadronmemory.com:specs:cor:urn:030:02`, "no such alias" and
+ * "aliased entity you may not see" must stay indistinguishable. Every branch
+ * here is a statement about the CALLER'S OWN INPUT STRING — its prefix and its
+ * separators — and consults NO resource metadata whatsoever.
+ *
+ * That is the whole non-disclosure property, and it is stronger than the way an
+ * earlier draft put it. This is reached down three different paths — a null
+ * resolution, a mapped `NOT_FOUND`/`FORBIDDEN` throw, and a `BAD_USER_INPUT`
+ * throw — and the last two carry no resolution at all, so "the result is
+ * uniformly null by the time we get here" was simply false (@codex on #764).
+ *
+ * The guarantee that matters is between the two EXISTENCE-HIDING 404 paths: a
+ * null resolution and a `NOT_FOUND`/`FORBIDDEN` throw produce byte-identical
+ * messages for the same input, which is what a test pins. `BAD_USER_INPUT` is
+ * deliberately NOT in that set — it prepends "… is not a valid Hadron URN" and
+ * is a 400 — and it does not need to be: that is the server rejecting the
+ * caller's STRING, which reveals nothing about whether any resource exists.
+ * Saying "the same message on all three paths" overclaimed again (@codex,
+ * round 7), in the very comment that had just fixed an overclaim.
+ */
+/**
+ * The `hrn:<type>:` / legacy `urn:<type>:` prefix.
+ *
+ * The type word may contain HYPHENS — `chat-message`, `ai-config`, `app-mem`,
+ * `group-mem`, `app-user` are all real (@copilot on #764). A `[a-z]+` class
+ * would classify `hrn:chat-message:…` as prefix-less and then fail to strip it,
+ * so both call sites share this one pattern rather than each carrying a copy
+ * that can drift.
+ */
+const URN_SCHEME_PREFIX = /^(hrn|urn):[a-z][a-z-]*:/i;
+
+function shapeHint(urn: string): string | null {
+  if (!URN_SCHEME_PREFIX.test(urn)) {
+    // The commonest broken spelling in the wild, and the one whose cause is
+    // least guessable from "not found": nothing in the string says what KIND of
+    // resource it names, so there is no single lookup to perform.
+    return (
+      `It has no "hrn:<type>:" prefix, so it does not say what kind of resource it names. ` +
+      `A fully-qualified URN looks like "hrn:node:<org>:<memory>:<loc>" or "hrn:mem:<org>:<memory>".`
+    );
+  }
+
+  // A URN that uses BOTH separators is worth naming: it is plausible to
+  // hand-write from two half-remembered examples, and otherwise looks exactly
+  // like a deleted node.
+  //
+  // Note what this does NOT say. An earlier draft of this comment claimed such
+  // a URN "resolves as neither grammar" — a categorical statement about
+  // resolution that the helper cannot support (@codex on #764). All it observes
+  // is a separator pattern, after the server has already declined; the decline
+  // may have been FORBIDDEN rather than absent, and the server may add an alias
+  // for this spelling tomorrow. The returned hint was softened to describe the
+  // observation; this comment had kept asserting the old claim, which is the
+  // `removing-a-mechanism-leaves-prose-describing-it` shape aimed at my own
+  // diff — the compiler checks the message, never the sentence above it.
+  //
+  // The test is the HIERARCHY separator, not "is there a colon anywhere"
+  // (@codex on #764). A legacy loc routinely contains `:` — `findings:foo` —
+  // while only the hierarchy uses `::`, so scanning the whole body flags
+  // `hrn:node:acme.com::dev::findings:foo`, a perfectly valid legacy URN, and
+  // sends the reader off to fix a spelling that was right. That is worse than
+  // the bare message it replaces.
+  //
+  // So: if `::` appears at all, everything BEFORE the first `::` is hierarchy
+  // and must not itself contain a `:`. `acme.com::dev::findings:foo` → "acme.com",
+  // clean. `acme.com:dev::findings` → "acme.com:dev", v2-joined and then v1 —
+  // genuinely mixed. Ownership chains pass, since their first atom is the root.
+  const body = urn.replace(URN_SCHEME_PREFIX, '');
+  const firstChain = body.indexOf('::');
+  if (firstChain !== -1 && body.slice(0, firstChain).includes(':')) {
+    // Describes what was OBSERVED, not what will happen. "Resolves as neither
+    // grammar" was a claim about behaviour this check cannot establish.
+    //
+    // Kind-agnostic, for the same reason the fallback below is (@codex on
+    // #764): this route serves seven kinds, and the example used to be
+    // `hrn:node:<org>:<memory>:<loc>` — node-shaped advice handed to a reader
+    // holding `hrn:user:alice::extra`, whose kind has no hierarchy at all.
+    // I fixed that in the fallback a round earlier and left its sibling branch
+    // saying the same wrong thing, which is why the advice now states the rule
+    // rather than illustrating one kind's arity.
+    return (
+      `It uses both the ":" and "::" separators. ` +
+      `Use one style throughout — either single colons, or "::" between every level.`
+    );
+  }
+
+  return null;
+}
+
+/** The 404 a reader gets for a URN that resolved to nothing. */
+function notFoundMessage(urn: string): string {
+  const hint = shapeHint(urn);
+  if (hint) return `No resource found for "${urn}". ${hint}`;
+  // THIS BRANCH MAKES NO CLAIM ABOUT THE URN. That is the point, and it took
+  // four review rounds to get to (@codex on #764), each finding the same root
+  // cause in a new disguise:
+  //
+  //   1. "the spelling is not the problem"  — ruled out a typo, but shape says
+  //      nothing about whether the atoms are spelled right.
+  //      `hrn:node:acme.com:hadron-prtal:review` is well-shaped AND a typo.
+  //   2. "its grammar is fine"              — the checks are a type-SHAPED
+  //      prefix and separator consistency; they validate neither the type word
+  //      nor the arity. `hrn:bogus:x`, `hrn:user:alice:extra` reach here.
+  //   3. "this is not the : versus :: problem" — the mixed-separator check only
+  //      inspects the hierarchy BEFORE the first `::`, so
+  //      `hrn:node:acme.com::dev:review` — v1 between org and memory, v2 before
+  //      the loc — reaches here and is exactly that problem.
+  //
+  // Each fix was a narrower claim, and each was still falsifiable by a case the
+  // check never examined. Detecting the remaining ones needs per-type arity —
+  // i.e. parsing — and parsing is the one thing this route must not do:
+  // `parseUrnV2` rejects `::` outright and a legacy ownership chain has no v2
+  // form at all, so a parser gate would reject exactly the valid legacy links
+  // #694 exists to rescue.
+  //
+  // So the fallback stops arguing and enumerates. Every cause is listed as
+  // POSSIBLE and none is excluded, which is both honest and the only form that
+  // a fifth counterexample cannot break. The diagnostic value lives in the two
+  // POSITIVE branches above, which fire only when something specific was
+  // actually observed.
+  //
+  // Kind-agnostic on purpose: this route resolves seven kinds, and naming "org,
+  // memory or loc" was node-shaped advice for readers holding a
+  // `hrn:user:<handle>` or a worker URN, whose parts are different.
+  //
+  // The existence/access disjunction is unchanged.
+  return (
+    `No resource found for "${urn}", or you do not have access to it. ` +
+    `Possible causes: a typo in the identifier, a resource that was deleted or renamed, ` +
+    `one that is not visible to you, or a URN spelling this deployment does not resolve.`
+  );
+}
 
 /** Map a resolved URN to its canonical PK-based portal path. */
 function canonicalPath(r: UrnResolution): string | null {
