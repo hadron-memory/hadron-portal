@@ -542,11 +542,25 @@
                   {#if owner.urn}
                     <div class="mt-1 flex justify-end"><Urn value={owner.urn} type="user" size={8} /></div>
                   {/if}
+                {:else if ownerIsViewer}
+                  <!-- The lookup failed or was refused, but the IDS still prove
+                       it (@codex and @copilot on #773). Falling through to the
+                       masked copy below would tell the OWNER that someone else
+                       owns their memory — a false claim, in the branch whose
+                       whole point is that no branch claims something unread.
+                       Ownership here is local knowledge and needs no query. -->
+                  <span class="text-sm font-medium text-zinc-900 dark:text-white">
+                    {t('memory-settings.owner.you-unnamed', 'You')}
+                    <span class="ml-1 font-normal text-zinc-500">
+                      {t('memory-settings.owner.you-unnamed.note', '— your profile could not be loaded just now')}
+                    </span>
+                  </span>
                 {:else}
                   <!-- `user(ref:)` masks a caller who shares no organization
                        with the owner, and denied is indistinguishable from
                        missing by design (#384). So: no name, and no claim that
-                       there isn't one. -->
+                       there isn't one — and, per the branch above, no claim
+                       that it isn't YOU either. -->
                   <span class="text-sm text-zinc-500">
                     {t('memory-settings.owner.hidden', 'Another user — not identifiable from your account')}
                   </span>
