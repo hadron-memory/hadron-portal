@@ -93,11 +93,32 @@
   // been cast with it before. Deriving options from fetched rows is the trap
   // #739 hit twice — an option that exists only outside the fetched page can
   // never be picked, and one vanishes the moment its rows are filtered away.
-  const castableRoles = $derived(
-    [...new Set(castableAgents.map((a) => a.personaRole).filter((r): r is string => !!r))].sort(
-      (a, b) => a.localeCompare(b),
-    ),
+  //
+  // Scoped to the SELECTED agent, not the roster-wide union. Offering every
+  // installed role while the Agent field points at one of them lets a caller
+  // choose agent A with agent B's role — and `castWorker` accepts an explicit
+  // role as a plain label, so it would persist exactly the agent/role mismatch
+  // this control exists to prevent (@codex and @copilot, both, on #766). The
+  // union was my own stated principle violated by my own implementation.
+  //
+  // With no agent chosen yet the list is empty and only "inherit" is offered,
+  // which is the honest state: role follows from the agent, so there is nothing
+  // to pick until one is selected.
+  const selectedCastAgent = $derived(
+    castableAgents.find((a) => a.id === $castWorkerForm.agentId) ?? null,
   );
+  const castableRoles = $derived(
+    selectedCastAgent?.personaRole ? [selectedCastAgent.personaRole] : [],
+  );
+  // Clear a role left over from a previously selected agent, so switching the
+  // Agent field cannot silently carry the old agent's role into the cast.
+  $effect(() => {
+    const allowed = castableRoles;
+    const current = untrack(() => $castWorkerForm.role);
+    if (current && !allowed.includes(current)) {
+      castWorkerForm.update((f) => ({ ...f, role: '' }), { taint: false });
+    }
+  });
   let castOpen = $state(false);
 
   // #756 — the staff grid. Columns carry the facts the bespoke list rendered:
@@ -1491,7 +1512,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               {/each}
             </select>
             <p id="castRoleHelp" class="mt-1 text-xs text-zinc-400">
-              {t('app.staff.field.role.help', 'Leave blank to inherit the agent’s persona role. The choices are the persona roles of this App’s installed agents — to add one, install an agent that carries it.')}
+              {t('app.staff.field.role.help', 'Leave blank to inherit the agent’s persona role — the only other choice is that same role, stated explicitly. To cast a different role, pick a different agent, or install one that carries it.')}
             </p>
           </div>
           <div>

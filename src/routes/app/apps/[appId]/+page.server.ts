@@ -159,6 +159,22 @@ const STAFFING_FORBIDDEN = () => t(
 );
 
 /**
+ * releaseWorker's refusal, which does NOT share the staffing gate above.
+ *
+ * `releaseWorker` admits exactly two principals, and they are different acts:
+ * the HOLDER releasing their own name, or an App/org ADMIN force-releasing
+ * somebody else's. Casting and retiring admit a third — a contributor, or a
+ * non-reader App member — so reusing STAFFING_FORBIDDEN here told a contributor
+ * who is not the holder that they already have the access they need, which is
+ * the one thing a permission message must never do (@codex and @copilot, both,
+ * on #766).
+ */
+const RELEASE_FORBIDDEN = () => t(
+  'app.staff.error.release-forbidden',
+  'You don’t have permission to release this name. You can release a name you hold yourself; force-releasing someone else’s needs admin access to the App or its organization.',
+);
+
+/**
  * castWorker's typed refusals (#974), mapped to copy that says what to DO.
  * The raw server message names internals ("no installed agent matches role
  * X"), and the codes are a documented contract, so branching on the code is
@@ -896,7 +912,7 @@ export const actions: Actions = {
         {
           type: 'error',
           text: forbidden
-            ? STAFFING_FORBIDDEN()
+            ? RELEASE_FORBIDDEN()
             : extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.')),
         },
         { status: 500 },

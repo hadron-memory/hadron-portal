@@ -8,6 +8,7 @@ import {
   DELETE_APP_MUTATION,
   ORGANIZATION_QUERY,
   REMOVE_AGENT_FROM_APP_MUTATION,
+  RELEASE_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
   REVOKE_APP_KEY_MUTATION,
   TEAM_CHAT_MESSAGES_QUERY,
@@ -57,7 +58,7 @@ beforeEach(() => {
 async function runAction(
   name:
     | 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey'
-    | 'revokeKey' | 'deleteApp' | 'castWorker' | 'retireWorker'
+    | 'revokeKey' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
     | 'postTeamChatMessage',
   fields: Record<string, string | string[]>,
 ) {
@@ -949,6 +950,69 @@ describe('retireWorker action', () => {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toContain('permission to staff this App');
+  });
+});
+
+// #756 / hadron-server#1050 — releasing a HELD name. The tests exist to hold
+// apart two operations the issue originally proposed merging: releasing leaves
+// the worker ACTIVE and its name allocated, while retiring ends the casting and
+// reserves the name forever.
+describe('releaseWorker action', () => {
+  it('releases a held name and says the worker stays active', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('releaseWorker', { workerId: 'worker-1' });
+    expect(mockRequest.mock.calls[0]).toEqual([
+      RELEASE_WORKER_MUTATION,
+      { workerRef: 'worker-1' },
+    ]);
+    const text = (result as { form: { message: { text: string } } }).form.message.text;
+    expect(text).toContain('stays active');
+    // The distinction is the whole point: releasing must never claim to have
+    // retired anything, or the two operations start reading as one.
+    expect(text).not.toContain('reserved');
+  });
+
+  it('calls releaseWorker, never retireWorker', async () => {
+    // Guards the collision #756 proposed: a "Release" button wired to
+    // retireWorker would end the casting and reserve the name forever, which is
+    // unrecoverable and looks like a success.
+    mockRequest.mockResolvedValueOnce({});
+    await runAction('releaseWorker', { workerId: 'worker-1' });
+    expect(mockRequest.mock.calls[0][0]).toBe(RELEASE_WORKER_MUTATION);
+    expect(mockRequest.mock.calls[0][0]).not.toBe(RETIRE_WORKER_MUTATION);
+  });
+
+  it('rejects a missing worker id before the mutation', async () => {
+    const result = (await runAction('releaseWorker', {})) as { status: number };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns a typed error when releasing fails', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('nope'));
+    const result = (await runAction('releaseWorker', { workerId: 'worker-1' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+
+  // releaseWorker does NOT share the staffing gate: it admits the HOLDER or an
+  // App/org ADMIN, while casting and retiring also admit a contributor. Reusing
+  // the staffing copy told a contributor who is not the holder that they
+  // already had the access they lacked (@codex + @copilot on #766).
+  it('gives release-specific FORBIDDEN copy, not the staffing gate copy', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('releaseWorker', { workerId: 'worker-1' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    const text = result.data.form.message.text;
+    expect(text).toContain('release a name you hold yourself');
+    expect(text).toContain('admin access');
+    expect(text).not.toContain('permission to staff this App');
   });
 });
 
