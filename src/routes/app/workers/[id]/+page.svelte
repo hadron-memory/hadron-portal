@@ -4,6 +4,7 @@
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import { tick, untrack } from 'svelte';
+  import { afterNavigate } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import { isHeld, workerHold } from '$lib/worker-hold';
   import { expiryDistance, workerSessionStatus } from '$lib/worker-session-status';
@@ -50,36 +51,26 @@
   // Roving focus: only the selected tab is in the sequential tab order
   // (`tabindex` 0 vs -1) and arrows move between them, so the strip is one tab
   // stop rather than three.
-  // SvelteKit REUSES this component instance when navigating between two
-  // /app/workers/[id] URLs — the param changes, the component does not remount
-  // — so the initializer above runs only once and `activeTab` would leak across
-  // workers (@codex on #767). Following someone's signed URN from one worker to
-  // another's `?tab=worklog` would keep showing the tab you were on and ignore
-  // the new loader value entirely.
+  // SvelteKit REUSES this component instance across /app/workers/[id]
+  // navigations — the param changes, the component does not remount — so the
+  // one-time initializer above never re-runs. Same trap as the node detail page
+  // (#251), and the reason `conventions:query-param-deeplink-open-form` exists.
+  // Reapply the requested tab on EVERY navigation, tracking the navigation
+  // itself rather than the value it carried (@codex on #767).
   //
-  // Same trap and same remedy as the node detail page (#251), and the same
-  // reason `conventions:query-param-deeplink-open-form` exists: on a same-route
-  // navigation, one-time `$state` init never re-runs.
-  // Tracks BOTH the worker and the accepted `initialTab`, because the component
-  // is reused on a same-worker query-only navigation too (@codex on #767):
-  // /app/workers/w-1?tab=profile → a shared /app/u/<same-urn>?tab=worklog link
-  // re-runs the loader with a new `initialTab` while `worker.id` is unchanged,
-  // and a worker-id-only guard would leave the URL naming one tab while the
-  // page showed another.
+  // Two earlier shapes both under-fired. Keying on `worker.id` missed a
+  // same-worker query-only navigation; keying additionally on the accepted
+  // `initialTab` still could not tell a repeat navigation from no navigation —
+  // so landing on ?tab=worklog, clicking Profile, then following a link to that
+  // same ?tab=worklog URL left Profile selected, because the (worker, tab) pair
+  // had not changed.
   //
-  // Keying on `initialTab` does NOT couple tab clicks to the URL: clicking a
-  // tab deliberately does not navigate (UI state must not push history), so
-  // `data.initialTab` changes only on a real navigation. A reader who lands on
-  // ?tab=worklog and then clicks Profile stays on Profile.
-  let lastWorkerId: string | undefined;
-  let lastInitialTab: WorkerTabId | null | undefined;
-  $effect(() => {
-    const incoming = (data.initialTab as WorkerTabId | null) ?? null;
-    if (lastWorkerId !== worker.id || lastInitialTab !== incoming) {
-      lastWorkerId = worker.id;
-      lastInitialTab = incoming;
-      activeTab = incoming ?? 'profile';
-    }
+  // `afterNavigate` is the honest signal: it fires once per navigation and by
+  // then the new loader data is applied. It does NOT fire on a tab click, which
+  // deliberately does not navigate (UI state must not push history entries), so
+  // this still does not couple the buttons to the URL.
+  afterNavigate(() => {
+    activeTab = (data.initialTab as WorkerTabId | null) ?? 'profile';
   });
 
   async function focusTab(id: WorkerTabId) {
