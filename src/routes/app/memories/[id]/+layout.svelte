@@ -152,18 +152,25 @@
   ]);
 
   // The active tab is the sub-route's last segment (falls back to nodes).
-  // No fallback (@codex on #771). Every path that renders this strip is an
-  // exact tab href — /browse 308-redirects to /graph, /clone and
-  // /usage/activity are endpoints, and /nodes/<id> hides the strip entirely —
-  // so `?? 'nodes'` was unreachable until #755 stopped offering Subscriptions
-  // on a system memory while leaving the route resolvable.
+  // Matched on the ROUTE SUFFIX, not on full-path equality (@codex on #771).
   //
-  // It did more than mis-highlight: the MemoryBrowser guard below is
-  // `activeTab === 'nodes' || 'graph'`, so the fallback rendered the whole node
-  // browser on top of the Subscriptions page. Undefined fails both, which is
-  // the honest answer — no tab is active, because none of them is the page you
-  // are on.
-  const activeTab = $derived(tabs.find((tb) => path === tb.href)?.id);
+  // `[id]` is a REF: the loader passes `params.id` straight to `memory(ref:)`
+  // and `memoryNodes(memoryRef:)`, which accept an id OR a URN. `basePath` is
+  // rebuilt from `data.graph.id`, so on a URN-addressed URL no generated href
+  // can ever equal `path` — comparing whole paths silently matched nothing.
+  //
+  // The old `?? 'nodes'` fallback papered over exactly that, and papered badly:
+  // it made a URN-addressed /nodes work by accident while making a
+  // URN-addressed /settings highlight Nodes and render the node browser over
+  // the settings page. Removing the fallback without fixing the comparison
+  // would have turned that into a URN-addressed /nodes rendering nothing.
+  //
+  // The last segment IS the tab id for every tab, so it survives both
+  // spellings. `/nodes/<id>` never reaches here — `isNodeDetail` hides the
+  // strip — and a memory ref cannot collide with a tab id, since the bare
+  // `/app/memories/<ref>` redirects to /info.
+  const routeSuffix = $derived(path.replace(/\/+$/, '').split('/').pop() ?? '');
+  const activeTab = $derived(tabs.find((tb) => tb.id === routeSuffix)?.id);
 </script>
 
 <div class="space-y-4">
