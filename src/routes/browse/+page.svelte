@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -41,12 +42,17 @@
     <!-- #687. Checked BEFORE the empty state, because on failure `memories` is
          also empty and the two would otherwise be indistinguishable. Copy
          mirrors /app/memories: it names the distinction rather than saying
-         something went wrong, since "not an empty list" is the part a reader
-         cannot infer. This page's chrome is unlocalized, so this string is too
-         (review:user-strings-through-t-helper — match the surrounding surface,
-         do not piecemeal-localize). -->
+         something went wrong, since "not an empty catalogue" is the part a
+         reader cannot infer.
+
+         Through t() even though this page's surrounding chrome is literal
+         (@codex and @copilot on #772). "Don't piecemeal-localize" governs
+         CONVERTING existing copy; a NEW user-visible string goes through the
+         boundary regardless — `$lib/i18n/t.ts` is explicit that they do so
+         "from this commit on". Leaving it out would make it permanently
+         untranslatable to save touching nothing. -->
     <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-12 text-center text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-      Couldn't load the public memories just now — this is a temporary error, not an empty catalogue. Try refreshing the page.
+      {t('browse.load-failed', "Couldn't load the public memories just now — this is a temporary error, not an empty catalogue. Try refreshing the page.")}
     </div>
   {:else if filtered.length === 0}
     <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
