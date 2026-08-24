@@ -2193,11 +2193,10 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         {#if appKeys.length === 0}
           <p class="text-sm text-zinc-400">{t('app.keys.empty', 'No keys yet.')}</p>
         {:else}
-          <!-- #719 — the shared grid, replacing a hand-rolled <table>. A
-               revoked key stays listed rather than being filtered out: its
-               history is the reason to keep it, and the row is dimmed with an
-               explicit Status column so "revoked" is a value you can sort and
-               search on rather than a visual cue only. -->
+          <!-- #719 — the shared grid, replacing a hand-rolled <table>.
+               Every row here is an ACTIVE key: the server filters revoked ones
+               out on both load paths (see the note on `appKeys` above), which
+               is why there is no status column and no revoked styling. -->
           <DataTable
             table={appKeyTable}
             listKey="apps:keys"

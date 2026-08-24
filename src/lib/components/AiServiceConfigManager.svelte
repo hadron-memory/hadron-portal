@@ -85,6 +85,16 @@
   // that arrangement again on the next — sharing is the feature, not an
   // accident.
   let configFilter = $state('');
+  // ONE composer for the masked key text, read by both the accessor and the
+  // cell (@copilot on #770). They had diverged: the accessor returned the raw
+  // preview while the cell rendered bullets + preview, so sorting and the
+  // `includesString` search disagreed with what was on screen — and a config
+  // with `hasApiKey` but a null preview sorted as an empty string while
+  // rendering eight bullets. Deriving both from one function is what stops
+  // them drifting again.
+  function maskedKey(c: AiServiceConfig): string {
+    return c.hasApiKey ? `${'•'.repeat(8)}${c.apiKeyPreview ?? ''}` : s.noKey();
+  }
   function configDateMs(iso: string | null | undefined): number | null {
     if (!iso) return null;
     const ms = new Date(iso).getTime();
@@ -110,7 +120,9 @@
       size: 110,
     },
     {
-      accessorFn: (row) => (row.hasApiKey ? (row.apiKeyPreview ?? '') : s.noKey()),
+      // The RENDERED text, per the table-chrome convention: a derived column's
+      // accessor returns what is on screen so sort and search agree with it.
+      accessorFn: (row) => maskedKey(row),
       id: 'key',
       header: t('ai-config.column.key', 'API key'),
       size: 140,
@@ -571,9 +583,7 @@
           {/if}
         {:else if cell.column.id === 'key'}
           <!-- The stored key is never rendered — only its preview, masked. -->
-          <span class="font-mono text-xs text-zinc-400">
-            {c.hasApiKey ? `${'•'.repeat(8)}${c.apiKeyPreview ?? ''}` : s.noKey()}
-          </span>
+          <span class="font-mono text-xs text-zinc-400">{maskedKey(c)}</span>
         {:else if cell.column.id === 'actions'}
           {#if canManage}
             <div class="flex items-center gap-2">
