@@ -2268,21 +2268,14 @@ export const MEMORY_USAGE_SUMMARY_QUERY = /* GraphQL */ `
   }
 `;
 
-export const NODE_USAGE_QUERY = /* GraphQL */ `
-  query NodeUsage($loc: String!, $limit: Int) {
-    nodeUsage(loc: $loc, limit: $limit) {
-      id
-      type
-      nodeLoc
-      appId
-      sessionId
-      model
-      tokensIn
-      tokensOut
-      createdAt
-    }
-  }
-`;
+// #718 — NODE_USAGE_QUERY was here and had no importers (confirmed in the
+// hadron-server#802 caller audit and again for #986). `nodeUsage` is now
+// @deprecated in favour of `usageEvents(loc:)`.
+//
+// If a per-loc usage feed is ever needed here, use `usageEvents(loc: <loc>)`
+// and NOT `usageEvents(nodeId: <loc>)` — the latter's shape classification
+// misroutes hierarchical locs, which is every spec citation (>=3 colon
+// segments). Recorded rather than left to be rediscovered from the issue.
 
 // hadron-server#473: myMemories is now the uniform memories() list — same
 // default union semantics (own personal/private + member-org owned +

@@ -46,6 +46,13 @@ vi.mock('$lib/server/guards', () => ({
   requireNonConsumer: vi.fn().mockResolvedValue(undefined),
 }));
 
+// #652 — the loader fetches the org list through this; stubbed so the owner
+// tests below exercise only the owner read.
+const mockFetchAllItems = vi.fn();
+vi.mock('$lib/server/paginate', () => ({
+  fetchAllItems: (...args: unknown[]) => mockFetchAllItems(...args),
+}));
+
 beforeEach(() => {
   mockRequest.mockReset();
 });
@@ -762,5 +769,86 @@ describe('memory-detail `updateSchema` action (#588)', () => {
 
     expect(result).toMatchObject({ status: 500 });
     expect(successMessage(result)).toEqual({ type: 'error', text: 'boom' });
+  });
+});
+
+/**
+ * #652 — the Owner row. The page used to assert "Access: Only you" for every
+ * personal/private memory, which is false for a MemoryShare grantee: they are
+ * not the owner, and access is not only theirs.
+ *
+ * `Memory` has no `user` field, so the owner's handle and URN need a second
+ * read through `user(ref:)` — which the server MASKS to null for a caller who
+ * shares no organization with the owner (#384 anti-enumeration). That masked
+ * case is the one the issue was reported from, so it is pinned here.
+ */
+describe('memory settings load — the owner (#652)', () => {
+  beforeEach(() => {
+    mockFetchAllItems.mockReset();
+    mockFetchAllItems.mockResolvedValue([]);
+  });
+
+  function ev(graph: Record<string, unknown>) {
+    return {
+      locals: { token: 'tok', user: { id: 'viewer-1' } },
+      parent: async () => ({ graph, user: { id: 'viewer-1' } }),
+    } as never;
+  }
+
+  const personal = (over: Record<string, unknown> = {}) => ({
+    id: 'mem-1', name: 'Notes', urn: 'hrn:mem:acme.com:notes', class: 'personal',
+    organizationId: null, userId: 'owner-9', visibility: null, ...over,
+  });
+
+  async function runLoad(graph: Record<string, unknown>) {
+    const { load } = await import('./+page.server');
+    return (await load(ev(graph))) as {
+      owner: { id: string; handle: string | null; urn: string | null } | null;
+      ownerUserId: string | null;
+    };
+  }
+
+  it('resolves the owner and returns their handle and URN', async () => {
+    mockRequest.mockResolvedValueOnce({
+      user: { id: 'owner-9', handle: 'ada', urn: 'hrn:user:ada' },
+    });
+    const res = await runLoad(personal());
+    expect(res.ownerUserId).toBe('owner-9');
+    expect(res.owner).toEqual({ id: 'owner-9', handle: 'ada', urn: 'hrn:user:ada' });
+  });
+
+  it('reports a MASKED owner as null while keeping the owner id', async () => {
+    // The reported case: a grantee opening a memory shared with them by
+    // someone they share no org with. The page must say it cannot identify
+    // the owner — never "Only you", and never a fabricated name.
+    mockRequest.mockResolvedValueOnce({ user: null });
+    const res = await runLoad(personal());
+    expect(res.owner).toBeNull();
+    expect(res.ownerUserId).toBe('owner-9');
+  });
+
+  it('does not query for an owner when the memory is org-owned', async () => {
+    // `chk_memory_owner_xor` — org and user ownership are mutually exclusive,
+    // so a null userId means there is no user owner to look up. Issuing the
+    // query anyway would be a request with a null ref on every org memory.
+    const res = await runLoad(personal({ class: 'knowledge', organizationId: 'org-1', userId: null }));
+    expect(res.ownerUserId).toBeNull();
+    expect(res.owner).toBeNull();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('reports null rather than throwing when the owner read fails', async () => {
+    // Denied, missing and broken all render the same honest sentence, so
+    // collapsing them claims nothing false — but the loader must not take the
+    // page down over a decorative row.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mockRequest.mockRejectedValueOnce(new Error('boom'));
+      const res = await runLoad(personal());
+      expect(res.owner).toBeNull();
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
