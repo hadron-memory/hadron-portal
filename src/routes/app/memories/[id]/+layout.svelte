@@ -119,6 +119,10 @@
     data.org ? `/app/orgs/${data.org.id}/memories` : undefined,
   );
 
+  // #755 / #709 — an agent's system memory. Lifted out of the markup, where it
+  // was already computed as `isAgentSystem`, because the tab list needs it too.
+  const isSystemMemory = $derived(data.graph.class === 'system');
+
   const path = $derived($page.url.pathname);
   // Node detail / create pages bring their own chrome — hide the tab layout there
   // (the regex matches /nodes/<id> and /nodes/new).
@@ -132,17 +136,46 @@
     { id: 'assets', label: t('memory-detail.tab.assets', 'Files'), href: `${basePath}/assets` },
     { id: 'settings', label: t('memory-detail.tab.settings', 'Settings'), href: `${basePath}/settings` },
     { id: 'integrations', label: t('memory-detail.tab.integrations', 'Integrations'), href: `${basePath}/integrations` },
-    { id: 'subscriptions', label: t('memory-detail.tab.subscriptions', 'Subscriptions'), href: `${basePath}/subscriptions` },
+    // #755 — hidden on a `system` memory. An agent's system memory is the
+    // agent's own configuration store; nobody subscribes to it, so the tab
+    // offered a page with nothing to say.
+    //
+    // HIDDEN, not removed: `${basePath}/subscriptions` still resolves if
+    // someone types or bookmarks it. That is Holger's call on the issue ("just
+    // hide the tab") and is recorded here so a later reader does not read the
+    // reachable route as an oversight — the honest description of this change
+    // is that the tab is not offered, not that the page is gone.
+    ...(isSystemMemory
+      ? []
+      : [{ id: 'subscriptions', label: t('memory-detail.tab.subscriptions', 'Subscriptions'), href: `${basePath}/subscriptions` }]),
     { id: 'usage', label: t('memory-detail.tab.usage', 'Usage'), href: `${basePath}/usage` },
   ]);
 
   // The active tab is the sub-route's last segment (falls back to nodes).
-  const activeTab = $derived(tabs.find((tb) => path === tb.href)?.id ?? 'nodes');
+  // Matched on the ROUTE SUFFIX, not on full-path equality (@codex on #771).
+  //
+  // `[id]` is a REF: the loader passes `params.id` straight to `memory(ref:)`
+  // and `memoryNodes(memoryRef:)`, which accept an id OR a URN. `basePath` is
+  // rebuilt from `data.graph.id`, so on a URN-addressed URL no generated href
+  // can ever equal `path` — comparing whole paths silently matched nothing.
+  //
+  // The old `?? 'nodes'` fallback papered over exactly that, and papered badly:
+  // it made a URN-addressed /nodes work by accident while making a
+  // URN-addressed /settings highlight Nodes and render the node browser over
+  // the settings page. Removing the fallback without fixing the comparison
+  // would have turned that into a URN-addressed /nodes rendering nothing.
+  //
+  // The last segment IS the tab id for every tab, so it survives both
+  // spellings. `/nodes/<id>` never reaches here — `isNodeDetail` hides the
+  // strip — and a memory ref cannot collide with a tab id, since the bare
+  // `/app/memories/<ref>` redirects to /info.
+  const routeSuffix = $derived(path.replace(/\/+$/, '').split('/').pop() ?? '');
+  const activeTab = $derived(tabs.find((tb) => tb.id === routeSuffix)?.id);
 </script>
 
 <div class="space-y-4">
   {#if !isNodeDetail}
-    {@const isAgentSystem = data.graph.class === 'system'}
+    {@const isAgentSystem = isSystemMemory}
     <div class="mb-4">
       <!-- #709: memory chrome, whatever the class — an agent system memory is
            still a memory. Its agent-ness shows as the single "Owned by agent"
