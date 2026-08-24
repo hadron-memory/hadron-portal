@@ -50,6 +50,24 @@
   // Roving focus: only the selected tab is in the sequential tab order
   // (`tabindex` 0 vs -1) and arrows move between them, so the strip is one tab
   // stop rather than three.
+  // SvelteKit REUSES this component instance when navigating between two
+  // /app/workers/[id] URLs — the param changes, the component does not remount
+  // — so the initializer above runs only once and `activeTab` would leak across
+  // workers (@codex on #767). Following someone's signed URN from one worker to
+  // another's `?tab=worklog` would keep showing the tab you were on and ignore
+  // the new loader value entirely.
+  //
+  // Same trap and same remedy as the node detail page (#251), and the same
+  // reason `conventions:query-param-deeplink-open-form` exists: on a same-route
+  // navigation, one-time `$state` init never re-runs.
+  let lastWorkerId: string | undefined;
+  $effect(() => {
+    if (lastWorkerId !== worker.id) {
+      lastWorkerId = worker.id;
+      activeTab = (data.initialTab as WorkerTabId | null) ?? 'profile';
+    }
+  });
+
   async function focusTab(id: WorkerTabId) {
     activeTab = id;
     await tick();
@@ -381,7 +399,7 @@
         <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
           {t(
             'worker.sessions.scope-caveat',
-            'Sessions other people drove as this worker are not listed here — the platform has no read for a worker’s full session history yet. The worklog below is not limited this way and does show everyone’s records.',
+            'Sessions other people drove as this worker are not listed here — the platform has no read for a worker’s full session history yet. The Worklog tab is not limited this way and does show everyone’s records.',
           )}
         </p>
       </div>
