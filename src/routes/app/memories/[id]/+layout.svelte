@@ -152,7 +152,18 @@
   ]);
 
   // The active tab is the sub-route's last segment (falls back to nodes).
-  const activeTab = $derived(tabs.find((tb) => path === tb.href)?.id ?? 'nodes');
+  // No fallback (@codex on #771). Every path that renders this strip is an
+  // exact tab href — /browse 308-redirects to /graph, /clone and
+  // /usage/activity are endpoints, and /nodes/<id> hides the strip entirely —
+  // so `?? 'nodes'` was unreachable until #755 stopped offering Subscriptions
+  // on a system memory while leaving the route resolvable.
+  //
+  // It did more than mis-highlight: the MemoryBrowser guard below is
+  // `activeTab === 'nodes' || 'graph'`, so the fallback rendered the whole node
+  // browser on top of the Subscriptions page. Undefined fails both, which is
+  // the honest answer — no tab is active, because none of them is the page you
+  // are on.
+  const activeTab = $derived(tabs.find((tb) => path === tb.href)?.id);
 </script>
 
 <div class="space-y-4">
