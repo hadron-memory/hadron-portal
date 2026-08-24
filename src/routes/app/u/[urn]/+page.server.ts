@@ -164,8 +164,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
  * resolution, a mapped `NOT_FOUND`/`FORBIDDEN` throw, and a `BAD_USER_INPUT`
  * throw — and the last two carry no resolution at all, so "the result is
  * uniformly null by the time we get here" was simply false (@codex on #764).
- * The guarantee does not depend on which path was taken: the same input yields
- * the same message on all of them, which is what a test pins.
+ *
+ * The guarantee that matters is between the two EXISTENCE-HIDING 404 paths: a
+ * null resolution and a `NOT_FOUND`/`FORBIDDEN` throw produce byte-identical
+ * messages for the same input, which is what a test pins. `BAD_USER_INPUT` is
+ * deliberately NOT in that set — it prepends "… is not a valid Hadron URN" and
+ * is a 400 — and it does not need to be: that is the server rejecting the
+ * caller's STRING, which reveals nothing about whether any resource exists.
+ * Saying "the same message on all three paths" overclaimed again (@codex,
+ * round 7), in the very comment that had just fixed an overclaim.
  */
 /**
  * The `hrn:<type>:` / legacy `urn:<type>:` prefix.
