@@ -17,3 +17,24 @@ export function isLocalPath(dest: string | null | undefined): dest is string {
 export function safeRedirect(dest: string | null | undefined, fallback = '/app/dashboard'): string {
   return isLocalPath(dest) ? dest : fallback;
 }
+
+/**
+ * #761 — carry an incoming query string onto a redirect target.
+ *
+ * A redirect that rewrites the PATH must not also discard the caller's STATE.
+ * The portal's alias and canonicalization redirects (`/app/u/[urn]`, the memory
+ * tab index, the #237 node-moved hop) all send the reader somewhere else by
+ * design, and every one of them was dropping `?tab=`/`?chat=`/the #739 worklog
+ * filters on the way — resolving and rendering without error, on the target's
+ * default view. Nothing fails; the reader just silently loses what they linked.
+ *
+ * `search` is `URL.search`: either empty or `?`-prefixed, which is why the
+ * empty case returns `path` untouched rather than appending a bare `?`.
+ * Targets that already carry a query are joined with `&`, so composing never
+ * produces the `?a=b?c=d` that truncates at the second `?`.
+ */
+export function withQuery(path: string, search: string): string {
+  if (!search || search === '?') return path;
+  const query = search.startsWith('?') ? search.slice(1) : search;
+  return path.includes('?') ? `${path}&${query}` : `${path}?${query}`;
+}

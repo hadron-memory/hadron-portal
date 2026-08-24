@@ -9,6 +9,9 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
+import { isLocalPath } from '$lib/safeRedirect';
+
+type UrnKind = 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker';
 
 const mockRequest = vi.fn();
 
@@ -25,28 +28,37 @@ async function importLoad() {
   return mod.load;
 }
 
-function ev(urn: string) {
+/**
+ * `search` is the incoming query string (#761) — a real URL so `url.search` has
+ * the same '' / '?…' shape the framework hands the loader, rather than a stub
+ * that could disagree with it.
+ */
+function ev(urn: string, search = '') {
   return {
     params: { urn },
+    url: new URL(`http://localhost/app/u/${urn}${search}`),
     locals: { user: { id: 'u1', roles: ['user'], githubUsername: 'gh' }, token: 'tok' },
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
 /** Run load and capture the thrown redirect (SvelteKit's redirect() throws). */
-async function expectRedirect(urn: string): Promise<{ status: number; location: string }> {
+async function expectRedirect(
+  urn: string,
+  search = '',
+): Promise<{ status: number; location: string }> {
   const load = await importLoad();
   try {
-    await load(ev(urn));
+    await load(ev(urn, search));
   } catch (e) {
     return e as { status: number; location: string };
   }
   throw new Error('Expected load to throw a redirect, but it returned normally');
 }
 
-async function expectError(urn: string): Promise<{ status: number }> {
+async function expectError(urn: string, search = ''): Promise<{ status: number }> {
   const load = await importLoad();
   try {
-    await load(ev(urn));
+    await load(ev(urn, search));
   } catch (e) {
     return e as { status: number };
   }
@@ -148,6 +160,91 @@ describe('/app/u/[urn] — redirects each kind to its canonical page', () => {
     });
     const r = await expectRedirect('hrn:worker:alice:solo-app:iris');
     expect(r.location).toBe('/app/workers/w-2');
+  });
+});
+
+// #761 — the resolver rewrites the PATH; it must not also discard the caller's
+// STATE. Every deep link the portal deliberately made linkable (?tab=, ?chat=,
+// the #739 worklog filters) travels through here when written as a URN, and a
+// dropped query resolved and rendered on the target's DEFAULT view without
+// erroring — the failure mode that looks like it worked.
+describe('/app/u/[urn] — the redirect carries the query string', () => {
+  it('preserves ?tab= and ?chat= onto the App page (the reported case)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'app', id: 'app-1', memoryId: null, organizationId: 'org-7' },
+    });
+    const r = await expectRedirect(
+      'hrn:app:hadronmemory.com:hadron-dev-team',
+      '?tab=chats&chat=chats:team',
+    );
+    expect(r.status).toBe(307);
+    expect(r.location).toBe('/app/apps/app-1?tab=chats&chat=chats:team');
+  });
+
+  it('appends nothing when there is no incoming query', async () => {
+    // Guards the other direction: a plain URN visit must not gain a bare '?'.
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'app', id: 'app-1', memoryId: null, organizationId: 'org-7' },
+    });
+    const r = await expectRedirect('hrn:app:hadronmemory.com:hadron-dev-team');
+    expect(r.location).toBe('/app/apps/app-1');
+  });
+
+  it('preserves the query for EVERY resolved kind, not just the App', async () => {
+    // All seven kinds funnel through one redirect, so this asserts the property
+    // where it actually lives rather than trusting one kind to speak for six.
+    const cases: Array<[UrnKind, Record<string, string | null>, string]> = [
+      ['memory', { id: 'mem-1' }, '/app/memories/mem-1'],
+      ['node', { id: 'node-1', memoryId: 'mem-9' }, '/app/memories/mem-9/nodes/node-1'],
+      ['org', { id: 'org-1' }, '/app/orgs/org-1'],
+      ['agent', { id: 'agent-1' }, '/app/agents/agent-1'],
+      ['user', { id: 'user-1' }, '/app/user/user-1'],
+      ['app', { id: 'app-1' }, '/app/apps/app-1'],
+      ['worker', { id: 'w-1' }, '/app/workers/w-1'],
+    ];
+    for (const [kind, ids, path] of cases) {
+      mockRequest.mockResolvedValueOnce({
+        resolveUrn: { kind, memoryId: null, organizationId: null, ...ids },
+      });
+      const r = await expectRedirect(`hrn:${kind}:acme.com:x`, '?tab=deep&filter=on');
+      expect(r.location, `kind: ${kind}`).toBe(`${path}?tab=deep&filter=on`);
+    }
+  });
+
+  it('preserves the worklog filters whose justification was linkability (#739)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'app', id: 'app-1', memoryId: null, organizationId: 'org-7' },
+    });
+    const r = await expectRedirect(
+      'hrn:app:hadronmemory.com:hadron-dev-team',
+      '?tab=worklog&worklogKind=pr&worklogRef=owner%2Frepo%23371',
+    );
+    expect(r.location).toBe(
+      '/app/apps/app-1?tab=worklog&worklogKind=pr&worklogRef=owner%2Frepo%23371',
+    );
+  });
+
+  it('carries the query through the signin round-trip, encoded once', async () => {
+    // Signing in to reach a deep link must not be what costs you the deep link.
+    mockRequest.mockRejectedValueOnce(
+      new ClientError(
+        {
+          errors: [{ message: 'rejected', extensions: { code: 'UNAUTHENTICATED' } }],
+          status: 200,
+        } as unknown as ClientError['response'],
+        { query: 'query', variables: {} },
+      ),
+    );
+    const r = await expectRedirect('hrn:app:acme.com:x', '?tab=chats');
+    expect(r.status).toBe(303);
+    expect(r.location).toBe(
+      `/signin?redirect=${encodeURIComponent('/app/u/hrn:app:acme.com:x?tab=chats')}`,
+    );
+    // The value must round-trip through the #439 open-redirect guard, which
+    // only accepts a local path — a query string must not make it look foreign.
+    const dest = new URL(`http://localhost${r.location}`).searchParams.get('redirect');
+    expect(isLocalPath(dest)).toBe(true);
+    expect(dest).toBe('/app/u/hrn:app:acme.com:x?tab=chats');
   });
 });
 

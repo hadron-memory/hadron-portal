@@ -6,6 +6,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
+import { withQuery } from '$lib/safeRedirect';
 import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
@@ -94,8 +95,15 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // pattern in +layout.server.ts. If the user can't access node.memoryId,
   // the redirected memory layout will throw "Memory not found" — a clean
   // failure mode rather than the silent wrong-node render.
+  // #761: carry `url.search`. This hop is conditional and off the resolver's
+  // happy path — a URN-resolved node arrives with the server's own memoryId, so
+  // the ids match and this never fires. It fires for the case #237 describes: a
+  // link written before the node moved. That link is precisely the one most
+  // likely to be an old shared deep link with state on it, so a
+  // canonicalization must be transparent to it rather than quietly resetting
+  // the reader to the node's default tab.
   if (node.memoryId !== params.id) {
-    redirect(303, `/app/memories/${node.memoryId}/nodes/${params.nodeId}`);
+    redirect(303, withQuery(`/app/memories/${node.memoryId}/nodes/${params.nodeId}`, url.search));
   }
 
   // Build breadcrumb from loc segments — look up ancestor nodes within THIS

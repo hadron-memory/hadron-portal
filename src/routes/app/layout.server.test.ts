@@ -13,6 +13,7 @@
  * it with a hand-rolled SvelteKit-shaped event.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { isLocalPath } from '$lib/safeRedirect';
 
 const mockMyOrgsRequest = vi.fn();
 const mockMeRequest = vi.fn();
@@ -128,6 +129,48 @@ async function loadAuthed(
   if (!data) throw new Error('Expected layout load to return data, got void (unauth redirect path)');
   return data as never;
 }
+
+// #761 — the SIGNED-OUT signin bounce. This is the branch a shared deep link
+// actually hits: someone sends you /app/u/<urn>?tab=chats, you have no session,
+// and this layout intercepts before the route's own loader ever runs. The
+// resolver's own UNAUTHENTICATED branch covers only the narrower case of a
+// token that decodes locally but the API then rejects, so fixing that one alone
+// left the ordinary path still dropping the query. Found by @codex on PR #763.
+describe('+layout.server.ts — the signin bounce preserves deep-link state (#761)', () => {
+  /** Run load on the unauth branch and capture the thrown redirect. */
+  async function expectSigninRedirect(pathname: string) {
+    const load = await importLoad();
+    try {
+      await load(ev({ pathname, authed: false }));
+    } catch (e) {
+      return e as { status: number; location: string };
+    }
+    throw new Error('Expected the unauth branch to throw a signin redirect');
+  }
+
+  it('carries the query string into ?redirect=', async () => {
+    const r = await expectSigninRedirect('/app/u/hrn:app:acme.com:x?tab=chats&chat=chats:team');
+    expect(r.status).toBe(303);
+    expect(r.location).toBe(
+      `/signin?redirect=${encodeURIComponent('/app/u/hrn:app:acme.com:x?tab=chats&chat=chats:team')}`,
+    );
+  });
+
+  it('round-trips through the #439 open-redirect guard', async () => {
+    // A query string must not make the destination look non-local, or the
+    // guard would silently swap it for the dashboard fallback.
+    const r = await expectSigninRedirect('/app/apps/a1?tab=worklog&worklogKind=pr');
+    const dest = new URL(`http://localhost${r.location}`).searchParams.get('redirect');
+    expect(isLocalPath(dest)).toBe(true);
+    expect(dest).toBe('/app/apps/a1?tab=worklog&worklogKind=pr');
+  });
+
+  it('appends nothing when there is no query', async () => {
+    const r = await expectSigninRedirect('/app/dashboard');
+    expect(r.location).toBe(`/signin?redirect=${encodeURIComponent('/app/dashboard')}`);
+    expect(r.location).not.toContain('%3F'); // no encoded bare '?'
+  });
+});
 
 describe('+layout.server.ts — spec 014 active-org resolution wiring', () => {
   it('warns (distinctly) when `me` returns null for a signed-in user — server rejected the token', async () => {
