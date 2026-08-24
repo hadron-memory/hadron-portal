@@ -11,6 +11,7 @@ import {
   DELETE_MEMORY_MUTATION,
   ORGANIZATIONS_QUERY,
   RESOLVE_URN_QUERY,
+  USER_PROFILE_QUERY,
 } from '$lib/server/queries';
 import { toBareMemorySlugInput } from '$lib/urn/form-validation';
 import type { Memory, Organization } from '$lib/types';
@@ -90,6 +91,33 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
   const { graph } = await parent();
   const allOrgs = await fetchAllItems<Organization>(gqlClient(locals.token), ORGANIZATIONS_QUERY, 'organizations')
     .catch(() => [] as Organization[]);
+
+  // #652 — who owns this memory. `Memory.userId` is set exactly when the
+  // memory is user-owned (chk_memory_owner_xor makes org and user ownership
+  // mutually exclusive), and there is NO `Memory.user` field, so the owner's
+  // handle and URN need this second read.
+  //
+  // Null here is deliberately ONE bucket. `user(ref:)` resolves for the user
+  // themselves, a platform admin, or a caller sharing an organization with the
+  // target, and returns null otherwise — denied and missing are
+  // indistinguishable on purpose (#384 anti-enumeration). A transient failure
+  // lands in the same bucket, and that is fine BECAUSE the page renders the
+  // same honest sentence either way: "we cannot identify the owner to you".
+  // Collapsing states is only a defect when it makes the UI claim something
+  // false, and no branch here claims the owner does not exist.
+  const ownerUserId = graph.userId ?? null;
+  const owner = ownerUserId
+    ? await gqlClient(locals.token)
+        .request<{ user: { id: string; handle: string | null; urn: string | null } | null }>(
+          USER_PROFILE_QUERY,
+          { ref: ownerUserId },
+        )
+        .then((d) => d.user)
+        .catch((e: unknown) => {
+          console.warn(`[memory-settings] owner lookup failed for ${ownerUserId}:`, e);
+          return null;
+        })
+    : null;
   const [form, vectorForm, schemaForm, deleteForm] = await Promise.all([
     superValidate<MemorySettingsForm>(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false }),
     superValidate<VectorIndexSettingsForm>(
@@ -115,7 +143,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
       { errors: false },
     ),
   ]);
-  return { allOrgs, form, vectorForm, schemaForm, deleteForm };
+  return { allOrgs, owner, ownerUserId, form, vectorForm, schemaForm, deleteForm };
 };
 
 export const actions: Actions = {

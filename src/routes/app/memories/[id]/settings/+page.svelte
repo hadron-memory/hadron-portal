@@ -5,6 +5,8 @@
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import Urn from '$lib/components/Urn.svelte';
+  import { t } from '$lib/i18n/t';
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -48,6 +50,16 @@
     data.org?.members?.find((m) => m.user?.id === data.user?.id),
   );
   const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
+
+  // #652 — who owns this memory, named rather than assumed.
+  //
+  // The row used to read "Access: Only you" for every personal/private memory.
+  // That is false for a MemoryShare grantee — they are not the owner and access
+  // is not only theirs — and the issue makes the sharper point that it is worth
+  // stating even when the viewer IS the owner, because "you own this" is
+  // reassurance the page was never actually giving.
+  const owner = $derived(data.owner);
+  const ownerIsViewer = $derived(!!data.ownerUserId && data.ownerUserId === data.user?.id);
   const canDelete = $derived(
     !isAgentSystem &&
       (isOwnerOnly
@@ -506,12 +518,63 @@
              so an agent system memory showed its owner twice on this tab. The
              header link (see the memory +layout.svelte) is the single one. -->
         {#if !isAgentSystem}
-          <div class="flex items-center justify-between px-5 py-3">
-            <span class="text-sm text-zinc-500">{isOwnerOnly ? 'Access' : 'Visibility'}</span>
-            <span class="text-sm font-medium text-zinc-900 dark:text-white">
-              {#if isOwnerOnly}Only you{:else}{(g.visibility && visibilityLabel[g.visibility]) ?? g.visibility ?? '—'}{/if}
-            </span>
-          </div>
+          {#if isOwnerOnly}
+            <!-- #652 — the OWNER, not an access claim. Three states, and none
+                 of them asserts something unread:
+                   resolved  → handle + URN, with "you" marked when it is you
+                   masked    → say we cannot identify them, never invent a name
+                   no owner  → org-owned, which this branch cannot be
+
+                 The URN is here per review:render-urn: the handle reads, the
+                 URN is what a reader pastes into a CLI or hands a teammate.
+                 `User.urn` is nullable, so the chip is absent rather than
+                 empty. -->
+            <div class="flex items-start justify-between gap-4 px-5 py-3">
+              <span class="text-sm text-zinc-500">{t('memory-settings.owner', 'Owner')}</span>
+              <div class="min-w-0 text-right">
+                {#if owner}
+                  <span class="text-sm font-medium text-zinc-900 dark:text-white">
+                    {owner.handle ? `@${owner.handle}` : t('memory-settings.owner.unnamed', 'This user has no handle')}
+                    {#if ownerIsViewer}
+                      <span class="ml-1 font-normal text-zinc-500">{t('memory-settings.owner.you', '— that is you')}</span>
+                    {/if}
+                  </span>
+                  {#if owner.urn}
+                    <div class="mt-1 flex justify-end"><Urn value={owner.urn} type="user" size={8} /></div>
+                  {/if}
+                {:else if ownerIsViewer}
+                  <!-- The lookup failed or was refused, but the IDS still prove
+                       it (@codex and @copilot on #773). Falling through to the
+                       masked copy below would tell the OWNER that someone else
+                       owns their memory — a false claim, in the branch whose
+                       whole point is that no branch claims something unread.
+                       Ownership here is local knowledge and needs no query. -->
+                  <span class="text-sm font-medium text-zinc-900 dark:text-white">
+                    {t('memory-settings.owner.you-unnamed', 'You')}
+                    <span class="ml-1 font-normal text-zinc-500">
+                      {t('memory-settings.owner.you-unnamed.note', '— your profile could not be loaded just now')}
+                    </span>
+                  </span>
+                {:else}
+                  <!-- `user(ref:)` masks a caller who shares no organization
+                       with the owner, and denied is indistinguishable from
+                       missing by design (#384). So: no name, and no claim that
+                       there isn't one — and, per the branch above, no claim
+                       that it isn't YOU either. -->
+                  <span class="text-sm text-zinc-500">
+                    {t('memory-settings.owner.hidden', 'Another user — not identifiable from your account')}
+                  </span>
+                {/if}
+              </div>
+            </div>
+          {:else}
+            <div class="flex items-center justify-between px-5 py-3">
+              <span class="text-sm text-zinc-500">Visibility</span>
+              <span class="text-sm font-medium text-zinc-900 dark:text-white">
+                {(g.visibility && visibilityLabel[g.visibility]) ?? g.visibility ?? '—'}
+              </span>
+            </div>
+          {/if}
         {/if}
         {#if g.shortDescription}
           <div class="px-5 py-3">
