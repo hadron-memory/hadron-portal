@@ -183,9 +183,19 @@ function shapeHint(urn: string): string | null {
     );
   }
 
-  // A URN that mixes the grammars resolves as neither — worth naming, since it
-  // is plausible to hand-write from two half-remembered examples and otherwise
-  // looks exactly like a deleted node.
+  // A URN that uses BOTH separators is worth naming: it is plausible to
+  // hand-write from two half-remembered examples, and otherwise looks exactly
+  // like a deleted node.
+  //
+  // Note what this does NOT say. An earlier draft of this comment claimed such
+  // a URN "resolves as neither grammar" — a categorical statement about
+  // resolution that the helper cannot support (@codex on #764). All it observes
+  // is a separator pattern, after the server has already declined; the decline
+  // may have been FORBIDDEN rather than absent, and the server may add an alias
+  // for this spelling tomorrow. The returned hint was softened to describe the
+  // observation; this comment had kept asserting the old claim, which is the
+  // `removing-a-mechanism-leaves-prose-describing-it` shape aimed at my own
+  // diff — the compiler checks the message, never the sentence above it.
   //
   // The test is the HIERARCHY separator, not "is there a colon anywhere"
   // (@codex on #764). A legacy loc routinely contains `:` — `findings:foo` —

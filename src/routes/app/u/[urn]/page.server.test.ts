@@ -300,7 +300,7 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     expect(msg).not.toContain('Possible causes:');
   });
 
-  it('names a mixed ":"/"::" spelling, which resolves as neither grammar', async () => {
+  it('names a spelling that uses both ":" and "::"', async () => {
     const msg = await messageFor('hrn:node:hadronmemory.com:hadron-portal::review');
     expect(msg).toContain('uses both the ":" and "::" separators');
   });
@@ -404,7 +404,7 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     }
   });
 
-  it('still flags a genuinely mixed URN — v2-joined hierarchy, then "::"', async () => {
+  it('reports a URN that uses BOTH separators — v2-joined hierarchy, then "::"', async () => {
     const msg = await messageFor('hrn:node:acme.com:dev::findings:foo');
     expect(msg).toContain('uses both the ":" and "::" separators');
   });
