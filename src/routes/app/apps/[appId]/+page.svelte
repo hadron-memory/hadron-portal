@@ -30,6 +30,7 @@
     castWorkerSchema,
     createAppKeySchema,
     deleteAppSchema,
+    releaseWorkerSchema,
     removeAppAgentSchema,
     retireWorkerSchema,
     revokeAppKeySchema,
@@ -43,6 +44,7 @@
   type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
   type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
   type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
+  type ReleaseWorkerForm = Infer<typeof releaseWorkerSchema, 'zod4'>;
   type RevokeAppKeyForm = Infer<typeof revokeAppKeySchema, 'zod4'>;
   type UpdateAppAgentToolsForm = Infer<typeof updateAppAgentToolsSchema, 'zod4'>;
   type AddAgentSuperform = SuperValidated<AddAgentForm, App.Superforms.Message, AddAgentForm>;
@@ -52,6 +54,7 @@
   type DeleteAppSuperform = SuperValidated<DeleteAppForm, App.Superforms.Message, DeleteAppForm>;
   type RemoveAppAgentSuperform = SuperValidated<RemoveAppAgentForm, App.Superforms.Message, RemoveAppAgentForm>;
   type RetireWorkerSuperform = SuperValidated<RetireWorkerForm, App.Superforms.Message, RetireWorkerForm>;
+  type ReleaseWorkerSuperform = SuperValidated<ReleaseWorkerForm, App.Superforms.Message, ReleaseWorkerForm>;
   type RevokeAppKeySuperform = SuperValidated<RevokeAppKeyForm, App.Superforms.Message, RevokeAppKeyForm>;
   type UpdateAppAgentToolsSuperform = SuperValidated<UpdateAppAgentToolsForm, App.Superforms.Message, UpdateAppAgentToolsForm>;
 
@@ -90,11 +93,32 @@
   // been cast with it before. Deriving options from fetched rows is the trap
   // #739 hit twice — an option that exists only outside the fetched page can
   // never be picked, and one vanishes the moment its rows are filtered away.
-  const castableRoles = $derived(
-    [...new Set(castableAgents.map((a) => a.personaRole).filter((r): r is string => !!r))].sort(
-      (a, b) => a.localeCompare(b),
-    ),
+  //
+  // Scoped to the SELECTED agent, not the roster-wide union. Offering every
+  // installed role while the Agent field points at one of them lets a caller
+  // choose agent A with agent B's role — and `castWorker` accepts an explicit
+  // role as a plain label, so it would persist exactly the agent/role mismatch
+  // this control exists to prevent (@codex and @copilot, both, on #766). The
+  // union was my own stated principle violated by my own implementation.
+  //
+  // With no agent chosen yet the list is empty and only "inherit" is offered,
+  // which is the honest state: role follows from the agent, so there is nothing
+  // to pick until one is selected.
+  const selectedCastAgent = $derived(
+    castableAgents.find((a) => a.id === $castWorkerForm.agentId) ?? null,
   );
+  const castableRoles = $derived(
+    selectedCastAgent?.personaRole ? [selectedCastAgent.personaRole] : [],
+  );
+  // Clear a role left over from a previously selected agent, so switching the
+  // Agent field cannot silently carry the old agent's role into the cast.
+  $effect(() => {
+    const allowed = castableRoles;
+    const current = untrack(() => $castWorkerForm.role);
+    if (current && !allowed.includes(current)) {
+      castWorkerForm.update((f) => ({ ...f, role: '' }), { taint: false });
+    }
+  });
   let castOpen = $state(false);
 
   // #756 — the staff grid. Columns carry the facts the bespoke list rendered:
@@ -414,6 +438,20 @@
     clearOnSubmit: 'none',
   });
 
+  const initialReleaseWorkerForm = untrack(() => submittedForm<ReleaseWorkerForm>(form, 'releaseWorker') as ReleaseWorkerSuperform | null ?? data.releaseWorkerForm);
+  const {
+    form: releaseWorkerForm,
+    message: releaseWorkerMessage,
+    submitting: releaseWorkerSubmitting,
+    enhance: releaseWorkerEnhance,
+  } = superForm<ReleaseWorkerForm, App.Superforms.Message, ReleaseWorkerForm>(initialReleaseWorkerForm, {
+    validators: zod4Client(releaseWorkerSchema),
+    validationMethod: 'oninput',
+    scrollToError: 'smooth',
+    autoFocusOnError: 'detect',
+    clearOnSubmit: 'none',
+  });
+
   const settingsNameError = $derived($appSettingsErrors.name?.[0] ?? null);
   const settingsUrnError = $derived($appSettingsErrors.urn?.[0] ?? null);
   const settingsSessionTimeoutError = $derived($appSettingsErrors.sessionTimeoutSeconds?.[0] ?? null);
@@ -458,6 +496,10 @@
       : $retireWorkerErrors.workerId?.[0] ?? $retireWorkerErrors._kind?.[0] ?? null,
   );
   const retireWorkerActionSuccess = $derived($retireWorkerMessage?.type === 'success' ? $retireWorkerMessage.text : null);
+  const releaseWorkerActionError = $derived(
+    $releaseWorkerMessage?.type === 'error' ? $releaseWorkerMessage.text : null,
+  );
+  const releaseWorkerActionSuccess = $derived($releaseWorkerMessage?.type === 'success' ? $releaseWorkerMessage.text : null);
 
   // Retire is confirmed because it is one-way in the sense that matters: the
   // casting ends and the NAME stays reserved forever, so it can never be
@@ -474,6 +516,34 @@
     retireWorkerForm.update((current) => ({ ...current, workerId }), { taint: false });
     await tick();
     retireForm?.requestSubmit();
+  }
+
+  // #756 / hadron-server#1050 — releasing a HELD name. NOT retiring: the worker
+  // stays active, keeps its name allocation and its history, and only the
+  // person's hold is freed.
+  //
+  // The confirm text differs by WHOSE name it is, because the two are different
+  // acts with different consequences. Releasing your own owes nobody notice.
+  // Force-releasing someone else's is an admin act that POSTS TO THE TEAM CHAT
+  // naming who released what and from whom — an outward-facing side effect, so
+  // the prompt says so BEFORE the click rather than the chat announcing it
+  // after.
+  let releaseForm = $state<HTMLFormElement>();
+  async function releaseWorkerNamed(workerId: string, workerName: string, mine: boolean) {
+    if ($releaseWorkerSubmitting) return;
+    const prompt = mine
+      ? t(
+          'app.staff.release.confirm.self',
+          'Release your hold on this name? The worker stays active and keeps its name — anyone on the team may hold it next, inheriting its handoff and worklog:',
+        )
+      : t(
+          'app.staff.release.confirm.other',
+          'Force-release another member’s hold on this name? This is an admin action and it POSTS TO THE TEAM CHAT, naming you, the name, and who held it:',
+        );
+    if (!confirm(`${prompt} ${workerName}`)) return;
+    releaseWorkerForm.update((current) => ({ ...current, workerId }), { taint: false });
+    await tick();
+    releaseForm?.requestSubmit();
   }
 
   $effect(() => {
@@ -498,11 +568,15 @@
       activeTab = 'client';
     }
   });
-  // Land back on Staff after a cast/retire so the outcome banner is visible
-  // next to the list it changed.
+  // Land back on the worker-agents tab after a cast/retire/release so the
+  // outcome banner is visible next to the list it changed.
   $effect(() => {
     const cast = submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null;
-    if (cast || submittedForm<RetireWorkerForm>(form, 'retireWorker')) {
+    if (
+      cast ||
+      submittedForm<RetireWorkerForm>(form, 'retireWorker') ||
+      submittedForm<ReleaseWorkerForm>(form, 'releaseWorker')
+    ) {
       activeTab = 'staff';
     }
     // #760 (Codex on #762): REOPEN the composer when the cast was refused.
@@ -1316,6 +1390,16 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           {retireWorkerActionSuccess}
         </div>
       {/if}
+      {#if releaseWorkerActionError}
+        <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {releaseWorkerActionError}
+        </div>
+      {/if}
+      {#if releaseWorkerActionSuccess}
+        <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
+          {releaseWorkerActionSuccess}
+        </div>
+      {/if}
 
       {#if castableAgents.length === 0}
         <p class="text-sm text-zinc-500">
@@ -1392,46 +1476,43 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             <label for="castRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.role', 'Role')}
             </label>
-            <!-- #756 asks for a dropdown. This is a pick-list backed by a
-                 datalist rather than a <select>, and the distinction is
-                 load-bearing: the options are SUGGESTIONS, not the allowed
-                 values.
+            <!-- #756 — a strict <select>. A role is not invented here: it comes
+                 from an installed agent's persona, so casting SELECTS one
+                 rather than typing one. Creating a new role happens earlier in
+                 the flow, by installing an agent that carries it.
 
-                 A `<select>` would remove a capability the schema grants. Role
-                 only picks an agent when `agentRef` is OMITTED; the Agent field
-                 above always supplies one, so here `role` is a free label on
-                 the casting. Constraining it to installed persona roles would
-                 make any other label uncastable — and the local fixture shows
-                 that is not hypothetical: worker "Gil" carries
-                 `portal-engineer` while the one installed agent's persona role
-                 is `coordinator`.
+                 The schema does permit an arbitrary string — "with an explicit
+                 agentRef, [an unrecognized role] is simply the casting's label"
+                 — but permitting it and wanting it are different questions, and
+                 a worker whose role label disagrees with its backing agent's
+                 persona is the incoherent state, not a feature. Holger's call
+                 on #765; the earlier free-text draft argued from a local
+                 fixture where a worker had been pointed at the wrong agent,
+                 which was bad data rather than evidence.
 
-                 This is the same control, for the same reason, as the worklog's
-                 tool filter (#739): deriving the ALLOWED set from what happens
-                 to be installed is how a legitimate value becomes unpickable.
-                 min-w-0 per review:content-sized-control-needs-min-w-0. -->
-            <input
+                 min-w-0 per review:content-sized-control-needs-min-w-0 — a
+                 <select> is sized by its longest <option>, and a role slug can
+                 be long. -->
+            <select
               id="castRole"
               name="role"
-              type="text"
-              list="castRoleOptions"
-              placeholder={t('app.staff.field.role.placeholder', 'Inherit from the agent')}
               bind:value={$castWorkerForm.role}
               aria-describedby="castRoleHelp"
               class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-            />
-            <datalist id="castRoleOptions">
+            >
+              <!-- Blank is a real CHOICE, not a placeholder: #974's ratchet
+                   asserts a blank role reaches the mutation as `undefined`, and
+                   hadron-server#1050 left role inheritance untouched, so this
+                   option is what makes the help text below true — and is why
+                   #756's claim that the help text describes the dead name
+                   register was not acted on. -->
+              <option value="">{t('app.staff.field.role.inherit', '— Inherit from the agent —')}</option>
               {#each castableRoles as roleOption (roleOption)}
-                <option value={roleOption}></option>
+                <option value={roleOption}>{roleOption}</option>
               {/each}
-            </datalist>
+            </select>
             <p id="castRoleHelp" class="mt-1 text-xs text-zinc-400">
-              <!-- Blank is a real choice: #974's ratchet asserts a blank role
-                   reaches the mutation as `undefined`, and hadron-server#1050
-                   left role inheritance untouched, so this sentence is true
-                   today — which is why #756's claim that it describes the dead
-                   name register was not acted on. -->
-              {t('app.staff.field.role.help', 'Leave blank to inherit the agent’s persona role. Suggestions are the persona roles of this App’s installed agents; any other label is allowed.')}
+              {t('app.staff.field.role.help', 'Leave blank to inherit the agent’s persona role — the only other choice is that same role, stated explicitly. To cast a different role, pick a different agent, or install one that carries it.')}
             </p>
           </div>
           <div>
@@ -1472,6 +1553,11 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       <form bind:this={retireForm} method="POST" action="?/retireWorker" class="hidden" use:retireWorkerEnhance novalidate>
         <input type="hidden" name="_kind" value={$retireWorkerForm._kind} />
         <input type="hidden" name="workerId" value={$retireWorkerForm.workerId} />
+      </form>
+
+      <form bind:this={releaseForm} method="POST" action="?/releaseWorker" class="hidden" use:releaseWorkerEnhance novalidate>
+        <input type="hidden" name="_kind" value={$releaseWorkerForm._kind} />
+        <input type="hidden" name="workerId" value={$releaseWorkerForm.workerId} />
       </form>
 
       {#if staffError}
@@ -1595,14 +1681,41 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               {/if}
             {:else if cell.column.id === 'actions'}
               {#if !worker.retiredAt}
-                <button
-                  type="button"
-                  onclick={() => retireWorkerNamed(worker.id, worker.name)}
-                  disabled={$retireWorkerSubmitting}
-                  class="text-xs text-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {t('app.staff.retire', 'Retire')}
-                </button>
+                {@const actionHold = workerHold(worker, data.user?.id)}
+                <div class="flex items-center gap-3">
+                  <!-- #756 — Release is a SEPARATE action from Retire, not a
+                       relabelling of it. Retire ends the casting and keeps the
+                       name reserved forever; Release frees the person's hold and
+                       leaves the worker active. Both are offered because they
+                       answer different questions.
+
+                       Shown ONLY when a hold is actually known. Releasing an
+                       unheld worker is a documented no-op, but `none` here is
+                       not "unheld" — the field is masked to null on a denied
+                       read, so offering the button on `none` would claim
+                       staffing knowledge this page does not have, the same rule
+                       the hold column follows. -->
+                  {#if actionHold.kind === 'self' || actionHold.kind === 'other'}
+                    <button
+                      type="button"
+                      onclick={() => releaseWorkerNamed(worker.id, worker.name, actionHold.kind === 'self')}
+                      disabled={$releaseWorkerSubmitting}
+                      class="text-xs text-indigo-600 hover:text-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-400"
+                    >
+                      {actionHold.kind === 'self'
+                        ? t('app.staff.release', 'Release')
+                        : t('app.staff.release.force', 'Force-release')}
+                    </button>
+                  {/if}
+                  <button
+                    type="button"
+                    onclick={() => retireWorkerNamed(worker.id, worker.name)}
+                    disabled={$retireWorkerSubmitting}
+                    class="text-xs text-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {t('app.staff.retire', 'Retire')}
+                  </button>
+                </div>
               {/if}
             {:else}
               <div class="truncate">{cell.getValue() ?? '—'}</div>

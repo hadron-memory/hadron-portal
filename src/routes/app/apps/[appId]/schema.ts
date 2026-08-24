@@ -101,6 +101,16 @@ export const retireWorkerSchema = z.object({
   workerId: z.string().trim().min(1, 'Worker is required').prefault(''),
 });
 
+// #756 / hadron-server#1050 — releasing a HELD name is a DIFFERENT act from
+// retiring, so it gets its own schema and action rather than a flag on the one
+// above. Retiring ends the casting and reserves the name forever; releasing
+// frees the person's hold and leaves the worker active. Sharing a form between
+// them is how the two would start being described as one thing.
+export const releaseWorkerSchema = z.object({
+  _kind: z.literal('releaseWorker').default('releaseWorker'),
+  workerId: z.string().trim().min(1, 'Worker is required').prefault(''),
+});
+
 // Posting to the App's TEAM CHAT (hadron-portal#732) is defined in $lib/forms
 // so the route action and TeamChatThread.svelte share one definition.
 export { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
