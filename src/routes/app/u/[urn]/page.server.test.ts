@@ -297,7 +297,7 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     expect(msg).toContain('has no "hrn:<type>:" prefix');
     expect(msg).toContain('hrn:node:<org>:<memory>:<loc>');
     // It must NOT claim the spelling is fine — that is the other branch.
-    expect(msg).not.toContain('the spelling is not the problem');
+    expect(msg).not.toContain('Its grammar is fine');
   });
 
   it('names a mixed ":"/"::" spelling, which resolves as neither grammar', async () => {
@@ -305,17 +305,32 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     expect(msg).toContain('mixes the ":" and "::" separators');
   });
 
-  it('tells the reader the spelling is NOT the problem when it is well-formed', async () => {
-    // Both accepted grammars reach this branch — the reader should stop
-    // suspecting their link and start suspecting the resource.
+  it('rules out the GRAMMAR — and only the grammar — when the URN is well-formed', async () => {
+    // Both accepted grammars reach this branch. Shape can rule out the
+    // grammar; it can never rule out a typo, a deletion or an access refusal.
     for (const urn of [
       'hrn:node:hadronmemory.com:hadron-portal:review',
       'hrn:node:hadronmemory.com::hadron-portal::review',
     ]) {
       const msg = await messageFor(urn);
-      expect(msg, urn).toContain('the spelling is not the problem');
+      expect(msg, urn).toContain('Its grammar is fine');
       expect(msg, urn).toContain('or you do not have access to it');
     }
+  });
+
+  // @codex on #764, second round. Shape can only establish that the separators
+  // and prefix are plausible — never that the org, memory slug or loc are
+  // spelled right. `hadron-prtal` below is well-formed AND a typo, so a message
+  // claiming "the spelling is not the problem" steers that reader away from the
+  // one thing they should check. Rule out the GRAMMAR; leave the rest open.
+  it('keeps a typo on the table for a well-shaped URN', async () => {
+    const msg = await messageFor('hrn:node:hadronmemory.com:hadron-prtal:review');
+    expect(msg).toContain('Its grammar is fine');
+    expect(msg).toContain('typo');
+    // All three remaining causes stay live — none is ruled out by shape.
+    expect(msg).toContain('deleted');
+    expect(msg).toContain('cannot see');
+    expect(msg).not.toContain('the spelling is not the problem');
   });
 
   // @codex on #764. A legacy loc routinely contains ':' (`findings:foo`) while
@@ -336,7 +351,7 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     ]) {
       const msg = await messageFor(urn);
       expect(msg, urn).not.toContain('mixes the');
-      expect(msg, urn).toContain('the spelling is not the problem');
+      expect(msg, urn).toContain('Its grammar is fine');
     }
   });
 

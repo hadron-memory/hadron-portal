@@ -214,13 +214,22 @@ function shapeHint(urn: string): string | null {
 function notFoundMessage(urn: string): string {
   const hint = shapeHint(urn);
   if (hint) return `No resource found for "${urn}". ${hint}`;
-  // Well-formed in either accepted grammar — so say the spelling is NOT the
-  // problem, which is the one thing a bare "not found" leaves a reader
-  // guessing about. The existence/access disjunction is deliberately unchanged.
+  // Well-formed in either accepted grammar. Rule out the GRAMMAR — the one
+  // thing the input string can actually establish — and then leave every
+  // remaining cause open.
+  //
+  // An earlier draft said "the spelling is not the problem", which overclaimed
+  // (@codex on #764): shape can only show that the separators and prefix are
+  // plausible, never that the org, memory slug or loc are spelled right.
+  // `hrn:node:hadronmemory.com:hadron-prtal:review` is perfectly well-shaped
+  // and is a typo, so directing that reader away from re-reading their
+  // identifier is precisely the wrong steer.
+  //
+  // The existence/access disjunction is deliberately unchanged.
   return (
     `No resource found for "${urn}", or you do not have access to it. ` +
-    `Both the current ":" grammar and the older "::" form are accepted, so the spelling is not the problem — ` +
-    `the resource may have been deleted, or it may not be visible to you.`
+    `Its grammar is fine — both the current ":" form and the older "::" form are accepted — ` +
+    `so what remains is a typo in the org, memory or loc, a resource that was deleted, or one you cannot see.`
   );
 }
 
