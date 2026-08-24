@@ -157,9 +157,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
  * Per `hrn:node:hadronmemory.com:specs:cor:urn:030:02`, "no such alias" and
  * "aliased entity you may not see" must stay indistinguishable. Every branch
  * here is a statement about the CALLER'S OWN INPUT STRING — its prefix and its
- * separators — computed without reference to the resolution result, which is
- * uniformly null by the time we get here. A no-access URN and a nonexistent one
- * produce byte-identical messages.
+ * separators — and consults NO resource metadata whatsoever.
+ *
+ * That is the whole non-disclosure property, and it is stronger than the way an
+ * earlier draft put it. This is reached down three different paths — a null
+ * resolution, a mapped `NOT_FOUND`/`FORBIDDEN` throw, and a `BAD_USER_INPUT`
+ * throw — and the last two carry no resolution at all, so "the result is
+ * uniformly null by the time we get here" was simply false (@codex on #764).
+ * The guarantee does not depend on which path was taken: the same input yields
+ * the same message on all of them, which is what a test pins.
  */
 /**
  * The `hrn:<type>:` / legacy `urn:<type>:` prefix.
@@ -213,9 +219,17 @@ function shapeHint(urn: string): string | null {
   if (firstChain !== -1 && body.slice(0, firstChain).includes(':')) {
     // Describes what was OBSERVED, not what will happen. "Resolves as neither
     // grammar" was a claim about behaviour this check cannot establish.
+    //
+    // Kind-agnostic, for the same reason the fallback below is (@codex on
+    // #764): this route serves seven kinds, and the example used to be
+    // `hrn:node:<org>:<memory>:<loc>` — node-shaped advice handed to a reader
+    // holding `hrn:user:alice::extra`, whose kind has no hierarchy at all.
+    // I fixed that in the fallback a round earlier and left its sibling branch
+    // saying the same wrong thing, which is why the advice now states the rule
+    // rather than illustrating one kind's arity.
     return (
       `It uses both the ":" and "::" separators. ` +
-      `Try the current "hrn:node:<org>:<memory>:<loc>", or the older form with "::" throughout.`
+      `Use one style throughout — either single colons, or "::" between every level.`
     );
   }
 

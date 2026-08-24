@@ -300,6 +300,32 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     expect(msg).not.toContain('Possible causes:');
   });
 
+  // @codex on #764, round 6. The mixed-separator advice was node-shaped
+  // (`hrn:node:<org>:<memory>:<loc>`) on a route serving seven kinds — handed
+  // to a reader holding `hrn:user:alice::extra`, whose kind has no hierarchy at
+  // all. The same defect was fixed in the fallback a round earlier and left
+  // standing in this sibling branch.
+  //
+  // Note: @codex's first example, `hrn:user:alice::extra`, does NOT reach this
+  // branch — `alice` precedes the first `::` and contains no `:`, so it reads
+  // as clean legacy. A one-atom kind like `hrn:user:<handle>` cannot be mixed
+  // in any plausible way. The concern was right, one of the two examples was
+  // not, so the cases below are kinds that genuinely do reach it.
+  it('keeps the mixed-separator advice kind-agnostic', async () => {
+    for (const urn of [
+      'hrn:app:acme.com:docs::extra',
+      'hrn:worker:acme.com:team::gil',
+      'hrn:mem:acme.com:dev::x',
+    ]) {
+      const msg = await messageFor(urn);
+      expect(msg, urn).toContain('uses both the ":" and "::" separators');
+      expect(msg, urn).toContain('Use one style throughout');
+      // Must not illustrate one kind's arity at another kind's reader.
+      expect(msg, urn).not.toContain('hrn:node:<org>:<memory>:<loc>');
+      expect(msg, urn).not.toContain('<memory>');
+    }
+  });
+
   it('names a spelling that uses both ":" and "::"', async () => {
     const msg = await messageFor('hrn:node:hadronmemory.com:hadron-portal::review');
     expect(msg).toContain('uses both the ":" and "::" separators');
