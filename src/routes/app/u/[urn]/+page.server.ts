@@ -201,9 +201,11 @@ function shapeHint(urn: string): string | null {
   const body = urn.replace(URN_SCHEME_PREFIX, '');
   const firstChain = body.indexOf('::');
   if (firstChain !== -1 && body.slice(0, firstChain).includes(':')) {
+    // Describes what was OBSERVED, not what will happen. "Resolves as neither
+    // grammar" was a claim about behaviour this check cannot establish.
     return (
-      `It mixes the ":" and "::" separators, which resolves as neither grammar. ` +
-      `Use the current "hrn:node:<org>:<memory>:<loc>", or the older form with "::" throughout.`
+      `It uses both the ":" and "::" separators. ` +
+      `Try the current "hrn:node:<org>:<memory>:<loc>", or the older form with "::" throughout.`
     );
   }
 
@@ -214,38 +216,43 @@ function shapeHint(urn: string): string | null {
 function notFoundMessage(urn: string): string {
   const hint = shapeHint(urn);
   if (hint) return `No resource found for "${urn}". ${hint}`;
-  // Claim EXACTLY what was checked, and nothing beyond it.
+  // THIS BRANCH MAKES NO CLAIM ABOUT THE URN. That is the point, and it took
+  // four review rounds to get to (@codex on #764), each finding the same root
+  // cause in a new disguise:
   //
-  // This sentence was wrong twice, the same way each time (@codex on #764), and
-  // the drafts are worth keeping as a warning:
+  //   1. "the spelling is not the problem"  — ruled out a typo, but shape says
+  //      nothing about whether the atoms are spelled right.
+  //      `hrn:node:acme.com:hadron-prtal:review` is well-shaped AND a typo.
+  //   2. "its grammar is fine"              — the checks are a type-SHAPED
+  //      prefix and separator consistency; they validate neither the type word
+  //      nor the arity. `hrn:bogus:x`, `hrn:user:alice:extra` reach here.
+  //   3. "this is not the : versus :: problem" — the mixed-separator check only
+  //      inspects the hierarchy BEFORE the first `::`, so
+  //      `hrn:node:acme.com::dev:review` — v1 between org and memory, v2 before
+  //      the loc — reaches here and is exactly that problem.
   //
-  //   "the spelling is not the problem"  — ruled out a typo. But shape says
-  //       nothing about whether the atoms are spelled right, and
-  //       `hrn:node:acme.com:hadron-prtal:review` is well-shaped AND a typo.
-  //   "its grammar is fine"              — still too strong. The checks above
-  //       are a type-SHAPED prefix and separator consistency; they do not
-  //       validate the type word, the arity, or the atoms, so `hrn:bogus:x`
-  //       and `hrn:user:alice:extra` both reach here.
+  // Each fix was a narrower claim, and each was still falsifiable by a case the
+  // check never examined. Detecting the remaining ones needs per-type arity —
+  // i.e. parsing — and parsing is the one thing this route must not do:
+  // `parseUrnV2` rejects `::` outright and a legacy ownership chain has no v2
+  // form at all, so a parser gate would reject exactly the valid legacy links
+  // #694 exists to rescue.
   //
-  // Both were a heuristic promoted into a guarantee. So the claim is now scoped
-  // to the two things actually established — the prefix and the separators —
-  // and every cause the input cannot rule out stays open.
+  // So the fallback stops arguing and enumerates. Every cause is listed as
+  // POSSIBLE and none is excluded, which is both honest and the only form that
+  // a fifth counterexample cannot break. The diagnostic value lives in the two
+  // POSITIVE branches above, which fire only when something specific was
+  // actually observed.
   //
-  // Deliberately NOT solved by parsing properly with the canonical parser: that
-  // would put the portal back in the business of judging which URNs are valid,
-  // which is the server's (`parseUrnV2` rejects `::` outright, and a legacy
-  // ownership chain has no v2 form at all, so a parse here would misjudge
-  // exactly the URNs that must never be misjudged).
-  //
-  // Kind-agnostic on purpose: this route resolves seven kinds, and naming
-  // "org, memory or loc" was node-shaped advice given to readers holding a
+  // Kind-agnostic on purpose: this route resolves seven kinds, and naming "org,
+  // memory or loc" was node-shaped advice for readers holding a
   // `hrn:user:<handle>` or a worker URN, whose parts are different.
   //
   // The existence/access disjunction is unchanged.
   return (
     `No resource found for "${urn}", or you do not have access to it. ` +
-    `Its prefix and separators look right, so this is not the ":" versus "::" grammar problem — ` +
-    `check the identifier itself for a typo, or the resource may have been deleted, or may not be visible to you.`
+    `Possible causes: a typo in the identifier, a resource that was deleted or renamed, ` +
+    `one that is not visible to you, or a URN spelling this deployment does not resolve.`
   );
 }
 

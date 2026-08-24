@@ -297,25 +297,48 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     expect(msg).toContain('has no "hrn:<type>:" prefix');
     expect(msg).toContain('hrn:node:<org>:<memory>:<loc>');
     // It must NOT claim the spelling is fine — that is the other branch.
-    expect(msg).not.toContain('prefix and separators look right');
+    expect(msg).not.toContain('Possible causes:');
   });
 
   it('names a mixed ":"/"::" spelling, which resolves as neither grammar', async () => {
     const msg = await messageFor('hrn:node:hadronmemory.com:hadron-portal::review');
-    expect(msg).toContain('mixes the ":" and "::" separators');
+    expect(msg).toContain('uses both the ":" and "::" separators');
   });
 
-  it('rules out the ":" vs "::" confusion only — not the whole grammar', async () => {
-    // Both accepted grammars reach this branch. The check establishes the
-    // prefix and the separators; it never validates the type word, the arity,
-    // the atoms, or rules out a deletion or an access refusal.
+  it('the well-formed fallback asserts nothing about the URN', async () => {
+    // Both accepted grammars reach this branch, as do spellings the checks
+    // never examine. So it enumerates causes and excludes none — the only
+    // form four rounds of counterexamples could not falsify.
     for (const urn of [
       'hrn:node:hadronmemory.com:hadron-portal:review',
       'hrn:node:hadronmemory.com::hadron-portal::review',
     ]) {
       const msg = await messageFor(urn);
-      expect(msg, urn).toContain('prefix and separators look right');
+      expect(msg, urn).toContain('Possible causes:');
       expect(msg, urn).toContain('or you do not have access to it');
+    }
+  });
+
+  // @codex on #764, FOURTH round, and the reason the fallback now claims
+  // nothing at all. `acme.com::dev:review` uses v1 between org and memory and
+  // v2 before the loc — a genuine mixed spelling that the hierarchy check never
+  // sees, because it only inspects the text BEFORE the first '::'. Any message
+  // asserting "this is not the separator problem" is false for this input, and
+  // detecting it needs per-type arity, i.e. parsing, which this route must not
+  // do. So the fallback enumerates possible causes and excludes none.
+  it('makes no claim the input cannot support — mixing AFTER the first "::"', async () => {
+    const msg = await messageFor('hrn:node:acme.com::dev:review');
+    expect(msg).toContain('Possible causes:');
+    // The negative claims that four rounds falsified, none of which may return.
+    expect(msg).not.toContain('the spelling is not the problem');
+    expect(msg).not.toContain('grammar is fine');
+    expect(msg).not.toContain('is not the ":" versus "::"');
+  });
+
+  it('lists every cause as possible and rules none out', async () => {
+    const msg = await messageFor('hrn:node:acme.com:dev:missing');
+    for (const cause of ['typo', 'deleted or renamed', 'not visible to you', 'does not resolve']) {
+      expect(msg, cause).toContain(cause);
     }
   });
 
@@ -328,8 +351,8 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     // about either was a heuristic promoted into a guarantee.
     for (const urn of ['hrn:bogus:x', 'hrn:user:alice:extra']) {
       const msg = await messageFor(urn);
-      expect(msg, urn).toContain('prefix and separators look right');
-      expect(msg, urn).not.toContain('grammar is fine');
+      expect(msg, urn).toContain('Possible causes:');
+      expect(msg, urn).not.toMatch(/grammar is fine|is not the/);
     }
   });
 
@@ -351,11 +374,11 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
   // one thing they should check. Rule out the GRAMMAR; leave the rest open.
   it('keeps a typo on the table for a well-shaped URN', async () => {
     const msg = await messageFor('hrn:node:hadronmemory.com:hadron-prtal:review');
-    expect(msg).toContain('prefix and separators look right');
+    expect(msg).toContain('Possible causes:');
     expect(msg).toContain('typo');
     // All three remaining causes stay live — none is ruled out by shape.
     expect(msg).toContain('deleted');
-    expect(msg).toContain('may not be visible');
+    expect(msg).toContain('not visible to you');
     expect(msg).not.toContain('the spelling is not the problem');
   });
 
@@ -376,14 +399,14 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
       'hrn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports',
     ]) {
       const msg = await messageFor(urn);
-      expect(msg, urn).not.toContain('mixes the');
-      expect(msg, urn).toContain('prefix and separators look right');
+      expect(msg, urn).not.toContain('uses both the');
+      expect(msg, urn).toContain('Possible causes:');
     }
   });
 
   it('still flags a genuinely mixed URN — v2-joined hierarchy, then "::"', async () => {
     const msg = await messageFor('hrn:node:acme.com:dev::findings:foo');
-    expect(msg).toContain('mixes the ":" and "::" separators');
+    expect(msg).toContain('uses both the ":" and "::" separators');
   });
 
   // @copilot on #764 — the type word may contain hyphens.
