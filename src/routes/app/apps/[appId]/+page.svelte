@@ -290,8 +290,12 @@
     const focusedId = (e.currentTarget as HTMLElement | null)?.id?.replace(/^tab-/, '');
     const from = focusedId && order.includes(focusedId as TabId) ? (focusedId as TabId) : activeTab;
     const i = order.indexOf(from);
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
+    // Left/Right ONLY: this tablist is HORIZONTAL (no aria-orientation),
+    // so Up/Down must keep their normal page-scrolling behaviour rather
+    // than changing section under a keyboard user who is just scrolling
+    // (@codex on #769).
+    if (e.key === 'ArrowRight') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
     else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
     else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
   }
