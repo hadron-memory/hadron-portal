@@ -72,7 +72,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     if (err instanceof ClientError && err.response?.errors?.length) {
       const code = (err.response.errors[0].extensions as { code?: string } | undefined)?.code;
       if (code === 'BAD_USER_INPUT' || code === 'GRAPHQL_VALIDATION_FAILED') {
-        throw error(400, `"${urn}" is not a valid Hadron URN.`);
+        // #694: the server rejected the spelling outright, so the shape hint is
+        // even more useful here than on a null resolution — this reader is
+        // definitely holding a malformed URN rather than a dead one.
+        const hint = shapeHint(urn);
+        throw error(400, `"${urn}" is not a valid Hadron URN.${hint ? ` ${hint}` : ''}`);
       }
       if (code === 'UNAUTHENTICATED' || code === 'SESSION_EXPIRED') {
         // #761: `url.search` too — signing in to reach a deep link must not be
@@ -88,14 +92,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         code === 'FORBIDDEN' ||
         code === 'PERMISSION_DENIED'
       ) {
-        throw error(404, 'No resource found for this URN, or you do not have access to it.');
+        throw error(404, notFoundMessage(urn));
       }
     }
     throw err;
   }
 
   if (!resolveUrn) {
-    throw error(404, 'No resource found for this URN, or you do not have access to it.');
+    throw error(404, notFoundMessage(urn));
   }
 
   const target = canonicalPath(resolveUrn);
@@ -128,6 +132,73 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // only in passing. The extra round-trip is the accepted cost.
   redirect(307, withQuery(target, url.search));
 };
+
+/**
+ * #694 — explain an unresolved URN by the SHAPE OF THE INPUT, never by anything
+ * learned about the data.
+ *
+ * A bare "not found" gives a reader no way to tell a wrong-grammar link from a
+ * deleted node from a typo, and the three want completely different reactions.
+ * The links this route exists to rescue are permanent — written into Slack
+ * threads, node bodies, PR descriptions long before the grammar settled — so
+ * "which of those am I looking at" is the reader's actual question.
+ *
+ * ## Why this is presentation and NOT resolution
+ *
+ * This runs only AFTER the server has already declined. It never pre-empts a
+ * lookup, never rewrites the URN, and never decides that a spelling is
+ * unresolvable — `resolveUrn` owns the alias map and is the only thing that can
+ * tell an ownership chain from a flat URN. So when the server learns to resolve
+ * a form listed here as unsupported, this hint stops appearing on its own,
+ * rather than the portal having to be taught twice.
+ *
+ * ## Why it discloses nothing
+ *
+ * Per `hrn:node:hadronmemory.com:specs:cor:urn:030:02`, "no such alias" and
+ * "aliased entity you may not see" must stay indistinguishable. Every branch
+ * here is a statement about the CALLER'S OWN INPUT STRING — its prefix and its
+ * separators — computed without reference to the resolution result, which is
+ * uniformly null by the time we get here. A no-access URN and a nonexistent one
+ * produce byte-identical messages.
+ */
+function shapeHint(urn: string): string | null {
+  if (!/^(hrn|urn):[a-z]+:/i.test(urn)) {
+    // The commonest broken spelling in the wild, and the one whose cause is
+    // least guessable from "not found": nothing in the string says what KIND of
+    // resource it names, so there is no single lookup to perform.
+    return (
+      `It has no "hrn:<type>:" prefix, so it does not say what kind of resource it names. ` +
+      `A fully-qualified URN looks like "hrn:node:<org>:<memory>:<loc>" or "hrn:mem:<org>:<memory>".`
+    );
+  }
+
+  // A URN that mixes the grammars resolves as neither. Worth naming explicitly:
+  // it is a plausible thing to hand-write from two half-remembered examples, and
+  // it is otherwise indistinguishable from a deleted node.
+  const body = urn.replace(/^(hrn|urn):[a-z]+:/i, '');
+  if (body.includes('::') && /[^:]:[^:]/.test(body)) {
+    return (
+      `It mixes the ":" and "::" separators, which resolves as neither grammar. ` +
+      `Use the current "hrn:node:<org>:<memory>:<loc>", or the older form with "::" throughout.`
+    );
+  }
+
+  return null;
+}
+
+/** The 404 a reader gets for a URN that resolved to nothing. */
+function notFoundMessage(urn: string): string {
+  const hint = shapeHint(urn);
+  if (hint) return `No resource found for "${urn}". ${hint}`;
+  // Well-formed in either accepted grammar — so say the spelling is NOT the
+  // problem, which is the one thing a bare "not found" leaves a reader
+  // guessing about. The existence/access disjunction is deliberately unchanged.
+  return (
+    `No resource found for "${urn}", or you do not have access to it. ` +
+    `Both the current ":" grammar and the older "::" form are accepted, so the spelling is not the problem — ` +
+    `the resource may have been deleted, or it may not be visible to you.`
+  );
+}
 
 /** Map a resolved URN to its canonical PK-based portal path. */
 function canonicalPath(r: UrnResolution): string | null {

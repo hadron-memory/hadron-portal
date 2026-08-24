@@ -274,6 +274,95 @@ describe('/app/u/[urn] — unresolvable and inaccessible URNs 404', () => {
   });
 });
 
+// #694 — a bare "not found" cannot distinguish a wrong-grammar link from a
+// deleted node from a typo, and those want different reactions. The hint is
+// computed from the INPUT STRING only, never from the resolution — so a
+// no-access URN and a nonexistent one still produce byte-identical messages
+// (hrn:node:hadronmemory.com:specs:cor:urn:030:02).
+describe('/app/u/[urn] — an unresolved URN explains itself by input shape', () => {
+  /** Run load against a null resolution and return the thrown error's message. */
+  async function messageFor(urn: string): Promise<string> {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    const load = await importLoad();
+    try {
+      await load(ev(urn));
+    } catch (e) {
+      return (e as { body?: { message?: string } }).body?.message ?? String(e);
+    }
+    throw new Error('Expected load to throw');
+  }
+
+  it('names the missing hrn:<type>: prefix on a bare URN', async () => {
+    const msg = await messageFor('hadronmemory.com::hadron-portal::review');
+    expect(msg).toContain('has no "hrn:<type>:" prefix');
+    expect(msg).toContain('hrn:node:<org>:<memory>:<loc>');
+    // It must NOT claim the spelling is fine — that is the other branch.
+    expect(msg).not.toContain('the spelling is not the problem');
+  });
+
+  it('names a mixed ":"/"::" spelling, which resolves as neither grammar', async () => {
+    const msg = await messageFor('hrn:node:hadronmemory.com:hadron-portal::review');
+    expect(msg).toContain('mixes the ":" and "::" separators');
+  });
+
+  it('tells the reader the spelling is NOT the problem when it is well-formed', async () => {
+    // Both accepted grammars reach this branch — the reader should stop
+    // suspecting their link and start suspecting the resource.
+    for (const urn of [
+      'hrn:node:hadronmemory.com:hadron-portal:review',
+      'hrn:node:hadronmemory.com::hadron-portal::review',
+    ]) {
+      const msg = await messageFor(urn);
+      expect(msg, urn).toContain('the spelling is not the problem');
+      expect(msg, urn).toContain('or you do not have access to it');
+    }
+  });
+
+  it('does not disclose existence — the message depends only on the input', async () => {
+    // The same URN must read identically whether the server declined it as
+    // absent (null resolution) or as forbidden (FORBIDDEN rejection). If these
+    // ever diverge, the route has started leaking whether the resource exists.
+    const urn = 'hrn:node:hadronmemory.com:hadron-portal:secret';
+    const whenNull = await messageFor(urn);
+
+    mockRequest.mockRejectedValueOnce(
+      new ClientError(
+        { errors: [{ message: 'x', extensions: { code: 'FORBIDDEN' } }], status: 200 } as unknown as ClientError['response'],
+        { query: 'query', variables: {} },
+      ),
+    );
+    const load = await importLoad();
+    let whenForbidden = '';
+    try {
+      await load(ev(urn));
+    } catch (e) {
+      whenForbidden = (e as { body?: { message?: string } }).body?.message ?? '';
+    }
+    expect(whenForbidden).toBe(whenNull);
+  });
+
+  it('adds the shape hint to the 400 without repeating the well-formed line', async () => {
+    mockRequest.mockRejectedValueOnce(
+      new ClientError(
+        { errors: [{ message: 'x', extensions: { code: 'BAD_USER_INPUT' } }], status: 200 } as unknown as ClientError['response'],
+        { query: 'query', variables: {} },
+      ),
+    );
+    const load = await importLoad();
+    let msg = '';
+    try {
+      await load(ev('total-garbage'));
+    } catch (e) {
+      msg = (e as { body?: { message?: string } }).body?.message ?? '';
+    }
+    expect(msg).toContain('is not a valid Hadron URN.');
+    expect(msg).toContain('has no "hrn:<type>:" prefix');
+    // The server already said it is malformed; "no resource found" would
+    // contradict that in the same sentence.
+    expect(msg).not.toContain('No resource found');
+  });
+});
+
 describe('/app/u/[urn] — GraphQL rejections do not surface as 500s (#567)', () => {
   function clientError(code?: string): ClientError {
     // graphql-request types the response with full GraphQLError objects and
