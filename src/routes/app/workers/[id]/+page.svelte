@@ -3,7 +3,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import WorklogTable from '$lib/components/WorklogTable.svelte';
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { isHeld, workerHold } from '$lib/worker-hold';
   import { expiryDistance, workerSessionStatus } from '$lib/worker-session-status';
@@ -35,6 +35,34 @@
     { id: 'sessions', label: t('worker.tabs.sessions', 'Worker sessions') },
     { id: 'worklog', label: t('worker.tabs.worklog', 'Worklog') },
   ];
+
+  // The ARIA tab pattern, taken from src/routes/app/memories/+page.svelte
+  // rather than from the App detail page's strip — which is plain buttons with
+  // no tablist/tab/tabpanel relationship, and is what I mirrored first
+  // (@codex on #767).
+  //
+  // These controls swap mutually exclusive panels in place, which is what
+  // `role="tab"` describes. `aria-current="page"` was wrong twice over: it
+  // announces NAVIGATION, and it leaves the panels programmatically unrelated
+  // to the controls, so a screen-reader user cannot tell which panel the strip
+  // governs.
+  //
+  // Roving focus: only the selected tab is in the sequential tab order
+  // (`tabindex` 0 vs -1) and arrows move between them, so the strip is one tab
+  // stop rather than three.
+  async function focusTab(id: WorkerTabId) {
+    activeTab = id;
+    await tick();
+    document.getElementById(`tab-${id}`)?.focus();
+  }
+  function onTabKeydown(e: KeyboardEvent) {
+    const order = tabs.map((tt) => tt.id);
+    const i = order.indexOf(activeTab);
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
+    else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
+    else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
+  }
 
   // Captured once per render rather than per row, so every countdown on the
   // page is measured against the same instant. Not reactive: an expiry badge
@@ -108,15 +136,28 @@
   </div>
 
 
-  <!-- Tabs (#758). Same strip as the App detail page, including the horizontal
-       scroll: `shrink-0` + `whitespace-nowrap` make a narrow viewport SCROLL
-       the tabs rather than squeeze every label into an unreadable column. -->
-  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
+  <!-- Tabs (#758) — the ARIA tab pattern from src/routes/app/memories, NOT the
+       App detail page's strip, which is plain buttons with no
+       tablist/tab/tabpanel relationship (@codex on #767).
+
+       The horizontal scroll is kept from that strip and is load-bearing:
+       `shrink-0` + `whitespace-nowrap` make a narrow viewport SCROLL the tabs
+       rather than squeeze every label into an unreadable column. -->
+  <div
+    role="tablist"
+    aria-label={t('worker.tabs-label', 'Worker details')}
+    class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800"
+  >
     {#each tabs as tab (tab.id)}
       <button
         type="button"
+        role="tab"
+        id="tab-{tab.id}"
+        aria-selected={activeTab === tab.id}
+        aria-controls="panel-{tab.id}"
+        tabindex={activeTab === tab.id ? 0 : -1}
         onclick={() => (activeTab = tab.id)}
-        aria-current={activeTab === tab.id ? 'page' : undefined}
+        onkeydown={onTabKeydown}
         class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
           {activeTab === tab.id
             ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
@@ -128,6 +169,7 @@
   </div>
 
   {#if activeTab === 'profile'}
+    <div id="panel-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0" class="space-y-6 focus:outline-none">
     {#if retired}
       <!-- Retirement is not deletion, and the difference matters to a reader who
            arrived from an old PR: the work still traces here, the name is still
@@ -302,9 +344,14 @@
         </div>
       </details>
     {/if}
+    </div>
   {/if}
 
   {#if activeTab === 'sessions'}
+    <div id="panel-sessions" role="tabpanel" aria-labelledby="tab-sessions" tabindex="0" class="space-y-6 focus:outline-none">
+    <!-- ───────── WORKER SESSIONS (#737) ─────────
+         "Worker sessions", never a bare "Sessions" heading: a reader could take
+         that to mean their own chat sessions, which are not Hadron entities at
          all (hadron-server#1034). -->
     <section class="space-y-3">
       <div>
@@ -450,9 +497,11 @@
         {/if}
       {/if}
     </section>
+    </div>
   {/if}
 
   {#if activeTab === 'worklog'}
+    <div id="panel-worklog" role="tabpanel" aria-labelledby="tab-worklog" tabindex="0" class="space-y-6 focus:outline-none">
     <!-- ───────── WORKLOG (#737, unblocked by hadron-server#1035) ───────── -->
     <section class="space-y-3">
       <div>
@@ -484,5 +533,6 @@
       {/if}
     </section>
 
+    </div>
   {/if}
 </div>
