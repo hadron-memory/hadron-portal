@@ -297,7 +297,7 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     expect(msg).toContain('has no "hrn:<type>:" prefix');
     expect(msg).toContain('hrn:node:<org>:<memory>:<loc>');
     // It must NOT claim the spelling is fine — that is the other branch.
-    expect(msg).not.toContain('Its grammar is fine');
+    expect(msg).not.toContain('prefix and separators look right');
   });
 
   it('names a mixed ":"/"::" spelling, which resolves as neither grammar', async () => {
@@ -305,16 +305,42 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     expect(msg).toContain('mixes the ":" and "::" separators');
   });
 
-  it('rules out the GRAMMAR — and only the grammar — when the URN is well-formed', async () => {
-    // Both accepted grammars reach this branch. Shape can rule out the
-    // grammar; it can never rule out a typo, a deletion or an access refusal.
+  it('rules out the ":" vs "::" confusion only — not the whole grammar', async () => {
+    // Both accepted grammars reach this branch. The check establishes the
+    // prefix and the separators; it never validates the type word, the arity,
+    // the atoms, or rules out a deletion or an access refusal.
     for (const urn of [
       'hrn:node:hadronmemory.com:hadron-portal:review',
       'hrn:node:hadronmemory.com::hadron-portal::review',
     ]) {
       const msg = await messageFor(urn);
-      expect(msg, urn).toContain('Its grammar is fine');
+      expect(msg, urn).toContain('prefix and separators look right');
       expect(msg, urn).toContain('or you do not have access to it');
+    }
+  });
+
+  // @codex on #764, third round — two findings, one root cause: the sentence
+  // claimed more than the checks establish.
+  it('claims only the prefix and separators, never full grammar validity', async () => {
+    // Both reach the fallback with a type-SHAPED prefix and consistent
+    // separators, and both are invalid in ways this helper does not check —
+    // an unknown type word, and wrong arity. Saying "its grammar is fine"
+    // about either was a heuristic promoted into a guarantee.
+    for (const urn of ['hrn:bogus:x', 'hrn:user:alice:extra']) {
+      const msg = await messageFor(urn);
+      expect(msg, urn).toContain('prefix and separators look right');
+      expect(msg, urn).not.toContain('grammar is fine');
+    }
+  });
+
+  it('gives kind-agnostic typo advice — this route resolves seven kinds', async () => {
+    // "a typo in the org, memory or loc" is node-shaped, and a user URN is
+    // `hrn:user:<handle>` with none of those parts. App, worker and org URNs
+    // differ again, so the advice must name the identifier, not its components.
+    const msg = await messageFor('hrn:user:missing-person');
+    expect(msg).toContain('typo');
+    for (const nodeShaped of ['the org, memory or loc', 'memory or loc']) {
+      expect(msg, nodeShaped).not.toContain(nodeShaped);
     }
   });
 
@@ -325,11 +351,11 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
   // one thing they should check. Rule out the GRAMMAR; leave the rest open.
   it('keeps a typo on the table for a well-shaped URN', async () => {
     const msg = await messageFor('hrn:node:hadronmemory.com:hadron-prtal:review');
-    expect(msg).toContain('Its grammar is fine');
+    expect(msg).toContain('prefix and separators look right');
     expect(msg).toContain('typo');
     // All three remaining causes stay live — none is ruled out by shape.
     expect(msg).toContain('deleted');
-    expect(msg).toContain('cannot see');
+    expect(msg).toContain('may not be visible');
     expect(msg).not.toContain('the spelling is not the problem');
   });
 
@@ -351,7 +377,7 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     ]) {
       const msg = await messageFor(urn);
       expect(msg, urn).not.toContain('mixes the');
-      expect(msg, urn).toContain('Its grammar is fine');
+      expect(msg, urn).toContain('prefix and separators look right');
     }
   });
 
