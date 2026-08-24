@@ -47,9 +47,20 @@
   }
   function onTabKeydown(e: KeyboardEvent) {
     const order = tabs.map((tt) => tt.id);
-    const i = order.indexOf(activeTab);
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
-    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
+    // Index from the tab RECEIVING the key, not from `activeTab` (#768). A
+    // `tabindex="-1"` button is still POINTER-focusable, so pressing on an
+    // unselected tab and dragging away before release leaves focus and
+    // selection diverged — and arrows computed from `activeTab` then move
+    // relative to a tab the user is not on.
+    const focusedId = (e.currentTarget as HTMLElement | null)?.id?.replace(/^tab-/, '');
+    const from = focusedId && order.includes(focusedId as TabId) ? (focusedId as TabId) : activeTab;
+    const i = order.indexOf(from);
+    // Left/Right ONLY: this tablist is HORIZONTAL (no aria-orientation),
+    // so Up/Down must keep their normal page-scrolling behaviour rather
+    // than changing section under a keyboard user who is just scrolling
+    // (@codex on #769).
+    if (e.key === 'ArrowRight') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
     else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
     else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
   }
@@ -163,7 +174,7 @@
 
   <!-- My memories panel -->
   {#if activeTab === 'mine'}
-    <div id="panel-mine" role="tabpanel" aria-labelledby="tab-mine" tabindex="0" class="space-y-3 focus:outline-none">
+    <div id="panel-mine" role="tabpanel" aria-labelledby="tab-mine" tabindex="0" class="space-y-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
       {#if loadFailed}
         <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
           {t('my-memories.load-failed', "Couldn't load your memories just now — this is a temporary error, not an empty list. Try refreshing the page.")}
@@ -198,7 +209,7 @@
 
   <!-- Memories shared with me panel -->
   {#if activeTab === 'shared'}
-    <div id="panel-shared" role="tabpanel" aria-labelledby="tab-shared" tabindex="0" class="space-y-3 focus:outline-none">
+    <div id="panel-shared" role="tabpanel" aria-labelledby="tab-shared" tabindex="0" class="space-y-3 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
       {#if sharedLoadFailed}
         <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
           {t('my-memories.shared.load-failed', "Couldn't load memories shared with you just now — this is a temporary error, not an empty list. Try refreshing the page.")}

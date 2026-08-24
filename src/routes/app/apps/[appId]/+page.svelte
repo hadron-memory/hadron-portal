@@ -272,6 +272,34 @@
     if (!tabs.some((tab) => tab.id === current)) activeTab = tabs[0]?.id ?? 'memory';
   });
 
+  // #768 — roving focus for the tab strip. Only the selected tab is in the
+  // sequential tab order, so the strip is ONE stop rather than seven, and
+  // arrows move between them.
+  //
+  // Indexed from the tab RECEIVING the key rather than from `activeTab`: a
+  // `tabindex="-1"` button is still POINTER-focusable, so pressing on an
+  // unselected tab and dragging away before release diverges focus from
+  // selection, and arrows would then move relative to a tab the user is not on.
+  async function focusTab(id: TabId) {
+    activeTab = id;
+    await tick();
+    document.getElementById(`tab-${id}`)?.focus();
+  }
+  function onTabKeydown(e: KeyboardEvent) {
+    const order = tabs.map((tt) => tt.id);
+    const focusedId = (e.currentTarget as HTMLElement | null)?.id?.replace(/^tab-/, '');
+    const from = focusedId && order.includes(focusedId as TabId) ? (focusedId as TabId) : activeTab;
+    const i = order.indexOf(from);
+    // Left/Right ONLY: this tablist is HORIZONTAL (no aria-orientation),
+    // so Up/Down must keep their normal page-scrolling behaviour rather
+    // than changing section under a keyboard user who is just scrolling
+    // (@codex on #769).
+    if (e.key === 'ArrowRight') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
+    else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
+    else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
+  }
+
   // URN slug helpers — slug is the part after the org URN's prefix.
   function slugOfUrn(urn: string): string {
     // The app slug is the LAST ':'-segment. `App.urn` is server-canonicalized
@@ -1033,17 +1061,34 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
        SCROLL rather than compress — without them flex squeezes every label
        into an unreadable column instead. -->
   <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
-    {#each tabs as tab}
-      <button
-        onclick={() => activeTab = tab.id}
-        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
-          {activeTab === tab.id
-            ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-            : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
-      >
-        {tab.label}
-      </button>
-    {/each}
+    <!-- #768 — the ARIA tab pattern. These controls swap mutually exclusive
+         panels IN PLACE, which is what role="tab" describes; the previous
+         `aria-current="page"` announced NAVIGATION and left the panels
+         programmatically unrelated to the strip.
+
+         The tablist is an inner flex box rather than this container, because
+         the "Runs" entry below is a real LINK to a subroute and must not sit
+         inside a tablist. -->
+    <div role="tablist" aria-label={t('app.tabs-label', 'App sections')} class="flex shrink-0">
+      {#each tabs as tab (tab.id)}
+        <button
+          type="button"
+          role="tab"
+          id="tab-{tab.id}"
+          aria-selected={activeTab === tab.id}
+          aria-controls="panel-{tab.id}"
+          tabindex={activeTab === tab.id ? 0 : -1}
+          onclick={() => activeTab = tab.id}
+          onkeydown={onTabKeydown}
+          class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
+            {activeTab === tab.id
+              ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+              : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
+        >
+          {tab.label}
+        </button>
+      {/each}
+    </div>
     <!-- Runs is a real subroute (deep-linkable from "Test flow" and run
          records), so it's a link styled as a tab, not an activeTab state. -->
     <a
@@ -1068,6 +1113,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
        an answer you cannot link to is half an answer. It also means switching
        chats re-runs the loader, which is what fetches a 1:1 transcript. -->
   {#if activeTab === 'chats'}
+    <div id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="mb-3 flex flex-wrap items-center gap-2">
       {#if data.chatsError}
         <!-- Discovery failed. NOT the same as "this App has one chat", so the
@@ -1303,6 +1349,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         </p>
       </div>
     {/if}
+    </div>
   {/if}
 
   <!-- ───────────── WORKLOG TAB (#733) ─────────────
@@ -1312,6 +1359,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 
        Append-only: no delete, no edit, no rename. -->
   {#if activeTab === 'worklog'}
+    <div id="panel-worklog" role="tabpanel" aria-labelledby="tab-worklog" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
       <div>
         <h2 class="font-semibold text-zinc-900 dark:text-white">
@@ -1331,6 +1379,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         filters={data.worklogFilters ?? { ref: '', kind: '', tool: '' }}
       />
     </div>
+    </div>
   {/if}
 
   <!-- ───────────── STAFF TAB (#974) ─────────────
@@ -1339,6 +1388,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
        makes them unambiguous here). The app-qualified compound belongs on
        org-wide surfaces, never here. -->
   {#if activeTab === 'staff'}
+    <div id="panel-staff" role="tabpanel" aria-labelledby="tab-staff" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
       <div class="flex items-start justify-between gap-4">
         <div>
@@ -1724,15 +1774,19 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         </DataTable>
       {/if}
     </div>
+    </div>
   {/if}
 
   <!-- ───────────── MEMORY TAB ───────────── -->
   {#if activeTab === 'memory'}
+    <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} {writableMemoryIds} scopeMemoryIds={effectiveMemories.map((m) => m.id)} />
+    </div>
   {/if}
 
   <!-- ───────────── SETTINGS TAB ───────────── -->
   {#if activeTab === 'settings'}
+    <div id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-8">
       <!-- App settings (form-driven; mirrors the legacy fields, including the org-original ones) -->
       <section class="max-w-lg">
@@ -2147,10 +2201,12 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         </form>
       </section>
     </div>
+    </div>
   {/if}
 
   <!-- ───────────── CLIENT TAB (non-CHATBOT) ───────────── -->
   {#if activeTab === 'client'}
+    <div id="panel-client" role="tabpanel" aria-labelledby="tab-client" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="max-w-2xl space-y-8">
       <!-- Active client keys -->
       <section>
@@ -2268,6 +2324,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           </div>
         {/if}
       </section>
+    </div>
     </div>
   {/if}
 </div>
