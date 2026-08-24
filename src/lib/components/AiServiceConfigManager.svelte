@@ -3,6 +3,10 @@
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import type { AiConfigOwnerType, AiServiceConfig, AIProvider } from '$lib/types';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
+  import { t } from '$lib/i18n/t';
+  import type { PortalColumnDef } from '$lib/table/features';
+  import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import DataTable from './table/DataTable.svelte';
   import {
     isValidConfigName,
     resolveKeyInput,
@@ -68,6 +72,89 @@
   function providerLabel(p: string): string {
     return AI_PROVIDERS.find((x) => x.value === p)?.label ?? p;
   }
+
+  // #719 — the config list as the shared TanStack grid, replacing a stack of
+  // bespoke cards. This component is used by THREE surfaces (an agent, an org's
+  // integrations, an App's settings), so converting it here is what makes the
+  // AI-provider list one thing rather than three that drift.
+  //
+  // ONE `listKey` across all three deliberately. The check on that
+  // (review:saved-view-arrangement-not-position) warns about UNINTENDED
+  // sharing between different slices; here the columns and the entity are
+  // identical on every surface, so a reader who arranges them once should find
+  // that arrangement again on the next — sharing is the feature, not an
+  // accident.
+  let configFilter = $state('');
+  // ONE composer for the masked key text, read by both the accessor and the
+  // cell (@copilot on #770). They had diverged: the accessor returned the raw
+  // preview while the cell rendered bullets + preview, so sorting and the
+  // `includesString` search disagreed with what was on screen — and a config
+  // with `hasApiKey` but a null preview sorted as an empty string while
+  // rendering eight bullets. Deriving both from one function is what stops
+  // them drifting again.
+  function maskedKey(c: AiServiceConfig): string {
+    return c.hasApiKey ? `${'•'.repeat(8)}${c.apiKeyPreview ?? ''}` : s.noKey();
+  }
+  function configDateMs(iso: string | null | undefined): number | null {
+    if (!iso) return null;
+    const ms = new Date(iso).getTime();
+    return isNaN(ms) ? null : ms;
+  }
+  const configColumns: PortalColumnDef<AiServiceConfig>[] = [
+    { accessorKey: 'name', header: t('ai-config.column.name', 'Name'), enableHiding: false, size: 160 },
+    {
+      // The rendered label, not the raw enum: per the table-chrome convention a
+      // derived column's accessor returns what is on screen, so sorting and the
+      // search box agree with what the reader sees. Dates are the exception,
+      // and they are handled below.
+      accessorFn: (row) => providerLabel(row.provider),
+      id: 'provider',
+      header: t('ai-config.column.provider', 'Provider'),
+      size: 150,
+    },
+    { accessorKey: 'model', header: t('ai-config.column.model', 'Model'), size: 200 },
+    {
+      accessorFn: (row) => (row.enabled ? s.enabledBadge() : s.disabledBadge()),
+      id: 'enabled',
+      header: t('ai-config.column.status', 'Status'),
+      size: 110,
+    },
+    {
+      // The RENDERED text, per the table-chrome convention: a derived column's
+      // accessor returns what is on screen so sort and search agree with it.
+      accessorFn: (row) => maskedKey(row),
+      id: 'key',
+      header: t('ai-config.column.key', 'API key'),
+      size: 140,
+    },
+    // Numeric accessor per review:date-column-sorts-by-instant — a raw date
+    // string reaches TanStack's alphanumeric comparator, which reads the digit
+    // groups and ignores the offset, ordering by wall clock rather than instant.
+    { accessorFn: (row) => configDateMs(row.createdAt), id: 'createdAt', header: t('ai-config.column.created', 'Created'), size: 170 },
+    { id: 'actions', header: t('ai-config.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170 },
+  ];
+  const configFmt: Record<string, (v: unknown) => string> = {
+    createdAt: (v) => (v == null ? '—' : new Date(v as number).toLocaleString()),
+  };
+  const configTable = createSvelteTable<AiServiceConfig>({
+    get data() {
+      return configs;
+    },
+    columns: configColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return configFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      configFilter = typeof u === 'function' ? u(configFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
 
   function resetForm() {
     nameInput = '';
@@ -465,78 +552,81 @@
     </div>
   {/if}
 
-  <!-- Config list -->
+  <!-- Config list — #719: the shared TanStack grid, replacing a stack of
+       bespoke cards. Same chrome as every other portal list. -->
   {#if configs.length === 0}
     {#if !formOpen}
       <p class="text-sm text-zinc-500">{s.empty()}</p>
     {/if}
   {:else}
-    <div class="space-y-2">
-      {#each configs as c (c.id)}
-        <div
-          class="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-        >
-          <div class="flex items-start justify-between gap-4">
-            <div class="min-w-0">
-              <div class="flex items-center gap-2">
-                <span class="font-mono text-sm font-medium text-zinc-900 dark:text-white">{c.name}</span>
-                {#if c.enabled}
-                  <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
-                    {s.enabledBadge()}
-                  </span>
-                {:else}
-                  <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
-                    {s.disabledBadge()}
-                  </span>
-                {/if}
-              </div>
-              <p class="mt-1 text-sm text-zinc-500">
-                {providerLabel(c.provider)} · <span class="text-zinc-700 dark:text-zinc-300">{c.model}</span>
-              </p>
-              <p class="mt-0.5 font-mono text-xs text-zinc-400">
-                {c.hasApiKey ? `${'•'.repeat(8)}${c.apiKeyPreview ?? ''}` : s.noKey()}
-              </p>
+    <DataTable
+      table={configTable}
+      listKey="ai-configs"
+      searchPlaceholder={t('ai-config.search.placeholder', 'Search configs...')}
+      searchAriaLabel={t('ai-config.search.aria-label', 'Search AI provider configs')}
+      bind:globalFilter={configFilter}
+      maxHeight="max(200px, calc(100vh - 30rem))"
+      rowClass={(c) => (c.enabled ? '' : 'opacity-60')}
+    >
+      {#snippet cell(cell, c)}
+        {#if cell.column.id === 'name'}
+          <span class="truncate font-mono text-sm font-medium text-zinc-900 dark:text-white">{c.name}</span>
+        {:else if cell.column.id === 'enabled'}
+          {#if c.enabled}
+            <span class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900 dark:text-green-300">
+              {s.enabledBadge()}
+            </span>
+          {:else}
+            <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+              {s.disabledBadge()}
+            </span>
+          {/if}
+        {:else if cell.column.id === 'key'}
+          <!-- The stored key is never rendered — only its preview, masked. -->
+          <span class="font-mono text-xs text-zinc-400">{maskedKey(c)}</span>
+        {:else if cell.column.id === 'actions'}
+          {#if canManage}
+            <div class="flex items-center gap-2">
+              {#if confirmDeleteId === c.id}
+                <span class="text-xs text-zinc-500">{s.confirmDelete(c.name)}</span>
+                <button
+                  type="button"
+                  onclick={() => doDelete(c.id)}
+                  disabled={busy}
+                  class="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950 disabled:opacity-50"
+                >
+                  {s.confirmYes()}
+                </button>
+                <button
+                  type="button"
+                  onclick={() => (confirmDeleteId = null)}
+                  class="px-2 py-1 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                >
+                  {s.cancelButton()}
+                </button>
+              {:else}
+                <button
+                  type="button"
+                  onclick={() => openEdit(c)}
+                  class="rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                >
+                  {s.editButton()}
+                </button>
+                <button
+                  type="button"
+                  onclick={() => (confirmDeleteId = c.id)}
+                  class="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
+                >
+                  {s.deleteButton()}
+                </button>
+              {/if}
             </div>
-            {#if canManage}
-              <div class="flex shrink-0 items-center gap-2">
-                {#if confirmDeleteId === c.id}
-                  <span class="text-xs text-zinc-500">{s.confirmDelete(c.name)}</span>
-                  <button
-                    type="button"
-                    onclick={() => doDelete(c.id)}
-                    disabled={busy}
-                    class="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950 disabled:opacity-50"
-                  >
-                    {s.confirmYes()}
-                  </button>
-                  <button
-                    type="button"
-                    onclick={() => (confirmDeleteId = null)}
-                    class="px-2 py-1 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-                  >
-                    {s.cancelButton()}
-                  </button>
-                {:else}
-                  <button
-                    type="button"
-                    onclick={() => openEdit(c)}
-                    class="rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                  >
-                    {s.editButton()}
-                  </button>
-                  <button
-                    type="button"
-                    onclick={() => (confirmDeleteId = c.id)}
-                    class="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
-                  >
-                    {s.deleteButton()}
-                  </button>
-                {/if}
-              </div>
-            {/if}
-          </div>
-        </div>
-      {/each}
-    </div>
+          {/if}
+        {:else}
+          {@const f = configFmt[cell.column.id]}
+          <div class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
+        {/if}
+      {/snippet}
+    </DataTable>
   {/if}
 </section>

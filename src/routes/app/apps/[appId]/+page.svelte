@@ -15,7 +15,7 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { Worker } from '$lib/types';
+  import type { AppKey, Worker } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
@@ -120,6 +120,62 @@
     }
   });
   let castOpen = $state(false);
+
+  // #719 — App Keys as the shared TanStack grid, replacing a hand-rolled
+  // <table>. Mirrors /app/account/api-keys, which is the same list for a
+  // different owner, so the two stay recognisable as one thing.
+  //
+  // Date columns take a NUMERIC accessor per
+  // review:date-column-sorts-by-instant: TanStack's alphanumeric comparator
+  // reads a date string's digit groups and ignores the offset, so a raw string
+  // sorts by wall clock rather than by instant.
+  function keyDateMs(iso: string | null | undefined): number | null {
+    if (!iso) return null;
+    const ms = new Date(iso).getTime();
+    return isNaN(ms) ? null : ms;
+  }
+  //
+  // NO status column and no revoked handling, deliberately: the server never
+  // sends a revoked key. BOTH paths filter it — `APP_INCLUDE` eager-loads with
+  // `where: { revokedAt: null }`, and the `App.keys` field resolver's fallback
+  // query applies the same filter. The <table> this replaces carried a
+  // `key.revokedAt` branch and an `opacity-50` row style that could never fire;
+  // I verified it by planting a revoked key and watching it not arrive. Carrying
+  // dead branches into the grid would have made a column that always reads
+  // "active".
+  let appKeyFilter = $state('');
+  const appKeys = $derived(app.keys ?? []);
+  const appKeyColumns: PortalColumnDef<AppKey>[] = [
+    { accessorKey: 'label', header: t('app.keys.column.label', 'Label'), enableHiding: false, size: 200 },
+    { accessorKey: 'keyPreview', header: t('app.keys.column.preview', 'Preview'), size: 120 },
+    { accessorFn: (row) => keyDateMs(row.createdAt), id: 'createdAt', header: t('app.keys.column.created', 'Created'), size: 170 },
+    { accessorFn: (row) => keyDateMs(row.lastUsedAt), id: 'lastUsedAt', header: t('app.keys.column.last-used', 'Last used'), size: 170 },
+    { id: 'actions', header: t('app.keys.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 100 },
+  ];
+  const appKeyFmt: Record<string, (v: unknown) => string> = {
+    label: (v) => (v as string | null) ?? '—',
+    createdAt: (v) => (v == null ? '—' : new Date(v as number).toLocaleString()),
+    lastUsedAt: (v) => (v == null ? '—' : new Date(v as number).toLocaleString()),
+  };
+  const appKeyTable = createSvelteTable<AppKey>({
+    get data() {
+      return appKeys;
+    },
+    columns: appKeyColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return appKeyFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      appKeyFilter = typeof u === 'function' ? u(appKeyFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
 
   // #756 — the staff grid. Columns carry the facts the bespoke list rendered:
   // identity, the signing URN, role, backing agent, hold, working memory.
@@ -2134,57 +2190,53 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           </button>
         </form>
 
-        {#if (app.keys?.length ?? 0) === 0}
-          <p class="text-sm text-zinc-400">No keys yet.</p>
+        {#if appKeys.length === 0}
+          <p class="text-sm text-zinc-400">{t('app.keys.empty', 'No keys yet.')}</p>
         {:else}
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-zinc-200 dark:border-zinc-800">
-                <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Label</th>
-                <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Preview</th>
-                <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Created</th>
-                <th class="pb-2 text-left text-xs font-medium uppercase tracking-wider text-zinc-500">Last used</th>
-                <th class="pb-2"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {#each app.keys ?? [] as key (key.id)}
-                <tr class={key.revokedAt ? 'opacity-50' : ''}>
-                  <td class="py-2 text-zinc-900 dark:text-zinc-200">{key.label ?? '—'}</td>
-                  <td class="py-2 font-mono text-xs text-zinc-500">{key.keyPreview}</td>
-                  <td class="py-2 text-xs text-zinc-500">{formatDate(key.createdAt)}</td>
-                  <td class="py-2 text-xs text-zinc-500">{formatDate(key.lastUsedAt)}</td>
-                  <td class="py-2 text-right">
-                    {#if key.revokedAt}
-                      <span class="text-xs text-red-500">revoked</span>
-                    {:else}
-                      <!-- Keep both handlers: onclick updates before client validation for button activation;
-                           onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
-                      <form method="POST" action="?/revokeKey" use:revokeKeyEnhance
-                        onsubmit={(e) => {
-                          if (!confirm('Revoke this key? This cannot be undone.')) {
-                            e.preventDefault();
-                            setRevokeKey('');
-                            return;
-                          }
-                          setRevokeKey(key.id);
-                        }}
-                        novalidate>
-                        <input type="hidden" name="_kind" value="revokeKey" />
-                        <input type="hidden" name="keyId" value={key.id} />
-                        <button type="submit"
-                          disabled={$revokeKeySubmitting}
-                          onclick={() => setRevokeKey(key.id)}
-                          class="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
-                          Revoke
-                        </button>
-                      </form>
-                    {/if}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
+          <!-- #719 — the shared grid, replacing a hand-rolled <table>.
+               Every row here is an ACTIVE key: the server filters revoked ones
+               out on both load paths (see the note on `appKeys` above), which
+               is why there is no status column and no revoked styling. -->
+          <DataTable
+            table={appKeyTable}
+            listKey="apps:keys"
+            searchPlaceholder={t('app.keys.search.placeholder', 'Search keys...')}
+            searchAriaLabel={t('app.keys.search.aria-label', 'Search app keys')}
+            bind:globalFilter={appKeyFilter}
+            maxHeight="max(200px, calc(100vh - 30rem))"
+          >
+            {#snippet cell(cell, key)}
+              {#if cell.column.id === 'keyPreview'}
+                <span class="font-mono text-xs text-zinc-500">{key.keyPreview}</span>
+              {:else if cell.column.id === 'actions'}
+                <!-- Keep BOTH handlers: onclick updates before client
+                     validation for button activation; onsubmit covers
+                     keyboard/requestSubmit paths and carries the confirm. -->
+                <form method="POST" action="?/revokeKey" use:revokeKeyEnhance
+                    onsubmit={(e) => {
+                      if (!confirm(t('app.keys.revoke.confirm', 'Revoke this key? This cannot be undone.'))) {
+                        e.preventDefault();
+                        setRevokeKey('');
+                        return;
+                      }
+                      setRevokeKey(key.id);
+                    }}
+                    novalidate>
+                    <input type="hidden" name="_kind" value="revokeKey" />
+                    <input type="hidden" name="keyId" value={key.id} />
+                    <button type="submit"
+                      disabled={$revokeKeySubmitting}
+                      onclick={() => setRevokeKey(key.id)}
+                      class="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
+                    {t('app.keys.revoke', 'Revoke')}
+                  </button>
+                </form>
+              {:else}
+                {@const f = appKeyFmt[cell.column.id]}
+                <div class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
+              {/if}
+            {/snippet}
+          </DataTable>
         {/if}
       </section>
 
