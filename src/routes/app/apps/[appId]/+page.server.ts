@@ -23,6 +23,7 @@ import {
   WORKERS_QUERY,
   CAST_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
+  RELEASE_WORKER_MUTATION,
   TEAM_CHAT_MESSAGES_QUERY,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   TEAM_WORK_ITEMS_QUERY,
@@ -50,6 +51,7 @@ import {
   removeAppAgentSchema,
   postTeamChatMessageSchema,
   retireWorkerSchema,
+  releaseWorkerSchema,
   revokeAppKeySchema,
   updateAppAgentToolsSchema,
 } from './schema';
@@ -62,6 +64,7 @@ type DeleteAppForm = Infer<typeof deleteAppSchema, 'zod4'>;
 type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
 type RemoveAppAgentForm = Infer<typeof removeAppAgentSchema, 'zod4'>;
 type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
+type ReleaseWorkerForm = Infer<typeof releaseWorkerSchema, 'zod4'>;
 type RevokeAppKeyForm = Infer<typeof revokeAppKeySchema, 'zod4'>;
 type UpdateAppAgentToolsForm = Infer<typeof updateAppAgentToolsSchema, 'zod4'>;
 
@@ -127,6 +130,7 @@ async function loadTeamChatTail(
 const postTeamChatMessageFormAdapter = zod4(postTeamChatMessageSchema);
 const removeAppAgentFormAdapter = zod4(removeAppAgentSchema);
 const retireWorkerFormAdapter = zod4(retireWorkerSchema);
+const releaseWorkerFormAdapter = zod4(releaseWorkerSchema);
 const revokeAppKeyFormAdapter = zod4(revokeAppKeySchema);
 const updateAppAgentToolsFormAdapter = zod4(updateAppAgentToolsSchema);
 
@@ -462,7 +466,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         return null;
       })
   ]);
-  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm] = await Promise.all([
+  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm] = await Promise.all([
     superValidate<AppSettingsForm>(
       {
         name: appData.app.name,
@@ -517,6 +521,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     superValidate<RetireWorkerForm>(
       { workerId: '' },
       retireWorkerFormAdapter,
+      { errors: false },
+    ),
+    superValidate<ReleaseWorkerForm>(
+      { workerId: '' },
+      releaseWorkerFormAdapter,
       { errors: false },
     ),
   ]);
@@ -609,6 +618,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     deleteAppForm,
     castWorkerForm,
     retireWorkerForm,
+    releaseWorkerForm,
     postTeamChatMessageForm,
   };
 };
@@ -846,6 +856,48 @@ export const actions: Actions = {
           text: forbidden
             ? STAFFING_FORBIDDEN()
             : extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.')),
+        },
+        { status: 500 },
+      );
+    }
+  },
+
+  // #756 / hadron-server#1050 — release a HELD name so somebody else can hold
+  // it. Deliberately a SEPARATE action from retireWorker rather than a mode of
+  // it: retiring ends the casting and keeps the name reserved forever, while
+  // releasing leaves the worker active and touches neither its name allocation
+  // nor its history. The issue asked to rename Retire to Release; these are two
+  // operations that differ on whether the name ever becomes available again, so
+  // the portal grew the missing one instead of relabelling the wrong one.
+  releaseWorker: async ({ request, locals }) => {
+    const form = await superValidate<ReleaseWorkerForm>(
+      await request.formData(),
+      releaseWorkerFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      await gqlClient(locals.token).request(RELEASE_WORKER_MUTATION, {
+        workerRef: form.data.workerId,
+      });
+      return message(form, {
+        type: 'success',
+        text: t(
+          'app.staff.release.success',
+          'Name released. The worker stays active and keeps its name — anyone may hold it now.',
+        ),
+      });
+    } catch (e: unknown) {
+      // Same staffing gate as castWorker/retireWorker, so the same legible
+      // refusal rather than a raw GraphQL error.
+      const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
+      return message(
+        form,
+        {
+          type: 'error',
+          text: forbidden
+            ? STAFFING_FORBIDDEN()
+            : extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.')),
         },
         { status: 500 },
       );

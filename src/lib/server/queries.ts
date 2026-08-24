@@ -684,6 +684,23 @@ export const RETIRE_WORKER_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #1050 — free a HELD name so somebody else can hold it. NOT the same act as
+// retiring, and the portal must not blur them: retiring ends the casting and
+// keeps the name reserved forever, while releasing leaves the worker active and
+// touches neither its name allocation nor its history. Idempotent on an unheld
+// worker.
+//
+// Two principals, two different acts: the HOLDER releasing their own name, or an
+// App/org ADMIN force-releasing somebody else's. The admin path POSTS TO THE
+// TEAM CHAT naming who released what and from whom, which is why the UI has to
+// say so before the click rather than after.
+export const RELEASE_WORKER_MUTATION = /* GraphQL */ `
+  ${WORKER_FIELDS}
+  mutation ReleaseWorker($workerRef: ID!) {
+    releaseWorker(workerRef: $workerRef) { ...WorkerFields }
+  }
+`;
+
 export const ENSURE_APP_MEMBER_MUTATION = /* GraphQL */ `
   mutation EnsureAppMember($appId: ID!, $userId: ID!, $role: String!) {
     ensureAppMember(appId: $appId, userId: $userId, role: $role) {
