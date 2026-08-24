@@ -33,12 +33,29 @@ describe('marketplace load — the three catalogue sections (#610 Phase 4b)', ()
     expect(res.memories.total).toBe(3);
   });
 
-  it('degrades to empty sections when the query fails', async () => {
+  // #687 — the point is that these two states are DISTINGUISHABLE. Every
+  // section is EMPTY on failure, so `!anyResults` is true either way and the
+  // page would assert "The marketplace is empty for now." about a catalogue it
+  // could not read. The old assertion below passed in both states, which is how
+  // the bug survived.
+  it('degrades to empty sections when the query fails, and SAYS it failed', async () => {
     mockRequest.mockRejectedValueOnce(new Error('boom'));
     const res: any = await runLoad();
     expect(res.organizations).toEqual({ items: [], total: 0 });
     expect(res.agents).toEqual({ items: [], total: 0 });
     expect(res.memories).toEqual({ items: [], total: 0 });
+    expect(res.loadFailed).toBe(true);
+  });
+
+  it('reports loadFailed false on a genuinely empty catalogue', async () => {
+    mockRequest.mockResolvedValueOnce({
+      marketplaceOrganizations: { items: [], total: 0 },
+      marketplaceAgents: { items: [], total: 0 },
+      marketplaceMemories: { items: [], total: 0 },
+    });
+    const res: any = await runLoad();
+    expect(res.organizations).toEqual({ items: [], total: 0 });
+    expect(res.loadFailed).toBe(false);
   });
 
   it('exposes no form actions — the catalogue is read-only', async () => {

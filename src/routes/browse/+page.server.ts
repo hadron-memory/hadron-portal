@@ -12,12 +12,17 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async () => {
   try {
     const memories = await fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories');
-    return { memories };
+    return { memories, loadFailed: false };
   } catch (e: unknown) {
-    // Log before degrading: the page renders "No public memories yet" either
-    // way, so without this an outage is indistinguishable from an empty
-    // catalogue. Surfacing it to the user is tracked separately in #687.
-    console.error('[browse] public memories query failed; rendering an empty list', e);
-    return { memories: [] as Memory[] };
+    // #687 — degrade, but SAY SO. The catch stays (this is the portal's public
+    // front door; a 500 here is worse than a degraded page), but it no longer
+    // hands the component a shape indistinguishable from an empty catalogue.
+    //
+    // "No public memories yet" during an outage is the lie
+    // review:no-silent-loader-catch exists to prevent: a system error rendered
+    // as a fact about the world. `loadFailed` is what lets the empty state mean
+    // only what it says.
+    console.error('[browse] public memories query failed; reporting it to the page', e);
+    return { memories: [] as Memory[], loadFailed: true };
   }
 };

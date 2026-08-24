@@ -30,12 +30,18 @@ export const load: PageServerLoad = async ({ locals }) => {
       organizations: data.marketplaceOrganizations,
       agents: data.marketplaceAgents,
       memories: data.marketplaceMemories,
+      loadFailed: false,
     };
   } catch (e: unknown) {
-    // Log before degrading — an outage otherwise renders as "The marketplace is
-    // empty for now." with no trace. Surfacing it to the user is tracked in #687.
-    console.error('[marketplace] catalogue query failed; rendering empty sections', e);
-    return { organizations: EMPTY, agents: EMPTY, memories: EMPTY };
+    // #687 — degrade, but SAY SO. See the sibling comment in
+    // src/routes/browse/+page.server.ts: the catch stays, but the page is told
+    // the difference between "the catalogue is empty" and "we could not read
+    // it", instead of both arriving as EMPTY sections.
+    //
+    // One query backs all three sections, so one flag is the honest shape —
+    // a per-section flag would imply the sections can fail independently.
+    console.error('[marketplace] catalogue query failed; reporting it to the page', e);
+    return { organizations: EMPTY, agents: EMPTY, memories: EMPTY, loadFailed: true };
   }
 };
 

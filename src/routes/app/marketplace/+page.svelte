@@ -7,6 +7,9 @@
 
   let search = $state('');
 
+  // #687 — a failed catalogue read is NOT an empty marketplace.
+  const loadFailed = $derived(data.loadFailed === true);
+
   const q = $derived(search.trim().toLowerCase());
   const matches = (r: MarketplaceRef) =>
     !q || r.name.toLowerCase().includes(q) || r.urn.toLowerCase().includes(q);
@@ -45,7 +48,14 @@
     />
   </div>
 
-  {#if !anyResults}
+  {#if loadFailed}
+    <!-- #687. Checked BEFORE the empty state: on failure every section is EMPTY,
+         so `!anyResults` is true and "The marketplace is empty for now." would
+         be the portal asserting a fact about the catalogue it could not read. -->
+    <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-12 text-center text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+      {t('marketplace.load-failed', "Couldn't load the marketplace just now — this is a temporary error, not an empty catalogue. Try refreshing the page.")}
+    </div>
+  {:else if !anyResults}
     <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
       {search ? t('marketplace.empty.search', 'Nothing matches your search.') : t('marketplace.empty.catalogue', 'The marketplace is empty for now.')}
     </div>
