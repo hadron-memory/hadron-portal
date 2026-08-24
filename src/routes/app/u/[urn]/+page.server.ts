@@ -115,8 +115,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   }
 
   // 307 (temporary, method-preserving) — NOT 308, and this is a durable
-  // platform contract rather than a local preference: `cor:api:230:01` makes
-  // the temporary redirect load-bearing in BOTH directions. A permanent
+  // platform contract rather than a local preference:
+  // `hrn:node:hadronmemory.com:specs:cor:api:230:01` makes the temporary
+  // redirect load-bearing in BOTH directions. A permanent
   // redirect would be cached by browsers/proxies and bypass this resolver
   // forever, stranding clients on a stale PK (URN aliases deliberately survive
   // PK changes, #262) — AND it would remove the per-visit access re-check,

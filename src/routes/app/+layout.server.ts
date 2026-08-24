@@ -3,6 +3,7 @@ import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { ORGANIZATIONS_NAV_QUERY, ME_QUERY } from '$lib/server/queries';
 import { filterToMemberOrgs, resolveActiveOrg } from '$lib/server/active-org';
+import { withQuery } from '$lib/safeRedirect';
 import type { Organization, UserSummary } from '$lib/types';
 import type { LayoutServerLoad } from './$types';
 
@@ -24,7 +25,15 @@ function activeOrgCookieName(userId: string): string {
 
 export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) => {
   if (!locals.user) {
-    redirect(303, `/signin?redirect=${encodeURIComponent(url.pathname)}`);
+    // #761: `url.search`, not `url.pathname` alone. This is the redirect a
+    // SIGNED-OUT visitor hits, which makes it the common case for a shared deep
+    // link — someone sends you `/app/u/<urn>?tab=chats`, you have no session,
+    // and this layout intercepts before the route's own loader ever runs. The
+    // resolver's UNAUTHENTICATED branch covers only the narrower case of a
+    // token that decodes locally but the API then rejects, so fixing that one
+    // alone left the ordinary path still dropping the query. Applies to every
+    // /app/* deep link, not just the URN resolver.
+    redirect(303, `/signin?redirect=${encodeURIComponent(withQuery(url.pathname, url.search))}`);
   }
   const apiClient = gqlClient(locals.token);
   // Fetch orgs AND the full `me` profile in parallel. The JWT only carries
