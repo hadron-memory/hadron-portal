@@ -12,6 +12,10 @@
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
+  import DataTable from '$lib/components/table/DataTable.svelte';
+  import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import type { PortalColumnDef } from '$lib/table/features';
+  import type { Worker } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
@@ -77,7 +81,68 @@
   // installed (WORKER_AGENT_NOT_INSTALLED), so offering anything else would be
   // offering a guaranteed failure.
   const castableAgents = $derived(app.agents ?? []);
+  // #756 — the Role dropdown's options. Distinct, sorted persona roles of the
+  // App's installed agents; `App.agents` already selects personaRole precisely
+  // because casting defaults a worker's role to it, so this needs no new query.
+  //
+  // Derived from the INSTALL ROSTER, not from the existing staff: a role is
+  // castable because an installed agent answers to it, not because somebody has
+  // been cast with it before. Deriving options from fetched rows is the trap
+  // #739 hit twice — an option that exists only outside the fetched page can
+  // never be picked, and one vanishes the moment its rows are filtered away.
+  const castableRoles = $derived(
+    [...new Set(castableAgents.map((a) => a.personaRole).filter((r): r is string => !!r))].sort(
+      (a, b) => a.localeCompare(b),
+    ),
+  );
   let castOpen = $state(false);
+
+  // #756 — the staff grid. Columns carry the facts the bespoke list rendered:
+  // identity, the signing URN, role, backing agent, hold, working memory.
+  //
+  // `hold` sorts by KIND rather than by its timestamp — "held by you" above
+  // "held by someone else" above unknown is the ordering a reader of a roster
+  // wants, and it avoids a date column whose accessor would have to sort by
+  // instant while displaying a formatted string
+  // (review:date-column-sorts-by-instant). The date stays supplementary text
+  // inside the cell.
+  let staffFilter = $state('');
+  const staffColumns: PortalColumnDef<Worker>[] = [
+    { accessorKey: 'name', header: t('app.staff.column.name', 'Name'), enableHiding: false, size: 180 },
+    { accessorKey: 'urn', header: t('app.staff.column.urn', 'URN'), size: 280 },
+    { accessorFn: (row) => row.role ?? '', id: 'role', header: t('app.staff.column.role', 'Role'), size: 150 },
+    { accessorFn: (row) => row.agent?.name ?? '', id: 'agent', header: t('app.staff.column.agent', 'Agent'), size: 150 },
+    {
+      accessorFn: (row) => {
+        const h = workerHold(row, data.user?.id);
+        return h.kind === 'self' ? 0 : h.kind === 'other' ? 1 : 2;
+      },
+      id: 'hold',
+      header: t('app.staff.column.hold', 'Name held by'),
+      size: 200,
+    },
+    { accessorFn: (row) => (row.memoryId ? 1 : 0), id: 'memory', header: t('app.staff.column.memory', 'Working memory'), size: 140 },
+    { id: 'actions', header: t('app.staff.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 100 },
+  ];
+  const staffTable = createSvelteTable<Worker>({
+    get data() {
+      return sortedStaff;
+    },
+    columns: staffColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return staffFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      staffFilter = typeof u === 'function' ? u(staffFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
   // #648: this page is canonical org-optional — an org-owned app renders its org
   // chrome, a user-owned (org-less) app does not. The "Apps" list this app
   // belongs to is the org grid for an org app, the personal "My apps" list for a
@@ -163,7 +228,12 @@
     // #974: the App's staff — its Workers. Always present, including when the
     // staff list is empty: "this App has no workers cast yet" is information,
     // and hiding the tab would hide the way to cast the first one.
-    { id: 'staff', label: t('app.tabs.staff', 'Staff') },
+    // #756 renamed the LABEL only. The `id` is the `?tab=` deep-link value and
+    // the string-id key, both of which are contracts: #761 made those links
+    // carry through the URN resolver, so changing 'staff' here would break
+    // every `?tab=staff` link already shared — the exact thing that fix
+    // rescued. A label is presentation; an id is an address.
+    { id: 'staff', label: t('app.tabs.staff', 'Worker agents') },
     // #733: the worklog — the authoritative artifact-to-worker-session join.
     // Always present for the same reason as Staff: nine records nobody can see
     // is the problem this tab exists to fix, and an empty worklog is
@@ -1198,11 +1268,11 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
     <div class="space-y-4">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.staff.title', 'Staff')}</h2>
+          <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.staff.title', 'Worker agents')}</h2>
           <p class="mt-1 max-w-2xl text-sm text-zinc-500">
             {t(
               'app.staff.description',
-              'The workers cast into this App — a named identity doing attributable work, backed by one of the installed agents. Human members are managed separately.',
+              'The list of worker agents that this app engaged. Each is an installed Agent with a persona, bringing its own competency to the team.',
             )}
           </p>
         </div>
@@ -1322,17 +1392,46 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             <label for="castRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.role', 'Role')}
             </label>
+            <!-- #756 asks for a dropdown. This is a pick-list backed by a
+                 datalist rather than a <select>, and the distinction is
+                 load-bearing: the options are SUGGESTIONS, not the allowed
+                 values.
+
+                 A `<select>` would remove a capability the schema grants. Role
+                 only picks an agent when `agentRef` is OMITTED; the Agent field
+                 above always supplies one, so here `role` is a free label on
+                 the casting. Constraining it to installed persona roles would
+                 make any other label uncastable — and the local fixture shows
+                 that is not hypothetical: worker "Gil" carries
+                 `portal-engineer` while the one installed agent's persona role
+                 is `coordinator`.
+
+                 This is the same control, for the same reason, as the worklog's
+                 tool filter (#739): deriving the ALLOWED set from what happens
+                 to be installed is how a legitimate value becomes unpickable.
+                 min-w-0 per review:content-sized-control-needs-min-w-0. -->
             <input
               id="castRole"
               name="role"
               type="text"
-              placeholder="backend-engineer"
+              list="castRoleOptions"
+              placeholder={t('app.staff.field.role.placeholder', 'Inherit from the agent')}
               bind:value={$castWorkerForm.role}
               aria-describedby="castRoleHelp"
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+              class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
             />
+            <datalist id="castRoleOptions">
+              {#each castableRoles as roleOption (roleOption)}
+                <option value={roleOption}></option>
+              {/each}
+            </datalist>
             <p id="castRoleHelp" class="mt-1 text-xs text-zinc-400">
-              {t('app.staff.field.role.help', 'Leave blank to inherit the agent’s persona role.')}
+              <!-- Blank is a real choice: #974's ratchet asserts a blank role
+                   reaches the mutation as `undefined`, and hadron-server#1050
+                   left role inheritance untouched, so this sentence is true
+                   today — which is why #756's claim that it describes the dead
+                   name register was not acted on. -->
+              {t('app.staff.field.role.help', 'Leave blank to inherit the agent’s persona role. Suggestions are the persona roles of this App’s installed agents; any other label is allowed.')}
             </p>
           </div>
           <div>
@@ -1392,87 +1491,124 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           </p>
         </div>
       {:else}
-        <ul class="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
-          {#each sortedStaff as worker (worker.id)}
-            {@const hold = workerHold(worker, data.user?.id)}
-            <li class="flex items-start justify-between gap-4 px-5 py-3">
-              <div class="min-w-0">
-                <div class="flex flex-wrap items-center gap-2">
-                  <!-- BARE name: this is App context. -->
-                  <a
-                    href="/app/workers/{worker.id}"
-                    class="text-sm font-medium text-zinc-900 hover:underline dark:text-white {worker.retiredAt ? 'line-through opacity-60' : ''}"
-                  >
-                    {worker.name}
-                  </a>
-                  <WorkerBadge retired={!!worker.retiredAt} />
-                </div>
-                <!-- #735: the URN below the name, per review:render-urn. This is
-                     the identity a worker signs outward-facing artifacts with
-                     (hadron-server#1008), and until now the portal never showed
-                     it anywhere — so the one place a reader could copy it was
-                     the CLI. Nullable by contract, so absent rather than empty
-                     when the App's URN predates the flat grammar. -->
-                {#if worker.urn}
-                  <div class="mt-1"><Urn value={worker.urn} type="worker" size={10} /></div>
-                {/if}
-                <p class="mt-1 truncate text-xs text-zinc-500">
-                  {worker.role ?? t('app.staff.no-role', 'No role')}
-                  {#if worker.agent}
-                    · <a href="/app/agents/{worker.agent.id}" class="text-indigo-600 hover:underline dark:text-indigo-400">{worker.agent.name}</a>
-                  {:else}
-                    · <span class="italic">{t('app.staff.agent-unavailable', 'backing agent unavailable')}</span>
-                  {/if}
-                </p>
-                {#if worker.memoryId}
-                  <a href="/app/memories/{worker.memoryId}" class="mt-1 inline-block text-xs text-indigo-600 hover:underline dark:text-indigo-400">
-                    {t('app.staff.working-memory', 'Working memory →')}
-                  </a>
-                {/if}
-                <!-- #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — whose name this is. A hold is
-                     STANDING: it survives expiry, a reap and a closed chat
-                     session, and only an explicit release frees it. That is a
-                     different question from "is a session bound right now",
-                     which this roster deliberately does not answer.
+        <!-- #756 — TanStack grid, replacing a bespoke <ul>. Same chrome as every
+             other portal list (search, column toggle, sortable/resizable
+             headers, pagination) via the shared DataTable.
 
-                     Rendered ONLY when a hold is known. `none` is not "free" —
-                     the field is masked to null on a denied read, so the two
-                     are indistinguishable here and claiming "not held" would
-                     assert staffing we did not read. Absence of a claim beats
-                     a confident wrong one. -->
-                {#if hold.kind === 'self'}
-                  <p class="mt-1 text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                    {t('app.staff.held.you', 'Your name — held by you')}
-                    {#if hold.since}
-                      <span class="font-normal text-zinc-500"
-                        >· {t('app.staff.held.since', 'since')} {formatDate(hold.since)}</span
-                      >
-                    {/if}
-                  </p>
-                {:else if hold.kind === 'other'}
-                  <p class="mt-1 text-xs text-zinc-500">
-                    <!-- Unnamed until the server resolves the holder (#748) —
-                         resolving it here would be one query per roster row. -->
-                    {t('app.staff.held.other', 'Held by another member')}
-                    {#if hold.since}
-                      · {t('app.staff.held.since', 'since')} {formatDate(hold.since)}
-                    {/if}
-                  </p>
-                {/if}
+             The rows carry facts a plain table would flatten, so they are kept
+             as cells rather than dropped: the URN a worker signs outward-facing
+             artifacts with (#735), the HOLD (#1050 — standing, and deliberately
+             not the same question as "is a session bound right now"), and the
+             retired state, which is struck through rather than hidden because a
+             retired worker holds its name forever.
+
+             Rows arrive pre-sorted active-first-then-name and TanStack starts
+             unsorted, so that order is what renders until a reader sorts. -->
+        <DataTable
+          table={staffTable}
+          listKey="apps:staff"
+          searchPlaceholder={t('app.staff.search.placeholder', 'Search worker agents...')}
+          searchAriaLabel={t('app.staff.search.aria-label', 'Search worker agents')}
+          bind:globalFilter={staffFilter}
+          maxHeight="max(200px, calc(100vh - 30rem))"
+          rowClass={(w) => (w.retiredAt ? 'opacity-60' : '')}
+        >
+          {#snippet cell(cell, worker)}
+            {#if cell.column.id === 'name'}
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <!-- BARE name: this is App context. -->
+                <a
+                  href="/app/workers/{worker.id}"
+                  class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white {worker.retiredAt ? 'line-through' : ''}"
+                >
+                  {worker.name}
+                </a>
+                <WorkerBadge retired={!!worker.retiredAt} />
               </div>
+            {:else if cell.column.id === 'urn'}
+              <!-- #735 / review:render-urn. Nullable by contract — absent rather
+                   than empty when the App's URN predates the flat grammar. -->
+              {#if worker.urn}
+                <Urn value={worker.urn} type="worker" size={8} />
+              {:else}
+                <span class="text-xs text-zinc-400">—</span>
+              {/if}
+            {:else if cell.column.id === 'role'}
+              <!-- An explicit branch, because the accessor coerces null to ''
+                   for stable sorting and the generic cell only substitutes its
+                   dash for NULLISH values — so a role-less worker rendered a
+                   blank cell, losing the "No role" label the bespoke list had.
+                   A legitimately role-less worker then looks like missing or
+                   failed data (@copilot and @codex both, independently, on
+                   #765). role is nullable by contract: it is only defaulted
+                   from the agent's personaRole at cast time. -->
+              {#if worker.role}
+                <div class="truncate">{worker.role}</div>
+              {:else}
+                <span class="text-zinc-500">{t('app.staff.no-role', 'No role')}</span>
+              {/if}
+            {:else if cell.column.id === 'agent'}
+              {#if worker.agent}
+                <a href="/app/agents/{worker.agent.id}" class="truncate text-indigo-600 hover:underline dark:text-indigo-400">{worker.agent.name}</a>
+              {:else}
+                <span class="italic text-zinc-500">{t('app.staff.agent-unavailable', 'backing agent unavailable')}</span>
+              {/if}
+            {:else if cell.column.id === 'hold'}
+              <!-- #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — whose name this is. A hold is
+                   STANDING: it survives expiry, a reap and a closed chat
+                   session, and only an explicit release frees it. That is a
+                   different question from "is a session bound right now", which
+                   this roster deliberately does not answer.
+
+                   Rendered ONLY when a hold is known. `none` is not "free" — the
+                   field is masked to null on a denied read, so the two are
+                   indistinguishable here and claiming "not held" would assert
+                   staffing we did not read. Absence of a claim beats a confident
+                   wrong one. -->
+              {@const hold = workerHold(worker, data.user?.id)}
+              {#if hold.kind === 'self'}
+                <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                  {t('app.staff.held.you', 'Your name — held by you')}
+                  {#if hold.since}
+                    <span class="font-normal text-zinc-500">· {t('app.staff.held.since', 'since')} {formatDate(hold.since)}</span>
+                  {/if}
+                </span>
+              {:else if hold.kind === 'other'}
+                <span class="text-xs text-zinc-500">
+                  <!-- Unnamed until the server resolves the holder (#748) —
+                       resolving it here would be one query per roster row. -->
+                  {t('app.staff.held.other', 'Held by another member')}
+                  {#if hold.since}
+                    · {t('app.staff.held.since', 'since')} {formatDate(hold.since)}
+                  {/if}
+                </span>
+              {:else}
+                <span class="text-xs text-zinc-400">—</span>
+              {/if}
+            {:else if cell.column.id === 'memory'}
+              {#if worker.memoryId}
+                <a href="/app/memories/{worker.memoryId}" class="text-xs text-indigo-600 hover:underline dark:text-indigo-400">
+                  {t('app.staff.working-memory', 'Working memory →')}
+                </a>
+              {:else}
+                <span class="text-xs text-zinc-400">—</span>
+              {/if}
+            {:else if cell.column.id === 'actions'}
               {#if !worker.retiredAt}
                 <button
                   type="button"
                   onclick={() => retireWorkerNamed(worker.id, worker.name)}
                   disabled={$retireWorkerSubmitting}
-                  class="shrink-0 text-xs text-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  class="text-xs text-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {t('app.staff.retire', 'Retire')}
                 </button>
               {/if}
-            </li>
-          {/each}
-        </ul>
+            {:else}
+              <div class="truncate">{cell.getValue() ?? '—'}</div>
+            {/if}
+          {/snippet}
+        </DataTable>
       {/if}
     </div>
   {/if}
