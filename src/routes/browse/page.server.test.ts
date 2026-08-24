@@ -35,12 +35,29 @@ describe('public browse load', () => {
     expect(res.memories[0].id).toBe('memory-1');
   });
 
-  it('degrades to an empty list when the query fails', async () => {
+  // #687 — the whole point is that these two states are DISTINGUISHABLE. Both
+  // return an empty `memories`, so a test asserting only that cannot tell them
+  // apart, which is exactly how the bug survived: the old assertion below
+  // passed either way.
+  it('degrades to an empty list when the query fails, and SAYS it failed', async () => {
     mockFetchAllItems.mockRejectedValueOnce(new Error('boom'));
 
     const res: any = await runLoad();
 
     expect(res.memories).toEqual([]);
+    expect(res.loadFailed).toBe(true);
+  });
+
+  it('reports loadFailed false on a genuinely empty catalogue', async () => {
+    // An empty catalogue and a failed read must not produce the same payload —
+    // this is the assertion that makes the flag load-bearing rather than
+    // decorative.
+    mockFetchAllItems.mockResolvedValueOnce([]);
+
+    const res: any = await runLoad();
+
+    expect(res.memories).toEqual([]);
+    expect(res.loadFailed).toBe(false);
   });
 
   it('exposes no form actions — the list is read-only', async () => {

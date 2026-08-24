@@ -1,9 +1,14 @@
 <script lang="ts">
+  import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
 
   let search = $state('');
+
+  // #687 — a failed catalogue read is NOT an empty catalogue. Without this the
+  // portal's public front door says "No public memories yet" during an outage.
+  const loadFailed = $derived(data.loadFailed === true);
 
   const filtered = $derived(
     data.memories.filter((m) => {
@@ -33,7 +38,23 @@
     />
   </div>
 
-  {#if filtered.length === 0}
+  {#if loadFailed}
+    <!-- #687. Checked BEFORE the empty state, because on failure `memories` is
+         also empty and the two would otherwise be indistinguishable. Copy
+         mirrors /app/memories: it names the distinction rather than saying
+         something went wrong, since "not an empty catalogue" is the part a
+         reader cannot infer.
+
+         Through t() even though this page's surrounding chrome is literal
+         (@codex and @copilot on #772). "Don't piecemeal-localize" governs
+         CONVERTING existing copy; a NEW user-visible string goes through the
+         boundary regardless — `$lib/i18n/t.ts` is explicit that they do so
+         "from this commit on". Leaving it out would make it permanently
+         untranslatable to save touching nothing. -->
+    <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-12 text-center text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+      {t('browse.load-failed', "Couldn't load the public memories just now — this is a temporary error, not an empty catalogue. Try refreshing the page.")}
+    </div>
+  {:else if filtered.length === 0}
     <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
       {search ? 'No memories match your search.' : 'No public memories yet.'}
     </div>
