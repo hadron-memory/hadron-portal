@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { isLocalPath, safeRedirect } from './safeRedirect';
+import { isLocalPath, safeRedirect, withQuery } from './safeRedirect';
 
 describe('isLocalPath', () => {
   it('accepts same-origin local paths', () => {
@@ -34,5 +34,38 @@ describe('safeRedirect', () => {
     expect(safeRedirect(null)).toBe('/app/dashboard');
     expect(safeRedirect('/x', '/home')).toBe('/x');
     expect(safeRedirect('https://evil', '/home')).toBe('/home');
+  });
+});
+
+// #761 — a redirect that rewrites the path must not discard the caller's state.
+describe('withQuery', () => {
+  it('appends a query string to a bare path', () => {
+    expect(withQuery('/app/apps/a1', '?tab=chats&chat=chats:team')).toBe(
+      '/app/apps/a1?tab=chats&chat=chats:team',
+    );
+  });
+
+  it('leaves the path untouched when there is no query', () => {
+    // URL.search is '' for a query-less URL — appending a bare '?' would put a
+    // cosmetically different URL in the Location header for every plain visit.
+    expect(withQuery('/app/apps/a1', '')).toBe('/app/apps/a1');
+    expect(withQuery('/app/apps/a1', '?')).toBe('/app/apps/a1');
+  });
+
+  it('joins with & when the target already carries a query', () => {
+    // canonicalPath returns bare paths today, so this branch guards a future
+    // target that does not: `?a=b?c=d` is not two params, it is one param
+    // whose value contains a '?'.
+    expect(withQuery('/app/apps/a1?view=grid', '?tab=chats')).toBe(
+      '/app/apps/a1?view=grid&tab=chats',
+    );
+  });
+
+  it('preserves values that themselves contain URN colons and encoded chars', () => {
+    // A `?chat=chats:team` deep link is the #744 case that found this defect;
+    // the helper must not re-encode or split on the colon.
+    expect(withQuery('/app/apps/a1', '?chat=chats:team&worklogRef=owner%2Frepo%23371')).toBe(
+      '/app/apps/a1?chat=chats:team&worklogRef=owner%2Frepo%23371',
+    );
   });
 });

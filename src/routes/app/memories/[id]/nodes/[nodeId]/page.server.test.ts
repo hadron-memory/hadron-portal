@@ -45,11 +45,15 @@ function loadEvent(opts: {
   gid: string;
   nodeId: string;
   parentGraphNodes: Array<{ id: string; memoryId: string; loc: string }>;
+  /** #761 — incoming query string (`?tab=…`), '' for none. */
+  search?: string;
 }) {
   return {
     params: { id: opts.gid, nodeId: opts.nodeId },
     locals: { token: 'tok' },
-    url: new URL(`http://localhost/app/memories/${opts.gid}/nodes/${opts.nodeId}`),
+    url: new URL(
+      `http://localhost/app/memories/${opts.gid}/nodes/${opts.nodeId}${opts.search ?? ''}`,
+    ),
     parent: vi.fn().mockResolvedValue({
       graphNodes: opts.parentGraphNodes,
       isConsumerMode: false,
@@ -297,6 +301,41 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
     }
     expect((thrown as { status: number }).status).toBe(303);
     expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes/leaf-pk');
+  });
+
+  it('#761 — the #237 canonicalization carries the query string', async () => {
+    // A link written before the node moved is exactly the link most likely to
+    // be an old SHARED deep link with state on it, so the correction must be
+    // transparent to that state rather than resetting the reader to the node's
+    // default tab. Off the URN resolver's happy path — a URN-resolved node
+    // arrives with the server's own memoryId and never reaches this branch —
+    // but the same defect, so it gets the same fix.
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'leaf-pk', memoryId: 'mem-B', loc: 'foo', name: 'foo',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+
+    const load = await importLoad();
+    let thrown: unknown;
+    try {
+      await load(loadEvent({
+        gid: 'mem-A',
+        nodeId: 'leaf-pk',
+        parentGraphNodes: [],
+        search: '?tab=references&highlight=edge-7',
+      }));
+    } catch (e) {
+      thrown = e;
+    }
+    expect((thrown as { status: number }).status).toBe(303);
+    expect((thrown as { location: string }).location).toBe(
+      '/app/memories/mem-B/nodes/leaf-pk?tab=references&highlight=edge-7',
+    );
   });
 
   it('#237 — does NOT redirect when node.memoryId matches params.gid (happy path)', async () => {

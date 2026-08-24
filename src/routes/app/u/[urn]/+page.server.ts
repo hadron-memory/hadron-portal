@@ -2,6 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
 import { RESOLVE_URN_QUERY } from '$lib/server/queries';
+import { withQuery } from '$lib/safeRedirect';
 import { normalizeUrn } from '$lib/urn/parse-urn';
 import type { PageServerLoad } from './$types';
 
@@ -18,6 +19,15 @@ import type { PageServerLoad } from './$types';
  * nonexistent one, never disclosing existence. The route is namespaced
  * under `/app/u/` so a bare `[urn]` can't shadow the static `/app/*`
  * children (dashboard, agents, …).
+ *
+ * #761 — the redirect carries the incoming QUERY STRING through to the
+ * canonical page. A URN link is the form we ask people to share, so every
+ * deep link the portal has deliberately made linkable (`?tab=`, `?chat=`,
+ * the #739 worklog filters) travels through here; dropping the query landed
+ * the reader on the target's default view, having resolved and rendered
+ * without erroring. That is the expensive kind of wrong — it looks like it
+ * worked. The fragment needs no handling: browsers never send it, and
+ * re-apply the original to a redirect target that carries none.
  */
 type UrnResolution = {
   kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker';
@@ -41,7 +51,7 @@ const KNOWN_KINDS = new Set<UrnResolution['kind']>([
   'worker',
 ]);
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
   const urn = normalizeUrn(params.urn);
 
   // #567: a URN the server *rejects* (GraphQL error) must not surface as an
@@ -65,7 +75,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
         throw error(400, `"${urn}" is not a valid Hadron URN.`);
       }
       if (code === 'UNAUTHENTICATED' || code === 'SESSION_EXPIRED') {
-        redirect(303, `/signin?redirect=${encodeURIComponent(`/app/u/${params.urn}`)}`);
+        // #761: `url.search` too — signing in to reach a deep link must not be
+        // what costs you the deep link's state.
+        redirect(
+          303,
+          `/signin?redirect=${encodeURIComponent(withQuery(`/app/u/${params.urn}`, url.search))}`,
+        );
       }
       if (
         code === 'NOT_FOUND' ||
@@ -99,13 +114,18 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     );
   }
 
-  // 307 (temporary, method-preserving) — NOT 308. URN aliases deliberately
-  // survive PK changes (#262), so the canonical target can change over time;
-  // a permanent redirect would be cached by browsers/proxies and bypass this
-  // resolver forever, stranding clients on a stale PK. 307 also keeps the
-  // access check fresh on every visit. The extra round-trip is the accepted
-  // cost of stable aliases.
-  redirect(307, target);
+  // 307 (temporary, method-preserving) — NOT 308, and this is a durable
+  // platform contract rather than a local preference: `cor:api:230:01` makes
+  // the temporary redirect load-bearing in BOTH directions. A permanent
+  // redirect would be cached by browsers/proxies and bypass this resolver
+  // forever, stranding clients on a stale PK (URN aliases deliberately survive
+  // PK changes, #262) — AND it would remove the per-visit access re-check,
+  // which is what keeps a link a *pointer* rather than a capability: holding
+  // one grants nothing, because resolution runs the resource's ordinary read
+  // gate every time. That second reason is why a link may safely be handed to
+  // someone who cannot open it, and it is the half this comment used to state
+  // only in passing. The extra round-trip is the accepted cost.
+  redirect(307, withQuery(target, url.search));
 };
 
 /** Map a resolved URN to its canonical PK-based portal path. */
