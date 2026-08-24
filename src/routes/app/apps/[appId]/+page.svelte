@@ -1533,6 +1533,20 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               {:else}
                 <span class="text-xs text-zinc-400">—</span>
               {/if}
+            {:else if cell.column.id === 'role'}
+              <!-- An explicit branch, because the accessor coerces null to ''
+                   for stable sorting and the generic cell only substitutes its
+                   dash for NULLISH values — so a role-less worker rendered a
+                   blank cell, losing the "No role" label the bespoke list had.
+                   A legitimately role-less worker then looks like missing or
+                   failed data (@copilot and @codex both, independently, on
+                   #765). role is nullable by contract: it is only defaulted
+                   from the agent's personaRole at cast time. -->
+              {#if worker.role}
+                <div class="truncate">{worker.role}</div>
+              {:else}
+                <span class="text-zinc-500">{t('app.staff.no-role', 'No role')}</span>
+              {/if}
             {:else if cell.column.id === 'agent'}
               {#if worker.agent}
                 <a href="/app/agents/{worker.agent.id}" class="truncate text-indigo-600 hover:underline dark:text-indigo-400">{worker.agent.name}</a>

@@ -184,7 +184,8 @@ a future conversion issue.
 What a page still owns: its column defs, its `createSvelteTable` call, its empty
 states, and cell rendering via the `cell` snippet. Pick a unique `listKey` — it
 scopes the persisted view, so two lists sharing one key silently share
-arrangement (see `review:saved-view-arrangement-not-position`).
+arrangement (see
+`hrn:node:hadronmemory.com:hadron-portal:review:saved-view-arrangement-not-position`).
 
 Reach for something else only when the data genuinely is not tabular — a chat
 thread, a tree, a node graph — and say why in the diff.
@@ -192,7 +193,8 @@ thread, a tree, a node graph — and say why in the diff.
 ### A referenced object shows its URN
 
 When a view names another entity, render its URN alongside — via the `Urn`
-component, per `review:render-urn`. The URN is what a reader copies into a
+component, per `hrn:node:hadronmemory.com:hadron-portal:review:render-urn`. The
+URN is what a reader copies into a
 CLI, an MCP call, or a message to a teammate, and a name alone is not
 addressable. Nullable-by-contract URNs render as absent, never as an empty chip.
 
