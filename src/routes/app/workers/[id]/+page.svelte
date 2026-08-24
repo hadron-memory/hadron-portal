@@ -57,7 +57,16 @@
   }
   function onTabKeydown(e: KeyboardEvent) {
     const order = tabs.map((tt) => tt.id);
-    const i = order.indexOf(activeTab);
+    // Index from the tab RECEIVING the key, not from `activeTab` (@codex on
+    // #767). A `tabindex="-1"` button is still POINTER-focusable, so pressing
+    // on an unselected tab and dragging away before release leaves focus and
+    // selection diverged — and arrows computed from `activeTab` would then jump
+    // relative to a tab the user is not on.
+    const focusedId = (e.currentTarget as HTMLElement | null)?.id?.replace(/^tab-/, '');
+    const from = focusedId && order.includes(focusedId as WorkerTabId)
+      ? (focusedId as WorkerTabId)
+      : activeTab;
+    const i = order.indexOf(from);
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); focusTab(order[(i + 1) % order.length]); }
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); focusTab(order[(i - 1 + order.length) % order.length]); }
     else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
@@ -169,7 +178,7 @@
   </div>
 
   {#if activeTab === 'profile'}
-    <div id="panel-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0" class="space-y-6 focus:outline-none">
+    <div id="panel-profile" role="tabpanel" aria-labelledby="tab-profile" tabindex="0" class="space-y-6 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     {#if retired}
       <!-- Retirement is not deletion, and the difference matters to a reader who
            arrived from an old PR: the work still traces here, the name is still
@@ -348,7 +357,7 @@
   {/if}
 
   {#if activeTab === 'sessions'}
-    <div id="panel-sessions" role="tabpanel" aria-labelledby="tab-sessions" tabindex="0" class="space-y-6 focus:outline-none">
+    <div id="panel-sessions" role="tabpanel" aria-labelledby="tab-sessions" tabindex="0" class="space-y-6 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <!-- ───────── WORKER SESSIONS (#737) ─────────
          "Worker sessions", never a bare "Sessions" heading: a reader could take
          that to mean their own chat sessions, which are not Hadron entities at
@@ -501,7 +510,7 @@
   {/if}
 
   {#if activeTab === 'worklog'}
-    <div id="panel-worklog" role="tabpanel" aria-labelledby="tab-worklog" tabindex="0" class="space-y-6 focus:outline-none">
+    <div id="panel-worklog" role="tabpanel" aria-labelledby="tab-worklog" tabindex="0" class="space-y-6 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <!-- ───────── WORKLOG (#737, unblocked by hadron-server#1035) ───────── -->
     <section class="space-y-3">
       <div>
