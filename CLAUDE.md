@@ -160,6 +160,42 @@ If `curl` gets a 404 with an empty body, a gate is failing — check
 `DEV_LOGIN_ENABLED` in the running server's `.env`. A `{"error":"No user with
 that email"}` 404 means the gates passed and only the lookup missed.
 
+## UI conventions
+
+### Any new list is a TanStack table
+
+**Default to the shared TanStack grid for every new list.** Not a bespoke
+`<ul>`, not a hand-rolled `<table>` — `DataTable`
+([src/lib/components/table/DataTable.svelte](src/lib/components/table/DataTable.svelte))
+driven by `createSvelteTable`
+([src/lib/table/createSvelteTable.svelte.ts](src/lib/table/createSvelteTable.svelte.ts)).
+
+This is a **default, not a preference to weigh each time**. Custom lists have
+been converted issue-by-issue — #719, #756, and more before them — and the
+project lead's note on #756 is the reason it is written down here rather than
+filed again: *"I keep having to file an issue to convert a custom list into a
+TanStack table."*
+
+`DataTable` supplies the chrome a reader now expects everywhere: the saved-view
+tab strip, search, the column toggle, sortable and resizable sticky headers, and
+the pagination footer. A bespoke list gets none of it, and every one written is
+a future conversion issue.
+
+What a page still owns: its column defs, its `createSvelteTable` call, its empty
+states, and cell rendering via the `cell` snippet. Pick a unique `listKey` — it
+scopes the persisted view, so two lists sharing one key silently share
+arrangement (see `review:saved-view-arrangement-not-position`).
+
+Reach for something else only when the data genuinely is not tabular — a chat
+thread, a tree, a node graph — and say why in the diff.
+
+### A referenced object shows its URN
+
+When a view names another entity, render its URN alongside — via the `Urn`
+component, per `review:render-urn`. The URN is what a reader copies into a
+CLI, an MCP call, or a message to a teammate, and a name alone is not
+addressable. Nullable-by-contract URNs render as absent, never as an empty chip.
+
 ## Git and PR conventions
 
 - **Branch naming**: Use `feature/`, `fix/`, `refactor/`, or `docs/` prefixes (e.g., `feature/node-detail-redesign`)
