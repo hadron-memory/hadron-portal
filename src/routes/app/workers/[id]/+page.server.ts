@@ -5,6 +5,19 @@ import { TEAM_WORK_ITEMS_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
+/**
+ * #758 — the worker page's tab ids. These are ADDRESSES, not labels: they are
+ * the `?tab=` values a shared link carries, and #761 made those survive the
+ * `/app/u/<worker-urn>` resolver, which is the link every worker signs its
+ * outward-facing work with. Rename a label freely; never rename one of these
+ * (review:label-rename-is-not-an-id-rename).
+ *
+ * Validated in the LOADER rather than the component, mirroring the App page, so
+ * URL parsing lives in one place and an unknown value falls back to the default
+ * instead of rendering a page where no panel matches.
+ */
+const WORKER_TAB_IDS: readonly string[] = ['profile', 'sessions', 'worklog'];
+
 /** Worker sessions shown before "…and N more". */
 const SESSION_PAGE_SIZE = 20;
 /** Worklog rows fetched; `total` tells the reader how many exist beyond them. */
@@ -23,7 +36,9 @@ const WORKLOG_PAGE_SIZE = 50;
  * answers "which team", not "who is this". #737 grows this page with the
  * worker's sessions and worklog, which is the other half of that question.
  */
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
+  const rawTab = url.searchParams.get('tab');
+  const initialTab = WORKER_TAB_IDS.includes(rawTab ?? '') ? rawTab : null;
   let worker: Worker | null;
   try {
     ({ worker } = await gqlClient(locals.token).request<{ worker: Worker | null }>(WORKER_QUERY, {
@@ -96,6 +111,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   return {
     worker,
+    initialTab,
     workerSessions: sessions ? sessions.slice(0, SESSION_PAGE_SIZE) : null,
     sessionsTruncated,
     worklog: worklog?.items ?? null,

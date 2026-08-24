@@ -23,16 +23,20 @@ beforeEach(() => {
   mockRequest.mockResolvedValue({ sessions: [], teamWorkItems: { items: [], total: 0 } });
 });
 
-function ev(id = 'w-1') {
+/** `search` is the incoming query string (#758) — a real URL so `url.searchParams`
+ *  behaves exactly as the framework's does, rather than a stub that could
+ *  disagree with it. */
+function ev(id = 'w-1', search = '') {
   return {
     params: { id },
+    url: new URL(`http://localhost/app/workers/${id}${search}`),
     locals: { user: { id: 'u1' }, token: 'tok' },
   } as never;
 }
 
-async function runLoad(id = 'w-1') {
+async function runLoad(id = 'w-1', search = '') {
   const { load } = await import('./+page.server');
-  return (await load(ev(id))) as { worker: Record<string, unknown> };
+  return (await load(ev(id, search))) as { worker: Record<string, unknown>; initialTab: string | null };
 }
 
 async function expectStatus(id = 'w-1'): Promise<number> {
@@ -375,4 +379,39 @@ describe('WORKER_SESSIONS_QUERY scope (#752)', () => {
     expect(WORKER_SESSIONS_QUERY).toMatch(/sessions\(\s*workerRef:\s*\$workerRef/);
   });
 
+});
+
+// #758 — the tab ids are ADDRESSES. This page is the destination of every
+// `hrn:worker:` URN a worker signs its outward-facing work with, and #761 made
+// `?tab=` survive the resolver, so a shared deep link lands on a named tab.
+// Validated in the LOADER so an unknown value falls back rather than rendering
+// a page where no panel matches.
+describe('worker page tabs (#758)', () => {
+  it('accepts each real tab id', async () => {
+    for (const tab of ['profile', 'sessions', 'worklog']) {
+      mockRequest.mockResolvedValueOnce({ worker: WORKER });
+      const data = await runLoad('w-1', `?tab=${tab}`);
+      expect(data.initialTab, tab).toBe(tab);
+    }
+  });
+
+  it('falls back to null for an unknown tab rather than passing it through', async () => {
+    // A value that reached the component unvalidated would match no panel and
+    // render a page with a tab strip and nothing under it.
+    mockRequest.mockResolvedValueOnce({ worker: WORKER });
+    expect((await runLoad('w-1', '?tab=nonsense')).initialTab).toBeNull();
+  });
+
+  it('is null when no tab is requested', async () => {
+    mockRequest.mockResolvedValueOnce({ worker: WORKER });
+    expect((await runLoad('w-1')).initialTab).toBeNull();
+  });
+
+  it('does not confuse the App page\'s tab ids for its own', async () => {
+    // `?tab=staff` is the App page's, and the two pages are one resolver hop
+    // apart — a worker URN and its App URN both land in /app/u. A shared id
+    // space would silently open the wrong panel.
+    mockRequest.mockResolvedValueOnce({ worker: WORKER });
+    expect((await runLoad('w-1', '?tab=staff')).initialTab).toBeNull();
+  });
 });
