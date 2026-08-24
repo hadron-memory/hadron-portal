@@ -60,11 +60,25 @@
   // Same trap and same remedy as the node detail page (#251), and the same
   // reason `conventions:query-param-deeplink-open-form` exists: on a same-route
   // navigation, one-time `$state` init never re-runs.
+  // Tracks BOTH the worker and the accepted `initialTab`, because the component
+  // is reused on a same-worker query-only navigation too (@codex on #767):
+  // /app/workers/w-1?tab=profile → a shared /app/u/<same-urn>?tab=worklog link
+  // re-runs the loader with a new `initialTab` while `worker.id` is unchanged,
+  // and a worker-id-only guard would leave the URL naming one tab while the
+  // page showed another.
+  //
+  // Keying on `initialTab` does NOT couple tab clicks to the URL: clicking a
+  // tab deliberately does not navigate (UI state must not push history), so
+  // `data.initialTab` changes only on a real navigation. A reader who lands on
+  // ?tab=worklog and then clicks Profile stays on Profile.
   let lastWorkerId: string | undefined;
+  let lastInitialTab: WorkerTabId | null | undefined;
   $effect(() => {
-    if (lastWorkerId !== worker.id) {
+    const incoming = (data.initialTab as WorkerTabId | null) ?? null;
+    if (lastWorkerId !== worker.id || lastInitialTab !== incoming) {
       lastWorkerId = worker.id;
-      activeTab = (data.initialTab as WorkerTabId | null) ?? 'profile';
+      lastInitialTab = incoming;
+      activeTab = incoming ?? 'profile';
     }
   });
 
