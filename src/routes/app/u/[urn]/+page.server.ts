@@ -161,8 +161,19 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
  * uniformly null by the time we get here. A no-access URN and a nonexistent one
  * produce byte-identical messages.
  */
+/**
+ * The `hrn:<type>:` / legacy `urn:<type>:` prefix.
+ *
+ * The type word may contain HYPHENS — `chat-message`, `ai-config`, `app-mem`,
+ * `group-mem`, `app-user` are all real (@copilot on #764). A `[a-z]+` class
+ * would classify `hrn:chat-message:…` as prefix-less and then fail to strip it,
+ * so both call sites share this one pattern rather than each carrying a copy
+ * that can drift.
+ */
+const URN_SCHEME_PREFIX = /^(hrn|urn):[a-z][a-z-]*:/i;
+
 function shapeHint(urn: string): string | null {
-  if (!/^(hrn|urn):[a-z]+:/i.test(urn)) {
+  if (!URN_SCHEME_PREFIX.test(urn)) {
     // The commonest broken spelling in the wild, and the one whose cause is
     // least guessable from "not found": nothing in the string says what KIND of
     // resource it names, so there is no single lookup to perform.
@@ -172,11 +183,24 @@ function shapeHint(urn: string): string | null {
     );
   }
 
-  // A URN that mixes the grammars resolves as neither. Worth naming explicitly:
-  // it is a plausible thing to hand-write from two half-remembered examples, and
-  // it is otherwise indistinguishable from a deleted node.
-  const body = urn.replace(/^(hrn|urn):[a-z]+:/i, '');
-  if (body.includes('::') && /[^:]:[^:]/.test(body)) {
+  // A URN that mixes the grammars resolves as neither — worth naming, since it
+  // is plausible to hand-write from two half-remembered examples and otherwise
+  // looks exactly like a deleted node.
+  //
+  // The test is the HIERARCHY separator, not "is there a colon anywhere"
+  // (@codex on #764). A legacy loc routinely contains `:` — `findings:foo` —
+  // while only the hierarchy uses `::`, so scanning the whole body flags
+  // `hrn:node:acme.com::dev::findings:foo`, a perfectly valid legacy URN, and
+  // sends the reader off to fix a spelling that was right. That is worse than
+  // the bare message it replaces.
+  //
+  // So: if `::` appears at all, everything BEFORE the first `::` is hierarchy
+  // and must not itself contain a `:`. `acme.com::dev::findings:foo` → "acme.com",
+  // clean. `acme.com:dev::findings` → "acme.com:dev", v2-joined and then v1 —
+  // genuinely mixed. Ownership chains pass, since their first atom is the root.
+  const body = urn.replace(URN_SCHEME_PREFIX, '');
+  const firstChain = body.indexOf('::');
+  if (firstChain !== -1 && body.slice(0, firstChain).includes(':')) {
     return (
       `It mixes the ":" and "::" separators, which resolves as neither grammar. ` +
       `Use the current "hrn:node:<org>:<memory>:<loc>", or the older form with "::" throughout.`

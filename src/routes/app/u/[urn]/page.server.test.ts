@@ -318,6 +318,41 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     }
   });
 
+  // @codex on #764. A legacy loc routinely contains ':' (`findings:foo`) while
+  // only the HIERARCHY uses '::'. Scanning the whole body for a lone colon
+  // flagged a perfectly valid legacy URN as "mixed" and sent the reader off to
+  // fix a spelling that was already right — worse than the bare message it
+  // replaced. My original tests could not catch this: the legacy URN I checked
+  // by hand had a colon-free loc (`review`), and the one WITH a colon resolved,
+  // so the false positive needed both halves at once to appear.
+  it('does NOT call a valid legacy URN "mixed" just because its loc contains a colon', async () => {
+    for (const urn of [
+      'hrn:node:acme.com::dev::findings:foo',
+      'urn:node:acme.com::dev::findings:foo',
+      'hrn:node:acme.com::dev::a:b:c:d',
+      // An ownership chain — >2 atoms, no string-derivable v2 form. Its first
+      // atom is still the root, so it must read as clean legacy too.
+      'hrn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports',
+    ]) {
+      const msg = await messageFor(urn);
+      expect(msg, urn).not.toContain('mixes the');
+      expect(msg, urn).toContain('the spelling is not the problem');
+    }
+  });
+
+  it('still flags a genuinely mixed URN — v2-joined hierarchy, then "::"', async () => {
+    const msg = await messageFor('hrn:node:acme.com:dev::findings:foo');
+    expect(msg).toContain('mixes the ":" and "::" separators');
+  });
+
+  // @copilot on #764 — the type word may contain hyphens.
+  it('recognises a hyphenated type word as a prefix', async () => {
+    for (const urn of ['hrn:chat-message:acme.com:dev:x', 'hrn:ai-config:acme.com:cfg']) {
+      const msg = await messageFor(urn);
+      expect(msg, urn).not.toContain('has no "hrn:<type>:" prefix');
+    }
+  });
+
   it('does not disclose existence — the message depends only on the input', async () => {
     // The same URN must read identically whether the server declined it as
     // absent (null resolution) or as forbidden (FORBIDDEN rejection). If these
