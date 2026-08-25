@@ -7,9 +7,12 @@ import {
 import {
   chatAuthorName,
   chatPostTarget,
+  chatRootLocForMessage,
+  isChatMessageNode,
   isChatNode,
   loadChatMessages,
   locSafeAuthor,
+  messagesPrefix,
   postChatMessage,
 } from '$lib/server/team-chat';
 import type { MemoryNode } from '$lib/types';
@@ -32,6 +35,85 @@ describe('isChatNode', () => {
     expect(isChatNode({ nodeType: 'info', tags: ['chat'] } as unknown as MemoryNode)).toBe(false);
     expect(isChatNode({ nodeType: 'chat-message', tags: [] } as unknown as MemoryNode)).toBe(false);
     expect(isChatNode(null)).toBe(false);
+  });
+});
+
+// #726. The chat root is the destination of the message page's "Open chat",
+// and it is derived from the loc rather than fetched, so the derivation is the
+// whole correctness of that link.
+describe('chatRootLocForMessage', () => {
+  it('is the inverse of messagesPrefix', () => {
+    expect(chatRootLocForMessage(`${messagesPrefix('chats:team')}003-Iris`)).toBe('chats:team');
+    expect(chatRootLocForMessage(`${messagesPrefix('a')}x`)).toBe('a');
+  });
+
+  it('cuts at the LAST :messages:, so a chat whose own loc contains it still resolves', () => {
+    // The chat root here is `archive:messages:2024`; cutting at the first
+    // boundary would name `archive` — a different node, silently.
+    expect(chatRootLocForMessage('archive:messages:2024:messages:007-Gil')).toBe(
+      'archive:messages:2024',
+    );
+  });
+
+  it('refuses an address that is not a DIRECT message of a chat', () => {
+    // The same "direct children only" rule loadChatMessages applies, so the
+    // two agree about what belongs to a thread.
+    expect(chatRootLocForMessage('chats:team:messages:007:reactions:a')).toBeNull();
+    expect(chatRootLocForMessage('chats:team:messages:')).toBeNull();
+    expect(chatRootLocForMessage('chats:team')).toBeNull();
+    expect(chatRootLocForMessage('messages:007')).toBeNull(); // nothing to be the root
+    expect(chatRootLocForMessage(null)).toBeNull();
+    expect(chatRootLocForMessage('')).toBeNull();
+  });
+
+  it('agrees with loadChatMessages about which locs are messages of a chat', async () => {
+    // Pin the pair rather than assert each alone: these two are the reason the
+    // mark and the thread cannot disagree, and nothing else enforces it.
+    const chatLoc = 'chats:team';
+    const locs = [
+      `${messagesPrefix(chatLoc)}001-Ada`, // a message
+      `${messagesPrefix(chatLoc)}002:draft`, // nested — not a message
+      `${chatLoc}:notes`, // not under the prefix at all
+    ];
+    const client = clientReturning(locs.map((l) => msg(l)));
+    const loaded = await loadChatMessages(client, 'mem-1', chatLoc);
+    const rendered = new Set(loaded.map((m) => m.nodeData.loc));
+
+    for (const loc of locs) {
+      expect(chatRootLocForMessage(loc) === chatLoc).toBe(rendered.has(loc));
+    }
+  });
+});
+
+describe('isChatMessageNode', () => {
+  it('accepts the platform type on its own — `chat-message` is unambiguous', () => {
+    expect(isChatMessageNode({ nodeType: 'chat-message', loc: 'anywhere' } as MemoryNode)).toBe(true);
+  });
+
+  it('requires the legacy `message` type to ALSO be addressed as one', () => {
+    // `message` is a generic word another corpus may use for something that is
+    // not a chat. Marking such a node "Chat Message:" renders perfectly and
+    // says something false — review:a-fallback-asserts-what-it-was-written-for.
+    expect(isChatMessageNode({ nodeType: 'message', loc: 'chats:team:messages:001' } as MemoryNode)).toBe(true);
+    expect(isChatMessageNode({ nodeType: 'message', loc: 'inbox:draft' } as MemoryNode)).toBe(false);
+  });
+
+  it('is false for a chat ROOT and for an ordinary node', () => {
+    expect(isChatMessageNode({ nodeType: 'chat', loc: 'chats:team' } as MemoryNode)).toBe(false);
+    expect(isChatMessageNode({ nodeType: 'info', loc: 'chats:team:messages:001' } as MemoryNode)).toBe(false);
+    expect(isChatMessageNode(null)).toBe(false);
+  });
+
+  it('never overlaps isChatNode — a node cannot be both the thread and a bubble', () => {
+    const cases = [
+      { nodeType: 'chat', loc: 'chats:team', tags: [] },
+      { nodeType: 'chat-message', loc: 'chats:team:messages:001', tags: [] },
+      { nodeType: 'message', loc: 'chats:team:messages:001', tags: [] },
+      { nodeType: 'info', loc: 'notes', tags: ['team-chat'] },
+    ];
+    for (const c of cases) {
+      expect(isChatNode(c as unknown as MemoryNode) && isChatMessageNode(c as unknown as MemoryNode)).toBe(false);
+    }
   });
 });
 

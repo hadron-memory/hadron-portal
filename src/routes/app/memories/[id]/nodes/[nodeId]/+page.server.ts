@@ -11,7 +11,7 @@ import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATIO
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
-import { chatAuthorName, chatPostTarget, isChatNode, loadChatMessages, postChatMessage, type ChatMessage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, chatRootLocForMessage, isChatMessageNode, isChatNode, loadChatMessages, postChatMessage, type ChatMessage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
@@ -216,6 +216,31 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
       })
     : Promise.resolve(null);
 
+  // #725/#726: the other end of a chat. A MESSAGE is marked in the header the
+  // way a chat root is, and offers "Open chat" — the thread it belongs to is
+  // the context a single bubble is missing, and nothing else on this page
+  // links to it.
+  const isChatMessage = isChatMessageNode(node);
+  // The chat ROOT's node id, resolved from the shared layout payload the
+  // breadcrumb already walks — so this costs no round trip. Two things are
+  // deliberately checked rather than assumed:
+  //   - the ancestor must actually BE a chat. A `<x>:messages:<y>` address does
+  //     not make `<x>` a chat node, and an "Open chat" landing on an ordinary
+  //     node would be a link that lies about where it goes.
+  //   - `memoryId === params.id`, the same scoping the breadcrumb applies (#234)
+  //     — a loc is unique per memory, not globally.
+  // When `graphNodes` is empty because the graph read FAILED (`nodesFailed`),
+  // the root cannot be resolved and the action is not offered. That withholds
+  // an affordance rather than asserting the message has no chat, and it is the
+  // same degradation the breadcrumb already accepts on the same input.
+  const chatRootLoc = isChatMessage ? chatRootLocForMessage(node.loc) : null;
+  const chatRoot = chatRootLoc
+    ? memoryNodes.find((n) => n.memoryId === params.id && n.loc === chatRootLoc)
+    : undefined;
+  const openChat = chatRoot && isChatNode(chatRoot)
+    ? { nodeId: chatRoot.id, loc: chatRoot.loc, name: chatRoot.name ?? chatRoot.loc }
+    : null;
+
   const flowRows = rowsFromNodeData(node.data);
   const output = outputFromNodeData(node.data);
   // #656: an edge whose target is null (unreadable memory) has no targetId to
@@ -262,6 +287,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   return {
     node,
     isChat,
+    isChatMessage,
+    openChat,
     chatMessages,
     canPostChat,
     sendChatMessageForm,
