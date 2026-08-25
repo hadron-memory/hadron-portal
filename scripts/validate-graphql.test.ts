@@ -354,15 +354,43 @@ describe('findCommentTerminatedDocuments catches a bare backtick anywhere in a G
     expect(find(source)).toHaveLength(1);
   });
 
-  it('accepts the terminator shapes real source uses', () => {
-    // Prove the SPARE, not just the FIRE. All 180 documents under src/ close
-    // with `` `; ``; `` `); `` is the call-argument form, and a trailing //
+  it('accepts every terminator shape the declaration matcher can actually produce', () => {
+    // Prove the SPARE, not just the FIRE — but only for tails that REACH this
+    // check. All 180 documents under src/ close with `` `; ``; a `,` continues
+    // a multi-declarator const; ASI allows none at all; and a trailing //
     // comment must not be read as prose running past the close.
+    //
+    // Each of these is scanned, which the earlier `gql(/* GraphQL */ …)`
+    // fixture was not: `declaration` requires /* GraphQL */ to follow `=`
+    // directly, so that source produced no documents and the assertion held
+    // whatever TERMINATOR_TAIL said. Both review bots caught it independently.
+    // The rule now admits nothing the matcher cannot reach, so there is no
+    // shape left to assert vacuously.
     expect(find(lines(`const A = /* GraphQL */ ${BT}`, '  query A { me { id } }', `${BT};`))).toEqual([]);
-    expect(find(lines(`const B = gql(/* GraphQL */ ${BT}`, '  query B { me { id } }', `${BT});`))).toEqual([]);
     expect(
-      find(lines(`const C = /* GraphQL */ ${BT}`, '  query C { me { id } }', `${BT}; // #681`)),
+      find(lines(`const B = /* GraphQL */ ${BT}`, '  query B { me { id } }', `${BT},`, '  OTHER = 2;')),
     ).toEqual([]);
+    expect(find(lines(`const C = /* GraphQL */ ${BT}`, '  query C { me { id } }', `${BT}`))).toEqual([]);
+    expect(
+      find(lines(`const D = /* GraphQL */ ${BT}`, '  query D { me { id } }', `${BT}; // #681`)),
+    ).toEqual([]);
+  });
+
+  it('is scanning each of those fixtures, not silently skipping them', () => {
+    // The other half of the finding: a spare test proves nothing unless the
+    // fixture reaches the matcher. Planting a blatant stray in each shape must
+    // FIRE — that is what the `gql(` fixture could not do, and how it stayed
+    // green while asserting a rule it never exercised.
+    const withStray = (name: string, close: string) =>
+      lines(
+        `const ${name} = /* GraphQL */ ${BT}`,
+        `  query ${name} { me { id } } # ${BT}x${BT}`,
+        close,
+      );
+    expect(find(withStray('A', `${BT};`))).toHaveLength(1);
+    expect(find(withStray('B', `${BT},`))).toHaveLength(1);
+    expect(find(withStray('C', BT))).toHaveLength(1);
+    expect(find(withStray('D', `${BT}; // #681`))).toHaveLength(1);
   });
 
   it('still flags a stray at the END of a line, which the shape rule alone would accept', () => {

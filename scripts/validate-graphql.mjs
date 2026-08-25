@@ -83,10 +83,21 @@ export function extractDocuments(file, text) {
 
 /**
  * The SHAPE half of a legitimate terminator (see below): the backtick, then
- * only closing punctuation and an optional trailing `//` comment, to end of
- * line. A real close ends its expression there; prose carries on past it.
+ * only what can END this declaration — `;`, a `,` continuing a multi-declarator
+ * `const`, or nothing (ASI) — plus an optional trailing `//` comment. A real
+ * close ends its expression there; prose carries on past it.
+ *
+ * COUPLED TO `declaration` below, which matches `const NAME = /* GraphQL *\/`
+ * and nothing else. That is why `)`, `]` and `}` are absent: no tail reaching
+ * this regex can contain them, because the form that would produce one — a
+ * document passed as a call argument, `gql(/* GraphQL *\/ `…`)` — is never
+ * scanned in the first place. An earlier draft allowed them, "for robustness",
+ * with a test asserting `` `); `` is accepted; both review bots caught that the
+ * fixture used the call form and so was never scanned at all, making the test
+ * vacuous and the permissiveness invisible. Widening `declaration` means
+ * widening this too, in the same commit.
  */
-const TERMINATOR_TAIL = /^`[)\]},;\s]*(?:\/\/.*)?$/;
+const TERMINATOR_TAIL = /^`[;,\s]*(?:\/\/.*)?$/;
 
 /**
  * Enforce the precondition `extractDocuments` above states and cannot check for
