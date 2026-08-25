@@ -109,10 +109,13 @@ export const createNodeStrings = {
   contentFrontmatterLabel: (): string => t('node-detail.content.frontmatter-label', 'Frontmatter'),
 
   /** Node-detail header caption prefix. "Task Node:" marks a runnable node (#322);
-   *  "Chat Node:" marks a chat root, whose thread is its content (#722). */
+   *  "Chat Node:" marks a chat root, whose thread is its content (#722);
+   *  "Chat Message:" marks one bubble of such a thread (#725). */
   nodeCaption: (): string => t('node-detail.caption.node', 'Node:'),
   taskNodeCaption: (): string => t('node-detail.caption.task-node', 'Task Node:'),
   chatNodeCaption: (): string => t('node-detail.caption.chat-node', 'Chat Node:'),
+  chatMessageNodeCaption: (): string =>
+    t('node-detail.caption.chat-message-node', 'Chat Message:'),
 };
 
 /**

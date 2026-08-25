@@ -33,13 +33,58 @@ export const CHAT_NODE_TYPE = 'chat';
 // module consumes it. Two copies of a well-known loc is exactly the drift
 // `cor:agt:020:04` warns about.
 export { TEAM_CHAT_LOC } from '$lib/app-chats';
+/** The platform message type (server #939) and this portal's legacy one. */
+export const PLATFORM_MESSAGE_NODE_TYPE = 'chat-message';
+const LEGACY_MESSAGE_NODE_TYPE = 'message';
 /** The nodeTypes that ARE messages. Anything else under the prefix is off-road
  *  content (an attachment, a hand-written note) and is not a bubble. */
-const MESSAGE_NODE_TYPES = ['chat-message', 'message'];
+const MESSAGE_NODE_TYPES = [PLATFORM_MESSAGE_NODE_TYPE, LEGACY_MESSAGE_NODE_TYPE];
+/** The loc segment a chat's thread hangs under — `<chatLoc>:messages:<atom>`. */
+const MESSAGES_SEGMENT = 'messages';
 
 export function isChatNode(node: Pick<MemoryNode, 'tags' | 'nodeType'> | null | undefined): boolean {
   if (!node) return false;
   return node.nodeType === CHAT_NODE_TYPE || !!node.tags?.includes(TEAM_CHAT_TAG);
+}
+
+/**
+ * The loc of the chat a message hangs under, or null when the loc is not a
+ * message address at all.
+ *
+ * The inverse of `messagesPrefix`: a message sits at `<chatLoc>:messages:<atom>`.
+ * The LAST `:messages:` is the boundary — a chat whose own loc contained the
+ * word would otherwise be cut at the wrong one — and the tail must be a single
+ * atom, which is exactly the "direct children only" rule `loadChatMessages`
+ * applies before it will render a node as a bubble. Keeping the two in
+ * agreement is the point: a node this returns a root for is a node that thread
+ * actually shows.
+ */
+export function chatRootLocForMessage(loc: string | null | undefined): string | null {
+  if (!loc) return null;
+  const marker = `:${MESSAGES_SEGMENT}:`;
+  const at = loc.lastIndexOf(marker);
+  if (at <= 0) return null; // absent, or nothing before it to be the root
+  const tail = loc.slice(at + marker.length);
+  if (!tail || tail.includes(':')) return null;
+  return loc.slice(0, at);
+}
+
+/**
+ * Is this node a chat MESSAGE — the thing that renders as a bubble (#725)?
+ *
+ * `chat-message` is the platform type (server #939) and is unambiguous, so the
+ * type alone answers it. `message` is the legacy portal-era type and is a
+ * generic English word that another corpus may well use for something that is
+ * not a chat at all, so it additionally has to be ADDRESSED as a message.
+ * Marking a node "Chat Message:" on the strength of a common type word is the
+ * quiet kind of wrong — it renders perfectly and says something false.
+ */
+export function isChatMessageNode(
+  node: Pick<MemoryNode, 'nodeType' | 'loc'> | null | undefined,
+): boolean {
+  if (!node) return false;
+  if (node.nodeType === PLATFORM_MESSAGE_NODE_TYPE) return true;
+  return node.nodeType === LEGACY_MESSAGE_NODE_TYPE && chatRootLocForMessage(node.loc) !== null;
 }
 
 /**
@@ -84,7 +129,7 @@ export type ChatMessage = {
 };
 
 export function messagesPrefix(chatLoc: string): string {
-  return `${chatLoc}:messages:`;
+  return `${chatLoc}:${MESSAGES_SEGMENT}:`;
 }
 
 /**

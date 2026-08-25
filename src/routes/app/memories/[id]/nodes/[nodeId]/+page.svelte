@@ -673,7 +673,22 @@
   const memoryUrn = $derived(node.memory?.urn ?? data.graph?.urn ?? '');
   const canAttachAsset = $derived(!!memoryUrn && !!cleanLoc);
 
+  // #725/#726. The server's predicates, read rather than re-derived, for the
+  // same reason `isChat` is (see below): the mark and the action must not be
+  // able to disagree with the load that resolved them. `openChat` is non-null
+  // ONLY when the chat root resolved and is really a chat node, so one value is
+  // both the gate for the menu item and its destination — the offer and the
+  // link cannot drift apart. Declared here rather than beside `isChat` because
+  // `menuActions` below is its first reader.
+  const isChatMessage = $derived(!!data.isChatMessage);
+  const openChat = $derived(data.openChat ?? null);
+
   const menuActions = $derived<NodeMenuAction[]>([
+    // #726: first, because on a message it is the action a reader actually
+    // came for — a single bubble is the one node whose surrounding thread is
+    // the point. Offered only when `openChat` resolved, so it never appears
+    // pointing nowhere.
+    ...(openChat ? [{ id: 'open-chat', label: t('node-actions.open-chat', 'Open chat') }] : []),
     { id: 'edit', label: t('node-actions.edit', 'Edit') },
     { id: 'download', label: t('node-actions.download', 'Download') },
     { id: 'add-child', label: t('node-actions.add-child', 'Add child') },
@@ -710,6 +725,11 @@
         $moveFormData.target = fullUrn;
         moveOpen = true;
         break;
+      // #726: the chat root's node page, which opens on its Chat tab — the
+      // thread in context, with this message in it. `openChat.nodeId` is a
+      // resolved PK, so it needs no ?tab= to land right (a chat node's default
+      // tab IS Chat).
+      case 'open-chat': if (openChat) goto(`${basePath}/nodes/${openChat.nodeId}`); break;
       case 'add-child': goto(addChildHref); break;
       case 'download': downloadOpen = true; break;
       case 'delete': $deleteFormData.hard = false; deleteOpen = true; break;
@@ -1435,8 +1455,19 @@
           <svg class="h-5 w-5 shrink-0 text-indigo-500 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
           </svg>
+        {:else if isChatMessage}
+          <!-- #725: one bubble OF a thread, not the thread. Squared with two
+               text lines so it reads as related to the chat glyph above but is
+               not mistaken for it at a glance — the two appear one click apart,
+               and a message page looking identical to its chat page is the
+               confusion this mark exists to remove. -->
+          <svg class="h-5 w-5 shrink-0 text-indigo-500 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 11.5a8.5 8.5 0 0 1-.6 3.1 1 1 0 0 0-.1.5V19a1 1 0 0 1-1 1h-3.9a1 1 0 0 0-.5.1 8.5 8.5 0 1 1 6.1-8.6z"></path>
+            <path d="M8.5 10h7"></path>
+            <path d="M8.5 14h4"></path>
+          </svg>
         {/if}
-        <span><span class="text-zinc-400 font-normal">{node.isRunnable ? createNodeStrings.taskNodeCaption() : isChat ? createNodeStrings.chatNodeCaption() : createNodeStrings.nodeCaption()}</span> {node.name}</span>
+        <span><span class="text-zinc-400 font-normal">{node.isRunnable ? createNodeStrings.taskNodeCaption() : isChat ? createNodeStrings.chatNodeCaption() : isChatMessage ? createNodeStrings.chatMessageNodeCaption() : createNodeStrings.nodeCaption()}</span> {node.name}</span>
         <!-- #588 (server #725): collection discriminator badge. -->
         {#if node.objectType}
           <span class="rounded-full bg-indigo-100 px-2 py-0.5 font-mono text-xs font-normal text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300" title={t('node.object-type.badge-title', 'Object type (collection)')}>{node.objectType}</span>
