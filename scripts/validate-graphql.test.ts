@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildSchema } from 'graphql';
 import { describe, expect, it } from 'vitest';
@@ -186,7 +187,7 @@ describe('the portal itself', () => {
 const BT = String.fromCharCode(96);
 const lines = (...rows: string[]) => rows.join('\n');
 
-describe('findCommentTerminatedDocuments catches a bare backtick in a # comment', () => {
+describe('findCommentTerminatedDocuments catches a bare backtick anywhere in a GraphQL body', () => {
   const find = (source: string) => findCommentTerminatedDocuments('test.ts', source);
 
   it('flags the shape, and points at the comment rather than the const', () => {
@@ -302,6 +303,85 @@ describe('findCommentTerminatedDocuments catches a bare backtick in a # comment'
     expect(find(`const B = /* GraphQL */ ${BT}query B { me { id } }${BT};`)).toEqual([]);
   });
 
+  // #774. POSITION was the whole test until this pair, and each of these
+  // returned [] — a tick — on source that does not compile. Reported by @Dara
+  // off hadron-server#1076, where the port of this check hit the same hole.
+  it('flags a stray backtick FIRST on its line, which position alone accepted', () => {
+    // A wrapped # comment continuing with a markdown code span. The stray is
+    // the first thing on its line, so it looked exactly like `` `; ``.
+    const found = find(
+      lines(
+        `export const A = /* GraphQL */ ${BT}`,
+        '  query A { me { id } }',
+        `${BT}Session.userId${BT} for why`,
+        `${BT};`,
+      ),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].line).toBe(3);
+    // Both readings, not just "remove the backticks" — which, on a line that
+    // resembles a terminator, reads as advice to delete a real one.
+    expect(found[0].errors.join(' ')).toMatch(/resembles a real close/);
+  });
+
+  it('flags a stray backtick inside a SINGLE-LINE document, which the same-line rule accepted', () => {
+    const found = find(
+      `const B = /* GraphQL */ ${BT}query B { me { id } } # see ${BT}me${BT}${BT};`,
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].errors.join(' ')).toMatch(/resembles a real close/);
+    // And it must NOT claim the document is single-line. The scan stopped at
+    // the FIRST backtick, so it has not found the real close and cannot know
+    // where it is — a multi-line document whose stray happens to sit on the
+    // opening line reaches this same branch. A confidently wrong sentence
+    // inside the artifact whose job is explaining a confusing failure is the
+    // defect this repo keeps paying for, not a wording nit.
+    expect(found[0].errors.join(' ')).not.toMatch(/single-line|one line/);
+  });
+
+  it('is the ONLY thing standing between these two shapes and a green gate', () => {
+    // The half that makes a false ✓ fatal rather than merely untidy: what is
+    // left after the stray truncates the body still PARSES and still VALIDATES,
+    // so findInvalid returns nothing and `pnpm gql:validate` exits 0 while the
+    // TypeScript build is broken. Measured, not reasoned.
+    const source = lines(
+      `export const A = /* GraphQL */ ${BT}`,
+      '  query A { me { id } }',
+      `${BT}Session.userId${BT} for why`,
+      `${BT};`,
+    );
+    expect(findInvalid(schema, docs(source))).toEqual([]);
+    expect(find(source)).toHaveLength(1);
+  });
+
+  it('accepts the terminator shapes real source uses', () => {
+    // Prove the SPARE, not just the FIRE. All 180 documents under src/ close
+    // with `` `; ``; `` `); `` is the call-argument form, and a trailing //
+    // comment must not be read as prose running past the close.
+    expect(find(lines(`const A = /* GraphQL */ ${BT}`, '  query A { me { id } }', `${BT};`))).toEqual([]);
+    expect(find(lines(`const B = gql(/* GraphQL */ ${BT}`, '  query B { me { id } }', `${BT});`))).toEqual([]);
+    expect(
+      find(lines(`const C = /* GraphQL */ ${BT}`, '  query C { me { id } }', `${BT}; // #681`)),
+    ).toEqual([]);
+  });
+
+  it('still flags a stray at the END of a line, which the shape rule alone would accept', () => {
+    // The shape rule sees nothing after this backtick and would call it a
+    // close; POSITION is what catches it. Both halves are load-bearing.
+    const found = find(
+      lines(
+        `export const A = /* GraphQL */ ${BT}`,
+        '  query A {',
+        `    # do not touch me here ${BT}`,
+        '    me { id }',
+        '  }',
+        `${BT};`,
+      ),
+    );
+    expect(found).toHaveLength(1);
+    expect(found[0].line).toBe(3);
+  });
+
   it('does not fire on a legitimate fragment interpolation', () => {
     expect(
       find(
@@ -356,5 +436,35 @@ describe('findCommentTerminatedDocuments catches a bare backtick in a # comment'
 describe('the portal itself has no comment-terminated documents', () => {
   it('is clean today', () => {
     expect(collectCommentTerminated()).toEqual([]);
+  });
+
+  // Plant into the REAL file rather than a hand-written fixture. Every case
+  // this check has missed was an idiom already written in the source it
+  // protects, and a fixture is a fixture of what I remembered to write.
+  //
+  // Driven through collectCommentTerminated — the walker CI calls — not the
+  // inner matcher: "is clean today" above returns [] just as happily when the
+  // walk selects NOTHING, which is review:ci-gate-prefilter-must-be-proven's
+  // green-gate-on-an-empty-set. This is the case that proves the walk reaches
+  // queries.ts and still bites there.
+  it('names the planted line, through the walker, when the defect is put into the real queries.ts', () => {
+    const real = readFileSync(join(ROOT, 'src', 'lib', 'server', 'queries.ts'), 'utf8').split('\n');
+    // The first real terminator, so the plant lands inside a document body.
+    const closing = real.findIndex((l) => l.trim() === `${BT};`);
+    expect(closing).toBeGreaterThan(0);
+
+    const planted = [...real];
+    planted.splice(closing, 0, `${BT}Session.userId${BT} for why`);
+
+    const dir = mkdtempSync(join(tmpdir(), 'gql-guard-'));
+    try {
+      mkdirSync(join(dir, 'lib', 'server'), { recursive: true });
+      writeFileSync(join(dir, 'lib', 'server', 'queries.ts'), planted.join('\n'));
+      const found = collectCommentTerminated(dir);
+      expect(found.length).toBeGreaterThan(0);
+      expect(found[0].line).toBe(closing + 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
