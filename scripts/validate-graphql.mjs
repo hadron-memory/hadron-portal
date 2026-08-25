@@ -82,6 +82,24 @@ export function extractDocuments(file, text) {
 }
 
 /**
+ * The SHAPE half of a legitimate terminator (see below): the backtick, then
+ * only what can END this declaration — `;`, a `,` continuing a multi-declarator
+ * `const`, or nothing (ASI) — plus an optional trailing `//` comment. A real
+ * close ends its expression there; prose carries on past it.
+ *
+ * COUPLED TO `declaration` below, which matches `const NAME = /* GraphQL *\/`
+ * and nothing else. That is why `)`, `]` and `}` are absent: no tail reaching
+ * this regex can contain them, because the form that would produce one — a
+ * document passed as a call argument, `gql(/* GraphQL *\/ `…`)` — is never
+ * scanned in the first place. An earlier draft allowed them, "for robustness",
+ * with a test asserting `` `); `` is accepted; both review bots caught that the
+ * fixture used the call form and so was never scanned at all, making the test
+ * vacuous and the permissiveness invisible. Widening `declaration` means
+ * widening this too, in the same commit.
+ */
+const TERMINATOR_TAIL = /^`[;,\s]*(?:\/\/.*)?$/;
+
+/**
  * Enforce the precondition `extractDocuments` above states and cannot check for
  * itself: a `/* GraphQL *\/` body never contains a nested backtick (#751).
  *
@@ -94,13 +112,15 @@ export function extractDocuments(file, text) {
  * loader and action, so every route test fails to transform at once; the wall
  * of unrelated red is the only real tell, and only if you already know it.
  *
- * Detected by WHERE the literal ended, which is the precondition itself rather
- * than one symptom of breaking it. A legitimate terminator is one of exactly
- * two shapes:
+ * Detected by asking whether the backtick that ended the literal is one that
+ * legitimately COULD have, which is the precondition itself rather than one
+ * symptom of breaking it. A legitimate terminator has to satisfy both halves:
  *
- *   - a multi-line document closes with the backtick FIRST on its line (`` `; ``);
- *     all 166 in queries.ts do
- *   - a single-line document opens and closes on the same line
+ *   - POSITION — first on its line (a multi-line document, `` `; ``), or on the
+ *     line the literal opened (a single-line document)
+ *   - SHAPE — the line ENDS there: the backtick, then only closing punctuation
+ *     and an optional trailing `//` comment. All 180 documents under src/ close
+ *     with exactly `` `; ``
  *
  * Anything else means the literal ended in the MIDDLE of a body, which is a
  * nested backtick by definition — wherever it sits. That matters because the
@@ -108,6 +128,23 @@ export function extractDocuments(file, text) {
  * `query A { me { id } } # mention `me`` terminates just as early, and the
  * truncated document left behind can still PARSE — so the validator would exit
  * 0 and the gate would be a phantom (Codex P2 on #757).
+ *
+ * POSITION alone was the whole test until SHAPE was added beside it, and it let
+ * through exactly that phantom in two shapes — measured, not reasoned: the gate
+ * exited 0 on source that does not compile. A stray backtick FIRST on its line
+ * (a wrapped `#` comment continuing with a markdown code span) was read as the
+ * close, and a stray anywhere on a single-line document's one line was accepted
+ * by the same-line rule. Both printed a tick. A false ✓ is worse than silence,
+ * because this gate exists only to translate a baffling esbuild error into a
+ * clear one — a tick spends the reader's attention steering them away from the
+ * defect. Reported by @Dara from hadron-server#1076, where the port hit it too.
+ *
+ * SHAPE does not extend to a real `` `.trim() `` or `` ` as const ``
+ * continuation, and deliberately: teaching a text scanner expression syntax
+ * gives prose one more shape to imitate, and that failure is a silent false
+ * negative — the only failure this gate exists to prevent. There are none in
+ * the tree; if one is ever written, this fires LOUDLY on valid source and the
+ * message says what a terminator may look like, which is the cheap direction.
  *
  * Written after the trap bit twice in one session (PRs #749 and #752), the
  * second time AFTER reading the finding that documents it and repairing that
@@ -130,12 +167,17 @@ export function findCommentTerminatedDocuments(file, text) {
 
     const openLineStart = text.lastIndexOf('\n', openIndex) + 1;
     const closeLineStart = text.lastIndexOf('\n', i) + 1;
+    const lineEnd = text.indexOf('\n', i);
+    const line = text.slice(closeLineStart, lineEnd === -1 ? text.length : lineEnd);
+
     const sameLineAsOpening = openLineStart === closeLineStart;
     const firstOnItsLine = text.slice(closeLineStart, i).trim() === '';
+    const positionCouldClose = sameLineAsOpening || firstOnItsLine;
+    // The rest of the line, from this backtick on. A real terminator ends the
+    // expression here; prose carries on past it.
+    const shapeCouldClose = TERMINATOR_TAIL.test(text.slice(i, lineEnd === -1 ? text.length : lineEnd));
 
-    if (!sameLineAsOpening && !firstOnItsLine) {
-      const lineEnd = text.indexOf('\n', i);
-      const line = text.slice(closeLineStart, lineEnd === -1 ? text.length : lineEnd);
+    if (!positionCouldClose || !shapeCouldClose) {
       const inComment = line.slice(0, i - closeLineStart).includes('#');
       offenders.push({
         name: match[1],
@@ -147,6 +189,23 @@ export function findCommentTerminatedDocuments(file, text) {
             : 'a backtick here ends the GraphQL template literal early —',
           'the build then fails on the NEXT line with a TypeScript error that names',
           'the wrong thing. Write the identifier as plain prose, without backticks.',
+          // Name the other reading. A backtick the POSITION rule would have
+          // accepted looks like a real terminator, so "remove the backticks"
+          // alone reads as advice to delete one — the confidently-wrong
+          // instruction hadron-server#1085 had to repair.
+          //
+          // Stated as what was OBSERVED, per review:diagnostic-message-must-not-
+          // guarantee. It does NOT say the document is single-line (this scan
+          // has not found the real close, so it cannot know) and does not call
+          // the rest of the line prose (it may be a `.trim()` continuation this
+          // check deliberately refuses).
+          ...(positionCouldClose
+            ? [
+                'This backtick sits where a terminator could sit — first on its line, or on the',
+                'line the document opened — so it resembles a real close. What rules it out is',
+                'the rest of the line: a terminator ends its line, and this one does not.',
+              ]
+            : []),
           `    ${line.trim()}`,
         ],
       });
@@ -336,7 +395,7 @@ function main(argv) {
       console.error(`\n✗ ${summary}`);
       if (terminated.length > 0) {
         console.error(
-          '  A backtick inside a # comment ends the template literal — remove the backticks.',
+          '  A backtick inside a GraphQL body ends the template literal — remove the backticks.',
         );
       }
       if (failures.length > 0) {
