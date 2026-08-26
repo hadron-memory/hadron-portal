@@ -131,8 +131,8 @@ describe('cleanLocInput', () => {
     // → `kb` as evidence the branch was load-bearing. It is not: with the
     // branch deleted the tolerant heuristic returns `kb` as well, so that
     // assertion held for the wrong reason and would have overstated the case
-    // for keeping the code. Removed rather than left decorative
-    // (review:a-spare-test-must-reach-the-matcher).
+    // for keeping the code. Removed rather than left decorative —
+    // hrn:node:hadronmemory.com:hadron-portal:review:a-spare-test-must-reach-the-matcher
   });
 
   // #777 / urn-lib-js 0.0.15 — fragments. The lib now strips a REGISTERED
