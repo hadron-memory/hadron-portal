@@ -3,6 +3,7 @@
   import { page } from "$app/stores";
   import type { TreeEntry } from "$lib/types";
   import { scopeTreeEntriesToSearch } from "$lib/graph-utils";
+  import { isHiddenNodeType } from "$lib/node-types";
   import { graphState } from "./GraphState.svelte.js";
 
   interface TreeNode {
@@ -13,7 +14,6 @@
   let {
     entries,
     basePath,
-    hideSearch = false,
     nodeHrefFn,
     onselect,
     onmove,
@@ -22,7 +22,6 @@
   }: {
     entries: TreeEntry[];
     basePath: string;
-    hideSearch?: boolean;
     nodeHrefFn?: (entry: TreeEntry) => string | null;
     /** When set (the graph-view sidebar), a plain click on a real-node row
      *  calls this instead of navigating — so the click selects the node in
@@ -30,30 +29,31 @@
     onselect?: (entry: TreeEntry) => void;
     onmove?: (fromLoc: string, newParentLoc: string) => void;
     onreorder?: (parentLoc: string, orderedLocs: string[]) => void;
-    /** When true, include record and system nodes in the tree. Bindable
-     *  so MemoryBrowser can keep TreeView and NodeList in sync. */
+    /** When true, include `HIDDEN_NODE_TYPES` nodes in the tree. Bindable so
+     *  MemoryBrowser can keep all three panes in sync from its one toggle. */
     showHidden?: boolean;
   } = $props();
 
   // Use shared search state so graph can react to the same filter
   let search = $derived(graphState.searchFilter);
-  // #531: node PKs matched by the server-backed content search, or null when the
-  // active search is TreeView's own name/id box (hideSearch=false consumers).
+  // #531: node PKs matched by the server-backed content search. The single
+  // search box lives in MemoryBrowser, so this is the only source.
   let searchResultNodeIds = $derived(graphState.searchResultNodeIds);
-  // Alias retained so existing template bindings keep working.
-  let showRecords = $derived(showHidden);
 
-  // Filter entries: exclude record nodes by default, then scope to the active
+  // Filter entries: exclude hidden types by default, then scope to the active
   // search. #531: a server content search publishes matched node PKs
   // (searchResultNodeIds) that the tree scopes to — so a tag/body-only hit
   // surfaces here, not just in the table. See scopeTreeEntriesToSearch.
+  //
+  // A VIRTUAL entry is never hidden: it is a synthesized folder, not a node
+  // with a type, so `nodeType` on it is not a claim about anything. Dropping
+  // one would orphan its visible children.
   let filteredEntries = $derived.by(() => {
-    const hiddenTypes = new Set(['record', 'system']);
-    const pool = showRecords ? entries : entries.filter((e) => !hiddenTypes.has(e.nodeType) || e.isVirtual);
+    const pool = showHidden
+      ? entries
+      : entries.filter((e) => !isHiddenNodeType(e.nodeType) || e.isVirtual);
     return scopeTreeEntriesToSearch(pool, searchResultNodeIds, search);
   });
-
-  const hasHiddenNodes = $derived(entries.some((e) => e.nodeType === 'record' || e.nodeType === 'system'));
 
   // Build nested tree from flat sorted entries
   let tree = $derived.by(() => {
@@ -274,26 +274,14 @@
   }
 </script>
 
-{#if !hideSearch}
-  <div class="tree-search">
-    <input
-      type="text"
-      class="search-input"
-      placeholder="Filter..."
-      value={search}
-      oninput={(e) => graphState.searchFilter = e.currentTarget?.value ?? ''}
-    />
-    {#if search}
-      <button class="search-clear" onclick={() => graphState.searchFilter = ''} aria-label="Clear search">&times;</button>
-    {/if}
-  </div>
-  {#if hasHiddenNodes}
-    <label class="record-toggle">
-      <input type="checkbox" bind:checked={showHidden} />
-      <span>Records</span>
-    </label>
-  {/if}
-{/if}
+<!-- #706: TreeView rendered its own "Filter…" box and a `Records` checkbox
+     behind `{#if !hideSearch}`. Both call sites passed `hideSearch={true}`, so
+     neither had rendered for a long time, and MemoryBrowser's own comment
+     already recorded why: the single search box and the single "Show hidden"
+     toggle live in its filter bar. Removed with the prop rather than left as a
+     control nobody can reach — a second toggle for one piece of state is how
+     the panes disagreed in the first place. `search` and `showHidden` are still
+     read; only the duplicate controls are gone. -->
 
 {#snippet nodeRow(node: TreeNode, depth: number)}
   {@const hasChildren = node.children.length > 0}
@@ -361,63 +349,6 @@
 </nav>
 
 <style>
-  .tree-search {
-    padding: 8px 8px 4px;
-    position: relative;
-  }
-
-  .search-input {
-    width: 100%;
-    padding: 6px 28px 6px 10px;
-    background: white;
-    border: 1px solid #d4d4d8;
-    border-radius: 6px;
-    color: #27272a;
-    font-size: 12px;
-    outline: none;
-    box-sizing: border-box;
-  }
-
-  :global(.dark) .search-input {
-    background: #161b22;
-    border-color: #30363d;
-    color: #c9d1d9;
-  }
-
-  .search-input:focus {
-    border-color: #58a6ff;
-    box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.15);
-  }
-
-  .search-input::placeholder {
-    color: #a1a1aa;
-  }
-
-  :global(.dark) .search-input::placeholder {
-    color: #484f58;
-  }
-
-  .search-clear {
-    position: absolute;
-    right: 14px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: none;
-    border: none;
-    color: #71717a;
-    cursor: pointer;
-    font-size: 14px;
-    padding: 0 4px;
-    line-height: 1;
-  }
-
-  .search-clear:hover {
-    color: #27272a;
-  }
-
-  :global(.dark) .search-clear { color: #8b949e; }
-  :global(.dark) .search-clear:hover { color: #c9d1d9; }
-
   .no-results {
     padding: 16px;
     text-align: center;
@@ -609,21 +540,4 @@
   }
 
   :global(.dark) .node-label.match { color: #f0f6fc; }
-
-  .record-toggle {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 14px 8px;
-    font-size: 11px;
-    color: #71717a;
-    cursor: pointer;
-  }
-
-  :global(.dark) .record-toggle { color: #8b949e; }
-
-  .record-toggle input {
-    width: 12px;
-    height: 12px;
-  }
 </style>
