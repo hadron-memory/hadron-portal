@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { cleanLocInput } from './clean-loc-input';
+import { splitNodeUrn } from './parse-urn';
 
 describe('cleanLocInput', () => {
   it('passes through a bare loc', () => {
@@ -102,6 +103,64 @@ describe('cleanLocInput', () => {
       expect(
         cleanLocInput('urn:memory:micromentor.org::coding-app::coding-agent::system'),
       ).toBe('system');
+    });
+
+    // #777 / urn-lib-js 0.0.15. This branch existed because the lib MIS-SPLIT a
+    // deep v1 `::` node URN — it took the first two atoms as the memory. 0.0.15
+    // settled the grammar the other way, so for a deep NODE URN the lib now
+    // returns what this branch does.
+    //
+    // Pinned rather than assumed, and pinned rather than acted on: the branch
+    // was NOT removed, because it also answers shapes `splitNodeUrn` refuses
+    // (the memory URN above, and a too-short node URN). This test is what makes
+    // a later removal a decision with evidence instead of a guess.
+    it('now AGREES with the library for a deep node URN — which is what makes the branch redundant HERE', () => {
+      const deep = 'hrn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports';
+      expect(splitNodeUrn(deep)).toEqual({
+        memoryUrn: 'micromentor.org:coding-app:coding-agent:system',
+        loc: 'review:sort-imports',
+      });
+      expect(cleanLocInput(deep)).toBe(splitNodeUrn(deep).loc);
+    });
+
+    // Which cases actually KEEP the branch alive was measured, not argued:
+    // deleting it reds exactly two of the tests above — the bare spec-021
+    // value and the pasted memory URN — and nothing else in this file.
+    //
+    // An earlier draft of the test above also asserted `hrn:node:acme.com::kb`
+    // → `kb` as evidence the branch was load-bearing. It is not: with the
+    // branch deleted the tolerant heuristic returns `kb` as well, so that
+    // assertion held for the wrong reason and would have overstated the case
+    // for keeping the code. Removed rather than left decorative —
+    // hrn:node:hadronmemory.com:hadron-portal:review:a-spare-test-must-reach-the-matcher
+  });
+
+  // #777 / urn-lib-js 0.0.15 — fragments. The lib now strips a REGISTERED
+  // `#data` before splitting and REFUSES an unregistered fragment. Both
+  // behaviours reach this function, and they land on opposite paths.
+  describe('a `#` fragment', () => {
+    it('drops a registered `#data`, because the LOC is the parent', () => {
+      // `#data` addresses the node's data, so the node's loc is what precedes
+      // it. 0.0.13 returned `some:loc#data`, which is not a valid loc at all —
+      // this is the bump improving the answer, not changing it arbitrarily.
+      expect(cleanLocInput('hrn:node:acme.com:mmdata:some:loc#data')).toBe('some:loc');
+    });
+
+    it('PRESERVES a loc that merely contains a `#`, via the fall-through', () => {
+      // The hazard hadron-server#1088 needed a tolerant wrapper for: a stored
+      // `Node.loc` may already contain a `#`, and 0.0.15 refuses it outright —
+      // so a strict path would make the row you most need to see the row you
+      // cannot read. Here `splitNodeUrn`'s try/catch already absorbs it and the
+      // heuristic passes the value through intact.
+      //
+      // This test exists because that catch was written for a DIFFERENT reason
+      // (a too-short value) and now carries this one. Deleting it as dead
+      // safety would silently reintroduce the server's bug.
+      expect(splitNodeUrn).toBeTypeOf('function');
+      expect(() => splitNodeUrn('hrn:node:acme.com:mmdata:some:loc#unregistered')).toThrow();
+      expect(cleanLocInput('hrn:node:acme.com:mmdata:some:loc#unregistered')).toBe(
+        'some:loc#unregistered',
+      );
     });
   });
 

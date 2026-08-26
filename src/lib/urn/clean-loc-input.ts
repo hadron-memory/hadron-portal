@@ -60,10 +60,26 @@ export function cleanLocInput(raw: string): string {
   // which is then rejected server-side as a wrong-shape loc (better
   // than silently coercing to a meaningless path).
   //
-  // NOTE this runs BEFORE the v2 splitter below — the lib's `splitNodeUrn`
-  // treats the first two atoms as the memory and would mis-split a DEEP v1
-  // `::` node URN (`org::app::agent::system::loc`); the last-`::`-segment rule
-  // is the correct v1 extraction.
+  // NOTE this runs BEFORE the v2 splitter below.
+  //
+  // It used to be here because the lib's `splitNodeUrn` treated the first two
+  // atoms as the memory and MIS-SPLIT a deep v1 `::` node URN
+  // (`org::app::agent::system::loc`). urn-lib-js 0.0.15 settled that the other
+  // way — everything but the last atom is the memory — so for a deep v1 NODE
+  // URN the library now returns exactly what this branch does, and there is a
+  // test pinning that they agree.
+  //
+  // The branch stays because it is NOT only about node URNs, which is what the
+  // old comment obscured. Deleting it reds exactly two cases — measured, not
+  // argued: a MEMORY URN pasted into a loc field
+  // (`urn:memory:org::app::agent::system` → `system`, then rejected
+  // server-side as a wrong-shape loc, which beats silently coercing it), and a
+  // bare spec-021-shape value with no `urn:node:` prefix. Both are shapes
+  // `splitNodeUrn` refuses, so they would fall to the tolerant heuristic below
+  // and come back different.
+  //
+  // A too-short node URN (`hrn:node:acme.com::kb`) is NOT one of them — the
+  // heuristic answers it identically, so it is no argument for this code.
   if (value.includes('::')) {
     const segments = value.split('::');
     return segments[segments.length - 1];
@@ -75,11 +91,20 @@ export function cleanLocInput(raw: string): string {
   // below can't strip). Only a v2 node URN reaches here with no `::`; a memory
   // URN or bare loc falls through. Guard with try/catch so a too-short value
   // (not a node URN) drops to the tolerant heuristic instead of throwing.
+  //
+  // 0.0.15 gave that try/catch a SECOND job it was not written for, and it is
+  // load-bearing now: the lib strips a registered `#data` fragment before
+  // splitting and REFUSES an unregistered one. A `Node.loc` may already contain
+  // a `#`, so on the refusal path this catch is what keeps such a value intact
+  // — it falls through to the heuristic, which passes the `#` through. That is
+  // the same hazard hadron-server#1088 had to add a tolerant wrapper for; here
+  // the wrapper already existed by accident. Do not "simplify" it away.
   if (parsed.type === 'node') {
     try {
       return splitNodeUrn(value).loc;
     } catch {
-      // not a fully-qualified node URN — fall through
+      // not a fully-qualified node URN, or a fragment the lib refuses
+      // — fall through
     }
   }
 

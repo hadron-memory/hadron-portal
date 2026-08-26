@@ -47,6 +47,12 @@ export {
   composeInstalledAgentUrn,
   assertFullyQualifiedUrn,
   splitNodeUrn,
+  // 0.0.15 — the edge counterpart of `splitNodeUrn`. No portal call site uses
+  // it yet; it is re-exported because the shared conformance corpus grew cases
+  // for it, and an absent re-export fails those cases loudly (see the note on
+  // the worker composers below). That is the re-export policy working: the
+  // corpus, not a changelog, is what told us the surface had moved.
+  splitEdgeUrn,
   UrnNotQualifiedError,
   parseFor,
   DISPLAY_URN_TYPES,
