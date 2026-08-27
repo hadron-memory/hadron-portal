@@ -165,7 +165,16 @@
   // start-of-refetch snapshot against a change counter, which lost both the
   // snapshot AND the character typed during the await (Codex P1 on #784).
   // Empty is meaningful here: it means the reader cleared the box.
-  let lastUserBody = '';
+  //
+  // SEEDED from the initial form, not from `''` (Codex P2 on #784). When the
+  // page hydrates with a non-empty submitted form — an unenhanced POST, or a
+  // submission made before hydration that came back with a validation or
+  // server error — the textarea already holds the reader's message but no
+  // `input` event ever fired. Starting at `''` would mean the first poll
+  // resynchronised superForm to the loader's blank form and `restoredDraft`
+  // refused, because the tracker said they never typed. That is the worst
+  // moment to lose the text: their post just FAILED and this is the copy.
+  let lastUserBody = untrack(() => get(postFormData).body ?? '');
   let postedCount = 0;
   function onComposerInput(e: Event) {
     lastUserBody = (e.currentTarget as HTMLTextAreaElement).value;
