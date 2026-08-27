@@ -100,9 +100,6 @@
         // message, which the user has no way to notice.
         if (f.valid && f.message?.type !== 'error') {
           replyTo = null;
-          // #784: a post that completes DURING a poll clears the body via
-          // `resetForm`. Count it so the poll's restore does not put the
-          // just-sent text back into the composer and invite a duplicate.
           // #754: your own message always scrolls into view. Posting is an
           // explicit "I am at the end of this conversation", so re-arm the
           // stickiness the reader may have dropped by scrolling up to quote
@@ -122,26 +119,40 @@
   // #785: the transcript the thread RENDERS. Seeded from the prop and replaced
   // by the poll, rather than the poll invalidating the page load.
   //
-  // The prop still wins whenever it changes — navigation, and the `invalidateAll`
-  // superForm does on a successful post — so a message you send appears through
-  // the same path it always did. `untrack` on the write keeps this effect
-  // depending on `messages` alone; reading `live` here would make it re-run on
-  // its own writes (`review:no-read-modify-write-state-in-effect`).
-  // `null` until a poll has produced something, so the PROP is the fallback
-  // rather than a value captured once at construction. The effect clears it
-  // whenever the prop changes — navigation, or the `invalidateAll` a successful
-  // post does — so fresh page data always beats an older polled transcript, and
-  // a message you send appears through the same path it always did.
+  // #785: the transcript the thread RENDERS — `null` until a poll has produced
+  // one, so the PROP is the fallback rather than a value captured at
+  // construction.
+  //
+  // FRESH PAGE DATA ALWAYS WINS. `dataGeneration` is bumped whenever the prop
+  // changes (navigation, or the `invalidateAll` a successful post does) and a
+  // poll result is discarded if the generation moved while it was in flight.
+  // Without that, a poll started before a post could resolve after it and
+  // reassign the older transcript — the message you just sent would VANISH
+  // until the next tick — and the same race across client-side navigation could
+  // briefly render the previous App's thread (Codex on #786). The invalidation
+  // #754 used had no such window; isolating the read created one.
   let polled = $state<{ items: TeamChatMessage[]; total: number } | null>(null);
+  let dataGeneration = $state(0);
   $effect(() => {
-    // Depend on the prop; do not read `polled` here, or this effect would
-    // re-run on its own write (review:no-read-modify-write-state-in-effect).
+    // Depend on BOTH props; do not read `polled` or `dataGeneration` here, or
+    // this effect would re-run on its own writes
+    // (review:no-read-modify-write-state-in-effect).
     messages;
     total;
-    untrack(() => { polled = null; });
+    untrack(() => {
+      dataGeneration += 1;
+      polled = null;
+    });
   });
   const shownMessages = $derived(polled?.items ?? messages);
   const shownTotal = $derived(polled?.total ?? total);
+  // A successful poll RECOVERS the view from a failed initial load. `loadError`
+  // is a prop, so nothing else can clear it now that a tick no longer refreshes
+  // page data — the thread would sit on its error alert until a reload, even
+  // though it has a good transcript in hand (Codex on #786). `polled !== null`
+  // is exactly "a poll has succeeded since the last page data", because the
+  // effect above clears it whenever that data changes.
+  const shownLoadError = $derived(loadError && polled === null);
 
   const bySeq = $derived(indexBySeq(shownMessages));
   // The page cap is applied server-side, so a transcript can be a suffix of the
@@ -217,6 +228,9 @@
       // own. Reading an isolated endpoint touches no form at all, so the whole
       // problem is gone rather than handled. Verified by deleting the guard and
       // watching a draft survive three polls.
+      // The generation this request belongs to. If fresh page data lands while
+      // it is in flight, the answer below is stale and must be dropped.
+      const startedAt = untrack(() => dataGeneration);
       try {
         const next = await onRefresh!();
         // A degraded read (`loadFailed`) is NOT an empty thread. Applying it
@@ -224,7 +238,7 @@
         // failed — the loud-error-over-silent-fallback rule, and
         // `review:a-fallback-asserts-what-it-was-written-for`: `items: []`
         // means "we could not read", not "there are no messages".
-        if (next && !next.loadFailed) {
+        if (next && !next.loadFailed && untrack(() => dataGeneration) === startedAt) {
           polled = { items: next.items, total: next.total };
         }
       } catch (e) {
@@ -272,7 +286,7 @@
     onscroll={onTranscriptScroll}
     class="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-5 bg-gray-50 dark:bg-zinc-900"
   >
-    {#if loadError}
+    {#if shownLoadError}
       <!-- "Couldn't load" and "nothing here" are different statements; the
            empty state below must never be shown for a failed fetch. -->
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
