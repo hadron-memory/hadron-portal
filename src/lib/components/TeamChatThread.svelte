@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
+  import { get } from 'svelte/store';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import { marked } from 'marked';
@@ -16,6 +17,7 @@
     indexBySeq,
     replyPreviewOf,
   } from './team-chat-thread';
+  import { TEAM_CHAT_POLL_MS, isAtBottom, restoredDraft } from '$lib/team-chat-refresh';
   import type { TeamChatMessage } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
@@ -45,6 +47,8 @@
     form = null,
     action = '?/postTeamChatMessage',
     heightClass = 'flex-1 min-h-0',
+    onRefresh,
+    pollMs = TEAM_CHAT_POLL_MS,
   }: {
     messages?: TeamChatMessage[];
     /** The SERVER's count, which may exceed what was fetched. */
@@ -55,6 +59,11 @@
     form?: unknown;
     action?: string;
     heightClass?: string;
+    /** #754: refetch the transcript. The route supplies this — it owns the
+     *  invalidation key it declared. Omit to disable polling entirely. */
+    onRefresh?: () => void | Promise<void>;
+    /** Poll period in ms; 0 or less disables the timer. */
+    pollMs?: number;
   } = $props();
 
   let messagesEl: HTMLDivElement | null = $state(null);
@@ -86,7 +95,19 @@
         // Clear the reply target only on a SUCCESSFUL post. Clearing it on
         // failure would silently downgrade a retried reply into a top-level
         // message, which the user has no way to notice.
-        if (f.valid && f.message?.type !== 'error') replyTo = null;
+        if (f.valid && f.message?.type !== 'error') {
+          replyTo = null;
+          // #784: a post that completes DURING a poll clears the body via
+          // `resetForm`. Count it so the poll's restore does not put the
+          // just-sent text back into the composer and invite a duplicate.
+          postedCount++;
+          lastUserBody = '';
+          // #754: your own message always scrolls into view. Posting is an
+          // explicit "I am at the end of this conversation", so re-arm the
+          // stickiness the reader may have dropped by scrolling up to quote
+          // something — otherwise the message they just sent lands off-screen.
+          stickToBottom = true;
+        }
       },
     },
   );
@@ -121,8 +142,123 @@
     scrollToBottom();
   });
 
+  // #754: stick to the newest message only for a reader who is ALREADY at the
+  // bottom. This used to scroll unconditionally on every change to `messages`,
+  // which was harmless while `messages` only changed when the viewer posted.
+  // Polling replaces the array every few seconds, so the old behaviour would
+  // yank a reader out of the history they are reading, on a timer.
+  //
+  // Read via `untrack`: this effect must fire on `messages`, not on the reader
+  // scrolling. Without it, scrolling would re-run the effect and scroll them
+  // back down — a scroll position that fights the person holding the mouse.
+  let stickToBottom = $state(true);
+  function onTranscriptScroll() {
+    stickToBottom = isAtBottom(messagesEl);
+  }
+
+  // #754/#784: what the READER last typed, and whether a post landed. Plain
+  // `let`s, not `$state`: nothing renders from them and they must not
+  // invalidate anything.
+  //
+  // `lastUserBody` is the LATEST user-caused value, updated on every keystroke
+  // — not a snapshot taken when a refetch began. An earlier version compared a
+  // start-of-refetch snapshot against a change counter, which lost both the
+  // snapshot AND the character typed during the await (Codex P1 on #784).
+  // Empty is meaningful here: it means the reader cleared the box.
+  //
+  // SEEDED from the initial form, not from `''` (Codex P2 on #784). When the
+  // page hydrates with a non-empty submitted form — an unenhanced POST, or a
+  // submission made before hydration that came back with a validation or
+  // server error — the textarea already holds the reader's message but no
+  // `input` event ever fired. Starting at `''` would mean the first poll
+  // resynchronised superForm to the loader's blank form and `restoredDraft`
+  // refused, because the tracker said they never typed. That is the worst
+  // moment to lose the text: their post just FAILED and this is the copy.
+  let lastUserBody = untrack(() => get(postFormData).body ?? '');
+  let postedCount = 0;
+  function onComposerInput(e: Event) {
+    lastUserBody = (e.currentTarget as HTMLTextAreaElement).value;
+  }
   $effect(() => {
-    if (messages) setTimeout(scrollToBottom, 0);
+    if (messages && untrack(() => stickToBottom)) setTimeout(scrollToBottom, 0);
+  });
+
+  // #754: poll for replies a resident worker posted server-side. Without this
+  // the thread only refreshed when the VIEWER posted (superForm's
+  // `invalidateAll`), so a reply arrived on the server and the human watching
+  // saw nothing until they reloaded.
+  //
+  // Paused while the tab is hidden — a backgrounded page must not keep a
+  // six-query load running on a timer — and refetched IMMEDIATELY on becoming
+  // visible again, because that is exactly the moment the reader is most likely
+  // to be looking at a stale thread. A plain interval would leave them staring
+  // at up to a full period of nothing.
+  //
+  // `onRefresh` is injected rather than calling `invalidate` here: this
+  // component is generic, and the invalidation key belongs to the route that
+  // declared the dependency. It also makes the poll drivable in a test without
+  // a router.
+  $effect(() => {
+    if (!isBrowser || !onRefresh || pollMs <= 0) return;
+    // One refresh at a time. If a refetch outlives the period the timer would
+    // stack them, and each one is a full page load — the slow case is exactly
+    // the case where piling on more is worst (Copilot on #784).
+    let inFlight = false;
+    const fire = async () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      if (inFlight) return;
+      inFlight = true;
+      // A refresh re-runs the load, which hands superForm a fresh
+      // `postTeamChatMessageForm` — and superForm re-syncs from it, DROPPING an
+      // unsent draft. Measured: 41 characters of typing vanished on the first
+      // tick. Nobody would report that as "the poll is broken"; they would
+      // report that the chat ate their message, and only sometimes.
+      //
+      // So carry the draft across the refetch. `get()` rather than
+      // `$postFormData` so reading it does not subscribe this effect to every
+      // keystroke.
+      //
+      // The restore is gated on `draftEpoch`, NOT on "the body came back
+      // empty". Empty has three causes and only one of them is ours (Codex on
+      // #784):
+      //   - superForm re-synced from the refreshed load  -> restore
+      //   - the user CLEARED the box while we were awaiting -> restoring would
+      //     undo a deliberate edit
+      //   - a post COMPLETED while we were awaiting, and `resetForm` cleared
+      //     the body it just sent -> restoring would put the SENT text back in
+      //     the composer and invite a duplicate message
+      // The last one is the dangerous one, so the test is "did anything the
+      // user did touch the draft in this window", not "is it empty now".
+      const postsBefore = postedCount;
+      try {
+        await onRefresh!();
+      } catch (e) {
+        // A refetch can fail transiently (offline, a blip). Swallow it: the
+        // next tick retries, and an unhandled rejection here would surface as
+        // console noise a reader would reasonably read as a real fault.
+        console.warn('[team-chat] refresh failed; will retry on the next tick:', e);
+        return;
+      } finally {
+        inFlight = false;
+      }
+      const restore = restoredDraft({
+        lastUserBody,
+        postedDuringRefresh: postedCount !== postsBefore,
+        currentBody: get(postFormData).body,
+      });
+      if (restore !== null) {
+        postFormData.update((f) => ({ ...f, body: restore }));
+      }
+    };
+    const timer = setInterval(() => void fire(), pollMs);
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && !document.hidden) void fire();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   });
 
   function startReply(seq: number) {
@@ -146,6 +282,7 @@
 <div class="flex flex-col {heightClass}">
   <div
     bind:this={messagesEl}
+    onscroll={onTranscriptScroll}
     class="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-5 bg-gray-50 dark:bg-zinc-900"
   >
     {#if loadError}
@@ -300,6 +437,7 @@
           id="team-chat-body"
           name="body"
           bind:value={$postFormData.body}
+          oninput={onComposerInput}
           placeholder={t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl+Enter to send). Mention a teammate with @name.')}
           rows="3"
           disabled={$postSubmitting}

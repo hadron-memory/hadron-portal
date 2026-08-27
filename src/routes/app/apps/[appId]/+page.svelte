@@ -9,6 +9,17 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
+  import { invalidate } from '$app/navigation';
+  import { TEAM_CHAT_DEP } from '$lib/team-chat-refresh';
+
+  // #754: hoisted to a STABLE identity on purpose. As an inline arrow in the
+  // template this is a new function on every render — and since each poll
+  // re-runs the load, every tick re-rendered, handed the thread a fresh
+  // `onRefresh`, and made its polling effect tear down and restart the
+  // interval. Measured: one refetch in 20s where two were due, because the 8s
+  // clock kept resetting. A prop that changes identity every render is not a
+  // callback, it is a dependency.
+  const refreshTeamChat = () => invalidate(TEAM_CHAT_DEP);
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
@@ -1355,6 +1366,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           postForm={data.postTeamChatMessageForm}
           {form}
           action="?tab=chats&chat=chats%3Ateam&/postTeamChatMessage"
+          onRefresh={refreshTeamChat}
         />
       </div>
     </div>
