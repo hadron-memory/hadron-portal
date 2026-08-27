@@ -6,6 +6,7 @@
   import { page } from '$app/stores';
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
+  import { isHiddenNodeType } from '$lib/node-types';
   import { onDestroy, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
@@ -159,16 +160,87 @@
   let treeWidth = $state(256);
   let dragging = $state(false);
 
-  // Lifted from TreeView so both the tree and the flat node list honor the
-  // same "show hidden (record + system) nodes" toggle. The checkbox UI still
-  // lives in TreeView but binds against this state via the bindable prop.
+  // The one "show hidden nodes" toggle, honoured by all three panes — the tree
+  // (via the bindable prop), the table, and, since #706, the graph. The UI is
+  // the filter-bar checkbox below; TreeView's own duplicate was removed in the
+  // same issue, so this is the only control that writes it.
+  //
+  // #706: PERSISTED, like `storedView` and `nodesPane` above. Revealing hidden
+  // nodes and then navigating used to silently re-hide them, which reads as the
+  // nodes disappearing again rather than as a filter resetting — the same
+  // confusion the toggle exists to remove. Same SSR dance as `nodesPane`:
+  // seed a deterministic default so the server render matches, then hydrate the
+  // stored value in the first effect run and persist changes after it.
+  const SHOW_HIDDEN_KEY = 'hadron:memoryBrowser:showHidden';
+  function readStoredShowHidden(): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(SHOW_HIDDEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
   let showHidden = $state(false);
+  let showHiddenHydrated = false;
+  $effect(() => {
+    if (!showHiddenHydrated) {
+      showHiddenHydrated = true;
+      const stored = readStoredShowHidden();
+      if (stored !== showHidden) showHidden = stored;
+      return;
+    }
+    try {
+      window.localStorage.setItem(SHOW_HIDDEN_KEY, showHidden ? '1' : '0');
+    } catch {
+      /* ignore quota / disabled storage */
+    }
+  });
 
   // When the URL carries ?focus=<nodeId>, we forward it to TopicGraph so
   // the node is selected and centered, and we switch to the graph view.
   const focusId = $derived($page.url.searchParams.get('focus') ?? undefined);
   $effect(() => {
     if (focusId && !forcedView) storedView = 'graph';
+  });
+
+  // #706 review (Codex): the node page's "Graph" link is UNCONDITIONAL — every
+  // node's Settings tab offers it, including a record/system one. Before this
+  // PR the graph carried every node, so focusing a hidden one worked by
+  // accident. Now that the graph honours the filter, following that link with
+  // the toggle off would build a graph WITHOUT the requested node:
+  // `TopicGraph.focusNode` would not find it in `data.topics` and the graph
+  // would open having selected and centred nothing, with no error — the reader
+  // asked to see one specific node and got a graph that silently lacks it.
+  //
+  // Reveal instead of refusing. Following that link IS the request to see the
+  // node, so honouring it is what the user asked for, and flipping the visible
+  // toggle says plainly why hidden nodes are now shown — the alternative
+  // (keeping just the focused node while the toggle reads "off") is a pane
+  // disagreeing with its own control, which is the defect this whole issue is
+  // about. It writes the persisted preference, deliberately: a silent one-off
+  // exception would leave the reader unable to explain what they are seeing.
+  //
+  // Reveal ONCE PER FOCUS TARGET, and never read `showHidden` here. Guarding on
+  // `showHidden` made this effect depend on the very state it writes:
+  // unchecking the box set it false, which re-ran the effect, which saw the
+  // same still-hidden `focusId` and set it true again — so the checkbox could
+  // not be turned off at all while `?focus=` stayed in the URL. That is
+  // `review:no-read-modify-write-state-in-effect`, and it is the SAME one-way
+  // switch this file warns about at `hasHiddenNodes`: I wrote that warning in
+  // this PR and then built the trap from the other direction.
+  //
+  // `autoRevealedFor` is a plain `let`, not `$state` — it must not become a
+  // dependency either, the same reason `showHiddenHydrated` above is plain.
+  // Re-running on `filteredNodes` IS wanted: the node list arrives after mount,
+  // so the first pass usually has nothing to match yet.
+  let autoRevealedFor: string | null = null;
+  $effect(() => {
+    const id = focusId;
+    if (!id || id === autoRevealedFor) return;
+    if (filteredNodes.some((n) => n.id === id && isHiddenNodeType(n.nodeType))) {
+      autoRevealedFor = id;
+      showHidden = true;
+    }
   });
 
   function startDrag(e: MouseEvent) {
@@ -636,7 +708,7 @@
   // full pool (so TreeView can still detect hasHiddenNodes and render the
   // toggle); the filter is applied in searchedNodes below, which feeds
   // NodeList.
-  const HIDDEN_TYPES = new Set(['record', 'system']);
+  // #706: `isHiddenNodeType` is the ONE definition, shared with TreeView.
   // When a server search is active, its results ARE the working set; otherwise
   // the loaded nodes. The memory/type/tag dropdowns refine whichever is shown.
   const displayNodes = $derived(serverResults ?? nodes);
@@ -649,24 +721,34 @@
     })
   );
 
-  // Whether the current (memory/type/tag-filtered) pool still contains
-  // record/system nodes — gates the "Show hidden" control in the filter bar
-  // for the nodes view. Both nodes panes pass hideSearch to TreeView (which
-  // also hides its own Records checkbox), so this filter-bar control is the
-  // single toggle. Based on filteredNodes to mirror TreeView's own
-  // visibility test, so it disappears when active filters exclude them all.
-  const hasHiddenNodes = $derived(filteredNodes.some((n) => HIDDEN_TYPES.has(n.nodeType ?? 'info')));
+  // Whether the current (memory/type/tag-filtered) pool still contains hidden
+  // nodes — gates the "Show hidden" control in the filter bar. That control is
+  // the SINGLE toggle for all three panes; #706 removed TreeView's own
+  // duplicate. Based on filteredNodes so it disappears when the active
+  // memory/type/tag filters exclude every hidden node.
+  //
+  // It MUST read `filteredNodes`, never `visibleNodes`. On `visibleNodes` this
+  // is false whenever the toggle is off — because that is precisely what the
+  // toggle removed — so the control would vanish the moment you turned it off
+  // and there would be no way to turn it back on. A one-way switch, reachable
+  // by "simplifying" one identifier.
+  const hasHiddenNodes = $derived(filteredNodes.some((n) => isHiddenNodeType(n.nodeType)));
 
-  const searchedNodes = $derived(
-    filteredNodes.filter((n) => {
-      // Hide record + system nodes unless the user toggled them on. The text
-      // match itself is now done server-side (issue #355), so there's no
-      // client-side keyword filter here — `filteredNodes` already reflects
-      // either the loaded set or the server search results.
-      if (!showHidden && HIDDEN_TYPES.has(n.nodeType ?? 'info')) return false;
-      return true;
-    })
+  // The pool every pane shows. #706: this used to feed only NodeList while the
+  // graph was built from `filteredNodes` — the pool BEFORE the hidden filter —
+  // so record/system nodes rendered as graph nodes while being invisible in the
+  // tree beside them. One derived value now answers "what is visible" for the
+  // table and the graph; the tree gets `filteredNodes` and filters internally,
+  // because it needs the unfiltered pool to decide whether hidden nodes exist
+  // at all.
+  //
+  // The text match is server-side (#355), so there is no keyword filter here —
+  // `filteredNodes` is already either the loaded set or the search results.
+  const visibleNodes = $derived(
+    showHidden ? filteredNodes : filteredNodes.filter((n) => !isHiddenNodeType(n.nodeType))
   );
+  // Retained name: NodeList and the search-rescue count below read this.
+  const searchedNodes = $derived(visibleNodes);
 
   // #372: a server search matches across ALL node types, but the hidden-types
   // filter then drops record/system matches — so a query that only hit record
@@ -711,13 +793,25 @@
     const urns = new Set(filteredNodes.map((n) => n.memory?.urn).filter(Boolean));
     return urns.size === 1 ? [...urns][0] : undefined;
   });
-  const rawGraphViewData = $derived(buildGraphViewData(filteredNodes, singleMemoryUrn));
+  // #706: the graph is built from `visibleNodes`, not `filteredNodes` — it was
+  // the one pane that never applied the hidden filter, so a record/system node
+  // appeared as a graph node while being absent from the tree beside it.
+  const rawGraphViewData = $derived(buildGraphViewData(visibleNodes, singleMemoryUrn));
+  // The tree deliberately still gets the UNFILTERED pool: TreeView applies the
+  // hidden filter itself (and keeps virtual folders regardless), so handing it
+  // `visibleNodes` would filter the same nodes twice and, worse, hide the
+  // folders whose only children are hidden — which is what makes "Show hidden"
+  // reveal something rather than nothing.
   const treeEntries = $derived(buildTreeEntries(filteredNodes, singleMemoryUrn));
 
   // Color rules: multiple memories → color by memory; multiple selected types → color by type; otherwise same color
   const graphViewData = $derived.by(() => {
     const gv = rawGraphViewData;
-    const memoryUrns = [...new Set(filteredNodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean);
+    // #706: `visibleNodes` throughout this derivation, matching what the graph
+    // actually renders. On `filteredNodes` a hidden node still voted — it could
+    // tip `hasMultiMemory` on for a memory with nothing visible in it, and
+    // `locToType` could colour a FOLDER by the type of a node not on screen.
+    const memoryUrns = [...new Set(visibleNodes.map((n) => n.memory?.urn ?? ''))].filter(Boolean);
     const hasMultiMemory = multiMemory && memoryUrns.length > 1;
     const hasMultiTypeFilter = activeNodeTypes.size > 1;
 
@@ -738,7 +832,7 @@
     const locToType: Record<string, string> = {};
     const locToMemory: Record<string, string> = {};
 
-    for (const n of filteredNodes) {
+    for (const n of visibleNodes) {
       idToType[n.id] = n.nodeType ?? 'info';
       idToMemory[n.id] = n.memory?.name ?? n.memory?.urn ?? '';
       locToType[n.loc] = n.nodeType ?? 'info';
@@ -1110,14 +1204,20 @@
           >Nodes</button>
         </div>
       {/if}
+      <!-- #706: OUTSIDE the nodes-view gate. This control used to be
+           nodes-only, which was right while the graph ignored the hidden
+           filter — there was nothing to reveal there. Now that the graph
+           honours it, gating the toggle to one view would make the graph
+           consistent and its hidden nodes unreachable: filtered out, with no
+           control in sight. Found by driving the graph pane, not by a test. -->
+      {#if hasHiddenNodes}
+        <label class="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 cursor-pointer">
+          <input type="checkbox" bind:checked={showHidden}
+            class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
+          {t('memory-browser.show-hidden', 'Show hidden')}
+        </label>
+      {/if}
       {#if activeView === 'nodes'}
-        {#if hasHiddenNodes}
-          <label class="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 cursor-pointer">
-            <input type="checkbox" bind:checked={showHidden}
-              class="rounded border-zinc-300 text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
-            Show hidden
-          </label>
-        {/if}
         <div
           role="group"
           aria-label={t('memory-browser.nodes-pane-label', 'Nodes layout')}
@@ -1252,7 +1352,7 @@
               <button type="button" class="ml-1 font-semibold hover:underline" aria-label="Dismiss move error" title="Dismiss" onclick={() => (moveError = null)}>×</button>
             </p>
           {/if}
-          <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onselect={handleTreeSelect} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
+          <TreeView entries={treeEntries} {basePath} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onselect={handleTreeSelect} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
         </aside>
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <!-- Hidden with the tree it resizes. It is also mouse-only
@@ -1299,8 +1399,17 @@
       >
         <div style="display: flex; height: 100%;">
           <!-- resultsVersion (#616): re-mount when the server working set
-               changes, even at the same size — see setServerResults. -->
-          {#key resultsVersion + ':' + filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
+               changes, even at the same size — see setServerResults.
+               showHidden (#706): TopicGraph builds its vis datasets ONCE, in
+               onMount, and its effects only flip `hidden` on ids that already
+               exist — so a node absent at mount can never appear. Toggling
+               "Show hidden" changes `visibleNodes`, but NONE of the other key
+               terms move: `filteredNodes.length` is the pool BEFORE the hidden
+               filter, and resultsVersion only bumps on a server search. Without
+               this term the count, tree and table update while the canvas keeps
+               its old nodes. Same trap as #616, same file, caught by the same
+               reviewer. -->
+          {#key resultsVersion + ':' + filteredNodes.length + ':' + showHidden + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
             <TopicGraph data={graphViewData} {focusId} {basePath} />
           {/key}
         </div>
@@ -1320,7 +1429,7 @@
               <button type="button" class="ml-1 font-semibold hover:underline" aria-label="Dismiss move error" title="Dismiss" onclick={() => (moveError = null)}>×</button>
             </p>
           {/if}
-          <TreeView entries={treeEntries} {basePath} hideSearch={true} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
+          <TreeView entries={treeEntries} {basePath} nodeHrefFn={basePath ? undefined : treeNodeHrefFn} onmove={handleTreeMove} onreorder={handleTreeReorder} bind:showHidden />
         </div>
       {:else}
         <div class="p-4">
