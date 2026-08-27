@@ -1359,8 +1359,17 @@
       >
         <div style="display: flex; height: 100%;">
           <!-- resultsVersion (#616): re-mount when the server working set
-               changes, even at the same size — see setServerResults. -->
-          {#key resultsVersion + ':' + filteredNodes.length + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
+               changes, even at the same size — see setServerResults.
+               showHidden (#706): TopicGraph builds its vis datasets ONCE, in
+               onMount, and its effects only flip `hidden` on ids that already
+               exist — so a node absent at mount can never appear. Toggling
+               "Show hidden" changes `visibleNodes`, but NONE of the other key
+               terms move: `filteredNodes.length` is the pool BEFORE the hidden
+               filter, and resultsVersion only bumps on a server search. Without
+               this term the count, tree and table update while the canvas keeps
+               its old nodes. Same trap as #616, same file, caught by the same
+               reviewer. -->
+          {#key resultsVersion + ':' + filteredNodes.length + ':' + showHidden + ':' + [...activeMemoryUrns].join(',') + ':' + [...activeNodeTypes].join(',') + ':' + [...activeTags].join(',') + ':' + keyword}
             <TopicGraph data={graphViewData} {focusId} {basePath} />
           {/key}
         </div>
