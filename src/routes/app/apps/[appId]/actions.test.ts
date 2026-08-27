@@ -167,14 +167,19 @@ describe('load', () => {
   // nothing else checks they agree, so this asserts the declaring half against
   // the shared constant rather than a repeated string literal.
   it('declares the team-chat invalidation dependency the poller invalidates', async () => {
-    mockRequest.mockImplementation(async () => {
-      throw new Error('Unexpected query');
-    });
+    // Resolve everything to an empty object rather than THROWING per query.
+    // A rejecting mock made the load's parallel fetches produce a rejection
+    // nobody awaited — vitest reported "1 unhandled error" and failed the run
+    // in CI while passing locally, because the rejection landed after the local
+    // run had finished. Resolving `{}` makes the load fail at its own
+    // `if (!appData.app) throw error(404)`, which is a thrown error the try
+    // below catches, not a floating promise.
+    mockFetchAllItems.mockResolvedValue([]);
+    mockRequest.mockImplementation(() => Promise.resolve({}));
     const depends = vi.fn();
     const { load } = await import('./+page.server');
-    // The declaration happens before any fetching, so a load that then fails on
-    // the hostile mock still proves it. Swallow the rejection deliberately:
-    // this test is about the dependency, not about a successful load.
+    // The declaration happens before any fetching, so a load that then fails
+    // still proves it. This test is about the dependency, not a successful load.
     try {
       await load({
         params: { id: 'org-1', appId: 'app-1' },
