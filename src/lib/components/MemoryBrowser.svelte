@@ -203,6 +203,29 @@
     if (focusId && !forcedView) storedView = 'graph';
   });
 
+  // #706 review (Codex): the node page's "Graph" link is UNCONDITIONAL — every
+  // node's Settings tab offers it, including a record/system one. Before this
+  // PR the graph carried every node, so focusing a hidden one worked by
+  // accident. Now that the graph honours the filter, following that link with
+  // the toggle off would build a graph WITHOUT the requested node:
+  // `TopicGraph.focusNode` would not find it in `data.topics` and the graph
+  // would open having selected and centred nothing, with no error — the reader
+  // asked to see one specific node and got a graph that silently lacks it.
+  //
+  // Reveal instead of refusing. Following that link IS the request to see the
+  // node, so honouring it is what the user asked for, and flipping the visible
+  // toggle says plainly why hidden nodes are now shown — the alternative
+  // (keeping just the focused node while the toggle reads "off") is a pane
+  // disagreeing with its own control, which is the defect this whole issue is
+  // about. It writes the persisted preference, deliberately: a silent one-off
+  // exception would leave the reader unable to explain what they are seeing.
+  $effect(() => {
+    if (!focusId || showHidden) return;
+    if (filteredNodes.some((n) => n.id === focusId && isHiddenNodeType(n.nodeType))) {
+      showHidden = true;
+    }
+  });
+
   function startDrag(e: MouseEvent) {
     e.preventDefault();
     dragging = true;
