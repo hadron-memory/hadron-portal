@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { TEAM_CHAT_DEP } from '$lib/team-chat-refresh';
 import {
   ADD_AGENT_TO_APP_MUTATION,
   APP_NODES_QUERY,
@@ -149,10 +148,11 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
-      // #754: the load declares an invalidation dependency for the team-chat
-      // poll. A hand-built event is a PARTIAL fake of the real one, so every
-      // load param the route starts using has to be added here — this one
-      // surfaced as `depends is not a function` across 23 cases at once.
+      // A hand-built event is a PARTIAL fake of the real one, so every load
+      // param the route uses has to be added here — `depends` surfaced as
+      // `depends is not a function` across 23 cases at once when #754 added it.
+      // #785 removed the route's use of it; the stub stays because the next
+      // param to be added will need this comment more than the churn is worth.
       depends: () => {},
       url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as { addAgentForm: { data: { agentId: string } } };
@@ -160,40 +160,6 @@ describe('load', () => {
     expect(result.addAgentForm.data.agentId).toBe('');
   });
 
-  // #754: the team-chat poll calls `invalidate(TEAM_CHAT_DEP)`. That only
-  // re-runs this load if the load DECLARED the dependency — and if it does not,
-  // `invalidate` on an unknown key is a silent no-op: no error, no refetch, a
-  // thread that just never updates. The two halves are a matched pair and
-  // nothing else checks they agree, so this asserts the declaring half against
-  // the shared constant rather than a repeated string literal.
-  it('declares the team-chat invalidation dependency the poller invalidates', async () => {
-    // Resolve everything to an empty object rather than THROWING per query.
-    // A rejecting mock made the load's parallel fetches produce a rejection
-    // nobody awaited — vitest reported "1 unhandled error" and failed the run
-    // in CI while passing locally, because the rejection landed after the local
-    // run had finished. Resolving `{}` makes the load fail at its own
-    // `if (!appData.app) throw error(404)`, which is a thrown error the try
-    // below catches, not a floating promise.
-    mockFetchAllItems.mockResolvedValue([]);
-    mockRequest.mockImplementation(() => Promise.resolve({}));
-    const depends = vi.fn();
-    const { load } = await import('./+page.server');
-    // The declaration happens before any fetching, so a load that then fails
-    // still proves it. This test is about the dependency, not a successful load.
-    try {
-      await load({
-        params: { id: 'org-1', appId: 'app-1' },
-        locals: { token: 'tok', user: { id: 'user-1' } },
-        parent: async () => ({}),
-        depends,
-        url: new URL('http://localhost/app/apps/app-1'),
-      } as unknown as Parameters<typeof load>[0]);
-    } catch {
-      /* expected — the hostile mock rejects every query */
-    }
-
-    expect(depends).toHaveBeenCalledWith(TEAM_CHAT_DEP);
-  });
 
   // #974: "couldn't load the staff" and "this App has no staff" are different
   // statements, and the empty state must not tell the second lie. The loader
@@ -231,10 +197,11 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
-      // #754: the load declares an invalidation dependency for the team-chat
-      // poll. A hand-built event is a PARTIAL fake of the real one, so every
-      // load param the route starts using has to be added here — this one
-      // surfaced as `depends is not a function` across 23 cases at once.
+      // A hand-built event is a PARTIAL fake of the real one, so every load
+      // param the route uses has to be added here — `depends` surfaced as
+      // `depends is not a function` across 23 cases at once when #754 added it.
+      // #785 removed the route's use of it; the stub stays because the next
+      // param to be added will need this comment more than the churn is worth.
       depends: () => {},
       url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as { staff: unknown; staffError: boolean };
@@ -273,10 +240,11 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
-      // #754: the load declares an invalidation dependency for the team-chat
-      // poll. A hand-built event is a PARTIAL fake of the real one, so every
-      // load param the route starts using has to be added here — this one
-      // surfaced as `depends is not a function` across 23 cases at once.
+      // A hand-built event is a PARTIAL fake of the real one, so every load
+      // param the route uses has to be added here — `depends` surfaced as
+      // `depends is not a function` across 23 cases at once when #754 added it.
+      // #785 removed the route's use of it; the stub stays because the next
+      // param to be added will need this comment more than the churn is worth.
       depends: () => {},
       url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as { staff: unknown[]; staffError: boolean };
@@ -303,10 +271,11 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
-      // #754: the load declares an invalidation dependency for the team-chat
-      // poll. A hand-built event is a PARTIAL fake of the real one, so every
-      // load param the route starts using has to be added here — this one
-      // surfaced as `depends is not a function` across 23 cases at once.
+      // A hand-built event is a PARTIAL fake of the real one, so every load
+      // param the route uses has to be added here — `depends` surfaced as
+      // `depends is not a function` across 23 cases at once when #754 added it.
+      // #785 removed the route's use of it; the stub stays because the next
+      // param to be added will need this comment more than the churn is worth.
       depends: () => {},
       url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as {
@@ -340,10 +309,11 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
-      // #754: the load declares an invalidation dependency for the team-chat
-      // poll. A hand-built event is a PARTIAL fake of the real one, so every
-      // load param the route starts using has to be added here — this one
-      // surfaced as `depends is not a function` across 23 cases at once.
+      // A hand-built event is a PARTIAL fake of the real one, so every load
+      // param the route uses has to be added here — `depends` surfaced as
+      // `depends is not a function` across 23 cases at once when #754 added it.
+      // #785 removed the route's use of it; the stub stays because the next
+      // param to be added will need this comment more than the churn is worth.
       depends: () => {},
       url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as {
@@ -378,10 +348,11 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
-      // #754: the load declares an invalidation dependency for the team-chat
-      // poll. A hand-built event is a PARTIAL fake of the real one, so every
-      // load param the route starts using has to be added here — this one
-      // surfaced as `depends is not a function` across 23 cases at once.
+      // A hand-built event is a PARTIAL fake of the real one, so every load
+      // param the route uses has to be added here — `depends` surfaced as
+      // `depends is not a function` across 23 cases at once when #754 added it.
+      // #785 removed the route's use of it; the stub stays because the next
+      // param to be added will need this comment more than the churn is worth.
       depends: () => {},
       url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as {
@@ -412,10 +383,11 @@ describe('load', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
-      // #754: the load declares an invalidation dependency for the team-chat
-      // poll. A hand-built event is a PARTIAL fake of the real one, so every
-      // load param the route starts using has to be added here — this one
-      // surfaced as `depends is not a function` across 23 cases at once.
+      // A hand-built event is a PARTIAL fake of the real one, so every load
+      // param the route uses has to be added here — `depends` surfaced as
+      // `depends is not a function` across 23 cases at once when #754 added it.
+      // #785 removed the route's use of it; the stub stays because the next
+      // param to be added will need this comment more than the churn is worth.
       depends: () => {},
       url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0]);
@@ -1206,10 +1178,11 @@ describe('worklog loading (#733)', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
-      // #754: the load declares an invalidation dependency for the team-chat
-      // poll. A hand-built event is a PARTIAL fake of the real one, so every
-      // load param the route starts using has to be added here — this one
-      // surfaced as `depends is not a function` across 23 cases at once.
+      // A hand-built event is a PARTIAL fake of the real one, so every load
+      // param the route uses has to be added here — `depends` surfaced as
+      // `depends is not a function` across 23 cases at once when #754 added it.
+      // #785 removed the route's use of it; the stub stays because the next
+      // param to be added will need this comment more than the churn is worth.
       depends: () => {},
       url: new URL(`http://localhost/app/apps/app-1${search}`),
     } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
@@ -1353,10 +1326,11 @@ describe('team chat tail paging (#738)', () => {
       params: { id: 'org-1', appId: 'app-1' },
       locals: { token: 'tok', user: { id: 'user-1' } },
       parent: async () => ({}),
-      // #754: the load declares an invalidation dependency for the team-chat
-      // poll. A hand-built event is a PARTIAL fake of the real one, so every
-      // load param the route starts using has to be added here — this one
-      // surfaced as `depends is not a function` across 23 cases at once.
+      // A hand-built event is a PARTIAL fake of the real one, so every load
+      // param the route uses has to be added here — `depends` surfaced as
+      // `depends is not a function` across 23 cases at once when #754 added it.
+      // #785 removed the route's use of it; the stub stays because the next
+      // param to be added will need this comment more than the churn is worth.
       depends: () => {},
       url: new URL('http://localhost/app/apps/app-1'),
     } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;

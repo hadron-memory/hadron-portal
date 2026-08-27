@@ -3,9 +3,10 @@ import {
   CREATE_NODE_MUTATION,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
   NODES_BY_LOC_PREFIX_QUERY,
+  TEAM_CHAT_MESSAGES_QUERY,
 } from '$lib/server/queries';
 import { TEAM_CHAT_LOC } from '$lib/app-chats';
-import type { MemoryNode } from '$lib/types';
+import type { MemoryNode, TeamChatMessage } from '$lib/types';
 
 // A chat node holds a message thread one level down, under `<chat.loc>:messages:`.
 // Both the standalone chat page and the node detail page's Chat tab read/write
@@ -262,4 +263,55 @@ export async function postChatMessage(
     },
   });
   return { nodeId: createNode.id };
+}
+
+// ── The APP team chat (server #939) ─────────────────────────────────────────
+// Distinct from the node-based reading above: this is the `teamChatMessages`
+// GraphQL operation, which is how the App page and its poll read the thread.
+// It lives here, in the module named for the subject, so the page load
+// (`+page.server.ts`) and the isolated poll endpoint (`team-chat/+server.ts`)
+// share ONE definition — #785. Two copies of the paging rule below is exactly
+// the drift its own comment warns about.
+
+// The server caps `teamChatMessages` at 200.
+const TEAM_CHAT_PAGE_SIZE = 200;
+
+/**
+ * Load the NEWEST page of a team chat.
+ *
+ * `teamChatMessages` is seq-ordered ASCENDING with an offset cursor, so
+ * `limit: 200` with no offset returns the OLDEST 200 — the opposite of what a
+ * chat transcript wants. Past 200 messages that silently pins the view to the
+ * start of history: every new post lands off-page, including the one the user
+ * just made (the composer invalidates and re-reads), and the tab would still
+ * caption it "showing the most recent messages". A chat that eats your own
+ * message while claiming to be current is worse than one that fails.
+ *
+ * So: page once, and if the server's `total` says there is more, ask again for
+ * the tail. One round trip in the common case, two only for a chat past the
+ * cap, and correct in both. Caught by Codex on PR #738.
+ */
+export async function loadTeamChatTail(
+  client: GraphQLClient,
+  appRef: string,
+): Promise<{ items: TeamChatMessage[]; total: number }> {
+  const first = await client
+    .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
+      TEAM_CHAT_MESSAGES_QUERY,
+      { appRef, limit: TEAM_CHAT_PAGE_SIZE },
+    )
+    .then((r) => r.teamChatMessages);
+
+  if (first.total <= first.items.length) return first;
+
+  const offset = Math.max(0, first.total - TEAM_CHAT_PAGE_SIZE);
+  const tail = await client
+    .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
+      TEAM_CHAT_MESSAGES_QUERY,
+      { appRef, limit: TEAM_CHAT_PAGE_SIZE, offset },
+    )
+    .then((r) => r.teamChatMessages);
+  // `total` from the tail read, not the first: messages can be posted between
+  // the two requests, and the later count is the one that matches this page.
+  return tail;
 }
