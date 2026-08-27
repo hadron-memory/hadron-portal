@@ -31,6 +31,7 @@ import {
 } from '$lib/server/queries';
 import { normalizeFilter, normalizeKind } from '$lib/components/worklog';
 import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, buildAppChatList, resolveSelectedChat } from '$lib/app-chats';
+import { TEAM_CHAT_DEP } from '$lib/team-chat-refresh';
 import { loadChatMessages } from '$lib/server/team-chat';
 import type {
   Organization,
@@ -312,7 +313,13 @@ const RETIRED_TAB_ALIASES: Record<string, { tab: string; chat: string }> = {
   'team-chat': { tab: 'chats', chat: TEAM_CHAT_LOC },
 };
 
-export const load: PageServerLoad = async ({ params, locals, url }) => {
+export const load: PageServerLoad = async ({ params, locals, url, depends }) => {
+  // #754: the team chat polls for resident-worker replies. `invalidate` on this
+  // key re-runs THIS load and nothing else — `invalidateAll()` would also re-run
+  // every parent layout load on every tick, which is a lot of work to refetch
+  // one thread. The key is exported so the component and the loader cannot drift
+  // apart on its spelling.
+  depends(TEAM_CHAT_DEP);
   // Worklog filters ride the URL rather than component state, because `ref`
   // lookup — "which worker sessions produced this PR?" — is the question the
   // worklog exists to answer, and an answer you cannot link to is half an
