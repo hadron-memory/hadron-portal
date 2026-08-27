@@ -31,7 +31,7 @@ import {
 } from '$lib/server/queries';
 import { normalizeFilter, normalizeKind } from '$lib/components/worklog';
 import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, buildAppChatList, resolveSelectedChat } from '$lib/app-chats';
-import { TEAM_CHAT_DEP } from '$lib/team-chat-refresh';
+import { loadTeamChatTail } from '$lib/server/team-chat';
 import { loadChatMessages } from '$lib/server/team-chat';
 import type {
   Organization,
@@ -85,48 +85,6 @@ const appSettingsFormAdapter = zod4(appSettingsSchema);
 const castWorkerFormAdapter = zod4(castWorkerSchema);
 const createAppKeyFormAdapter = zod4(createAppKeySchema);
 const deleteAppFormAdapter = zod4(deleteAppSchema);
-// The server caps `teamChatMessages` at 200.
-const TEAM_CHAT_PAGE_SIZE = 200;
-
-/**
- * Load the NEWEST page of a team chat.
- *
- * `teamChatMessages` is seq-ordered ASCENDING with an offset cursor, so
- * `limit: 200` with no offset returns the OLDEST 200 — the opposite of what a
- * chat transcript wants. Past 200 messages that silently pins the view to the
- * start of history: every new post lands off-page, including the one the user
- * just made (the composer invalidates and re-reads), and the tab would still
- * caption it "showing the most recent messages". A chat that eats your own
- * message while claiming to be current is worse than one that fails.
- *
- * So: page once, and if the server's `total` says there is more, ask again for
- * the tail. One round trip in the common case, two only for a chat past the
- * cap, and correct in both. Caught by Codex on PR #738.
- */
-async function loadTeamChatTail(
-  client: ReturnType<typeof gqlClient>,
-  appRef: string,
-): Promise<{ items: TeamChatMessage[]; total: number }> {
-  const first = await client
-    .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
-      TEAM_CHAT_MESSAGES_QUERY,
-      { appRef, limit: TEAM_CHAT_PAGE_SIZE },
-    )
-    .then((r) => r.teamChatMessages);
-
-  if (first.total <= first.items.length) return first;
-
-  const offset = Math.max(0, first.total - TEAM_CHAT_PAGE_SIZE);
-  const tail = await client
-    .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
-      TEAM_CHAT_MESSAGES_QUERY,
-      { appRef, limit: TEAM_CHAT_PAGE_SIZE, offset },
-    )
-    .then((r) => r.teamChatMessages);
-  // `total` from the tail read, not the first: messages can be posted between
-  // the two requests, and the later count is the one that matches this page.
-  return tail;
-}
 
 const postTeamChatMessageFormAdapter = zod4(postTeamChatMessageSchema);
 const removeAppAgentFormAdapter = zod4(removeAppAgentSchema);
@@ -313,13 +271,12 @@ const RETIRED_TAB_ALIASES: Record<string, { tab: string; chat: string }> = {
   'team-chat': { tab: 'chats', chat: TEAM_CHAT_LOC },
 };
 
-export const load: PageServerLoad = async ({ params, locals, url, depends }) => {
-  // #754: the team chat polls for resident-worker replies. `invalidate` on this
-  // key re-runs THIS load and nothing else — `invalidateAll()` would also re-run
-  // every parent layout load on every tick, which is a lot of work to refetch
-  // one thread. The key is exported so the component and the loader cannot drift
-  // apart on its spelling.
-  depends(TEAM_CHAT_DEP);
+export const load: PageServerLoad = async ({ params, locals, url }) => {
+  // #785: this load no longer carries the team chat's refresh. The poll reads
+  // `team-chat/+server.ts` directly, because a background tick must not be able
+  // to re-run THIS function — its failure paths are fatal (a 404 on an org
+  // blip, 500s on transport) and would replace a working page with an error
+  // page on a timer.
   // Worklog filters ride the URL rather than component state, because `ref`
   // lookup — "which worker sessions produced this PR?" — is the question the
   // worklog exists to answer, and an answer you cannot link to is half an

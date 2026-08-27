@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
-  import { get } from 'svelte/store';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import { marked } from 'marked';
@@ -17,7 +16,7 @@
     indexBySeq,
     replyPreviewOf,
   } from './team-chat-thread';
-  import { TEAM_CHAT_POLL_MS, isAtBottom, restoredDraft } from '$lib/team-chat-refresh';
+  import { TEAM_CHAT_POLL_MS, isAtBottom } from '$lib/team-chat-refresh';
   import type { TeamChatMessage } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
@@ -59,9 +58,13 @@
     form?: unknown;
     action?: string;
     heightClass?: string;
-    /** #754: refetch the transcript. The route supplies this — it owns the
-     *  invalidation key it declared. Omit to disable polling entirely. */
-    onRefresh?: () => void | Promise<void>;
+    /** #754/#785: fetch the transcript afresh. The route supplies this — it
+     *  owns HOW to read (an isolated endpoint), this component owns WHEN (the
+     *  timer, the visibility gate) and what to do with the answer. Returning
+     *  the data rather than invalidating is the whole point of #785: a tick
+     *  must not be able to re-run the page's fatal load paths. Omit to disable
+     *  polling entirely. */
+    onRefresh?: () => Promise<{ items: TeamChatMessage[]; total: number; loadFailed: boolean } | null>;
     /** Poll period in ms; 0 or less disables the timer. */
     pollMs?: number;
   } = $props();
@@ -100,8 +103,6 @@
           // #784: a post that completes DURING a poll clears the body via
           // `resetForm`. Count it so the poll's restore does not put the
           // just-sent text back into the composer and invite a duplicate.
-          postedCount++;
-          lastUserBody = '';
           // #754: your own message always scrolls into view. Posting is an
           // explicit "I am at the end of this conversation", so re-arm the
           // stickiness the reader may have dropped by scrolling up to quote
@@ -118,10 +119,34 @@
     ]),
   );
 
-  const bySeq = $derived(indexBySeq(messages));
+  // #785: the transcript the thread RENDERS. Seeded from the prop and replaced
+  // by the poll, rather than the poll invalidating the page load.
+  //
+  // The prop still wins whenever it changes — navigation, and the `invalidateAll`
+  // superForm does on a successful post — so a message you send appears through
+  // the same path it always did. `untrack` on the write keeps this effect
+  // depending on `messages` alone; reading `live` here would make it re-run on
+  // its own writes (`review:no-read-modify-write-state-in-effect`).
+  // `null` until a poll has produced something, so the PROP is the fallback
+  // rather than a value captured once at construction. The effect clears it
+  // whenever the prop changes — navigation, or the `invalidateAll` a successful
+  // post does — so fresh page data always beats an older polled transcript, and
+  // a message you send appears through the same path it always did.
+  let polled = $state<{ items: TeamChatMessage[]; total: number } | null>(null);
+  $effect(() => {
+    // Depend on the prop; do not read `polled` here, or this effect would
+    // re-run on its own write (review:no-read-modify-write-state-in-effect).
+    messages;
+    total;
+    untrack(() => { polled = null; });
+  });
+  const shownMessages = $derived(polled?.items ?? messages);
+  const shownTotal = $derived(polled?.total ?? total);
+
+  const bySeq = $derived(indexBySeq(shownMessages));
   // The page cap is applied server-side, so a transcript can be a suffix of the
   // real thread. Say so rather than letting a partial view read as complete.
-  const truncated = $derived(total > messages.length);
+  const truncated = $derived(shownTotal > shownMessages.length);
 
   function renderMarkdown(text: string): string {
     // DOMPurify needs a real DOM and cannot run under SSR. Emit nothing until
@@ -156,31 +181,8 @@
     stickToBottom = isAtBottom(messagesEl);
   }
 
-  // #754/#784: what the READER last typed, and whether a post landed. Plain
-  // `let`s, not `$state`: nothing renders from them and they must not
-  // invalidate anything.
-  //
-  // `lastUserBody` is the LATEST user-caused value, updated on every keystroke
-  // — not a snapshot taken when a refetch began. An earlier version compared a
-  // start-of-refetch snapshot against a change counter, which lost both the
-  // snapshot AND the character typed during the await (Codex P1 on #784).
-  // Empty is meaningful here: it means the reader cleared the box.
-  //
-  // SEEDED from the initial form, not from `''` (Codex P2 on #784). When the
-  // page hydrates with a non-empty submitted form — an unenhanced POST, or a
-  // submission made before hydration that came back with a validation or
-  // server error — the textarea already holds the reader's message but no
-  // `input` event ever fired. Starting at `''` would mean the first poll
-  // resynchronised superForm to the loader's blank form and `restoredDraft`
-  // refused, because the tracker said they never typed. That is the worst
-  // moment to lose the text: their post just FAILED and this is the copy.
-  let lastUserBody = untrack(() => get(postFormData).body ?? '');
-  let postedCount = 0;
-  function onComposerInput(e: Event) {
-    lastUserBody = (e.currentTarget as HTMLTextAreaElement).value;
-  }
   $effect(() => {
-    if (messages && untrack(() => stickToBottom)) setTimeout(scrollToBottom, 0);
+    if (shownMessages && untrack(() => stickToBottom)) setTimeout(scrollToBottom, 0);
   });
 
   // #754: poll for replies a resident worker posted server-side. Without this
@@ -208,30 +210,23 @@
       if (typeof document !== 'undefined' && document.hidden) return;
       if (inFlight) return;
       inFlight = true;
-      // A refresh re-runs the load, which hands superForm a fresh
-      // `postTeamChatMessageForm` — and superForm re-syncs from it, DROPPING an
-      // unsent draft. Measured: 41 characters of typing vanished on the first
-      // tick. Nobody would report that as "the poll is broken"; they would
-      // report that the chat ate their message, and only sometimes.
-      //
-      // So carry the draft across the refetch. `get()` rather than
-      // `$postFormData` so reading it does not subscribe this effect to every
-      // keystroke.
-      //
-      // The restore is gated on `draftEpoch`, NOT on "the body came back
-      // empty". Empty has three causes and only one of them is ours (Codex on
-      // #784):
-      //   - superForm re-synced from the refreshed load  -> restore
-      //   - the user CLEARED the box while we were awaiting -> restoring would
-      //     undo a deliberate edit
-      //   - a post COMPLETED while we were awaiting, and `resetForm` cleared
-      //     the body it just sent -> restoring would put the SENT text back in
-      //     the composer and invite a duplicate message
-      // The last one is the dangerous one, so the test is "did anything the
-      // user did touch the draft in this window", not "is it empty now".
-      const postsBefore = postedCount;
+      // #785: the composer needs no protection here any more. #754 polled by
+      // invalidating the page load, which re-synced superForm from a fresh form
+      // and WIPED an unsent draft — measured, 41 characters gone on the first
+      // tick — and the guard against that grew three rounds of races of its
+      // own. Reading an isolated endpoint touches no form at all, so the whole
+      // problem is gone rather than handled. Verified by deleting the guard and
+      // watching a draft survive three polls.
       try {
-        await onRefresh!();
+        const next = await onRefresh!();
+        // A degraded read (`loadFailed`) is NOT an empty thread. Applying it
+        // would blank a transcript the reader is looking at because one tick
+        // failed — the loud-error-over-silent-fallback rule, and
+        // `review:a-fallback-asserts-what-it-was-written-for`: `items: []`
+        // means "we could not read", not "there are no messages".
+        if (next && !next.loadFailed) {
+          polled = { items: next.items, total: next.total };
+        }
       } catch (e) {
         // A refetch can fail transiently (offline, a blip). Swallow it: the
         // next tick retries, and an unhandled rejection here would surface as
@@ -240,14 +235,6 @@
         return;
       } finally {
         inFlight = false;
-      }
-      const restore = restoredDraft({
-        lastUserBody,
-        postedDuringRefresh: postedCount !== postsBefore,
-        currentBody: get(postFormData).body,
-      });
-      if (restore !== null) {
-        postFormData.update((f) => ({ ...f, body: restore }));
       }
     };
     const timer = setInterval(() => void fire(), pollMs);
@@ -291,7 +278,7 @@
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
         {t('app.team-chat.load-error', 'Could not load the team chat. This is a loading failure, not an empty chat — reload to try again.')}
       </div>
-    {:else if messages.length === 0}
+    {:else if shownMessages.length === 0}
       <div class="flex h-full items-center justify-center text-center">
         <div>
           <p class="text-zinc-500 dark:text-zinc-400">
@@ -306,10 +293,10 @@
       {#if truncated}
         <p class="text-center text-xs text-zinc-500 dark:text-zinc-400">
           {t('app.team-chat.truncated', 'Showing the most recent messages of')}
-          {total}.
+          {shownTotal}.
         </p>
       {/if}
-      {#each messages as msg (msg.nodeId)}
+      {#each shownMessages as msg (msg.nodeId)}
         {@const label = authorLabelOf(msg)}
         {@const kind = authorKindOf(msg)}
         {@const reply = replyPreviewOf(msg, bySeq)}
@@ -437,7 +424,6 @@
           id="team-chat-body"
           name="body"
           bind:value={$postFormData.body}
-          oninput={onComposerInput}
           placeholder={t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl+Enter to send). Mention a teammate with @name.')}
           rows="3"
           disabled={$postSubmitting}

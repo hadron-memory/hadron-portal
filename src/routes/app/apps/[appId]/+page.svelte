@@ -9,24 +9,31 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
-  import { invalidate } from '$app/navigation';
-  import { TEAM_CHAT_DEP } from '$lib/team-chat-refresh';
 
-  // #754: hoisted to a STABLE identity on purpose. As an inline arrow in the
-  // template this is a new function on every render — and since each poll
-  // re-runs the load, every tick re-rendered, handed the thread a fresh
-  // `onRefresh`, and made its polling effect tear down and restart the
-  // interval. Measured: one refetch in 20s where two were due, because the 8s
-  // clock kept resetting. A prop that changes identity every render is not a
-  // callback, it is a dependency.
-  const refreshTeamChat = () => invalidate(TEAM_CHAT_DEP);
+  // #754/#785: read the transcript from its OWN endpoint, not by invalidating
+  // this page's load. The load is a six-query parallel fetch whose failure
+  // paths are fatal (`throw error(404)` on an org blip, 500s on transport), and
+  // a background tick must not be able to reach them — see #785 and the
+  // endpoint's own docblock.
+  //
+  // Hoisted to a STABLE identity on purpose, and that still matters: as an
+  // inline arrow this is a new function every render, and the thread's polling
+  // effect depends on it, so it tore down and restarted the interval on each
+  // one. Measured under #754: one refetch in 20s where three were due, because
+  // the 8s clock kept resetting. A prop that changes identity every render is
+  // not a callback, it is a dependency.
+  const refreshTeamChat = async () => {
+    const res = await fetch(`/app/apps/${app.id}/team-chat`);
+    if (!res.ok) return null; // treated as a degraded tick, not an empty thread
+    return (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
+  };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { AppKey, Worker } from '$lib/types';
+  import type { AppKey, TeamChatMessage, Worker } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
