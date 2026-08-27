@@ -219,9 +219,26 @@
   // disagreeing with its own control, which is the defect this whole issue is
   // about. It writes the persisted preference, deliberately: a silent one-off
   // exception would leave the reader unable to explain what they are seeing.
+  //
+  // Reveal ONCE PER FOCUS TARGET, and never read `showHidden` here. Guarding on
+  // `showHidden` made this effect depend on the very state it writes:
+  // unchecking the box set it false, which re-ran the effect, which saw the
+  // same still-hidden `focusId` and set it true again — so the checkbox could
+  // not be turned off at all while `?focus=` stayed in the URL. That is
+  // `review:no-read-modify-write-state-in-effect`, and it is the SAME one-way
+  // switch this file warns about at `hasHiddenNodes`: I wrote that warning in
+  // this PR and then built the trap from the other direction.
+  //
+  // `autoRevealedFor` is a plain `let`, not `$state` — it must not become a
+  // dependency either, the same reason `showHiddenHydrated` above is plain.
+  // Re-running on `filteredNodes` IS wanted: the node list arrives after mount,
+  // so the first pass usually has nothing to match yet.
+  let autoRevealedFor: string | null = null;
   $effect(() => {
-    if (!focusId || showHidden) return;
-    if (filteredNodes.some((n) => n.id === focusId && isHiddenNodeType(n.nodeType))) {
+    const id = focusId;
+    if (!id || id === autoRevealedFor) return;
+    if (filteredNodes.some((n) => n.id === id && isHiddenNodeType(n.nodeType))) {
+      autoRevealedFor = id;
       showHidden = true;
     }
   });
