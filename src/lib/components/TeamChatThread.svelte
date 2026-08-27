@@ -17,7 +17,7 @@
     indexBySeq,
     replyPreviewOf,
   } from './team-chat-thread';
-  import { TEAM_CHAT_POLL_MS, isAtBottom } from '$lib/team-chat-refresh';
+  import { TEAM_CHAT_POLL_MS, isAtBottom, shouldRestoreDraft } from '$lib/team-chat-refresh';
   import type { TeamChatMessage } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
@@ -97,6 +97,10 @@
         // message, which the user has no way to notice.
         if (f.valid && f.message?.type !== 'error') {
           replyTo = null;
+          // #784: a post that completes DURING a poll clears the body via
+          // `resetForm`. Bump the epoch so the poll's restore does not put the
+          // just-sent text back into the composer and invite a duplicate.
+          draftEpoch++;
           // #754: your own message always scrolls into view. Posting is an
           // explicit "I am at the end of this conversation", so re-arm the
           // stickiness the reader may have dropped by scrolling up to quote
@@ -150,6 +154,16 @@
   function onTranscriptScroll() {
     stickToBottom = isAtBottom(messagesEl);
   }
+
+  // #754/#784: bumped by anything the USER does to the draft — a keystroke, a
+  // clear, a completed post. The poll's draft-restore compares it across the
+  // await to tell "superForm re-synced under us" (restore) from "they cleared
+  // it" or "it was just sent" (leave it alone). A plain `let`, not `$state`:
+  // nothing renders from it, and it must not invalidate anything.
+  let draftEpoch = 0;
+  function onComposerInput() {
+    draftEpoch++;
+  }
   $effect(() => {
     if (messages && untrack(() => stickToBottom)) setTimeout(scrollToBottom, 0);
   });
@@ -171,21 +185,56 @@
   // a router.
   $effect(() => {
     if (!isBrowser || !onRefresh || pollMs <= 0) return;
+    // One refresh at a time. If a refetch outlives the period the timer would
+    // stack them, and each one is a full page load — the slow case is exactly
+    // the case where piling on more is worst (Copilot on #784).
+    let inFlight = false;
     const fire = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;
+      if (inFlight) return;
+      inFlight = true;
       // A refresh re-runs the load, which hands superForm a fresh
       // `postTeamChatMessageForm` — and superForm re-syncs from it, DROPPING an
       // unsent draft. Measured: 41 characters of typing vanished on the first
       // tick. Nobody would report that as "the poll is broken"; they would
       // report that the chat ate their message, and only sometimes.
       //
-      // So carry the draft across the refetch. `get()` rather than `$postFormData`
-      // so reading it does not subscribe this effect to every keystroke, and the
-      // restore is conditional: if the user typed DURING the refetch, their newer
-      // text wins over the snapshot.
+      // So carry the draft across the refetch. `get()` rather than
+      // `$postFormData` so reading it does not subscribe this effect to every
+      // keystroke.
+      //
+      // The restore is gated on `draftEpoch`, NOT on "the body came back
+      // empty". Empty has three causes and only one of them is ours (Codex on
+      // #784):
+      //   - superForm re-synced from the refreshed load  -> restore
+      //   - the user CLEARED the box while we were awaiting -> restoring would
+      //     undo a deliberate edit
+      //   - a post COMPLETED while we were awaiting, and `resetForm` cleared
+      //     the body it just sent -> restoring would put the SENT text back in
+      //     the composer and invite a duplicate message
+      // The last one is the dangerous one, so the test is "did anything the
+      // user did touch the draft in this window", not "is it empty now".
       const draft = get(postFormData).body;
-      await onRefresh!();
-      if (draft && !get(postFormData).body) {
+      const epoch = draftEpoch;
+      try {
+        await onRefresh!();
+      } catch (e) {
+        // A refetch can fail transiently (offline, a blip). Swallow it: the
+        // next tick retries, and an unhandled rejection here would surface as
+        // console noise a reader would reasonably read as a real fault.
+        console.warn('[team-chat] refresh failed; will retry on the next tick:', e);
+        return;
+      } finally {
+        inFlight = false;
+      }
+      if (
+        shouldRestoreDraft({
+          draft,
+          epochBefore: epoch,
+          epochNow: draftEpoch,
+          currentBody: get(postFormData).body,
+        })
+      ) {
         postFormData.update((f) => ({ ...f, body: draft }));
       }
     };
@@ -376,6 +425,7 @@
           id="team-chat-body"
           name="body"
           bind:value={$postFormData.body}
+          oninput={onComposerInput}
           placeholder={t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl+Enter to send). Mention a teammate with @name.')}
           rows="3"
           disabled={$postSubmitting}

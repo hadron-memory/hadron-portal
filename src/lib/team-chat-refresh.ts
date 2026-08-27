@@ -40,3 +40,37 @@ export function isAtBottom(
   if (!el) return true;
   return el.scrollHeight - el.scrollTop - el.clientHeight <= slack;
 }
+
+/**
+ * Should a poll put the reader's draft back after a refetch?
+ *
+ * A refresh re-runs the page load, superForm re-syncs from the fresh form, and
+ * an unsent draft goes with it — so the poll snapshots the draft and restores
+ * it afterwards. The subtlety is that "the body came back empty" has THREE
+ * causes and only one of them is ours (#784, Codex):
+ *
+ *   1. superForm re-synced from the refreshed load    -> RESTORE
+ *   2. the reader CLEARED the box during the refetch  -> leave it; restoring
+ *      would undo a deliberate edit
+ *   3. a post COMPLETED during the refetch and `resetForm` cleared the body it
+ *      had just sent -> leave it; restoring would put the SENT text back into
+ *      the composer and invite a duplicate message
+ *
+ * (3) is the dangerous one, so the test is "did anything the USER did touch the
+ * draft in this window" — an epoch bumped on every keystroke and on a
+ * successful post — and NOT "is it empty now".
+ */
+export function shouldRestoreDraft(args: {
+  /** The draft as it was when the refetch started. */
+  draft: string;
+  /** `draftEpoch` when the refetch started. */
+  epochBefore: number;
+  /** `draftEpoch` now. */
+  epochNow: number;
+  /** The composer's body now. */
+  currentBody: string;
+}): boolean {
+  if (!args.draft) return false; // nothing to put back
+  if (args.epochNow !== args.epochBefore) return false; // the user touched it
+  return !args.currentBody; // only when the refresh actually cleared it
+}
