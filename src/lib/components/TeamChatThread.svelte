@@ -217,9 +217,11 @@
   // So the boundary went from an invalidating callback to a fetching one, and
   // the route kept ownership of the read either way — under #754 the callback
   // closed over the invalidation key, it was never handed one. That signature
-  // change is why `renderedMessages` exists at all: a returned transcript has
-  // to be held somewhere, where an invalidated one simply reappeared as
-  // `messages`.
+  // change is why `polled` and `shownMessages` exist at all: a RETURNED
+  // transcript has to be held somewhere (`polled`) and merged with the prop for
+  // rendering (`shownMessages = polled?.items ?? messages`), where an
+  // INVALIDATED one simply reappeared as the `messages` prop with no local
+  // state involved.
   //
   // The injection itself survived because its second reason is the durable one:
   // it makes the poll drivable in a test with no router and no endpoint.
