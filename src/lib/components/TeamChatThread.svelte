@@ -116,12 +116,9 @@
     ]),
   );
 
-  // #785: the transcript the thread RENDERS. Seeded from the prop and replaced
-  // by the poll, rather than the poll invalidating the page load.
-  //
-  // #785: the transcript the thread RENDERS — `null` until a poll has produced
-  // one, so the PROP is the fallback rather than a value captured at
-  // construction.
+  // #785: the transcript the thread RENDERS. The poll replaces it directly
+  // instead of invalidating the page load. `null` until a poll has produced one,
+  // so the PROP is the fallback rather than a value captured at construction.
   //
   // FRESH PAGE DATA ALWAYS WINS. `dataGeneration` is bumped whenever the prop
   // changes (navigation, or the `invalidateAll` a successful post does) and a
@@ -201,21 +198,28 @@
   // `invalidateAll`), so a reply arrived on the server and the human watching
   // saw nothing until they reloaded.
   //
-  // Paused while the tab is hidden — a backgrounded page must not keep a
-  // six-query load running on a timer — and refetched IMMEDIATELY on becoming
-  // visible again, because that is exactly the moment the reader is most likely
-  // to be looking at a stale thread. A plain interval would leave them staring
-  // at up to a full period of nothing.
+  // Paused while the tab is hidden — a backgrounded page must not keep hitting
+  // the server on a timer for a thread nobody is looking at — and refetched
+  // IMMEDIATELY on becoming visible again, because that is exactly the moment
+  // the reader is most likely to be looking at a stale thread. A plain interval
+  // would leave them staring at up to a full period of nothing.
   //
-  // `onRefresh` is injected rather than calling `invalidate` here: this
-  // component is generic, and the invalidation key belongs to the route that
-  // declared the dependency. It also makes the poll drivable in a test without
-  // a router.
+  // `onRefresh` is injected rather than fetched here: this component is generic
+  // and the route owns the read it is refreshing. Under #754 that read was
+  // `invalidate(TEAM_CHAT_DEP)` and the argument was about which module owned
+  // the key; #785 replaced it with a plain fetch of the App route's
+  // `team-chat/+server.ts`, so what is injected now is the URL, not a key. The
+  // injection survived the change because the second reason is the durable one:
+  // it makes the poll drivable in a test with no router and no endpoint.
   $effect(() => {
     if (!isBrowser || !onRefresh || pollMs <= 0) return;
     // One refresh at a time. If a refetch outlives the period the timer would
-    // stack them, and each one is a full page load — the slow case is exactly
-    // the case where piling on more is worst (Copilot on #784).
+    // stack them, and the slow case is exactly the case where piling on more is
+    // worst (Copilot on #784). Under #754 each tick was a full page load, which
+    // is what made this urgent; #785 cut it to one endpoint read, so the guard
+    // is cheaper to violate than it was — and still right, because a thread past
+    // the page cap costs `loadTeamChatTail` two round trips and a slow server is
+    // the condition that produces the pile-up in the first place.
     let inFlight = false;
     const fire = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;

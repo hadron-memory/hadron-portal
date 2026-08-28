@@ -1,4 +1,3 @@
-
 /** How often the thread refetches while the tab is visible. */
 export const TEAM_CHAT_POLL_MS = 8000;
 
