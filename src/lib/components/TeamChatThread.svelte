@@ -204,12 +204,24 @@
   // the reader is most likely to be looking at a stale thread. A plain interval
   // would leave them staring at up to a full period of nothing.
   //
-  // `onRefresh` is injected rather than fetched here: this component is generic
-  // and the route owns the read it is refreshing. Under #754 that read was
-  // `invalidate(TEAM_CHAT_DEP)` and the argument was about which module owned
-  // the key; #785 replaced it with a plain fetch of the App route's
-  // `team-chat/+server.ts`, so what is injected now is the URL, not a key. The
-  // injection survived the change because the second reason is the durable one:
+  // `onRefresh` is injected rather than performed here: this component is
+  // generic and the route owns the read it is refreshing. What is injected is a
+  // CALLBACK, and always has been — what #785 changed is what that callback
+  // does, which is visible in its type:
+  //
+  //   #754  onRefresh?: () => void | Promise<void>
+  //         invalidates `TEAM_CHAT_DEP`; the new transcript arrives as a PROP
+  //   #785  onRefresh?: () => Promise<{ items, total, loadFailed } | null>
+  //         fetches the route's own endpoint and RETURNS the transcript
+  //
+  // So the boundary went from an invalidating callback to a fetching one, and
+  // the route kept ownership of the read either way — under #754 the callback
+  // closed over the invalidation key, it was never handed one. That signature
+  // change is why `renderedMessages` exists at all: a returned transcript has
+  // to be held somewhere, where an invalidated one simply reappeared as
+  // `messages`.
+  //
+  // The injection itself survived because its second reason is the durable one:
   // it makes the poll drivable in a test with no router and no endpoint.
   $effect(() => {
     if (!isBrowser || !onRefresh || pollMs <= 0) return;

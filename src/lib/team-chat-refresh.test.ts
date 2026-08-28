@@ -55,7 +55,7 @@ describe('the refresh contract', () => {
     // the whole of that scope: the number is a product decision, not a UI tweak.
     //
     // This comment used to justify the band by what a tick COST — "each tick
-    // re-runs the App page's six-query load". #786 made that false: the tick
+    // re-runs the App page's six-query load". #785 made that false: the tick
     // reads `team-chat/+server.ts`, which is one `teamChatMessages` request (two
     // once the thread is past the page cap, since `loadTeamChatTail` pages to
     // reach the end). So the cost argument is much weaker than it was, and it is
