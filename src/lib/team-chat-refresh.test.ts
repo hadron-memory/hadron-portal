@@ -50,11 +50,16 @@ describe('isAtBottom', () => {
 });
 
 describe('the refresh contract', () => {
-
   it('polls in the 5–10s band the issue asked for', () => {
-    // #754 scoped this as "refresh interval, not architecture". Faster is a
-    // load decision, not a UI tweak: each tick re-runs the App page's
-    // six-query load.
+    // #754 scoped this as "refresh interval, not architecture", and the band is
+    // the whole of that scope: the number is a product decision, not a UI tweak.
+    //
+    // This comment used to justify the band by what a tick COST — "each tick
+    // re-runs the App page's six-query load". #785 made that false: the tick
+    // reads `team-chat/+server.ts`, which is one `teamChatMessages` request (two
+    // once the thread is past the page cap, since `loadTeamChatTail` pages to
+    // reach the end). So the cost argument is much weaker than it was, and it is
+    // not what holds the band any more — the issue asking for it is.
     expect(TEAM_CHAT_POLL_MS).toBeGreaterThanOrEqual(5000);
     expect(TEAM_CHAT_POLL_MS).toBeLessThanOrEqual(10000);
   });

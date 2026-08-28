@@ -116,12 +116,9 @@
     ]),
   );
 
-  // #785: the transcript the thread RENDERS. Seeded from the prop and replaced
-  // by the poll, rather than the poll invalidating the page load.
-  //
-  // #785: the transcript the thread RENDERS — `null` until a poll has produced
-  // one, so the PROP is the fallback rather than a value captured at
-  // construction.
+  // #785: the transcript the thread RENDERS. The poll replaces it directly
+  // instead of invalidating the page load. `null` until a poll has produced one,
+  // so the PROP is the fallback rather than a value captured at construction.
   //
   // FRESH PAGE DATA ALWAYS WINS. `dataGeneration` is bumped whenever the prop
   // changes (navigation, or the `invalidateAll` a successful post does) and a
@@ -201,21 +198,42 @@
   // `invalidateAll`), so a reply arrived on the server and the human watching
   // saw nothing until they reloaded.
   //
-  // Paused while the tab is hidden — a backgrounded page must not keep a
-  // six-query load running on a timer — and refetched IMMEDIATELY on becoming
-  // visible again, because that is exactly the moment the reader is most likely
-  // to be looking at a stale thread. A plain interval would leave them staring
-  // at up to a full period of nothing.
+  // Paused while the tab is hidden — a backgrounded page must not keep hitting
+  // the server on a timer for a thread nobody is looking at — and refetched
+  // IMMEDIATELY on becoming visible again, because that is exactly the moment
+  // the reader is most likely to be looking at a stale thread. A plain interval
+  // would leave them staring at up to a full period of nothing.
   //
-  // `onRefresh` is injected rather than calling `invalidate` here: this
-  // component is generic, and the invalidation key belongs to the route that
-  // declared the dependency. It also makes the poll drivable in a test without
-  // a router.
+  // `onRefresh` is injected rather than performed here: this component is
+  // generic and the route owns the read it is refreshing. What is injected is a
+  // CALLBACK, and always has been — what #785 changed is what that callback
+  // does, which is visible in its type:
+  //
+  //   #754  onRefresh?: () => void | Promise<void>
+  //         invalidates `TEAM_CHAT_DEP`; the new transcript arrives as a PROP
+  //   #785  onRefresh?: () => Promise<{ items, total, loadFailed } | null>
+  //         fetches the route's own endpoint and RETURNS the transcript
+  //
+  // So the boundary went from an invalidating callback to a fetching one, and
+  // the route kept ownership of the read either way — under #754 the callback
+  // closed over the invalidation key, it was never handed one. That signature
+  // change is why `polled` and `shownMessages` exist at all: a RETURNED
+  // transcript has to be held somewhere (`polled`) and merged with the prop for
+  // rendering (`shownMessages = polled?.items ?? messages`), where an
+  // INVALIDATED one simply reappeared as the `messages` prop with no local
+  // state involved.
+  //
+  // The injection itself survived because its second reason is the durable one:
+  // it makes the poll drivable in a test with no router and no endpoint.
   $effect(() => {
     if (!isBrowser || !onRefresh || pollMs <= 0) return;
     // One refresh at a time. If a refetch outlives the period the timer would
-    // stack them, and each one is a full page load — the slow case is exactly
-    // the case where piling on more is worst (Copilot on #784).
+    // stack them, and the slow case is exactly the case where piling on more is
+    // worst (Copilot on #784). Under #754 each tick was a full page load, which
+    // is what made this urgent; #785 cut it to one endpoint read, so the guard
+    // is cheaper to violate than it was — and still right, because a thread past
+    // the page cap costs `loadTeamChatTail` two round trips and a slow server is
+    // the condition that produces the pile-up in the first place.
     let inFlight = false;
     const fire = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;
