@@ -126,6 +126,22 @@
     destroyed = true;
     graphState.selectedNodeId = null;
     if (filterTimeout) clearTimeout(filterTimeout);
+    // #782 review (@copilot): vis-network owns a canvas, a resize listener and a
+    // render loop, and none of it is Svelte's to collect. Without `destroy()`
+    // the Network outlives the component holding a DETACHED container —
+    // measured on this branch: 2 graph entries → 2 networks → 1 still holding a
+    // container with `isConnected === false`. That is one leaked network PER
+    // graph exit, unbounded across a session, and the remount rate this PR
+    // documents is what turns it from a footnote into the common path.
+    //
+    // Teardown must not throw: an exception here would abort Svelte's cleanup
+    // for the rest of the tree, which is a worse bug than the leak.
+    try {
+      network?.destroy();
+    } catch {
+      /* already destroyed, or never fully constructed */
+    }
+    network = undefined;
   });
 
   onMount(async () => {
