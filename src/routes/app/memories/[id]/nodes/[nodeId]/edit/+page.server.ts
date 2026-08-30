@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -49,7 +49,13 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const data = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
     NODE_BY_ID_QUERY, { ref: params.nodeId },
   );
-  if (!data.node) throw new Error(`Node not found: ${params.nodeId}`);
+  // #790: the same bare-throw-as-500 the detail page had, one route over. Found
+  // by sweeping `throw new Error(` across src/routes rather than by anyone
+  // hitting it — the two were written independently, which is what makes this a
+  // pattern rather than a typo. A node that is not there is a 404; a 500 tells
+  // the user the portal is broken and hands a probe the existence/access
+  // distinction that returning null for both is meant to hide.
+  if (!data.node) throw error(404, 'Node not found');
   // #237: same URL-acceptance guard as the detail page. Without it, an
   // edit URL with a mismatched (gid, nodeId) would let the user save
   // changes into the foreign node while believing they edit the current

@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -83,7 +83,22 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     ),
   ]);
   await requireNonConsumer(async () => parentData);
-  if (!data.node) throw new Error(`Node not found: ${params.nodeId}`);
+  // #790: `error(404, …)`, not a bare `throw new Error`. The bare throw rendered
+  // "500 — Something went wrong / Internal Error" for a node that simply is not
+  // there, which is wrong in two directions at once:
+  //
+  //   - It tells the user the PORTAL is broken. Someone following a stale or
+  //     shared link to a deleted node reports an outage rather than a dead link,
+  //     and the message gives them nothing to act on.
+  //   - It is a DIFFERENT observable response from the 404 this route emits when
+  //     a node exists but is unreadable. `node(ref:)` returns null for both on
+  //     purpose — that is the existence-hiding the server gate is specified to
+  //     produce — and answering 500 for one and 404 for the other hands the
+  //     distinction back to anyone probing.
+  //
+  // Matches the memory layout's `throw error(404, 'Memory not found')` one level
+  // up, which has always been right; this route was the outlier.
+  if (!data.node) throw error(404, 'Node not found');
   const node = data.node;
 
   // #237: the URL-acceptance counterpart to #234's URL-emission fix. The
