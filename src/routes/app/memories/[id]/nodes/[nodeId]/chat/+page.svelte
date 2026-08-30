@@ -3,6 +3,7 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ChatThread from '$lib/components/ChatThread.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import { t } from '$lib/i18n/t.js';
   import type { MemoryNode } from '$lib/types';
   import type { ActionData, PageData } from './$types';
 
@@ -73,6 +74,22 @@
       <div>
         <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{node.name}</h1>
         <Urn value={data.fullUrn} type="node" />
+        <!--
+          #489 part 4. Mirrors the node page's header deliberately: this is the
+          surface a reader STAYS on, and it is one click from there, so the App
+          reference must survive the hop. Same shape (name + URN + link) so the
+          two headers read as one place, not two.
+        -->
+        {#if data.chatApp}
+          <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span class="text-zinc-500 dark:text-zinc-400">{t('node.chat.app-label', 'App')}</span>
+            <a
+              href="/app/apps/{data.chatApp.id}"
+              class="font-medium text-blue-600 hover:underline dark:text-blue-400"
+            >{data.chatApp.name}</a>
+            <Urn value={data.chatApp.urn} type="app" size={10} />
+          </div>
+        {/if}
       </div>
       <div class="flex gap-2">
         <button
