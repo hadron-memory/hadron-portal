@@ -682,6 +682,11 @@
   // `menuActions` below is its first reader.
   const isChatMessage = $derived(!!data.isChatMessage);
   const openChat = $derived(data.openChat ?? null);
+  // #489 part 4. Read from the load rather than derived from `node.memory.app`
+  // for the same reason `isChat` and `openChat` are: the loader decides whether
+  // this node is a chat, so the App reference and the chat mark cannot disagree.
+  // Null both when the chat has no App and when the node is not a chat.
+  const chatApp = $derived(data.chatApp ?? null);
 
   const menuActions = $derived<NodeMenuAction[]>([
     // #726: first, because on a message it is the action a reader actually
@@ -1476,6 +1481,28 @@
       <Urn value={fullUrn} type="node" />
       {#if node.description}
         <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
+      {/if}
+      <!--
+        #489 part 4: the App a chat belongs to. A reader arriving from a shared
+        chat URN can read and post here, but had no way to reach the App — the
+        worklog, staff and epics. The App name LOOKED present because the server
+        writes "Team chat — <App>" into `description` above, which is prose that
+        would vanish if anyone edited it, not a reference.
+
+        Rendered as name + URN per CLAUDE.md's `review:render-urn`: the URN is
+        what a reader copies into a CLI or an MCP call, and a name alone is not
+        addressable. Absent when the chat has no App (`chatApp` is null) rather
+        than rendering an empty chip.
+      -->
+      {#if chatApp}
+        <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <span class="text-zinc-500 dark:text-zinc-400">{t('node.chat.app-label', 'App')}</span>
+          <a
+            href="/app/apps/{chatApp.id}"
+            class="font-medium text-blue-600 hover:underline dark:text-blue-400"
+          >{chatApp.name}</a>
+          <Urn value={chatApp.urn} type="app" size={10} />
+        </div>
       {/if}
     </div>
     <div class="shrink-0 flex items-start gap-2">

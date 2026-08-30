@@ -94,6 +94,21 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     node,
     fullUrn,
     messages,
+    // #489 part 4 (@codex on PR #791): the App reference has to be HERE too,
+    // not only on the node page. This is the surface a reader stays on — the
+    // full transcript and composer — and it is one click from the node page's
+    // "Full-screen chat" button. Rendering the App there and not here means the
+    // affordance disappears exactly when the reader settles in, which
+    // reintroduces the navigation gap the reference was added to close.
+    //
+    // Free: this route already runs NODE_BY_ID_QUERY, which now carries
+    // memory.app. No extra round trip, no second query to keep in step.
+    //
+    // Not gated on isChatNode: this route only ever renders a chat (the loader
+    // above refuses anything else), so the node IS the chat by the time we are
+    // here. Null when the chat has no App, so the header renders it absent
+    // rather than as an empty chip.
+    chatApp: node.memory?.app ?? null,
     // Same predicate the action re-derives from the node, so the composer is
     // shown exactly when a post would be accepted.
     canPost: chatPostTarget(node).kind !== 'none',

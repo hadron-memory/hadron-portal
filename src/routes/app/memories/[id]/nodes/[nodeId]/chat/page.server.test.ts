@@ -112,6 +112,38 @@ describe('chat page load — fullUrn', () => {
     expect(data.fullUrn).toBe('chats:team');
     expect(data.messages).toEqual([]);
   });
+
+  // #489 part 4 (@codex on PR #791). The node page grew an App reference; this
+  // is the surface a reader STAYS on and it is one click away, so the reference
+  // has to survive the hop. Rendering it on one and not the other would make
+  // the affordance vanish exactly when the reader settles in — reintroducing
+  // the navigation gap the reference exists to close.
+  const APP = { id: 'app-1', urn: 'hrn:app:acme.com:workstation', name: 'Workstation' };
+
+  it('exposes the App for a team chat, so the reference survives the hop', async () => {
+    const data = await loadWith(
+      'hrn:mem:acme.com:notes',
+      teamChat({ memory: { id: 'mem-1', appId: APP.id, app: APP } }),
+    );
+    expect(data.chatApp).toEqual(APP);
+  });
+
+  it('is null for a chat with no App — absent, never an empty chip', async () => {
+    // A legacy portal-written chat has no App and is still readable. The header
+    // must render nothing rather than a chip with no name behind it.
+    const data = await loadWith('hrn:mem:acme.com:notes', legacyChat());
+    expect(data.chatApp).toBeNull();
+  });
+
+  it('normalises an UNSELECTED app to null, not undefined', async () => {
+    // `app` is detail-only on NODE_BY_ID_QUERY. A row without the key is a
+    // different fact from `app: null`, and `undefined` would serialise away
+    // rather than travel as an explicit "none". Pins the `?? null`, which a
+    // mutation survived on the node-page side until a case reached it.
+    const data = await loadWith('hrn:mem:acme.com:notes', teamChat());
+    expect(data.chatApp).toBeNull();
+    expect(data.chatApp).not.toBeUndefined();
+  });
 });
 
 describe('chat sendMessage action', () => {
