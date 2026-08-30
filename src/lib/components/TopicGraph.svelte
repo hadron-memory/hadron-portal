@@ -6,7 +6,16 @@
 
   let { data, focusId, basePath }: { data: GraphViewData; focusId?: string; basePath: string } = $props();
 
-  let graphContainer: HTMLDivElement;
+  // #782: `| undefined` is load-bearing, not pedantry. A `bind:this` is not set
+  // until the element is in the DOM and is cleared when it leaves, so this is
+  // genuinely absent for part of the component's life. Typing it as a bare
+  // `HTMLDivElement` told the compiler it is always there — which is why
+  // `new vis.Network(graphContainer, …)` type-checked while handing vis a null
+  // container on every graph entry (that null is from the thrown message, not
+  // inferred). The type asserted the property the code needed and did not have,
+  // so the one mechanism that could have caught this was switched off at the
+  // declaration. Deleting the guard below now reds this call site.
+  let graphContainer: HTMLDivElement | undefined;
   let selectedTopic: Topic | null = $state(null);
   let hierarchyVisible = $state(true);
   let physicsEnabled = $state(true);
@@ -106,13 +115,50 @@
     network.setOptions({ physics: { enabled: physicsEnabled } });
   }
 
+  // #782: this component is destroyed and re-created more often than it looks.
+  // The `{#key}` in MemoryBrowser guarding it lists resultsVersion, the filtered
+  // count, showHidden and four filter sets, and entering the graph pane bumps at
+  // least one of them — measured: ONE nodes→graph entry mounts TopicGraph TWICE.
+  // So a teardown mid-mount is the normal case here, not an edge case.
+  let destroyed = false;
+
   onDestroy(() => {
+    destroyed = true;
     graphState.selectedNodeId = null;
     if (filterTimeout) clearTimeout(filterTimeout);
+    // #782 review (@copilot): vis-network owns a canvas, a resize listener and a
+    // render loop, and none of it is Svelte's to collect. Without `destroy()`
+    // the Network outlives the component holding a DETACHED container —
+    // measured on this branch: 2 graph entries → 2 networks → 1 still holding a
+    // container with `isConnected === false`. That is one leaked network PER
+    // graph exit, unbounded across a session, and the remount rate this PR
+    // documents is what turns it from a footnote into the common path.
+    //
+    // Teardown must not throw: an exception here would abort Svelte's cleanup
+    // for the rest of the tree, which is a worse bug than the leak.
+    try {
+      network?.destroy();
+    } catch {
+      /* already destroyed, or never fully constructed */
+    }
+    network = undefined;
   });
 
   onMount(async () => {
     const vis = await import("vis-network/standalone");
+    // #782: EVERY line below runs after an `await`, and Svelte does not cancel
+    // an async `onMount` body when the component goes away — it just keeps
+    // running against a corpse. Without this guard the first of the two mounts
+    // above reached `new vis.Network(graphContainer, …)` with `graphContainer`
+    // already null, and vis-network's `Canvas._create` threw
+    // `Cannot read properties of null (reading 'hasChildNodes')`.
+    //
+    // Nothing surfaced it as a component error: an async `onMount` returns a
+    // promise nobody awaits, so the throw arrived as an `Uncaught (in promise)`
+    // in the console and the SECOND mount rendered a perfectly good graph on top
+    // of it. Deterministic, invisible, and red in the one place you look when
+    // something is actually wrong.
+    if (destroyed || !graphContainer) return;
 
     const defaultColor = palette[0];
     const readOnlyColor = { bg: "#8b949e", border: "#6e7681", font: "#0d1117" };
