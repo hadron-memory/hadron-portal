@@ -2208,6 +2208,29 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
       asset {
         ...AssetFields
       }
+      # #489 part 4: the App this node's memory belongs to, for the chat
+      # header's App reference. Detail-only and merged onto the memory field
+      # here rather than added to NodeFields, for the same reason properties
+      # and asset are: that fragment also feeds NODE_FIND_QUERY, so a nested
+      # object on it would ride along on every search hit. NodeFields already
+      # selects id, urn, name and appId on memory; GraphQL merges this
+      # selection onto the same field, so this adds the App and nothing else.
+      #
+      # appId alone is NOT enough for the reference — a link needs a label a
+      # reader recognises and a URN they can paste, and per CLAUDE.md's
+      # review:render-urn a named entity renders its URN alongside. Nullable
+      # by contract: most memories have no App.
+      #
+      # No backticks in this comment: one would end the template literal
+      # (#775, findings:queries-ts-no-backticks-in-graphql-comments). The
+      # guard in gql:validate caught exactly that here.
+      memory {
+        app {
+          id
+          urn
+          name
+        }
+      }
     }
   }
 `;

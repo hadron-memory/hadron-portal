@@ -241,6 +241,27 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     ? { nodeId: chatRoot.id, loc: chatRoot.loc, name: chatRoot.name ?? chatRoot.loc }
     : null;
 
+  // #489 part 4: the App a chat belongs to, so a reader who arrived by URN can
+  // reach it. Before this, the page named the App only by accident — the
+  // server writes "Team chat — <App>" into the node's `description`, which the
+  // header renders verbatim, so the App was visible as PROSE and would vanish
+  // if anyone edited that string. Nothing on the page linked to the App at all.
+  //
+  // Deliberately a reference rather than a REDIRECT, per @Holger's ruling and
+  // the precedent three lines below `canonicalPath`'s node case: the worker URN
+  // gets its own page rather than a redirect to the App's Staff tab because
+  // "a redirect would be both churn and the wrong answer" (#735/#991/#737).
+  // That holds harder here — this page has the thread, a working composer, the
+  // node's URN, revisions and edges, so redirecting would REMOVE the surface a
+  // node URN asked for. See `findings:filtering-a-view-breaks-the-links-into-it`.
+  //
+  // Gated on `isChat` alone, not on the team-chat loc: an agent chat in an App
+  // memory has the same reader with the same problem. An ordinary node is
+  // excluded because it does not NAME its App — `review:render-urn` is about
+  // rendering the URN of an entity a view already refers to, not about
+  // surfacing every ancestor.
+  const chatApp = isChat ? (node.memory?.app ?? null) : null;
+
   const flowRows = rowsFromNodeData(node.data);
   const output = outputFromNodeData(node.data);
   // #656: an edge whose target is null (unreadable memory) has no targetId to
@@ -289,6 +310,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     isChat,
     isChatMessage,
     openChat,
+    chatApp,
     chatMessages,
     canPostChat,
     sendChatMessageForm,

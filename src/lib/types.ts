@@ -595,7 +595,21 @@ export interface MemoryNode {
   isRunnable: boolean | null;
   createdAt: string;
   updatedAt: string;
-  memory?: { id: string; urn: string; name: string; organizationId?: string; appId?: string | null } | null;
+  memory?: {
+    id: string;
+    urn: string;
+    name: string;
+    organizationId?: string;
+    appId?: string | null;
+    /**
+     * #489 part 4: the App this memory belongs to. Selected ONLY by
+     * NODE_BY_ID_QUERY (detail-only, like `properties` and `asset`), so it is
+     * `undefined` on a node that came from search or a list — which is a
+     * different fact from `null`, meaning "read it, there is no App". Callers
+     * must not treat absent as "no App" on a payload that never asked.
+     */
+    app?: { id: string; urn: string; name: string } | null;
+  } | null;
   /**
    * portal#696 / server#888: the asset this node references, for a `reference`
    * node whose `data.asset` points at one (written by createAssetReferenceNode or
