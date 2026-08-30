@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NODE_BY_ID_QUERY } from '$lib/server/queries';
 
+// No NODE_BY_ID_QUERY import: every request in this file resolves `{ node: null }`
+// regardless of the document, because the null is the whole subject. Discriminating
+// on the query would pin which document asks — that is covered elsewhere — and here
+// it would only add a way for the mock to fall through and return undefined.
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
