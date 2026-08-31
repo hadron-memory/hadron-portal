@@ -24,7 +24,9 @@ const SOURCE = readFileSync(
  * tests: they use `render` from `svelte/server`, so `onMount` and `onDestroy`
  * never run and the teardown window this guards cannot be entered. Rather than
  * write a behavioural test that would pass with or without the fix — the exact
- * shape `review:a-spare-test-must-reach-the-matcher` warns about — this pins
+ * shape
+ * `hrn:node:hadronmemory.com:hadron-portal:review:a-spare-test-must-reach-the-matcher`
+ * warns about — this pins
  * the structural property the fix actually rests on.
  */
 describe('AgentChat — the URL guard has exactly one place to live (#789)', () => {

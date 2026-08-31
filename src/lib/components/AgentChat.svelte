@@ -136,7 +136,8 @@
     // Guarded HERE rather than at the five call sites deliberately. This is the
     // only place that mutates the URL, so one check covers every path including
     // the next one someone adds — where five scattered guards are five chances
-    // to forget. See review:async-onmount-runs-after-teardown.
+    // to forget. See
+    // hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
     if (destroyed) return;
     const url = new URL(window.location.href);
     if (chatId) {
