@@ -16,7 +16,7 @@
     indexBySeq,
     replyPreviewOf,
   } from './team-chat-thread';
-  import { TEAM_CHAT_POLL_MS, isAtBottom } from '$lib/team-chat-refresh';
+  import { TEAM_CHAT_POLL_MS, isAtBottom, mergeTranscript } from '$lib/team-chat-refresh';
   import type { TeamChatMessage } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
@@ -116,9 +116,13 @@
     ]),
   );
 
-  // #785: the transcript the thread RENDERS. The poll replaces it directly
-  // instead of invalidating the page load. `null` until a poll has produced one,
-  // so the PROP is the fallback rather than a value captured at construction.
+  // #785: the most recent polled WINDOW. The poll reads it directly instead of
+  // invalidating the page load; `null` until a poll has produced one, so the
+  // PROP is the fallback rather than a value captured at construction.
+  //
+  // #793: this is no longer what the thread renders — it is one of two inputs to
+  // `shownMessages` below, which unions it with the prop. Naming it `polled`
+  // rather than `shown` is deliberate now that the two differ.
   //
   // FRESH PAGE DATA ALWAYS WINS. `dataGeneration` is bumped whenever the prop
   // changes (navigation, or the `invalidateAll` a successful post does) and a
@@ -141,7 +145,26 @@
       polled = null;
     });
   });
-  const shownMessages = $derived(polled?.items ?? messages);
+  // #793: MERGE the polled window into the prop, do not replace it.
+  //
+  // The poll returns a WINDOW (the tail), not the whole thread. Replacing was
+  // correct only while the window and the display were the same set — true
+  // today, and false the moment #793's backward pagination lands, at which
+  // point the next tick would replace a reader's loaded scrollback with the
+  // tail and yank them to the bottom. Every 8 seconds.
+  //
+  // Written now rather than with the pagination deliberately: a larger initial
+  // window (@Holger's #793 call — "quite a bit more than a screenful") makes
+  // that failure RARER, not milder, and a bug that needs a reader who has paged
+  // back is one that ships. `mergeTranscript` also returns the existing array
+  // by reference when a poll found nothing, so an empty tick no longer re-runs
+  // the stick-to-bottom effect below.
+  const shownMessages = $derived(
+    polled ? mergeTranscript(messages, polled.items) : messages,
+  );
+  // `total` is the SERVER's count of the whole thread, not of what is loaded, so
+  // it is taken rather than merged — a union of two windows says nothing about
+  // how many messages exist beyond them.
   const shownTotal = $derived(polled?.total ?? total);
   // A successful poll RECOVERS the view from a failed initial load. `loadError`
   // is a prop, so nothing else can clear it now that a tick no longer refreshes
