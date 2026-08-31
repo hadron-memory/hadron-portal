@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { replaceState } from '$app/navigation';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
@@ -109,7 +109,44 @@
    * re-run load() / trigger invalidations on every chat switch.
    * Picking another chat is a UI state change, not navigation.
    */
+  // #789: this component is gone as far as the user is concerned, but its
+  // in-flight work is not. Set in onDestroy and checked by syncChatIdToUrl.
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+  });
+
   function syncChatIdToUrl(chatId: string | null): void {
+    // #789. Every call site can reach this AFTER an `await` — one of them only
+    // on some paths, which is the distinction that matters:
+    //
+    //   onMount else-branch    after await refreshChatList()      always
+    //   startNewChat           after await fetch(/start)          always
+    //   resumeChat (entry)     after await refreshChatList()      ONLY via onMount;
+    //                                                             synchronous
+    //                                                             from a click
+    //   resumeChat (catch)     after await fetch(/resume)         always
+    //   confirmDelete          after await fetch(/delete)         always
+    //
+    // Svelte does not cancel an async body when the component is destroyed, so
+    // any of those continuations can run after the user has navigated away —
+    // and this function reads `window.location.href` LIVE, not a URL captured
+    // at mount. Without this guard it would rewrite whatever page the user is
+    // on now.
+    //
+    // `resumeChat`'s entry call is the sharp one, because it SETS `?chat=<id>`
+    // unconditionally rather than clearing a param, so it does not need the
+    // destination to already have one. It is also the one with two callers: a
+    // click reaches it synchronously and is never at risk, while onMount
+    // reaches it across an await and is. Same line, two lifetimes — which is
+    // exactly why the guard belongs here rather than at the caller.
+    //
+    // Guarded HERE rather than at the five call sites deliberately. This is the
+    // only place that mutates the URL, so one check covers every path including
+    // the next one someone adds — where five scattered guards are five chances
+    // to forget. See
+    // hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
+    if (destroyed) return;
     const url = new URL(window.location.href);
     if (chatId) {
       if (url.searchParams.get('chat') === chatId) return;
