@@ -16,7 +16,7 @@
     indexBySeq,
     replyPreviewOf,
   } from './team-chat-thread';
-  import { TEAM_CHAT_POLL_MS, isAtBottom } from '$lib/team-chat-refresh';
+  import { TEAM_CHAT_POLL_MS, isAtBottom, mergeTranscript } from '$lib/team-chat-refresh';
   import type { TeamChatMessage } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
@@ -116,9 +116,14 @@
     ]),
   );
 
-  // #785: the transcript the thread RENDERS. The poll replaces it directly
-  // instead of invalidating the page load. `null` until a poll has produced one,
-  // so the PROP is the fallback rather than a value captured at construction.
+  // #785: the most recent polled WINDOW. The poll reads it directly instead of
+  // invalidating the page load; `null` until a poll has produced one, so the
+  // PROP is the fallback rather than a value captured at construction.
+  //
+  // #793: this now holds the ACCUMULATED transcript, not the latest window —
+  // each tick merges its window into it at the poll site below, seeded from the
+  // prop on the first tick. The name is kept because the ORIGIN is still "what
+  // polling produced"; what changed is that it grows rather than being replaced.
   //
   // FRESH PAGE DATA ALWAYS WINS. `dataGeneration` is bumped whenever the prop
   // changes (navigation, or the `invalidateAll` a successful post does) and a
@@ -128,7 +133,7 @@
   // until the next tick — and the same race across client-side navigation could
   // briefly render the previous App's thread (Codex on #786). The invalidation
   // #754 used had no such window; isolating the read created one.
-  let polled = $state<{ items: TeamChatMessage[]; total: number } | null>(null);
+  let polled = $state<{ items: readonly TeamChatMessage[]; total: number } | null>(null);
   let dataGeneration = $state(0);
   $effect(() => {
     // Depend on BOTH props; do not read `polled` or `dataGeneration` here, or
@@ -141,7 +146,16 @@
       polled = null;
     });
   });
+  // #793: a plain read, because the accumulation happens at the POLL SITE. The
+  // merge deliberately does not live here — a `$derived` re-runs on every
+  // dependency change, so folding each window in from this side would recompute
+  // the whole union per render and, worse, would only ever see the LATEST
+  // window, which is the hole @codex found on #796: prop 1–200 merged against a
+  // later 202–401 loses 201, because it belongs to neither input.
   const shownMessages = $derived(polled?.items ?? messages);
+  // `total` is the SERVER's count of the whole thread, not of what is loaded, so
+  // it is taken rather than merged — a union of two windows says nothing about
+  // how many messages exist beyond them.
   const shownTotal = $derived(polled?.total ?? total);
   // A successful poll RECOVERS the view from a failed initial load. `loadError`
   // is a prop, so nothing else can clear it now that a tick no longer refreshes
@@ -257,7 +271,20 @@
         // `review:a-fallback-asserts-what-it-was-written-for`: `items: []`
         // means "we could not read", not "there are no messages".
         if (next && !next.loadFailed && untrack(() => dataGeneration) === startedAt) {
-          polled = { items: next.items, total: next.total };
+          // #793 (@codex on #796): ACCUMULATE. Merging each window against the
+          // static prop instead of against what previous polls built leaves a
+          // HOLE the moment the tail advances past the window: prop 1–200, a
+          // later tick returning 202–401, and message 201 belongs to neither
+          // input — gone from an append-only thread.
+          //
+          // So the accumulated transcript is the left input, seeded from the
+          // prop on the first tick. `dataGeneration` still clears it whenever
+          // fresh page data lands, so this accumulates within a page load and
+          // never across one.
+          polled = {
+            items: mergeTranscript(untrack(() => polled)?.items ?? messages, next.items),
+            total: next.total,
+          };
         }
       } catch (e) {
         // A refetch can fail transiently (offline, a blip). Swallow it: the
