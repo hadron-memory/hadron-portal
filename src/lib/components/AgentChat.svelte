@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { replaceState } from '$app/navigation';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
@@ -109,7 +109,35 @@
    * re-run load() / trigger invalidations on every chat switch.
    * Picking another chat is a UI state change, not navigation.
    */
+  // #789: this component is gone as far as the user is concerned, but its
+  // in-flight work is not. Set in onDestroy and checked by syncChatIdToUrl.
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+  });
+
   function syncChatIdToUrl(chatId: string | null): void {
+    // #789. EVERY caller of this function reaches it after an `await`:
+    //
+    //   onMount else-branch   after await refreshChatList()
+    //   startChat             after await fetch(/start)
+    //   resumeChat (entry)    after await refreshChatList(), when onMount calls it
+    //   resumeChat (catch)    after await fetch(/resume)
+    //   deleteChat            after await fetch(/delete)
+    //
+    // Svelte does not cancel an async body when the component is destroyed, so
+    // any of those continuations can run after the user has navigated away —
+    // and this function reads `window.location.href` LIVE, not a URL captured
+    // at mount. Without this guard it would rewrite whatever page the user is
+    // on now: `resumeChat`'s entry call is the sharp one, because it SETS
+    // `?chat=<id>` unconditionally rather than clearing a param, so it does not
+    // need the destination to already have one.
+    //
+    // Guarded HERE rather than at the five call sites deliberately. This is the
+    // only place that mutates the URL, so one check covers every path including
+    // the next one someone adds — where five scattered guards are five chances
+    // to forget. See review:async-onmount-runs-after-teardown.
+    if (destroyed) return;
     const url = new URL(window.location.href);
     if (chatId) {
       if (url.searchParams.get('chat') === chatId) return;
