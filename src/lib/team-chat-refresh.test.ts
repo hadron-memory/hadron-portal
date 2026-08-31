@@ -170,3 +170,28 @@ describe('mergeTranscript', () => {
     expect(mergeTranscript([], [msg(3), msg(1), msg(2)]).map((m) => m.seq)).toEqual([1, 2, 3]);
   });
 });
+
+// #793 (@codex on PR #796). The merge is only correct if the ACCUMULATED
+// transcript is the left input on every tick. Merging each window against the
+// static page payload instead leaves a hole the moment the tail advances past
+// the window — and an append-only chat must never lose a message.
+describe('mergeTranscript — accumulation across successive polls', () => {
+  const page = [msg(1), msg(2), msg(3)]; // the page payload: seqs 1–3
+  const tick1 = [msg(3), msg(4)]; // window advances
+  const tick2 = [msg(6), msg(7)]; // advances PAST 5 — the gap case
+
+  it('keeps every message when each tick merges into the accumulated result', () => {
+    const afterTick1 = mergeTranscript(page, tick1);
+    const afterTick2 = mergeTranscript(afterTick1, tick2);
+    expect(afterTick2.map((m) => m.seq)).toEqual([1, 2, 3, 4, 6, 7]);
+  });
+
+  it('LOSES a message if each tick merges against the static page payload', () => {
+    // The bug, pinned as a negative so the correct wiring above has something
+    // to be correct against. Merging the page with tick2 alone drops seq 4 —
+    // it is in neither input, and no amount of re-merging recovers it.
+    const wrong = mergeTranscript(page, tick2);
+    expect(wrong.map((m) => m.seq)).toEqual([1, 2, 3, 6, 7]);
+    expect(wrong.map((m) => m.seq)).not.toContain(4);
+  });
+});
