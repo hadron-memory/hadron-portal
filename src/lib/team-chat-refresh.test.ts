@@ -195,3 +195,46 @@ describe('mergeTranscript — accumulation across successive polls', () => {
     expect(wrong.map((m) => m.seq)).not.toContain(4);
   });
 });
+
+// #793 (@copilot on PR #796). The change-detector originally compared `body`
+// and `seq` only, so a server-side change to any other rendered field returned
+// the existing array by reference and the UI never updated. These cover every
+// remaining field ON PURPOSE — one case per field, so a regression names which.
+describe('mergeTranscript — change detection covers every rendered field', () => {
+  const base = [msg(1)];
+
+  const cases: Array<[string, Partial<TeamChatMessage>]> = [
+    ['body', { body: 'edited' }],
+    ['at', { at: '2026-09-01T12:00:00Z' }],
+    ['authorName', { authorName: 'someone-else' }],
+    ['authorUserId', { authorUserId: 'u2' }],
+    ['authorWorkerId', { authorWorkerId: 'w1' }],
+    ['sessionId', { sessionId: 's1' }],
+    ['replyToSeq', { replyToSeq: 7 }],
+    ['mentions', { mentions: ['gil'] }],
+  ];
+
+  for (const [field, patch] of cases) {
+    it(`treats a changed \`${field}\` as a real update`, () => {
+      const merged = mergeTranscript(base, [msg(1, patch)]);
+      expect(merged, `a changed ${field} must produce a NEW array`).not.toBe(base);
+      expect(merged[0]).toMatchObject(patch);
+    });
+  }
+
+  it('still short-circuits when a deep-equal row arrives', () => {
+    // The counterpart: broadening the comparison must not make every tick look
+    // like a change, or the scroll effect re-runs on every poll — the thing the
+    // same-reference return exists to prevent.
+    const merged = mergeTranscript(base, [msg(1, { mentions: [] })]);
+    expect(merged).toBe(base);
+  });
+
+  it('compares mentions by CONTENT, not by array identity', () => {
+    // Two distinct arrays with equal contents are the same message; a naive
+    // `!==` on the array would report every poll as changed.
+    const withMentions = [msg(1, { mentions: ['ada', 'dara'] })];
+    expect(mergeTranscript(withMentions, [msg(1, { mentions: ['ada', 'dara'] })])).toBe(withMentions);
+    expect(mergeTranscript(withMentions, [msg(1, { mentions: ['ada'] })])).not.toBe(withMentions);
+  });
+});

@@ -111,14 +111,50 @@ export function mergeTranscript(
   let changed = false;
   for (const msg of incoming) {
     const prev = byNodeId.get(msg.nodeId);
-    // A body that changed is a real update; an identical row is not, and
-    // treating it as one is what would make every tick re-run the scroll
-    // effect. Compare the fields the thread actually renders.
-    if (!prev || prev.body !== msg.body || prev.seq !== msg.seq) {
+    if (!prev || !sameMessage(prev, msg)) {
       byNodeId.set(msg.nodeId, msg);
       changed = true;
     }
   }
   if (!changed) return existing;
   return [...byNodeId.values()].sort((a, b) => a.seq - b.seq);
+}
+
+/**
+ * Is this the same message, in every field the thread could render?
+ *
+ * Compares ALL own keys rather than an enumerated list, and that is the whole
+ * point (@copilot on PR #796). The first version checked `body` and `seq` only,
+ * which silently ignored `at`, `mentions`, `replyToSeq` and the three author
+ * fields — so a server-side change to any of them would return the existing
+ * array by reference and the UI would never update.
+ *
+ * The deeper problem was the SHAPE, not the four missing names: an enumerated
+ * equality check is a hand-maintained list that nothing validates against the
+ * type it compares, so it goes stale the moment `TeamChatMessage` gains a field
+ * — exactly
+ * `hrn:node:hadronmemory.com:hadron-portal:review:key-guarding-a-mount-once-child-is-a-dependency-list`,
+ * one layer down. Adding the four names would have fixed today's instance and
+ * left the mechanism. Iterating the keys means a new field is covered the day
+ * it is added, by nobody.
+ *
+ * Shallow by design: every field on `TeamChatMessage` is a primitive except
+ * `mentions`, which is a flat `string[]`. If a nested object is ever added this
+ * becomes wrong — and wrong in the quiet direction, reporting "unchanged" for a
+ * changed row — so the array branch below is deliberately the only structural
+ * case, and anything deeper should fail review rather than be absorbed here.
+ */
+function sameMessage(a: TeamChatMessage, b: TeamChatMessage): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof TeamChatMessage>;
+  for (const key of keys) {
+    const av = a[key];
+    const bv = b[key];
+    if (Array.isArray(av) || Array.isArray(bv)) {
+      if (!Array.isArray(av) || !Array.isArray(bv) || av.length !== bv.length) return false;
+      if (av.some((item, i) => item !== bv[i])) return false;
+      continue;
+    }
+    if (av !== bv) return false;
+  }
+  return true;
 }
