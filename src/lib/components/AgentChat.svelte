@@ -117,21 +117,29 @@
   });
 
   function syncChatIdToUrl(chatId: string | null): void {
-    // #789. EVERY caller of this function reaches it after an `await`:
+    // #789. Every call site can reach this AFTER an `await` — one of them only
+    // on some paths, which is the distinction that matters:
     //
-    //   onMount else-branch   after await refreshChatList()
-    //   startChat             after await fetch(/start)
-    //   resumeChat (entry)    after await refreshChatList(), when onMount calls it
-    //   resumeChat (catch)    after await fetch(/resume)
-    //   deleteChat            after await fetch(/delete)
+    //   onMount else-branch    after await refreshChatList()      always
+    //   startNewChat           after await fetch(/start)          always
+    //   resumeChat (entry)     after await refreshChatList()      ONLY via onMount;
+    //                                                             synchronous
+    //                                                             from a click
+    //   resumeChat (catch)     after await fetch(/resume)         always
+    //   confirmDelete          after await fetch(/delete)         always
     //
     // Svelte does not cancel an async body when the component is destroyed, so
     // any of those continuations can run after the user has navigated away —
     // and this function reads `window.location.href` LIVE, not a URL captured
     // at mount. Without this guard it would rewrite whatever page the user is
-    // on now: `resumeChat`'s entry call is the sharp one, because it SETS
-    // `?chat=<id>` unconditionally rather than clearing a param, so it does not
-    // need the destination to already have one.
+    // on now.
+    //
+    // `resumeChat`'s entry call is the sharp one, because it SETS `?chat=<id>`
+    // unconditionally rather than clearing a param, so it does not need the
+    // destination to already have one. It is also the one with two callers: a
+    // click reaches it synchronously and is never at risk, while onMount
+    // reaches it across an await and is. Same line, two lifetimes — which is
+    // exactly why the guard belongs here rather than at the caller.
     //
     // Guarded HERE rather than at the five call sites deliberately. This is the
     // only place that mutates the URL, so one check covers every path including
