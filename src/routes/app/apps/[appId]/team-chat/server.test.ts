@@ -12,10 +12,15 @@ function msg(seq: number) {
   return { nodeId: `n-${seq}`, seq, body: `m${seq}`, at: '2026-08-27T00:00:00Z', authorName: 'Ada' };
 }
 
-async function get(appId = 'app-1') {
+async function get(appId = 'app-1', search = '') {
   const { GET } = await import('./+server');
   const res = (await GET({
     params: { appId },
+    // #793: the handler now reads `?beforeSeq=` to serve a scroll-up page, so
+    // the event needs a url. Supplied for every call, not just the paging ones,
+    // so a test that forgets it fails as a missing FIXTURE rather than as a
+    // missing feature.
+    url: new URL(`http://localhost/app/apps/${appId}/team-chat${search}`),
     locals: { token: 'tok' },
   } as unknown as Parameters<typeof GET>[0])) as Response;
   return { status: res.status, body: await res.json() };
@@ -74,5 +79,57 @@ describe('GET /app/apps/[appId]/team-chat', () => {
     mockRequest.mockResolvedValue({ teamChatMessages: { items: [], total: 0 } });
     await get('some-other-app');
     expect(mockRequest.mock.calls[0][1]).toMatchObject({ appRef: 'some-other-app' });
+  });
+});
+
+// #793. The same endpoint serves two reads: the tail (poll, first paint) and
+// the page BEFORE a cursor (scroll-up). One route because both answer "give me
+// a window of this thread", and a second would be a second place to keep the
+// degrade-with-200 contract in step.
+describe('GET /app/apps/[appId]/team-chat — scroll-up via beforeSeq', () => {
+  it('asks the server for the page preceding the cursor, in ONE request', async () => {
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [msg(8), msg(9)], total: 500 } });
+    const { status, body } = await get('app-1', '?beforeSeq=10');
+
+    expect(status).toBe(200);
+    expect(body).toEqual({ items: [msg(8), msg(9)], total: 500, loadFailed: false });
+    // The tail read pages twice because it has no cursor to start from. This
+    // one has a cursor, so the arithmetic — and the second round trip —
+    // disappear. A regression to the tail path would show up here as 2.
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenCalledWith(TEAM_CHAT_MESSAGES_QUERY, {
+      appRef: 'app-1',
+      beforeSeq: 10,
+      limit: 200,
+    });
+  });
+
+  it('passes NO offset alongside the cursor', async () => {
+    // The server ignores offset when beforeSeq is given, so sending both would
+    // be harmless today and misleading forever — it would read as if the
+    // position were positional, which is the thing beforeSeq exists to stop.
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [], total: 500 } });
+    await get('app-1', '?beforeSeq=10');
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('offset');
+  });
+
+  it('refuses a malformed cursor rather than silently serving the tail', async () => {
+    // Falling back would re-serve the page the reader already has, which the
+    // component reads as "no more history" and stops on — a scroll-up that
+    // ends early on a thread with plenty left.
+    for (const bad of ['?beforeSeq=0', '?beforeSeq=-3', '?beforeSeq=abc']) {
+      const { status, body } = await get('app-1', bad);
+      expect(status, bad).toBe(400);
+      expect(body.loadFailed, bad).toBe(true);
+      expect(body.reason, bad).toBe('bad-cursor');
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('still serves the TAIL when no cursor is given', async () => {
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [msg(1)], total: 1 } });
+    const { body } = await get();
+    expect(body.items).toEqual([msg(1)]);
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('beforeSeq');
   });
 });

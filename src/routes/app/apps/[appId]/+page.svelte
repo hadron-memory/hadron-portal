@@ -27,6 +27,16 @@
     if (!res.ok) return null; // treated as a degraded tick, not an empty thread
     return (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
   };
+  // #793: the page BEFORE a seq. Same endpoint, same degraded-read contract —
+  // null means "the fetch failed, retry on the next scroll", which the thread
+  // keeps distinct from an empty page meaning "start of the conversation".
+  const loadOlderTeamChat = async (beforeSeq: number) => {
+    const res = await fetch(`/app/apps/${app.id}/team-chat?beforeSeq=${beforeSeq}`);
+    if (!res.ok) return null;
+    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
+    if (body.loadFailed) return null;
+    return { items: body.items, total: body.total };
+  };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
@@ -1374,6 +1384,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           {form}
           action="?tab=chats&chat=chats%3Ateam&/postTeamChatMessage"
           onRefresh={refreshTeamChat}
+          onLoadOlder={loadOlderTeamChat}
         />
       </div>
     </div>

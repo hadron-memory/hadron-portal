@@ -16,7 +16,12 @@
     indexBySeq,
     replyPreviewOf,
   } from './team-chat-thread';
-  import { TEAM_CHAT_POLL_MS, isAtBottom, mergeTranscript } from '$lib/team-chat-refresh';
+  import {
+    TEAM_CHAT_POLL_MS,
+    isAtBottom,
+    mergeTranscript,
+    scrollTopAfterPrepend,
+  } from '$lib/team-chat-refresh';
   import type { TeamChatMessage } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
@@ -48,6 +53,7 @@
     heightClass = 'flex-1 min-h-0',
     onRefresh,
     pollMs = TEAM_CHAT_POLL_MS,
+    onLoadOlder,
   }: {
     messages?: TeamChatMessage[];
     /** The SERVER's count, which may exceed what was fetched. */
@@ -67,6 +73,11 @@
     onRefresh?: () => Promise<{ items: TeamChatMessage[]; total: number; loadFailed: boolean } | null>;
     /** Poll period in ms; 0 or less disables the timer. */
     pollMs?: number;
+    /** #793: fetch the page BEFORE a seq. Same division of labour as
+     *  `onRefresh` — the route owns HOW to read, this component owns WHEN (the
+     *  scroll threshold) and the anchoring. Null on failure, so a transient
+     *  error is retried rather than being read as the start of the thread. */
+    onLoadOlder?: (beforeSeq: number) => Promise<{ items: TeamChatMessage[]; total: number } | null>;
   } = $props();
 
   let messagesEl: HTMLDivElement | null = $state(null);
@@ -165,6 +176,52 @@
   // effect above clears it whenever that data changes.
   const shownLoadError = $derived(loadError && polled === null);
 
+  // #793: scroll-up. The older page MERGES into the same accumulated store the
+  // poll writes, which is the whole reason `mergeTranscript` was built first
+  // (#796): a tick landing mid-scroll unions with the scrollback instead of
+  // replacing it, so loading history and polling for new messages cannot fight.
+  let loadingOlder = $state(false);
+  let olderExhausted = $state(false);
+  $effect(() => {
+    messages;
+    untrack(() => { olderExhausted = false; });
+  });
+  // The cursor is the LOWEST seq on screen. No arithmetic and no stored offset:
+  // whatever is at the top of the thread is exactly what the next page must
+  // come before, and it stays correct however the window was assembled.
+  const oldestSeq = $derived(shownMessages.length > 0 ? shownMessages[0].seq : null);
+  const canLoadOlder = $derived(
+    !!onLoadOlder && !olderExhausted && oldestSeq !== null && shownMessages.length < shownTotal,
+  );
+
+  const LOAD_OLDER_THRESHOLD_PX = 400;
+
+  async function maybeLoadOlder() {
+    if (!messagesEl || loadingOlder || !canLoadOlder) return;
+    if (messagesEl.scrollTop > LOAD_OLDER_THRESHOLD_PX) return;
+    loadingOlder = true;
+    const before = { scrollTop: messagesEl.scrollTop, scrollHeight: messagesEl.scrollHeight };
+    const cursor = oldestSeq!;
+    try {
+      const page = await onLoadOlder!(cursor);
+      if (page === null) return; // failed, not exhausted — retry on the next scroll
+      if (page.items.length === 0) {
+        olderExhausted = true;
+        return;
+      }
+      polled = {
+        items: mergeTranscript(untrack(() => polled)?.items ?? messages, page.items),
+        total: page.total,
+      };
+      await tick();
+      if (messagesEl) messagesEl.scrollTop = scrollTopAfterPrepend(before, messagesEl.scrollHeight);
+    } catch (e) {
+      console.warn('[team-chat] loading older messages failed; will retry on scroll:', e);
+    } finally {
+      loadingOlder = false;
+    }
+  }
+
   const bySeq = $derived(indexBySeq(shownMessages));
   // The page cap is applied server-side, so a transcript can be a suffix of the
   // real thread. Say so rather than letting a partial view read as complete.
@@ -201,6 +258,13 @@
   let stickToBottom = $state(true);
   function onTranscriptScroll() {
     stickToBottom = isAtBottom(messagesEl);
+    // #793: the SAME handler drives both ends of the thread — stickiness at the
+    // bottom, paging at the top. Two `onscroll` bindings would silently keep
+    // only the last one, which is how the paging half shipped dead: the
+    // function existed, nothing called it, and no test could see the difference
+    // because this component's behaviour is not reachable from an SSR render
+    // (#795).
+    void maybeLoadOlder();
   }
 
   $effect(() => {
@@ -331,6 +395,19 @@
     onscroll={onTranscriptScroll}
     class="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-5 bg-gray-50 dark:bg-zinc-900"
   >
+    <!-- #793: which of three states the top of the thread is in. Without this,
+         "nothing above" and "more, not fetched yet" look identical. -->
+    {#if canLoadOlder}
+      <p class="py-1 text-center text-xs text-zinc-500 dark:text-zinc-400">
+        {loadingOlder
+          ? t('team-chat.loading-older', 'Loading earlier messages…')
+          : t('team-chat.scroll-for-older', 'Scroll up for earlier messages')}
+      </p>
+    {:else if shownMessages.length > 0 && shownMessages.length >= shownTotal}
+      <p class="py-1 text-center text-xs text-zinc-500 dark:text-zinc-400">
+        {t('team-chat.start-of-conversation', 'Start of the conversation')}
+      </p>
+    {/if}
     {#if shownLoadError}
       <!-- "Couldn't load" and "nothing here" are different statements; the
            empty state below must never be shown for a failed fetch. -->
