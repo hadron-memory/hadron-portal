@@ -688,6 +688,24 @@
   // Null both when the chat has no App and when the node is not a chat.
   const chatApp = $derived(data.chatApp ?? null);
 
+  // #793: scroll-up pagination for the Chat tab. Same endpoint and the same
+  // null-vs-empty contract as the full-screen view — the two must not drift,
+  // since they are two windows onto one thread and a reader moves between them
+  // with the "Full-screen chat" button.
+  let olderCursor = $state<number>(0);
+  $effect(() => {
+    const o = data.chatOffset ?? 0;
+    untrack(() => { olderCursor = o; });
+  });
+  async function loadOlderChat() {
+    const res = await fetch(`${basePath}/nodes/${node.id}/chat-older?before=${olderCursor}`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    if (body.loadFailed) return null;
+    olderCursor = body.offset;
+    return { messages: body.messages, hasOlder: body.hasOlder ?? false };
+  }
+
   const menuActions = $derived<NodeMenuAction[]>([
     // #726: first, because on a message it is the action a reader actually
     // came for — a single bubble is the one node whose surrounding thread is
@@ -1905,6 +1923,8 @@
           sendForm={data.sendChatMessageForm}
           action="?/sendChatMessage"
           canPost={canPostChat}
+          hasOlder={data.chatHasOlder ?? false}
+          onLoadOlder={loadOlderChat}
           heightClass="h-[calc(100vh-24rem)] min-h-[24rem]"
         />
       </div>

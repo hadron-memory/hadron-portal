@@ -5,9 +5,11 @@ import {
   NODES_BY_LOC_PREFIX_QUERY,
 } from '$lib/server/queries';
 import {
+  CHAT_PAGE_SIZE,
   chatAuthorName,
   chatPostTarget,
   chatRootLocForMessage,
+  chatSortKey,
   isChatMessageNode,
   isChatNode,
   loadChatMessages,
@@ -25,7 +27,14 @@ function msg(loc: string, over: Partial<MemoryNode> = {}): MemoryNode {
 }
 
 function clientReturning(hits: MemoryNode[]) {
-  return { request: vi.fn().mockResolvedValue({ findNodes: { hits: hits.map((node) => ({ node })) } }) } as any;
+  // #793: `total` is part of the contract now — it is what makes a TAIL window
+  // addressable. A mock without it would send loadChatMessages down the
+  // `?? hits.length` fallback and quietly test a different path than production.
+  return {
+    request: vi.fn().mockResolvedValue({
+      findNodes: { total: hits.length, hits: hits.map((node) => ({ node })) },
+    }),
+  } as any;
 }
 
 describe('isChatNode', () => {
@@ -76,7 +85,7 @@ describe('chatRootLocForMessage', () => {
       `${chatLoc}:notes`, // not under the prefix at all
     ];
     const client = clientReturning(locs.map((l) => msg(l)));
-    const loaded = await loadChatMessages(client, 'mem-1', chatLoc);
+    const loaded = (await loadChatMessages(client, 'mem-1', chatLoc)).messages;
     const rendered = new Set(loaded.map((m) => m.nodeData.loc));
 
     for (const loc of locs) {
@@ -118,13 +127,66 @@ describe('isChatMessageNode', () => {
 });
 
 describe('loadChatMessages', () => {
-  it('queries the `<loc>:messages:` prefix within the memory', async () => {
+  it('queries the `<loc>:messages:` prefix within the memory, sorted by seq', async () => {
     const client = clientReturning([]);
     await loadChatMessages(client, 'mem-1', 'chats:team');
 
+    // #793: a bounded window rather than `limit: 2000`, and `sort: 'seq'` —
+    // NOT `loc`. The server pads the seq atom to three digits, so `"1000-…"`
+    // sorts before `"999-…"` and loc ordering inverts past a thousand
+    // messages, which is exactly the length at which paging matters.
     expect(client.request).toHaveBeenCalledWith(NODES_BY_LOC_PREFIX_QUERY, {
-      memoryId: 'mem-1', locPrefix: 'chats:team:messages:', limit: 2000,
+      memoryId: 'mem-1',
+      locPrefix: 'chats:team:messages:',
+      limit: Math.ceil(CHAT_PAGE_SIZE * 1.5),
+      offset: 0,
+      sort: 'seq',
     });
+  });
+
+  it('returns the NEWEST window, not the oldest, on a thread past one page', async () => {
+    // The whole point of taking a total: the server pages from the front, so
+    // "the newest N" is an offset near the end. Getting this backwards is the
+    // defect @Dara fixed server-side in hadron-server#1111 — a reader landing
+    // on the beginning of a long transcript.
+    const client = {
+      request: vi.fn().mockResolvedValue({ findNodes: { total: 500, hits: [] } }),
+    } as any;
+    await loadChatMessages(client, 'mem-1', 'chats:team');
+
+    const second = client.request.mock.calls[1][1];
+    expect(second.offset).toBe(500 - Math.ceil(CHAT_PAGE_SIZE * 1.5));
+    expect(second.offset).toBeGreaterThan(0);
+  });
+
+  it('reports hasOlder from the SERVER offset, not from how many survived filtering', async () => {
+    // A page whose extras were all filtered out is SHORT, not final. Deriving
+    // "no more" from the message count is how an infinite scroll stops early on
+    // a thread with plenty left.
+    const client = {
+      request: vi.fn().mockResolvedValue({ findNodes: { total: 500, hits: [] } }),
+    } as any;
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+    expect(page.messages).toHaveLength(0);
+    expect(page.hasOlder).toBe(true);
+  });
+
+  it('walks backwards from a previous window via `before`', async () => {
+    const client = {
+      request: vi.fn().mockResolvedValue({ findNodes: { total: 500, hits: [] } }),
+    } as any;
+    await loadChatMessages(client, 'mem-1', 'chats:team', { before: 200 });
+    const second = client.request.mock.calls[1][1];
+    expect(second.offset).toBe(200 - Math.ceil(CHAT_PAGE_SIZE * 1.5));
+  });
+
+  it('has no older page once the window reaches the start', async () => {
+    const client = {
+      request: vi.fn().mockResolvedValue({ findNodes: { total: 10, hits: [] } }),
+    } as any;
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+    expect(page.offset).toBe(0);
+    expect(page.hasOlder).toBe(false);
   });
 
   it('keeps only direct message children, and orders a platform thread by seq', async () => {
@@ -139,7 +201,7 @@ describe('loadChatMessages', () => {
       msg('chats:team-notes:messages:x', { seq: 5 }),
     ]);
 
-    const messages = await loadChatMessages(client, 'mem-1', 'chats:team');
+    const { messages } = await loadChatMessages(client, 'mem-1', 'chats:team');
 
     expect(messages.map((m) => m.nodeData.loc)).toEqual([
       'chats:team:messages:001-y-holger',
@@ -153,7 +215,7 @@ describe('loadChatMessages', () => {
       msg('chats:team:messages:a', { nodeType: 'message', createdAt: '2026-08-14T09:00:00Z' }),
     ]);
 
-    const messages = await loadChatMessages(client, 'mem-1', 'chats:team');
+    const { messages } = await loadChatMessages(client, 'mem-1', 'chats:team');
 
     expect(messages.map((m) => m.nodeData.loc)).toEqual([
       'chats:team:messages:a',
@@ -171,7 +233,7 @@ describe('loadChatMessages', () => {
       }),
     ]);
 
-    const messages = await loadChatMessages(client, 'mem-1', 'chats:team');
+    const { messages } = await loadChatMessages(client, 'mem-1', 'chats:team');
 
     // The seq-prefixed node name ("001-Iris") is the last-resort author label;
     // the envelope's authorName wins.
@@ -306,5 +368,96 @@ describe('postChatMessage', () => {
         data: { body: 'hi', author: 'Jane: Ops' },
       }),
     });
+  });
+});
+
+// #793. The paging key differs by chat generation, and getting it wrong is
+// silent: a legacy chat sorted by `seq` orders on a field every row leaves
+// null, which is harmless while the thread fits one page (the client re-sorts)
+// and wrong the moment it is PAGED, because the window is a slice of an
+// arbitrary order.
+describe('chatSortKey', () => {
+  it('uses seq for a platform chat', () => {
+    expect(chatSortKey({ nodeType: 'chat' } as MemoryNode)).toBe('seq');
+  });
+
+  it('uses loc for a legacy chat, whose messages have no seq at all', () => {
+    // The legacy root is an ordinary node carrying the `team-chat` tag; its
+    // message locs are ISO timestamps, so loc is chronological.
+    expect(chatSortKey({ nodeType: 'info' } as MemoryNode)).toBe('loc');
+  });
+
+  it('never returns loc for a platform chat — loc inverts past 999', () => {
+    // The server pads the seq atom to three digits, so "1000-…" < "999-…".
+    // Loc ordering silently reverses at exactly the length where paging starts
+    // to matter, which is why this is a per-generation choice and not a default.
+    expect(chatSortKey({ nodeType: 'chat' } as MemoryNode)).not.toBe('loc');
+  });
+});
+
+// #793. Found by driving a real 142-message thread: the node over-fetch (1.5x,
+// to absorb non-message children) silently became the window, so the constant
+// said 100 and the reader got 142 with no scroll-up affordance.
+describe('loadChatMessages — the window is the PAGE SIZE, not the over-fetch', () => {
+  function manyMessages(n: number) {
+    return Array.from({ length: n }, (_, i) =>
+      msg(`chats:team:messages:${String(i + 1).padStart(3, '0')}-x`, { seq: i + 1 }),
+    );
+  }
+
+  it('trims a thread between the page size and the over-fetch, and offers older', async () => {
+    const hits = manyMessages(142);
+    const client = {
+      request: vi.fn().mockResolvedValue({
+        findNodes: { total: 142, hits: hits.map((node) => ({ node })) },
+      }),
+    } as any;
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+
+    expect(page.messages).toHaveLength(CHAT_PAGE_SIZE);
+    // The NEWEST page, not the oldest — seq 43..142 for a 142-message thread.
+    expect(page.messages[page.messages.length - 1].seq).toBe(142);
+    // And it must say there is more, or the reader is stranded on a window that
+    // looks like the whole thread.
+    expect(page.hasOlder).toBe(true);
+  });
+
+  it('does not claim older content when the whole thread fits the page', async () => {
+    const hits = manyMessages(10);
+    const client = {
+      request: vi.fn().mockResolvedValue({
+        findNodes: { total: 10, hits: hits.map((node) => ({ node })) },
+      }),
+    } as any;
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+    expect(page.messages).toHaveLength(10);
+    expect(page.hasOlder).toBe(false);
+  });
+});
+
+// #793. The cursor must be the node index of the FIRST SHOWN message, not the
+// fetch offset. Found by driving: on a 142-message thread the fetch offset was
+// 0 while 42 messages sat before the window, so the scroll-up asked for
+// `before=0`, the endpoint rejected it as a bad cursor, and the reader got one
+// request and zero rows — forever.
+describe('loadChatMessages — the cursor is absolute, not the fetch offset', () => {
+  it('points at the first shown message when the trim left older content behind', async () => {
+    const hits = Array.from({ length: 142 }, (_, i) =>
+      msg(`chats:team:messages:${String(i + 1).padStart(3, '0')}-x`, { seq: i + 1 }),
+    );
+    const client = {
+      request: vi.fn().mockResolvedValue({
+        findNodes: { total: 142, hits: hits.map((node) => ({ node })) },
+      }),
+    } as any;
+    const page = await loadChatMessages(client, 'mem-1', 'chats:team');
+
+    // 142 fetched, 100 shown → the first shown one sits at node index 42, and
+    // that is the cursor the next page must ask to come BEFORE.
+    expect(page.offset).toBe(42);
+    expect(page.hasOlder).toBe(true);
+    // The bug: returning the fetch offset here would be 0, which the endpoint
+    // refuses, so the scroll-up would spin without ever loading a page.
+    expect(page.offset).not.toBe(0);
   });
 });

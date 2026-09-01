@@ -134,28 +134,141 @@ export function messagesPrefix(chatLoc: string): string {
 }
 
 /**
- * Load a chat node's messages, oldest first.
+ * How many messages a chat surface loads at a time (#793).
  *
- * #447: the memory layout's `graphNodes` is a slim projection without
- * content/data/createdAt, so the children are fetched directly with full fields.
+ * @Holger's ruling: "quite a bit more than a screenful — that allows the user
+ * to scroll up without hesitation". A screenful is roughly 10–15 messages
+ * depending on length, so this is several, and the reader should reach the top
+ * of it rarely. It replaces a flat `limit = 2000`, which was not a window at
+ * all — it was "load everything and hope".
+ */
+export const CHAT_PAGE_SIZE = 100;
+
+/**
+ * Fetch enough NODES to yield a full page of MESSAGES.
  *
- * Ordering: a platform chat carries `seq` (unique per chat, ascending from 1) and
- * is ordered by it; a legacy thread has none and falls back to creation time.
- * The two never mix within one chat, so this is a total order in practice.
+ * The loc-prefix query returns every descendant of `<chat>:messages:`, and this
+ * module then drops anything that is not a direct child or not a message type.
+ * So a server page of N nodes yields ≤N messages, and a page whose extras were
+ * all filtered out would come back short — which an infinite scroll reads as
+ * "no more history" and stops. Over-fetching absorbs the difference; the extra
+ * cost is bounded and the alternative is a scrollback that silently ends early.
+ *
+ * Off-road content under a chat prefix is rare, so this is deliberately a small
+ * multiplier rather than a retry loop: if it is ever not enough the page is
+ * short, never wrong, and the `hasOlder` flag below is computed from the SERVER's
+ * total rather than from what survived filtering.
+ */
+const NODE_OVERFETCH = 1.5;
+
+/**
+ * Which key orders THIS chat's messages (#793).
+ *
+ * The two generations need different keys and the choice is not cosmetic — it
+ * decides which messages a paged window contains:
+ *
+ *   - PLATFORM (`nodeType: 'chat'`, messages `chat-message`) carries `seq`.
+ *   - LEGACY (`team-chat` tag, messages `message`) has NO seq at all; its loc
+ *     atom is an ISO timestamp, so `loc` is lexicographically chronological.
+ *
+ * Sorting a legacy chat by `seq` orders it by a field every row leaves null —
+ * an arbitrary order, which is harmless while the whole thread fits in one page
+ * (the client re-sorts) and silently WRONG the moment it is paged, because the
+ * window is then a slice of an arbitrary order.
+ *
+ * The inverse is a trap too: `loc` is not safe for a PLATFORM chat, because the
+ * server pads the seq atom to three digits, so `"1000-…" < "999-…"` and the
+ * order inverts past a thousand messages.
+ */
+export function chatSortKey(node: Pick<MemoryNode, 'nodeType'>): 'seq' | 'loc' {
+  return node.nodeType === CHAT_NODE_TYPE ? 'seq' : 'loc';
+}
+
+export type ChatPage = {
+  messages: ChatMessage[];
+  /** The server's count of nodes under the prefix — not of messages. */
+  total: number;
+  /** Is there anything before this window? Drives the scroll-up affordance. */
+  hasOlder: boolean;
+  /** Node offset this window started at; pass `before` to walk further back. */
+  offset: number;
+};
+
+/**
+ * Load a WINDOW of a chat's messages, newest-last, ending at the tail by default.
+ *
+ * #793. Ordering is the subtle part and it decides the paging key:
+ *
+ *   - A PLATFORM chat (`chat-message`) carries `seq` — unique per chat,
+ *     allocated atomically ascending — so it sorts by `seq` server-side.
+ *   - A LEGACY chat (`message`) has no seq at all, and sorts by `loc`, whose
+ *     atom is an ISO timestamp (`2026-06-21T223100Z-author`) and therefore
+ *     lexicographically chronological.
+ *
+ * The two never mix within one chat, which is what makes a single sort key
+ * per chat a total order.
+ *
+ * **`loc` is NOT a safe key for a platform chat, and that is not obvious.** The
+ * server pads the seq atom to three digits (`chatRoot.ts`, `padStart(3, '0')`),
+ * so `"1000-…" < "999-…"` lexicographically — message 1000 sorts BEFORE message
+ * 999. Loc ordering silently inverts past a thousand messages, which is exactly
+ * the length at which pagination matters. Hence `seq` for platform chats, and
+ * `loc` only where seq does not exist and the atom is a timestamp.
  */
 export async function loadChatMessages(
   client: GraphQLClient,
   memoryId: string,
   chatLoc: string,
-  limit = 2000,
-): Promise<ChatMessage[]> {
+  opts: {
+    /** Messages per page. */
+    limit?: number;
+    /** Walk backwards: load the window ENDING at this node offset. */
+    before?: number;
+    /** `seq` for a platform chat, `loc` for a legacy one. See the docblock. */
+    sort?: 'seq' | 'loc';
+  } = {},
+): Promise<ChatPage> {
+  const limit = opts.limit ?? CHAT_PAGE_SIZE;
   const prefix = messagesPrefix(chatLoc);
-  const data = await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
-    NODES_BY_LOC_PREFIX_QUERY,
-    { memoryId, locPrefix: prefix, limit },
-  );
+  const fetchCount = Math.ceil(limit * NODE_OVERFETCH);
 
-  const messages = data.findNodes.hits
+  // A first read with limit 0 would be a wasted round trip, so the count comes
+  // back with the window: ask for the tail optimistically, then correct.
+  const probe = await client.request<{
+    findNodes: { total: number | null; hits: Array<{ node: MemoryNode }> };
+  }>(NODES_BY_LOC_PREFIX_QUERY, {
+    memoryId,
+    locPrefix: prefix,
+    limit: fetchCount,
+    offset: 0,
+    sort: opts.sort ?? 'seq',
+  });
+  const total = probe.findNodes.total ?? probe.findNodes.hits.length;
+
+  // Where this window starts. `before` walks backwards from a previous window's
+  // offset; absent, we want the TAIL — the newest page — which is the end of a
+  // list the server pages from the front.
+  const end = opts.before ?? total;
+  const offset = Math.max(0, end - fetchCount);
+
+  // The probe already IS the right page when the thread fits in one.
+  const hits =
+    offset === 0 && end >= total && total <= fetchCount
+      ? probe.findNodes.hits
+      : (
+          await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
+            NODES_BY_LOC_PREFIX_QUERY,
+            {
+              memoryId,
+              locPrefix: prefix,
+              limit: Math.min(fetchCount, end - offset),
+              offset,
+              sort: opts.sort ?? 'seq',
+            },
+          )
+        ).findNodes.hits;
+
+  const messages = hits
     .map((h) => h.node)
     .filter((n: MemoryNode) => {
       if (!n?.loc?.startsWith(prefix)) return false;
@@ -171,22 +284,63 @@ export async function loadChatMessages(
       : new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
   );
 
-  return messages.map((msg) => {
-    const msgData = msg.data as Record<string, unknown> | null;
-    return {
-      id: msg.id,
-      name: msg.name || 'Unknown',
-      // `authorName` is the platform envelope's display field; `author` the
-      // legacy one. `name` is the last resort — on a platform message it reads
-      // "003-Iris" (the seq-prefixed node name), so it is genuinely a fallback.
-      author:
-        (msgData?.authorName as string) || (msgData?.author as string) || msg.name || 'Unknown',
-      content: msg.content || (msgData?.body as string) || '',
-      createdAt: msg.createdAt,
-      seq: msg.seq ?? null,
-      nodeData: { loc: msg.loc },
-    };
-  });
+  // #793: trim to the PAGE SIZE after filtering.
+  //
+  // The fetch deliberately over-reads nodes to absorb non-message children, but
+  // without this the over-read silently becomes the window: with a page size of
+  // 100 and a 1.5x over-fetch, a 142-message thread came back whole and the
+  // scroll-up affordance never appeared, because nothing had been left behind.
+  // Measured in the app on exactly that thread — the constant claimed 100 and
+  // the reader got 142.
+  //
+  // Taking the LAST `limit` is right in both directions: at the tail it is the
+  // newest page, and when walking backwards it is the slice adjacent to what
+  // the reader already has.
+  const windowed = messages.length > limit ? messages.slice(messages.length - limit) : messages;
+
+  // The cursor is the NODE INDEX of the first message actually shown — not the
+  // fetch offset. Those differ whenever the trim above dropped messages off the
+  // front of a page that began at offset 0, which is exactly the case a thread
+  // between `limit` and the over-fetched count lands in. Returning the fetch
+  // offset there yields 0, the endpoint rejects it as a bad cursor, and the
+  // scroll-up fetches forever without ever producing a message — measured, one
+  // request and zero rows.
+  //
+  // Located by identity in `hits` rather than computed from the filtered count,
+  // because the two differ by however many non-message nodes were interleaved,
+  // and an approximate cursor skips or repeats a message at every page boundary.
+  const firstShown = windowed[0];
+  const idxInHits = firstShown ? hits.findIndex((h) => h.node.id === firstShown.id) : 0;
+  const cursor = offset + (idxInHits < 0 ? 0 : idxInHits);
+
+  return {
+    messages: windowed.map((msg) => {
+      const msgData = msg.data as Record<string, unknown> | null;
+      return {
+        id: msg.id,
+        name: msg.name || 'Unknown',
+        // `authorName` is the platform envelope's display field; `author` the
+        // legacy one. `name` is the last resort — on a platform message it reads
+        // "003-Iris" (the seq-prefixed node name), so it is genuinely a fallback.
+        author:
+          (msgData?.authorName as string) || (msgData?.author as string) || msg.name || 'Unknown',
+        content: msg.content || (msgData?.body as string) || '',
+        createdAt: msg.createdAt,
+        seq: msg.seq ?? null,
+        nodeData: { loc: msg.loc },
+      };
+    }),
+    total,
+    // Computed from the SERVER's node offset, never from how many messages
+    // survived filtering — a page whose extras were all filtered out is short,
+    // not final, and reading "fewer than asked" as "no more" is how an infinite
+    // scroll stops early on a thread that has plenty left.
+    // One condition now covers both cases, because the cursor is absolute:
+    // anything before the first shown message is older, whether it was left
+    // behind by the server offset or by the trim.
+    hasOlder: cursor > 0,
+    offset: cursor,
+  };
 }
 
 export function chatAuthorName(user: unknown): string {

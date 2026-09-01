@@ -2055,8 +2055,24 @@ export const APP_CHAT_ROOTS_QUERY = /* GraphQL */ `
 
 export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query NodesByLocPrefix($memoryId: ID!, $locPrefix: String!, $limit: Int) {
-    findNodes(filter: { memoryIds: [$memoryId], locPrefix: $locPrefix }, limit: $limit) {
+  query NodesByLocPrefix(
+    $memoryId: ID!
+    $locPrefix: String!
+    $limit: Int
+    $offset: Int
+    $sort: NodeSort
+  ) {
+    findNodes(
+      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix }
+      limit: $limit
+      offset: $offset
+      sort: $sort
+    ) {
+      # #793: total is what makes a TAIL window addressable. The server pages
+      # from the start, so "the newest N" is offset = total - N; without the
+      # count there is no way to ask for the end of a thread, which is the only
+      # part a chat reader wants first.
+      total
       hits { node { ...NodeFields } }
     }
   }

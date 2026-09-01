@@ -242,15 +242,11 @@ function slugOfUrn(urn: string): string {
 // maximum, and report the server's `total` so a truncated view can say so
 // rather than reading as the whole worklog.
 const WORKLOG_PAGE_SIZE = 200;
-/**
- * #744 — how much of an arbitrary chat's transcript is fetched.
- *
- * The tab discloses when it has hit this, rather than presenting a partial
- * transcript as a whole one (Codex P2 on #759). Deliberately generous: a 1:1
- * chat past 500 messages is unusual, and the honest caption costs nothing when
- * it is not reached.
- */
-const CHAT_PAGE_SIZE = 500;
+// #744/#793 — how much of an arbitrary chat's transcript is fetched. The size
+// now comes from `$lib/server/team-chat` (CHAT_PAGE_SIZE) rather than a second
+// constant of the same name declared here: two "chat page size" values, 500 and
+// 100, that nothing kept in step is the drift this module's own TEAM_CHAT_LOC
+// comment warns about.
 
 /** The App page's tab ids, for validating `?tab=`. Kept in sync with the
  *  `TabId` union in +page.svelte; an unknown value falls back to the default. */
@@ -536,12 +532,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // so rather than rendering a composer that cannot work.
   const selectedChatMessages =
     selectedChat?.kind === 'other' && selectedChat.memoryId
-      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key, CHAT_PAGE_SIZE)
+      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key)
           .catch((e) => {
             console.warn(`[app-chats] messages fetch failed for ${selectedChat.key}:`, e);
             return null;
           })
-      : [];
+      : null;
 
   return {
     app,
@@ -572,13 +568,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     appChats,
     chatsError: chatRoots === null,
     selectedChatKey: selectedChat?.key ?? null,
-    selectedChatMessages: selectedChatMessages ?? [],
+    selectedChatMessages: selectedChatMessages?.messages ?? [],
     selectedChatError: selectedChatMessages === null,
     // #744: hitting the cap is DISCLOSED rather than presented as a whole
-    // transcript (Codex P2 on #759). `loadChatMessages` returns a plain list
-    // with no total, so a full page is the only signal that more exists — the
-    // same short-page reasoning as the worker page's sessions.
-    selectedChatTruncated: (selectedChatMessages?.length ?? 0) >= CHAT_PAGE_SIZE,
+    // transcript (Codex P2 on #759). #793 replaced the guess with the fact:
+    // `loadChatMessages` now returns the server's `total` and a `hasOlder`
+    // flag, so this no longer infers "there is more" from a full page. Reading
+    // fewer-than-asked as final is how a paginated view stops early, and the
+    // old heuristic did exactly that in reverse.
+    selectedChatTruncated: selectedChatMessages?.hasOlder ?? false,
     chatNotFound,
     initialTab,
     worklogFilters: {

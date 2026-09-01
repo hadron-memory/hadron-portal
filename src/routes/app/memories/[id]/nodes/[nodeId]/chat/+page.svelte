@@ -49,6 +49,26 @@
     return items;
   });
 
+
+  // #793: fetch the page BEFORE the loaded window. The route owns HOW to read
+  // (an isolated endpoint, so a scroll-up cannot re-run the page's fatal load
+  // paths — #785's rule); ChatThread owns WHEN and the scroll anchoring.
+  //
+  // `chatOffset` walks backwards: each page returns the offset it started at,
+  // which is the cursor for the one before it. Returning NULL on failure is
+  // load-bearing — the component treats null as "retry on the next scroll" and
+  // an empty array as "start of the conversation", so collapsing them would
+  // permanently end the scrollback on one transient error.
+  let olderCursor = $state<number>(data.chatOffset ?? 0);
+  async function loadOlderChat() {
+    const res = await fetch(`${basePath}/nodes/${node.id}/chat-older?before=${olderCursor}`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    if (body.loadFailed) return null;
+    olderCursor = body.offset;
+    return { messages: body.messages, hasOlder: body.hasOlder ?? false };
+  }
+
   let reloading = $state(false);
   async function reloadChat() {
     reloading = true;
@@ -129,5 +149,7 @@
     sendForm={data.form}
     action="?/sendMessage"
     canPost={data.canPost}
+    hasOlder={data.hasOlder ?? false}
+    onLoadOlder={loadOlderChat}
   />
 </div>
