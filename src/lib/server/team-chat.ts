@@ -498,3 +498,36 @@ export async function loadTeamChatTail(
   // the two requests, and the later count is the one that matches this page.
   return tail;
 }
+
+/**
+ * The page of team-chat messages immediately BEFORE `beforeSeq` (#793).
+ *
+ * One request, no arithmetic. `beforeSeq` (server #1116) is the backward mirror
+ * of the `sinceSeq` the poll uses: only messages with seq strictly less than the
+ * cursor are considered, and the NEWEST of those come back — which is exactly a
+ * scroll-up page, in the order the thread renders.
+ *
+ * This is why the tail read above still needs its two-request dance and this
+ * does not: the tail has no cursor to start from, so it must locate the end via
+ * `total`. Once a reader has a message on screen they have a cursor, and the
+ * arithmetic disappears.
+ *
+ * Deliberately NOT `offset`. The server ignores offset when beforeSeq is given,
+ * and on this surface that matters more than anywhere: the team chat is written
+ * continuously by workers while a reader is scrolled back, so a positional
+ * cursor skips or duplicates as the list grows underneath it. That is the normal
+ * case here, not an unlucky interleaving.
+ */
+export async function loadTeamChatOlder(
+  client: GraphQLClient,
+  appRef: string,
+  beforeSeq: number,
+  limit = TEAM_CHAT_PAGE_SIZE,
+): Promise<{ items: TeamChatMessage[]; total: number }> {
+  return client
+    .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
+      TEAM_CHAT_MESSAGES_QUERY,
+      { appRef, beforeSeq, limit },
+    )
+    .then((r) => r.teamChatMessages);
+}

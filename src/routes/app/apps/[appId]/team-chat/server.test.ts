@@ -12,10 +12,15 @@ function msg(seq: number) {
   return { nodeId: `n-${seq}`, seq, body: `m${seq}`, at: '2026-08-27T00:00:00Z', authorName: 'Ada' };
 }
 
-async function get(appId = 'app-1') {
+async function get(appId = 'app-1', search = '') {
   const { GET } = await import('./+server');
   const res = (await GET({
     params: { appId },
+    // #793: the handler now reads `?beforeSeq=` to serve a scroll-up page, so
+    // the event needs a url. Supplied for every call, not just the paging ones,
+    // so a test that forgets it fails as a missing FIXTURE rather than as a
+    // missing feature.
+    url: new URL(`http://localhost/app/apps/${appId}/team-chat${search}`),
     locals: { token: 'tok' },
   } as unknown as Parameters<typeof GET>[0])) as Response;
   return { status: res.status, body: await res.json() };
@@ -74,5 +79,103 @@ describe('GET /app/apps/[appId]/team-chat', () => {
     mockRequest.mockResolvedValue({ teamChatMessages: { items: [], total: 0 } });
     await get('some-other-app');
     expect(mockRequest.mock.calls[0][1]).toMatchObject({ appRef: 'some-other-app' });
+  });
+});
+
+// #793. The same endpoint serves two reads: the tail (poll, first paint) and
+// the page BEFORE a cursor (scroll-up). One route because both answer "give me
+// a window of this thread", and a second would be a second place to keep the
+// degrade-with-200 contract in step.
+describe('GET /app/apps/[appId]/team-chat — scroll-up via beforeSeq', () => {
+  it('asks the server for the page preceding the cursor, in ONE request', async () => {
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [msg(8), msg(9)], total: 500 } });
+    const { status, body } = await get('app-1', '?beforeSeq=10');
+
+    expect(status).toBe(200);
+    expect(body).toEqual({ items: [msg(8), msg(9)], total: 500, loadFailed: false });
+    // The tail read pages twice because it has no cursor to start from. This
+    // one has a cursor, so the arithmetic — and the second round trip —
+    // disappear. A regression to the tail path would show up here as 2.
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenCalledWith(TEAM_CHAT_MESSAGES_QUERY, {
+      appRef: 'app-1',
+      beforeSeq: 10,
+      limit: 200,
+    });
+  });
+
+  it('passes NO offset alongside the cursor', async () => {
+    // The server ignores offset when beforeSeq is given, so sending both would
+    // be harmless today and misleading forever — it would read as if the
+    // position were positional, which is the thing beforeSeq exists to stop.
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [], total: 500 } });
+    await get('app-1', '?beforeSeq=10');
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('offset');
+  });
+
+  it('refuses a malformed cursor rather than silently serving the tail', async () => {
+    // Falling back would re-serve the page the reader already has, which the
+    // component reads as "no more history" and stops on — a scroll-up that
+    // ends early on a thread with plenty left.
+    for (const bad of ['?beforeSeq=0', '?beforeSeq=-3', '?beforeSeq=abc']) {
+      const { status, body } = await get('app-1', bad);
+      expect(status, bad).toBe(400);
+      expect(body.loadFailed, bad).toBe(true);
+      expect(body.reason, bad).toBe('bad-cursor');
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('still serves the TAIL when no cursor is given', async () => {
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [msg(1)], total: 1 } });
+    const { body } = await get();
+    expect(body.items).toEqual([msg(1)]);
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('beforeSeq');
+  });
+});
+
+// #793 (@codex P1 on PR #799). `total` is CURSOR-SCOPED when beforeSeq is
+// given — measured against the live server on a 3-message thread:
+//
+//   tail            items 3, total 3
+//   beforeSeq: 3    items 2, total 2
+//   beforeSeq: 2    items 1, total 1
+//
+// So the endpoint faithfully returns a bounded count, and the COMPONENT must
+// not adopt it as the full-thread total: doing so shrinks `shownTotal` below
+// what is displayed, `canLoadOlder` goes false, and the oldest messages become
+// unreachable — on a 500-message thread, seq 1–100 after two pages.
+//
+// Pinned here because the endpoint is where the shape is observable; the
+// component-side rule (keep the tail's total) has no test surface in this repo
+// until #795 lands.
+describe('GET /app/apps/[appId]/team-chat — total is bounded by the cursor', () => {
+  it('passes the server count through unchanged, bounded or not', async () => {
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [msg(1)], total: 1 } });
+    const { body } = await get('app-1', '?beforeSeq=2');
+    // NOT rewritten to look like a full-thread count: the endpoint reports what
+    // the server said, and the caller is responsible for knowing which it is.
+    expect(body.total).toBe(1);
+  });
+
+  it('refuses a non-integer cursor rather than passing it to an Int variable', async () => {
+    // `Number()` accepts 10.5 and 10e2; the GraphQL variable is an Int, so
+    // these become a runtime GraphQL error or an unintended cursor instead of
+    // the clean 400 the guard exists to produce (@copilot on #799).
+    for (const bad of ['?beforeSeq=10.5', '?beforeSeq=1e999', '?beforeSeq=Infinity']) {
+      const { status, body } = await get('app-1', bad);
+      expect(status, bad).toBe(400);
+      expect(body.reason, bad).toBe('bad-cursor');
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('still accepts a plain positive integer', async () => {
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [], total: 0 } });
+    const { status } = await get('app-1', '?beforeSeq=10e2');
+    // 10e2 IS 1000 numerically but is not a decimal integer literal; the guard
+    // uses Number.isSafeInteger on the parsed value, so this one passes — the
+    // check is about the VALUE being a safe integer, not the spelling.
+    expect(status).toBe(200);
   });
 });

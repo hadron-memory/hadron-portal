@@ -1940,8 +1940,14 @@ export const CREATE_TEAM_CHAT_MESSAGE_MUTATION = /* GraphQL */ `
 // mentions are extracted server-side at write time. Clients never re-parse
 // bodies, so this selection is the only supported source for them.
 export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
-  query TeamChatMessages($appRef: ID!, $sinceSeq: Int, $limit: Int, $offset: Int) {
-    teamChatMessages(appRef: $appRef, sinceSeq: $sinceSeq, limit: $limit, offset: $offset) {
+  # #793: beforeSeq (server #1116) is the BACKWARD mirror of sinceSeq — only
+  # messages with seq strictly less than it are considered, and the NEWEST of
+  # those are returned. The server IGNORES offset when beforeSeq is given, which
+  # is the point: an offset is an index into a list whose length changes under a
+  # reader while workers post, so it skips or duplicates mid-scroll. seq is
+  # atomic and unique per chat, so the cursor is stable.
+  query TeamChatMessages($appRef: ID!, $sinceSeq: Int, $beforeSeq: Int, $limit: Int, $offset: Int) {
+    teamChatMessages(appRef: $appRef, sinceSeq: $sinceSeq, beforeSeq: $beforeSeq, limit: $limit, offset: $offset) {
       items {
         nodeId
         seq

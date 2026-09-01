@@ -24,17 +24,42 @@
 // this repo keeps filing issues about, and the weaker copy always wins.
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { loadTeamChatTail } from '$lib/server/team-chat';
+import { loadTeamChatOlder, loadTeamChatTail } from '$lib/server/team-chat';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async ({ params, locals }) => {
+export const GET: RequestHandler = async ({ params, url, locals }) => {
+  // #793: one endpoint, two reads. `?beforeSeq=` asks for the page preceding a
+  // cursor (scroll-up); its absence asks for the tail (the poll, and the first
+  // paint). Kept on this route rather than a sibling because both are the same
+  // question — "give me a window of this thread" — and a second route would be
+  // a second place to keep the degrade-with-200 contract below in step.
+  const beforeSeqRaw = url.searchParams.get('beforeSeq');
+  const beforeSeq = beforeSeqRaw === null ? null : Number(beforeSeqRaw);
+  // A malformed cursor is a client bug, not an empty thread. Refusing beats
+  // silently falling back to the tail, which would re-serve the page the reader
+  // already has and read to the component as "no more history".
+  // #793 (@copilot on PR #799): a strictly positive SAFE INTEGER. `Number()`
+  // happily yields 10.5 and 10e2, and the GraphQL variable is an `Int` — so a
+  // non-integer becomes a runtime GraphQL error or an unintended cursor instead
+  // of the clean 400 this guard exists to produce.
+  if (
+    beforeSeqRaw !== null &&
+    (!Number.isSafeInteger(beforeSeq) || (beforeSeq as number) <= 0)
+  ) {
+    return json({ items: [], total: 0, loadFailed: true, reason: 'bad-cursor' }, { status: 400 });
+  }
+
   try {
     // The SAME helper the page load uses, not a second copy. It pages twice on
     // purpose — `teamChatMessages` is seq-ASCENDING with an offset cursor, so a
     // single `limit: 200` returns the OLDEST 200 and pins a long thread to the
     // start of history (Codex on #738). A re-implementation here would drift
     // from that rule the first time either side changed.
-    const { items, total } = await loadTeamChatTail(gqlClient(locals.token), params.appId);
+    const client = gqlClient(locals.token);
+    const { items, total } =
+      beforeSeq === null
+        ? await loadTeamChatTail(client, params.appId)
+        : await loadTeamChatOlder(client, params.appId, beforeSeq);
     return json({ items, total, loadFailed: false });
   } catch (e) {
     // 200 with a flag, not an error status: this response feeds a BACKGROUND
