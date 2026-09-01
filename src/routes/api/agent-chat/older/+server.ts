@@ -34,13 +34,24 @@ function json(payload: unknown, status = 200): Response {
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) return json({ error: 'Unauthorized' }, 401);
 
-  let body: { chatId?: string; beforeSeq?: unknown };
+  // Both fields `unknown`, because that is what `request.json()` can actually
+  // produce. Declaring `chatId?: string` would let the compiler bless a read of
+  // it as a string and switch off the only mechanism that enforces the check
+  // below — the same way a bare `HTMLDivElement` on a `bind:this` hid #782.
+  let body: { chatId?: unknown; beforeSeq?: unknown };
   try {
     body = await request.json();
   } catch {
     return json({ error: 'Invalid JSON body' }, 400);
   }
-  if (!body.chatId) return json({ error: 'chatId is required' }, 400);
+  // Type-checked, not just truthy (@copilot on PR #801): a crafted body can
+  // carry an object or a number here, which survives to the GraphQL layer and
+  // fails there as a variable-type error — a 500 for what is plainly bad client
+  // input. Both validations below keep this endpoint's contract honest: 400 for
+  // a malformed request, 500 only for something that actually went wrong.
+  if (typeof body.chatId !== 'string' || body.chatId === '') {
+    return json({ error: 'chatId is required' }, 400);
+  }
 
   // `Number.isSafeInteger` and not a truthiness check: `seq` starts at 0 in
   // principle, and `!0` would reject the one cursor that reaches the very first

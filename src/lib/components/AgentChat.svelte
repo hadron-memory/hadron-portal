@@ -89,14 +89,29 @@
   // was unreachable by any means the UI offered.
   //
   // `olderCursor` is STATE fed only by server pages, never derived from
-  // `messages`. The optimistic bubbles below fabricate `seq: messages.length`,
-  // which in a resumed chat is far lower than the real seqs around it, so a
-  // "minimum seq on screen" cursor would ask for history before a value that
-  // was never a real position and skip everything in between. See
-  // `olderCursorFrom` in $lib/server/agent-chat.
+  // `messages`. The optimistic bubbles below fabricate a seq, so a "minimum seq
+  // on screen" cursor could pick a value that was never a real position and page
+  // from there, skipping everything in between. See `olderCursorFrom` in
+  // $lib/agent-chat-window.
   let olderCursor = $state<number | null>(null);
   let hasOlder = $state(false);
   let loadingOlder = $state(false);
+
+  // Which WINDOW an in-flight scroll-up belongs to (@codex P2 on PR #801).
+  //
+  // Comparing `activeChatId` alone is not enough, because a chat id is not
+  // unique over TIME. Load older from cursor 301, switch to another chat, switch
+  // BACK: the reopened chat resumes at its tail (401–500) with a fresh cursor,
+  // then the original response lands and its id still matches. It would prepend
+  // 201–300 onto that tail and set the cursor to 201 — silently orphaning
+  // 301–400 for the rest of the session, with no error and nothing on screen to
+  // suggest a gap. That is the same class of invisible hole this whole change
+  // exists to close, so an id check is the wrong instrument: the question is not
+  // "same conversation?" but "same loaded window?".
+  //
+  // `resetScrollback` is the single place a window begins, so bumping the
+  // counter there covers resume, start, and delete without a per-path guard.
+  let windowGeneration = $state(0);
 
   // Not `scrollTop === 0`: @Holger's ruling on #793 was that a reader should be
   // able to "scroll up without hesitation", and a fetch that only starts once
@@ -109,6 +124,31 @@
     olderCursor = page ? olderCursorFrom(page.messages) : null;
     hasOlder = page?.hasOlder ?? false;
     loadingOlder = false;
+    // Every reset starts a new window, which invalidates any scroll-up already
+    // in flight against the old one.
+    windowGeneration += 1;
+  }
+
+  /**
+   * A seq for an optimistic bubble, which the server has not numbered yet.
+   *
+   * This used to be `messages.length` — a count of what is ON SCREEN, while
+   * `seq` counts what exists in the THREAD. Under pagination those diverge
+   * immediately: in a window showing 401–500 it produced 100, a number that
+   * both misdescribes the message and COLLIDES with the real seq 100 sitting
+   * further back in the same thread. Keying the transcript on `seq` (below)
+   * would then throw a duplicate-key error the moment a reader scrolled back
+   * far enough to load it.
+   *
+   * One above the highest seq on screen is collision-free by construction:
+   * scrollback only ever loads seqs BELOW the window, so it cannot reach a
+   * value at or above this one. It also reads correctly — the message really
+   * is the newest thing in the transcript.
+   */
+  function nextOptimisticSeq(): number {
+    let max = 0;
+    for (const m of messages) if (m.seq != null && m.seq > max) max = m.seq;
+    return max + 1;
   }
 
   async function maybeLoadOlder() {
@@ -116,6 +156,7 @@
     if (messagesEl.scrollTop > LOAD_OLDER_THRESHOLD_PX) return;
     const chatId = activeChatId;
     if (!chatId) return;
+    const generation = windowGeneration;
     loadingOlder = true;
     // Captured BEFORE the prepend — `scrollHeight` only reflects the new rows
     // once they are in the DOM, which is what the `tick()` below waits for.
@@ -132,9 +173,10 @@
       if (!res.ok) return;
       const body = await res.json();
       const older: ChatMessage[] = body.messages ?? [];
-      // The chat can be switched while this is in flight; a page from the
-      // previous conversation must not be spliced into the new one.
-      if (activeChatId !== chatId) return;
+      // Not just "same chat" — same WINDOW. See `windowGeneration` above: a
+      // reopened chat matches on id while holding an entirely different loaded
+      // range, and splicing this page into it would leave a permanent hole.
+      if (windowGeneration !== generation) return;
       // The SERVER decides whether more exists. A last page that happens to be
       // full looks exactly like a middle one.
       hasOlder = body.hasOlder ?? false;
@@ -151,7 +193,12 @@
     } catch (e) {
       console.warn('[agent-chat] loading older messages failed; will retry on the next scroll:', e);
     } finally {
-      loadingOlder = false;
+      // Only the load that OWNS the current window may clear the flag. A stale
+      // request resolving after a reset would otherwise unlock a newer load that
+      // is still in flight, and the two would prepend the same page twice —
+      // trading the gap above for a duplicate. `resetScrollback` already cleared
+      // the flag for the new window, so there is nothing to release here.
+      if (windowGeneration === generation) loadingOlder = false;
     }
   }
 
@@ -385,7 +432,7 @@
       {
         role: 'user',
         content: text,
-        seq: messages.length,
+        seq: nextOptimisticSeq(),
         createdAt: new Date().toISOString(),
       },
     ];
@@ -406,7 +453,7 @@
         {
           role: 'assistant',
           content: body.assistantMessage ?? '',
-          seq: messages.length,
+          seq: nextOptimisticSeq(),
           createdAt: new Date().toISOString(),
         },
       ];
@@ -732,7 +779,17 @@
             {t('agent-chat.loading-older', 'Loading earlier messages…')}
           </p>
         {/if}
-        {#each messages as msg, idx (idx)}
+        <!-- Keyed by seq, not by index (@copilot on PR #801). With an index key
+             a prepended page shifts every existing row's key, so Svelte
+             re-renders the whole transcript — including `renderMarkdown` for
+             every assistant bubble — on each scroll-up. `ChatThread` and
+             `TeamChatThread` both key on a stable id; this surface has no `id`
+             on the wire, and `seq` only became usable as one once the
+             optimistic bubbles stopped fabricating a colliding value (see
+             `nextOptimisticSeq`). Counterless legacy rows fall back to their
+             index, which is stable for them specifically: they are the OLDEST
+             part of a thread, so nothing is ever prepended in front of them. -->
+        {#each messages as msg, idx (msg.seq ?? `legacy-${idx}`)}
           <div class="flex {msg.role === 'user' ? 'justify-end' : 'justify-start'}">
             {#if msg.role === 'user'}
               <div class="max-w-[85%] whitespace-pre-wrap rounded-2xl bg-indigo-500 px-3 py-2 text-sm text-white">{msg.content}</div>

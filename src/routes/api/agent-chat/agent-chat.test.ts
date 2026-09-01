@@ -590,9 +590,20 @@ describe('POST /api/agent-chat/older (#793 scrollback)', () => {
     expect(res.status).toBe(401);
   });
 
-  it('requires chatId', async () => {
+  // A non-string chatId used to survive to the GraphQL layer and fail there as
+  // a variable-type error — a 500 for what is plainly bad client input
+  // (@copilot on PR #801).
+  it.each([
+    ['missing', {}],
+    ['empty', { chatId: '' }],
+    ['an object', { chatId: { toString: () => 'c' } }],
+    ['a number', { chatId: 42 }],
+    ['an array', { chatId: ['c'] }],
+  ])('rejects a chatId that is %s', async (_label, extra) => {
     const { POST } = await import('./older/+server');
-    expect((await POST(ev({ body: { beforeSeq: 5 } }))).status).toBe(400);
+    const res = await POST(ev({ body: { beforeSeq: 5, ...extra } }));
+    expect(res.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 
   it.each([
