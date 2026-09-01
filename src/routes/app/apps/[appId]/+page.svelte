@@ -1410,9 +1410,15 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         {/if}
         {#if data.selectedChatTruncated}
           <p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+            <!-- #793 (@codex on PR #797): the window MOVED, so this sentence
+                 had to. `loadChatMessages` used to return the first page and
+                 now returns the newest, which turned an accurate caption into a
+                 confident false one — it told the reader the tail was the
+                 beginning. A change to WHICH end is loaded is a change to every
+                 sentence describing it. -->
             {t(
               'app.chats.truncated',
-              'Only the first part of this conversation is shown — it is longer than this view loads.',
+              'Showing the most recent part of this conversation — it is longer than this view loads.',
             )}
           </p>
         {/if}

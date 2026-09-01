@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { invalidateAll } from '$app/navigation';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ChatThread from '$lib/components/ChatThread.svelte';
@@ -48,6 +49,37 @@
 
     return items;
   });
+
+
+  // #793: fetch the page BEFORE the loaded window. The route owns HOW to read
+  // (an isolated endpoint, so a scroll-up cannot re-run the page's fatal load
+  // paths — #785's rule); ChatThread owns WHEN and the scroll anchoring.
+  //
+  // `chatOffset` walks backwards: each page returns the offset it started at,
+  // which is the cursor for the one before it. Returning NULL on failure is
+  // load-bearing — the component treats null as "retry on the next scroll" and
+  // an empty array as "start of the conversation", so collapsing them would
+  // permanently end the scrollback on one transient error.
+  // A `$state` INITIALIZER runs once. Re-syncing on page data is not optional
+  // (@codex on PR #797): a reload or a post replaces `data.messages`, which
+  // makes ChatThread drop its accumulated older rows — so a cursor left at the
+  // deeper offset would make the next scroll ask for history BEFORE it and skip
+  // everything between there and the refreshed tail. The node-detail surface
+  // already did this; the two must not drift, since a reader moves between them
+  // with the "Full-screen chat" button.
+  let olderCursor = $state<number>(0);
+  $effect(() => {
+    const o = data.chatOffset ?? 0;
+    untrack(() => { olderCursor = o; });
+  });
+  async function loadOlderChat() {
+    const res = await fetch(`${basePath}/nodes/${node.id}/chat-older?before=${olderCursor}`);
+    if (!res.ok) return null;
+    const body = await res.json();
+    if (body.loadFailed) return null;
+    olderCursor = body.offset;
+    return { messages: body.messages, hasOlder: body.hasOlder ?? false };
+  }
 
   let reloading = $state(false);
   async function reloadChat() {
@@ -129,5 +161,7 @@
     sendForm={data.form}
     action="?/sendMessage"
     canPost={data.canPost}
+    hasOlder={data.hasOlder ?? false}
+    onLoadOlder={loadOlderChat}
   />
 </div>

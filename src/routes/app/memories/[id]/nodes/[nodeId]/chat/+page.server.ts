@@ -5,7 +5,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
-import { chatAuthorName, chatPostTarget, isChatNode, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, chatSortKey, isChatNode, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -60,10 +60,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   }
 
   // Non-fatal on error — an empty thread beats crashing the chat page.
-  const messages = await loadChatMessages(gqlClient(locals.token), params.id, node.loc).catch((err) => {
+  // #793: a bounded WINDOW (newest CHAT_PAGE_SIZE), not the whole thread.
+  const page = await loadChatMessages(gqlClient(locals.token), params.id, node.loc, { sort: chatSortKey(node) }).catch((err) => {
     console.error('[chat-page] messages query failed:', err);
-    return [];
+    return { messages: [], total: 0, hasOlder: false, offset: 0 };
   });
+  const messages = page.messages;
 
   // Compute fullUrn the way the node detail page does — through
   // `composeNodeUrn`, NOT by concatenating the memory URN with the loc.
@@ -94,6 +96,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     node,
     fullUrn,
     messages,
+    hasOlder: page.hasOlder,
+    chatOffset: page.offset,
     // #489 part 4 (@codex on PR #791): the App reference has to be HERE too,
     // not only on the node page. This is the surface a reader stays on — the
     // full transcript and composer — and it is one click from the node page's

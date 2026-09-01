@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
+  import { scrollTopAfterPrepend } from '$lib/team-chat-refresh';
+  import { t } from '$lib/i18n/t';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import { marked } from 'marked';
@@ -32,6 +34,8 @@
     action = '?/sendMessage',
     heightClass = 'flex-1 min-h-0',
     canPost = true,
+    hasOlder = false,
+    onLoadOlder,
   }: {
     messages?: ChatThreadMessage[];
     basePath: string;
@@ -43,9 +47,73 @@
     /** False when there is no App to post through — the thread reads, but the
      *  composer would have nowhere to send. */
     canPost?: boolean;
+    /** #793: is there history before the loaded window? Drives scroll-up. */
+    hasOlder?: boolean;
+    /** #793: fetch the page BEFORE the current window. The route owns HOW to
+     *  read; this component owns WHEN (the scroll threshold) and the anchoring.
+     *
+     *  Returns `null` on FAILURE (retry on the next scroll) and
+     *  `{ messages, hasOlder }` on success — `hasOlder` is what stops the loop.
+     *  A non-empty page that happens to be the last one looks identical to any
+     *  other, so without the flag the component keeps asking, the endpoint keeps
+     *  refusing the exhausted cursor, and the console fills with 400s. Measured
+     *  on a 142-message thread. */
+    onLoadOlder?: () => Promise<{ messages: ChatThreadMessage[]; hasOlder: boolean } | null>;
   } = $props();
 
   let messagesEl: HTMLDivElement | null = $state(null);
+  // #793: older pages the reader has scrolled back to, oldest-first. Kept
+  // SEPARATE from the `messages` prop so a page-data change (navigation, a
+  // post) resets the scrollback rather than stacking a new thread on an old
+  // one — the same "fresh page data wins" rule TeamChatThread applies to its
+  // poll, and for the same reason.
+  let older = $state<ChatThreadMessage[]>([]);
+  let loadingOlder = $state(false);
+  let olderExhausted = $state(false);
+  $effect(() => {
+    messages;
+    untrack(() => {
+      older = [];
+      olderExhausted = false;
+    });
+  });
+  const shownMessages = $derived([...older, ...messages]);
+  const canLoadOlder = $derived(!!onLoadOlder && hasOlder && !olderExhausted);
+
+  /**
+   * #793: load the previous page when the reader approaches the top.
+   *
+   * The threshold is deliberately NOT `scrollTop === 0`. @Holger's ruling was
+   * that a reader should "scroll up without hesitation" — and if the fetch only
+   * starts when they arrive at the boundary, they SEE the boundary, which is
+   * the hesitation. Firing a screenful early means the page is usually already
+   * there.
+   */
+  const LOAD_OLDER_THRESHOLD_PX = 400;
+
+  async function maybeLoadOlder() {
+    if (!messagesEl || loadingOlder || !canLoadOlder) return;
+    if (messagesEl.scrollTop > LOAD_OLDER_THRESHOLD_PX) return;
+    loadingOlder = true;
+    // Capture BEFORE the prepend; `scrollHeight` only reflects the new rows
+    // once they are in the DOM, which is what the `tick()` below waits for.
+    const before = { scrollTop: messagesEl.scrollTop, scrollHeight: messagesEl.scrollHeight };
+    try {
+      const page = await onLoadOlder!();
+      if (page === null) return; // a failed fetch is not an exhausted thread
+      // The SERVER decides whether more exists, not the page size. A last page
+      // that is full looks exactly like a middle one.
+      if (!page.hasOlder) olderExhausted = true;
+      if (page.messages.length === 0) return;
+      older = [...page.messages, ...older];
+      await tick();
+      if (messagesEl) messagesEl.scrollTop = scrollTopAfterPrepend(before, messagesEl.scrollHeight);
+    } catch (e) {
+      console.warn('[chat] loading older messages failed; will retry on the next scroll:', e);
+    } finally {
+      loadingOlder = false;
+    }
+  }
   let hoveredMessageId = $state<string | null>(null);
   let isBrowser = $state(false);
 
@@ -142,9 +210,24 @@
   <!-- Messages area -->
   <div
     bind:this={messagesEl}
+    onscroll={maybeLoadOlder}
     class="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-6 bg-gray-50 dark:bg-zinc-900"
   >
-    {#if messages.length === 0}
+    <!-- #793: the scrollback affordance. Says which of three states the top of
+         the thread is in, rather than letting "nothing above" read the same as
+         "more, not fetched yet". -->
+    {#if canLoadOlder}
+      <p class="text-center text-xs text-zinc-500 dark:text-zinc-400">
+        {loadingOlder
+          ? t('chat.loading-older', 'Loading earlier messages…')
+          : t('chat.scroll-for-older', 'Scroll up for earlier messages')}
+      </p>
+    {:else if older.length > 0}
+      <p class="text-center text-xs text-zinc-500 dark:text-zinc-400">
+        {t('chat.start-of-conversation', 'Start of the conversation')}
+      </p>
+    {/if}
+    {#if shownMessages.length === 0}
       <div class="flex items-center justify-center h-full text-center">
         <div>
           <p class="text-zinc-500 dark:text-zinc-400">No messages yet</p>
@@ -152,7 +235,7 @@
         </div>
       </div>
     {:else}
-      {#each messages as msg (msg.id)}
+      {#each shownMessages as msg (msg.id)}
         {@const color = getSenderColorClass(msg.author ?? 'Unknown')}
         {@const msgUrn = messageUrn(msg)}
         <div

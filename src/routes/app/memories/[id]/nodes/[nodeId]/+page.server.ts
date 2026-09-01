@@ -11,7 +11,7 @@ import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATIO
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
-import { chatAuthorName, chatPostTarget, chatRootLocForMessage, isChatMessageNode, isChatNode, loadChatMessages, postChatMessage, type ChatMessage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
@@ -224,10 +224,13 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // a partial/streamed layout must not be able to hide a composer the action
   // would happily accept, or offer one it would reject.
   const canPostChat = chatPostTarget(node).kind !== 'none';
-  const chatMessagesPromise: Promise<ChatMessage[] | null> = isChat
-    ? loadChatMessages(gqlClient(locals.token), params.id, node.loc).catch((e) => {
+  // #793: a bounded WINDOW (the newest CHAT_PAGE_SIZE), not the whole thread.
+  // The page also carries `hasOlder` so the Chat tab can offer scrollback
+  // instead of silently presenting a window as the complete transcript.
+  const chatMessagesPromise: Promise<ChatPage | null> = isChat
+    ? loadChatMessages(gqlClient(locals.token), params.id, node.loc, { sort: chatSortKey(node) }).catch((e) => {
         console.warn('[node-detail] chat messages failed:', e);
-        return [];
+        return { messages: [], total: 0, hasOlder: false, offset: 0 };
       })
     : Promise.resolve(null);
 
@@ -326,7 +329,9 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     isChatMessage,
     openChat,
     chatApp,
-    chatMessages,
+    chatMessages: chatMessages?.messages ?? null,
+    chatHasOlder: chatMessages?.hasOlder ?? false,
+    chatOffset: chatMessages?.offset ?? 0,
     canPostChat,
     sendChatMessageForm,
     // `?tab=` deep-links a specific tab (the page falls back to its own default
