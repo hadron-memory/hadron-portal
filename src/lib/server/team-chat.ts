@@ -234,27 +234,44 @@ export async function loadChatMessages(
 
   // A first read with limit 0 would be a wasted round trip, so the count comes
   // back with the window: ask for the tail optimistically, then correct.
-  const probe = await client.request<{
+  //
+  // #793 (@copilot on PR #797): when `before` is given the window is ALREADY
+  // known, so this is one request, not two. The old shape always probed at
+  // offset 0 first — fetching the OLDEST page and discarding it — so every
+  // scroll-up cost two round trips and one of them was guaranteed waste. The
+  // count comes back with whichever window we actually want.
+  const sort = opts.sort ?? 'seq';
+  const firstOffset = opts.before === undefined ? 0 : Math.max(0, opts.before - fetchCount);
+  const first = await client.request<{
     findNodes: { total: number | null; hits: Array<{ node: MemoryNode }> };
   }>(NODES_BY_LOC_PREFIX_QUERY, {
     memoryId,
     locPrefix: prefix,
     limit: fetchCount,
-    offset: 0,
-    sort: opts.sort ?? 'seq',
+    offset: firstOffset,
+    sort,
   });
-  const total = probe.findNodes.total ?? probe.findNodes.hits.length;
+  const total = first.findNodes.total ?? first.findNodes.hits.length;
 
   // Where this window starts. `before` walks backwards from a previous window's
-  // offset; absent, we want the TAIL — the newest page — which is the end of a
-  // list the server pages from the front.
+  // cursor; absent, we want the TAIL — the newest page — which is the end of a
+  // list the server pages from the front, and which needs `total` to locate.
   const end = opts.before ?? total;
   const offset = Math.max(0, end - fetchCount);
 
-  // The probe already IS the right page when the thread fits in one.
+  // A second request is needed ONLY when the tail turned out not to start where
+  // we guessed — i.e. an unpaged first read of a thread longer than one page.
+  // `slice(0, end - offset)` is load-bearing, not defensive. When `before` is
+  // smaller than the over-fetch, `firstOffset` clamps to 0 and the response
+  // holds MORE than the window asked for — everything from the start of the
+  // thread. Reusing it whole hands back the newest page again: measured, a
+  // `before=42` request on a 142-message thread returned 100 messages, the very
+  // page the reader already had, with `hasOlder: true` so it would have looped.
+  // The hits start at `offset`, so the window is the first `end - offset` of
+  // them.
   const hits =
-    offset === 0 && end >= total && total <= fetchCount
-      ? probe.findNodes.hits
+    offset === firstOffset
+      ? first.findNodes.hits.slice(0, end - offset)
       : (
           await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
             NODES_BY_LOC_PREFIX_QUERY,
@@ -263,7 +280,7 @@ export async function loadChatMessages(
               locPrefix: prefix,
               limit: Math.min(fetchCount, end - offset),
               offset,
-              sort: opts.sort ?? 'seq',
+              sort,
             },
           )
         ).findNodes.hits;
@@ -277,11 +294,23 @@ export async function loadChatMessages(
       return MESSAGE_NODE_TYPES.includes(n.nodeType);
     });
 
-  const bySeq = messages.length > 0 && messages.every((n) => typeof n.seq === 'number');
+  // #793 (@copilot on PR #797): sort on the SAME key the server paged by.
+  //
+  // This used to fall back to `createdAt` for a legacy chat while the server
+  // ordered by `loc`. Two orders over one window is fine while the window is
+  // the whole thread — the client's order is what renders — and wrong once
+  // PAGED: the trim below takes "the last N" of the CLIENT order, while the
+  // cursor describes a position in the SERVER order. If the two ever disagree
+  // (a legacy `createdAt` edited, backfilled, or simply not matching its loc
+  // timestamp) the window and the cursor describe different slices, and the
+  // next page silently skips or repeats messages.
+  //
+  // `loc` is a total order on a legacy thread for the same reason it is the
+  // paging key: the atom is an ISO timestamp.
   messages.sort((a, b) =>
-    bySeq
-      ? (a.seq as number) - (b.seq as number)
-      : new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    sort === 'seq'
+      ? (a.seq ?? 0) - (b.seq ?? 0)
+      : a.loc.localeCompare(b.loc),
   );
 
   // #793: trim to the PAGE SIZE after filtering.

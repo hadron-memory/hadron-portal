@@ -171,13 +171,18 @@ describe('loadChatMessages', () => {
     expect(page.hasOlder).toBe(true);
   });
 
-  it('walks backwards from a previous window via `before`', async () => {
+  it('walks backwards from a previous window via `before`, in ONE request', async () => {
+    // #793 (@copilot on PR #797). The old shape always probed at offset 0 first
+    // — fetching the OLDEST page and discarding it — so every scroll-up cost
+    // two round trips and one was guaranteed waste. With `before` the window is
+    // already known, so the count comes back with the page we actually want.
     const client = {
       request: vi.fn().mockResolvedValue({ findNodes: { total: 500, hits: [] } }),
     } as any;
     await loadChatMessages(client, 'mem-1', 'chats:team', { before: 200 });
-    const second = client.request.mock.calls[1][1];
-    expect(second.offset).toBe(200 - Math.ceil(CHAT_PAGE_SIZE * 1.5));
+
+    expect(client.request).toHaveBeenCalledTimes(1);
+    expect(client.request.mock.calls[0][1].offset).toBe(200 - Math.ceil(CHAT_PAGE_SIZE * 1.5));
   });
 
   it('has no older page once the window reaches the start', async () => {
@@ -209,13 +214,21 @@ describe('loadChatMessages', () => {
     ]);
   });
 
-  it('falls back to creation time for a legacy thread with no seq', async () => {
+  it('orders a legacy thread by LOC — the key the server paged by', async () => {
+    // #793 (@copilot on PR #797). This used to sort by `createdAt`, which was
+    // fine while the window was the whole thread: the client's order is what
+    // renders. Once PAGED it is not, because the trim takes "the last N" of the
+    // CLIENT order while the cursor describes a position in the SERVER order.
+    // Two orders over one window means the next page skips or repeats.
+    //
+    // The fixture makes them DISAGREE on purpose — loc `a` is older by name,
+    // newer by timestamp — so the assertion can only pass on the loc order.
     const client = clientReturning([
-      msg('chats:team:messages:b', { nodeType: 'message', createdAt: '2026-08-14T12:00:00Z' }),
-      msg('chats:team:messages:a', { nodeType: 'message', createdAt: '2026-08-14T09:00:00Z' }),
+      msg('chats:team:messages:b', { nodeType: 'message', createdAt: '2026-08-14T09:00:00Z' }),
+      msg('chats:team:messages:a', { nodeType: 'message', createdAt: '2026-08-14T12:00:00Z' }),
     ]);
 
-    const { messages } = await loadChatMessages(client, 'mem-1', 'chats:team');
+    const { messages } = await loadChatMessages(client, 'mem-1', 'chats:team', { sort: 'loc' });
 
     expect(messages.map((m) => m.nodeData.loc)).toEqual([
       'chats:team:messages:a',
@@ -459,5 +472,37 @@ describe('loadChatMessages — the cursor is absolute, not the fetch offset', ()
     // The bug: returning the fetch offset here would be 0, which the endpoint
     // refuses, so the scroll-up would spin without ever loading a page.
     expect(page.offset).not.toBe(0);
+  });
+});
+
+// #793. Found by driving, not by review: `before=42` on a 142-message thread
+// returned 100 messages — the newest page, the one the reader already had —
+// because `firstOffset` clamps to 0 when `before` is smaller than the
+// over-fetch, so the response holds far more than the window asked for.
+describe('loadChatMessages — a short `before` window is bounded, not the whole head', () => {
+  const hits = Array.from({ length: 142 }, (_, i) =>
+    msg(`chats:team:messages:${String(i + 1).padStart(3, '0')}-x`, { seq: i + 1 }),
+  );
+  const client = () =>
+    ({
+      request: vi.fn().mockResolvedValue({
+        findNodes: { total: 142, hits: hits.map((node) => ({ node })) },
+      }),
+    }) as any;
+
+  it('returns only what precedes the cursor', async () => {
+    const page = await loadChatMessages(client(), 'mem-1', 'chats:team', { before: 42 });
+    expect(page.messages).toHaveLength(42);
+    // The OLDEST 42 — seq 1..42 — not the newest 100.
+    expect(page.messages[0].seq).toBe(1);
+    expect(page.messages[page.messages.length - 1].seq).toBe(42);
+  });
+
+  it('reaches the start of the thread and says so', async () => {
+    // The bug also made this `true`, so the scroll-up would have asked forever
+    // for a page it already had.
+    const page = await loadChatMessages(client(), 'mem-1', 'chats:team', { before: 42 });
+    expect(page.offset).toBe(0);
+    expect(page.hasOlder).toBe(false);
   });
 });

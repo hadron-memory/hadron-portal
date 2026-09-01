@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { invalidateAll } from '$app/navigation';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ChatThread from '$lib/components/ChatThread.svelte';
@@ -59,7 +60,18 @@
   // load-bearing — the component treats null as "retry on the next scroll" and
   // an empty array as "start of the conversation", so collapsing them would
   // permanently end the scrollback on one transient error.
-  let olderCursor = $state<number>(data.chatOffset ?? 0);
+  // A `$state` INITIALIZER runs once. Re-syncing on page data is not optional
+  // (@codex on PR #797): a reload or a post replaces `data.messages`, which
+  // makes ChatThread drop its accumulated older rows — so a cursor left at the
+  // deeper offset would make the next scroll ask for history BEFORE it and skip
+  // everything between there and the refreshed tail. The node-detail surface
+  // already did this; the two must not drift, since a reader moves between them
+  // with the "Full-screen chat" button.
+  let olderCursor = $state<number>(0);
+  $effect(() => {
+    const o = data.chatOffset ?? 0;
+    untrack(() => { olderCursor = o; });
+  });
   async function loadOlderChat() {
     const res = await fetch(`${basePath}/nodes/${node.id}/chat-older?before=${olderCursor}`);
     if (!res.ok) return null;

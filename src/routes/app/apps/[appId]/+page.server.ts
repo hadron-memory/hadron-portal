@@ -569,7 +569,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     chatsError: chatRoots === null,
     selectedChatKey: selectedChat?.key ?? null,
     selectedChatMessages: selectedChatMessages?.messages ?? [],
-    selectedChatError: selectedChatMessages === null,
+    // #793 (@copilot on PR #797): gate on the KIND. `selectedChatMessages` is
+    // null both when the fetch failed and when there was no fetch to make (a
+    // team or agent chat), and I collapsed those when I normalised the ternary's
+    // else-branch from `[]` to `null`. "No transcript" is not "the transcript
+    // failed", and a flag that says the second when it means the first is one
+    // careless consumer away from an error banner on a working page.
+    selectedChatError: selectedChat?.kind === 'other' && selectedChatMessages === null,
     // #744: hitting the cap is DISCLOSED rather than presented as a whole
     // transcript (Codex P2 on #759). #793 replaced the guess with the fact:
     // `loadChatMessages` now returns the server's `total` and a `hasOlder`
