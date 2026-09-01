@@ -38,7 +38,14 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
   // A malformed cursor is a client bug, not an empty thread. Refusing beats
   // silently falling back to the tail, which would re-serve the page the reader
   // already has and read to the component as "no more history".
-  if (beforeSeqRaw !== null && (!Number.isFinite(beforeSeq) || beforeSeq! <= 0)) {
+  // #793 (@copilot on PR #799): a strictly positive SAFE INTEGER. `Number()`
+  // happily yields 10.5 and 10e2, and the GraphQL variable is an `Int` — so a
+  // non-integer becomes a runtime GraphQL error or an unintended cursor instead
+  // of the clean 400 this guard exists to produce.
+  if (
+    beforeSeqRaw !== null &&
+    (!Number.isSafeInteger(beforeSeq) || (beforeSeq as number) <= 0)
+  ) {
     return json({ items: [], total: 0, loadFailed: true, reason: 'bad-cursor' }, { status: 400 });
   }
 

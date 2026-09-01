@@ -200,19 +200,40 @@
     if (!messagesEl || loadingOlder || !canLoadOlder) return;
     if (messagesEl.scrollTop > LOAD_OLDER_THRESHOLD_PX) return;
     loadingOlder = true;
-    const before = { scrollTop: messagesEl.scrollTop, scrollHeight: messagesEl.scrollHeight };
     const cursor = oldestSeq!;
+    // #793 (@codex on PR #799): the generation this request belongs to. The
+    // poll path has always had this; the scroll-up path did not, so navigating
+    // to another App mid-flight merged the OLD App's messages into the NEW
+    // App's transcript — and because every later poll only unions, the mixed
+    // thread never healed. Same race #786 fixed for the poll; I added a second
+    // async path and did not carry the guard to it.
+    const startedAt = untrack(() => dataGeneration);
     try {
       const page = await onLoadOlder!(cursor);
       if (page === null) return; // failed, not exhausted — retry on the next scroll
+      if (untrack(() => dataGeneration) !== startedAt) return; // a different thread now
       if (page.items.length === 0) {
         olderExhausted = true;
         return;
       }
+      // #793 (@codex P1 on PR #799): keep the EXISTING total. `beforeSeq` scopes
+      // `total` to what precedes the cursor — measured against the live server:
+      // a 3-message thread reports total 3 at the tail, 2 before seq 3, 1 before
+      // seq 2. Assigning it here shrinks `shownTotal` below `shownMessages
+      // .length`, `canLoadOlder` goes false, and the oldest messages become
+      // unreachable — on a 500-message thread, seq 1–100 after two pages.
+      // The full-thread count comes from the tail read and the poll, and only
+      // from them.
       polled = {
         items: mergeTranscript(untrack(() => polled)?.items ?? messages, page.items),
-        total: page.total,
+        total: untrack(() => polled)?.total ?? total,
       };
+      // #793 (@copilot on PR #799): measure AFTER the await, immediately before
+      // the paint that applies the prepend. Capturing before the request would
+      // fold in any growth that happened WHILE it was in flight — a poll
+      // appending at the bottom — and the anchor would push the reader down by
+      // the append as well as the prepend.
+      const before = { scrollTop: messagesEl.scrollTop, scrollHeight: messagesEl.scrollHeight };
       await tick();
       if (messagesEl) messagesEl.scrollTop = scrollTopAfterPrepend(before, messagesEl.scrollHeight);
     } catch (e) {

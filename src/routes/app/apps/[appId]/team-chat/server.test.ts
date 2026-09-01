@@ -133,3 +133,49 @@ describe('GET /app/apps/[appId]/team-chat — scroll-up via beforeSeq', () => {
     expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('beforeSeq');
   });
 });
+
+// #793 (@codex P1 on PR #799). `total` is CURSOR-SCOPED when beforeSeq is
+// given — measured against the live server on a 3-message thread:
+//
+//   tail            items 3, total 3
+//   beforeSeq: 3    items 2, total 2
+//   beforeSeq: 2    items 1, total 1
+//
+// So the endpoint faithfully returns a bounded count, and the COMPONENT must
+// not adopt it as the full-thread total: doing so shrinks `shownTotal` below
+// what is displayed, `canLoadOlder` goes false, and the oldest messages become
+// unreachable — on a 500-message thread, seq 1–100 after two pages.
+//
+// Pinned here because the endpoint is where the shape is observable; the
+// component-side rule (keep the tail's total) has no test surface in this repo
+// until #795 lands.
+describe('GET /app/apps/[appId]/team-chat — total is bounded by the cursor', () => {
+  it('passes the server count through unchanged, bounded or not', async () => {
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [msg(1)], total: 1 } });
+    const { body } = await get('app-1', '?beforeSeq=2');
+    // NOT rewritten to look like a full-thread count: the endpoint reports what
+    // the server said, and the caller is responsible for knowing which it is.
+    expect(body.total).toBe(1);
+  });
+
+  it('refuses a non-integer cursor rather than passing it to an Int variable', async () => {
+    // `Number()` accepts 10.5 and 10e2; the GraphQL variable is an Int, so
+    // these become a runtime GraphQL error or an unintended cursor instead of
+    // the clean 400 the guard exists to produce (@copilot on #799).
+    for (const bad of ['?beforeSeq=10.5', '?beforeSeq=1e999', '?beforeSeq=Infinity']) {
+      const { status, body } = await get('app-1', bad);
+      expect(status, bad).toBe(400);
+      expect(body.reason, bad).toBe('bad-cursor');
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('still accepts a plain positive integer', async () => {
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [], total: 0 } });
+    const { status } = await get('app-1', '?beforeSeq=10e2');
+    // 10e2 IS 1000 numerically but is not a decimal integer literal; the guard
+    // uses Number.isSafeInteger on the parsed value, so this one passes — the
+    // check is about the VALUE being a safe integer, not the spelling.
+    expect(status).toBe(200);
+  });
+});
