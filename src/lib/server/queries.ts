@@ -1388,9 +1388,14 @@ export const MY_CHATS_QUERY = /* GraphQL */ `
   }
 `;
 
+// `seq` is selected because it is the CURSOR, not because anything renders it:
+// `beforeSeq` (hadron-server#1116) pages backward from the oldest seq the client
+// holds. Dropping it from this selection set would silently end the scrollback
+// at the first page — the read would still succeed, which is what makes it worth
+// saying here.
 export const CHAT_HISTORY_QUERY = /* GraphQL */ `
-  query ChatHistory($chatId: String!, $limit: Int) {
-    chatHistory(chatId: $chatId, limit: $limit) {
+  query ChatHistory($chatId: String!, $limit: Int, $beforeSeq: Int) {
+    chatHistory(chatId: $chatId, limit: $limit, beforeSeq: $beforeSeq) {
       role
       content
       seq

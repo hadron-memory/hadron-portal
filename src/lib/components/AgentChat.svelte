@@ -7,7 +7,9 @@
   import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
   import AssetChip from '$lib/components/assets/AssetChip.svelte';
   import type { AssetSummary } from '$lib/api/assetUpload';
+  import { olderCursorFrom } from '$lib/agent-chat-window';
   import { resolveActiveChatFromUrl } from '$lib/components/agent-chat-helpers.js';
+  import { scrollTopAfterPrepend } from '$lib/team-chat-refresh';
   import { t } from '$lib/i18n/t.js';
   import { chatScopeStrings } from '$lib/i18n/chat-scope-strings.js';
 
@@ -78,6 +80,80 @@
   let welcomeNotice = $state<string | null>(null);
 
   let messagesEl: HTMLDivElement | null = $state(null);
+
+  // ── #793: scrollback ─────────────────────────────────────────────────
+  // The transcript loads as a bounded WINDOW (the newest page) and grows
+  // upward as the reader scrolls. Before this, `/resume` asked for 500
+  // messages and rendered them all: a wasted round trip on the common short
+  // chat, and on a long one a transcript that simply stopped — message 501
+  // was unreachable by any means the UI offered.
+  //
+  // `olderCursor` is STATE fed only by server pages, never derived from
+  // `messages`. The optimistic bubbles below fabricate `seq: messages.length`,
+  // which in a resumed chat is far lower than the real seqs around it, so a
+  // "minimum seq on screen" cursor would ask for history before a value that
+  // was never a real position and skip everything in between. See
+  // `olderCursorFrom` in $lib/server/agent-chat.
+  let olderCursor = $state<number | null>(null);
+  let hasOlder = $state(false);
+  let loadingOlder = $state(false);
+
+  // Not `scrollTop === 0`: @Holger's ruling on #793 was that a reader should be
+  // able to "scroll up without hesitation", and a fetch that only starts once
+  // they reach the boundary makes them SEE the boundary. Firing a screenful
+  // early means the page is usually already there. Same constant, same reason,
+  // as ChatThread — a reader moves between these surfaces.
+  const LOAD_OLDER_THRESHOLD_PX = 400;
+
+  function resetScrollback(page?: { messages: ChatMessage[]; hasOlder?: boolean }) {
+    olderCursor = page ? olderCursorFrom(page.messages) : null;
+    hasOlder = page?.hasOlder ?? false;
+    loadingOlder = false;
+  }
+
+  async function maybeLoadOlder() {
+    if (!messagesEl || loadingOlder || !hasOlder || olderCursor == null) return;
+    if (messagesEl.scrollTop > LOAD_OLDER_THRESHOLD_PX) return;
+    const chatId = activeChatId;
+    if (!chatId) return;
+    loadingOlder = true;
+    // Captured BEFORE the prepend — `scrollHeight` only reflects the new rows
+    // once they are in the DOM, which is what the `tick()` below waits for.
+    const before = { scrollTop: messagesEl.scrollTop, scrollHeight: messagesEl.scrollHeight };
+    try {
+      const res = await fetch('/api/agent-chat/older', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId, beforeSeq: olderCursor }),
+      });
+      // A failed fetch is not an exhausted thread: leave `hasOlder` alone so the
+      // next scroll retries. Collapsing the two would end the scrollback
+      // permanently on one blip.
+      if (!res.ok) return;
+      const body = await res.json();
+      const older: ChatMessage[] = body.messages ?? [];
+      // The chat can be switched while this is in flight; a page from the
+      // previous conversation must not be spliced into the new one.
+      if (activeChatId !== chatId) return;
+      // The SERVER decides whether more exists. A last page that happens to be
+      // full looks exactly like a middle one.
+      hasOlder = body.hasOlder ?? false;
+      if (older.length === 0) return;
+      olderCursor = olderCursorFrom(older);
+      messages = [...older, ...messages];
+      await tick();
+      // `if (messagesEl)` IS the mount guard, not a null-safety nicety: Svelte
+      // clears a `bind:this` on teardown, and everything from the `fetch` down
+      // is inside the teardown window. The `$state` writes above are benign on a
+      // dead component; this line touches the DOM, which is not
+      // (`review:async-onmount-runs-after-teardown`). Do not "simplify" it away.
+      if (messagesEl) messagesEl.scrollTop = scrollTopAfterPrepend(before, messagesEl.scrollHeight);
+    } catch (e) {
+      console.warn('[agent-chat] loading older messages failed; will retry on the next scroll:', e);
+    } finally {
+      loadingOlder = false;
+    }
+  }
 
   // ── Initial list fetch ───────────────────────────────────────────────
   // After loading the chat list, auto-resume the chat referenced by
@@ -178,6 +254,8 @@
     loadingChat = true;
     turnError = null;
     messages = [];
+    // A chat that does not exist yet has no history behind it.
+    resetScrollback();
     activeChatId = null;
     activeChatMeta = null;
     try {
@@ -254,6 +332,9 @@
     turnError = null;
     welcomeNotice = null;
     messages = [];
+    // Cleared BEFORE the fetch, not only on success: an in-flight scroll-up
+    // from the outgoing chat must not page this one with the old cursor.
+    resetScrollback();
     activeChatId = chatId;
     syncChatIdToUrl(chatId);
     activeChatMeta = null;
@@ -274,6 +355,10 @@
         scope: body.chat.scope === 'shared' ? 'shared' : 'private',
       };
       messages = body.messages ?? [];
+      // #793: the tail page plus the server's word on whether anything precedes
+      // it. `hasOlder` comes from the endpoint, never from `messages.length` —
+      // a full last page is indistinguishable from a middle one.
+      resetScrollback({ messages, hasOlder: body.hasOlder });
       scrollMessagesToBottom();
     } catch (e) {
       turnError = e instanceof Error ? e.message : 'Failed to resume chat';
@@ -419,6 +504,7 @@
         syncChatIdToUrl(null);
         activeChatMeta = null;
         messages = [];
+        resetScrollback();
         welcomeNotice = null;
       }
       await refreshChatList();
@@ -630,9 +716,21 @@
       {/if}
 
       <!-- Messages -->
-      <div bind:this={messagesEl} class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+      <!-- #793: `onscroll` is what drives the scrollback. It is the whole
+           feature — a `maybeLoadOlder` attached to nothing type-checks, passes
+           every unit test, and silently does nothing (#799). -->
+      <div
+        bind:this={messagesEl}
+        onscroll={maybeLoadOlder}
+        class="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4"
+      >
         {#if loadingChat}
           <p class="text-center text-sm text-zinc-400">Loading…</p>
+        {/if}
+        {#if loadingOlder}
+          <p class="text-center text-xs text-zinc-400">
+            {t('agent-chat.loading-older', 'Loading earlier messages…')}
+          </p>
         {/if}
         {#each messages as msg, idx (idx)}
           <div class="flex {msg.role === 'user' ? 'justify-end' : 'justify-start'}">

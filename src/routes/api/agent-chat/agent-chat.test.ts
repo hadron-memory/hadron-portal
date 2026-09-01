@@ -14,6 +14,7 @@
  *   - error responses on failure
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AGENT_CHAT_PAGE_SIZE } from '$lib/agent-chat-window';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,17 @@ function ev(opts: {
     locals: { token },
     url,
   } as any;
+}
+
+/** `n` consecutive messages starting at seq `from`, oldest-first — the shape
+ *  `chatHistory` returns. */
+function page(n: number, from: number) {
+  return Array.from({ length: n }, (_, i) => ({
+    role: i % 2 === 0 ? 'user' : 'assistant',
+    content: `message-${from + i}`,
+    seq: from + i,
+    createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, from + i)).toISOString(),
+  }));
 }
 
 async function jsonOf(res: Response): Promise<any> {
@@ -482,8 +494,14 @@ describe('POST /api/agent-chat/resume', () => {
     const body = await jsonOf(res);
     expect(body.chat.loc).toBe('chat-123');
     expect(body.messages).toHaveLength(2);
-    // second request was chatHistory with the passed chatId + default limit
-    expect(mockRequest.mock.calls[1][1]).toEqual({ chatId: 'chat-123', limit: 500 });
+    // #793: a bounded tail page, not a 500-message guess. `beforeSeq: null` is
+    // sent explicitly — the server treats null and absent alike, so the tail
+    // read and the paged read use one variable set.
+    expect(mockRequest.mock.calls[1][1]).toEqual({
+      chatId: 'chat-123',
+      limit: AGENT_CHAT_PAGE_SIZE,
+      beforeSeq: null,
+    });
   });
 
   it('returns 404 when the chat is not in myChats (ownership/nonexistent)', async () => {
@@ -497,10 +515,17 @@ describe('POST /api/agent-chat/resume', () => {
 
   // Spec 016 — regression test for the "chats disappear on reload" symptom.
   // Reload is simulated by calling /resume directly: the portal UI does the
-  // same thing on mount (after this fix). The contract being pinned: /resume
-  // returns the full chat metadata AND every prior message in seq order, so
-  // the UI never needs to reconstruct history from client-side state.
-  it('returns full chat metadata + complete message history on resume (spec 016 regression)', async () => {
+  // same thing on mount. The contract being pinned: /resume returns the full
+  // chat metadata AND the prior messages in seq order, so the UI never needs to
+  // reconstruct history from client-side state.
+  //
+  // #793 narrowed one word of that contract, so it is worth being exact: the
+  // history is now the newest PAGE rather than the whole transcript. What this
+  // test guards is unaffected — a 6-message chat is a single page, and the
+  // symptom was an EMPTY pane, not a short one. Anything before the page is
+  // reachable by scrolling (`hasOlder` + /older), which is a different promise
+  // than "history is client-side state" and does not weaken this one.
+  it('returns full chat metadata + message history in order on resume (spec 016 regression)', async () => {
     const chatId = 'chat-016-regression';
     const allChats = [
       {
@@ -534,6 +559,112 @@ describe('POST /api/agent-chat/resume', () => {
     expect(body.messages.map((m: { seq: number }) => m.seq)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(body.messages[0].role).toBe('assistant');
     expect(body.messages[5].content).toBe('thanks');
+  });
+
+  // #793 — the flag that tells the client a scroll-up has somewhere to go.
+  it('reports hasOlder when the tail page comes back full', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ myChats: [{ loc: 'c' }] })
+      .mockResolvedValueOnce({ chatHistory: page(AGENT_CHAT_PAGE_SIZE, 401) });
+    const { POST } = await import('./resume/+server');
+    const body = await jsonOf(await POST(ev({ body: { agentId: 'a', chatId: 'c' } })));
+    expect(body.hasOlder).toBe(true);
+  });
+
+  it('reports hasOlder false for a chat shorter than one page', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ myChats: [{ loc: 'c' }] })
+      .mockResolvedValueOnce({ chatHistory: page(3, 1) });
+    const { POST } = await import('./resume/+server');
+    const body = await jsonOf(await POST(ev({ body: { agentId: 'a', chatId: 'c' } })));
+    expect(body.hasOlder).toBe(false);
+  });
+});
+
+// ── /api/agent-chat/older ──────────────────────────────────────────────────
+
+describe('POST /api/agent-chat/older (#793 scrollback)', () => {
+  it('rejects unauthenticated requests', async () => {
+    const { POST } = await import('./older/+server');
+    const res = await POST(ev({ token: null, body: { chatId: 'c', beforeSeq: 5 } }));
+    expect(res.status).toBe(401);
+  });
+
+  it('requires chatId', async () => {
+    const { POST } = await import('./older/+server');
+    expect((await POST(ev({ body: { beforeSeq: 5 } }))).status).toBe(400);
+  });
+
+  it.each([
+    ['missing', {}],
+    ['a string', { beforeSeq: '5' }],
+    ['a float', { beforeSeq: 5.5 }],
+    ['null', { beforeSeq: null }],
+  ])('rejects a beforeSeq that is %s', async (_label, extra) => {
+    const { POST } = await import('./older/+server');
+    const res = await POST(ev({ body: { chatId: 'c', ...extra } }));
+    expect(res.status).toBe(400);
+    // Rejected HERE, not passed through to fail as a GraphQL variable error the
+    // client cannot read.
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  // `!beforeSeq` would reject this one — the cursor that reaches the very first
+  // message of a chat whose counter starts at 0.
+  it('accepts a beforeSeq of 0', async () => {
+    mockRequest.mockResolvedValueOnce({ chatHistory: [] });
+    const { POST } = await import('./older/+server');
+    const res = await POST(ev({ body: { chatId: 'c', beforeSeq: 0 } }));
+    expect(res.status).toBe(200);
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ beforeSeq: 0 });
+  });
+
+  it('passes the cursor through and returns the page oldest-first', async () => {
+    mockRequest.mockResolvedValueOnce({ chatHistory: page(10, 21) });
+    const { POST } = await import('./older/+server');
+    const res = await POST(ev({ body: { chatId: 'chat-x', beforeSeq: 31 } }));
+    const body = await jsonOf(res);
+    expect(mockRequest.mock.calls[0][1]).toEqual({
+      chatId: 'chat-x',
+      limit: AGENT_CHAT_PAGE_SIZE,
+      beforeSeq: 31,
+    });
+    expect(body.messages.map((m: { seq: number }) => m.seq)).toEqual([
+      21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+    ]);
+  });
+
+  // An exhausted cursor is a normal outcome, not an error: the client stops on
+  // `hasOlder`, and a 4xx here would show a reader an error for reaching the
+  // beginning of their own conversation.
+  it('returns an empty page with hasOlder false past the beginning', async () => {
+    mockRequest.mockResolvedValueOnce({ chatHistory: [] });
+    const { POST } = await import('./older/+server');
+    const res = await POST(ev({ body: { chatId: 'c', beforeSeq: 1 } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.messages).toEqual([]);
+    expect(body.hasOlder).toBe(false);
+  });
+
+  it('surfaces a GraphQL failure as a 500 the client can show', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('boom'));
+    const { POST } = await import('./older/+server');
+    const res = await POST(ev({ body: { chatId: 'c', beforeSeq: 9 } }));
+    expect(res.status).toBe(500);
+    expect((await jsonOf(res)).error).toBeTruthy();
+  });
+
+  // The reason this endpoint exists rather than a `beforeSeq` mode on /resume:
+  // scrolling must not re-run the chat-metadata read, whose 404 branch makes
+  // the component clear `activeChatId` and drop the open conversation (#785).
+  it('does not read chat metadata', async () => {
+    mockRequest.mockResolvedValueOnce({ chatHistory: page(2, 1) });
+    const { POST } = await import('./older/+server');
+    await POST(ev({ body: { chatId: 'c', beforeSeq: 3 } }));
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(String(mockRequest.mock.calls[0][0])).toContain('chatHistory');
+    expect(String(mockRequest.mock.calls[0][0])).not.toContain('myChats');
   });
 });
 
