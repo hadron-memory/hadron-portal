@@ -593,12 +593,27 @@
     'updateFlow',
     $flowMessage,
   ));
+  // #780: `target` is deliberately NOT in the fallback list, and it is the only
+  // form on this page for which that is true.
+  //
+  // The fallbacks exist to promote a field error into the form-level alert for
+  // forms that render no per-field error — every other dialog here. The move
+  // dialog is the exception: it renders `$moveErrors.target` inline under the
+  // input (the only inline field-error render in the file), so listing `target`
+  // here printed the same sentence twice, once under the input and once above
+  // the buttons.
+  //
+  // The server already decides which surface a failure belongs to — `setError`
+  // on `target` for the user-fixable codes (NODE_ALREADY_EXISTS, CONFLICT,
+  // BAD_USER_INPUT) and a form-level `message` for everything else — so the two
+  // surfaces are already mutually exclusive at the source. The duplication was
+  // purely this list re-merging them.
   const moveActionError = $derived(scopedActionError<NodeMoveForm>(
     form,
     'moveNode',
     $moveMessage,
     $moveErrors,
-    ['_kind', 'target'],
+    ['_kind'],
   ));
   const deleteActionError = $derived(scopedActionError<NodeDeleteForm>(
     form,
@@ -1731,8 +1746,19 @@
                   aria-describedby={$moveErrors.target?.[0] ? 'moveTargetError' : undefined}
                   class="{inputClass} font-mono text-xs {$moveErrors.target?.[0] ? 'border-red-500 focus:border-red-500' : ''}"
                 />
+                <!-- #779: v2 grammar. This hint is the ONLY place the dialog
+                     tells a user what shape to type, so the v1 `org::memory::loc`
+                     it used to show taught a grammar the platform has moved off
+                     (cor:urn:010:01) — and `parseUrnV2` rejects `::`, so a user
+                     who copied the example got a refusal from the field that had
+                     just recommended it. The grammar itself stays outside t():
+                     it is a code token, not translatable prose. -->
                 <p class="mt-1 text-xs text-zinc-400">
-                  <span class="font-mono">org::memory::loc</span> — change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.
+                  <span class="font-mono">hrn:node:&lt;root&gt;:&lt;memory&gt;:&lt;loc&gt;</span>
+                  {t(
+                    'node-actions.move-hint',
+                    '— change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.',
+                  )}
                 </p>
                 {#if $moveErrors.target?.[0]}
                   <p id="moveTargetError" class="mt-1 text-xs text-red-500">{$moveErrors.target[0]}</p>
