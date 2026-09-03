@@ -131,3 +131,49 @@ describe('the exemption, stated and bounded', () => {
     expect(scanDiff(diff)).toEqual([]);
   });
 });
+
+describe('findings carry a location (@copilot on #809)', () => {
+  it('reports the destination line number from the hunk header', () => {
+    const diff = [
+      '+++ b/src/a.ts',
+      '@@ -0,0 +42,2 @@',
+      '+// first added line',
+      '+// see review:some-check',
+    ].join('\n');
+    const [f] = scanDiff(diff);
+    expect(f.lineNumber).toBe(43);
+    expect(f.column).toBeGreaterThan(0);
+  });
+
+  it('restarts the counter for each hunk and each file', () => {
+    const diff = [
+      '+++ b/src/a.ts',
+      '@@ -0,0 +10,1 @@',
+      '+// review:one',
+      '@@ -0,0 +80,1 @@',
+      '+// review:two',
+      '+++ b/src/b.ts',
+      '@@ -0,0 +5,1 @@',
+      '+// review:three',
+    ].join('\n');
+    expect(scanDiff(diff).map((f) => `${f.file}:${f.lineNumber}`)).toEqual([
+      'src/a.ts:10',
+      'src/a.ts:80',
+      'src/b.ts:5',
+    ]);
+  });
+
+  /**
+   * The scope fix: the policy is repo-wide, and the old pathspec (src/,
+   * scripts/, CLAUDE.md) quietly exempted docs and workflows — the surfaces a
+   * citation is MOST likely to be pasted onward from.
+   */
+  it('covers files outside src/ and scripts/', () => {
+    const diff = [
+      '+++ b/docs/how-to.md',
+      '@@ -0,0 +1,1 @@',
+      '+See review:render-urn for the rule.',
+    ].join('\n');
+    expect(scanDiff(diff).map((f) => f.file)).toEqual(['docs/how-to.md']);
+  });
+});

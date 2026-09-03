@@ -101,22 +101,42 @@ export function findBareCitations(line) {
  * Reads `+` lines and tracks the current file from `+++ b/…`. `+++` itself is
  * skipped explicitly — it starts with `+` and would otherwise be scanned as
  * content, which is the classic way a diff scanner reports its own header.
- * @returns {{ file: string, line: string, citation: string }[]}
+ *
+ * Hunk headers (`@@ -a,b +c,d @@`) give the destination line number, so a
+ * finding can name a real location instead of just a filename (@copilot). Only
+ * added lines advance the counter, which is exactly right here: context lines
+ * would too in a general-purpose parser, but this reads `--unified=0` diffs
+ * where there are none.
+ * @returns {{ file: string, lineNumber: number, column: number, line: string, citation: string }[]}
  */
 export function scanDiff(diff) {
   const findings = [];
   let file = '(unknown)';
+  let lineNumber = 0;
   for (const raw of diff.split('\n')) {
     if (raw.startsWith('+++ ')) {
       file = raw.replace(/^\+\+\+ (b\/)?/, '');
       continue;
     }
-    if (raw.startsWith('---') || !raw.startsWith('+')) continue;
-    if (EXEMPT_FILES.has(file)) continue;
-    const content = raw.slice(1);
-    for (const c of findBareCitations(content)) {
-      findings.push({ file, line: content.trim(), citation: c.text });
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (hunk) {
+      lineNumber = Number(hunk[1]);
+      continue;
     }
+    if (raw.startsWith('---') || !raw.startsWith('+')) continue;
+    const content = raw.slice(1);
+    if (!EXEMPT_FILES.has(file)) {
+      for (const c of findBareCitations(content)) {
+        findings.push({
+          file,
+          lineNumber,
+          column: c.column,
+          line: content.trim(),
+          citation: c.text,
+        });
+      }
+    }
+    lineNumber += 1;
   }
   return findings;
 }
@@ -125,16 +145,28 @@ export function scanDiff(diff) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const { execSync } = await import('node:child_process');
   const base = process.argv[2] ?? 'origin/main';
-  const diff = execSync(`git diff --unified=0 ${base}...HEAD -- src/ scripts/ CLAUDE.md`, {
+  // No pathspec (@copilot): the policy is repo-wide, so scoping to src/ +
+  // scripts/ + CLAUDE.md quietly exempted docs, workflows and the README — the
+  // authoring surfaces where a citation is MOST likely to be pasted onward.
+  // A pathspec is an exemption wearing a different hat, and this one was not
+  // enumerated anywhere.
+  const diff = execSync(`git diff --unified=0 ${base}...HEAD`, {
     encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
+    maxBuffer: 256 * 1024 * 1024,
   });
   const findings = scanDiff(diff);
   if (findings.length > 0) {
+    // One annotation per finding so GitHub links each to its exact line;
+    // `file=`/`line=`/`col=` is what turns a log entry into a jump target.
+    for (const f of findings) {
+      console.error(
+        `::error file=${f.file},line=${f.lineNumber},col=${f.column}::Bare-loc Hadron citation \`${f.citation}\` — use the fully-qualified form (hrn:node:<root>:<memory>:<loc>). A bare loc does not say which memory it belongs to once pasted elsewhere. See #781.`,
+      );
+    }
     console.error(
-      `::error::${findings.length} bare-loc Hadron citation(s) added. CLAUDE.md requires the fully-qualified form (hrn:node:<root>:<memory>:<loc>) — a bare loc does not say which memory it belongs to once it is pasted elsewhere. See #781.`,
+      `\n${findings.length} bare-loc citation(s) added:\n` +
+        findings.map((f) => `  ${f.file}:${f.lineNumber}  ${f.citation}\n    ${f.line}`).join('\n'),
     );
-    for (const f of findings) console.error(`  ${f.file}: ${f.citation}\n    ${f.line}`);
     process.exit(1);
   }
   console.log('OK — no newly added bare-loc citations.');
