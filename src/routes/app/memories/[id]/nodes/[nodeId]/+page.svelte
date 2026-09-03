@@ -594,34 +594,24 @@
     'updateFlow',
     $flowMessage,
   ));
-  // @codex P1 on PR #803 — the hint must describe the URN the field is ACTUALLY
-  // prefilled with, not one grammar for everybody.
+  // The hint's one job is to agree with what is IN THE FIELD. #779 and three
+  // rounds of review on PR #803 were all the same invariant broken in different
+  // places, so it is stated once here rather than per-case.
   //
-  // #779 replaced a v1 example with a v2 one, which is right for almost every
-  // node and wrong for one case: a memory URN with more than two atoms is a v1
-  // OWNERSHIP CHAIN (`<org>::<app>::<agent>::<memory>`), and `composeNodeUrn`
-  // deliberately emits those unchanged because they have no string-derivable v2
-  // form — v2's fixed arity would read atom 1 as the memory slug and fold the
-  // rest into the loc, silently addressing a different node.
-  //
-  // So for a chain-owned node the field is prefilled with `::` while a fixed v2
-  // hint tells the reader that shape is wrong. That is the SAME defect #779
-  // fixed — a hint contradicting the field's own contents — just inverted, and
-  // here the "correction" it invites is a silent mis-address rather than a
-  // refusal. Deriving the grammar from `fullUrn` keeps the two in agreement for
-  // both populations.
-  // Derived from the FIELD, not from `fullUrn` (@codex P1 on PR #803). The
-  // memory picker (#512) rewrites the target into a different memory, which may
-  // use a different grammar from the one this node came from — so a
-  // node-derived hint describes the source while the input holds the
-  // destination, and moving into or out of a chain-owned memory inverts the
-  // mismatch. Reading the live value means there is no second piece of state to
-  // keep in step: the hint follows the prefill, the picker and typing alike.
+  // Derived from `$moveFormData.target`, NOT from `fullUrn`: the memory picker
+  // (#512) rewrites the target into a different memory, which may use a
+  // different grammar from the one this node came from. A node-derived hint
+  // therefore describes the source while the input holds the destination, and
+  // moving into or out of a chain-owned memory inverts the mismatch. Reading
+  // the live value leaves no second piece of state to keep in step — the hint
+  // follows the prefill, the picker and typing alike.
   //
   // The decision itself lives in $lib/urn/move-hint-grammar so it is testable —
   // a `$derived` in a .svelte file is unreachable from this repo's SSR-only
-  // harness (#795), and this is not a cosmetic choice: the wrong answer
-  // mis-addresses a node silently.
+  // harness (#795), and this is not a cosmetic choice: recommending the wrong
+  // grammar either earns a refusal (v1 shown for a v2 value, which `parseUrnV2`
+  // rejects) or, in the dangerous direction, invites flattening an ownership
+  // chain — which does not fail, it addresses a different node.
   const moveUrnIsOwnershipChain = $derived(isOwnershipChainUrn($moveFormData.target));
   const moveHintGrammarText = $derived(moveHintGrammar($moveFormData.target));
 

@@ -132,6 +132,42 @@ describe('moveHintGrammar (PR #803 review)', () => {
     });
   });
 
+  /**
+   * @copilot on PR #803: only a NODE URN may be echoed back. This field takes a
+   * node URN, so a chain-shaped MEMORY URN pasted into it must not make the
+   * hint recommend a `hrn:mem:` prefix — the wrong entity class.
+   * `composeNodeUrn` throws on exactly this rather than coercing it, because
+   * "mem vs node is not recoverable from the string" (cor:urn:010:01).
+   */
+  describe('only a node URN is echoed back', () => {
+    it.each([
+      ['a chain-shaped memory URN', 'hrn:mem:acme::billing::system'],
+      ['the legacy memory type word', 'hrn:memory:acme::billing::system::x'],
+      ['an app URN', 'hrn:app:acme::billing::system::x'],
+    ])('%s falls back to the v2 grammar', (_label, value) => {
+      expect(isOwnershipChainUrn(value)).toBe(false);
+      expect(moveHintGrammar(value)).toBe(MOVE_HINT_GRAMMAR_V2);
+      // The specific failure being prevented: suggesting a non-node prefix.
+      expect(moveHintGrammar(value)).not.toContain('hrn:mem');
+      expect(moveHintGrammar(value)).not.toContain('hrn:app');
+    });
+
+    it('accepts the legacy urn: scheme and is case-insensitive', () => {
+      expect(isOwnershipChainUrn('urn:node:acme::billing::system::x')).toBe(true);
+      expect(isOwnershipChainUrn('HRN:NODE:acme::billing::system::x')).toBe(true);
+    });
+
+    it('trims, so a pasted value does not carry whitespace into the suggestion', () => {
+      expect(moveHintGrammar('  hrn:node:acme::billing::system::x  ')).toBe(
+        'hrn:node:acme::billing::system::<loc>',
+      );
+    });
+
+    it('a bare loc — which the move action also accepts — gets the v2 grammar', () => {
+      expect(moveHintGrammar('comments:2026-07-23-dana')).toBe(MOVE_HINT_GRAMMAR_V2);
+    });
+  });
+
   it('isOwnershipChainUrn handles absent input', () => {
     expect(isOwnershipChainUrn('hrn:node:a:b:c')).toBe(false);
     expect(isOwnershipChainUrn(null)).toBe(false);

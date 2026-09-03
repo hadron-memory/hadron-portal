@@ -49,6 +49,9 @@ export const MOVE_HINT_GRAMMAR_V2 = 'hrn:node:<root>:<memory>:<loc>';
 /** The v1 hierarchy separator. */
 const CHAIN_SEP = '::';
 
+/** `hrn:node:` — or the legacy `urn:` scheme `parse-urn` also normalizes. */
+const NODE_URN_PREFIX = /^(hrn|urn):node:/i;
+
 /**
  * Is this URN addressed through a v1 ownership chain?
  *
@@ -71,7 +74,17 @@ const CHAIN_SEP = '::';
  *   hadronmemory.com::dev                              1 → not a chain (v2)
  */
 export function isOwnershipChainUrn(urn: string | null | undefined): boolean {
-  return (urn ?? '').split(CHAIN_SEP).length - 1 >= 3;
+  const value = (urn ?? '').trim();
+  // Only a NODE URN can be echoed back as a suggestion (@copilot on PR #803).
+  // This field takes a node URN, so a chain-shaped MEMORY URN pasted into it
+  // (`hrn:mem:acme::billing::system`) must not make the hint recommend a
+  // `hrn:mem:` prefix — that is the wrong entity class, and `composeNodeUrn`
+  // throws on exactly this rather than coercing it, because "mem vs node is not
+  // recoverable from the string" (cor:urn:010:01). Anything that is not a node
+  // URN falls through to the canonical v2 grammar, which is the right thing to
+  // recommend to someone who has typed something else.
+  if (!NODE_URN_PREFIX.test(value)) return false;
+  return value.split(CHAIN_SEP).length - 1 >= 3;
 }
 
 /**
@@ -83,7 +96,10 @@ export function isOwnershipChainUrn(urn: string | null | undefined): boolean {
  * contain single colons, which is why this cannot split on `:`.
  */
 export function moveHintGrammar(urn: string | null | undefined): string {
-  const value = urn ?? '';
+  // Trimmed with the SAME expression the predicate uses. Trimming in one and
+  // not the other would let a pasted value with leading whitespace pass the
+  // check and then be echoed back with that whitespace inside the suggestion.
+  const value = (urn ?? '').trim();
   if (!isOwnershipChainUrn(value)) return MOVE_HINT_GRAMMAR_V2;
 
   const lastSep = value.lastIndexOf(CHAIN_SEP);
