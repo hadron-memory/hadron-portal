@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  ADD_AGENT_TO_APP_MUTATION,
+  INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_QUERY,
   APP_QUERY,
   CAST_WORKER_MUTATION,
   CREATE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
   ORGANIZATION_QUERY,
-  REMOVE_AGENT_FROM_APP_MUTATION,
+  UNINSTALL_AGENT_FROM_APP_MUTATION,
   RELEASE_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
   REVOKE_APP_KEY_MUTATION,
@@ -500,7 +500,7 @@ describe('addAgent action', () => {
       },
     });
     expect(mockRequest.mock.calls[0]).toEqual([
-      ADD_AGENT_TO_APP_MUTATION,
+      INSTALL_AGENT_INTO_APP_MUTATION,
       { appRef: 'app-1', agentRef: 'agent-1', trainingMode: true },
     ]);
   });
@@ -601,7 +601,7 @@ describe('removeAgent action', () => {
       },
     });
     expect(mockRequest.mock.calls[0]).toEqual([
-      REMOVE_AGENT_FROM_APP_MUTATION,
+      UNINSTALL_AGENT_FROM_APP_MUTATION,
       { appRef: 'app-1', agentRef: 'agent-1' },
     ]);
   });
