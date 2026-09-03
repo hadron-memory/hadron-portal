@@ -610,12 +610,20 @@
   // here the "correction" it invites is a silent mis-address rather than a
   // refusal. Deriving the grammar from `fullUrn` keeps the two in agreement for
   // both populations.
-  // The decision lives in $lib/urn/move-hint-grammar so it is testable: a
-  // `$derived` in a .svelte file is unreachable from this repo's SSR-only
-  // harness (#795), and "which grammar do we recommend" is not a cosmetic
-  // choice — the wrong answer here mis-addresses a node silently.
-  const moveUrnIsOwnershipChain = $derived(isOwnershipChainUrn(fullUrn));
-  const moveHintGrammarText = $derived(moveHintGrammar(fullUrn));
+  // Derived from the FIELD, not from `fullUrn` (@codex P1 on PR #803). The
+  // memory picker (#512) rewrites the target into a different memory, which may
+  // use a different grammar from the one this node came from — so a
+  // node-derived hint describes the source while the input holds the
+  // destination, and moving into or out of a chain-owned memory inverts the
+  // mismatch. Reading the live value means there is no second piece of state to
+  // keep in step: the hint follows the prefill, the picker and typing alike.
+  //
+  // The decision itself lives in $lib/urn/move-hint-grammar so it is testable —
+  // a `$derived` in a .svelte file is unreachable from this repo's SSR-only
+  // harness (#795), and this is not a cosmetic choice: the wrong answer
+  // mis-addresses a node silently.
+  const moveUrnIsOwnershipChain = $derived(isOwnershipChainUrn($moveFormData.target));
+  const moveHintGrammarText = $derived(moveHintGrammar($moveFormData.target));
 
   // #780: `target` is deliberately NOT in the fallback list, and it is the only
   // form on this page for which that is true.
@@ -1780,17 +1788,29 @@
                      itself (@codex P1). It stays outside t(): a code token, not
                      translatable prose. `id` is load-bearing — the input's
                      aria-describedby points at it. -->
+                <!-- Spacing is explicit (@copilot on PR #803): each part is its
+                     own element with a margin rather than relying on the
+                     newlines between them, which whitespace trimming can eat and
+                     render as `…<loc>— change…`. The chain warning is a `block`
+                     INSIDE this <p> rather than a sibling paragraph, so it stays
+                     inside the id the input's aria-describedby points at — a
+                     screen reader that misses "do not flatten" is missing the
+                     part that prevents a silent mis-address. -->
                 <p id="moveTargetHint" class="mt-1 text-xs text-zinc-400">
                   <span class="font-mono">{moveHintGrammarText}</span>
-                  {t(
-                    'node-actions.move-hint',
-                    '— change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.',
-                  )}
-                  {#if moveUrnIsOwnershipChain}
+                  <span class="ml-1">
                     {t(
-                      'node-actions.move-hint-ownership-chain',
-                      'This memory is addressed by a legacy ownership chain: keep the :: separators exactly as they are. Flattening them does not fail — it addresses a different node.',
+                      'node-actions.move-hint',
+                      '— change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.',
                     )}
+                  </span>
+                  {#if moveUrnIsOwnershipChain}
+                    <span class="mt-1 block text-amber-600 dark:text-amber-400">
+                      {t(
+                        'node-actions.move-hint-ownership-chain',
+                        'This memory is addressed by a legacy ownership chain: keep the :: separators exactly as they are. Flattening them does not fail — it addresses a different node.',
+                      )}
+                    </span>
                   {/if}
                 </p>
                 {#if $moveErrors.target?.[0]}
