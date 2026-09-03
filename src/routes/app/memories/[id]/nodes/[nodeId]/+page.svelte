@@ -13,6 +13,7 @@
   import ChatThread from '$lib/components/ChatThread.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+  import { isOwnershipChainUrn, moveHintGrammar } from '$lib/urn/move-hint-grammar';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
@@ -593,12 +594,48 @@
     'updateFlow',
     $flowMessage,
   ));
+  // The hint's one job is to agree with what is IN THE FIELD. #779 and three
+  // rounds of review on PR #803 were all the same invariant broken in different
+  // places, so it is stated once here rather than per-case.
+  //
+  // Derived from `$moveFormData.target`, NOT from `fullUrn`: the memory picker
+  // (#512) rewrites the target into a different memory, which may use a
+  // different grammar from the one this node came from. A node-derived hint
+  // therefore describes the source while the input holds the destination, and
+  // moving into or out of a chain-owned memory inverts the mismatch. Reading
+  // the live value leaves no second piece of state to keep in step — the hint
+  // follows the prefill, the picker and typing alike.
+  //
+  // The decision itself lives in $lib/urn/move-hint-grammar so it is testable —
+  // a `$derived` in a .svelte file is unreachable from this repo's SSR-only
+  // harness (#795), and this is not a cosmetic choice: recommending the wrong
+  // grammar either earns a refusal (v1 shown for a v2 value, which `parseUrnV2`
+  // rejects) or, in the dangerous direction, invites flattening an ownership
+  // chain — which does not fail, it addresses a different node.
+  const moveUrnIsOwnershipChain = $derived(isOwnershipChainUrn($moveFormData.target));
+  const moveHintGrammarText = $derived(moveHintGrammar($moveFormData.target));
+
+  // #780: `target` is deliberately NOT in the fallback list, and it is the only
+  // form on this page for which that is true.
+  //
+  // The fallbacks exist to promote a field error into the form-level alert for
+  // forms that render no per-field error — every other dialog here. The move
+  // dialog is the exception: it renders `$moveErrors.target` inline under the
+  // input (the only inline field-error render in the file), so listing `target`
+  // here printed the same sentence twice, once under the input and once above
+  // the buttons.
+  //
+  // The server already decides which surface a failure belongs to — `setError`
+  // on `target` for the user-fixable codes (NODE_ALREADY_EXISTS, CONFLICT,
+  // BAD_USER_INPUT) and a form-level `message` for everything else — so the two
+  // surfaces are already mutually exclusive at the source. The duplication was
+  // purely this list re-merging them.
   const moveActionError = $derived(scopedActionError<NodeMoveForm>(
     form,
     'moveNode',
     $moveMessage,
     $moveErrors,
-    ['_kind', 'target'],
+    ['_kind'],
   ));
   const deleteActionError = $derived(scopedActionError<NodeDeleteForm>(
     form,
@@ -1728,11 +1765,43 @@
                   bind:value={$moveFormData.target}
                   spellcheck="false"
                   aria-invalid={$moveErrors.target?.[0] ? 'true' : undefined}
-                  aria-describedby={$moveErrors.target?.[0] ? 'moveTargetError' : undefined}
+                  aria-describedby={$moveErrors.target?.[0] ? 'moveTargetHint moveTargetError' : 'moveTargetHint'}
                   class="{inputClass} font-mono text-xs {$moveErrors.target?.[0] ? 'border-red-500 focus:border-red-500' : ''}"
                 />
-                <p class="mt-1 text-xs text-zinc-400">
-                  <span class="font-mono">org::memory::loc</span> — change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.
+                <!-- #779: the hint is the ONLY place the dialog tells a user what
+                     shape to type, so the v1 `org::memory::loc` it used to show
+                     taught a grammar the platform has moved off (hrn:node:hadronmemory.com:specs:cor:urn:010:01)
+                     — and `parseUrnV2` rejects `::`, so a user who copied the
+                     example got a refusal from the field that recommended it.
+                     The grammar comes from `moveHintGrammar` rather than being
+                     hard-coded, so a chain-owned node is not told to flatten
+                     itself (@codex P1). It stays outside t(): a code token, not
+                     translatable prose. `id` is load-bearing — the input's
+                     aria-describedby points at it. -->
+                <!-- Spacing is explicit (@copilot on PR #803): each part is its
+                     own element with a margin rather than relying on the
+                     newlines between them, which whitespace trimming can eat and
+                     render as `…<loc>— change…`. The chain warning is a `block`
+                     INSIDE this <p> rather than a sibling paragraph, so it stays
+                     inside the id the input's aria-describedby points at — a
+                     screen reader that misses "do not flatten" is missing the
+                     part that prevents a silent mis-address. -->
+                <p id="moveTargetHint" class="mt-1 text-xs text-zinc-400">
+                  <span class="font-mono">{moveHintGrammarText}</span>
+                  <span class="ml-1">
+                    {t(
+                      'node-actions.move-hint',
+                      '— change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.',
+                    )}
+                  </span>
+                  {#if moveUrnIsOwnershipChain}
+                    <span class="mt-1 block text-amber-600 dark:text-amber-400">
+                      {t(
+                        'node-actions.move-hint-ownership-chain',
+                        'This memory is addressed by a legacy ownership chain: keep the :: separators exactly as they are. Flattening them does not fail — it addresses a different node.',
+                      )}
+                    </span>
+                  {/if}
                 </p>
                 {#if $moveErrors.target?.[0]}
                   <p id="moveTargetError" class="mt-1 text-xs text-red-500">{$moveErrors.target[0]}</p>
