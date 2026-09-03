@@ -3,6 +3,7 @@ import {
   testRegexSafely,
   RegexTimeoutError,
   RegexInvalidError,
+  RegexUnavailableError,
   MAX_PATTERN_LEN,
 } from './safe-regex';
 
@@ -39,4 +40,91 @@ describe('testRegexSafely', () => {
     await expect(testRegexSafely('abc', 'zzz', 'abc')).rejects.toBeInstanceOf(RegexInvalidError);
     await expect(testRegexSafely('abc', 'g'.repeat(20), 'abc')).rejects.toBeInstanceOf(RegexInvalidError);
   });
+});
+
+/**
+ * #800 — the timeout must bound the MATCH, not the thread spawn.
+ *
+ * The flake that surfaced this reported `^Hi` as "evaluation timed out (pattern
+ * too complex)" after 114ms, against a 100ms budget. Measured on an idle
+ * machine, a trivial pattern through this helper costs ~14-16ms and a bare
+ * Worker spawn with an empty script costs ~15-16ms — so the budget was almost
+ * entirely spent on startup, and a loaded host exceeds it without the pattern
+ * doing anything at all.
+ */
+describe('the budget bounds matching, not worker startup (#800)', () => {
+  /**
+   * The discriminating test. 5ms is FAR below the ~15ms it takes to spawn the
+   * thread, so under the old code — where the clock started at `new Worker(...)`
+   * — this could only ever time out. It passes now because the clock starts when
+   * the worker signals ready, and `^Hi` then matches in microseconds.
+   */
+  it('a trivial pattern succeeds even when the budget is smaller than spawn cost', async () => {
+    expect(await testRegexSafely('^Hi', '', 'Hi there!', 5)).toBe(true);
+    expect(await testRegexSafely('^Goodbye', '', 'Hi there!', 5)).toBe(false);
+  }, 10000);
+
+  /**
+   * The other direction, and the one that matters for the mitigation being
+   * real: moving the clock must not make a catastrophic pattern un-catchable.
+   * It cannot, because `ready` is posted BEFORE the pattern is compiled — but
+   * that is an assumption about message delivery from a thread that is about to
+   * block, so it is asserted rather than reasoned about.
+   */
+  it('still terminates a catastrophic pattern once matching has started', async () => {
+    const started = Date.now();
+    await expect(
+      testRegexSafely('(a+)+$', '', 'a'.repeat(40) + 'b', 50),
+    ).rejects.toBeInstanceOf(RegexTimeoutError);
+    // Bounded by startup + the match budget, nowhere near STARTUP_TIMEOUT_MS.
+    expect(Date.now() - started).toBeLessThan(2000);
+  }, 10000);
+
+  /**
+   * @codex P1 on PR #807 — the budget must be ARMED before the pattern runs,
+   * not merely "started later".
+   *
+   * The first version of this fix had the worker post `ready` and immediately
+   * begin matching. But the timer is armed when the PARENT HANDLES `ready`, so
+   * a delayed parent event loop (GC, a synchronous request, CPU contention)
+   * left the attacker's pattern running with no bound — and that delay is
+   * exactly what a ReDoS attack causes, so the defense failed hardest when it
+   * was needed most.
+   *
+   * This test blocks the parent's loop while the worker would otherwise be
+   * matching. `(a+)+$` against 22 `a`s costs ~154ms (calibrated), so it
+   * COMPLETES inside the block. Without the handshake the parent wakes to find
+   * a finished result and RESOLVES — a 154ms match silently accepted under a
+   * 50ms budget. With it, the worker holds the job until the timer exists, so
+   * the budget is enforced and this rejects.
+   */
+  it('does not let the pattern run before the timer is armed, even with a stalled parent loop', async () => {
+    const started = Date.now();
+    const promise = testRegexSafely('(a+)+$', '', 'a'.repeat(22) + 'b', 50);
+    // Stall the parent synchronously — nothing can be handled during this.
+    const until = Date.now() + 400;
+    while (Date.now() < until) { /* busy-wait, deliberately */ }
+
+    await expect(promise).rejects.toBeInstanceOf(RegexTimeoutError);
+    // Bounded by the stall plus the budget — not by the match having been
+    // allowed to finish unmeasured.
+    expect(Date.now() - started).toBeLessThan(3000);
+  }, 15000);
+
+  /**
+   * A startup failure is a statement about the SERVER, a match timeout is a
+   * statement about the CALLER'S PATTERN. The endpoint renders the latter as
+   * "pattern too complex", so returning that type for a busy host is what told
+   * a user their `^Hi` was the problem.
+   */
+  it('distinguishes "could not start" from "pattern too slow" by error type', async () => {
+    // A 0ms startup budget cannot be met by any thread.
+    await expect(
+      testRegexSafely('^Hi', '', 'Hi there!', 100, 0),
+    ).rejects.toBeInstanceOf(RegexUnavailableError);
+    // ...and that is NOT the type the endpoint blames the pattern for.
+    await expect(
+      testRegexSafely('^Hi', '', 'Hi there!', 100, 0),
+    ).rejects.not.toBeInstanceOf(RegexTimeoutError);
+  }, 10000);
 });

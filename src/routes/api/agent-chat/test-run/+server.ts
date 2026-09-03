@@ -3,7 +3,7 @@ import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import { judgeAgentReply, judgeVerdict } from '$lib/server/agent-tester/llm-judge';
-import { testRegexSafely, RegexTimeoutError, MAX_PATTERN_LEN, MAX_FLAGS_LEN } from '$lib/server/safe-regex';
+import { testRegexSafely, RegexTimeoutError, RegexUnavailableError, MAX_PATTERN_LEN, MAX_FLAGS_LEN } from '$lib/server/safe-regex';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
 
@@ -219,9 +219,22 @@ async function evaluateAssertion(
       try {
         pass = await testRegexSafely(a.pattern, a.flags ?? '', reply);
       } catch (e) {
+        // #800: "too complex" is a claim about the CALLER'S pattern, and it used
+        // to be produced by a busy SERVER — the timeout covered worker startup,
+        // so `^Hi` could be reported as catastrophic. The budget now bounds the
+        // match, and a startup failure has its own type so the two can no longer
+        // be confused in the one place a user reads.
+        //
+        // Still imperfect and worth saying: an unavailable worker is reported as
+        // a `fail` VERDICT, i.e. as though the assertion ran and lost. It did not
+        // run. Fixing that means widening AssertionResult to carry an
+        // "unevaluated" state, which reaches the UI — filed rather than folded
+        // into this change.
         const why = e instanceof RegexTimeoutError
           ? 'evaluation timed out (pattern too complex)'
-          : e instanceof Error ? e.message : 'invalid regex';
+          : e instanceof RegexUnavailableError
+            ? 'could not be evaluated — the server could not start a worker. This is not a problem with your pattern; retry.'
+            : e instanceof Error ? e.message : 'invalid regex';
         return { mode: 'regex', verdict: 'fail', detail: `regex ${why}` };
       }
       return {
