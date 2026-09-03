@@ -12,8 +12,8 @@ import {
   MY_AGENTS_QUERY,
   PUBLIC_AGENTS_QUERY,
   UPDATE_APP_MUTATION,
-  ADD_AGENT_TO_APP_MUTATION,
-  REMOVE_AGENT_FROM_APP_MUTATION,
+  INSTALL_AGENT_INTO_APP_MUTATION,
+  UNINSTALL_AGENT_FROM_APP_MUTATION,
   CREATE_APP_KEY_MUTATION,
   REVOKE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
@@ -645,15 +645,23 @@ export const actions: Actions = {
       addAgentFormAdapter,
     );
     if (!form.valid) return fail(400, { form });
-    // 008-agent-installation: addAgentToApp is now a setter on
-    // App.agent_id; the legacy `role` arg is gone (system memory is
-    // universally read-only from any App context). `trainingMode` is
-    // forwarded only when the form submits it explicitly so the server
-    // default applies otherwise.
+    // #802: installs the agent as a row on the AppAgent join — an App holds
+    // MANY agents. The previous comment here said `addAgentToApp` "is now a
+    // setter on App.agent_id", which 023-app-shape Phase 2b made false when it
+    // moved the relationship off that column; it is worse than no comment on a
+    // multi-agent model, because it points the next reader at a column that is
+    // no longer the source of truth.
+    //
+    // The legacy `role` arg is gone (system memory is universally read-only
+    // from any App context). `trainingMode` is forwarded only when the form
+    // submits it explicitly, so the server default applies otherwise — see
+    // `hrn:node:hadronmemory.com:hadron-cli:review:an-empty-flag-is-not-an-absent-flag`
+    // for why "submitted but empty" and "not submitted" must stay
+    // distinguishable.
     const variables: Record<string, unknown> = { appRef: params.appId, agentRef: form.data.agentId };
     if (typeof form.data.trainingMode === 'string') variables.trainingMode = form.data.trainingMode === 'true';
     try {
-      await gqlClient(locals.token).request(ADD_AGENT_TO_APP_MUTATION, variables);
+      await gqlClient(locals.token).request(INSTALL_AGENT_INTO_APP_MUTATION, variables);
       return message(form, { type: 'success', text: t('app.agent.linked', 'Agent linked.') });
     } catch (e: unknown) {
       return message(
@@ -672,7 +680,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
 
     try {
-      await gqlClient(locals.token).request(REMOVE_AGENT_FROM_APP_MUTATION, {
+      await gqlClient(locals.token).request(UNINSTALL_AGENT_FROM_APP_MUTATION, {
         appRef: params.appId,
         agentRef: form.data.agentId,
       });
