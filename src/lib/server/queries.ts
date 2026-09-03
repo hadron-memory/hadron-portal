@@ -1262,16 +1262,21 @@ export const DELETE_APP_MUTATION = /* GraphQL */ `
 // The selection sets are deliberately minimal. Both call sites DISCARD the
 // result (the form action returns a success message and the page reloads), and
 // the deprecated pair returned `...AppFields` — a whole App fragment fetched,
-// serialized and thrown away on every link/unlink. Fetching one id instead is
-// the `graphql-fetch-rendered-subfields` rule applied to a rendered set of
-// nothing.
+// serialized and thrown away on every link/unlink. Asking for a couple of
+// scalars instead is the rendered-subfields rule applied to a rendered set of
+// nothing — see
+// `hrn:node:hadronmemory.com:hadron-portal:review:graphql-fetch-rendered-subfields`.
+//
+// SCALARS specifically, not `appAgent { agent { id } }` (@copilot): a nested
+// object field makes the server resolve the Agent to answer a question nobody
+// asked. `createdAt` is the install timestamp on the join row itself, so it
+// needs no extra load — and a payload type must be given at least one field, so
+// "select nothing" is not available.
 export const INSTALL_AGENT_INTO_APP_MUTATION = /* GraphQL */ `
   mutation InstallAgentIntoApp($appRef: ID!, $agentRef: ID!, $trainingMode: Boolean) {
     installAgentIntoApp(appRef: $appRef, agentRef: $agentRef, trainingMode: $trainingMode) {
       appAgent {
-        agent {
-          id
-        }
+        createdAt
       }
     }
   }

@@ -16,11 +16,53 @@ import { Worker } from 'node:worker_threads';
 
 export class RegexInvalidError extends Error {}
 export class RegexTimeoutError extends Error {}
+/**
+ * The worker never got far enough to start matching — the host was too busy to
+ * spin up a thread, or the thread died on the way up.
+ *
+ * Distinct from `RegexTimeoutError` on purpose: that one means "this pattern is
+ * dangerous", which is a statement about the CALLER'S INPUT. This one means
+ * "we could not run it", which is a statement about the SERVER. Conflating them
+ * tells a user their `^Hi` is too complex.
+ */
+export class RegexUnavailableError extends Error {}
 
 export const MAX_PATTERN_LEN = 1000;
 export const MAX_INPUT_LEN = 100_000;
 export const MAX_FLAGS_LEN = 8;
+
+/**
+ * The MATCH budget — how long a compiled pattern may run before we call it
+ * catastrophic. It starts when the worker says it is ready, NOT when the worker
+ * is created (#800).
+ *
+ * That distinction is the whole of this fix. Measured on an idle machine:
+ *
+ *   testRegexSafely('^Hi', …)      ~14-16 ms
+ *   bare Worker spawn, empty src   ~15-16 ms
+ *
+ * So essentially ALL of it was thread startup and none of it was matching. With
+ * the clock starting at `new Worker(...)`, a 100 ms budget was really ~85 ms of
+ * headroom over spawn cost — and on a loaded host, spawn alone exceeds it. The
+ * observed CI failure took 114 ms and reported the pattern `^Hi` as
+ * "evaluation timed out (pattern too complex)".
+ *
+ * That is a wrong verdict stated confidently, and it is a PRODUCTION bug, not
+ * just the flaky test that exposed it: the same contention makes a user's
+ * innocent assertion fail with an explanation that blames their input.
+ */
 export const DEFAULT_TIMEOUT_MS = 100;
+
+/**
+ * The STARTUP budget — how long we wait for the thread to come up at all.
+ *
+ * Generous, because it is not defending against anything: nothing
+ * attacker-controlled runs before `ready`, since the pattern is not compiled
+ * until after it is posted. It exists only so a host that cannot spawn threads
+ * fails in bounded time instead of hanging, and it is deliberately far above
+ * the ~15 ms measured cost so ordinary contention never reaches it.
+ */
+export const STARTUP_TIMEOUT_MS = 5_000;
 
 // The valid JS regex flag characters; also bounds structured-clone cost of the
 // attacker-controlled `flags` before it reaches the worker.
@@ -29,14 +71,33 @@ const VALID_FLAGS = /^[dgimsuy]*$/;
 // Compile + test inside an isolated thread. Kept dependency-free and passed as
 // an eval string so the SvelteKit/Vite bundler doesn't need to resolve a
 // separate worker entry point.
+// A two-phase handshake: the worker says `ready` and then WAITS. It receives
+// the pattern only after the parent has armed the match timer.
+//
+// The obvious version — post `ready` and immediately match — is wrong, and
+// subtly (@codex P1 on PR #807). The timer is armed when the PARENT HANDLES
+// `ready`, not when the worker sends it, so anything delaying the parent's
+// event loop (GC, a synchronous request, CPU contention) leaves the attacker's
+// pattern running with no bound at all. Measured on that version: blocking the
+// parent for 750 ms let the catastrophic example burn ~856 ms against a 100 ms
+// budget. Under concurrent hostile requests that defeats the whole point of
+// #440, because the delay it depends on is exactly what a ReDoS attack causes.
+//
+// Waiting for the job makes the ordering structural rather than hopeful: the
+// pattern is not even PRESENT in the thread until the timer exists. Note there
+// is no `workerData` any more — passing the input at construction is what made
+// the early start possible.
 const WORKER_SRC = `
-const { parentPort, workerData } = require('worker_threads');
-try {
-  const re = new RegExp(workerData.pattern, workerData.flags);
-  parentPort.postMessage({ ok: true, result: re.test(workerData.input) });
-} catch (e) {
-  parentPort.postMessage({ ok: false, error: String((e && e.message) || e) });
-}
+const { parentPort } = require('worker_threads');
+parentPort.postMessage({ ready: true });
+parentPort.once('message', (job) => {
+  try {
+    const re = new RegExp(job.pattern, job.flags);
+    parentPort.postMessage({ ok: true, result: re.test(job.input) });
+  } catch (e) {
+    parentPort.postMessage({ ok: false, error: String((e && e.message) || e) });
+  }
+});
 `;
 
 /**
@@ -49,6 +110,11 @@ export async function testRegexSafely(
   flags: string,
   input: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  // Injectable so the startup path is testable at all. Without it the only way
+  // to exercise a startup failure is to actually overload the host, which is
+  // how this defect stayed invisible: the failing condition was reachable only
+  // under load, and only in CI.
+  startupTimeoutMs: number = STARTUP_TIMEOUT_MS,
 ): Promise<boolean> {
   if (pattern.length > MAX_PATTERN_LEN) {
     throw new RegexInvalidError(`pattern exceeds ${MAX_PATTERN_LEN} characters`);
@@ -60,11 +126,14 @@ export async function testRegexSafely(
   const safeInput = input.length > MAX_INPUT_LEN ? input.slice(0, MAX_INPUT_LEN) : input;
 
   return await new Promise<boolean>((resolve, reject) => {
-    const worker = new Worker(WORKER_SRC, {
-      eval: true,
-      workerData: { pattern, flags, input: safeInput },
-    });
+    // No `workerData`: the attacker-controlled pattern is handed over only
+    // after the match timer is armed (see WORKER_SRC).
+    const worker = new Worker(WORKER_SRC, { eval: true });
     let settled = false;
+    // Two clocks, never both running: the startup one is replaced by the match
+    // one the moment `ready` arrives. Holding a single mutable handle keeps
+    // `finish` able to clear whichever is live without knowing which it is.
+    let timer: ReturnType<typeof setTimeout>;
     const finish = (fn: () => void) => {
       if (settled) return;
       settled = true;
@@ -72,23 +141,65 @@ export async function testRegexSafely(
       void worker.terminate();
       fn();
     };
-    const timer = setTimeout(
-      () => finish(() => reject(new RegexTimeoutError('regex evaluation timed out'))),
-      timeoutMs,
+
+    timer = setTimeout(
+      () =>
+        finish(() =>
+          reject(
+            new RegexUnavailableError(
+              `regex worker did not start within ${startupTimeoutMs}ms`,
+            ),
+          ),
+        ),
+      startupTimeoutMs,
     );
-    worker.once('message', (msg: { ok: boolean; result?: boolean; error?: string }) =>
+
+    // `on`, not `once`: this port delivers `ready` and then the result.
+    worker.on('message', (msg: { ready?: boolean; ok?: boolean; result?: boolean; error?: string }) => {
+      if (msg.ready) {
+        // The thread is up. THIS is where the ReDoS budget begins — before it,
+        // the clock was measuring how busy the host is, which is not something
+        // the caller's pattern can be blamed for.
+        clearTimeout(timer);
+        timer = setTimeout(
+          () => finish(() => reject(new RegexTimeoutError('regex evaluation timed out'))),
+          timeoutMs,
+        );
+        // ARM FIRST, THEN HAND OVER THE WORK. The order is the guarantee: the
+        // pattern cannot begin running before the bound that governs it exists,
+        // however long the parent was delayed getting here.
+        worker.postMessage({ pattern, flags, input: safeInput });
+        return;
+      }
       finish(() =>
         msg.ok
           ? resolve(msg.result === true)
           : reject(new RegexInvalidError(msg.error ?? 'invalid regex')),
+      );
+    });
+    // Both of these mean the thread failed, not that the pattern is dangerous,
+    // so they carry `RegexUnavailableError` (@copilot). Rejecting with the raw
+    // error left a caller unable to tell a host problem from a ReDoS verdict —
+    // which is the distinction this type was added for, so leaving these two
+    // outside it would have made it half a fix.
+    worker.once('error', (err) =>
+      finish(() =>
+        reject(
+          new RegexUnavailableError(
+            `regex worker failed to run: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        ),
       ),
     );
-    worker.once('error', (err) => finish(() => reject(err)));
     // A worker crash (OOM, native fault) emits `exit` with a non-zero code and
     // no message/error — reject immediately instead of hanging until timeout.
     // Our own terminate() also fires this, but `settled` is already true by then.
     worker.once('exit', (code) => {
-      if (code !== 0) finish(() => reject(new Error(`regex worker exited with code ${code}`)));
+      if (code !== 0) {
+        finish(() =>
+          reject(new RegexUnavailableError(`regex worker exited with code ${code}`)),
+        );
+      }
     });
   });
 }
