@@ -13,6 +13,7 @@
   import ChatThread from '$lib/components/ChatThread.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+  import { isOwnershipChainUrn, moveHintGrammar } from '$lib/urn/move-hint-grammar';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
@@ -593,6 +594,29 @@
     'updateFlow',
     $flowMessage,
   ));
+  // @codex P1 on PR #803 — the hint must describe the URN the field is ACTUALLY
+  // prefilled with, not one grammar for everybody.
+  //
+  // #779 replaced a v1 example with a v2 one, which is right for almost every
+  // node and wrong for one case: a memory URN with more than two atoms is a v1
+  // OWNERSHIP CHAIN (`<org>::<app>::<agent>::<memory>`), and `composeNodeUrn`
+  // deliberately emits those unchanged because they have no string-derivable v2
+  // form — v2's fixed arity would read atom 1 as the memory slug and fold the
+  // rest into the loc, silently addressing a different node.
+  //
+  // So for a chain-owned node the field is prefilled with `::` while a fixed v2
+  // hint tells the reader that shape is wrong. That is the SAME defect #779
+  // fixed — a hint contradicting the field's own contents — just inverted, and
+  // here the "correction" it invites is a silent mis-address rather than a
+  // refusal. Deriving the grammar from `fullUrn` keeps the two in agreement for
+  // both populations.
+  // The decision lives in $lib/urn/move-hint-grammar so it is testable: a
+  // `$derived` in a .svelte file is unreachable from this repo's SSR-only
+  // harness (#795), and "which grammar do we recommend" is not a cosmetic
+  // choice — the wrong answer here mis-addresses a node silently.
+  const moveUrnIsOwnershipChain = $derived(isOwnershipChainUrn(fullUrn));
+  const moveHintGrammarText = $derived(moveHintGrammar(fullUrn));
+
   // #780: `target` is deliberately NOT in the fallback list, and it is the only
   // form on this page for which that is true.
   //
@@ -1743,22 +1767,31 @@
                   bind:value={$moveFormData.target}
                   spellcheck="false"
                   aria-invalid={$moveErrors.target?.[0] ? 'true' : undefined}
-                  aria-describedby={$moveErrors.target?.[0] ? 'moveTargetError' : undefined}
+                  aria-describedby={$moveErrors.target?.[0] ? 'moveTargetHint moveTargetError' : 'moveTargetHint'}
                   class="{inputClass} font-mono text-xs {$moveErrors.target?.[0] ? 'border-red-500 focus:border-red-500' : ''}"
                 />
-                <!-- #779: v2 grammar. This hint is the ONLY place the dialog
-                     tells a user what shape to type, so the v1 `org::memory::loc`
-                     it used to show taught a grammar the platform has moved off
-                     (cor:urn:010:01) — and `parseUrnV2` rejects `::`, so a user
-                     who copied the example got a refusal from the field that had
-                     just recommended it. The grammar itself stays outside t():
-                     it is a code token, not translatable prose. -->
-                <p class="mt-1 text-xs text-zinc-400">
-                  <span class="font-mono">hrn:node:&lt;root&gt;:&lt;memory&gt;:&lt;loc&gt;</span>
+                <!-- #779: the hint is the ONLY place the dialog tells a user what
+                     shape to type, so the v1 `org::memory::loc` it used to show
+                     taught a grammar the platform has moved off (cor:urn:010:01)
+                     — and `parseUrnV2` rejects `::`, so a user who copied the
+                     example got a refusal from the field that recommended it.
+                     The grammar comes from `moveHintGrammar` rather than being
+                     hard-coded, so a chain-owned node is not told to flatten
+                     itself (@codex P1). It stays outside t(): a code token, not
+                     translatable prose. `id` is load-bearing — the input's
+                     aria-describedby points at it. -->
+                <p id="moveTargetHint" class="mt-1 text-xs text-zinc-400">
+                  <span class="font-mono">{moveHintGrammarText}</span>
                   {t(
                     'node-actions.move-hint',
                     '— change the loc to rename/reparent, or the memory to move it to another memory. Fails if a node already lives there.',
                   )}
+                  {#if moveUrnIsOwnershipChain}
+                    {t(
+                      'node-actions.move-hint-ownership-chain',
+                      'This memory is addressed by a legacy ownership chain: keep the :: separators exactly as they are. Flattening them does not fail — it addresses a different node.',
+                    )}
+                  {/if}
                 </p>
                 {#if $moveErrors.target?.[0]}
                   <p id="moveTargetError" class="mt-1 text-xs text-red-500">{$moveErrors.target[0]}</p>
