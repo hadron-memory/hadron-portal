@@ -1,0 +1,32 @@
+# #781 — fail on a NEWLY ADDED bare-loc Hadron citation.
+#
+# CLAUDE.md requires the fully-qualified form; nothing enforced it, so the
+# review bot was the only guard and it caught the same defect on four
+# consecutive PRs. Shaped like `no-station-refs` (its sibling): a small,
+# app-independent gate in its own job, so it reports separately from `ci`.
+#
+# Unlike that one this needs history, hence `fetch-depth: 0` — it compares
+# against the base branch and only inspects ADDED lines, because ~79
+# pre-existing citations (tracked by #781) would otherwise make it unlandable.
+name: no-bare-loc-citations
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  no-bare-loc-citations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bare-loc citations added by this change
+        run: |
+          BASE="origin/${{ github.base_ref || 'main' }}"
+          git fetch --no-tags --depth=0 origin "${{ github.base_ref || 'main' }}" || true
+          node scripts/check-bare-loc-citations.mjs "$BASE"
