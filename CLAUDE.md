@@ -160,6 +160,45 @@ If `curl` gets a 404 with an empty body, a gate is failing — check
 `DEV_LOGIN_ENABLED` in the running server's `.env`. A `{"error":"No user with
 that email"}` 404 means the gates passed and only the lookup missed.
 
+## Tests: two lanes, one `pnpm test`
+
+`vitest.config.ts` defines two projects, and the one you need depends on
+**whether the behaviour lives in the component lifecycle**.
+
+| lane | files | environment | reaches |
+|---|---|---|---|
+| `node` (default) | `*.test.ts` | node | POJO handlers, pure logic, SSR markup via `render` from `svelte/server` |
+| `client` | `*.client.test.ts` | jsdom | `mount`/`unmount`, `onMount`, `onDestroy`, effects, teardown |
+
+Both run under a plain `pnpm test`. Target one with `--project node` /
+`--project client`.
+
+**A server render never mounts**, so anything in `onMount`, `onDestroy`, an
+effect, or a teardown path is invisible to the `node` lane — that gap shipped
+two defects (#782/#788, #789/#794) past a green suite, and #795 is where it was
+finally closed. If you are testing a lifecycle, write a `*.client.test.ts` and
+use `mountComponent` from
+[src/lib/test/mountComponent.ts](src/lib/test/mountComponent.ts).
+
+Three things about that harness are worth knowing before you use it:
+
+- **`unmount` is the half that matters.** Mounting is easy and proves little;
+  every defect in this class was about what ran *after* teardown.
+- **An async `onMount` throws into the void.** Its promise is never awaited, so
+  a post-teardown crash surfaces as an unhandled rejection — not as a failed
+  render and not on any promise your test can await. Use
+  `captureUnhandledRejections()`, or the failure stays invisible in the lane
+  built to see it.
+- **Pin both directions.** Assert the guarded version passes *and* the
+  unguarded one fails. A one-directional lifecycle test also passes on a
+  harness that silently never ran the lifecycle, which is the exact false green
+  being replaced.
+
+`$app/*` has no implementation outside a running SvelteKit app; `$app/navigation`
+is aliased to a recorder at
+[src/lib/test/stubs/app-navigation.ts](src/lib/test/stubs/app-navigation.ts).
+Add siblings there rather than mocking per test.
+
 ## UI conventions
 
 ### Any new list is a TanStack table
