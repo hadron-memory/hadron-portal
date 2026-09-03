@@ -53,9 +53,19 @@
     const ms = new Date(iso).getTime();
     return isNaN(ms) ? null : ms;
   }
-  function formatTimestamp(ms: number | null): string {
+  // Same options as the sibling grids (@copilot): a bare `toLocaleDateString()`
+  // renders differently across browsers and locales, so two portal tables open
+  // side by side would disagree about how a date looks. Matches
+  // orgs/[id]/sessions and orgs/[id]/memories verbatim — this is now the third
+  // copy of the helper, which is worth extracting, but not inside a list
+  // conversion touching one file.
+  function formatDate(ms: number | null): string {
     if (ms == null) return '—';
-    return new Date(ms).toLocaleDateString();
+    return new Date(ms).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
   }
 
   let globalFilter = $state('');
@@ -87,7 +97,7 @@
   ];
 
   const fmt: Record<string, (v: unknown) => string> = {
-    createdAt: (v) => formatTimestamp(v as number | null),
+    createdAt: (v) => formatDate(v as number | null),
   };
 
   const table = createSvelteTable<OrgRow>({
@@ -109,7 +119,15 @@
   <div class="flex items-center justify-between gap-3">
     <div>
       <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{t('orgs.heading', 'Organizations')}</h1>
-      <p class="text-sm text-zinc-500">{t('orgs.subhead', 'Organizations you belong to.')}</p>
+      <!-- "you have access to", not "you belong to" (@codex P2). This list is
+           NOT always memberships: `ORGANIZATIONS_QUERY`'s own comment names
+           /app/orgs as an admin BROWSE surface, where a platform ADMIN/OWNER
+           receives every live org including ones they are not a member of. The
+           subhead is new in this PR, so the narrower wording would have been a
+           claim the page cannot keep, for exactly the readers most likely to
+           notice. One sentence that is true for both populations beats
+           branching the copy on a role the page would have to fetch. -->
+      <p class="text-sm text-zinc-500">{t('orgs.subhead', 'Organizations you have access to.')}</p>
     </div>
     <a
       href="/app/orgs/new"
@@ -119,7 +137,13 @@
 
   {#if rows.length === 0}
     <div class="rounded-xl border border-dashed border-zinc-300 bg-white p-10 text-center dark:border-zinc-700 dark:bg-zinc-900">
-      <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('orgs.empty', "You're not a member of any organization yet.")}</p>
+      <!-- Same scope correction as the subhead, one line further down. This
+           copy is pre-existing, but it makes the identical claim — an ADMIN
+           seeing an empty list is not being told "you have no memberships",
+           they are being told there are no orgs at all — and leaving it would
+           have the page contradict the subhead I just fixed two elements
+           above. Neutral wording is true for both readers. -->
+      <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('orgs.empty', 'No organizations yet.')}</p>
       <a
         href="/app/orgs/new"
         class="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500"
