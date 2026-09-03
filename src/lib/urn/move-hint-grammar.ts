@@ -46,12 +46,32 @@
  */
 export const MOVE_HINT_GRAMMAR_V2 = 'hrn:node:<root>:<memory>:<loc>';
 
-/** The v1 hierarchy separator. A composed URN contains it only for a chain. */
+/** The v1 hierarchy separator. */
 const CHAIN_SEP = '::';
 
-/** Is this URN addressed through a v1 ownership chain? */
+/**
+ * Is this URN addressed through a v1 ownership chain?
+ *
+ * **Containing `::` is NOT the test.** A chain is a memory path with MORE than
+ * two atoms; a TWO-atom v1 memory URN (`hadronmemory.com::dev`) also contains
+ * `::` and is not a chain — `composeNodeUrn` flattens it to v2, because two
+ * atoms map onto v2's arity exactly. Treating it as a chain would advertise
+ * `hrn:node:hadronmemory.com::dev::<loc>` and tell the reader to KEEP the `::`,
+ * which is v1 grammar recommended where v2 is correct — #779's defect returning
+ * by another door, for anyone who pastes an old URN into the field.
+ *
+ * Counting separators is how the two are told apart on an already-composed URN.
+ * A chain joins its N memory atoms with `::` and then adds one more before the
+ * loc, so it carries at least three; a two-atom v1 memory plus a loc carries
+ * exactly two.
+ *
+ *   micromentor.org::app::agent::system::review:sort   4 → chain
+ *   micromentor.org::app::system::review:sort          3 → chain
+ *   hadronmemory.com::dev::auth:tokens                 2 → not a chain (v2)
+ *   hadronmemory.com::dev                              1 → not a chain (v2)
+ */
 export function isOwnershipChainUrn(urn: string | null | undefined): boolean {
-  return (urn ?? '').includes(CHAIN_SEP);
+  return (urn ?? '').split(CHAIN_SEP).length - 1 >= 3;
 }
 
 /**

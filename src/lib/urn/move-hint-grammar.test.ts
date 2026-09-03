@@ -32,9 +32,11 @@ describe('moveHintGrammar (PR #803 review)', () => {
     });
 
     it('splits on the LAST :: — a loc may contain single colons', () => {
-      // `review:sort:imports` is one loc, not three chain atoms.
-      expect(moveHintGrammar('hrn:node:acme::sys::review:sort:imports')).toBe(
-        'hrn:node:acme::sys::<loc>',
+      // `review:sort:imports` is one loc, not three chain atoms. Uses a genuine
+      // three-atom chain: `acme::sys` would be a TWO-atom memory, which is not
+      // a chain at all and flattens to v2 (see below).
+      expect(moveHintGrammar('hrn:node:acme::billing::sys::review:sort:imports')).toBe(
+        'hrn:node:acme::billing::sys::<loc>',
       );
     });
 
@@ -97,9 +99,42 @@ describe('moveHintGrammar (PR #803 review)', () => {
     });
   });
 
-  it('isOwnershipChainUrn is the single predicate both callers share', () => {
-    expect(isOwnershipChainUrn('a::b')).toBe(true);
+  /**
+   * @Holger: "`acme::billing::system` is also V1" — the point being that `::`
+   * alone does not make something a chain, and the hint must not recommend v1
+   * where v2 is correct.
+   *
+   * A chain is a memory path with MORE than two atoms. A TWO-atom v1 memory
+   * URN also contains `::` and is NOT one — `composeNodeUrn` flattens it
+   * (`compose-node-urn.test.ts:17`, "flattens a v1 `::` memory URN (2 atoms) to
+   * v2"). Classifying it as a chain would tell the reader to keep the `::`,
+   * which is #779's defect returning for anyone pasting an old URN.
+   */
+  describe('a two-atom v1 URN is not a chain (it flattens to v2)', () => {
+    it.each([
+      ['memory + loc', 'hrn:node:hadronmemory.com::dev::auth:tokens'],
+      ['memory only', 'hrn:node:hadronmemory.com::dev'],
+    ])('%s is treated as v2, not told to keep its ::', (_label, value) => {
+      expect(isOwnershipChainUrn(value)).toBe(false);
+      expect(moveHintGrammar(value)).toBe(MOVE_HINT_GRAMMAR_V2);
+    });
+
+    it('agrees with composeNodeUrn, which flattens the same input', () => {
+      // The composer is the authority; the hint must not contradict it.
+      const flattened = composeNodeUrn('hrn:memory:hadronmemory.com::dev', 'auth:tokens');
+      expect(flattened).toBe('hrn:node:hadronmemory.com:dev:auth:tokens');
+      expect(isOwnershipChainUrn(flattened)).toBe(false);
+    });
+
+    it('but three or more atoms still is a chain', () => {
+      expect(isOwnershipChainUrn('hrn:node:acme::billing::system::a:b')).toBe(true);
+      expect(isOwnershipChainUrn('hrn:node:acme::billing::agent::system::a:b')).toBe(true);
+    });
+  });
+
+  it('isOwnershipChainUrn handles absent input', () => {
     expect(isOwnershipChainUrn('hrn:node:a:b:c')).toBe(false);
     expect(isOwnershipChainUrn(null)).toBe(false);
+    expect(isOwnershipChainUrn(undefined)).toBe(false);
   });
 });
