@@ -1248,24 +1248,45 @@ export const DELETE_APP_MUTATION = /* GraphQL */ `
   mutation DeleteApp($ref: ID!) { deleteApp(ref: $ref) }
 `;
 
-// 008-agent-installation: addAgentToApp is now a setter on App.agent_id —
-// the legacy `role` arg is gone (system memory is universally read-only
-// from any App context per R-10).
-export const ADD_AGENT_TO_APP_MUTATION = /* GraphQL */ `
-  ${APP_FIELDS}
-  mutation AddAgentToApp($appRef: ID!, $agentRef: ID!, $trainingMode: Boolean) {
-    addAgentToApp(appRef: $appRef, agentRef: $agentRef, trainingMode: $trainingMode) {
-      ...AppFields
+// #802 — an App holds MANY agents, through the AppAgent join.
+//
+// These used to call `addAgentToApp` / `removeAgentFromApp`, which the server
+// deprecated in spec 023-app-shape US1, and the comment here described them as
+// setters on `App.agent_id`. That model is gone: 023-app-shape Phase 2b moved
+// App-to-Agent off the scalar column and onto the `AppAgent` join, so the old
+// comment invited the next reader to treat a column that is no longer the
+// source of truth as one. Behaviour was never wrong — `addAgentToApp` delegates
+// to the same `installAgentIntoAppCore` — so this is a rename plus an honest
+// comment, not a fix.
+//
+// The selection sets are deliberately minimal. Both call sites DISCARD the
+// result (the form action returns a success message and the page reloads), and
+// the deprecated pair returned `...AppFields` — a whole App fragment fetched,
+// serialized and thrown away on every link/unlink. Asking for a couple of
+// scalars instead is the rendered-subfields rule applied to a rendered set of
+// nothing — see
+// `hrn:node:hadronmemory.com:hadron-portal:review:graphql-fetch-rendered-subfields`.
+//
+// SCALARS specifically, not `appAgent { agent { id } }` (@copilot): a nested
+// object field makes the server resolve the Agent to answer a question nobody
+// asked. `createdAt` is the install timestamp on the join row itself, so it
+// needs no extra load — and a payload type must be given at least one field, so
+// "select nothing" is not available.
+export const INSTALL_AGENT_INTO_APP_MUTATION = /* GraphQL */ `
+  mutation InstallAgentIntoApp($appRef: ID!, $agentRef: ID!, $trainingMode: Boolean) {
+    installAgentIntoApp(appRef: $appRef, agentRef: $agentRef, trainingMode: $trainingMode) {
+      appAgent {
+        createdAt
+      }
     }
   }
 `;
 
-// 008-agent-installation: removeAgentFromApp clears App.agent_id.
-export const REMOVE_AGENT_FROM_APP_MUTATION = /* GraphQL */ `
-  ${APP_FIELDS}
-  mutation RemoveAgentFromApp($appRef: ID!, $agentRef: ID!) {
-    removeAgentFromApp(appRef: $appRef, agentRef: $agentRef) {
-      ...AppFields
+export const UNINSTALL_AGENT_FROM_APP_MUTATION = /* GraphQL */ `
+  mutation UninstallAgentFromApp($appRef: ID!, $agentRef: ID!) {
+    uninstallAgentFromApp(appRef: $appRef, agentRef: $agentRef) {
+      agentId
+      appId
     }
   }
 `;
@@ -2787,8 +2808,8 @@ export const AGENT_OWNED_APPS_QUERY = /* GraphQL */ `
 
 // App queries/mutations are defined earlier in this file (above the
 // Memory section) — APP_QUERY, CREATE_APP_MUTATION, UPDATE_APP_MUTATION,
-// DELETE_APP_MUTATION, ADD_AGENT_TO_APP_MUTATION,
-// REMOVE_AGENT_FROM_APP_MUTATION, CREATE_APP_KEY_MUTATION,
+// DELETE_APP_MUTATION, INSTALL_AGENT_INTO_APP_MUTATION,
+// UNINSTALL_AGENT_FROM_APP_MUTATION, CREATE_APP_KEY_MUTATION,
 // REVOKE_APP_KEY_MUTATION.
 
 // ---------------------------------------------------------------------------
