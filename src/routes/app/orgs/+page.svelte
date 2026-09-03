@@ -29,8 +29,9 @@
 
   // Counts come from arrays ORGANIZATIONS_QUERY already selects, so no column
   // here adds a round trip. That query has 14 consumers, so narrowing it to
-  // counts is deliberately NOT done as part of a list conversion
-  // (`review:shared-layout-payload-consumers`) — worth its own change.
+  // counts is deliberately NOT done as part of a list conversion — worth its
+  // own change. See
+  // `hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers`.
   const rows = $derived<OrgRow[]>(
     orgs.map((o) => ({
       id: o.id,
@@ -44,10 +45,11 @@
     })),
   );
 
-  // `review:date-column-sorts-by-instant`: the comparator must see epoch millis.
-  // TanStack picks `alphanumeric` for an ISO string, which compares digit groups
-  // and IGNORES the offset — so it orders by wall clock, not by instant, and
-  // `DateTime` only guarantees the value is Date.parse-able, not UTC.
+  // The comparator must see epoch millis. TanStack picks `alphanumeric` for an
+  // ISO string, which compares digit groups and IGNORES the offset — so it
+  // orders by wall clock, not by instant, and `DateTime` only guarantees the
+  // value is Date.parse-able, not UTC. See
+  // `hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant`.
   function dateMs(iso: string | null): number | null {
     if (!iso) return null;
     const ms = new Date(iso).getTime();
@@ -152,8 +154,8 @@
   {:else}
     <!-- `orgs:mine` is unique: the existing `orgs:*` keys all scope a list
          INSIDE one org (orgs:members, orgs:memories, …). Sharing a key would
-         silently share this list's arrangement with one of those
-         (`review:saved-view-arrangement-not-position`). -->
+         silently share this list's arrangement with one of those. See
+         `hrn:node:hadronmemory.com:hadron-portal:review:saved-view-arrangement-not-position`. -->
     <DataTable
       {table}
       listKey="orgs:mine"
