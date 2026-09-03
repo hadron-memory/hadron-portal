@@ -81,6 +81,37 @@ describe('the budget bounds matching, not worker startup (#800)', () => {
   }, 10000);
 
   /**
+   * @codex P1 on PR #807 — the budget must be ARMED before the pattern runs,
+   * not merely "started later".
+   *
+   * The first version of this fix had the worker post `ready` and immediately
+   * begin matching. But the timer is armed when the PARENT HANDLES `ready`, so
+   * a delayed parent event loop (GC, a synchronous request, CPU contention)
+   * left the attacker's pattern running with no bound — and that delay is
+   * exactly what a ReDoS attack causes, so the defense failed hardest when it
+   * was needed most.
+   *
+   * This test blocks the parent's loop while the worker would otherwise be
+   * matching. `(a+)+$` against 22 `a`s costs ~154ms (calibrated), so it
+   * COMPLETES inside the block. Without the handshake the parent wakes to find
+   * a finished result and RESOLVES — a 154ms match silently accepted under a
+   * 50ms budget. With it, the worker holds the job until the timer exists, so
+   * the budget is enforced and this rejects.
+   */
+  it('does not let the pattern run before the timer is armed, even with a stalled parent loop', async () => {
+    const started = Date.now();
+    const promise = testRegexSafely('(a+)+$', '', 'a'.repeat(22) + 'b', 50);
+    // Stall the parent synchronously — nothing can be handled during this.
+    const until = Date.now() + 400;
+    while (Date.now() < until) { /* busy-wait, deliberately */ }
+
+    await expect(promise).rejects.toBeInstanceOf(RegexTimeoutError);
+    // Bounded by the stall plus the budget — not by the match having been
+    // allowed to finish unmeasured.
+    expect(Date.now() - started).toBeLessThan(3000);
+  }, 15000);
+
+  /**
    * A startup failure is a statement about the SERVER, a match timeout is a
    * statement about the CALLER'S PATTERN. The endpoint renders the latter as
    * "pattern too complex", so returning that type for a busy host is what told

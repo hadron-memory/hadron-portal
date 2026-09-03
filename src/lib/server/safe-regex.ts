@@ -71,24 +71,33 @@ const VALID_FLAGS = /^[dgimsuy]*$/;
 // Compile + test inside an isolated thread. Kept dependency-free and passed as
 // an eval string so the SvelteKit/Vite bundler doesn't need to resolve a
 // separate worker entry point.
-// `ready` is posted BEFORE the pattern is compiled or run, so it marks the
-// boundary between "starting a thread" and "executing attacker input". The
-// parent starts the match clock there.
+// A two-phase handshake: the worker says `ready` and then WAITS. It receives
+// the pattern only after the parent has armed the match timer.
 //
-// It is delivered even when the very next statement blocks the thread forever:
-// postMessage enqueues on the port and the PARENT's event loop drains it, so a
-// catastrophic pattern is still caught by the match timer. Verified rather than
-// assumed — `(a+)+$` against 40 `a`s delivers `ready` at ~16 ms and never
-// delivers a result.
+// The obvious version — post `ready` and immediately match — is wrong, and
+// subtly (@codex P1 on PR #807). The timer is armed when the PARENT HANDLES
+// `ready`, not when the worker sends it, so anything delaying the parent's
+// event loop (GC, a synchronous request, CPU contention) leaves the attacker's
+// pattern running with no bound at all. Measured on that version: blocking the
+// parent for 750 ms let the catastrophic example burn ~856 ms against a 100 ms
+// budget. Under concurrent hostile requests that defeats the whole point of
+// #440, because the delay it depends on is exactly what a ReDoS attack causes.
+//
+// Waiting for the job makes the ordering structural rather than hopeful: the
+// pattern is not even PRESENT in the thread until the timer exists. Note there
+// is no `workerData` any more — passing the input at construction is what made
+// the early start possible.
 const WORKER_SRC = `
-const { parentPort, workerData } = require('worker_threads');
+const { parentPort } = require('worker_threads');
 parentPort.postMessage({ ready: true });
-try {
-  const re = new RegExp(workerData.pattern, workerData.flags);
-  parentPort.postMessage({ ok: true, result: re.test(workerData.input) });
-} catch (e) {
-  parentPort.postMessage({ ok: false, error: String((e && e.message) || e) });
-}
+parentPort.once('message', (job) => {
+  try {
+    const re = new RegExp(job.pattern, job.flags);
+    parentPort.postMessage({ ok: true, result: re.test(job.input) });
+  } catch (e) {
+    parentPort.postMessage({ ok: false, error: String((e && e.message) || e) });
+  }
+});
 `;
 
 /**
@@ -117,10 +126,9 @@ export async function testRegexSafely(
   const safeInput = input.length > MAX_INPUT_LEN ? input.slice(0, MAX_INPUT_LEN) : input;
 
   return await new Promise<boolean>((resolve, reject) => {
-    const worker = new Worker(WORKER_SRC, {
-      eval: true,
-      workerData: { pattern, flags, input: safeInput },
-    });
+    // No `workerData`: the attacker-controlled pattern is handed over only
+    // after the match timer is armed (see WORKER_SRC).
+    const worker = new Worker(WORKER_SRC, { eval: true });
     let settled = false;
     // Two clocks, never both running: the startup one is replaced by the match
     // one the moment `ready` arrives. Holding a single mutable handle keeps
@@ -149,14 +157,18 @@ export async function testRegexSafely(
     // `on`, not `once`: this port delivers `ready` and then the result.
     worker.on('message', (msg: { ready?: boolean; ok?: boolean; result?: boolean; error?: string }) => {
       if (msg.ready) {
-        // The thread is up and about to touch attacker input. THIS is where the
-        // ReDoS budget begins — before it, the clock was measuring how busy the
-        // host is, which is not something the caller's pattern can be blamed for.
+        // The thread is up. THIS is where the ReDoS budget begins — before it,
+        // the clock was measuring how busy the host is, which is not something
+        // the caller's pattern can be blamed for.
         clearTimeout(timer);
         timer = setTimeout(
           () => finish(() => reject(new RegexTimeoutError('regex evaluation timed out'))),
           timeoutMs,
         );
+        // ARM FIRST, THEN HAND OVER THE WORK. The order is the guarantee: the
+        // pattern cannot begin running before the bound that governs it exists,
+        // however long the parent was delayed getting here.
+        worker.postMessage({ pattern, flags, input: safeInput });
         return;
       }
       finish(() =>
