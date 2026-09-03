@@ -1770,7 +1770,7 @@
                 />
                 <!-- #779: the hint is the ONLY place the dialog tells a user what
                      shape to type, so the v1 `org::memory::loc` it used to show
-                     taught a grammar the platform has moved off (cor:urn:010:01)
+                     taught a grammar the platform has moved off (hrn:node:hadronmemory.com:specs:cor:urn:010:01)
                      — and `parseUrnV2` rejects `::`, so a user who copied the
                      example got a refusal from the field that recommended it.
                      The grammar comes from `moveHintGrammar` rather than being

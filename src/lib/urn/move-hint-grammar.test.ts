@@ -137,7 +137,7 @@ describe('moveHintGrammar (PR #803 review)', () => {
    * node URN, so a chain-shaped MEMORY URN pasted into it must not make the
    * hint recommend a `hrn:mem:` prefix — the wrong entity class.
    * `composeNodeUrn` throws on exactly this rather than coercing it, because
-   * "mem vs node is not recoverable from the string" (cor:urn:010:01).
+   * "mem vs node is not recoverable from the string" (hrn:node:hadronmemory.com:specs:cor:urn:010:01).
    */
   describe('only a node URN is echoed back', () => {
     it.each([

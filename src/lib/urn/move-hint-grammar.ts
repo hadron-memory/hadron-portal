@@ -25,7 +25,7 @@
  *   - A v1 OWNERSHIP CHAIN: `composeNodeUrn` emits these unchanged, because a
  *     chain has no string-derivable v2 form — v2's fixed arity would read atom
  *     1 as the memory slug and fold the rest into the loc. See
- *     `compose-node-urn.ts` and cor:urn:010:01.
+ *     `compose-node-urn.ts` and hrn:node:hadronmemory.com:specs:cor:urn:010:01.
  *
  * Getting the second one wrong is the dangerous direction. A v1 example shown
  * to a v2 value produces a REFUSAL (`parseUrnV2` rejects `::`), so the user
@@ -80,7 +80,7 @@ export function isOwnershipChainUrn(urn: string | null | undefined): boolean {
   // (`hrn:mem:acme::billing::system`) must not make the hint recommend a
   // `hrn:mem:` prefix — that is the wrong entity class, and `composeNodeUrn`
   // throws on exactly this rather than coercing it, because "mem vs node is not
-  // recoverable from the string" (cor:urn:010:01). Anything that is not a node
+  // recoverable from the string" (hrn:node:hadronmemory.com:specs:cor:urn:010:01). Anything that is not a node
   // URN falls through to the canonical v2 grammar, which is the right thing to
   // recommend to someone who has typed something else.
   if (!NODE_URN_PREFIX.test(value)) return false;
