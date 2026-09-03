@@ -1,0 +1,53 @@
+# #781 — fail on a NEWLY ADDED bare-loc Hadron citation.
+#
+# CLAUDE.md requires the fully-qualified form; nothing enforced it, so the
+# review bot was the only guard and it caught the same defect on four
+# consecutive PRs. Shaped like `no-station-refs` (its sibling): a small,
+# app-independent gate in its own job, so it reports separately from `ci`.
+#
+# Unlike that one this needs history, hence `fetch-depth: 0` — it compares
+# against a base and only inspects ADDED lines, because ~79 pre-existing
+# citations (tracked by #781) would otherwise make it unlandable.
+name: no-bare-loc-citations
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  no-bare-loc-citations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The base differs by event, and getting it wrong is SILENT (@copilot).
+      # On `push` to main, `base_ref` is empty, so a naive `origin/main` base
+      # resolves to HEAD itself: the diff is empty and the job passes without
+      # examining anything. `event.before` is the commit main was at, which is
+      # what makes the push case actually check the pushed commits.
+      - name: Resolve the base commit
+        id: base
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.base_ref }}" ]; then
+            git fetch --no-tags origin "${{ github.base_ref }}"
+            echo "ref=origin/${{ github.base_ref }}" >> "$GITHUB_OUTPUT"
+          else
+            BEFORE="${{ github.event.before }}"
+            # All-zeros is a new branch or a force push with no prior commit;
+            # fall back to the parent so the job still inspects something
+            # rather than passing on an empty diff.
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              BEFORE="$(git rev-parse HEAD~1)"
+            fi
+            echo "ref=$BEFORE" >> "$GITHUB_OUTPUT"
+          fi
+      # No `|| true` anywhere above: a fetch that fails silently leaves a stale
+      # or missing base, and the diff is then wrong in the passing direction.
+      - name: Bare-loc citations added by this change
+        run: node scripts/check-bare-loc-citations.mjs "${{ steps.base.outputs.ref }}"
