@@ -177,12 +177,29 @@ export async function testRegexSafely(
           : reject(new RegexInvalidError(msg.error ?? 'invalid regex')),
       );
     });
-    worker.once('error', (err) => finish(() => reject(err)));
+    // Both of these mean the thread failed, not that the pattern is dangerous,
+    // so they carry `RegexUnavailableError` (@copilot). Rejecting with the raw
+    // error left a caller unable to tell a host problem from a ReDoS verdict —
+    // which is the distinction this type was added for, so leaving these two
+    // outside it would have made it half a fix.
+    worker.once('error', (err) =>
+      finish(() =>
+        reject(
+          new RegexUnavailableError(
+            `regex worker failed to run: ${err instanceof Error ? err.message : String(err)}`,
+          ),
+        ),
+      ),
+    );
     // A worker crash (OOM, native fault) emits `exit` with a non-zero code and
     // no message/error — reject immediately instead of hanging until timeout.
     // Our own terminate() also fires this, but `settled` is already true by then.
     worker.once('exit', (code) => {
-      if (code !== 0) finish(() => reject(new Error(`regex worker exited with code ${code}`)));
+      if (code !== 0) {
+        finish(() =>
+          reject(new RegexUnavailableError(`regex worker exited with code ${code}`)),
+        );
+      }
     });
   });
 }
