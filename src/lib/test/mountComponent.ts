@@ -50,8 +50,17 @@ export function mountComponent<Props extends Record<string, unknown>>(
   const target = document.createElement('div');
   document.body.appendChild(target);
 
-  const instance = mount(component, { target, props }) as Record<string, unknown>;
-  flushSync();
+  // If the component throws during init, the target must not be left attached
+  // (@copilot). A leaked node bleeds into the next test and makes the FOLLOW-ON
+  // failure the confusing one — the original throw is at least legible.
+  let instance: Record<string, unknown>;
+  try {
+    instance = mount(component, { target, props }) as Record<string, unknown>;
+    flushSync();
+  } catch (e) {
+    target.remove();
+    throw e;
+  }
 
   let done = false;
   return {

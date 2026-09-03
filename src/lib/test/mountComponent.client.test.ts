@@ -3,6 +3,7 @@ import { captureUnhandledRejections, mountComponent, tick } from './mountCompone
 import AwaitsThenTouchesDom from './fixtures/AwaitsThenTouchesDom.svelte';
 import LeaksOnDestroy from './fixtures/LeaksOnDestroy.svelte';
 import NavigatesAfterAwait from './fixtures/NavigatesAfterAwait.svelte';
+import ThrowsOnInit from './fixtures/ThrowsOnInit.svelte';
 
 /**
  * #795 — the client mount harness, and proof that it reaches what the SSR
@@ -140,5 +141,23 @@ describe('#795 AC3 — mutating the URL after unmount() (#789 exactly)', () => {
     await tick(); // still mounted — the navigation SHOULD happen
     expect(navigations).toEqual(['/app/agents?chat=late']);
     m.unmount();
+  });
+});
+
+describe('the harness cleans up after itself', () => {
+  /**
+   * @copilot: a target left attached after a failed mount bleeds into the next
+   * test, so the FOLLOW-ON failure becomes the confusing one while the original
+   * throw is at least legible.
+   *
+   * The fixture throws during init rather than in `onMount`, and that choice is
+   * the point: an async `onMount` REJECTS rather than throws, so it would never
+   * reach this code path — the same asymmetry `captureUnhandledRejections`
+   * exists for.
+   */
+  it('removes the target when the component throws during init', () => {
+    const before = document.body.children.length;
+    expect(() => mountComponent(ThrowsOnInit, {})).toThrow(/boom during init/);
+    expect(document.body.children.length).toBe(before);
   });
 });
