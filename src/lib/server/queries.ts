@@ -1263,8 +1263,8 @@ export const DELETE_APP_MUTATION = /* GraphQL */ `
 // result (the form action returns a success message and the page reloads), and
 // the deprecated pair returned `...AppFields` — a whole App fragment fetched,
 // serialized and thrown away on every link/unlink. Fetching one id instead is
-// the `graphql-fetch-rendered-subfields` rule applied to a rendered set of
-// nothing.
+// the rendered-subfields rule applied to a rendered set of nothing — see
+// `hrn:node:hadronmemory.com:hadron-portal:review:graphql-fetch-rendered-subfields`.
 export const INSTALL_AGENT_INTO_APP_MUTATION = /* GraphQL */ `
   mutation InstallAgentIntoApp($appRef: ID!, $agentRef: ID!, $trainingMode: Boolean) {
     installAgentIntoApp(appRef: $appRef, agentRef: $agentRef, trainingMode: $trainingMode) {
