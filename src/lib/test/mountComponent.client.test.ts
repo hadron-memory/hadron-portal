@@ -15,7 +15,7 @@ import NavigatesAfterAwait from './fixtures/NavigatesAfterAwait.svelte';
  * Each block below pins **both directions**: the defect fixture fails, and the
  * guarded fixture passes. A one-directional test would pass on a harness that
  * silently never ran the lifecycle at all — which is precisely the failure this
- * is meant to rule out, and precisely what `review:a-spare-test-must-reach-the-matcher`
+ * is meant to rule out, and precisely what `hrn:node:hadronmemory.com:hadron-portal:review:a-spare-test-must-reach-the-matcher`
  * warns about.
  */
 describe('the harness actually reaches the lifecycle', () => {
