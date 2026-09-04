@@ -154,7 +154,7 @@ describe('memory assets loader', () => {
   });
 
   it('flags a failed query instead of returning a silently empty list', async () => {
-    // review:no-silent-loader-catch — an empty `assets` alone reads as "this
+    // hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch — an empty `assets` alone reads as "this
     // memory has no files", which has masked real server errors in this repo.
     mockRequest.mockRejectedValue(new Error('boom'));
     const { load } = await importMod();

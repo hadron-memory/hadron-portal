@@ -408,6 +408,7 @@ describe('/app/u/[urn] — an unresolved URN explains itself by input shape', ()
     expect(msg).not.toContain('the spelling is not the problem');
   });
 
+  // bare-loc-ok — a loc shape being described, not a citation.
   // @codex on #764. A legacy loc routinely contains ':' (`findings:foo`) while
   // only the HIERARCHY uses '::'. Scanning the whole body for a lone colon
   // flagged a perfectly valid legacy URN as "mixed" and sent the reader off to

@@ -54,7 +54,7 @@
   // SvelteKit REUSES this component instance across /app/workers/[id]
   // navigations — the param changes, the component does not remount — so the
   // one-time initializer above never re-runs. Same trap as the node detail page
-  // (#251), and the reason `conventions:query-param-deeplink-open-form` exists.
+  // (#251), and the reason `hrn:node:hadronmemory.com:hadron-portal:conventions:query-param-deeplink-open-form` exists.
   // Reapply the requested tab on EVERY navigation, tracking the navigation
   // itself rather than the value it carried (@codex on #767).
   //
@@ -152,7 +152,7 @@
       <WorkerBadge {retired} />
     </div>
 
-    <!-- The URN below the name, per review:render-urn. Nullable by contract
+    <!-- The URN below the name, per hrn:node:hadronmemory.com:hadron-portal:review:render-urn. Nullable by contract
          (#991) — an App whose URN predates the flat grammar has no worker URN,
          which is a fact about the App, not an error, so the chip is simply
          absent rather than rendering an empty or invented value.
@@ -239,7 +239,7 @@
               href="/app/apps/{worker.app.id}"
               class="text-indigo-600 hover:underline dark:text-indigo-300">{worker.app.name}</a
             >
-            <!-- #758 / review:render-urn — a referenced object shows its URN, not
+            <!-- #758 / hrn:node:hadronmemory.com:hadron-portal:review:render-urn — a referenced object shows its URN, not
                  just its name. The name is for reading; the URN is what a reader
                  copies into a CLI, an MCP call or a message to a teammate, and a
                  name alone is not addressable. -->
@@ -263,7 +263,7 @@
               href="/app/agents/{worker.agent.id}"
               class="text-indigo-600 hover:underline dark:text-indigo-300">{worker.agent.name}</a
             >
-            <!-- #758 / review:render-urn. `Agent.urn` is nullable, so the chip is
+            <!-- #758 / hrn:node:hadronmemory.com:hadron-portal:review:render-urn. `Agent.urn` is nullable, so the chip is
                  absent rather than empty when the agent has none — the same rule
                  the worker's own URN above follows. -->
             {#if worker.agent.urn}

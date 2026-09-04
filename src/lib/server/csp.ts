@@ -7,7 +7,7 @@
  * error at build, boot, or request time — just a blocked upload in the
  * browser), and a Doppler-only change could never be picked up by a plain
  * rebuild because Docker's cache keys the build layer on context + command,
- * not on remotely-fetched values (`dev:findings:doppler-change-needs-no-cache-rebuild`).
+ * not on remotely-fetched values (`hrn:node:hadronmemory.com:dev:findings:doppler-change-needs-no-cache-rebuild`).
  *
  * So the origin is now read at runtime (hooks.server.ts) and appended to the
  * connect-src directive SvelteKit already emitted — changing it is a restart,

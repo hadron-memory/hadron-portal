@@ -188,7 +188,7 @@
       // clears a `bind:this` on teardown, and everything from the `fetch` down
       // is inside the teardown window. The `$state` writes above are benign on a
       // dead component; this line touches the DOM, which is not
-      // (`review:async-onmount-runs-after-teardown`). Do not "simplify" it away.
+      // (`hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown`). Do not "simplify" it away.
       if (messagesEl) messagesEl.scrollTop = scrollTopAfterPrepend(before, messagesEl.scrollHeight);
     } catch (e) {
       console.warn('[agent-chat] loading older messages failed; will retry on the next scroll:', e);

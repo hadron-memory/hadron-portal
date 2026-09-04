@@ -72,7 +72,7 @@
    */
   $effect(() => {
     // Read both deps unconditionally — a short-circuit would drop `memoryId`
-    // from the dependency set (review:effect-reads-all-reactive-deps).
+    // from the dependency set (hrn:node:hadronmemory.com:hadron-portal:review:effect-reads-all-reactive-deps).
     const isOpen = open;
     const id = memoryId;
     if (!isOpen || loadedFor === id) return;

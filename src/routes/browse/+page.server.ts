@@ -19,7 +19,7 @@ export const load: PageServerLoad = async () => {
     // hands the component a shape indistinguishable from an empty catalogue.
     //
     // "No public memories yet" during an outage is the lie
-    // review:no-silent-loader-catch exists to prevent: a system error rendered
+    // hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch exists to prevent: a system error rendered
     // as a fact about the world. `loadFailed` is what lets the empty state mean
     // only what it says.
     console.error('[browse] public memories query failed; reporting it to the page', e);

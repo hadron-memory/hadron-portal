@@ -63,7 +63,7 @@
   }
 
   $effect(() => {
-    // Read every dep unconditionally (review:effect-reads-all-reactive-deps).
+    // Read every dep unconditionally (hrn:node:hadronmemory.com:hadron-portal:review:effect-reads-all-reactive-deps).
     const { id, publicUrl } = asset;
     const previewable = canPreview;
     src = null;

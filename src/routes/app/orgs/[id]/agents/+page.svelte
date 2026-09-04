@@ -219,7 +219,7 @@
   // guarantees a `Date.parse`-able value — NOT byte-for-byte ISO UTC — so a
   // pass-through value carrying a non-UTC offset makes lexicographic string order
   // differ from chronological order. The cell renders from the row via `fmtDate`.
-  // See hadron-server conventions:datetime-scalar-for-date-fields.
+  // See hadron-server hrn:node:hadronmemory.com:hadron-server:conventions:datetime-scalar-for-date-fields.
   function dateMs(s: string | null): number | null {
     if (!s) return null;
     const ms = new Date(s).getTime();

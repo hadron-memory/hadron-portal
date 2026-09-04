@@ -185,7 +185,7 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
  * SESSION_NOT_IN_APP, SESSION_ENDED, SESSION_NOT_WORKER_BOUND and
  * WORKER_RETIRED are unreachable from here. Mapping them would be inventing
  * copy for states this surface cannot produce, and would go stale invisibly
- * (review:clienterror-map-known-codes-only).
+ * (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
  */
 const TEAM_CHAT_POST_ERRORS: Record<string, () => string> = {
   FORBIDDEN: () => t(
@@ -223,7 +223,7 @@ const TEAM_CHAT_POST_ERRORS: Record<string, () => string> = {
  * Returns null for a transport-level failure (no GraphQL errors payload) and
  * for any code that isn't a string, so callers fall through to the server's own
  * message rather than mislabelling an outage as a user mistake
- * (review:clienterror-map-known-codes-only).
+ * (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
  */
 function gqlErrorCode(e: unknown): string | null {
   const errors = (e as { response?: { errors?: Array<{ extensions?: { code?: unknown } }> } })
@@ -385,7 +385,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // WORKER_NAME_TAKEN into a mystery. Coerced to null (never []) on failure:
     // "couldn't load the staff" and "this App has no staff yet" are different
     // statements and the empty state must not tell the second lie
-    // (review:no-silent-loader-catch).
+    // (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
     fetchAllItems<Worker>(client, WORKERS_QUERY, 'workers', {
       appRef: params.appId,
       includeRetired: true,
@@ -405,7 +405,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     //
     // Coerced to null (never an empty page) on failure, for the same reason as
     // the staff fetch above: "couldn't load the team chat" and "the team chat
-    // is empty" are different statements (review:no-silent-loader-catch).
+    // is empty" are different statements (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
     loadTeamChatTail(client, params.appId).catch((e) => {
       console.warn(`[team-chat] transcript fetch failed for ${params.appId}:`, e);
       return null;
@@ -755,7 +755,7 @@ export const actions: Actions = {
       // Known refusals get copy that says what to do next; anything else —
       // including a transport failure with no GraphQL payload — falls through
       // to the server's own message rather than being relabelled as a user
-      // mistake (review:clienterror-map-known-codes-only).
+      // mistake (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
       const known = CAST_WORKER_ERRORS[gqlErrorCode(e) ?? ''];
       return message(
         form,

@@ -151,7 +151,8 @@
   <!-- Multi-select status filter. Buttons, not links: this is a COLUMN filter,
        so the selection rides in `columnFilters` and a saved view captures it
        ("Unfinished" = PENDING + RUNNING). Toggles expose state via aria-pressed
-       in a labelled group (review:segmented-control-aria-pressed). -->
+       in a labelled group
+       (hrn:node:hadronmemory.com:hadron-portal:review:segmented-control-aria-pressed). -->
   <div
     role="group"
     aria-label={t('org-runs.filter.aria-label', 'Filter runs by status')}

@@ -6,7 +6,7 @@ import { EDGE_HOST_NODE_QUERY } from './queries';
 // outgoing edges (no Edge.source field resolver), so selecting `source { … }`
 // here resolves to null against the non-null `Edge.source: Node!` schema field
 // and errors the WHOLE query → loader throws → 500 on every edge detail page.
-// See findings:edge-query-nonnull-endpoint-500. The host node IS the source,
+// See hrn:node:hadronmemory.com:hadron-portal:findings:edge-query-nonnull-endpoint-500. The host node IS the source,
 // so the page renders it from `host` and never needs `edge.source`.
 describe('EDGE_HOST_NODE_QUERY', () => {
   // Extract exactly the `outgoingEdges { … }` selection set via brace

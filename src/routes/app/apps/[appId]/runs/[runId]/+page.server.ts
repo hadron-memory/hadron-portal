@@ -41,7 +41,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // older server the SELECTION itself is invalid and the whole query errors —
   // so it rides a separate query and degrades to "unavailable" instead of
   // breaking the page. This catch only guards the auxiliary envelope; the
-  // run itself loaded above (no false-404 risk — review:no-silent-loader-catch).
+  // run itself loaded above (no false-404 risk — hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
   let envelope: Record<string, unknown> | null = null;
   let envelopeSupported = true;
   try {

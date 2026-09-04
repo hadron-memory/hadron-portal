@@ -21,7 +21,13 @@
  * cleanup is the slow half. Checking only what a change ADDS stops the 80th
  * today and lets the backlog drain at its own pace.
  *
- * ## Exemptions, and why there is only one
+ * ## What it does NOT flag, and why each is enumerated
+ *
+ * Two kinds: `EXEMPT_FILES` (paths) and `isCitationContext` (prose only; not a
+ * single-quoted sample value), plus an inline `bare-loc-ok` marker.
+ * Both were measured rather than guessed: of 244 raw matches in this repo, 124
+ * are fixture data in URN/wikilink parser tests and form documentation. Without
+ * the context rules the gate would block every future edit to those parsers.
  *
  * An exemption is machinery that decides not to look, so every one of them is a
  * place a real citation can hide
@@ -60,7 +66,15 @@ export const BRANCH_WORDS = ['review', 'findings', 'conventions', 'tasks', 'ops'
 export const EXEMPT_FILES = new Set([
   'scripts/check-bare-loc-citations.mjs',
   'scripts/check-bare-loc-citations.test.ts',
+  // USER-FACING documentation whose subject IS loc/URN syntax. Exempted by path
+  // rather than annotated inline, because a `bare-loc-ok` marker would leak a
+  // CI concern into prose a reader is shown — the marker is for source
+  // comments, and this file is shipped content.
+  'src/lib/assets/hadron-instructions.md',
 ]);
+
+/** Inline opt-out for prose that demonstrates loc syntax instead of citing. */
+export const BARE_LOC_OK = 'bare-loc-ok';
 
 const CITATION = new RegExp(`\\b(?:${BRANCH_WORDS.join('|')}):[a-z][a-z0-9-]*`, 'g');
 // The contiguous URN-ish token a match sits inside.
@@ -82,17 +96,164 @@ function isQualified(line, index) {
 }
 
 /**
+ * Is this match a CITATION, or is it data that merely looks like one?
+ *
+ * Added after the #781 cleanup measured the repo: of 244 matches, **124 were
+ * not citations at all** — fixture locs in the URN/wikilink parser tests
+ * (`loc: 'findings:x'`), sample values in docs that teach URN forms, and
+ * partially-qualified examples. Flagging those would have blocked every future
+ * edit to those parsers, and "rewriting" them corrupted the files twice during
+ * the cleanup before this classifier existed.
+ *
+ * Two rules, each enumerated so the exemption cannot widen silently:
+ *
+ * 1. **Prose only.** A citation lives in a comment or a markdown file. A loc in
+ *    executable code is a value under test. This is what #781's title says —
+ *    *source COMMENTS cite Hadron nodes by bare loc*.
+ * 2. **Not a single-quoted value.** Files documenting URN forms list them as
+ *    `- bare loc: 'review:x'`. Qualifying one makes the label lie about its own
+ *    example. Real citations here use backticks or bare parens.
+ *
+ * A memory-prefixed shorthand (`hadron-server:findings:x`, `dev:review:y`) is
+ * deliberately NOT exempt (@codex). It is a SHORTENED citation and still lacks
+ * the `hrn:node:` prefix, so it must be reported. That it cannot be rewritten
+ * in place — the matched suffix alone yields `hadron-server:hrn:node:…` — is a
+ * fact about the FIXER, and letting it leak into the DETECTOR meant three of
+ * them would have gone unreported. This PR fixed those three by hand.
+ *
+ * The classifier is shared with the cleanup on purpose: CI flags exactly what a
+ * cleanup would fix, so the two cannot disagree about what counts.
+ */
+export function isCitationContext(file, line, column, prevLine = '', forceProse = false) {
+  // An explicit, visible opt-out for prose that DEMONSTRATES loc syntax rather
+  // than citing a node — `hadron-instructions.md` teaching URN forms, or a
+  // parser comment naming `findings:x` as a shape. Marked at the site rather
+  // than exempted by path, so the exemption is readable where it applies and
+  // cannot silently cover a real citation added to the same file later.
+  if (line.includes(BARE_LOC_OK) || prevLine.includes(BARE_LOC_OK)) return false;
+  const before = line.slice(0, column - 1);
+  const isMarkdown = /\.(md|mdx)$/.test(file);
+  // A CONTINUATION line of a multiline comment carries no opening delimiter
+  // (@codex): `.svelte` files routinely write `<!-- …` then the citation on the
+  // next line. A closing `-->` or `*/` anywhere on the line marks it as inside
+  // one.
+  //
+  // That is still only line-local. The CLI does not rely on it: it calls
+  // `scanAddedWithContext`, which tracks block state across the whole file and
+  // passes `forceProse`, so a middle line with neither delimiter is classified
+  // correctly. This heuristic remains for the pure-string `scanDiff` path.
+  const inComment =
+    /(^|\s)(\/\/|\*|#)/.test(before) ||
+    before.includes('/*') ||
+    before.includes('<!--') ||
+    line.includes('-->') ||
+    line.includes('*/');
+  if (!isMarkdown && !inComment && !forceProse) return false;        // 1
+  const openQuote = line.lastIndexOf("'", column - 1);               // 2
+  if (
+    openQuote !== -1 &&
+    line.indexOf("'", column - 1) !== -1 &&
+    !line.slice(openQuote + 1, column - 1).includes(' ')
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * Bare citations in one line of source.
+ * @param {string} line
+ * @param {string} [file] — when given, non-citation contexts are filtered out.
  * @returns {{ text: string, column: number }[]}
  */
-export function findBareCitations(line) {
+export function findBareCitations(line, file = '', prevLine = '', forceProse = false) {
   const out = [];
   for (const m of line.matchAll(CITATION)) {
     if (m.index === undefined) continue;
     if (isQualified(line, m.index)) continue;
+    if (file && !isCitationContext(file, line, m.index + 1, prevLine, forceProse)) continue;
     out.push({ text: m[0], column: m.index + 1 });
   }
   return out;
+}
+
+/**
+ * Which lines a unified diff ADDS, per file.
+ * @returns {Map<string, Set<number>>}
+ */
+export function addedLinesByFile(diff) {
+  const out = new Map();
+  let file = null;
+  let lineNumber = 0;
+  for (const raw of diff.split('\n')) {
+    if (raw.startsWith('+++ ')) {
+      file = raw.replace(/^\+\+\+ (b\/)?/, '');
+      continue;
+    }
+    const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (hunk) { lineNumber = Number(hunk[1]); continue; }
+    if (raw.startsWith('---') || !raw.startsWith('+')) continue;
+    if (file) {
+      if (!out.has(file)) out.set(file, new Set());
+      out.get(file).add(lineNumber);
+    }
+    lineNumber += 1;
+  }
+  return out;
+}
+
+/**
+ * Scan whole FILES for context, but report only the lines the diff added.
+ *
+ * The diff-only scanner cannot see block-comment state (@codex): with
+ * `--unified=0` there are no context lines, so the middle line of a three-line
+ * `<!-- … -->` has neither an opener nor a closer and reads as code. Reading
+ * the file closes that properly instead of widening a heuristic — the citation
+ * is classified with full context, and "added lines only" is preserved by
+ * filtering afterwards rather than by looking at less.
+ *
+ * @param {string} diff
+ * @param {(file: string) => string | null} readFile
+ */
+export function scanAddedWithContext(diff, readFile) {
+  const findings = [];
+  for (const [file, added] of addedLinesByFile(diff)) {
+    if (EXEMPT_FILES.has(file)) continue;
+    const text = readFile(file);
+    if (text == null) continue;                       // deleted or binary
+    const lines = text.split('\n');
+    let inBlock = false;
+    lines.forEach((line, i) => {
+      const lineNo = i + 1;
+      const startedInBlock = inBlock;
+      // Track block state across the WHOLE file, so a continuation line is
+      // known to be prose even with no delimiter of its own.
+      let scan = line;
+      for (;;) {
+        if (!inBlock) {
+          const open = Math.min(
+            ...['/*', '<!--'].map((d) => { const j = scan.indexOf(d); return j === -1 ? Infinity : j; }),
+          );
+          if (open === Infinity) break;
+          inBlock = true;
+          scan = scan.slice(open + 2);
+        } else {
+          const close = Math.min(
+            ...['*/', '-->'].map((d) => { const j = scan.indexOf(d); return j === -1 ? Infinity : j; }),
+          );
+          if (close === Infinity) break;
+          inBlock = false;
+          scan = scan.slice(close + 2);
+        }
+      }
+      if (!added.has(lineNo)) return;
+      const prose = startedInBlock || inBlock;
+      for (const c of findBareCitations(line, file, lines[i - 1] ?? '', prose)) {
+        findings.push({ file, lineNumber: lineNo, column: c.column, line: line.trim(), citation: c.text });
+      }
+    });
+  }
+  return findings;
 }
 
 /**
@@ -113,20 +274,28 @@ export function scanDiff(diff) {
   const findings = [];
   let file = '(unknown)';
   let lineNumber = 0;
+  // The previous ADDED line, so a marker can sit above a wrapped example.
+  let prevAdded = '';
   for (const raw of diff.split('\n')) {
     if (raw.startsWith('+++ ')) {
       file = raw.replace(/^\+\+\+ (b\/)?/, '');
+      prevAdded = '';
       continue;
     }
     const hunk = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
     if (hunk) {
       lineNumber = Number(hunk[1]);
+      // Adjacency is broken here, so the previous added line is no longer the
+      // line ABOVE this one (@codex, @copilot). Without this reset a
+      // `bare-loc-ok` at the end of one hunk silently suppressed the first
+      // finding of the next — a marker leaking into unrelated code.
+      prevAdded = '';
       continue;
     }
     if (raw.startsWith('---') || !raw.startsWith('+')) continue;
     const content = raw.slice(1);
     if (!EXEMPT_FILES.has(file)) {
-      for (const c of findBareCitations(content)) {
+      for (const c of findBareCitations(content, file, prevAdded)) {
         findings.push({
           file,
           lineNumber,
@@ -137,6 +306,7 @@ export function scanDiff(diff) {
       }
     }
     lineNumber += 1;
+    prevAdded = content;
   }
   return findings;
 }
@@ -154,7 +324,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
   });
-  const findings = scanDiff(diff);
+  const { readFileSync } = await import('node:fs');
+  const findings = scanAddedWithContext(diff, (f) => {
+    try {
+      const t = readFileSync(f, 'utf8');
+      return t.includes('\0') ? null : t;
+    } catch {
+      return null;
+    }
+  });
   if (findings.length > 0) {
     // One annotation per finding so GitHub links each to its exact line;
     // `file=`/`line=`/`col=` is what turns a log entry into a jump target.

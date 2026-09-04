@@ -2,7 +2,7 @@
  * Where an attached file's reference node lands under its parent.
  *
  * Extracted from AttachAssetDialog so it is testable — `.svelte` components
- * aren't, in this repo (conventions:svelte-component-test-gap), and getting this
+ * aren't, in this repo (hrn:node:hadronmemory.com:hadron-portal:conventions:svelte-component-test-gap), and getting this
  * wrong is silent until a user hits a collision.
  */
 

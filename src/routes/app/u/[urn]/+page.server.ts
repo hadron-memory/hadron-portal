@@ -62,7 +62,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // the app hooks issue; not-found/no-access codes → the existence-hiding 404.
   // Everything else — internal server errors, unknown codes, payload-less
   // transport failures, non-GraphQL exceptions — rethrows so a genuine outage
-  // stays a distinguishable 500 (see review:no-silent-loader-catch).
+  // stays a distinguishable 500 (see hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
   let resolveUrn: UrnResolution | null;
   try {
     ({ resolveUrn } = await gqlClient(locals.token).request<{
@@ -211,6 +211,7 @@ function shapeHint(urn: string): string | null {
   // diff — the compiler checks the message, never the sentence above it.
   //
   // The test is the HIERARCHY separator, not "is there a colon anywhere"
+  // bare-loc-ok — a loc shape being described, not a citation.
   // (@codex on #764). A legacy loc routinely contains `:` — `findings:foo` —
   // while only the hierarchy uses `::`, so scanning the whole body flags
   // `hrn:node:acme.com::dev::findings:foo`, a perfectly valid legacy URN, and
@@ -218,6 +219,7 @@ function shapeHint(urn: string): string | null {
   // the bare message it replaces.
   //
   // So: if `::` appears at all, everything BEFORE the first `::` is hierarchy
+  // bare-loc-ok — a loc shape being described, not a citation.
   // and must not itself contain a `:`. `acme.com::dev::findings:foo` → "acme.com",
   // clean. `acme.com:dev::findings` → "acme.com:dev", v2-joined and then v1 —
   // genuinely mixed. Ownership chains pass, since their first atom is the root.

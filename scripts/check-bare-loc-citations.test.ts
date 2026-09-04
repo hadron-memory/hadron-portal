@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { EXEMPT_FILES, findBareCitations, scanDiff } from './check-bare-loc-citations.mjs';
+import { EXEMPT_FILES, findBareCitations, isCitationContext, scanAddedWithContext, scanDiff } from './check-bare-loc-citations.mjs';
 
 /**
  * #781 — the gate's own test.
@@ -106,10 +106,19 @@ describe('scanDiff — added lines only', () => {
 });
 
 describe('the exemption, stated and bounded', () => {
-  it('exempts exactly two files — this check and its own test', () => {
+  /**
+   * Pinning the exact set is the point: it failed when the #781 cleanup added
+   * the third entry, which is the test doing its job. Widening this list should
+   * always be a deliberate edit with a reason, never a silent drift.
+   */
+  it('exempts exactly three files, each for a stated reason', () => {
     expect([...EXEMPT_FILES].sort()).toEqual([
+      // Contain examples of the thing being detected.
       'scripts/check-bare-loc-citations.mjs',
       'scripts/check-bare-loc-citations.test.ts',
+      // User-facing docs whose subject IS loc/URN syntax — a `bare-loc-ok`
+      // marker would leak a CI concern into prose a reader is shown.
+      'src/lib/assets/hadron-instructions.md',
     ]);
   });
 
@@ -175,5 +184,159 @@ describe('findings carry a location (@copilot on #809)', () => {
       '+See review:render-urn for the rule.',
     ].join('\n');
     expect(scanDiff(diff).map((f) => f.file)).toEqual(['docs/how-to.md']);
+  });
+});
+
+/**
+ * The context classifier, added after the #781 cleanup measured the repo:
+ * 124 of 244 raw matches were not citations. Two of them corrupted files when
+ * a rewriter treated them as such, which is why each rule is pinned.
+ */
+describe('isCitationContext (#781)', () => {
+  it('flags a citation in a comment', () => {
+    expect(isCitationContext('src/a.ts', '// see review:render-urn', 11)).toBe(true);
+  });
+
+  it('flags one in markdown prose', () => {
+    expect(isCitationContext('docs/a.md', 'See review:render-urn.', 5)).toBe(true);
+  });
+
+  /** Rule 1 — a loc in executable code is a value under test, not a citation. */
+  it('ignores a fixture loc in code', () => {
+    expect(isCitationContext('src/x.test.ts', "      loc: 'findings:x',", 13)).toBe(false);
+    expect(isCitationContext('src/x.ts', "const r = 'review:render-urn';", 12)).toBe(false);
+  });
+
+  /**
+   * @codex on #811: a memory-prefixed shorthand IS a bare citation and must be
+   * REPORTED. An earlier draft exempted it because a rewriter cannot fix it in
+   * place (the matched suffix alone yields `hadron-server:hrn:node:…`) — but
+   * that is a fact about the fixer, and letting it reach the detector meant
+   * three real citations in this repo went unreported.
+   */
+  it('FLAGS a memory-prefixed shorthand, even though a rewriter cannot fix it in place', () => {
+    const line = '// See hadron-server:findings:asset-urn-shapes-are-variable.';
+    expect(isCitationContext('src/a.ts', line, line.indexOf('findings:') + 1)).toBe(true);
+  });
+
+  /**
+   * @codex on #811: `.svelte` files write `<!-- …` and continue on the next
+   * line, so a continuation carries no opening delimiter. A closing `-->` marks
+   * it as inside a comment.
+   */
+  it('flags a citation on a multiline-comment continuation line', () => {
+    const line = '     per review:render-urn the URN renders alongside -->';
+    expect(isCitationContext('src/A.svelte', line, line.indexOf('review:') + 1)).toBe(true);
+  });
+
+  /**
+   * Rule 3 — a doc listing URN FORMS writes them as `- bare loc: 'review:x'`.
+   * Qualifying one makes the label contradict its own example; this corrupted
+   * `clean-loc-input.ts` before the rule existed.
+   */
+  it("ignores a single-quoted sample value in a form-documentation comment", () => {
+    const line = " *   - bare loc:  'review:render-urn'";
+    expect(isCitationContext('src/lib/urn/clean-loc-input.ts', line, line.indexOf('review:') + 1)).toBe(false);
+  });
+
+  it('still flags a backticked citation, which is how this repo writes them', () => {
+    const line = '// per `review:render-urn` the URN renders alongside';
+    expect(isCitationContext('src/a.ts', line, line.indexOf('review:') + 1)).toBe(true);
+  });
+});
+
+describe('scanDiff applies the classifier', () => {
+  it('ignores an added FIXTURE line but flags an added COMMENT', () => {
+    const diff = [
+      '+++ b/src/lib/urn/thing.test.ts',
+      '@@ -0,0 +1,2 @@',
+      "+    expect(parse('findings:x')).toBe(true);",
+      '+    // per review:render-urn this is fine',
+    ].join('\n');
+    expect(scanDiff(diff).map((f) => f.citation)).toEqual(['review:render-urn']);
+  });
+});
+
+/**
+ * @codex and @copilot, independently, on #811: `prevAdded` let a `bare-loc-ok`
+ * marker leak past the end of its hunk or file and suppress an unrelated
+ * finding. A marker that silences code it was never written for is the worst
+ * kind of exemption — invisible at both ends.
+ */
+describe('the bare-loc-ok marker does not leak across boundaries', () => {
+  it('suppresses the line directly below it', () => {
+    const diff = [
+      '+++ b/src/a.ts',
+      '@@ -0,0 +1,2 @@',
+      '+// bare-loc-ok — a shape, not a citation.',
+      '+//   review:some-shape',
+    ].join('\n');
+    expect(scanDiff(diff)).toEqual([]);
+  });
+
+  it('does NOT carry into the next hunk', () => {
+    const diff = [
+      '+++ b/src/a.ts',
+      '@@ -0,0 +1,1 @@',
+      '+// bare-loc-ok — a shape, not a citation.',
+      '@@ -0,0 +90,1 @@',
+      '+// per review:some-real-check',
+    ].join('\n');
+    expect(scanDiff(diff).map((f) => f.citation)).toEqual(['review:some-real-check']);
+  });
+
+  it('does NOT carry into the next file', () => {
+    const diff = [
+      '+++ b/src/a.ts',
+      '@@ -0,0 +1,1 @@',
+      '+// bare-loc-ok — a shape, not a citation.',
+      '+++ b/src/b.ts',
+      '@@ -0,0 +1,1 @@',
+      '+// per review:some-real-check',
+    ].join('\n');
+    expect(scanDiff(diff).map((f) => f.file)).toEqual(['src/b.ts']);
+  });
+});
+
+/**
+ * @codex on #811, second round: the diff-only scanner cannot see block-comment
+ * state, so the MIDDLE line of a three-line `<!-- … -->` reads as code. Reading
+ * the file closes it properly rather than widening a line-local heuristic —
+ * "added lines only" is preserved by FILTERING afterwards, not by looking at
+ * less.
+ */
+describe('scanAddedWithContext (#811 review 2)', () => {
+  const diff = ['+++ b/src/A.svelte', '@@ -0,0 +3,1 @@', '+     per review:render-urn it renders'].join('\n');
+  const file = [
+    '<div>',
+    '  <!--',
+    '     Some explanation that wraps.',
+    '     per review:render-urn it renders',
+    '  -->',
+  ].join('\n');
+
+  it('flags a citation on the MIDDLE line of a block comment, which the diff alone cannot see', () => {
+    // The added line has no opener and no closer of its own.
+    const middle = '     per review:render-urn it renders';
+    expect(findBareCitations(middle, 'src/A.svelte')).toEqual([]);           // line-local: invisible
+    const found = scanAddedWithContext(diff.replace('+3,1', '+4,1'), () => file);
+    expect(found.map((f) => f.citation)).toEqual(['review:render-urn']);     // with context: caught
+  });
+
+  it('still ignores a citation-shaped value in CODE, with full context available', () => {
+    const codeFile = ["const x = 'findings:x';", "const y = 2;"].join('\n');
+    const d = ['+++ b/src/b.ts', '@@ -0,0 +1,1 @@', "+const x = 'findings:x';"].join('\n');
+    expect(scanAddedWithContext(d, () => codeFile)).toEqual([]);
+  });
+
+  it('reports only ADDED lines, not every citation in the file', () => {
+    const f2 = ['// per review:one', '// per review:two'].join('\n');
+    const d = ['+++ b/src/c.ts', '@@ -0,0 +2,1 @@', '+// per review:two'].join('\n');
+    expect(scanAddedWithContext(d, () => f2).map((x) => x.citation)).toEqual(['review:two']);
+  });
+
+  it('skips a file it cannot read (deleted or binary)', () => {
+    const d = ['+++ b/src/gone.ts', '@@ -0,0 +1,1 @@', '+// per review:x'].join('\n');
+    expect(scanAddedWithContext(d, () => null)).toEqual([]);
   });
 });

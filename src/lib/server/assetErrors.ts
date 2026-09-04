@@ -3,7 +3,7 @@
 // These endpoints answer JSON (`{ code, message }`) rather than throwing
 // SvelteKit `error()`, because their callers are the client helpers in
 // $lib/api/assetUpload.ts, which surface `code` to the UI. The rule from
-// review:clienterror-map-known-codes-only still applies, restated for a JSON
+// hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only still applies, restated for a JSON
 // endpoint: map only KNOWN extensions.code values to a 4xx, and let everything
 // else — an unknown code, INTERNAL_SERVER_ERROR, a transport failure with no
 // GraphQL errors payload at all — come out as a 500.

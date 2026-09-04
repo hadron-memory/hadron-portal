@@ -38,7 +38,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // Flows this app can start (#483): derived from the app's accessible
     // nodes (runnable + routing edges, no schema marker). Best-effort — a
     // failure only hides the Flows section, never the audit list (auxiliary
-    // data; review:no-silent-loader-catch).
+    // data; hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
     client
       .request<{ appNodes: FlowGraphNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
       .catch((e) => {

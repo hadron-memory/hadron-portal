@@ -10,7 +10,7 @@ import type { PageServerLoad } from './$types';
  * the `?tab=` values a shared link carries, and #761 made those survive the
  * `/app/u/<worker-urn>` resolver, which is the link every worker signs its
  * outward-facing work with. Rename a label freely; never rename one of these
- * (review:label-rename-is-not-an-id-rename).
+ * (hrn:node:hadronmemory.com:hadron-portal:review:label-rename-is-not-an-id-rename).
  *
  * Validated in the LOADER rather than the component, mirroring the App page, so
  * URL parsing lives in one place and an unknown value falls back to the default
@@ -50,7 +50,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // the roster is not an existence oracle. Mirror that here: a refusal and a
     // miss both surface as the same 404, and only KNOWN codes are mapped —
     // anything else rethrows so an outage stays a distinguishable 500
-    // (review:clienterror-map-known-codes-only, review:no-silent-loader-catch).
+    // (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only, hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
     if (err instanceof ClientError && err.response?.errors?.length) {
       const code = (err.response.errors[0].extensions as { code?: string } | undefined)?.code;
       if (code === 'WORKER_NOT_FOUND' || code === 'NOT_FOUND' || code === 'FORBIDDEN') {

@@ -166,7 +166,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // headless run via runTask(appRef:) — the button needs the org's Apps to
   // run as. Best-effort: only offered to org members (org present) on
   // runnable nodes; a fetch failure just hides the button (auxiliary UI,
-  // not the page's core load — review:no-silent-loader-catch).
+  // not the page's core load — hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
   const org = (parentData as { org?: { id: string } | null }).org;
   let testFlowApps: Array<{ id: string; name: string }> = [];
   if (node.isRunnable && org?.id) {
@@ -271,11 +271,11 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // "a redirect would be both churn and the wrong answer" (#735/#991/#737).
   // That holds harder here — this page has the thread, a working composer, the
   // node's URN, revisions and edges, so redirecting would REMOVE the surface a
-  // node URN asked for. See `findings:filtering-a-view-breaks-the-links-into-it`.
+  // node URN asked for. See `hrn:node:hadronmemory.com:hadron-portal:findings:filtering-a-view-breaks-the-links-into-it`.
   //
   // Gated on `isChat` alone, not on the team-chat loc: an agent chat in an App
   // memory has the same reader with the same problem. An ordinary node is
-  // excluded because it does not NAME its App — `review:render-urn` is about
+  // excluded because it does not NAME its App — `hrn:node:hadronmemory.com:hadron-portal:review:render-urn` is about
   // rendering the URN of an entity a view already refers to, not about
   // surfacing every ancestor.
   const chatApp = isChat ? (node.memory?.app ?? null) : null;

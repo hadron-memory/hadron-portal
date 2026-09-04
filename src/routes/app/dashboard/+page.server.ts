@@ -43,7 +43,7 @@ function toPlacements(widgets: ServerWidget[]): WidgetPlacement[] {
 export const load: PageServerLoad = async ({ locals }) => {
   // Count-only entity queries (limit:0 — the memories preview was dropped, the
   // counts seed the default widgets' data). Surface a failed fetch rather than
-  // silently reporting "0 memories" (conventions:no-silent-loader-catch).
+  // silently reporting "0 memories" (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
   try {
     const data = await gqlClient(locals.token).request<{
       memories: { total: number };

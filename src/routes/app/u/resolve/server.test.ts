@@ -5,7 +5,7 @@
  * codes map to 4xx; internal/unknown codes and payload-less transport
  * ClientErrors are 500s, so the CommandBar's candidate probing can't mistake
  * a resolver outage for "this candidate doesn't resolve"
- * (review:clienterror-map-known-codes-only, #614/#567).
+ * (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only, #614/#567).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';

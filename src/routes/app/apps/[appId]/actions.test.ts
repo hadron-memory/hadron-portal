@@ -289,7 +289,7 @@ describe('load', () => {
 
   // The negative case for the above: an empty chat is NOT an error. Without
   // this, an implementation that flagged every empty transcript as failed would
-  // pass the test above (review:guard-must-be-proven-to-fail).
+  // pass the test above (hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail).
   it('reports a genuinely empty team chat with no error flag', async () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
@@ -822,7 +822,7 @@ describe('castWorker action', () => {
     ]);
   });
 
-  // RATCHET FLIPPED, not deleted (review:convention-ratchets-must-be-flipped).
+  // RATCHET FLIPPED, not deleted (hrn:node:hadronmemory.com:hadron-server:review:convention-ratchets-must-be-flipped).
   // This asserted that a blank name reached the mutation as `undefined` —
   // correct while an omitted name walked the register, and the exact behaviour
   // #760 reports as broken now that hadron-server#1050 removed it. The
@@ -929,7 +929,7 @@ describe('castWorker action', () => {
   });
 
   it('falls back to the server message for an UNKNOWN code', async () => {
-    // review:clienterror-map-known-codes-only — only known codes get friendly
+    // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — only known codes get friendly
     // copy; an internal error must not be relabelled as a user mistake.
     mockRequest.mockRejectedValueOnce({
       message: 'boom',
@@ -1133,7 +1133,7 @@ describe('postTeamChatMessage action (#732)', () => {
     expect(result.data.form.message.text).not.toContain('raw server message');
   });
 
-  // review:clienterror-map-known-codes-only — an unknown code (or a transport
+  // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — an unknown code (or a transport
   // failure with no GraphQL payload) must fall through to the server's own
   // message rather than being relabelled as a user mistake.
   it('falls through to the server message for an unmapped code', async () => {
@@ -1219,7 +1219,7 @@ describe('worklog loading (#733)', () => {
     expect(result.worklog).toEqual([]);
   });
 
-  // Negative case for the above (review:guard-must-be-proven-to-fail).
+  // Negative case for the above (hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail).
   it('reports a genuinely empty worklog with no error flag', async () => {
     stubAll({ teamWorkItems: { items: [], total: 0 } });
     const result = await loadWithUrl('');
@@ -1284,7 +1284,7 @@ describe('worklog loading (#733)', () => {
   });
 
   it('does not raise chatNotFound for a chat that resolves', async () => {
-    // Negative case (review:guard-must-be-proven-to-fail).
+    // Negative case (hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail).
     stubAll({ teamWorkItems: { items: [], total: 0 } });
     const r = await loadWithUrl('?tab=chats&chat=chats:team');
     expect(r.chatNotFound).toBe(false);

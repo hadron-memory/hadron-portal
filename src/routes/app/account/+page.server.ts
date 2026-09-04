@@ -58,7 +58,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     // Surface a failed `me` instead of silently blanking the profile. The
     // fallback below merges the JWT's locals.user (name/email), but `handle`
     // isn't in the JWT — so a failed `me` blanks the handle specifically
-    // (conventions:no-silent-loader-catch).
+    // (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
     .catch((e) => {
       console.error('[account] `me` query failed — handle will be blank (name/email fall back to the JWT):', e);
       return { me: null as UserSummary | null };

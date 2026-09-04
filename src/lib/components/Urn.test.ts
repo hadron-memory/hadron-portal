@@ -102,7 +102,7 @@ describe('Urn.svelte — copy buttons (#310)', () => {
   });
 
   // Accessibility: icon-only buttons need an accessible name, not just a title.
-  // See review:icon-button-aria-label in the hadron-portal memory.
+  // See hrn:node:hadronmemory.com:hadron-portal:review:icon-button-aria-label in the hadron-portal memory.
   it('gives each icon button an aria-label as its accessible name', () => {
     const { body } = render(Urn, {
       props: { value: 'urn:node:acme.com::kb::findings:flaky-ci', type: 'node' },

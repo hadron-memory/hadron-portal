@@ -1,6 +1,6 @@
 /**
  * AssetTable — SSR smoke tests (this repo has no DOM test env for components;
- * see conventions:svelte-component-test-gap).
+ * see hrn:node:hadronmemory.com:hadron-portal:conventions:svelte-component-test-gap).
  *
  * Both URN columns render through the shared <Urn> chip. Only the MEMORY one is
  * `linked`: resolveUrn handles mem/node/org/agent/app/user, so an asset URN would
@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
 
 // SvelteKit virtuals, absent without the SvelteKit plugin
-// (conventions:vitest-mocks-sveltekit-virtuals).
+// (hrn:node:hadronmemory.com:hadron-portal:conventions:vitest-mocks-sveltekit-virtuals).
 vi.mock('$app/stores', () => ({ page: { subscribe: (fn: (v: unknown) => void) => (fn({ url: new URL('http://x/'), data: {} }), () => {}) } }));
 vi.mock('$app/navigation', () => ({ goto: () => {}, invalidate: () => {} }));
 

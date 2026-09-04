@@ -70,7 +70,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     // Subscribed tab (#486): the org's AgentOrgGrants. The server resolver
     // returns [] for non-admins (no error), so a thrown error here is a real
     // transport failure — coerce to null so the tab shows "unavailable"
-    // rather than a false "no subscriptions" (review:no-silent-loader-catch).
+    // rather than a false "no subscriptions" (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
     client
       .request<{ organization: { agentOrgGrants: AgentGrant[] } | null }>(
         ORG_AGENT_GRANTS_QUERY, { ref: params.id },

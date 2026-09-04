@@ -1250,7 +1250,7 @@
   // guarantees a `Date.parse`-able value — NOT byte-for-byte ISO UTC — so a
   // pass-through value carrying a non-UTC offset makes lexicographic string order
   // differ from chronological order. See hadron-server
-  // conventions:datetime-scalar-for-date-fields.
+  // hrn:node:hadronmemory.com:hadron-server:conventions:datetime-scalar-for-date-fields.
   function revisionDateMs(val: string | null): number | null {
     if (!val) return null;
     const ms = new Date(val).getTime();

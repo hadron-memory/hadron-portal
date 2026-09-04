@@ -2,7 +2,7 @@
 //
 // The suite default is `environment: 'node'` and stays that way — this pragma
 // opts in THIS FILE only, so the other 160-odd node-env test files pay nothing
-// for the DOM. Per conventions:svelte-component-test-gap that gap is meant to be
+// for the DOM. Per hrn:node:hadronmemory.com:hadron-portal:conventions:svelte-component-test-gap that gap is meant to be
 // closed deliberately rather than silently, so: this is the minimal increment
 // (jsdom + one pragma), NOT the full component-testing setup that node describes.
 // `focus-trap.ts` is a plain TS module over DOM nodes, not a Svelte component, so

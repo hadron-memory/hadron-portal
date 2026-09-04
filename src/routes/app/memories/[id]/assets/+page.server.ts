@@ -32,7 +32,7 @@ export const load: PageServerLoad = async ({ params, locals, depends }) => {
     }>(MEMORY_ASSETS_QUERY, { memoryId: params.id, skip: 0, count: WINDOW });
     page = data.memoryAssets;
   } catch (err) {
-    // Surface the failure instead of swallowing it (review:no-silent-loader-catch):
+    // Surface the failure instead of swallowing it (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch):
     // an empty `assets` alone is indistinguishable from a memory with no files,
     // and that ambiguity has masked real server errors in this repo before.
     console.error('[memory-assets] memoryAssets failed:', err);

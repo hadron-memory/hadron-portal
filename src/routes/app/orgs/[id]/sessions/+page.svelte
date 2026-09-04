@@ -19,7 +19,7 @@
   // guarantees a `Date.parse`-able value — NOT byte-for-byte ISO UTC — so a
   // pass-through value carrying a non-UTC offset makes lexicographic string
   // order differ from chronological order. Formatting happens in `fmt` at render
-  // time. See hadron-server conventions:datetime-scalar-for-date-fields.
+  // time. See hadron-server hrn:node:hadronmemory.com:hadron-server:conventions:datetime-scalar-for-date-fields.
   function dateMs(val: string | null): number | null {
     if (!val) return null;
     const ms = new Date(val).getTime();
@@ -89,7 +89,7 @@
     // New column id — existing saved views for listKey "usage:sessions" simply
     // don't mention it, so it renders visible and TanStack appends it to a
     // persisted columnOrder. No saved state is discarded (that only happens on
-    // a RENAMED id — review:saved-view-arrangement-not-position).
+    // a RENAMED id — hrn:node:hadronmemory.com:hadron-portal:review:saved-view-arrangement-not-position).
     { accessorFn: (row) => orgWideWorkerLabel(row.worker), id: 'worker', header: t('sessions.column.worker', 'Worker'), size: 170 },
     { accessorKey: 'llmModel', header: t('sessions.column.model', 'Model'), size: 150 },
     { accessorFn: (row) => durationMs(row.startedAt, row.endedAt), id: 'duration', header: t('sessions.column.duration', 'Duration'), size: 90 },

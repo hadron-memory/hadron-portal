@@ -129,6 +129,7 @@ describe('resolveWikilinks — grammar v2 (cor:urn:010:01)', () => {
   });
 
   it('gives a bare loc FIRST refusal — a local hit is never reinterpreted as v2 flat', async () => {
+    // bare-loc-ok — a loc shape being described, not a citation.
     // `findings:x` exists here. Even though a 2-atom loc could never be a v2
     // URN, the ordering is the rule that matters: the spec's bare-loc scope
     // always wins when it resolves. Guarded here with a 3-atom local loc.
