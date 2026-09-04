@@ -806,7 +806,8 @@
   <!-- Spec 013: Danger zone — soft-delete affordance for authorized users.
        Server-side authz is the trust boundary; the {#if canDelete} hide is
        presentation only. Pattern verbatim from the agent-detail Danger zone
-       (convention node `conventions:portal-soft-delete-flow`). -->
+       (convention node
+       `hrn:node:hadronmemory.com:hadron-portal:conventions:soft-delete-flow`). -->
   {#if canDelete}
     <section class="max-w-lg border-t border-zinc-200 pt-6 dark:border-zinc-800">
       <h3 class="mb-2 text-sm font-semibold text-red-500">{deleteMemoryStrings.heading()}</h3>

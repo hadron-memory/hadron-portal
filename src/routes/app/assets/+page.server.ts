@@ -53,7 +53,7 @@ export const load: PageServerLoad = async ({ url, locals, parent, depends }) => 
 
   // Resolve the parent FIRST, on its own. Overlapping parent() with the fetches
   // in one Promise.all would let a fetch rejection surface before the layout's
-  // own guards ran (review:guard-runs-before-fetch-errors).
+  // own guards ran (hrn:node:hadronmemory.com:hadron-portal:review:guard-runs-before-fetch-errors).
   const { activeOrgId } = (await parent()) as { activeOrgId?: string | null };
 
   const tab = parseAssetTab(url.searchParams.get('tab'));
@@ -88,7 +88,7 @@ export const load: PageServerLoad = async ({ url, locals, parent, depends }) => 
     };
   } catch (err) {
     // Surface the failure rather than swallowing it
-    // (review:no-silent-loader-catch): an empty list alone is indistinguishable
+    // (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch): an empty list alone is indistinguishable
     // from "you have no files", and that ambiguity has masked real server errors
     // in this repo before.
     console.error('[assets] assets query failed:', err);

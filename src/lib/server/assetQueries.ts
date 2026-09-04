@@ -71,7 +71,7 @@ export const MEMORY_ASSETS_QUERY = /* GraphQL */ `
 `;
 
 // hadron-server#895 (issue #891): the uniform CROSS-memory list, per
-// conventions:uniform-read-surface / spec cor:api:120 — `{ items, total }`, no
+// hrn:node:hadronmemory.com:hadron-server:conventions:uniform-read-surface / spec cor:api:120 — `{ items, total }`, no
 // `hasMore`. This is what makes portal#696's top-level Assets section possible;
 // `memoryAssets` above stays the per-memory surface.
 //
@@ -82,7 +82,7 @@ export const MEMORY_ASSETS_QUERY = /* GraphQL */ `
 //   Org files       → orgId: <active org>
 //
 // Every AssetFilter field narrows; none widens. Two semantics worth remembering
-// (conventions:multi-ref-scope-args): unreadable/unknown `memoryRefs` are
+// (hrn:node:hadronmemory.com:hadron-server:conventions:multi-ref-scope-args): unreadable/unknown `memoryRefs` are
 // silently dropped while a MALFORMED urn throws, and an explicitly EMPTY
 // memoryRefs list is the EMPTY scope — never a fallback to the default one.
 export const ASSETS_QUERY = /* GraphQL */ `

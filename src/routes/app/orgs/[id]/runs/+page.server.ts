@@ -33,7 +33,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const [runsResult, apps] = await Promise.all([
     // The list itself. A failure is reported as `failed` rather than an empty
     // list, so a transient error never renders as a truthful "no runs yet"
-    // (review:no-silent-loader-catch).
+    // (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
     client
       .request<{ appRuns: { items: AppRun[]; total: number } }>(ORG_APP_RUNS_QUERY, {
         orgRef: params.id,

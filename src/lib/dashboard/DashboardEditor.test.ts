@@ -1,6 +1,6 @@
 /**
  * #636 / #788: the in-place dashboard editor — SSR smoke tests (this repo has
- * no DOM test env; see conventions:svelte-component-test-gap). Interaction
+ * no DOM test env; see hrn:node:hadronmemory.com:hadron-portal:conventions:svelte-component-test-gap). Interaction
  * (drag, reorder, save round-trip) is verified in-browser; here we assert the
  * server-rendered chrome: per-widget controls with accessible names, the
  * add-widget tile offering only not-yet-placed types, span/rowSpan carried as
@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
 
 // The editor imports SvelteKit virtuals; vitest runs without the SvelteKit
-// plugin, so mock them (conventions:vitest-mocks-sveltekit-virtuals).
+// plugin, so mock them (hrn:node:hadronmemory.com:hadron-portal:conventions:vitest-mocks-sveltekit-virtuals).
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy: () => {} }) }));
 vi.mock('$app/navigation', () => ({ beforeNavigate: () => {} }));
 

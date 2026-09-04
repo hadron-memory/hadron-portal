@@ -68,8 +68,8 @@ const NODE_URN_PREFIX = /^(hrn|urn):node:/i;
  * loc, so it carries at least three; a two-atom v1 memory plus a loc carries
  * exactly two.
  *
- *   micromentor.org::app::agent::system::review:sort   4 → chain
- *   micromentor.org::app::system::review:sort          3 → chain
+ *   micromentor.org::app::agent::system::review:sort   4 → chain  (bare-loc-ok)
+ *   micromentor.org::app::system::review:sort          3 → chain  (bare-loc-ok)
  *   hadronmemory.com::dev::auth:tokens                 2 → not a chain (v2)
  *   hadronmemory.com::dev                              1 → not a chain (v2)
  */

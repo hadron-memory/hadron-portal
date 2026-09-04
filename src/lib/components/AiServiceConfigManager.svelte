@@ -79,7 +79,7 @@
   // AI-provider list one thing rather than three that drift.
   //
   // ONE `listKey` across all three deliberately. The check on that
-  // (review:saved-view-arrangement-not-position) warns about UNINTENDED
+  // (hrn:node:hadronmemory.com:hadron-portal:review:saved-view-arrangement-not-position) warns about UNINTENDED
   // sharing between different slices; here the columns and the entity are
   // identical on every surface, so a reader who arranges them once should find
   // that arrangement again on the next — sharing is the feature, not an
@@ -127,7 +127,7 @@
       header: t('ai-config.column.key', 'API key'),
       size: 140,
     },
-    // Numeric accessor per review:date-column-sorts-by-instant — a raw date
+    // Numeric accessor per hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant — a raw date
     // string reaches TanStack's alphanumeric comparator, which reads the digit
     // groups and ignores the offset, ordering by wall clock rather than instant.
     { accessorFn: (row) => configDateMs(row.createdAt), id: 'createdAt', header: t('ai-config.column.created', 'Created'), size: 170 },

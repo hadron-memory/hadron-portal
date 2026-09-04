@@ -2,7 +2,7 @@
  * Can this memory accept a NEW upload?
  *
  * Extracted from the components so the Files tab and the attach dialog can't
- * drift, and so it is testable (conventions:svelte-component-test-gap).
+ * drift, and so it is testable (hrn:node:hadronmemory.com:hadron-portal:conventions:svelte-component-test-gap).
  *
  * **History — why this is one gate now, not two.** It also used to block
  * USER-OWNED memories (spec 047 personal/private, `organizationId: null`),

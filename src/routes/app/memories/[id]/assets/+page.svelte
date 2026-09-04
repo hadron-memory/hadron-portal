@@ -62,15 +62,15 @@
 
   // Deliberately a plain `let`, NOT $state: the count drives nothing on screen,
   // and making it reactive would mean the effect both reads and writes it —
-  // read-modify-write on $state (review:no-read-modify-write-state-in-effect)
+  // read-modify-write on $state (hrn:node:hadronmemory.com:hadron-portal:review:no-read-modify-write-state-in-effect)
   // AND a self-subscribing counter bump
-  // (findings:effect-counter-bump-self-subscribes). A plain variable is invisible
+  // (hrn:node:hadronmemory.com:hadron-portal:findings:effect-counter-bump-self-subscribes). A plain variable is invisible
   // to the graph, so the effect's only dependency is the pending set.
   let polls = 0;
 
   $effect(() => {
     // Read the trigger unconditionally so the effect re-subscribes whenever the
-    // pending set changes (review:effect-reads-all-reactive-deps).
+    // pending set changes (hrn:node:hadronmemory.com:hadron-portal:review:effect-reads-all-reactive-deps).
     const pending = pendingCount;
     if (pending === 0) {
       // Settled: hand a later upload a fresh budget instead of an exhausted one.

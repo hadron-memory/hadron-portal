@@ -92,7 +92,7 @@ describe('node-detail load — the chat App reference (#489 part 4)', () => {
     //
     // This case exists because the `?? null` it pins survived a mutation that
     // the `app: null` case above did NOT catch — that one never reaches the
-    // coalesce (`review:a-spare-test-must-reach-the-matcher`).
+    // coalesce (`hrn:node:hadronmemory.com:hadron-portal:review:a-spare-test-must-reach-the-matcher`).
     const row = chatRow();
     delete (row.memory as Record<string, unknown>).app;
     const data = await runLoad(row);
@@ -103,7 +103,7 @@ describe('node-detail load — the chat App reference (#489 part 4)', () => {
 
   it('is null for an ORDINARY node, even in an App memory', async () => {
     // The reference exists because a chat page NAMES its App. An ordinary node
-    // does not, and `review:render-urn` is about rendering the URN of an entity
+    // does not, and `hrn:node:hadronmemory.com:hadron-portal:review:render-urn` is about rendering the URN of an entity
     // a view already refers to — not about surfacing every ancestor. Without
     // this the chip would appear on every node in an App memory.
     const data = await runLoad(chatRow({ nodeType: 'info', loc: 'notes:thing', tags: [] }));

@@ -59,7 +59,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
       // but `handle` is NOT in the JWT — so a lost `me` blanks the signed-in
       // user's handle (and leaves name/avatar at possibly-stale JWT values),
       // which is otherwise invisible in a SvelteKit server load
-      // (conventions:no-silent-loader-catch).
+      // (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
       .catch((e) => {
         meThrew = true;
         console.error('[app-layout] `me` query threw — user handle will be blank (name/avatar fall back to the JWT):', e);

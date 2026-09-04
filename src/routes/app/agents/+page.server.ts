@@ -14,7 +14,7 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ locals }) => {
   // A FAILED fetch is distinct from a genuinely empty list — silently showing the
   // empty state on an API error would hide existing agents
-  // (conventions:no-silent-loader-catch). No requireNonConsumer: this IS the
+  // (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch). No requireNonConsumer: this IS the
   // individual-user surface, and the server's agents() list is the auth gate
   // (returns only the caller's own agents).
   const owned = await Promise.allSettled([fetchOwnedAgents(locals.token)]);

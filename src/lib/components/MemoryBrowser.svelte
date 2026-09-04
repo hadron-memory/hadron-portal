@@ -225,7 +225,7 @@
   // unchecking the box set it false, which re-ran the effect, which saw the
   // same still-hidden `focusId` and set it true again — so the checkbox could
   // not be turned off at all while `?focus=` stayed in the URL. That is
-  // `review:no-read-modify-write-state-in-effect`, and it is the SAME one-way
+  // `hrn:node:hadronmemory.com:hadron-portal:review:no-read-modify-write-state-in-effect`, and it is the SAME one-way
   // switch this file warns about at `hasHiddenNodes`: I wrote that warning in
   // this PR and then built the trap from the other direction.
   //

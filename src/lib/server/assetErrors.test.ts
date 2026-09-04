@@ -1,5 +1,5 @@
 /**
- * portal#696 — review:clienterror-map-known-codes-only, applied to the
+ * portal#696 — hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only, applied to the
  * /api/assets/* endpoints.
  *
  * The five original endpoints each hand-rolled a mapping whose tail was

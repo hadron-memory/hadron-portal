@@ -16,7 +16,7 @@ export const load: PageServerLoad = async ({ locals }) => {
   // Fetch both tabs independently — one tab's failure must not blank the other,
   // and a FAILED fetch is distinct from a genuinely empty list (silently showing
   // the empty state on an API error hides existing memories;
-  // conventions:no-silent-loader-catch).
+  // hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
   const [owned, shared] = await Promise.allSettled([
     fetchOwnedMemories(locals.token),
     fetchSharedMemories(locals.token),

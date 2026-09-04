@@ -154,7 +154,7 @@
   // different owner, so the two stay recognisable as one thing.
   //
   // Date columns take a NUMERIC accessor per
-  // review:date-column-sorts-by-instant: TanStack's alphanumeric comparator
+  // hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant: TanStack's alphanumeric comparator
   // reads a date string's digit groups and ignores the offset, so a raw string
   // sorts by wall clock rather than by instant.
   function keyDateMs(iso: string | null | undefined): number | null {
@@ -212,7 +212,7 @@
   // "held by someone else" above unknown is the ordering a reader of a roster
   // wants, and it avoids a date column whose accessor would have to sort by
   // instant while displaying a formatted string
-  // (review:date-column-sorts-by-instant). The date stays supplementary text
+  // (hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant). The date stays supplementary text
   // inside the cell.
   let staffFilter = $state('');
   const staffColumns: PortalColumnDef<Worker>[] = [
@@ -1754,7 +1754,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                 <WorkerBadge retired={!!worker.retiredAt} />
               </div>
             {:else if cell.column.id === 'urn'}
-              <!-- #735 / review:render-urn. Nullable by contract — absent rather
+              <!-- #735 / hrn:node:hadronmemory.com:hadron-portal:review:render-urn. Nullable by contract — absent rather
                    than empty when the App's URN predates the flat grammar. -->
               {#if worker.urn}
                 <Urn value={worker.urn} type="worker" size={8} />

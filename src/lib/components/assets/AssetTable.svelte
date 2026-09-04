@@ -66,7 +66,7 @@
     /** Full memory URN; null when the asset urn didn't parse. */
     memoryUrn: string | null;
     /** Epoch millis so Uploaded sorts chronologically, not as text
-     *  (review:date-column-sorts-by-instant). Null when unparseable. */
+     *  (hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant). Null when unparseable. */
     uploadedMs: number | null;
     uploaded: string;
     uploader: string;
@@ -155,13 +155,13 @@
   // `showMemory` is a MOUNT-TIME surface choice (the per-memory tab never wants
   // the column, the cross-memory section always does), so capturing it once is
   // the intended behaviour — declared through untrack() to say so, per
-  // conventions:svelte5-initial-state-untrack, rather than silenced.
+  // hrn:node:hadronmemory.com:hadron-portal:conventions:svelte5-initial-state-untrack, rather than silenced.
   const showMemoryColumn = untrack(() => showMemory);
 
   const columns: PortalColumnDef<AssetRow>[] = [
     {
       // The cell shows the asset's URN, so the accessor leads with it — sorting
-      // then matches the screen (findings:table-chrome-conventions). The filename
+      // then matches the screen (hrn:node:hadronmemory.com:hadron-portal:findings:table-chrome-conventions). The filename
       // is appended so it stays SEARCHABLE: it is no longer visible, but "find the
       // row for invoice.pdf" is the obvious thing to type, and an accessor of the
       // urn alone would silently stop answering it.
@@ -326,7 +326,7 @@
       <span class="whitespace-nowrap">{row.uploaded}</span>
     {:else if cell.column.id === 'actions'}
       {#if pendingDelete === row.id}
-        <!-- Inline two-step confirm, matching conventions:soft-delete-flow:
+        <!-- Inline two-step confirm, matching hrn:node:hadronmemory.com:hadron-portal:conventions:soft-delete-flow:
              the affordance expands in place rather than opening a modal. -->
         <div class="flex items-center gap-1.5 whitespace-nowrap">
           <button

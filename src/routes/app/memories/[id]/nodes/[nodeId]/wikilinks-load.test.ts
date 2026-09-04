@@ -95,6 +95,7 @@ describe('node-detail load — wikilink resolution (#374)', () => {
       ],
     });
 
+    // bare-loc-ok — a loc shape being described, not a citation.
     // Memory A has no `findings:x` — the reader must see the gap, not memory
     // B's node. Same footgun as the #234 breadcrumb / hadron-server#335.
     expect(result.wikilinks['findings:x']).toBeNull();

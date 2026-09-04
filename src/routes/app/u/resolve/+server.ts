@@ -38,7 +38,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     // exceptions) is a 500, so callers can tell an outage apart from a
     // non-resolving URN — the CommandBar's resolveUrn throws on 5xx and
     // surfaces an inline error instead of falling back to a guessed candidate
-    // (see review:clienterror-map-known-codes-only, #614/#567).
+    // (see hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only, #614/#567).
     if (err instanceof ClientError && err.response?.errors?.length) {
       const first = err.response.errors[0];
       const code = (first.extensions as { code?: string } | undefined)?.code;

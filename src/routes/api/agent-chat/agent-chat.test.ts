@@ -766,7 +766,7 @@ describe('GET /api/agent-chat/list', () => {
     ]);
   });
 
-  // The negative case for the filter above (review:guard-must-be-proven-to-fail):
+  // The negative case for the filter above (hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail):
   // the exclusion must key on the EXACT canonical loc, so a user chat whose loc
   // merely starts with it keeps showing up. A `startsWith` implementation passes
   // the test above and fails this one.

@@ -102,7 +102,7 @@ describe('isChatMessageNode', () => {
   it('requires the legacy `message` type to ALSO be addressed as one', () => {
     // `message` is a generic word another corpus may use for something that is
     // not a chat. Marking such a node "Chat Message:" renders perfectly and
-    // says something false — review:a-fallback-asserts-what-it-was-written-for.
+    // says something false — hrn:node:hadronmemory.com:hadron-portal:review:a-fallback-asserts-what-it-was-written-for.
     expect(isChatMessageNode({ nodeType: 'message', loc: 'chats:team:messages:001' } as MemoryNode)).toBe(true);
     expect(isChatMessageNode({ nodeType: 'message', loc: 'inbox:draft' } as MemoryNode)).toBe(false);
   });

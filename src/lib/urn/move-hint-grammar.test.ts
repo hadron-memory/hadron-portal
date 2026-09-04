@@ -32,6 +32,7 @@ describe('moveHintGrammar (PR #803 review)', () => {
     });
 
     it('splits on the LAST :: — a loc may contain single colons', () => {
+      // bare-loc-ok — a loc shape under test, not a citation.
       // `review:sort:imports` is one loc, not three chain atoms. Uses a genuine
       // three-atom chain: `acme::sys` would be a TWO-atom memory, which is not
       // a chain at all and flattens to v2 (see below).

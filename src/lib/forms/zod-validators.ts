@@ -50,7 +50,7 @@ export const JSON_FIELD_MAX = 256 * 1024;
 
 // #588: a form field holding a serialized JSON object ('' = none). Used for
 // node `properties` payloads (create/edit). Parser failures become field
-// errors per review:form-schema-parser-errors.
+// errors per hrn:node:hadronmemory.com:hadron-portal:review:form-schema-parser-errors.
 export function jsonObjectField(label = 'Value') {
   return z.string().default('').superRefine((value, ctx) => {
     const trimmed = value.trim();

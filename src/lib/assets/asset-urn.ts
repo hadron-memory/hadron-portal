@@ -108,7 +108,7 @@ export function memoryUrnFromAssetUrn(assetUrn: string | null | undefined): stri
   // for `asset`, so a compound memory urn lengthens the URN instead of being
   // rejected. `mentor-co:juno:mike-personal` is in prisma/seed.ts, so three atoms
   // is real, not hypothetical — see
-  // hadronmemory.com:hadron-server:findings:asset-urn-shapes-are-variable.
+  // `hrn:node:hadronmemory.com:hadron-server:findings:asset-urn-shapes-are-variable`.
   //
   // Requiring exactly two declined that memory's assets outright (no chip at all).
   // The floor is two: a single atom is the `hrn:asset:unknown:assets:<id>`

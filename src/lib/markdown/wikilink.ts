@@ -79,6 +79,7 @@ const NODE_URN_PREFIX = /^(?:hrn|urn):node:/i;
  *   applies — `<root>:<memory-slug>:<loc…>`.
  * - **bare** — anything else is a loc in the containing node's own memory, per
  *   the spec's scope rule. An unprefixed flat cross-memory target
+ *   bare-loc-ok — a loc shape being described, not a citation.
  *   (`hadronmemory.com:dev:findings:x`) is indistinguishable from a deep loc,
  *   so the bare rule wins here; {@link flatV2Candidate} offers it as a
  *   second chance only after the bare lookup actually misses.

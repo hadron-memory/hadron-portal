@@ -29,7 +29,7 @@ export function parseAssetTab(value: string | null | undefined): AssetTab {
  * **`org` returns null when there is no active org, and the caller MUST NOT fall
  * back to the default scope.** Sending `orgId: undefined` would quietly return
  * every asset the caller can reach and label it "this organization's" — the same
- * relabelling trap `conventions:multi-ref-scope-args` calls out for an empty
+ * relabelling trap `hrn:node:hadronmemory.com:hadron-server:conventions:multi-ref-scope-args` calls out for an empty
  * `memoryRefs` list. The page shows an explanatory empty state instead.
  */
 export function assetQueryArgs(

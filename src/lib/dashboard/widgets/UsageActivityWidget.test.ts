@@ -2,7 +2,7 @@
  * Usage Activity widget (#796/#797) — SSR smoke tests. The chart is SVG built
  * from the provider payload { windowDays, buckets }; the DAY window is
  * zero-filled client-side in the config's time zone. Interaction (tooltip) is
- * verified in-browser (no DOM test env; conventions:svelte-component-test-gap).
+ * verified in-browser (no DOM test env; hrn:node:hadronmemory.com:hadron-portal:conventions:svelte-component-test-gap).
  */
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';

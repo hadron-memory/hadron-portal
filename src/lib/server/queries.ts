@@ -386,8 +386,9 @@ export const AGENT_PUBLIC_QUERY = /* GraphQL */ `
 // #486 — the org's Agent subscriptions (AgentOrgGrant rows: the 008 Org↔Agent
 // license, auto-provisioned on first install). Kept OUT of ORGANIZATION_QUERY:
 // the field resolver is org-ADMIN gated (non-admins get []), and widening the
-// shared org payload has cross-route blast radius (review:shared-layout-
-// payload-consumers). AgentOrgGrant.agent lazily resolves server-side.
+// shared org payload has cross-route blast radius — see
+// `hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers`.
+// AgentOrgGrant.agent lazily resolves server-side.
 export const ORG_AGENT_GRANTS_QUERY = /* GraphQL */ `
   query OrgAgentGrants($ref: ID!) {
     organization(ref: $ref) {
@@ -2266,11 +2267,11 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
       #
       # appId alone is NOT enough for the reference — a link needs a label a
       # reader recognises and a URN they can paste, and per CLAUDE.md's
-      # review:render-urn a named entity renders its URN alongside. Nullable
+      # hrn:node:hadronmemory.com:hadron-portal:review:render-urn a named entity renders its URN alongside. Nullable
       # by contract: most memories have no App.
       #
       # No backticks in this comment: one would end the template literal
-      # (#775, findings:queries-ts-no-backticks-in-graphql-comments). The
+      # (#775, hrn:node:hadronmemory.com:hadron-portal:findings:queries-ts-no-backticks-in-graphql-comments). The
       # guard in gql:validate caught exactly that here.
       memory {
         app {

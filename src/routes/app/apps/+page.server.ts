@@ -12,7 +12,7 @@ import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
   // A FAILED fetch is distinct from a genuinely empty list — never silently show
-  // the empty state on an API error (conventions:no-silent-loader-catch). No
+  // the empty state on an API error (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch). No
   // requireNonConsumer: this IS the individual-user surface, and the server's
   // apps() list is the auth gate (returns only the caller's own apps).
   const [apps] = await Promise.allSettled([fetchOwnedApps(locals.token)]);

@@ -194,8 +194,9 @@ export function findCommentTerminatedDocuments(file, text) {
           // alone reads as advice to delete one — the confidently-wrong
           // instruction hadron-server#1085 had to repair.
           //
-          // Stated as what was OBSERVED, per review:diagnostic-message-must-not-
-          // guarantee. It does NOT say the document is single-line (this scan
+          // Stated as what was OBSERVED, per
+          // `hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee`.
+          // It does NOT say the document is single-line (this scan
           // has not found the real close, so it cannot know) and does not call
           // the rest of the line prose (it may be a `.trim()` continuation this
           // check deliberately refuses).

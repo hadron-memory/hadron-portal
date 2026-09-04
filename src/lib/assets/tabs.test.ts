@@ -37,7 +37,7 @@ describe('assetQueryArgs', () => {
   it('returns null for "org" with no active org — never the default scope', () => {
     // THE important case. Omitting orgId would return every asset the caller can
     // reach and let the UI label it "this organization's" — the relabelling trap
-    // conventions:multi-ref-scope-args calls out for an empty memoryRefs list.
+    // hrn:node:hadronmemory.com:hadron-server:conventions:multi-ref-scope-args calls out for an empty memoryRefs list.
     expect(assetQueryArgs('org', null)).toBeNull();
     expect(assetQueryArgs('org', undefined)).toBeNull();
     expect(assetQueryArgs('org', '')).toBeNull();

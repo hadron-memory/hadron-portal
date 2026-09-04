@@ -149,7 +149,7 @@
   $effect(() => {
     // Depend on BOTH props; do not read `polled` or `dataGeneration` here, or
     // this effect would re-run on its own writes
-    // (review:no-read-modify-write-state-in-effect).
+    // (hrn:node:hadronmemory.com:hadron-portal:review:no-read-modify-write-state-in-effect).
     messages;
     total;
     untrack(() => {
@@ -252,7 +252,7 @@
     // DOMPurify needs a real DOM and cannot run under SSR. Emit nothing until
     // mounted so the {@html} sink is only ever fed sanitized HTML, never raw
     // author-controlled markdown during SSR or the pre-hydration render
-    // (review:sanitize-html-with-dompurify).
+    // (hrn:node:hadronmemory.com:hadron-portal:review:sanitize-html-with-dompurify).
     if (!isBrowser || !text) return '';
     return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
   }
@@ -353,7 +353,7 @@
         // A degraded read (`loadFailed`) is NOT an empty thread. Applying it
         // would blank a transcript the reader is looking at because one tick
         // failed — the loud-error-over-silent-fallback rule, and
-        // `review:a-fallback-asserts-what-it-was-written-for`: `items: []`
+        // `hrn:node:hadronmemory.com:hadron-portal:review:a-fallback-asserts-what-it-was-written-for`: `items: []`
         // means "we could not read", not "there are no messages".
         if (next && !next.loadFailed && untrack(() => dataGeneration) === startedAt) {
           // #793 (@codex on #796): ACCUMULATE. Merging each window against the

@@ -37,6 +37,7 @@ import { CANONICAL_SCHEME, hasSchemePrefix, normalizeScheme } from './parse-urn'
  * forever. Flattening it would be a correctness bug, not a modernization.
  *
  *   memoryUrn: hrn:memory:micromentor.org::coding-app::coding-agent::system
+ *   bare-loc-ok — a loc shape being described, not a citation.
  *   value:     review:sort-imports
  *   result:    hrn:node:micromentor.org::coding-app::coding-agent::system::review:sort-imports
  *

@@ -71,7 +71,8 @@ describe('memoryUrnFromAssetUrn', () => {
     // composeUrnV2 has no arity rule for `asset`, so a compound memory urn
     // lengthens the URN. `mentor-co:juno:mike-personal` is in prisma/seed.ts, so
     // this is real: requiring exactly two atoms declined that memory's assets
-    // outright. See hadron-server:findings:asset-urn-shapes-are-variable.
+    // outright. See
+    // `hrn:node:hadronmemory.com:hadron-server:findings:asset-urn-shapes-are-variable`.
     expect(memoryUrnFromAssetUrn('hrn:asset:mentor-co:juno:mike-personal:assets:abc')).toBe(
       'hrn:mem:mentor-co:juno:mike-personal',
     );

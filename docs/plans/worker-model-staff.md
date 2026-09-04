@@ -69,7 +69,7 @@ link. Sorted active-first, then by name.
   mystery.
 - **A failed fetch is `null`, never `[]`.** "Couldn't load the staff" and "this App
   has no staff" are different statements and the empty state must not tell the
-  second lie (`review:no-silent-loader-catch`).
+  second lie (`hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch`).
 - The tab is always present, including when empty — hiding it would hide the way to
   cast the first worker.
 
@@ -87,7 +87,7 @@ is the contract the action test pins.
 Typed refusals get copy that says what to do next; everything else — including a
 payload-less transport failure — falls through to the server's own message rather
 than being relabelled as a user mistake
-(`review:clienterror-map-known-codes-only`). `WORKER_NAME_TAKEN` says the
+(`hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only`). `WORKER_NAME_TAKEN` says the
 reservation is *permanent*, because a user who isn't told that will just retry a
 retired worker's name.
 

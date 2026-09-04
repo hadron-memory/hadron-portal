@@ -98,7 +98,7 @@ describe('worker page load', () => {
     },
   );
 
-  // review:clienterror-map-known-codes-only — an unknown code or a payload-less
+  // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — an unknown code or a payload-less
   // transport failure must stay a 500, or an outage gets mislabelled as
   // "no such worker" and someone goes looking for a deleted row.
   //
@@ -111,7 +111,7 @@ describe('worker page load', () => {
   // to a 404, which is the only thing it was there to prevent.
   //
   // Now it asserts on the ONE rejection it seeds: the error must propagate, and
-  // must not be a 404. (review:guard-must-be-proven-to-fail — mutation-checked
+  // must not be a 404. (hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail — mutation-checked
   // by making the loader map this code to 404, which reds it.)
   it('rethrows an unknown GraphQL error code rather than calling it a 404', async () => {
     mockRequest.mockRejectedValueOnce(gqlError('INTERNAL_SERVER_ERROR'));
@@ -161,7 +161,7 @@ describe('worker page load', () => {
 });
 
 describe('WORKER_QUERY selection', () => {
-  // RATCHET FLIPPED, not deleted (review:convention-ratchets-must-be-flipped).
+  // RATCHET FLIPPED, not deleted (hrn:node:hadronmemory.com:hadron-server:review:convention-ratchets-must-be-flipped).
   //
   // Through #742 this asserted the OPPOSITE — that WORKER_QUERY must not select
   // `prompt` — because the page had nowhere to put a multi-KB briefing and

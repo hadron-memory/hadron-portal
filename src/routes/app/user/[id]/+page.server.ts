@@ -12,7 +12,7 @@ import type { PageServerLoad } from './$types';
  * null both for a nonexistent user and for one the caller can't reach (not
  * self / admin / co-member), so a no-access id 404s exactly like a missing one
  * — no enumeration signal. We deliberately do NOT `.catch` the request into an
- * empty shape (findings:page-server-silent-catch): a transient GraphQL failure
+ * empty shape (hrn:node:hadronmemory.com:hadron-portal:findings:page-server-silent-catch): a transient GraphQL failure
  * must surface as a 500, distinct from a legitimate not-found.
  */
 type PublicUser = {

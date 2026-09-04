@@ -472,7 +472,7 @@ describe('the portal itself has no comment-terminated documents', () => {
   //
   // Driven through collectCommentTerminated — the walker CI calls — not the
   // inner matcher: "is clean today" above returns [] just as happily when the
-  // walk selects NOTHING, which is review:ci-gate-prefilter-must-be-proven's
+  // walk selects NOTHING, which is hrn:node:hadronmemory.com:hadron-portal:review:ci-gate-prefilter-must-be-proven's
   // green-gate-on-an-empty-set. This is the case that proves the walk reaches
   // queries.ts and still bites there.
   it('names the planted line, through the walker, when the defect is put into the real queries.ts', () => {
