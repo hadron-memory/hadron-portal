@@ -11,6 +11,7 @@ import {
   START_CHAT_MUTATION,
   UPDATE_NODE_MUTATION,
 } from '$lib/server/queries';
+import { __resetRateLimit } from '$lib/server/rate-limit';
 
 const mockRequest = vi.fn();
 const mockRunChatTurn = vi.fn();
@@ -41,6 +42,12 @@ beforeEach(() => {
   mockRequest.mockReset();
   mockRunChatTurn.mockReset();
   mockJudgeAgentReply.mockReset();
+  // #441's limiter is a process-local Map keyed on the caller's token, and
+  // every case here uses the same one — so its budget (10/min) was being spent
+  // ACROSS tests, not within them. It went unnoticed while the file had fewer
+  // cases than the budget; adding four tipped it, and the failure surfaced on
+  // the last two tests in the file rather than on the ones that caused it.
+  __resetRateLimit();
 });
 
 async function importPOST() {
@@ -147,6 +154,113 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     expect(body.results[0].newVerdict).toBe('fail');
     expect(body.results[0].drift.verdict).toBe('newly-failing');
     expect(body.results[0].drift.reply).toBe('different');
+  });
+
+  // ─── #808: a replay that produced no verdict is not a regression ──────────
+
+  it('an unevaluated replay reports drift "unevaluated", NOT "newly-failing"', async () => {
+    // The defect this pins is the drift fallback, not the verdict alone. The
+    // old trailing `else verdictDrift = 'newly-failing'` was written for "the
+    // new verdict is fail" and inherited "unevaluated" the moment the union
+    // grew — so an unreachable judge would have been reported to the user as a
+    // fixture that started failing, on a green baseline, with nothing about the
+    // agent having changed.
+    setupChat({ nodes: [fixtureNode('fixtures:abc', { assertionMode: 'llm-judge' })] });
+    mockJudgeAgentReply.mockResolvedValueOnce({ score: null, rationale: 'judge unreachable (timeout)' });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc' } }));
+    const body = await res.json();
+    expect(body.results[0].newVerdict).toBe('unevaluated');
+    expect(body.results[0].drift.verdict).toBe('unevaluated');
+    expect(body.results[0].drift.verdict).not.toBe('newly-failing');
+    // Reply and route drift ARE still computed — the chat turn ran fine, and
+    // only the assertion did not. Losing them would trade one silence for another.
+    expect(body.results[0].drift.reply).toBe('same');
+    expect(body.results[0].drift.route).toBe('same');
+  });
+
+  it('summary counts an unevaluated run apart from failures', async () => {
+    setupChat({ nodes: [fixtureNode('fixtures:abc', { assertionMode: 'llm-judge' })] });
+    mockJudgeAgentReply.mockResolvedValueOnce({ score: null, rationale: 'judge unreachable' });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc' } }));
+    const body = await res.json();
+    expect(body.summary.unevaluated).toBe(1);
+    // "1 failed" on this run would say the agent regressed on a fixture it was
+    // never measured against.
+    expect(body.summary.failed).toBe(0);
+    expect(body.summary.passed).toBe(0);
+    expect(body.summary.errored).toBe(0);
+  });
+
+  it('acceptNewBaseline refuses an unevaluated run, and says so', async () => {
+    setupChat({ nodes: [fixtureNode('fixtures:abc', { assertionMode: 'llm-judge' })] });
+    mockJudgeAgentReply.mockResolvedValueOnce({ score: null, rationale: 'judge unreachable' });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: {
+      agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc', acceptNewBaseline: true,
+    } }));
+    const body = await res.json();
+    // The write must not happen: baselining a non-result would freeze a
+    // transient judge outage into the fixture as its expected behaviour.
+    expect(mockRequest.mock.calls.some((c) => c[0] === UPDATE_NODE_MUTATION)).toBe(false);
+    // And it must not happen SILENTLY — the caller asked for a write.
+    expect(body.results[0].baselineRefused).toMatch(/no verdict/);
+  });
+
+  it('acceptNewBaseline still writes when the run DID produce a verdict', async () => {
+    // The other direction: the refusal must be scoped to unevaluated runs, or
+    // it quietly breaks the feature it is guarding.
+    setupChat({ nodes: [fixtureNode('fixtures:abc', { assertionMode: 'literal-contains' })] });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: {
+      agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc', acceptNewBaseline: true,
+    } }));
+    const body = await res.json();
+    expect(mockRequest.mock.calls.some((c) => c[0] === UPDATE_NODE_MUTATION)).toBe(true);
+    expect(body.results[0].baselineRefused).toBeUndefined();
+  });
+
+  // @codex P2 on #812. `computeDrift` returns `no-baseline` before it looks at
+  // the verdict at all, so these two facts are simultaneously true and the
+  // drift field can carry only one of them. That is fine for drift — with no
+  // baseline there is genuinely nothing to compare — but it means `newVerdict`
+  // is the ONLY field that answers "did this run produce a verdict", and
+  // anything gating on that question has to read it. The UI was reading drift,
+  // and offered "Accept new baseline" on exactly this fixture.
+  it('an unevaluated run with no baseline: drift says no-baseline, newVerdict still says unevaluated', async () => {
+    setupChat({
+      nodes: [fixtureNode('fixtures:abc', {
+        assertionMode: 'llm-judge',
+        captureReply: null, captureVerdict: null,
+      })],
+    });
+    mockJudgeAgentReply.mockResolvedValueOnce({ score: null, rationale: 'judge unreachable' });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc' } }));
+    const body = await res.json();
+    expect(body.results[0].drift.verdict).toBe('no-baseline');
+    expect(body.results[0].newVerdict).toBe('unevaluated');
+    expect(body.summary.unevaluated).toBe(1);
+  });
+
+  it('and the baseline write is still refused in that case', async () => {
+    // The endpoint was already correct here — it gates on the verdict. Pinned
+    // so the server side cannot regress into agreeing with the old UI gate.
+    setupChat({
+      nodes: [fixtureNode('fixtures:abc', {
+        assertionMode: 'llm-judge',
+        captureReply: null, captureVerdict: null,
+      })],
+    });
+    mockJudgeAgentReply.mockResolvedValueOnce({ score: null, rationale: 'judge unreachable' });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: {
+      agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc', acceptNewBaseline: true,
+    } }));
+    const body = await res.json();
+    expect(mockRequest.mock.calls.some((c) => c[0] === UPDATE_NODE_MUTATION)).toBe(false);
+    expect(body.results[0].baselineRefused).toMatch(/no verdict/);
   });
 
   it('no-baseline fixture: drift.verdict = "no-baseline"', async () => {

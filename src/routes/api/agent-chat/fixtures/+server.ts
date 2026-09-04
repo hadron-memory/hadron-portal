@@ -117,6 +117,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ error: 'agentId, label, and turn are required' }, 400);
   }
 
+  // #808: a captured verdict becomes this fixture's BASELINE — what a later
+  // replay is compared against. `unevaluated` is not a result, so it cannot be
+  // one: accepting it would freeze a transient worker or judge failure into the
+  // fixture as its expected behaviour. The page hides the save button in that
+  // state; this is the endpoint's own gate, since the page is not the only
+  // caller it can have.
+  if (body.captured && body.captured.verdict !== 'pass' && body.captured.verdict !== 'fail') {
+    return json({
+      error: 'captured.verdict must be "pass" or "fail" — a run that produced no verdict cannot be saved as a baseline',
+    }, 400);
+  }
+
   const resolved = await resolveAgent(locals.token, body.agentId);
   if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
 

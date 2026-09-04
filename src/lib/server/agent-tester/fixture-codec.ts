@@ -21,6 +21,8 @@
  * a stored-data migration (FR-016 / Q2 = C).
  */
 
+import type { StoredVerdict } from '$lib/agent-tester/verdict-types';
+
 export type Assertion =
   | { mode: 'literal-contains'; value: string }
   | { mode: 'regex'; pattern: string; flags: string }
@@ -39,7 +41,14 @@ export interface Turn {
   assertion: Assertion | null;
   capturedReply: string | null;
   capturedRoute: RouteTrace | null;
-  capturedVerdict: 'pass' | 'fail' | null;
+  /**
+   * #808 note: the runtime `Verdict` union gained `unevaluated`, and this
+   * STORED type deliberately did not. A baseline is what the fixture is
+   * expected to do; "the assertion did not run" is not an expectation, so it
+   * has no persisted form. `null` here means no verdict was captured, which is
+   * a different fact (no run yet / probe-only) and stays that way.
+   */
+  capturedVerdict: StoredVerdict;
   capturedAt: string | null;
 }
 
@@ -54,7 +63,7 @@ export interface FixtureRecord {
 export interface RunResult {
   reply: string;
   route: RouteTrace;
-  verdict: 'pass' | 'fail' | null;
+  verdict: StoredVerdict;
 }
 
 export interface NewFixtureInput {
@@ -216,7 +225,7 @@ export interface FixtureSummary {
   loc: string;
   label: string;
   hasBaseline: boolean;
-  capturedVerdict: 'pass' | 'fail' | null;
+  capturedVerdict: StoredVerdict;
   capturedAt: string | null;
   assertionMode: 'literal-contains' | 'regex' | 'llm-judge' | null;
   updatedAt: string;

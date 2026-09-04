@@ -119,9 +119,20 @@ describe('judgeVerdict', () => {
     expect(judgeVerdict({ score: 0.5, rationale: 'x' }, 0.5).verdict).toBe('pass');
   });
 
-  it('judge-unreachable always fails (does not silently pass)', () => {
+  // #808: a null score means no judge answer arrived, so there is nothing to
+  // compare against the threshold. This used to return `fail` — which does not
+  // silently pass, and that part was right, but it told the user their reply
+  // had been judged and found wanting when it had never been judged at all.
+  it('judge-unreachable is unevaluated: neither a pass nor a claim about the reply', () => {
     const v = judgeVerdict({ score: null, rationale: 'judge unreachable (timeout)' }, 0.7);
-    expect(v.verdict).toBe('fail');
+    expect(v.verdict).toBe('unevaluated');
+    expect(v.verdict).not.toBe('pass'); // the original fail-open guarantee, kept
     expect(v.detail).toMatch(/judge unreachable/);
+  });
+
+  it('a scored miss is still a plain fail', () => {
+    // Pins the other direction: `unevaluated` must not absorb real failures.
+    // A judge that answered and scored below threshold HAS judged the reply.
+    expect(judgeVerdict({ score: 0.1, rationale: 'r' }, 0.9).verdict).toBe('fail');
   });
 });

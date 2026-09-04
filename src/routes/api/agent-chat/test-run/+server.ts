@@ -3,7 +3,8 @@ import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import { judgeAgentReply, judgeVerdict } from '$lib/server/agent-tester/llm-judge';
-import { testRegexSafely, RegexTimeoutError, RegexUnavailableError, MAX_PATTERN_LEN, MAX_FLAGS_LEN } from '$lib/server/safe-regex';
+import { describeRegexFailure, type Verdict } from '$lib/server/agent-tester/verdict';
+import { testRegexSafely, MAX_PATTERN_LEN, MAX_FLAGS_LEN } from '$lib/server/safe-regex';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
 
@@ -169,10 +170,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 // ─── Assertion handling ──────────────────────────────────────────────────────
 
+// #808: `verdict` carries three states, not two. See
+// `$lib/server/agent-tester/verdict` for what each one is allowed to claim —
+// in short, `fail` is a claim about the reply and `unevaluated` is the absence
+// of one.
 type AssertionResult =
-  | { mode: 'literal-contains'; verdict: 'pass' | 'fail'; detail: string }
-  | { mode: 'regex'; verdict: 'pass' | 'fail'; detail: string }
-  | { mode: 'llm-judge'; verdict: 'pass' | 'fail'; detail: string; judgeScore: number | null; judgeRationale: string };
+  | { mode: 'literal-contains'; verdict: Verdict; detail: string }
+  | { mode: 'regex'; verdict: Verdict; detail: string }
+  | { mode: 'llm-judge'; verdict: Verdict; detail: string; judgeScore: number | null; judgeRationale: string };
 
 function validateAssertion(a: Assertion): string | null {
   switch (a.mode) {
@@ -225,17 +230,12 @@ async function evaluateAssertion(
         // match, and a startup failure has its own type so the two can no longer
         // be confused in the one place a user reads.
         //
-        // Still imperfect and worth saying: an unavailable worker is reported as
-        // a `fail` VERDICT, i.e. as though the assertion ran and lost. It did not
-        // run. Fixing that means widening AssertionResult to carry an
-        // "unevaluated" state, which reaches the UI — filed rather than folded
-        // into this change.
-        const why = e instanceof RegexTimeoutError
-          ? 'evaluation timed out (pattern too complex)'
-          : e instanceof RegexUnavailableError
-            ? 'could not be evaluated — the server could not start a worker. This is not a problem with your pattern; retry.'
-            : e instanceof Error ? e.message : 'invalid regex';
-        return { mode: 'regex', verdict: 'fail', detail: `regex ${why}` };
+        // #808 finishes it: NOTHING that lands here ran to completion, so none of
+        // it can be reported as `fail` — that would claim the reply lost a
+        // comparison never made. The verdict is a property of the run (it did not
+        // finish), not a lookup on the error type, so a new error type added
+        // later cannot be misfiled into a claim about the reply.
+        return { mode: 'regex', verdict: 'unevaluated', detail: describeRegexFailure(e) };
       }
       return {
         mode: 'regex',

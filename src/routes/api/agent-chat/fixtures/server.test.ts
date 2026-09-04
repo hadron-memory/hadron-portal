@@ -153,6 +153,43 @@ describe('POST /api/agent-chat/fixtures', () => {
     expect(body.fixtureLoc).toMatch(/^fixtures:[0-9a-f]+$/);
   });
 
+  // #808: a captured verdict becomes the fixture's baseline, and `unevaluated`
+  // is the absence of a verdict rather than one of its values. The page hides
+  // the save control in that state; this is the endpoint's own gate, because
+  // the page is not the only caller it can have.
+  it('400 when captured.verdict is unevaluated — a non-result cannot be a baseline', async () => {
+    mockResolveAgent();
+    const { POST } = await importHandlers();
+    const res = await POST(ev({
+      method: 'POST',
+      body: {
+        agentId: 'agent-aaa',
+        label: 'l',
+        turn: { user: 'x', persona: null, assertion: { mode: 'regex', pattern: 'hi', flags: '' } },
+        captured: { reply: 'Hi!', route: null, verdict: 'unevaluated' },
+      },
+    }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/captured\.verdict/);
+  });
+
+  it('still accepts a real captured verdict', async () => {
+    // The other direction — the gate must not reject the case it exists to let
+    // through, which is every ordinary save.
+    mockResolveAgent();
+    const { POST } = await importHandlers();
+    const res = await POST(ev({
+      method: 'POST',
+      body: {
+        agentId: 'agent-aaa',
+        label: 'l',
+        turn: { user: 'x', persona: null, assertion: { mode: 'regex', pattern: 'hi', flags: '' } },
+        captured: { reply: 'Hi!', route: null, verdict: 'pass' },
+      },
+    }));
+    expect(res.status).toBe(200);
+  });
+
   it('400 on FixtureValidationError (e.g. malformed regex)', async () => {
     mockResolveAgent();
     const { POST } = await importHandlers();
