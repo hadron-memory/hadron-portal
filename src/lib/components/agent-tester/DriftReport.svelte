@@ -110,8 +110,18 @@
             <!-- #808: no "Accept new baseline" for a run that produced no
                  verdict. The reply above is real and worth reading, but there
                  is no result to accept, and the endpoint refuses the write —
-                 offering the button would be offering a no-op. -->
-            {#if onacceptbaseline && r.drift.verdict !== 'unevaluated'}
+                 offering the button would be offering a no-op.
+
+                 Gated on `newVerdict`, NOT on `drift.verdict` (@codex, P2). The
+                 question this control asks is "is there a verdict to accept?",
+                 and only `newVerdict` answers it. `drift.verdict` answers a
+                 different one — "how does this compare to the baseline" — and
+                 it carries ONE value where two facts can be true at once: a
+                 fixture with no baseline whose assertion could not evaluate
+                 reports `no-baseline`, because that arm returns first. Reading
+                 drift here offered the button on exactly that fixture, and the
+                 endpoint then refused the write. -->
+            {#if onacceptbaseline && r.newVerdict !== 'unevaluated'}
               <button
                 type="button"
                 onclick={() => onacceptbaseline?.(r.fixtureLoc)}

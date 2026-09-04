@@ -221,6 +221,48 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     expect(body.results[0].baselineRefused).toBeUndefined();
   });
 
+  // @codex P2 on #812. `computeDrift` returns `no-baseline` before it looks at
+  // the verdict at all, so these two facts are simultaneously true and the
+  // drift field can carry only one of them. That is fine for drift — with no
+  // baseline there is genuinely nothing to compare — but it means `newVerdict`
+  // is the ONLY field that answers "did this run produce a verdict", and
+  // anything gating on that question has to read it. The UI was reading drift,
+  // and offered "Accept new baseline" on exactly this fixture.
+  it('an unevaluated run with no baseline: drift says no-baseline, newVerdict still says unevaluated', async () => {
+    setupChat({
+      nodes: [fixtureNode('fixtures:abc', {
+        assertionMode: 'llm-judge',
+        captureReply: null, captureVerdict: null,
+      })],
+    });
+    mockJudgeAgentReply.mockResolvedValueOnce({ score: null, rationale: 'judge unreachable' });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc' } }));
+    const body = await res.json();
+    expect(body.results[0].drift.verdict).toBe('no-baseline');
+    expect(body.results[0].newVerdict).toBe('unevaluated');
+    expect(body.summary.unevaluated).toBe(1);
+  });
+
+  it('and the baseline write is still refused in that case', async () => {
+    // The endpoint was already correct here — it gates on the verdict. Pinned
+    // so the server side cannot regress into agreeing with the old UI gate.
+    setupChat({
+      nodes: [fixtureNode('fixtures:abc', {
+        assertionMode: 'llm-judge',
+        captureReply: null, captureVerdict: null,
+      })],
+    });
+    mockJudgeAgentReply.mockResolvedValueOnce({ score: null, rationale: 'judge unreachable' });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: {
+      agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc', acceptNewBaseline: true,
+    } }));
+    const body = await res.json();
+    expect(mockRequest.mock.calls.some((c) => c[0] === UPDATE_NODE_MUTATION)).toBe(false);
+    expect(body.results[0].baselineRefused).toMatch(/no verdict/);
+  });
+
   it('no-baseline fixture: drift.verdict = "no-baseline"', async () => {
     setupChat({
       nodes: [fixtureNode('fixtures:abc', {
