@@ -25,7 +25,8 @@
 
   type AssertionResult = {
     mode: 'literal-contains' | 'regex' | 'llm-judge';
-    verdict: 'pass' | 'fail';
+    // #808: `unevaluated` = the assertion did not run. Not a pass, not a fail.
+    verdict: 'pass' | 'fail' | 'unevaluated';
     detail: string;
     judgeScore?: number | null;
     judgeRationale?: string;
@@ -48,13 +49,14 @@
     fixtureLoc: string;
     newReply: string;
     newRoute: { conversationLoc: string | null; stageLoc: string | null; personaName: string | null };
-    newVerdict: 'pass' | 'fail';
+    newVerdict: 'pass' | 'fail' | 'unevaluated';
     newDetail: string;
     drift: {
       reply: 'same' | 'different';
       route: 'same' | 'different';
-      verdict: 'still-passing' | 'still-failing' | 'newly-passing' | 'newly-failing' | 'no-baseline';
+      verdict: 'still-passing' | 'still-failing' | 'newly-passing' | 'newly-failing' | 'no-baseline' | 'unevaluated';
     };
+    baselineRefused?: string;
   };
 
   // Single-probe result + the assertion used (kept for "Save as fixture").
@@ -115,8 +117,16 @@
     }
   }
 
+  // #808: saving captures this probe's result as the fixture's BASELINE. An
+  // assertion that did not run produced no result, so there is nothing to
+  // baseline — saving anyway would freeze a transient worker or judge failure
+  // into the fixture as its expected behaviour, and every later replay would
+  // compare against it. The endpoint refuses this too; this is the reason the
+  // user gets to see, next to the control.
+  const canSaveFixture = $derived(result?.assertion?.verdict !== 'unevaluated');
+
   async function saveAsFixture() {
-    if (!result || !lastPayload || !saveLabel.trim()) return;
+    if (!result || !lastPayload || !saveLabel.trim() || !canSaveFixture) return;
     running = true;
     errorText = null;
     try {
@@ -305,23 +315,33 @@
         {/if}
         <RouteTrace trace={result.routeTrace} />
 
-        <div class="flex items-center gap-2 rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
-          <input
-            type="text"
-            bind:value={saveLabel}
-            placeholder={t('agent-tester.save.placeholder', 'Fixture label (e.g. welcome-greeting)')}
-            maxlength="80"
-            class="flex-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
-            disabled={running}
-          />
-          <button
-            type="button"
-            onclick={saveAsFixture}
-            disabled={!saveLabel.trim() || running}
-            class="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:disabled:bg-zinc-700"
-          >
-            {t('agent-tester.save.button', 'Save as fixture')}
-          </button>
+        <div class="rounded-md border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900">
+          <div class="flex items-center gap-2">
+            <input
+              type="text"
+              bind:value={saveLabel}
+              placeholder={t('agent-tester.save.placeholder', 'Fixture label (e.g. welcome-greeting)')}
+              maxlength="80"
+              class="min-w-0 flex-1 rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
+              disabled={running || !canSaveFixture}
+            />
+            <button
+              type="button"
+              onclick={saveAsFixture}
+              disabled={!saveLabel.trim() || running || !canSaveFixture}
+              class="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-zinc-300 dark:disabled:bg-zinc-700"
+            >
+              {t('agent-tester.save.button', 'Save as fixture')}
+            </button>
+          </div>
+          {#if !canSaveFixture}
+            <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+              {t(
+                'agent-tester.save.unevaluated',
+                'The assertion did not run, so this probe has no result to save as a baseline. Run it again.',
+              )}
+            </p>
+          {/if}
         </div>
       </section>
     {/if}

@@ -3,28 +3,51 @@
 
   interface AssertionResult {
     mode: 'literal-contains' | 'regex' | 'llm-judge';
-    verdict: 'pass' | 'fail';
+    verdict: 'pass' | 'fail' | 'unevaluated';
     detail: string;
     judgeScore?: number | null;
     judgeRationale?: string;
   }
 
   let { assertion }: { assertion: AssertionResult } = $props();
-  const passed = $derived(assertion.verdict === 'pass');
+
+  // #808: three states, and the old `passed ? green : red` is why this needed a
+  // shape change rather than a message change. Red is a claim about the agent's
+  // reply; an assertion that never ran has made no such claim, so it renders
+  // neutral — the same visual weight as "no answer", which is what it is.
+  const tone = $derived(
+    assertion.verdict === 'pass' ? 'pass' : assertion.verdict === 'fail' ? 'fail' : 'unevaluated',
+  );
+
+  const containerClass = $derived(
+    tone === 'pass'
+      ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950'
+      : tone === 'fail'
+        ? 'border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950'
+        : 'border-zinc-300 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900',
+  );
+
+  const badgeClass = $derived(
+    tone === 'pass'
+      ? 'bg-emerald-600 text-white'
+      : tone === 'fail'
+        ? 'bg-red-600 text-white'
+        : 'bg-zinc-500 text-white',
+  );
+
+  const badgeLabel = $derived(
+    tone === 'pass'
+      ? t('agent-tester.verdict.pass', 'Pass')
+      : tone === 'fail'
+        ? t('agent-tester.verdict.fail', 'Fail')
+        : t('agent-tester.verdict.unevaluated', 'Not evaluated'),
+  );
 </script>
 
-<div
-  class="rounded-md border p-3 text-sm {passed
-    ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-700 dark:bg-emerald-950'
-    : 'border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950'}"
->
+<div class="rounded-md border p-3 text-sm {containerClass}">
   <div class="flex items-center gap-2">
-    <span
-      class="rounded px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide {passed
-        ? 'bg-emerald-600 text-white'
-        : 'bg-red-600 text-white'}"
-    >
-      {passed ? t('agent-tester.verdict.pass', 'Pass') : t('agent-tester.verdict.fail', 'Fail')}
+    <span class="rounded px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide {badgeClass}">
+      {badgeLabel}
     </span>
     <span class="text-xs text-zinc-500 dark:text-zinc-400">
       {#if assertion.mode === 'literal-contains'}{t('agent-tester.assert.literal-contains', 'Literal contains')}{/if}
@@ -33,6 +56,14 @@
     </span>
   </div>
   <p class="mt-2 text-zinc-700 dark:text-zinc-300">{assertion.detail}</p>
+  {#if tone === 'unevaluated'}
+    <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+      {t(
+        'agent-tester.verdict.unevaluated-note',
+        'The assertion did not run, so this says nothing about the reply above — it is neither a pass nor a fail.',
+      )}
+    </p>
+  {/if}
   {#if assertion.mode === 'llm-judge' && assertion.judgeRationale}
     <details class="mt-2 text-xs">
       <summary class="cursor-pointer text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-300">

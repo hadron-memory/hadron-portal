@@ -39,6 +39,13 @@ export interface Turn {
   assertion: Assertion | null;
   capturedReply: string | null;
   capturedRoute: RouteTrace | null;
+  /**
+   * #808 note: the runtime `Verdict` union gained `unevaluated`, and this
+   * STORED type deliberately did not. A baseline is what the fixture is
+   * expected to do; "the assertion did not run" is not an expectation, so it
+   * has no persisted form. `null` here means no verdict was captured, which is
+   * a different fact (no run yet / probe-only) and stays that way.
+   */
   capturedVerdict: 'pass' | 'fail' | null;
   capturedAt: string | null;
 }

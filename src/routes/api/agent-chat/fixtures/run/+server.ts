@@ -18,7 +18,8 @@ import {
   type Assertion,
 } from '$lib/server/agent-tester/fixture-codec';
 import { judgeAgentReply, judgeVerdict } from '$lib/server/agent-tester/llm-judge';
-import { testRegexSafely, RegexTimeoutError } from '$lib/server/safe-regex';
+import { describeRegexFailure, type Verdict } from '$lib/server/agent-tester/verdict';
+import { testRegexSafely } from '$lib/server/safe-regex';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { Organization } from '$lib/types';
 import type { RequestHandler } from './$types';
@@ -129,12 +130,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // drift report is most valuable when every fixture is accounted
   // for, even those that errored.
   const results: Array<RunOneResult | RunErrorResult> = [];
-  let passed = 0, failed = 0, errored = 0;
+  // #808: `unevaluated` is counted on its own. Folding it into `failed` — which
+  // is what `else failed++` did — is the summary-line version of the same wrong
+  // claim: a run bar reading "3 failed" after three worker failures says the
+  // agent regressed on three fixtures when it was never measured on any.
+  let passed = 0, failed = 0, errored = 0, unevaluated = 0;
   for (const t of target) {
     let result: RunOneResult | RunErrorResult;
     try {
       result = await runOneFixture(locals.token, body.agentId, t);
-      if ((result as RunOneResult).newVerdict === 'pass') passed++; else failed++;
+      const v = (result as RunOneResult).newVerdict;
+      if (v === 'pass') passed++;
+      else if (v === 'fail') failed++;
+      else unevaluated++;
     } catch (e) {
       errored++;
       result = {
@@ -148,14 +156,25 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // when the run produced a real result (not an error).
     if (body.fixtureLoc && body.acceptNewBaseline && !('error' in result)) {
       const r = result as RunOneResult;
-      try {
-        await persistNewBaseline(locals.token, resolved.systemMemoryId, t.loc, t.record, {
-          reply: r.newReply, route: r.newRoute, verdict: r.newVerdict,
-        });
-      } catch {
-        // Persist failures don't change the drift report; surface
-        // only in logs (caller already has the new baseline in the
-        // response and can retry).
+      // #808: a baseline records what this fixture is EXPECTED to do, and an
+      // unevaluated run establishes no expectation. Writing it would bake a
+      // transient worker or judge failure into the fixture as its accepted
+      // behaviour, and the next replay would then compare against a non-result.
+      // The refusal is reported on the result rather than swallowed, so the
+      // caller does not read "accepted" into a button that did nothing.
+      if (r.newVerdict === 'unevaluated') {
+        // `r` is the object already pushed above, so this reaches the response.
+        r.baselineRefused = 'the assertion did not run, so there is no verdict to accept as a baseline';
+      } else {
+        try {
+          await persistNewBaseline(locals.token, resolved.systemMemoryId, t.loc, t.record, {
+            reply: r.newReply, route: r.newRoute, verdict: r.newVerdict,
+          });
+        } catch {
+          // Persist failures don't change the drift report; surface
+          // only in logs (caller already has the new baseline in the
+          // response and can retry).
+        }
       }
     }
   }
@@ -167,6 +186,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       passed,
       failed,
       errored,
+      unevaluated,
       estimatedCost: { currency: 'USD', amount: Number(estimatedCost.toFixed(2)) },
       exceededCap: estimatedCost > DEFAULT_COST_CAP_USD,
     },
@@ -213,13 +233,19 @@ interface RunOneResult {
   fixtureLoc: string;
   newReply: string;
   newRoute: RouteTrace;
-  newVerdict: 'pass' | 'fail';
+  newVerdict: Verdict;
   newDetail: string;
   drift: {
     reply: 'same' | 'different';
     route: 'same' | 'different';
-    verdict: 'still-passing' | 'still-failing' | 'newly-passing' | 'newly-failing' | 'no-baseline';
+    verdict: 'still-passing' | 'still-failing' | 'newly-passing' | 'newly-failing' | 'no-baseline' | 'unevaluated';
   };
+  /**
+   * #808: set only when `acceptNewBaseline` was requested and the run produced
+   * no verdict to baseline. Reported rather than skipped silently — the caller
+   * asked for a write and is entitled to know it did not happen.
+   */
+  baselineRefused?: string;
 }
 
 async function runOneFixture(
@@ -288,10 +314,16 @@ async function evaluateAssertion(
   reply: string,
   token: string,
   agentId: string,
-): Promise<{ verdict: 'pass' | 'fail'; detail: string }> {
+): Promise<{ verdict: Verdict; detail: string }> {
   // No assertion = the run is a probe; verdict is "pass" by convention
   // (we're just capturing baselines). The drift detector still compares
   // the reply against the captured one.
+  //
+  // #808 deliberately leaves this convention alone. It is not the defect that
+  // issue describes — nothing ran and lost here, because the fixture asserts
+  // nothing — and every probe-only fixture already on disk carries `pass` as
+  // its stored baseline, so re-reading it as `unevaluated` would report drift
+  // on fixtures nobody touched.
   if (!a) return { verdict: 'pass', detail: 'probe-only (no assertion)' };
   if (a.mode === 'literal-contains') {
     const pass = reply.includes(a.value);
@@ -303,10 +335,13 @@ async function evaluateAssertion(
     try {
       pass = await testRegexSafely(a.pattern, a.flags ?? '', reply);
     } catch (e) {
-      const why = e instanceof RegexTimeoutError
-        ? 'evaluation timed out (pattern too complex)'
-        : e instanceof Error ? e.message : 'invalid regex';
-      return { verdict: 'fail', detail: `regex ${why}` };
+      // #808: nothing reaching here produced a comparison, so none of it is a
+      // `fail`. This branch ALSO had the #807 fix missing — it never learned
+      // about RegexUnavailableError, so a worker that failed to start surfaced
+      // a raw internal message ("regex worker did not start within 5000ms") as
+      // a verdict about the user's agent. Both evaluators now share one
+      // description helper so they cannot drift apart again.
+      return { verdict: 'unevaluated', detail: describeRegexFailure(e) };
     }
     return { verdict: pass ? 'pass' : 'fail', detail: pass ? `matched /${a.pattern}/${a.flags ?? ''}` : `did not match /${a.pattern}/${a.flags ?? ''}` };
   }
@@ -319,7 +354,7 @@ function computeDrift(
   turn: FixtureRecord['turns'][number],
   newReply: string,
   newRoute: RouteTrace,
-  newVerdict: 'pass' | 'fail',
+  newVerdict: Verdict,
 ): RunOneResult['drift'] {
   if (turn.capturedAt === null) {
     return { reply: 'different', route: 'different', verdict: 'no-baseline' };
@@ -330,8 +365,21 @@ function computeDrift(
     turn.capturedRoute?.stageLoc === newRoute.stageLoc
       ? 'same' : 'different';
 
+  // #808: drift compares a baseline verdict against a NEW one, so an
+  // unevaluated run has nothing to compare and must say so.
+  //
+  // The trailing `else verdictDrift = 'newly-failing'` this replaces is the
+  // reason it needs its own state rather than a widened union alone: that
+  // branch was written for "the new verdict is fail", and it inherited
+  // "unevaluated" the moment the union grew. A user whose worker thread failed
+  // would have read `Newly failing` on a green fixture — a regression report
+  // manufactured out of a run that never happened.
+  //
+  // Reply and route drift are still computed and still meaningful: the chat
+  // turn itself ran fine, and only the assertion did not.
   let verdictDrift: RunOneResult['drift']['verdict'];
-  if (turn.capturedVerdict === 'pass' && newVerdict === 'pass') verdictDrift = 'still-passing';
+  if (newVerdict === 'unevaluated') verdictDrift = 'unevaluated';
+  else if (turn.capturedVerdict === 'pass' && newVerdict === 'pass') verdictDrift = 'still-passing';
   else if (turn.capturedVerdict === 'fail' && newVerdict === 'fail') verdictDrift = 'still-failing';
   else if (newVerdict === 'pass') verdictDrift = 'newly-passing';
   else verdictDrift = 'newly-failing';
@@ -346,6 +394,10 @@ async function persistNewBaseline(
   systemMemoryId: string,
   loc: string,
   record: FixtureRecord,
+  // #808: `Verdict` deliberately does NOT widen here. A stored baseline is an
+  // expectation, and `unevaluated` is the absence of one — so the narrower type
+  // is the guard: the caller has to rule it out before it can call this, and
+  // the compiler says so rather than a runtime check nobody reads.
   result: { reply: string; route: RouteTrace; verdict: 'pass' | 'fail' },
 ): Promise<void> {
   // hadron-server#460: the fixture node was just read to run it, so this is

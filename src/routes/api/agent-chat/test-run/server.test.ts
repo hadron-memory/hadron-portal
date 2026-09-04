@@ -14,10 +14,17 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
+import { RegexTimeoutError, RegexUnavailableError } from '$lib/server/safe-regex';
+import { __resetRateLimit } from '$lib/server/rate-limit';
 
 const mockRequest = vi.fn();
 const mockRunChatTurn = vi.fn();
 const mockJudgeAgentReply = vi.fn();
+// #808: the failure modes that produce `unevaluated` are only reachable by
+// overloading the host, which is how the wrong verdict stayed invisible. The
+// real implementation stays the default (so the pass/fail cases below still
+// exercise a real worker); individual tests override one call.
+const mockTestRegexSafely = vi.fn();
 
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
@@ -41,10 +48,33 @@ vi.mock('$lib/server/agent-tester/llm-judge', async () => {
   };
 });
 
-beforeEach(() => {
+vi.mock('$lib/server/safe-regex', async () => {
+  const actual = await vi.importActual<typeof import('$lib/server/safe-regex')>(
+    '$lib/server/safe-regex',
+  );
+  return {
+    ...actual,
+    testRegexSafely: (...args: unknown[]) => mockTestRegexSafely(...args),
+  };
+});
+
+beforeEach(async () => {
   mockRequest.mockReset();
   mockRunChatTurn.mockReset();
   mockJudgeAgentReply.mockReset();
+  // Same shared-budget hazard as the fixtures/run suite: #441's limiter is
+  // process-local and every case uses one token. This file's budget is 30/min
+  // and it has not tripped yet, which is exactly why it is worth resetting now
+  // rather than after the test that finally exceeds it.
+  __resetRateLimit();
+
+  const actual = await vi.importActual<typeof import('$lib/server/safe-regex')>(
+    '$lib/server/safe-regex',
+  );
+  mockTestRegexSafely.mockReset();
+  mockTestRegexSafely.mockImplementation(
+    (...args: Parameters<typeof actual.testRegexSafely>) => actual.testRegexSafely(...args),
+  );
 });
 
 async function importPOST() {
@@ -233,7 +263,11 @@ describe('POST /api/agent-chat/test-run', () => {
     expect(body.assertion.judgeRationale).toBe('satisfies');
   });
 
-  it('US2 llm-judge: fail (don\'t silently pass) when score is null', async () => {
+  // #808 — this case used to assert `fail`, on the reasoning that a judge
+  // failure must not silently pass. Half of that survives and is still pinned
+  // below: it is NOT a pass. What changed is that `fail` claimed the reply had
+  // been judged and fallen short, when no judge answer ever arrived.
+  it('US2 llm-judge: unevaluated (neither pass NOR fail) when score is null', async () => {
     mockHappyPath();
     mockJudgeAgentReply.mockResolvedValueOnce({ score: null, rationale: 'judge unreachable (timeout)' });
     const POST = await importPOST();
@@ -242,8 +276,62 @@ describe('POST /api/agent-chat/test-run', () => {
       assertion: { mode: 'llm-judge', criterion: 'Be welcoming', threshold: 0.7 },
     } }));
     const body = await res.json();
-    expect(body.assertion.verdict).toBe('fail');
+    expect(body.assertion.verdict).toBe('unevaluated');
+    // The original guarantee, kept explicit so a later edit cannot quietly
+    // restore fail-open behaviour under the new state's cover.
+    expect(body.assertion.verdict).not.toBe('pass');
     expect(body.assertion.judgeScore).toBeNull();
+  });
+
+  // ─── #808: a run that did not complete is not a verdict about the reply ───
+
+  it('regex: a worker that never starts is unevaluated, not fail', async () => {
+    mockHappyPath();
+    mockTestRegexSafely.mockRejectedValueOnce(
+      new RegexUnavailableError('regex worker did not start within 5000ms'),
+    );
+    const POST = await importPOST();
+    const res = await POST(ev({ body: {
+      agentId: 'a', message: 'hello',
+      assertion: { mode: 'regex', pattern: '^Hi', flags: '' },
+    } }));
+    const body = await res.json();
+    expect(body.assertion.verdict).toBe('unevaluated');
+    expect(body.assertion.detail).toContain('could not be evaluated');
+    // The detail must not blame the caller's pattern: a pattern pathological
+    // enough to kill the worker also arrives as RegexUnavailableError, so the
+    // #807 wording ("This is not a problem with your pattern") had a reachable
+    // counterexample.
+    expect(body.assertion.detail).not.toMatch(/not a problem with your pattern/i);
+  });
+
+  it('regex: a timed-out match is unevaluated — the reply was never compared', async () => {
+    mockHappyPath();
+    mockTestRegexSafely.mockRejectedValueOnce(new RegexTimeoutError('regex evaluation timed out'));
+    const POST = await importPOST();
+    const res = await POST(ev({ body: {
+      agentId: 'a', message: 'hello',
+      assertion: { mode: 'regex', pattern: '^Hi', flags: '' },
+    } }));
+    const body = await res.json();
+    // Goes beyond the issue's table on purpose. A timeout says the PATTERN is
+    // expensive; it says nothing about whether the reply matched, because the
+    // match never finished. `fail` would have claimed it did and lost.
+    expect(body.assertion.verdict).toBe('unevaluated');
+    expect(body.assertion.detail).toContain('did not finish within its time budget');
+  });
+
+  it('regex: a completed non-match is still a plain fail', async () => {
+    // The other direction. `unevaluated` must not swallow real failures — if it
+    // did, every assertion would stop being able to fail and the whole feature
+    // would go quiet.
+    mockHappyPath();
+    const POST = await importPOST();
+    const res = await POST(ev({ body: {
+      agentId: 'a', message: 'hello',
+      assertion: { mode: 'regex', pattern: '^Goodbye', flags: '' },
+    } }));
+    expect((await res.json()).assertion.verdict).toBe('fail');
   });
 
   it('US2 llm-judge: 400 on threshold outside [0,1]', async () => {

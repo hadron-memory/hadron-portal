@@ -11,10 +11,12 @@
  * a `respond` tool call.
  *
  * Single-shot, no retry: if the model returns non-JSON, the verdict
- * surfaces as `{ score: null, rationale: "judge unreachable …" }` so
- * the caller can render an explicit fail (not silent pass).
+ * surfaces as `{ score: null, rationale: "judge unreachable …" }`, which
+ * `judgeVerdict` maps to `unevaluated` — the judge produced no score, so
+ * there is nothing to compare against the threshold (#808).
  */
 import { generateText } from 'ai';
+import type { Verdict } from '$lib/server/agent-tester/verdict';
 import { fetchAgentAIConfig } from '$lib/server/llm/agentChatTurn.js';
 import { createLanguageModel } from '$lib/server/llm/agentChatLlm.js';
 
@@ -115,8 +117,8 @@ export interface JudgeAgentReplyArgs {
  * Run the LLM-judge against a captured reply.
  *
  * Returns a JudgeResult. Never throws — provider/network failures
- * surface as `{ score: null, rationale: "judge unreachable …" }` so
- * the caller can render a fail-open verdict.
+ * surface as `{ score: null, rationale: "judge unreachable …" }`, which the
+ * caller renders as `unevaluated` rather than as a verdict about the reply.
  */
 export async function judgeAgentReply(args: JudgeAgentReplyArgs): Promise<JudgeResult> {
   const { token, agentId, reply, criterion } = args;
@@ -142,15 +144,24 @@ export async function judgeAgentReply(args: JudgeAgentReplyArgs): Promise<JudgeR
  * Apply the user's threshold to a judge score.
  *
  * - `score >= threshold` → pass
- * - `score === null` → fail with the flagged rationale (don't silently pass
- *   on a judge failure — surface it so the user investigates)
+ * - `score < threshold` → fail
+ * - `score === null` → **unevaluated** (#808). A null score means the judge
+ *   never returned a usable answer — unreachable provider, unsupported model,
+ *   non-JSON response. There is no score to compare against the threshold, so
+ *   there is no verdict about the reply.
+ *
+ * This used to return `fail`, on the reasoning that a judge failure must not
+ * silently pass. That half was right and still holds: `unevaluated` is not a
+ * pass and the UI does not render it as one. What was wrong is the other half —
+ * `fail` says the reply was judged and fell short, which sends the user to
+ * investigate an agent that was never measured.
  */
 export function judgeVerdict(
   result: JudgeResult,
   threshold: number,
-): { verdict: 'pass' | 'fail'; detail: string } {
+): { verdict: Verdict; detail: string } {
   if (result.score === null) {
-    return { verdict: 'fail', detail: result.rationale };
+    return { verdict: 'unevaluated', detail: result.rationale };
   }
   const pass = result.score >= threshold;
   return {

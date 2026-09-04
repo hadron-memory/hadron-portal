@@ -5,13 +5,15 @@
     fixtureLoc: string;
     newReply: string;
     newRoute: { conversationLoc: string | null; stageLoc: string | null; personaName: string | null };
-    newVerdict: 'pass' | 'fail';
+    newVerdict: 'pass' | 'fail' | 'unevaluated';
     newDetail: string;
     drift: {
       reply: 'same' | 'different';
       route: 'same' | 'different';
-      verdict: 'still-passing' | 'still-failing' | 'newly-passing' | 'newly-failing' | 'no-baseline';
+      verdict: 'still-passing' | 'still-failing' | 'newly-passing' | 'newly-failing' | 'no-baseline' | 'unevaluated';
     };
+    /** #808: set when "Accept new baseline" was asked for and refused. */
+    baselineRefused?: string;
   }
 
   // Per PR #217 review (high-3): a single fixture's error MUST NOT
@@ -39,6 +41,10 @@
       case 'newly-passing': return t('agent-tester.drift.newly-passing', 'Newly passing');
       case 'newly-failing': return t('agent-tester.drift.newly-failing', 'Newly failing');
       case 'no-baseline':   return t('agent-tester.drift.no-baseline',   'No baseline');
+      // #808: not a drift direction — the replay produced no verdict, so
+      // whether it drifted is unknown. Worded as the absence it is, so it can't
+      // be read as a fifth kind of change.
+      case 'unevaluated':   return t('agent-tester.drift.unevaluated',   'Not evaluated');
     }
   }
 
@@ -49,6 +55,7 @@
       case 'newly-passing': return 'bg-emerald-200 text-emerald-800 ring-1 ring-emerald-400 dark:bg-emerald-800 dark:text-emerald-100';
       case 'newly-failing': return 'bg-red-200 text-red-800 ring-1 ring-red-400 dark:bg-red-800 dark:text-red-100';
       case 'no-baseline':   return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400';
+      case 'unevaluated':   return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400';
     }
   }
 </script>
@@ -99,7 +106,11 @@
               </summary>
               <pre class="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded-md bg-zinc-50 p-2 text-xs text-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">{r.newReply}</pre>
             </details>
-            {#if onacceptbaseline}
+            <!-- #808: no "Accept new baseline" for a run that produced no
+                 verdict. The reply above is real and worth reading, but there
+                 is no result to accept, and the endpoint refuses the write —
+                 offering the button would be offering a no-op. -->
+            {#if onacceptbaseline && r.drift.verdict !== 'unevaluated'}
               <button
                 type="button"
                 onclick={() => onacceptbaseline?.(r.fixtureLoc)}
@@ -107,7 +118,19 @@
               >
                 {t('agent-tester.drift.accept-baseline', 'Accept new baseline')}
               </button>
+            {:else if onacceptbaseline}
+              <p class="mt-2 text-[10px] text-zinc-500 dark:text-zinc-400">
+                {t(
+                  'agent-tester.drift.cannot-accept-baseline',
+                  'This run produced no verdict, so it cannot be accepted as a baseline. Run the fixture again.',
+                )}
+              </p>
             {/if}
+          {/if}
+          {#if r.baselineRefused}
+            <p class="mt-2 text-[10px] text-amber-700 dark:text-amber-300">
+              {t('agent-tester.drift.baseline-refused', 'Baseline not updated')}: {r.baselineRefused}
+            </p>
           {/if}
         {/if}
       </li>
