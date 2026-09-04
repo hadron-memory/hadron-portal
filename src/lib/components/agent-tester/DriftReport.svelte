@@ -1,16 +1,17 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
+  import type { DriftVerdict, Verdict } from '$lib/agent-tester/verdict-types';
 
   interface RunResult {
     fixtureLoc: string;
     newReply: string;
     newRoute: { conversationLoc: string | null; stageLoc: string | null; personaName: string | null };
-    newVerdict: 'pass' | 'fail' | 'unevaluated';
+    newVerdict: Verdict;
     newDetail: string;
     drift: {
       reply: 'same' | 'different';
       route: 'same' | 'different';
-      verdict: 'still-passing' | 'still-failing' | 'newly-passing' | 'newly-failing' | 'no-baseline' | 'unevaluated';
+      verdict: DriftVerdict;
     };
     /** #808: set when "Accept new baseline" was asked for and refused. */
     baselineRefused?: string;

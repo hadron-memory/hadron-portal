@@ -1,9 +1,10 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
+  import type { Verdict } from '$lib/agent-tester/verdict-types';
 
   interface AssertionResult {
     mode: 'literal-contains' | 'regex' | 'llm-judge';
-    verdict: 'pass' | 'fail' | 'unevaluated';
+    verdict: Verdict;
     detail: string;
     judgeScore?: number | null;
     judgeRationale?: string;
@@ -15,9 +16,21 @@
   // shape change rather than a message change. Red is a claim about the agent's
   // reply; an assertion that never ran has made no such claim, so it renders
   // neutral — the same visual weight as "no answer", which is what it is.
-  const tone = $derived(
-    assertion.verdict === 'pass' ? 'pass' : assertion.verdict === 'fail' ? 'fail' : 'unevaluated',
-  );
+  //
+  // A switch and NOT a ternary chain, deliberately. A ternary's final `else`
+  // silently adopts any member added to `Verdict` later — the exact defect this
+  // component is being fixed for, one level up. With no `default` and a return
+  // type that excludes undefined, a fourth verdict makes this fail to compile
+  // and forces a decision about which tone it gets. Verified by adding one.
+  type Tone = 'pass' | 'fail' | 'unevaluated';
+  function toneOf(v: Verdict): Tone {
+    switch (v) {
+      case 'pass': return 'pass';
+      case 'fail': return 'fail';
+      case 'unevaluated': return 'unevaluated';
+    }
+  }
+  const tone = $derived(toneOf(assertion.verdict));
 
   const containerClass = $derived(
     tone === 'pass'

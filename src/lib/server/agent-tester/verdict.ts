@@ -28,7 +28,11 @@
  */
 import { RegexInvalidError, RegexTimeoutError, RegexUnavailableError } from '$lib/server/safe-regex';
 
-export type Verdict = 'pass' | 'fail' | 'unevaluated';
+// The union itself lives in `$lib/agent-tester/verdict-types` so the RENDERERS
+// can import it too — they cannot reach into `$lib/server`, and before that
+// module each of them redeclared it as a string literal the compiler could not
+// connect to this one. Re-exported here so server-side callers have one import.
+export type { Verdict, StoredVerdict, DriftVerdict } from '$lib/agent-tester/verdict-types';
 
 /**
  * Explain a regex assertion that did not produce a verdict.

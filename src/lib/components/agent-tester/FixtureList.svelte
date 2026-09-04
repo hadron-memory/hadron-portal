@@ -1,12 +1,13 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
+  import type { StoredVerdict } from '$lib/agent-tester/verdict-types';
 
   interface FixtureSummary {
     id: string;
     loc: string;
     label: string;
     hasBaseline: boolean;
-    capturedVerdict: 'pass' | 'fail' | null;
+    capturedVerdict: StoredVerdict;
     capturedAt: string | null;
     assertionMode: 'literal-contains' | 'regex' | 'llm-judge' | null;
     updatedAt: string;

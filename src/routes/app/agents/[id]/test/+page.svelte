@@ -3,6 +3,7 @@
   import { marked } from 'marked';
   import { invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
+  import type { DriftVerdict, Verdict } from '$lib/agent-tester/verdict-types';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ProbeForm from '$lib/components/agent-tester/ProbeForm.svelte';
   import RouteTrace from '$lib/components/agent-tester/RouteTrace.svelte';
@@ -26,7 +27,7 @@
   type AssertionResult = {
     mode: 'literal-contains' | 'regex' | 'llm-judge';
     // #808: `unevaluated` = the assertion did not run. Not a pass, not a fail.
-    verdict: 'pass' | 'fail' | 'unevaluated';
+    verdict: Verdict;
     detail: string;
     judgeScore?: number | null;
     judgeRationale?: string;
@@ -49,12 +50,12 @@
     fixtureLoc: string;
     newReply: string;
     newRoute: { conversationLoc: string | null; stageLoc: string | null; personaName: string | null };
-    newVerdict: 'pass' | 'fail' | 'unevaluated';
+    newVerdict: Verdict;
     newDetail: string;
     drift: {
       reply: 'same' | 'different';
       route: 'same' | 'different';
-      verdict: 'still-passing' | 'still-failing' | 'newly-passing' | 'newly-failing' | 'no-baseline' | 'unevaluated';
+      verdict: DriftVerdict;
     };
     baselineRefused?: string;
   };
@@ -123,7 +124,15 @@
   // into the fixture as its expected behaviour, and every later replay would
   // compare against it. The endpoint refuses this too; this is the reason the
   // user gets to see, next to the control.
-  const canSaveFixture = $derived(result?.assertion?.verdict !== 'unevaluated');
+  //
+  // An ALLOWLIST, not `!== 'unevaluated'`. A denylist makes every verdict added
+  // later savable by default, and the default for a write guard should be to
+  // refuse. The endpoint's gate is an allowlist for the same reason.
+  const canSaveFixture = $derived(
+    result?.assertion == null
+      || result.assertion.verdict === 'pass'
+      || result.assertion.verdict === 'fail',
+  );
 
   async function saveAsFixture() {
     if (!result || !lastPayload || !saveLabel.trim() || !canSaveFixture) return;
