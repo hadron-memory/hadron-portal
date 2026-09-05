@@ -1,7 +1,7 @@
 /**
  * #707 — what each malware-scan state is allowed to say to a user.
  *
- * The states come from `cor:dmo:060:12`, and the distinction that matters here
+ * The states come from `hrn:node:hadronmemory.com:specs:cor:dmo:060:12`, and the distinction that matters here
  * is that **PENDING and BLOCKED are not the same kind of "no"**:
  *
  * - `PENDING` — *downloadable later*, explicitly not an error. The row is

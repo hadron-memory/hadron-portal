@@ -268,7 +268,11 @@
                   type="button"
                   onclick={() => attach(asset)}
                   disabled={attaching !== null || asset.scanStatus === 'BLOCKED'}
-                  title={asset.scanStatus === 'CLEAN' ? undefined : downloadTitle(asset.scanStatus)}
+                  title={asset.scanStatus === 'CLEAN'
+                    ? undefined
+                    : [downloadTitle(asset.scanStatus), scanSignatureText(asset.scanStatus, asset.scanSignature)]
+                        .filter(Boolean)
+                        .join(' · ')}
                   class="flex w-full items-center gap-2 rounded-md border border-zinc-200 px-2 py-1.5 text-left text-xs transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                 >
                   <span class="min-w-0 flex-1 truncate font-medium text-zinc-800 dark:text-zinc-100" title={asset.filename}>
@@ -285,7 +289,7 @@
                   {:else if asset.scanStatus === 'BLOCKED'}
                     <span class="shrink-0 text-red-600 dark:text-red-400">{scanLabel(asset.scanStatus)}</span>
                     {#if scanSignatureText(asset.scanStatus, asset.scanSignature)}
-                      <span class="shrink-0 truncate max-w-[160px] font-mono text-[10px] text-red-600 dark:text-red-400">
+                      <span class="shrink-0 break-all font-mono text-[10px] text-red-600 dark:text-red-400">
                         {scanSignatureText(asset.scanStatus, asset.scanSignature)}
                       </span>
                     {/if}

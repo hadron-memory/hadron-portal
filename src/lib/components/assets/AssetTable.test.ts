@@ -185,7 +185,7 @@ describe('AssetTable row rendering', () => {
 
 describe('AssetTable — scan verdicts (#707)', () => {
   it('renders the engine signature on a BLOCKED row', () => {
-    // cor:dmo:060:12 keeps the row precisely to carry this: the bytes are gone,
+    // hrn:node:hadronmemory.com:specs:cor:dmo:060:12 keeps the row precisely to carry this: the bytes are gone,
     // so the signature is the whole audit value of the tombstone.
     const body = render(AssetTable, {
       props: {

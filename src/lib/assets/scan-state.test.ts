@@ -3,7 +3,7 @@
  *
  * The defect these pin is that PENDING and BLOCKED shared one sentence,
  * *"Available once the malware scan passes"*, which is true of PENDING and
- * false of BLOCKED: `cor:dmo:060:12` makes BLOCKED terminal ("no later verdict
+ * false of BLOCKED: `hrn:node:hadronmemory.com:specs:cor:dmo:060:12` makes BLOCKED terminal ("no later verdict
  * may overwrite it") and deletes the bytes, so nothing the user waits for can
  * arrive.
  */

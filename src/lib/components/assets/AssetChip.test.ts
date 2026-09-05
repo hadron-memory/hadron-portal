@@ -78,6 +78,29 @@ describe('AssetChip scan state (#707)', () => {
     expect(visible).toContain('Eicar-Test-Signature');
   });
 
+  it('announces the signature once, not twice', () => {
+    // @codex round 4: the sr-only note and the visible span are both
+    // descendants of the button, so both join its accessible name. Keeping the
+    // signature in the note made a screen reader read it twice — the note now
+    // carries only the verdict, which the visible text cannot say.
+    const html = body({ scanStatus: 'BLOCKED', scanSignature: 'Eicar-Test-Signature' });
+    const srOnly = html.match(/<span class="sr-only">([\s\S]*?)<\/span>/)?.[1] ?? '';
+    expect(srOnly).toMatch(/final/i);
+    expect(srOnly).not.toContain('Eicar-Test-Signature');
+    // Exactly one copy in the rendered content.
+    expect(html.split('Eicar-Test-Signature').length - 1).toBe(2); // visible span + title
+  });
+
+  it('does not clip the signature', () => {
+    // Truncating puts a touch user back where they started: the only full copy
+    // would be a title they cannot open. Same mistake as the Scan column at 100px.
+    const html = body({ scanStatus: 'BLOCKED', scanSignature: 'Eicar-Test-Signature' });
+    expect(html).not.toMatch(/truncate[^"]*"[^>]*>\s*Signature:/);
+    const sigSpan = html.match(/<span class="([^"]*)"[^>]*>Signature: Eicar-Test-Signature<\/span>/)?.[1] ?? '';
+    expect(sigSpan).not.toContain('truncate');
+    expect(sigSpan).not.toMatch(/max-w-/);
+  });
+
   it('shows no signature for a blocked asset the scanner did not name', () => {
     const html = body({ scanStatus: 'BLOCKED', scanSignature: null });
     expect(html).toContain('Blocked');

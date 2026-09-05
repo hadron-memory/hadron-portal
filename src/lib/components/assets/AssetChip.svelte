@@ -31,12 +31,23 @@
   //
   // Null for CLEAN: there is nothing to explain, and putting "Download" on a
   // chip that does not always download would describe the wrong thing.
+  // The hover tooltip carries everything, because `title` does not contribute
+  // to the accessible name when the element already has content.
   const scanNote = $derived(
     asset.scanStatus === 'CLEAN'
       ? null
       : [downloadTitle(asset.scanStatus), scanSignatureText(asset.scanStatus, asset.scanSignature)]
           .filter(Boolean)
           .join(' · '),
+  );
+
+  // The sr-only note carries ONLY the verdict — never the signature (@codex,
+  // round 4). Both this span and the visible signature are descendants of the
+  // button, so both join its accessible name: leaving the signature in here
+  // made a screen reader read it twice, once for each copy. Visible text is the
+  // copy to keep; this adds what the visible text cannot say.
+  const scanVerdictNote = $derived(
+    asset.scanStatus === 'CLEAN' ? null : downloadTitle(asset.scanStatus),
   );
 
   // #707 (@codex, round 3): the signature is RENDERED, not just described.
@@ -71,13 +82,18 @@
     <span class="text-xs text-amber-600 dark:text-amber-400">{scanLabel(asset.scanStatus)}</span>
   {:else if asset.scanStatus === 'BLOCKED'}
     <span class="text-xs text-red-600 dark:text-red-400">{scanLabel(asset.scanStatus)}</span>
+    <!-- Not truncated (@codex, round 4): clipping the audit value puts a
+         sighted touch user back where they started, since the only full copy
+         would be a title they cannot open. Same mistake as the Scan column at
+         100px earlier in this PR. A blocked chip is rare, so letting it grow
+         costs nothing in the common case. -->
     {#if visibleSignature}
-      <span class="truncate max-w-[180px] font-mono text-[10px] text-red-600 dark:text-red-400">{visibleSignature}</span>
+      <span class="break-all font-mono text-[10px] text-red-600 dark:text-red-400">{visibleSignature}</span>
     {/if}
   {/if}
   <!-- The colour carries the state for sighted users and the word carries it for
        everyone; this carries the REASON, which colour cannot. -->
-  {#if scanNote}
-    <span class="sr-only">{scanNote}</span>
+  {#if scanVerdictNote}
+    <span class="sr-only">{scanVerdictNote}</span>
   {/if}
 </button>

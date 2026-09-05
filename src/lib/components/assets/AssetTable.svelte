@@ -326,7 +326,7 @@
         {scanLabel(row.scanStatus)}
       </span>
       <!-- #707: the signature is the whole reason the BLOCKED row is kept
-           (cor:dmo:060:12 — bytes deleted, row retained as the audit record).
+           (hrn:node:hadronmemory.com:specs:cor:dmo:060:12 — bytes deleted, row retained as the audit record).
            Absent, not "unknown", when the scanner named nothing.
            Resolved once into {@const} (@copilot): computing it per use invited
            the title and the text to drift apart. -->

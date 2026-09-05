@@ -54,7 +54,7 @@ export interface AssetSummary {
   scanStatus: ScanStatus;
   /**
    * #707: the scan engine's signature name (e.g. "Eicar-Test-Signature") for a
-   * BLOCKED asset — `cor:dmo:060:12` keeps the tombstone row precisely to carry
+   * BLOCKED asset — `hrn:node:hadronmemory.com:specs:cor:dmo:060:12` keeps the tombstone row precisely to carry
    * it, since the bytes are deleted.
    *
    * Null is NORMAL and means "no signature recorded", NOT "not blocked": it is

@@ -81,7 +81,7 @@
         {/if}
       </p>
       <!-- #707: what the file was blocked AS. The tombstone row exists to
-           carry this (cor:dmo:060:12); shown only when the scanner named it. -->
+           carry this (hrn:node:hadronmemory.com:specs:cor:dmo:060:12); shown only when the scanner named it. -->
       {#if signatureText}
         <p class="mt-1 font-mono text-xs text-red-700 dark:text-red-300">{signatureText}</p>
       {/if}
