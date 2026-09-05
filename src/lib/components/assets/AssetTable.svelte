@@ -24,7 +24,7 @@
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
-  import { downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
+  import { downloadAriaLabel, downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
   import { t } from '$lib/i18n/t';
   import {
     getAssetDownloadUrl,
@@ -362,7 +362,7 @@
             onclick={() => download(row)}
             disabled={busyAsset === row.id || row.scanStatus !== 'CLEAN'}
             title={downloadTitle(row.scanStatus)}
-            aria-label={t('assets.download.aria', 'Download {file}').replace('{file}', row.filename)}
+            aria-label={downloadAriaLabel(row.scanStatus, row.filename, row.scanSignature)}
             class="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
           >
             <Download class="size-4" />

@@ -38,6 +38,16 @@
           .filter(Boolean)
           .join(' · '),
   );
+
+  // #707 (@codex, round 3): the signature is RENDERED, not just described.
+  // A sighted touch user can neither hover a title nor hear an sr-only span,
+  // and in AgentAssetsList tapping the chip runs the download handler — so
+  // there was no gesture that revealed it. My earlier "the chip has no room"
+  // was overstated: this is non-null only for a BLOCKED asset, which is rare,
+  // so the cost is a wider chip in exactly the case worth widening for.
+  const visibleSignature = $derived(
+    scanSignatureText(asset.scanStatus, asset.scanSignature),
+  );
 </script>
 
 <!-- #707 (@codex, P2): the scan note sits on the BUTTON, not on an inner span.
@@ -61,6 +71,9 @@
     <span class="text-xs text-amber-600 dark:text-amber-400">{scanLabel(asset.scanStatus)}</span>
   {:else if asset.scanStatus === 'BLOCKED'}
     <span class="text-xs text-red-600 dark:text-red-400">{scanLabel(asset.scanStatus)}</span>
+    {#if visibleSignature}
+      <span class="truncate max-w-[180px] font-mono text-[10px] text-red-600 dark:text-red-400">{visibleSignature}</span>
+    {/if}
   {/if}
   <!-- The colour carries the state for sighted users and the word carries it for
        everyone; this carries the REASON, which colour cannot. -->

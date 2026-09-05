@@ -14,7 +14,7 @@
 <script lang="ts">
   import { Download, Link2 } from 'lucide-svelte';
   import { t } from '$lib/i18n/t';
-  import { downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
+  import { downloadAriaLabel, downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import { getAssetDownloadUrl, AssetUploadError, type AssetSummary } from '$lib/api/assetUpload';
 
@@ -96,7 +96,7 @@
         onclick={download}
         disabled={busy || asset.scanStatus !== 'CLEAN'}
         title={downloadTitle(asset.scanStatus)}
-        aria-label={t('assets.download.aria', 'Download {file}').replace('{file}', asset.filename)}
+        aria-label={downloadAriaLabel(asset.scanStatus, asset.filename, asset.scanSignature)}
         class="rounded-md border border-zinc-300 p-1.5 text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
       >
         <Download class="size-4" />

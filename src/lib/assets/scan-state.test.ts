@@ -8,7 +8,13 @@
  * arrive.
  */
 import { describe, expect, it } from 'vitest';
-import { downloadTitle, scanLabel, scanSignatureText, type ScanStatus } from './scan-state';
+import {
+  downloadAriaLabel,
+  downloadTitle,
+  scanLabel,
+  scanSignatureText,
+  type ScanStatus,
+} from './scan-state';
 
 const ALL: ScanStatus[] = ['CLEAN', 'PENDING', 'BLOCKED'];
 
@@ -81,5 +87,50 @@ describe('scanLabel', () => {
   it('labels each state distinctly', () => {
     expect(new Set(ALL.map(scanLabel)).size).toBe(ALL.length);
     expect(scanLabel('BLOCKED')).toBe('Blocked');
+  });
+});
+
+describe('downloadAriaLabel', () => {
+  // @codex on #814: a disabled download button announced "Download notes.md"
+  // while its reason lived only in `title`, so the fix for pointer users left
+  // keyboard and screen-reader users with the same misleading affordance.
+  it('names only the action for a clean asset', () => {
+    expect(downloadAriaLabel('CLEAN', 'notes.md')).toBe('Download notes.md');
+  });
+
+  it('carries the reason for a pending asset', () => {
+    const label = downloadAriaLabel('PENDING', 'notes.md');
+    expect(label).toContain('notes.md');
+    expect(label).toMatch(/only if it passes/i);
+  });
+
+  it('carries the reason AND the signature for a blocked asset', () => {
+    const label = downloadAriaLabel('BLOCKED', 'notes.md', 'Eicar-Test-Signature');
+    expect(label).toMatch(/final/i);
+    expect(label).toContain('Eicar-Test-Signature');
+  });
+
+  it.each(['BLOCKED', 'PENDING'] as const)(
+    'joins %s cleanly — no doubled period a screen reader reads as a stutter',
+    (status) => {
+      // The real defect, and the one my first pass missed: I asserted `. .` only
+      // on the no-signature branch, where the join never runs. Both branches
+      // that DO join are checked now.
+      for (const sig of ['Eicar-Test-Signature', null]) {
+        const label = downloadAriaLabel(status, 'notes.md', sig);
+        expect(label).not.toMatch(/\.\s*\./);
+        expect(label.trim()).toBe(label);
+      }
+    },
+  );
+
+  it('omits an absent signature without leaving an empty joined segment', () => {
+    // The defect shape is a `. .` from joining an empty piece, not a trailing
+    // period — the last sentence is meant to end in one. My first version of
+    // this assertion rejected both and failed on correct output.
+    const label = downloadAriaLabel('BLOCKED', 'notes.md', null);
+    expect(label).not.toMatch(/\.\s*\./);
+    expect(label).not.toContain('Signature:');
+    expect(label.trim()).toBe(label);
   });
 });

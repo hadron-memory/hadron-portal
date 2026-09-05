@@ -59,6 +59,33 @@ export function scanLabel(status: ScanStatus): string {
 }
 
 /**
+ * Accessible name for a download control.
+ *
+ * A disabled download button announced "Download notes.md" while its reason for
+ * being disabled lived only in `title` — so the fix for pointer users left
+ * keyboard and screen-reader users with the same misleading affordance the
+ * change set out to remove (@codex on #814). The reason belongs in the
+ * accessible name, which is the only channel guaranteed to reach them.
+ */
+export function downloadAriaLabel(
+  status: ScanStatus,
+  filename: string,
+  signature: string | null = null,
+): string {
+  const base = t('assets.download.aria', 'Download {file}').replace('{file}', filename);
+  if (status === 'CLEAN') return base;
+  // Sentence-join, not `join('. ')`. Some pieces already end in a period and
+  // some do not, so a fixed separator produced "…cannot be downloaded.. Signature:"
+  // — which a screen reader reads as a stutter. Found by reading the rendered
+  // aria-label in the running app; the unit test that checks for `. .` was only
+  // exercising the branch with no signature, where the join never happens.
+  return [base, downloadTitle(status), scanSignatureText(status, signature)]
+    .filter((part): part is string => Boolean(part))
+    .map((part) => (part.trimEnd().endsWith('.') ? part.trimEnd() : `${part.trimEnd()}.`))
+    .join(' ');
+}
+
+/**
  * The signature line for a BLOCKED asset, or null when there is nothing to say.
  *
  * Deliberately returns null rather than a placeholder for a blocked row the

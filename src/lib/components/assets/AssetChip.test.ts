@@ -67,6 +67,17 @@ describe('AssetChip scan state (#707)', () => {
     expect(html).not.toMatch(/malware scan/i);
   });
 
+  it('renders the signature VISIBLY, not only in a tooltip or sr-only text', () => {
+    // @codex round 3: a sighted touch user can neither hover a title nor hear
+    // an sr-only span, and in AgentAssetsList tapping the chip runs download —
+    // so no gesture revealed it. Strip the sr-only span and the title, and the
+    // signature must STILL be in the visible markup.
+    const html = body({ scanStatus: 'BLOCKED', scanSignature: 'Eicar-Test-Signature' });
+    const withoutSrOnly = html.replace(/<span class="sr-only">[\s\S]*?<\/span>/g, '');
+    const visible = withoutSrOnly.replace(/title="[^"]*"/g, '');
+    expect(visible).toContain('Eicar-Test-Signature');
+  });
+
   it('shows no signature for a blocked asset the scanner did not name', () => {
     const html = body({ scanStatus: 'BLOCKED', scanSignature: null });
     expect(html).toContain('Blocked');
