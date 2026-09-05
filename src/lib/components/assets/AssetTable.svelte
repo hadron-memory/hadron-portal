@@ -24,6 +24,7 @@
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
+  import { downloadAriaLabel, downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
   import { t } from '$lib/i18n/t';
   import {
     getAssetDownloadUrl,
@@ -62,6 +63,8 @@
     mimeType: string;
     sizeBytes: number;
     scanStatus: AssetSummary['scanStatus'];
+    /** #707: engine signature on a BLOCKED tombstone; null otherwise. */
+    scanSignature: string | null;
     memory: string;
     /** Full memory URN; null when the asset urn didn't parse. */
     memoryUrn: string | null;
@@ -122,6 +125,7 @@
         mimeType: a.mimeType,
         sizeBytes: a.sizeBytes,
         scanStatus: a.scanStatus,
+        scanSignature: a.scanSignature,
         // The memory's URN, derived from the ASSET's own urn. `Asset` has no
         // `memory` relation, so the alternative was a raw cuid — and the
         // derivation needs no query at all. Falls back to the id only when the
@@ -174,7 +178,10 @@
     { accessorKey: 'mimeType', header: t('assets.column.type', 'Type'), size: 150 },
     // Numeric accessor so Size sorts by bytes, not by the rendered "9.9 KB".
     { accessorFn: (row) => row.sizeBytes, id: 'size', header: t('assets.column.size', 'Size'), size: 90 },
-    { accessorKey: 'scanStatus', header: t('assets.column.scan', 'Scan'), size: 100 },
+    // #707: wide enough for the signature line a BLOCKED tombstone now carries.
+    // At the old 100px it rendered as "Signature:…" — present in the DOM and
+    // useless on screen, which is not the same as surfacing it.
+    { accessorKey: 'scanStatus', header: t('assets.column.scan', 'Scan'), size: 190 },
     ...(showMemoryColumn
       ? [{ accessorKey: 'memory', header: t('assets.column.memory', 'Memory'), size: 180 } as PortalColumnDef<AssetRow>]
       : []),
@@ -259,11 +266,6 @@
     PENDING: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
     BLOCKED: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
   };
-  const scanLabel: Record<AssetSummary['scanStatus'], string> = {
-    CLEAN: t('assets.scan.clean', 'Clean'),
-    PENDING: t('assets.scan.pending', 'Scanning'),
-    BLOCKED: t('assets.scan.blocked', 'Blocked'),
-  };
 </script>
 
 {#if error}
@@ -319,9 +321,21 @@
     {:else if cell.column.id === 'size'}
       <span class="whitespace-nowrap tabular-nums">{fmtSize(row.sizeBytes)}</span>
     {:else if cell.column.id === 'scanStatus'}
+      {@const signatureText = scanSignatureText(row.scanStatus, row.scanSignature)}
       <span class="rounded-full px-2 py-0.5 text-xs font-medium {scanChipClass[row.scanStatus]}">
-        {scanLabel[row.scanStatus]}
+        {scanLabel(row.scanStatus)}
       </span>
+      <!-- #707: the signature is the whole reason the BLOCKED row is kept
+           (hrn:node:hadronmemory.com:specs:cor:dmo:060:12 — bytes deleted, row retained as the audit record).
+           Absent, not "unknown", when the scanner named nothing.
+           Resolved once into {@const} (@copilot): computing it per use invited
+           the title and the text to drift apart. -->
+      {#if signatureText}
+        <span class="mt-0.5 block break-words font-mono text-[10px] leading-tight text-red-700 dark:text-red-300"
+              title={signatureText}>
+          {signatureText}
+        </span>
+      {/if}
     {:else if cell.column.id === 'uploaded'}
       <span class="whitespace-nowrap">{row.uploaded}</span>
     {:else if cell.column.id === 'actions'}
@@ -347,10 +361,8 @@
             type="button"
             onclick={() => download(row)}
             disabled={busyAsset === row.id || row.scanStatus !== 'CLEAN'}
-            title={row.scanStatus === 'CLEAN'
-              ? t('assets.download', 'Download')
-              : t('assets.download.unavailable', 'Available once the malware scan passes')}
-            aria-label={t('assets.download.aria', 'Download {file}').replace('{file}', row.filename)}
+            title={downloadTitle(row.scanStatus)}
+            aria-label={downloadAriaLabel(row.scanStatus, row.filename, row.scanSignature)}
             class="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
           >
             <Download class="size-4" />

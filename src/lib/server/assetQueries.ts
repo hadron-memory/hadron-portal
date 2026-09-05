@@ -22,6 +22,13 @@ export const ASSET_FIELDS = /* GraphQL */ `
     uploadedAt
     uploadedBy
     scanStatus
+    # #707: the engine's signature name for a BLOCKED asset (hrn:node:hadronmemory.com:specs:cor:dmo:060:12).
+    # BLOCKED is a terminal tombstone — the row is KEPT as the audit record and
+    # the bytes are deleted — and the signature is the only thing on it that
+    # says WHAT it was blocked as. Null for every other status, and null on a
+    # BLOCKED row the scanner named nothing for, so a reader must treat its
+    # absence as normal rather than as a missing verdict.
+    scanSignature
     description
     publicUrl
   }

@@ -9,6 +9,7 @@
     type AssetSummary,
   } from '$lib/api/assetUpload';
   import AssetChip from './AssetChip.svelte';
+  import { downloadAriaLabel, downloadTitle } from '$lib/assets/scan-state';
 
   interface Props {
     // v2 (spec 006-asset-upload-redesign): memoryId replaces agentUrn.
@@ -100,7 +101,8 @@
             class="rounded p-1 text-zinc-500 hover:bg-zinc-100 disabled:opacity-50 dark:hover:bg-zinc-700"
             onclick={() => download(asset)}
             disabled={busyAsset === asset.id || asset.scanStatus !== 'CLEAN'}
-            title="Download"
+            title={downloadTitle(asset.scanStatus)}
+            aria-label={downloadAriaLabel(asset.scanStatus, asset.filename, asset.scanSignature)}
           >
             <Download class="size-4" />
           </button>

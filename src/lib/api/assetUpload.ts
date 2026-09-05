@@ -2,6 +2,8 @@
 // round-trip so callers (paperclip composer, agent-initiated picker) deal
 // with one promise and one progress callback.
 
+import type { ScanStatus } from '$lib/assets/scan-state';
+
 export type AssetUploadIntent = 'USER' | 'AGENT_REQUEST';
 
 // v2 (spec 006-asset-upload-redesign): memoryId replaces agentUrn as the
@@ -47,7 +49,19 @@ export interface AssetSummary {
    * undownloadable by everyone; the gate is the holding memory's read access now.
    */
   uploadedBy: string | null;
-  scanStatus: 'PENDING' | 'CLEAN' | 'BLOCKED';
+  // The union lives in $lib/assets/scan-state, beside the per-state copy that
+  // has to stay exhaustive over it.
+  scanStatus: ScanStatus;
+  /**
+   * #707: the scan engine's signature name (e.g. "Eicar-Test-Signature") for a
+   * BLOCKED asset — `hrn:node:hadronmemory.com:specs:cor:dmo:060:12` keeps the tombstone row precisely to carry
+   * it, since the bytes are deleted.
+   *
+   * Null is NORMAL and means "no signature recorded", NOT "not blocked": it is
+   * null for CLEAN and PENDING rows, and may be null on a BLOCKED one. Never
+   * infer the status from it — read `scanStatus`.
+   */
+  scanSignature: string | null;
   description: string | null;
   /**
    * Stable UNAUTHENTICATED hotlink (`GET /assets/<id>`). Anyone holding this URL
