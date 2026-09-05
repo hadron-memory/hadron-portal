@@ -273,29 +273,37 @@
                     : [downloadTitle(asset.scanStatus), scanSignatureText(asset.scanStatus, asset.scanSignature)]
                         .filter(Boolean)
                         .join(' · ')}
-                  class="flex w-full items-center gap-2 rounded-md border border-zinc-200 px-2 py-1.5 text-left text-xs transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  class="flex w-full flex-col gap-0.5 rounded-md border border-zinc-200 px-2 py-1.5 text-left text-xs transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
                 >
-                  <span class="min-w-0 flex-1 truncate font-medium text-zinc-800 dark:text-zinc-100" title={asset.filename}>
-                    {asset.filename}
-                  </span>
-                  <span class="shrink-0 tabular-nums text-zinc-500">{fmtSize(asset.sizeBytes)}</span>
-                  <!-- #707 (@codex, round 3): the picker was the one scan surface
-                       the sweep missed. The field is fetched for every row here, so
-                       a blocked file was disabled with no reason given and no
-                       signature — the audit detail the table, card and chip all
-                       show. Same helpers, so it stays status-gated. -->
-                  {#if asset.scanStatus === 'PENDING'}
-                    <span class="shrink-0 text-amber-600 dark:text-amber-400">{scanLabel(asset.scanStatus)}</span>
-                  {:else if asset.scanStatus === 'BLOCKED'}
-                    <span class="shrink-0 text-red-600 dark:text-red-400">{scanLabel(asset.scanStatus)}</span>
-                    {#if scanSignatureText(asset.scanStatus, asset.scanSignature)}
-                      <span class="min-w-0 break-all font-mono text-[10px] text-red-600 dark:text-red-400">
-                        {scanSignatureText(asset.scanStatus, asset.scanSignature)}
-                      </span>
+                  <span class="flex w-full items-center gap-2">
+                    <span class="min-w-0 flex-1 truncate font-medium text-zinc-800 dark:text-zinc-100" title={asset.filename}>
+                      {asset.filename}
+                    </span>
+                    <span class="shrink-0 tabular-nums text-zinc-500">{fmtSize(asset.sizeBytes)}</span>
+                    <!-- #707 (@codex, round 3): the picker was the one scan surface
+                         the sweep missed. The field is fetched for every row here, so
+                         a blocked file was disabled with no reason given and no
+                         signature — the audit detail the table, card and chip all
+                         show. Same helpers, so it stays status-gated. -->
+                    {#if asset.scanStatus === 'PENDING'}
+                      <span class="shrink-0 text-amber-600 dark:text-amber-400">{scanLabel(asset.scanStatus)}</span>
+                    {:else if asset.scanStatus === 'BLOCKED'}
+                      <span class="shrink-0 text-red-600 dark:text-red-400">{scanLabel(asset.scanStatus)}</span>
                     {/if}
-                  {/if}
-                  {#if attaching === asset.id}
-                    <span class="shrink-0 text-zinc-500">{t('attach-asset.attaching', 'Attaching…')}</span>
+                    {#if attaching === asset.id}
+                      <span class="shrink-0 text-zinc-500">{t('attach-asset.attaching', 'Attaching…')}</span>
+                    {/if}
+                  </span>
+                  <!-- On its OWN LINE (@codex, round 7). Inline, this span had an
+                       auto basis from the full signature while the filename used
+                       flex-1 (basis 0), so negative-space distribution shrank the
+                       FILENAME toward zero and left a blocked row the reader could
+                       not identify. A separate line reserves the filename's width
+                       and still lets the signature wrap. -->
+                  {#if scanSignatureText(asset.scanStatus, asset.scanSignature)}
+                    <span class="w-full break-all font-mono text-[10px] text-red-600 dark:text-red-400">
+                      {scanSignatureText(asset.scanStatus, asset.scanSignature)}
+                    </span>
                   {/if}
                 </button>
               </li>

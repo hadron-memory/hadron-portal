@@ -62,3 +62,21 @@ describe.each(RENDER_SITES)('scan signature layout — $file', ({ file, marker }
     expect(classes).not.toMatch(/\bshrink-0\b/);
   });
 });
+
+describe('AttachAssetDialog — the signature must not starve the filename', () => {
+  // @codex round 7: inline, the signature span had an auto basis derived from
+  // its full content while the filename sibling used `flex-1` (basis 0). Under
+  // negative-space distribution that shrinks the FILENAME toward zero, leaving a
+  // blocked row the reader cannot identify — the opposite of the goal.
+  //
+  // The generic assertions above all passed on the broken version, because
+  // nothing about wrap/clip/shrink was wrong. `w-full` is the own-line marker.
+  it('renders the signature on its own full-width line', () => {
+    const src = readFileSync('src/lib/components/assets/AttachAssetDialog.svelte', 'utf8');
+    const classes = signatureClasses(
+      src,
+      /\{scanSignatureText\(asset\.scanStatus, asset\.scanSignature\)\}/,
+    );
+    expect(classes).toMatch(/\bw-full\b/);
+  });
+});
