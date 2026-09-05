@@ -14,6 +14,7 @@
 <script lang="ts">
   import { Download, Link2 } from 'lucide-svelte';
   import { t } from '$lib/i18n/t';
+  import { downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import { getAssetDownloadUrl, AssetUploadError, type AssetSummary } from '$lib/api/assetUpload';
 
@@ -21,6 +22,9 @@
     asset: AssetSummary;
   }
   let { asset }: Props = $props();
+
+  // #707: null unless this is a BLOCKED row the scanner actually named.
+  const signatureText = $derived(scanSignatureText(asset.scanStatus, asset.scanSignature));
 
   let busy = $state(false);
   let error = $state<string | null>(null);
@@ -71,11 +75,16 @@
         <span class="font-mono">{asset.mimeType}</span>
         &middot; {fmtSize(asset.sizeBytes)}
         {#if asset.scanStatus === 'PENDING'}
-          &middot; <span class="text-amber-600 dark:text-amber-400">{t('assets.scan.pending', 'Scanning')}</span>
+          &middot; <span class="text-amber-600 dark:text-amber-400">{scanLabel(asset.scanStatus)}</span>
         {:else if asset.scanStatus === 'BLOCKED'}
-          &middot; <span class="text-red-600 dark:text-red-400">{t('assets.scan.blocked', 'Blocked')}</span>
+          &middot; <span class="text-red-600 dark:text-red-400">{scanLabel(asset.scanStatus)}</span>
         {/if}
       </p>
+      <!-- #707: what the file was blocked AS. The tombstone row exists to
+           carry this (cor:dmo:060:12); shown only when the scanner named it. -->
+      {#if signatureText}
+        <p class="mt-1 font-mono text-xs text-red-700 dark:text-red-300">{signatureText}</p>
+      {/if}
       {#if asset.description}
         <p class="mt-1 text-xs text-zinc-500">{asset.description}</p>
       {/if}
@@ -86,9 +95,7 @@
         type="button"
         onclick={download}
         disabled={busy || asset.scanStatus !== 'CLEAN'}
-        title={asset.scanStatus === 'CLEAN'
-          ? t('assets.download', 'Download')
-          : t('assets.download.unavailable', 'Available once the malware scan passes')}
+        title={downloadTitle(asset.scanStatus)}
         aria-label={t('assets.download.aria', 'Download {file}').replace('{file}', asset.filename)}
         class="rounded-md border border-zinc-300 p-1.5 text-zinc-600 hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
       >

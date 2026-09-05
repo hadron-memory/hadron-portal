@@ -29,6 +29,7 @@ function asset(over: Partial<AssetSummary> = {}): AssetSummary {
     uploadedAt: '2026-08-01T10:00:00.000Z',
     uploadedBy: 'user-1',
     scanStatus: 'CLEAN',
+    scanSignature: null,
     description: null,
     publicUrl: null,
     ...over,
@@ -177,5 +178,46 @@ describe('AssetTable row rendering', () => {
 
   it('renders the hotlink control when there is a publicUrl', () => {
     expect(body([asset({ publicUrl: 'https://x/assets/asset-1' })])).toContain('Copy public link');
+  });
+});
+
+// ─── #707: the BLOCKED tombstone's signature ────────────────────────────────
+
+describe('AssetTable — scan verdicts (#707)', () => {
+  it('renders the engine signature on a BLOCKED row', () => {
+    // cor:dmo:060:12 keeps the row precisely to carry this: the bytes are gone,
+    // so the signature is the whole audit value of the tombstone.
+    const body = render(AssetTable, {
+      props: {
+        assets: [asset({ scanStatus: 'BLOCKED', scanSignature: 'Eicar-Test-Signature' })],
+      },
+    }).body;
+    expect(body).toContain('Blocked');
+    expect(body).toContain('Eicar-Test-Signature');
+  });
+
+  it('does not tell the reader a BLOCKED file will become available', () => {
+    // The defect: one download tooltip served PENDING and BLOCKED, promising
+    // "Available once the malware scan passes" for a terminal verdict.
+    const body = render(AssetTable, {
+      props: { assets: [asset({ scanStatus: 'BLOCKED', scanSignature: 'X' })] },
+    }).body;
+    expect(body).not.toMatch(/once the malware scan/i);
+  });
+
+  it('still tells the reader a PENDING file is coming', () => {
+    // The other direction — PENDING genuinely is retried indefinitely, so the
+    // fix must not strip the one state where "wait" is true advice.
+    const body = render(AssetTable, {
+      props: { assets: [asset({ scanStatus: 'PENDING' })] },
+    }).body;
+    expect(body).toMatch(/once the malware scan finishes/i);
+  });
+
+  it('shows no signature line for a CLEAN row', () => {
+    const body = render(AssetTable, {
+      props: { assets: [asset({ scanStatus: 'CLEAN', scanSignature: null })] },
+    }).body;
+    expect(body).not.toContain('Signature:');
   });
 });
