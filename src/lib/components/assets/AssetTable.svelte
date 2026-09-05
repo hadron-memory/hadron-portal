@@ -321,16 +321,19 @@
     {:else if cell.column.id === 'size'}
       <span class="whitespace-nowrap tabular-nums">{fmtSize(row.sizeBytes)}</span>
     {:else if cell.column.id === 'scanStatus'}
+      {@const signatureText = scanSignatureText(row.scanStatus, row.scanSignature)}
       <span class="rounded-full px-2 py-0.5 text-xs font-medium {scanChipClass[row.scanStatus]}">
         {scanLabel(row.scanStatus)}
       </span>
       <!-- #707: the signature is the whole reason the BLOCKED row is kept
            (cor:dmo:060:12 — bytes deleted, row retained as the audit record).
-           Absent, not "unknown", when the scanner named nothing. -->
-      {#if scanSignatureText(row.scanStatus, row.scanSignature)}
+           Absent, not "unknown", when the scanner named nothing.
+           Resolved once into {@const} (@copilot): computing it per use invited
+           the title and the text to drift apart. -->
+      {#if signatureText}
         <span class="mt-0.5 block break-words font-mono text-[10px] leading-tight text-red-700 dark:text-red-300"
-              title={scanSignatureText(row.scanStatus, row.scanSignature)}>
-          {scanSignatureText(row.scanStatus, row.scanSignature)}
+              title={signatureText}>
+          {signatureText}
         </span>
       {/if}
     {:else if cell.column.id === 'uploaded'}

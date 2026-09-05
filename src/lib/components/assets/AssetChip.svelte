@@ -1,7 +1,6 @@
 <script lang="ts">
   import { FileText, Image, File } from 'lucide-svelte';
   import type { AssetSummary } from '$lib/api/assetUpload';
-  import { t } from '$lib/i18n/t';
   import { downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
 
   interface Props {

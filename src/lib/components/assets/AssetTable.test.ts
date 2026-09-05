@@ -205,13 +205,16 @@ describe('AssetTable — scan verdicts (#707)', () => {
     expect(body).not.toMatch(/once the malware scan/i);
   });
 
-  it('still tells the reader a PENDING file is coming', () => {
-    // The other direction — PENDING genuinely is retried indefinitely, so the
-    // fix must not strip the one state where "wait" is true advice.
+  it('tells the reader a PENDING file is unsettled, without promising it arrives', () => {
+    // The other direction — PENDING must stay distinguishable from BLOCKED, so
+    // the fix cannot flatten them. But it must not promise the file is coming
+    // either: a pending scan can finish BLOCKED (@codex P2).
     const body = render(AssetTable, {
       props: { assets: [asset({ scanStatus: 'PENDING' })] },
     }).body;
-    expect(body).toMatch(/once the malware scan finishes/i);
+    expect(body).toMatch(/has not finished/i);
+    expect(body).toMatch(/only if it passes/i);
+    expect(body).not.toMatch(/once the malware scan/i);
   });
 
   it('shows no signature line for a CLEAN row', () => {

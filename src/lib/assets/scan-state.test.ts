@@ -13,8 +13,31 @@ import { downloadTitle, scanLabel, scanSignatureText, type ScanStatus } from './
 const ALL: ScanStatus[] = ['CLEAN', 'PENDING', 'BLOCKED'];
 
 describe('downloadTitle', () => {
-  it('promises later availability for PENDING, which is retried indefinitely', () => {
-    expect(downloadTitle('PENDING')).toMatch(/once the malware scan finishes/i);
+  // @codex P2 on #814. This spot has now had three wordings and the first two
+  // were both promises:
+  //
+  //   "Available once the malware scan passes"   → false for BLOCKED
+  //   "Available once the malware scan finishes" → false for a PENDING row that
+  //                                                finishes BLOCKED
+  //
+  // A pending scan's completion is not the same event as its success, and only
+  // the second makes the file downloadable. So PENDING may say the scan is
+  // unsettled and that availability DEPENDS on the verdict — never that the
+  // file is coming.
+  it('PENDING states the scan is unfinished without promising the file arrives', () => {
+    const title = downloadTitle('PENDING');
+    expect(title).toMatch(/has not finished/i);
+    expect(title).toMatch(/only if it passes/i);
+  });
+
+  it('PENDING does not promise availability on the scan merely COMPLETING', () => {
+    const title = downloadTitle('PENDING');
+    // Both retired wordings, kept as explicit counterexamples so a later edit
+    // cannot reintroduce either without turning this red.
+    expect(title).not.toMatch(/once the malware scan finishes/i);
+    expect(title).not.toMatch(/once the malware scan passes/i);
+    // Any unconditional "available …" is the shape of the defect.
+    expect(title).not.toMatch(/^available/i);
   });
 
   it('does NOT promise later availability for BLOCKED — the verdict is terminal', () => {

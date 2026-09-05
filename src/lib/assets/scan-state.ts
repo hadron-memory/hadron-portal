@@ -28,7 +28,18 @@ export type ScanStatus = 'PENDING' | 'CLEAN' | 'BLOCKED';
 export function downloadTitle(status: ScanStatus): string {
   const titles: Record<ScanStatus, string> = {
     CLEAN: t('assets.download', 'Download'),
-    PENDING: t('assets.download.pending', 'Available once the malware scan finishes'),
+    // Conditional on the VERDICT, not on the scan completing (@codex, P2).
+    // A pending scan can finish BLOCKED, so "once the scan finishes" promises
+    // availability on an event that may deliver the opposite — the same
+    // over-promise as the "once the scan passes" wording it replaced, one step
+    // further out. Third wording in this spot, and the first that a blocked
+    // outcome cannot falsify: it describes what is known (the scan is not
+    // settled) and makes availability conditional
+    // (`hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee`).
+    PENDING: t(
+      'assets.download.pending',
+      'The malware scan has not finished. This file is downloadable only if it passes.',
+    ),
     BLOCKED: t(
       'assets.download.blocked',
       'Blocked by the malware scan. This is final — the file was deleted and cannot be downloaded.',
