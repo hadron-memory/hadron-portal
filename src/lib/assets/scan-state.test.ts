@@ -134,3 +134,25 @@ describe('downloadAriaLabel', () => {
     expect(label.trim()).toBe(label);
   });
 });
+
+describe('replacement-token safety (@codex, #814)', () => {
+  // `String.replace` expands `$&`, `` $` ``, `$'` and `$1` IN THE REPLACEMENT.
+  // `scanSignature` is an unrestricted string from the scan engine and
+  // `filename` is user-chosen, so both reach that expansion as data.
+  const HOSTILE = ['Eicar$&Test', "A$'B", 'A$`B', 'A$1B', '$$'];
+
+  it.each(HOSTILE)('renders the signature %s verbatim', (sig) => {
+    expect(scanSignatureText('BLOCKED', sig)).toBe(`Signature: ${sig}`);
+  });
+
+  it.each(HOSTILE)('renders the filename %s verbatim in the aria label', (name) => {
+    expect(downloadAriaLabel('CLEAN', name)).toBe(`Download ${name}`);
+  });
+
+  it('does not leak the placeholder back into the output', () => {
+    // The tell for the un-fixed version: `$&` is the MATCHED text, so the
+    // placeholder itself reappears in the rendered value.
+    expect(scanSignatureText('BLOCKED', 'Eicar$&Test')).not.toContain('{sig}');
+    expect(downloadAriaLabel('CLEAN', 'a$&b.txt')).not.toContain('{file}');
+  });
+});

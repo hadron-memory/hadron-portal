@@ -72,7 +72,7 @@ export function downloadAriaLabel(
   filename: string,
   signature: string | null = null,
 ): string {
-  const base = t('assets.download.aria', 'Download {file}').replace('{file}', filename);
+  const base = t('assets.download.aria', 'Download {file}').replace('{file}', () => filename);
   if (status === 'CLEAN') return base;
   // Sentence-join, not `join('. ')`. Some pieces already end in a period and
   // some do not, so a fixed separator produced "…cannot be downloaded.. Signature:"
@@ -97,5 +97,14 @@ export function scanSignatureText(
   signature: string | null,
 ): string | null {
   if (status !== 'BLOCKED' || !signature) return null;
-  return t('assets.scan.signature', 'Signature: {sig}').replace('{sig}', signature);
+  // Callback form, NOT `.replace('{sig}', signature)` (@codex). A string
+  // replacement expands `$&`, `` $` ``, `$'` and `$1`, so a scanner returning a
+  // signature containing one rewrites the audit value it is meant to report:
+  //
+  //   'Signature: {sig}'.replace('{sig}', 'Eicar$&Test')  → 'Signature: Eicar{sig}Test'
+  //
+  // A callback is passed the match and its return value is used verbatim.
+  // `scanSignature` is an unrestricted string from the engine and `filename` is
+  // user-chosen, so neither is safe as a replacement pattern.
+  return t('assets.scan.signature', 'Signature: {sig}').replace('{sig}', () => signature);
 }
