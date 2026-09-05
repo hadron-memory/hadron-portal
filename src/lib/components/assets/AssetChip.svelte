@@ -23,20 +23,33 @@
 
   const Icon = $derived(iconFor(asset.mimeType));
 
-  // #707: the chip has no room for a signature line, so it goes in the tooltip
-  // alongside the state sentence. `downloadTitle` is the same wording the
-  // download controls use, which matters most for BLOCKED — the chip used to
-  // say only "blocked", leaving "can I retry?" unanswered.
-  const scanTitle = $derived(
-    [downloadTitle(asset.scanStatus), scanSignatureText(asset.scanStatus, asset.scanSignature)]
-      .filter(Boolean)
-      .join(' · '),
+  // #707: the chip has no room for a signature line, so the state sentence and
+  // the signature ride alongside the visible "Blocked"/"Scanning" word.
+  // `downloadTitle` is the same wording the download controls use, which matters
+  // most for BLOCKED — the chip used to say only "blocked", leaving "can I
+  // retry?" unanswered.
+  //
+  // Null for CLEAN: there is nothing to explain, and putting "Download" on a
+  // chip that does not always download would describe the wrong thing.
+  const scanNote = $derived(
+    asset.scanStatus === 'CLEAN'
+      ? null
+      : [downloadTitle(asset.scanStatus), scanSignatureText(asset.scanStatus, asset.scanSignature)]
+          .filter(Boolean)
+          .join(' · '),
   );
 </script>
 
+<!-- #707 (@codex, P2): the scan note sits on the BUTTON, not on an inner span.
+     A `title` on a non-focusable child is reachable by neither keyboard nor
+     touch, and a screen reader announced only the word "Blocked" — so the audit
+     detail existed in the DOM and reached nobody using those. On the button it
+     is at least hover-reachable anywhere on the chip, and the sr-only span
+     below puts it in the accessible name for AT users. -->
 <button
   type="button"
   class="inline-flex items-center gap-2 rounded-md border border-zinc-200 bg-white px-3 py-1.5 text-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-700"
+  title={scanNote ?? undefined}
   onclick={() => onclick?.()}
 >
   <Icon class="size-4 shrink-0 text-zinc-500" />
@@ -45,8 +58,13 @@
   <!-- #707: both labels now route through t() (they were raw literals) and
        carry the shared state sentence plus, for BLOCKED, the engine signature. -->
   {#if asset.scanStatus === 'PENDING'}
-    <span class="text-xs text-amber-600 dark:text-amber-400" title={scanTitle}>{scanLabel(asset.scanStatus)}</span>
+    <span class="text-xs text-amber-600 dark:text-amber-400">{scanLabel(asset.scanStatus)}</span>
   {:else if asset.scanStatus === 'BLOCKED'}
-    <span class="text-xs text-red-600 dark:text-red-400" title={scanTitle}>{scanLabel(asset.scanStatus)}</span>
+    <span class="text-xs text-red-600 dark:text-red-400">{scanLabel(asset.scanStatus)}</span>
+  {/if}
+  <!-- The colour carries the state for sighted users and the word carries it for
+       everyone; this carries the REASON, which colour cannot. -->
+  {#if scanNote}
+    <span class="sr-only">{scanNote}</span>
   {/if}
 </button>
