@@ -83,7 +83,7 @@
       <!-- #707: what the file was blocked AS. The tombstone row exists to
            carry this (hrn:node:hadronmemory.com:specs:cor:dmo:060:12); shown only when the scanner named it. -->
       {#if signatureText}
-        <p class="mt-1 font-mono text-xs text-red-700 dark:text-red-300">{signatureText}</p>
+        <p class="mt-1 break-all font-mono text-xs text-red-700 dark:text-red-300">{signatureText}</p>
       {/if}
       {#if asset.description}
         <p class="mt-1 text-xs text-zinc-500">{asset.description}</p>

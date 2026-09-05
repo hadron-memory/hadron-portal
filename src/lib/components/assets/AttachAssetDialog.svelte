@@ -289,7 +289,7 @@
                   {:else if asset.scanStatus === 'BLOCKED'}
                     <span class="shrink-0 text-red-600 dark:text-red-400">{scanLabel(asset.scanStatus)}</span>
                     {#if scanSignatureText(asset.scanStatus, asset.scanSignature)}
-                      <span class="shrink-0 break-all font-mono text-[10px] text-red-600 dark:text-red-400">
+                      <span class="min-w-0 break-all font-mono text-[10px] text-red-600 dark:text-red-400">
                         {scanSignatureText(asset.scanStatus, asset.scanSignature)}
                       </span>
                     {/if}
