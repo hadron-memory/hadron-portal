@@ -3,7 +3,7 @@
   import { marked } from 'marked';
   import { invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
-  import type { DriftVerdict, Verdict } from '$lib/agent-tester/verdict-types';
+  import type { DriftVerdict, FixtureRunSummary, Verdict } from '$lib/agent-tester/verdict-types';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ProbeForm from '$lib/components/agent-tester/ProbeForm.svelte';
   import RouteTrace from '$lib/components/agent-tester/RouteTrace.svelte';
@@ -61,17 +61,6 @@
     baselineRefused?: string;
   };
 
-  type RunSummaryData = {
-    totalRuns: number;
-    passed: number;
-    failed: number;
-    errored: number;
-    /** #812 — a server older than that change omits it. */
-    unevaluated?: number;
-    estimatedCost: { currency: string; amount: number };
-    exceededCap: boolean;
-  };
-
   // Single-probe result + the assertion used (kept for "Save as fixture").
   let result = $state<Result>(null);
   let lastPayload = $state<{
@@ -83,7 +72,7 @@
   // Drift report from running fixtures.
   let driftResults = $state<DriftResult[] | null>(null);
   // #813: the endpoint has always returned this and nothing read it.
-  let runSummary = $state<RunSummaryData | null>(null);
+  let runSummary = $state<FixtureRunSummary | null>(null);
 
   let running = $state(false);
   let errorText = $state<string | null>(null);

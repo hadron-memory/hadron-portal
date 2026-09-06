@@ -17,19 +17,9 @@
 -->
 <script lang="ts">
   import { t } from '$lib/i18n/t';
+  import type { FixtureRunSummary } from '$lib/agent-tester/verdict-types';
 
-  interface Summary {
-    totalRuns: number;
-    passed: number;
-    failed: number;
-    errored: number;
-    /** #812. Optional: a server older than that change omits it. */
-    unevaluated?: number;
-    estimatedCost: { currency: string; amount: number };
-    exceededCap: boolean;
-  }
-
-  let { summary }: { summary: Summary } = $props();
+  let { summary }: { summary: FixtureRunSummary } = $props();
 
   // A tally is shown when it is non-zero, so a clean run reads "12 passed"
   // rather than a row of zeros. `passed` is always shown — it is the one number

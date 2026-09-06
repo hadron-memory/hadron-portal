@@ -1,5 +1,5 @@
 /**
- * #808 — the agent-tester verdict unions, in ONE place both sides can import.
+ * #808 / #813 — the agent-tester's shared types, in ONE place both sides can import.
  *
  * These live outside `$lib/server` deliberately. The evaluator that produces a
  * verdict is server-only (it reaches for worker threads and the judge LLM), but
@@ -52,3 +52,26 @@ export type DriftVerdict =
   | 'newly-failing'
   | 'no-baseline'
   | 'unevaluated';
+
+/**
+ * #813 — the tallies `POST /api/agent-chat/fixtures/run` returns for a run.
+ *
+ * Shared for the reason this module exists: the page and `RunSummary` each
+ * declared their own copy, so the endpoint growing a field would have been a
+ * compile error in neither (@copilot on #814's sibling PR). That is the same
+ * defect `hrn:node:hadronmemory.com:hadron-portal:review:widening-a-union-recruits-every-fallback` describes, one level
+ * up from the union it was written about.
+ *
+ * `unevaluated` is OPTIONAL on purpose: it arrived with #812, and a portal
+ * deployed against an older server will not receive it. Absent means "this
+ * server does not report it", which is different from zero.
+ */
+export interface FixtureRunSummary {
+  totalRuns: number;
+  passed: number;
+  failed: number;
+  errored: number;
+  unevaluated?: number;
+  estimatedCost: { currency: string; amount: number };
+  exceededCap: boolean;
+}

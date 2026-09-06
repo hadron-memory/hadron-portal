@@ -11,10 +11,14 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 
 import RunSummary from './RunSummary.svelte';
+import type { FixtureRunSummary } from '$lib/agent-tester/verdict-types';
 
-type Summary = Parameters<typeof RunSummary>[1] extends never ? never : Record<string, unknown>;
-
-function summary(over: Record<string, unknown> = {}) {
+// Concrete type + `Partial` overrides, NOT `Record<string, unknown>` behind an
+// `as never` cast (@copilot). The cast silenced the compiler, so these tests
+// could have gone on passing an invalid shape to the component after the
+// endpoint's summary changed — a test suite that cannot notice a broken
+// contract is the thing this PR is about.
+function summary(over: Partial<FixtureRunSummary> = {}): FixtureRunSummary {
   return {
     totalRuns: 3,
     passed: 3,
@@ -27,8 +31,8 @@ function summary(over: Record<string, unknown> = {}) {
   };
 }
 
-const body = (over: Record<string, unknown> = {}) =>
-  render(RunSummary, { props: { summary: summary(over) as never } }).body;
+const body = (over: Partial<FixtureRunSummary> = {}) =>
+  render(RunSummary, { props: { summary: summary(over) } }).body;
 
 describe('RunSummary (#813)', () => {
   it('shows the totals a run-all previously reported nowhere', () => {
