@@ -3,13 +3,14 @@
   import { marked } from 'marked';
   import { invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
-  import type { DriftVerdict, Verdict } from '$lib/agent-tester/verdict-types';
+  import type { DriftVerdict, FixtureRunSummary, Verdict } from '$lib/agent-tester/verdict-types';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ProbeForm from '$lib/components/agent-tester/ProbeForm.svelte';
   import RouteTrace from '$lib/components/agent-tester/RouteTrace.svelte';
   import VerdictBadge from '$lib/components/agent-tester/VerdictBadge.svelte';
   import FixtureList from '$lib/components/agent-tester/FixtureList.svelte';
   import DriftReport from '$lib/components/agent-tester/DriftReport.svelte';
+  import RunSummary from '$lib/components/agent-tester/RunSummary.svelte';
   import PersonaScript from '$lib/components/agent-tester/PersonaScript.svelte';
   import type { PageData } from './$types';
 
@@ -70,6 +71,8 @@
 
   // Drift report from running fixtures.
   let driftResults = $state<DriftResult[] | null>(null);
+  // #813: the endpoint has always returned this and nothing read it.
+  let runSummary = $state<FixtureRunSummary | null>(null);
 
   let running = $state(false);
   let errorText = $state<string | null>(null);
@@ -111,6 +114,7 @@
       }
       result = (await res.json()) as Result;
       driftResults = null;
+      runSummary = null;
     } catch (e) {
       errorText = e instanceof Error ? e.message : 'Request failed';
     } finally {
@@ -219,6 +223,7 @@
     }
     const body = await res.json();
     driftResults = body.results;
+    runSummary = body.summary ?? null;
     result = null; // hide the single-probe panel while showing drift
   }
 
@@ -362,6 +367,10 @@
       onrunall={() => runAllFixtures()}
       ondelete={deleteFixture}
     />
+
+    {#if runSummary}
+      <RunSummary summary={runSummary} />
+    {/if}
 
     {#if driftResults}
       <DriftReport results={driftResults} onacceptbaseline={acceptBaseline} />
