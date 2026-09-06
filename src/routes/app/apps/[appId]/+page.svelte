@@ -1469,6 +1469,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
         total={data.worklogTotal ?? 0}
         loadError={data.worklogError ?? false}
         filters={data.worklogFilters ?? { ref: '', kind: '', tool: '' }}
+        listKey="apps:worklog"
       />
     </div>
     </div>
