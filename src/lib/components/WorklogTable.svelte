@@ -2,6 +2,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import { makeGlobalFilterFn, searchableText } from '$lib/table/global-filter';
   import { t } from '$lib/i18n/t';
   import {
     WORK_ITEM_KINDS,
@@ -132,8 +133,20 @@
     },
   ];
 
-  function fallback(value: unknown): string {
-    return value === null || value === undefined || value === '' ? '—' : String(value);
+  /**
+   * Per-column rendering, shared by the cell fallback and the search box.
+   *
+   * `at` is the one that matters: its accessor is epoch millis so the column
+   * sorts by instant, which made the displayed date unsearchable until the
+   * filter learned to compare the rendered form too (@codex).
+   */
+  const fmt: Record<string, (value: unknown) => string> = {
+    at: (v) => (typeof v === 'number' ? new Date(v).toLocaleString() : ''),
+  };
+
+  function fallback(columnId: string, value: unknown): string {
+    const text = searchableText(fmt, columnId, value);
+    return text === '' ? '—' : text;
   }
 
   let globalFilter = $state('');
@@ -154,7 +167,9 @@
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // See WorkerSessionsTable: 'includesString' compares the accessor, and
+    // `at` accessors epoch millis so the column sorts by instant.
+    globalFilterFn: makeGlobalFilterFn(fmt),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'at', desc: true }],
@@ -362,7 +377,7 @@
                be lossier. -->
           <span class="block truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">{row.sessionId}</span>
         {:else}
-          <span class="block truncate">{fallback(c.getValue())}</span>
+          <span class="block truncate">{fallback(c.column.id, c.getValue())}</span>
         {/if}
       {/snippet}
     </DataTable>

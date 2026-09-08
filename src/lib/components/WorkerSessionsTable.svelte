@@ -20,6 +20,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import { makeGlobalFilterFn, searchableText } from '$lib/table/global-filter';
   import { t } from '$lib/i18n/t';
   import { expiryDistance, workerSessionStatus } from '$lib/worker-session-status';
   import type { WorkerSession } from '$lib/types';
@@ -156,10 +157,11 @@
     prNumber: (v) => (typeof v === 'number' ? `#${v}` : '—'),
   };
 
+  // One definition of "rendered", shared by the cell and the search box. Two
+  // copies is how a column becomes searchable by a string it no longer shows.
   function fallback(columnId: string, value: unknown): string {
-    const f = fmt[columnId];
-    if (f) return f(value);
-    return value === null || value === undefined || value === '' ? '—' : String(value);
+    const text = searchableText(fmt, columnId, value);
+    return text === '' ? '—' : text;
   }
 
   let globalFilter = $state('');
@@ -180,7 +182,11 @@
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // NOT 'includesString' (@codex): that stringifies the ACCESSOR, and the
+    // date columns accessor epoch millis so they sort by instant. A reader
+    // typing the date they can see — 9/6/2026 — matched nothing, because the
+    // filter was comparing against 1757145600000.
+    globalFilterFn: makeGlobalFilterFn(fmt),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
       // Most recent first: the stint a reader is looking for is almost always
