@@ -22,9 +22,18 @@
  * string — and this resolves the collision at the FILTER rather than by
  * sacrificing either sort order or searchability.
  *
- * Both forms are matched, deliberately: the rendered string is what a reader
- * types, and the raw value is what a reader PASTES from an API response or a
- * log line. `#819` and `819` both find the same row.
+ * THREE forms are matched, and the third is the one that is easy to get wrong:
+ *
+ *   - the RENDERED string, which is what a reader types from the screen;
+ *   - the ACCESSOR value, which is what `row.getValue` returns;
+ *   - optional EXTRA text read from the original row.
+ *
+ * The third exists because the accessor is not the wire value. On a date column
+ * the accessor has already replaced the ISO timestamp with epoch millis, so a
+ * reader pasting `2026-09-06T08:00:00.000Z` from an API response or a log line
+ * matches neither the rendering nor the number (@codex on #819). An earlier
+ * version of this comment claimed the raw-value fallback covered exactly that
+ * case; it did not, because `getValue` never sees the wire string.
  */
 /**
  * The row is typed STRUCTURALLY rather than as TanStack's `Row`. v9 changed
@@ -33,8 +42,10 @@
  * both decouples us from that churn and is assignable wherever a `FilterFn` is
  * expected, since accepting a wider parameter type is safe.
  */
-interface FilterableRow {
+interface FilterableRow<T> {
   getValue: (columnId: string) => unknown;
+  /** The source row, for searchable text the accessor has already discarded. */
+  original: T;
 }
 
 /** Per-column renderers, keyed by column id — the same map a cell falls back to. */
@@ -58,22 +69,37 @@ export function searchableText(
 }
 
 /**
- * Build a `globalFilterFn` that matches the rendered text OR the raw value.
+ * Extra searchable text per column, read from the ORIGINAL row.
  *
- * Case-insensitive on both sides. An empty needle matches everything, which is
+ * For a column whose accessor is lossy — a date accessor returning epoch millis
+ * — this is where the wire value goes, so a pasted ISO timestamp still finds
+ * its row. Return null when there is nothing to add.
+ */
+export type ColumnSearchExtras<T> = Record<string, (row: T) => string | null | undefined>;
+
+/**
+ * Build a `globalFilterFn` matching the rendered text, the accessor value, or
+ * any extra searchable text the accessor discarded.
+ *
+ * Case-insensitive throughout. An empty needle matches everything, which is
  * what an empty search box should do.
  */
-export function makeGlobalFilterFn(fmt: ColumnFormatters) {
-  return (row: FilterableRow, columnId: string, filterValue: unknown): boolean => {
+export function makeGlobalFilterFn<T>(fmt: ColumnFormatters, extras: ColumnSearchExtras<T> = {}) {
+  return (row: FilterableRow<T>, columnId: string, filterValue: unknown): boolean => {
     const needle = String(filterValue ?? '').toLowerCase();
     if (!needle) return true;
 
     const raw = row.getValue(columnId);
     if (searchableText(fmt, columnId, raw).toLowerCase().includes(needle)) return true;
-    // The raw form too: an id or timestamp pasted from an API response should
-    // still find its row even though the cell renders it differently.
-    return raw === null || raw === undefined
-      ? false
-      : String(raw).toLowerCase().includes(needle);
+
+    // The accessor value: an id typed as a bare number should find its row even
+    // though the cell renders it as `#819`.
+    if (raw !== null && raw !== undefined && String(raw).toLowerCase().includes(needle)) {
+      return true;
+    }
+
+    // Whatever the accessor threw away — for a date column, the wire timestamp.
+    const extra = extras[columnId]?.(row.original);
+    return extra ? extra.toLowerCase().includes(needle) : false;
   };
 }

@@ -186,7 +186,13 @@
     // date columns accessor epoch millis so they sort by instant. A reader
     // typing the date they can see — 9/6/2026 — matched nothing, because the
     // filter was comparing against 1757145600000.
-    globalFilterFn: makeGlobalFilterFn(fmt),
+    // The wire timestamps too (@codex): the date accessors return epoch millis
+    // for sorting, so `getValue` never sees the ISO string a reader pastes from
+    // an API response or a log line.
+    globalFilterFn: makeGlobalFilterFn<WorkerSession>(fmt, {
+      startedAt: (s) => s.startedAt,
+      endedAt: (s) => s.endedAt,
+    }),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
       // Most recent first: the stint a reader is looking for is almost always

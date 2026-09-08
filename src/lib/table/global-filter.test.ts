@@ -26,9 +26,10 @@ const fmt: ColumnFormatters = {
   prNumber: (v) => (typeof v === 'number' ? `#${v}` : '—'),
 };
 
-/** A row whose only job is to answer getValue, like the real one. */
-const row = (values: Record<string, unknown>) => ({
+/** A row fake: answers getValue, and carries the source row like the real one. */
+const row = (values: Record<string, unknown>, original: Record<string, unknown> = {}) => ({
   getValue: (columnId: string) => values[columnId],
+  original,
 });
 
 const filter = makeGlobalFilterFn(fmt);
@@ -153,5 +154,50 @@ describe('a nullable first row does not disable a column (@codex on #819)', () =
   it('finds a later row by its formatted and raw id', () => {
     expect(search('#819')).toEqual(['closed-later']);
     expect(search('819')).toEqual(['closed-later']);
+  });
+});
+
+describe('the wire value the accessor discarded (@codex on #819)', () => {
+  // A date accessor returns epoch millis so the column sorts by instant — which
+  // means `row.getValue` never sees the ISO timestamp the API returned. A reader
+  // pasting `2026-09-06T08:00:00.000Z` from a log or an API response matched
+  // neither the rendering nor the number.
+  //
+  // My own docstring had claimed the raw-value fallback covered exactly that
+  // case. It did not: "raw" was the accessor, not the wire value.
+  const ISO = '2026-09-06T08:00:00.000Z';
+  const withWire = makeGlobalFilterFn<{ at: string }>(fmt, { at: (r) => r.at });
+
+  it('finds a row by the ISO timestamp the API returned', () => {
+    expect(withWire(row({ at: AT_MS }, { at: ISO }), 'at', ISO)).toBe(true);
+  });
+
+  it('finds it by a distinctive fragment of that timestamp', () => {
+    expect(withWire(row({ at: AT_MS }, { at: ISO }), 'at', 'T08:00:00')).toBe(true);
+  });
+
+  it('still finds it by the rendered date and by the epoch', () => {
+    // The extra must ADD a form, never replace the two that already worked.
+    const rendered = new Date(AT_MS).toLocaleString().split(',')[0];
+    expect(withWire(row({ at: AT_MS }, { at: ISO }), 'at', rendered)).toBe(true);
+    expect(withWire(row({ at: AT_MS }, { at: ISO }), 'at', String(AT_MS))).toBe(true);
+  });
+
+  it('does not match an unrelated needle through the extra', () => {
+    expect(withWire(row({ at: AT_MS }, { at: ISO }), 'at', '2027-01-01')).toBe(false);
+  });
+
+  it('tolerates a column with no extra configured', () => {
+    // Every other column goes through the same function; a missing entry must
+    // not throw, it must simply add nothing.
+    expect(withWire(row({ tool: 'github' }, { at: ISO }), 'tool', 'github')).toBe(true);
+    expect(withWire(row({ tool: 'github' }, { at: ISO }), 'tool', 'nope')).toBe(false);
+  });
+
+  it('tolerates a null wire value', () => {
+    // `endedAt` is null on an open session — the extra returns null and the
+    // filter must fall through rather than crash.
+    const f = makeGlobalFilterFn<{ endedAt: string | null }>(fmt, { endedAt: (r) => r.endedAt });
+    expect(f(row({ endedAt: null }, { endedAt: null }), 'endedAt', 'anything')).toBe(false);
   });
 });

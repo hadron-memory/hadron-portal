@@ -169,7 +169,9 @@
     },
     // See WorkerSessionsTable: 'includesString' compares the accessor, and
     // `at` accessors epoch millis so the column sorts by instant.
-    globalFilterFn: makeGlobalFilterFn(fmt),
+    // The wire timestamp too (@codex): `at`'s accessor returns epoch millis for
+    // sorting, so `getValue` never sees the ISO string a reader pastes.
+    globalFilterFn: makeGlobalFilterFn<TeamWorkItem>(fmt, { at: (r) => r.at }),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'at', desc: true }],
