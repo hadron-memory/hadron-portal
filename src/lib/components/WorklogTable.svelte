@@ -1,3 +1,26 @@
+<script lang="ts" module>
+  import { isWorkerAttributed as attributed } from './worklog';
+  import { t as tt } from '$lib/i18n/t';
+  import type { ColumnSearchExtras } from '$lib/table/global-filter';
+  import type { TeamWorkItem as Item } from '$lib/types';
+
+  /**
+   * Text the CELL renders that the accessors never see (@codex on #819).
+   *
+   * Exported so a test can drive the REAL filter rather than assert a regex over
+   * this file — a source assertion passes on a component that no longer finds
+   * the row.
+   */
+  export const worklogSearchExtras: ColumnSearchExtras<Item> = {
+    // The wire timestamp: `at`'s accessor returns epoch millis for sorting, so
+    // `getValue` never sees the ISO string a reader pastes.
+    at: (r) => r.at,
+    // The "no worker" badge is the only marker of the one category it exists to
+    // mark, and it lives in the cell rather than in the accessor.
+    workerName: (r) => (attributed(r) ? null : tt('app.worklog.no-worker', 'no worker')),
+  };
+</script>
+
 <script lang="ts">
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -171,7 +194,7 @@
     // `at` accessors epoch millis so the column sorts by instant.
     // The wire timestamp too (@codex): `at`'s accessor returns epoch millis for
     // sorting, so `getValue` never sees the ISO string a reader pastes.
-    globalFilterFn: makeGlobalFilterFn<TeamWorkItem>(fmt, { at: (r) => r.at }),
+    globalFilterFn: makeGlobalFilterFn<TeamWorkItem>(fmt, worklogSearchExtras),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'at', desc: true }],

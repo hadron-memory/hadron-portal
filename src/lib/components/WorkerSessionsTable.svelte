@@ -16,13 +16,60 @@
   truncation note all stay on the PAGE — they are statements about the READ,
   not about a row, and folding them into the grid would lose that.
 -->
+<script lang="ts" module>
+  import { expiryDistance as expiryDistanceFor, workerSessionStatus as statusFor } from '$lib/worker-session-status';
+  import { t as tt } from '$lib/i18n/t';
+  import type { ColumnSearchExtras } from '$lib/table/global-filter';
+  import type { WorkerSession as Session } from '$lib/types';
+
+  /**
+   * The forward-looking expiry line, or null when there is nothing to warn about.
+   *
+   * Exported from the module script so the searchable extras below are the SAME
+   * function the cell renders, and so a test can exercise the real filter rather
+   * than a regex over this file. A source assertion would pass on a component
+   * that no longer finds the row.
+   */
+  export function expiryLabelFor(session: Session, now: number): string | null {
+    const status = statusFor(session, now);
+    if (!status.expiringSoon || status.msUntilExpiry === null) return null;
+    if (status.msUntilExpiry < 0) {
+      return tt('worker.sessions.overdue', 'Past its expiry — live only until the next reap');
+    }
+    const d = expiryDistanceFor(status.msUntilExpiry);
+    // The WHOLE sentence goes through t(), one key per unit, with only the
+    // number interpolated. Translating "Expires" and concatenating a formatted
+    // "in 45 min" would leave an English fragment past the i18n boundary and fix
+    // the word order in English (Codex P2 on the original list).
+    return d.unit === 'min'
+      ? tt('worker.sessions.expiring.minutes', 'Expires in {n} min').replace('{n}', () => String(d.value))
+      : tt('worker.sessions.expiring.hours', 'Expires in {n} h').replace('{n}', () => String(d.value));
+  }
+
+  /**
+   * Text the CELL renders that the accessors never see, so the search box can
+   * find a row by what is on screen (@codex on #819).
+   */
+  export function sessionSearchExtras(now: number): ColumnSearchExtras<Session> {
+    return {
+      // The wire timestamps: the date accessors return epoch millis for sorting,
+      // so `getValue` never sees the ISO string a reader pastes from a log.
+      startedAt: (s) => s.startedAt,
+      endedAt: (s) => s.endedAt,
+      // The expiry warning sits beside the status word in the cell, and it is
+      // the most operationally urgent text on the row.
+      status: (s) => expiryLabelFor(s, now),
+    };
+  }
+</script>
+
 <script lang="ts">
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { makeGlobalFilterFn, searchableText } from '$lib/table/global-filter';
   import { t } from '$lib/i18n/t';
-  import { expiryDistance, workerSessionStatus } from '$lib/worker-session-status';
+  import { workerSessionStatus } from '$lib/worker-session-status';
   import type { WorkerSession } from '$lib/types';
 
   let {
@@ -78,22 +125,8 @@
     return t('worker.sessions.state.ended', 'Ended');
   }
 
-  /** The forward-looking expiry line, or null when there is nothing to warn about. */
-  function expiryLabel(session: WorkerSession): string | null {
-    const status = workerSessionStatus(session, now);
-    if (!status.expiringSoon || status.msUntilExpiry === null) return null;
-    if (status.msUntilExpiry < 0) {
-      return t('worker.sessions.overdue', 'Past its expiry — live only until the next reap');
-    }
-    const d = expiryDistance(status.msUntilExpiry);
-    // The WHOLE sentence goes through t(), one key per unit, with only the
-    // number interpolated. Translating "Expires" and concatenating a formatted
-    // "in 45 min" would leave an English fragment past the i18n boundary and
-    // fix the word order in English (Codex P2 on the original list).
-    return d.unit === 'min'
-      ? t('worker.sessions.expiring.minutes', 'Expires in {n} min').replace('{n}', () => String(d.value))
-      : t('worker.sessions.expiring.hours', 'Expires in {n} h').replace('{n}', () => String(d.value));
-  }
+  /** Delegates to the module-scope function the search extras also use. */
+  const expiryLabel = (session: WorkerSession) => expiryLabelFor(session, now);
 
   /** `repo@branch`, or just the repo, or nothing. */
   function repoLabel(session: WorkerSession): string {
@@ -189,10 +222,7 @@
     // The wire timestamps too (@codex): the date accessors return epoch millis
     // for sorting, so `getValue` never sees the ISO string a reader pastes from
     // an API response or a log line.
-    globalFilterFn: makeGlobalFilterFn<WorkerSession>(fmt, {
-      startedAt: (s) => s.startedAt,
-      endedAt: (s) => s.endedAt,
-    }),
+    globalFilterFn: makeGlobalFilterFn<WorkerSession>(fmt, sessionSearchExtras(now)),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
       // Most recent first: the stint a reader is looking for is almost always

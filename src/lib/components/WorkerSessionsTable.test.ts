@@ -17,7 +17,8 @@ vi.mock('$app/stores', () => ({
 }));
 vi.mock('$app/navigation', () => ({ goto: () => {}, invalidate: () => {} }));
 
-import WorkerSessionsTable from './WorkerSessionsTable.svelte';
+import WorkerSessionsTable, { sessionSearchExtras } from './WorkerSessionsTable.svelte';
+import { makeGlobalFilterFn } from '$lib/table/global-filter';
 import type { WorkerSession } from '$lib/types';
 
 function session(over: Partial<WorkerSession> = {}): WorkerSession {
@@ -128,5 +129,30 @@ describe('WorkerSessionsTable', () => {
       session({ plan: null, summary: null, prNumber: null, transcriptPath: null, tool: null }),
     ]);
     expect(html).toContain('—');
+  });
+});
+
+describe('the cell renders text the accessor never sees (@codex on #819)', () => {
+  // A cell snippet can render more than its accessor returns. Anything it adds
+  // is visible on screen and invisible to search unless registered as a
+  // searchable extra — which is how a reader ends up unable to find the very
+  // row they are looking at.
+  const soon = () => new Date(Date.now() + 20 * 60 * 1000).toISOString();
+
+  it('renders the expiry warning', () => {
+    const html = rows([session({ endedAt: null, autoExpiredAt: null, expiresAt: soon() })]);
+    expect(html).toMatch(/Expires in \d+ min/);
+  });
+
+  it('FINDS a row by that warning — driven through the real filter', () => {
+    // The status ACCESSOR returns only "Open"; the warning lives in the cell.
+    // Driving the component's own exported extras, so this fails if the extra
+    // is dropped — a regex over the source would not prove the row is found.
+    const now = Date.now();
+    const s = session({ endedAt: null, autoExpiredAt: null, expiresAt: soon() });
+    const filter = makeGlobalFilterFn<WorkerSession>({}, sessionSearchExtras(now));
+    const r = { getValue: () => 'Open', original: s };
+    expect(filter(r, 'status', 'Expires in')).toBe(true);
+    expect(filter(r, 'status', 'nothing-like-this')).toBe(false);
   });
 });

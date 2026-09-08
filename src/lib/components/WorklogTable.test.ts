@@ -24,7 +24,8 @@ vi.mock('$app/stores', () => ({
 }));
 vi.mock('$app/navigation', () => ({ goto: () => {}, invalidate: () => {} }));
 
-import WorklogTable from './WorklogTable.svelte';
+import WorklogTable, { worklogSearchExtras } from './WorklogTable.svelte';
+import { makeGlobalFilterFn } from '$lib/table/global-filter';
 import type { TeamWorkItem } from '$lib/types';
 
 function item(over: Partial<TeamWorkItem> = {}): TeamWorkItem {
@@ -123,5 +124,20 @@ describe('WorklogTable', () => {
     // Off on the worker page, where the WORKER is already the filter.
     expect(body([item()], { showFilters: true })).toMatch(/owner\/repo#123/);
     expect(body([item()], { showFilters: false })).not.toMatch(/owner\/repo#123/);
+  });
+});
+
+describe('the cell renders text the accessor never sees (@codex on #819)', () => {
+  it('renders the no-worker badge', () => {
+    expect(rows([item({ workerId: null, workerName: 'holger' })])).toMatch(/no worker/i);
+  });
+
+  it('FINDS an unattributed record by that badge — through the real filter', () => {
+    const filter = makeGlobalFilterFn<TeamWorkItem>({}, worklogSearchExtras);
+    const unattributed = { getValue: () => 'holger', original: item({ workerId: null }) };
+    const attributed = { getValue: () => 'Gil', original: item() };
+    expect(filter(unattributed, 'workerName', 'no worker')).toBe(true);
+    // And the other direction: an attributed record must NOT match it.
+    expect(filter(attributed, 'workerName', 'no worker')).toBe(false);
   });
 });
