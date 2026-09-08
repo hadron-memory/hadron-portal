@@ -695,10 +695,28 @@ export const RETIRE_WORKER_MUTATION = /* GraphQL */ `
 // App/org ADMIN force-releasing somebody else's. The admin path POSTS TO THE
 // TEAM CHAT naming who released what and from whom, which is why the UI has to
 // say so before the click rather than after.
+// #810 re-sync: hadron-server#1124 changed the return type from `Worker` to
+// `ReleaseWorkerPayload`, so the old `{ ...WorkerFields }` spread no longer
+// validates. The worker moved under `worker`.
+//
+// The payload's other three fields are selected but NOT yet acted on, and that
+// is deliberate rather than an oversight: reading them is free and makes the
+// data available to the loader, while CHANGING what the UI says on the back of
+// them is a behaviour change with its own copy decisions. Filed separately.
+//
+// `notified: false` is the one to act on first — it means a notice was OWED and
+// FAILED, so the release happened while the team-chat announcement
+// `hrn:node:hadronmemory.com:specs:cor:agt:020:09` requires did not. The action
+// currently reports plain success in that case.
 export const RELEASE_WORKER_MUTATION = /* GraphQL */ `
   ${WORKER_FIELDS}
   mutation ReleaseWorker($workerRef: ID!) {
-    releaseWorker(workerRef: $workerRef) { ...WorkerFields }
+    releaseWorker(workerRef: $workerRef) {
+      worker { ...WorkerFields }
+      releasedFrom { id handle name }
+      forced
+      notified
+    }
   }
 `;
 

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { render } from 'svelte/server';
 
@@ -41,5 +42,23 @@ describe('node listing renders the full node URN, not loc-only', () => {
   it('falls back to node.memory.urn when no memoryUrn prop is given', () => {
     const { body } = render(NodeList, { props: { nodes: [node] } });
     expect(body).toContain('micromentor.org:mmdata:preflight');
+  });
+});
+
+// #810 / hadron-server#1128 — the abstract-stale tooltip no longer says the
+// abstract "lags" the content. That asserts the abstract is BEHIND, and since
+// #1128 the marker also arms when there is no fingerprint at all: an abstract
+// written before the body existed was never checked against it. Never-checked
+// and fell-behind are different claims.
+describe('abstract-stale tooltip wording (#810)', () => {
+  const src = readFileSync('src/lib/components/NodeList.svelte', 'utf8');
+
+  it('does not claim the abstract fell behind the content', () => {
+    expect(src).not.toMatch(/the abstract lags the node content/);
+  });
+
+  it('says only that the preview may not match, which is true of both causes', () => {
+    expect(src).toMatch(/Preview may not match the node content/);
+    expect(src).toMatch(/has not been checked against it/);
   });
 });

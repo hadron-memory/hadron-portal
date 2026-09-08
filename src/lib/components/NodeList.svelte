@@ -315,10 +315,19 @@
                         >{meta[n.id].scorePct}%</span>
                       {/if}
                       {#if meta?.[n.id]?.abstractStale}
-                        <!-- #432: the abstract/preview may lag the node's content
-                             (spec 032). Vector-index hits only. -->
+                        <!-- #432: the abstract/preview may not match the node's
+                             content (spec 032). Vector-index hits only.
+                             #810 / hadron-server#1128 — the wording no longer
+                             says the abstract "lags" the content. That asserts
+                             the abstract is BEHIND, and since #1128 the marker
+                             also arms when there is NO fingerprint at all: an
+                             abstract written before the body existed was never
+                             checked against it. Never-checked is not the same
+                             claim as fell-behind, and "may not match" is true of
+                             both without over-claiming either
+                             (hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee). -->
                         <span
-                          title={t('node-list.abstract-stale', 'Preview may be out of date — the abstract lags the node content')}
+                          title={t('node-list.abstract-stale', 'Preview may not match the node content — the abstract has not been checked against it')}
                           class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
                         >{t('node-list.stale-badge', 'preview may be stale')}</span>
                       {/if}
