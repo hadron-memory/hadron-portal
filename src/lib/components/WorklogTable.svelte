@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import { isWorkerAttributed as attributed } from './worklog';
+  import { artifactTitle as titleOf, isWorkerAttributed as attributed } from './worklog';
   import { t as tt } from '$lib/i18n/t';
   import type { ColumnSearchExtras } from '$lib/table/global-filter';
   import type { TeamWorkItem as Item } from '$lib/types';
@@ -11,14 +11,44 @@
    * this file — a source assertion passes on a component that no longer finds
    * the row.
    */
-  export const worklogSearchExtras: ColumnSearchExtras<Item> = {
-    // The wire timestamp: `at`'s accessor returns epoch millis for sorting, so
-    // `getValue` never sees the ISO string a reader pastes.
-    at: (r) => r.at,
-    // The "no worker" badge is the only marker of the one category it exists to
-    // mark, and it lives in the cell rather than in the accessor.
-    workerName: (r) => (attributed(r) ? null : tt('app.worklog.no-worker', 'no worker')),
-  };
+  /**
+   * Built from the per-ref session counts, because one of the cell's strings
+   * ("3 worker sessions") is derived from the WHOLE page rather than the row.
+   *
+   * Swept rather than patched: this is the fourth review round on the same
+   * class, so every string the cell snippet renders beyond its accessor is
+   * enumerated here — the artifact title and the fan-out label were BOTH
+   * missing, and only the first was reported.
+   */
+  export function worklogSearchExtras(
+    // A GETTER, not the map. `sessionCounts` is `$derived` from `items`, and the
+    // filter is handed to createSvelteTable once — so capturing the value would
+    // pin the fan-out labels to the first page of rows and never update. Svelte
+    // flagged it (`state_referenced_locally`), which is the compiler catching
+    // the class `hrn:node:hadronmemory.com:hadron-portal:review:preserve-getters-when-wrapping-options` describes.
+    counts: () => Map<string, number>,
+  ): ColumnSearchExtras<Item> {
+    return {
+      // The wire timestamp: `at`'s accessor returns epoch millis for sorting, so
+      // `getValue` never sees the ISO string a reader pastes.
+      at: (r) => r.at,
+      // The "no worker" badge is the only marker of the one category it exists
+      // to mark, and it lives in the cell rather than in the accessor.
+      workerName: (r) => (attributed(r) ? null : tt('app.worklog.no-worker', 'no worker')),
+      // The Artifact cell renders TWO things the `ref` accessor does not: the
+      // title, which is usually the most recognisable description of a record,
+      // and the fan-out label, which is the answer the worklog exists to give.
+      ref: (r) => {
+        const shared = counts().get(r.ref) ?? 1;
+        return [
+          titleOf(r),
+          shared > 1 ? `${shared} ${tt('app.worklog.shared', 'worker sessions')}` : null,
+        ]
+          .filter(Boolean)
+          .join(' ') || null;
+      },
+    };
+  }
 </script>
 
 <script lang="ts">
@@ -194,7 +224,7 @@
     // `at` accessors epoch millis so the column sorts by instant.
     // The wire timestamp too (@codex): `at`'s accessor returns epoch millis for
     // sorting, so `getValue` never sees the ISO string a reader pastes.
-    globalFilterFn: makeGlobalFilterFn<TeamWorkItem>(fmt, worklogSearchExtras),
+    globalFilterFn: makeGlobalFilterFn<TeamWorkItem>(fmt, worklogSearchExtras(() => sessionCounts)),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'at', desc: true }],

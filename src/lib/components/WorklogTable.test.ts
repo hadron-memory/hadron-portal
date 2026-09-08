@@ -133,11 +133,44 @@ describe('the cell renders text the accessor never sees (@codex on #819)', () =>
   });
 
   it('FINDS an unattributed record by that badge — through the real filter', () => {
-    const filter = makeGlobalFilterFn<TeamWorkItem>({}, worklogSearchExtras);
+    const filter = makeGlobalFilterFn<TeamWorkItem>({}, worklogSearchExtras(() => new Map()));
     const unattributed = { getValue: () => 'holger', original: item({ workerId: null }) };
     const attributed = { getValue: () => 'Gil', original: item() };
     expect(filter(unattributed, 'workerName', 'no worker')).toBe(true);
     // And the other direction: an attributed record must NOT match it.
     expect(filter(attributed, 'workerName', 'no worker')).toBe(false);
+  });
+});
+
+describe('the Artifact cell renders two things its accessor does not (@codex on #819)', () => {
+  // Swept rather than patched: @codex reported the TITLE, and the same cell also
+  // renders the fan-out label ("3 worker sessions"), which is the answer the
+  // worklog exists to give. Both were missing; only one was reported.
+  const withTitle = item({
+    ref: 'owner/repo#7',
+    detail: { title: 'Fix the flaky reaper test' },
+  } as Partial<TeamWorkItem>);
+
+  it('renders the title, and finds the row by it', () => {
+    expect(rows([withTitle])).toContain('Fix the flaky reaper test');
+    const filter = makeGlobalFilterFn<TeamWorkItem>({}, worklogSearchExtras(() => new Map()));
+    const r = { getValue: () => 'owner/repo#7', original: withTitle };
+    expect(filter(r, 'ref', 'flaky reaper')).toBe(true);
+    expect(filter(r, 'ref', 'nothing-like-this')).toBe(false);
+  });
+
+  it('finds a fanned-out row by the label that marks the fan-out', () => {
+    const counts = new Map([['owner/repo#7', 3]]);
+    const filter = makeGlobalFilterFn<TeamWorkItem>({}, worklogSearchExtras(() => counts));
+    const r = { getValue: () => 'owner/repo#7', original: withTitle };
+    expect(filter(r, 'ref', '3 worker sessions')).toBe(true);
+  });
+
+  it('adds no fan-out text for a single-session artifact', () => {
+    // The label is not rendered for one session, so it must not be searchable
+    // either — a row that does not say "worker sessions" must not match it.
+    const filter = makeGlobalFilterFn<TeamWorkItem>({}, worklogSearchExtras(() => new Map()));
+    const r = { getValue: () => 'owner/repo#7', original: item({ ref: 'owner/repo#7' }) };
+    expect(filter(r, 'ref', 'worker sessions')).toBe(false);
   });
 });
