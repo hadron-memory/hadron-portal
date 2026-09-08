@@ -8,13 +8,15 @@
  *
  * Measured before fixing, against TanStack's own `includesString`:
  *
- *   "9/6/2026" vs epoch 1757145600000 → false
- *   "175714"   vs epoch 1757145600000 → true
+ *   "9/6/2026" vs epoch 1788681600000 → false
+ *   "178868"   vs epoch 1788681600000 → true
  *   "#819"     vs 819                 → false
  *
  * The searchable value was the epoch digits, which nobody types.
  */
 import { describe, expect, it } from 'vitest';
+import { makeHeadlessTable } from '$lib/table/headlessTable';
+import type { PortalColumnDef } from '$lib/table/features';
 import { makeGlobalFilterFn, searchableText, type ColumnFormatters } from './global-filter';
 
 const AT_MS = new Date('2026-09-06T08:00:00.000Z').getTime();
@@ -88,5 +90,68 @@ describe('makeGlobalFilterFn', () => {
     // An absent value must not become findable by searching "null".
     expect(filter(row({ tool: null }), 'tool', 'null')).toBe(false);
     expect(filter(row({ tool: undefined }), 'tool', 'undefined')).toBe(false);
+  });
+});
+
+describe('a nullable first row does not disable a column (@codex on #819)', () => {
+  // The claim was that TanStack's default `getColumnCanGlobalFilter` samples the
+  // FIRST row and disables global filtering for a column whose first value is
+  // neither string nor number — so an open session (`endedAt: null`, and the
+  // default sort puts the newest first) would make Ended, Plan, Summary and PR
+  // unsearchable for every later row.
+  //
+  // It does not reproduce on the version this repo pins: `getCanGlobalFilter()`
+  // is true for all three columns below, and every rendered form still matches.
+  // Pinned anyway — the concern is legitimate and a TanStack upgrade could make
+  // it true, at which point this fails instead of the search box going quiet.
+  //
+  // Worth recording: my FIRST probe appeared to confirm the claim, because I
+  // searched a hardcoded "9/6/2026" against an epoch I had mistyped as 2025.
+  // The instrument was wrong, not the code.
+  interface Row {
+    name: string;
+    endedMs: number | null;
+    pr: number | null;
+  }
+  const MS = new Date('2026-09-06T08:00:00.000Z').getTime();
+  const DATA: Row[] = [
+    { name: 'open-first', endedMs: null, pr: null }, // the null-carrying FIRST row
+    { name: 'closed-later', endedMs: MS, pr: 819 },
+  ];
+  const columns: PortalColumnDef<Row>[] = [
+    { accessorKey: 'name', header: 'Name' },
+    { accessorFn: (r) => r.endedMs, id: 'endedMs', header: 'Ended' },
+    { accessorFn: (r) => r.pr, id: 'pr', header: 'PR' },
+  ];
+  const rowFmt: ColumnFormatters = {
+    endedMs: (v) => (typeof v === 'number' ? new Date(v).toLocaleString() : ''),
+    pr: (v) => (typeof v === 'number' ? `#${v}` : '—'),
+  };
+
+  function search(needle: string): string[] {
+    const table = makeHeadlessTable<Row>({ data: DATA, columns });
+    table.setOptions((prev) => ({ ...prev, globalFilterFn: makeGlobalFilterFn(rowFmt) }));
+    table.setGlobalFilter(needle);
+    return table.getRowModel().rows.map((r) => r.original.name);
+  }
+
+  it('leaves every column globally filterable', () => {
+    const table = makeHeadlessTable<Row>({ data: DATA, columns });
+    for (const column of table.getAllColumns()) {
+      expect(column.getCanGlobalFilter()).toBe(true);
+    }
+  });
+
+  it('finds a later row by its rendered date', () => {
+    // The needle is DERIVED from the rendering, never hardcoded — a literal
+    // would pin this test to one locale and one clock.
+    const rendered = new Date(MS).toLocaleString();
+    expect(search(rendered)).toEqual(['closed-later']);
+    expect(search(rendered.split(',')[0])).toEqual(['closed-later']);
+  });
+
+  it('finds a later row by its formatted and raw id', () => {
+    expect(search('#819')).toEqual(['closed-later']);
+    expect(search('819')).toEqual(['closed-later']);
   });
 });

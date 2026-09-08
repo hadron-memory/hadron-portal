@@ -12,9 +12,9 @@
  *     (`hrn:node:hadronmemory.com:hadron-portal:findings:table-chrome-conventions`).
  *
  * So a reader who types the date they are looking at — `9/6/2026` — matches
- * nothing, because the filter is comparing against `1757145600000`. Measured,
+ * nothing, because the filter is comparing against `1788681600000`. Measured,
  * not inferred: `includesString` returns false for `9/6/2026` and true for
- * `175714`. The searchable value was the epoch digits, which nobody types.
+ * `178868`. The searchable value was the epoch digits, which nobody types.
  *
  * The same convention page also says accessors should return "the rendered i18n
  * string so sorting and the global filter match the screen". Those two rules
