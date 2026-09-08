@@ -300,3 +300,42 @@ describe('resolveCommandAction', () => {
     expect((await resolveCommandAction(cmd('create'), 'not-a-urn', ctx)).type).toBe('error');
   });
 });
+
+// #815 — the user-facing half of the fix. `openUrnCandidates` producing a
+// candidate is necessary but not sufficient; what @Holger reported is the bar
+// answering "Not a valid URN.", which is `buildOpenRoute`'s empty-candidate
+// branch. These assert the ROUTE, not the qualifier.
+describe('buildCommandRoute — open a worker URN (#815)', () => {
+  const ALEX = 'hrn:worker:micromentor.org:mm-eng-team:alex';
+
+  it('routes a valid worker URN to the resolver page instead of refusing it', async () => {
+    // Single candidate, so no resolve probe is needed — the bar navigates and
+    // `/app/u/[urn]` does the resolving, which is the division of labour that
+    // route's own comment describes.
+    expect(await buildCommandRoute('open', ALEX, resolve)).toEqual({
+      ok: true,
+      path: `/app/u/${ALEX}`,
+    });
+  });
+
+  it('accepts the schemeless and legacy-scheme spellings too', async () => {
+    for (const input of [
+      'worker:micromentor.org:mm-eng-team:alex',
+      'urn:worker:micromentor.org:mm-eng-team:alex',
+    ]) {
+      expect(await buildCommandRoute('open', input, resolve)).toEqual({
+        ok: true,
+        path: `/app/u/${ALEX}`,
+      });
+    }
+  });
+
+  it('still says "Not a valid URN." for a malformed worker URN', async () => {
+    // The fix asks a parser that can express `worker`; it does not stop
+    // validating. An explicit-but-wrong type must still be refused rather than
+    // second-guessed.
+    expect(await buildCommandRoute('open', 'hrn:worker:acme.com', resolve)).toMatchObject({
+      ok: false,
+    });
+  });
+});

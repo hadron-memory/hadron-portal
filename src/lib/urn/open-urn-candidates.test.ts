@@ -80,3 +80,69 @@ describe('openUrnCandidates — bare hierarchy paths', () => {
     expect(openUrnCandidates('   ')).toEqual([]);
   });
 });
+
+// #815 — a valid `hrn:worker:` URN was refused by the command bar with
+// "Not a valid URN." while `/app/u/<the same URN>` resolved it. The cause was
+// this module gating on `parseUrn`, which structurally cannot represent a
+// v2-ONLY type: it parses v1 and, on failure, delegates through a path
+// requiring the v2 word to have a v1 equivalent, which `worker` has none of.
+describe('openUrnCandidates — v2-only types (#815)', () => {
+  const ALEX = 'hrn:worker:micromentor.org:mm-eng-team:alex';
+
+  it('qualifies the reported URN instead of refusing it', () => {
+    expect(openUrnCandidates(ALEX)).toEqual([ALEX]);
+  });
+
+  it('qualifies a schemeless worker paste', () => {
+    // `worker:` is a type word people type, and the platform prints the full
+    // URN — so both shapes reach the bar.
+    expect(openUrnCandidates('worker:micromentor.org:mm-eng-team:alex')).toEqual([ALEX]);
+  });
+
+  it('canonicalizes the legacy urn: scheme, like every other type', () => {
+    // Recomposed from the parse rather than passed through, so this normalizes
+    // the same way `parserCanonical` does on the v1 path.
+    expect(openUrnCandidates('urn:worker:micromentor.org:mm-eng-team:alex')).toEqual([ALEX]);
+  });
+
+  it('still refuses a MALFORMED worker URN', () => {
+    // The point of the fix is not "let worker through" — it is to ask the
+    // parser that can express it. `parseUrnV2` is a real validator, so an
+    // explicit-but-wrong type is still not second-guessed.
+    expect(openUrnCandidates('hrn:worker:acme.com')).toEqual([]); // wrong arity
+    expect(openUrnCandidates('hrn:worker:acme.com::team::x')).toEqual([]); // v1 separators
+  });
+
+  it('refuses a v2-only type with no portal page', () => {
+    // Qualifying to a kind `/app/u/[urn]` cannot redirect would trade one dead
+    // end for another — the rule this module already applied to v1 types.
+    for (const urn of [
+      'hrn:apprun:acme.com:run-1',
+      'hrn:appkey:acme.com:key-1',
+      'hrn:noderev:acme.com:mem:loc:1',
+    ]) {
+      expect(openUrnCandidates(urn)).toEqual([]);
+    }
+  });
+
+  it('leaves every v1 form exactly as it was', () => {
+    // The v2 attempt is a FALLBACK: it runs only where `parseUrn` already
+    // failed, so nothing that used to resolve can change.
+    expect(openUrnCandidates('hrn:agent:acme.com:alex')).toEqual(['hrn:agent:acme.com:alex']);
+    expect(openUrnCandidates('hrn:mem:acme.com:docs')).toEqual(['hrn:mem:acme.com:docs']);
+    expect(openUrnCandidates('hrn:user:holger')).toEqual(['hrn:user:holger']);
+    expect(openUrnCandidates('acme.com::docs::intro')).toEqual([
+      'hrn:node:acme.com::docs::intro',
+      'hrn:memory:acme.com::docs::intro',
+    ]);
+  });
+
+  it('does not start guessing worker for a bare hierarchy path', () => {
+    // Deliberate: a bare paste is ambiguous, worker URNs are essentially always
+    // pasted WITH their scheme (that is how the platform prints them), and
+    // adding a kind to the guess list costs a resolver probe on every miss.
+    expect(openUrnCandidates('micromentor.org::mm-eng-team::alex')).not.toContain(
+      'hrn:worker:micromentor.org::mm-eng-team::alex',
+    );
+  });
+});
