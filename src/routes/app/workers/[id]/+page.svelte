@@ -3,11 +3,11 @@
   import Urn from '$lib/components/Urn.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import WorklogTable from '$lib/components/WorklogTable.svelte';
+  import WorkerSessionsTable from '$lib/components/WorkerSessionsTable.svelte';
   import { tick, untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import { isHeld, workerHold } from '$lib/worker-hold';
-  import { expiryDistance, workerSessionStatus } from '$lib/worker-session-status';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
@@ -99,12 +99,6 @@
     else if (e.key === 'Home') { e.preventDefault(); focusTab(order[0]); }
     else if (e.key === 'End') { e.preventDefault(); focusTab(order[order.length - 1]); }
   }
-
-  // Captured once per render rather than per row, so every countdown on the
-  // page is measured against the same instant. Not reactive: an expiry badge
-  // that silently ticks would imply a liveness we are not subscribed to — the
-  // honest refresh is a page load.
-  const now = Date.now();
 
   const worker = $derived(data.worker);
   const retired = $derived(!!worker.retiredAt);
@@ -434,96 +428,13 @@
           {t('worker.sessions.empty', 'You have not driven this worker in a worker session.')}
         </p>
       {:else}
-        <ul
-          class="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900"
-        >
-          {#each data.workerSessions as s (s.id)}
-            {@const status = workerSessionStatus(s, now)}
-            <li class="px-5 py-3">
-              <div class="flex flex-wrap items-center gap-2">
-                <!-- EXPIRED is its own state, deliberately not folded into
-                     "Ended". The reaper sets endedAt too, so rendering both the
-                     same would tell the reader somebody chose to stop when in
-                     fact the session died under them. -->
-                {#if status.state === 'open'}
-                  <span
-                    class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-950 dark:text-green-300"
-                    >{t('worker.sessions.state.open', 'Open')}</span
-                  >
-                {:else if status.state === 'expired'}
-                  <span
-                    class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300"
-                    >{t('worker.sessions.state.expired', 'Expired — reaped by the server')}</span
-                  >
-                {:else}
-                  <span
-                    class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-                    >{t('worker.sessions.state.ended', 'Ended')}</span
-                  >
-                {/if}
+        <!-- #758 was a bespoke <ul> stacking eleven fields into three lines of
+             prose per row. Every list is a DataTable
+             (hrn:node:hadronmemory.com:hadron-portal:findings:table-chrome-conventions),
+             and here the chrome is the feature: the fields are now sortable
+             columns a reader can hide, search and page rather than a ribbon. -->
+        <WorkerSessionsTable sessions={data.workerSessions} />
 
-                {#if status.expiringSoon && status.msUntilExpiry !== null}
-                  <!-- The only forward-looking expiry signal any client shows.
-                       Every expiry on this team so far was discovered by a write
-                       failing (hadron-cli#484).
-
-                       The WHOLE sentence goes through t(), one key per unit, with
-                       only the number interpolated — the repo's established
-                       `t(id, 'text {n}').replace()` shape. Translating "Expires"
-                       and concatenating a formatted "in 45 min" would leave an
-                       English fragment past the i18n boundary and fix the word
-                       order in English (Codex P2). -->
-                  {@const d = expiryDistance(status.msUntilExpiry)}
-                  <span
-                    class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-300"
-                  >
-                    {#if status.msUntilExpiry < 0}
-                      {t('worker.sessions.overdue', 'Past its expiry — live only until the next reap')}
-                    {:else if d.unit === 'min'}
-                      {t('worker.sessions.expiring.minutes', 'Expires in {n} min').replace(
-                        '{n}',
-                        String(d.value),
-                      )}
-                    {:else}
-                      {t('worker.sessions.expiring.hours', 'Expires in {n} h').replace(
-                        '{n}',
-                        String(d.value),
-                      )}
-                    {/if}
-                  </span>
-                {/if}
-
-                <span class="text-xs text-zinc-500">{formatDate(s.startedAt)}</span>
-                {#if s.endedAt}
-                  <span class="text-xs text-zinc-500">→ {formatDate(s.endedAt)}</span>
-                {/if}
-              </div>
-
-              {#if s.plan}
-                <p class="mt-1 text-sm text-zinc-900 dark:text-zinc-100">{s.plan}</p>
-              {/if}
-              {#if s.summary}
-                <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">{s.summary}</p>
-              {/if}
-
-              <p class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-zinc-500">
-                {#if s.repo}<span>{s.repo}{#if s.branch}@{s.branch}{/if}</span>{/if}
-                {#if s.tool}<span>{s.tool}</span>{/if}
-                {#if s.host}<span>{s.host}</span>{/if}
-                {#if s.llmModel}<span>{s.llmModel}</span>{/if}
-                {#if s.prNumber}<span>PR #{s.prNumber}</span>{/if}
-              </p>
-
-              {#if s.transcriptPath}
-                <!-- Host-local, and meaningless to anyone not on that machine —
-                     so plain text, never a link (#737). -->
-                <p class="mt-1 truncate font-mono text-[11px] text-zinc-400" title={s.transcriptPath}>
-                  {s.transcriptPath}
-                </p>
-              {/if}
-            </li>
-          {/each}
-        </ul>
         {#if data.sessionsTruncated}
           <!-- `sessions` returns a bare list with no `total`, so this says "there
                are more" and deliberately does not claim a number it cannot know. -->
@@ -565,7 +476,15 @@
       {:else}
         <!-- Filters are off: on this page the WORKER is the filter, and the
              control's hidden `tab` field belongs to the App page's tab strip. -->
-        <WorklogTable items={data.worklog} total={data.worklogTotal} showFilters={false} />
+        <!-- A DISTINCT listKey from the App page's worklog: same component, but a
+             reader here is already scoped to one worker and wants different
+             columns, and one key across two surfaces silently shares arrangement. -->
+        <WorklogTable
+          items={data.worklog}
+          total={data.worklogTotal}
+          showFilters={false}
+          listKey="workers:worklog"
+        />
       {/if}
     </section>
 
