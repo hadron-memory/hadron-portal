@@ -26,11 +26,23 @@ const fmt: ColumnFormatters = {
   prNumber: (v) => (typeof v === 'number' ? `#${v}` : '—'),
 };
 
-/** A row fake: answers getValue, and carries the source row like the real one. */
-const row = (values: Record<string, unknown>, original: Record<string, unknown> = {}) => ({
-  getValue: (columnId: string) => values[columnId],
-  original,
-});
+/**
+ * A row fake: answers getValue, and carries the source row like the real one.
+ *
+ * Generic over the ORIGINAL so a caller that configures extras for a typed row
+ * gets a typed `original` back. A `Record<string, unknown>` here type-checked
+ * under a bare `svelte-check` and failed under the repo's own `pnpm check`,
+ * which passes `--tsconfig ./tsconfig.json` — the gate CI actually runs.
+ */
+function row<T extends object = Record<string, unknown>>(
+  values: Record<string, unknown>,
+  original: T = {} as T,
+) {
+  return {
+    getValue: (columnId: string) => values[columnId],
+    original,
+  };
+}
 
 const filter = makeGlobalFilterFn(fmt);
 
