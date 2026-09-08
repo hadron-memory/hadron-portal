@@ -1,4 +1,4 @@
-import { MEMORY_ROLE_MARKERS, parseUrn } from './parse-urn';
+import { CANONICAL_SCHEME, MEMORY_ROLE_MARKERS, parseUrn, parseUrnV2 } from './parse-urn';
 
 /**
  * #567 — best-effort qualification of the command bar's `open` argument.
@@ -16,16 +16,78 @@ import { MEMORY_ROLE_MARKERS, parseUrn } from './parse-urn';
  * qualifying to a kind `/app/u/[urn]` can't redirect would trade one
  * dead-end for another.
  */
-const OPENABLE_TYPE_WORDS = new Set(['org', 'memory', 'mem', 'agent', 'app', 'node', 'user']);
+const OPENABLE_TYPE_WORDS = new Set([
+  'org',
+  'memory',
+  'mem',
+  'agent',
+  'app',
+  'node',
+  'user',
+  // #815 — `worker` has a portal page (`/app/workers/<id>`, added by #735) and
+  // is the URN the platform PRINTS in every roster and identity signature, so
+  // it is the one people paste. It reaches the v2 branch below rather than
+  // `parseUrn`.
+  'worker',
+]);
+
+/**
+ * #815 — v2-ONLY types that `/app/u/[urn]` can redirect, so qualifying to one
+ * does not trade a dead end for another.
+ *
+ * `parseUrn` structurally cannot represent these. It parses v1 and, on failure,
+ * delegates through `tryParseFlatV2`, which requires the v2 type to have a v1
+ * equivalent (`V2_TO_V1_TYPE`) — and a v2-only word has none by definition. So
+ * every one of them raised `unknown-type`, `openUrnCandidates` returned an empty
+ * list, and the command bar answered "Not a valid URN." about a URN whose own
+ * page resolves it. That is the library behaving as designed and this module
+ * asking the wrong parser.
+ *
+ * Only `worker` is listed. The other v2-only words — `apprun`, `noderev`,
+ * `appkey`, `aiconf`, `tool`, `server`, `userapikey`, `agentschedule`,
+ * `agentwebhook` — have no portal page yet, so guessing them would still
+ * dead-end. Add one here when `/app/u` learns to redirect it.
+ */
+const OPENABLE_V2_ONLY_TYPES = new Set(['worker']);
 
 /** `marker:` prefixes whose presence in a final segment flags a role-marker
  *  memory URN (e.g. per-user `org::agent::app-user:<id>`), not a node loc. */
 const ROLE_MARKER_PREFIX = new RegExp(`^(?:${MEMORY_ROLE_MARKERS.join('|')}):`);
 
-/** A candidate parses or it isn't a candidate. */
+/**
+ * A candidate parses or it isn't a candidate.
+ *
+ * v1 first, then the v2-only grammar — in that order because `parseUrn` already
+ * handles every v2 word with a v1 equivalent (`mem` → `memory`), so the second
+ * attempt is reached only by the words it genuinely cannot express.
+ */
 function tryCanonical(urn: string): string | null {
   try {
     return parseUrn(urn).parserCanonical;
+  } catch {
+    return tryCanonicalV2(urn);
+  }
+}
+
+/**
+ * Canonicalize a v2-only URN, or null.
+ *
+ * Recomposed from the parse rather than passed through, so a legacy `urn:`
+ * scheme or odd casing still yields the canonical spelling — the same
+ * normalization `parserCanonical` gives the v1 path.
+ *
+ * `parseUrnV2` is a real validator, not a shape guess: it refuses `::`
+ * (v2 is single-colon throughout), unknown type words, and the wrong number of
+ * segments for a type. So a malformed worker URN still produces no candidate,
+ * which is what an explicit-but-wrong type should do.
+ */
+function tryCanonicalV2(urn: string): string | null {
+  try {
+    const parsed = parseUrnV2(urn);
+    if (!OPENABLE_V2_ONLY_TYPES.has(parsed.type)) return null;
+    return [CANONICAL_SCHEME, parsed.type, parsed.root, ...parsed.segments]
+      .filter(Boolean)
+      .join(':');
   } catch {
     return null;
   }
