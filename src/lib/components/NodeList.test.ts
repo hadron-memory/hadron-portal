@@ -45,20 +45,41 @@ describe('node listing renders the full node URN, not loc-only', () => {
   });
 });
 
-// #810 / hadron-server#1128 — the abstract-stale tooltip no longer says the
-// abstract "lags" the content. That asserts the abstract is BEHIND, and since
-// #1128 the marker also arms when there is no fingerprint at all: an abstract
-// written before the body existed was never checked against it. Never-checked
-// and fell-behind are different claims.
+// #810 / hadron-server#1128 — ONE marker, TWO causes: the fingerprint
+// DISAGREES (checked at author time, content moved since) or is ABSENT on a node
+// with both an abstract and content (never checked). The copy must assert
+// neither as THE cause.
+//
+// Two wordings have been wrong here. "the abstract lags the node content" is
+// false for never-checked; "has not been checked against it" — my own
+// replacement — is false for disagrees, and @codex and @copilot both caught it
+// independently. My first version of THIS TEST pinned that second wrong wording,
+// so it was enforcing the defect.
 describe('abstract-stale tooltip wording (#810)', () => {
   const src = readFileSync('src/lib/components/NodeList.svelte', 'utf8');
+  const tooltip =
+    src.match(/'node-list\.abstract-stale',\s*'([^']*)'/)?.[1] ?? '';
 
-  it('does not claim the abstract fell behind the content', () => {
-    expect(src).not.toMatch(/the abstract lags the node content/);
+  it('finds the tooltip string at all', () => {
+    // Guards the regex above: a rename would otherwise make every assertion
+    // below vacuously pass on an empty string.
+    expect(tooltip).not.toBe('');
   });
 
-  it('says only that the preview may not match, which is true of both causes', () => {
-    expect(src).toMatch(/Preview may not match the node content/);
-    expect(src).toMatch(/has not been checked against it/);
+  it('leads with what is actually known — that it may not match', () => {
+    expect(tooltip).toMatch(/may not match the node content/i);
+  });
+
+  it('asserts NEITHER cause as the cause', () => {
+    // Each retired wording named one cause and was false for the other.
+    expect(tooltip).not.toMatch(/the abstract lags the node content/i);
+    expect(tooltip).not.toMatch(/^[^,]*has not been checked against it$/i);
+  });
+
+  it('enumerates BOTH causes, so no third counterexample can break it', () => {
+    // The #764 remedy: list the possibilities and exclude none.
+    expect(tooltip).toMatch(/written against different content/i);
+    expect(tooltip).toMatch(/never checked against it/i);
+    expect(tooltip).toMatch(/\bor\b/i);
   });
 });
