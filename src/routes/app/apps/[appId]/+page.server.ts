@@ -56,6 +56,7 @@ import {
   revokeAppKeySchema,
   updateAppAgentToolsSchema,
 } from './schema';
+import type { ReleaseWorkerMessage } from './schema';
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
 type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -132,6 +133,82 @@ const RELEASE_FORBIDDEN = () => t(
   'app.staff.error.release-forbidden',
   'You don’t have permission to release this name. You can release a name you hold yourself; force-releasing someone else’s needs admin access to the App or its organization.',
 );
+
+/**
+ * The half of `ReleaseWorkerPayload` this action reads (#823).
+ *
+ * `worker` and `forced` are selected — the mirrored SDL and
+ * `release-worker-query.test.ts` pin all four — but deliberately not read here:
+ *
+ *   - `worker` is a re-read of CURRENT state, so a non-null `heldByUserId` on it
+ *     is a LATER hold somebody else took, never a failed release. `releasedFrom`
+ *     is what says the release happened, and mixing the two would let a race
+ *     report a successful release as a failure.
+ *   - `forced` does not change the copy. The confirm dialog already states the
+ *     admin path and its team-chat post BEFORE the click, and repeating it
+ *     afterwards tells the reader nothing they did not just agree to. Where it
+ *     does matter — an owed announcement that failed — `notified: false` says so
+ *     directly, and `notified` is non-null only on the forced path anyway.
+ */
+type ReleaseWorkerPayload = {
+  releasedFrom: { id: string } | null;
+  notified: boolean | null;
+};
+
+/**
+ * #823 — three outcomes, three messages, each describing what the server
+ * reported doing rather than what the click asked for
+ * (`hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee`).
+ *
+ * The action used to discard the result and always say "Name released.", which
+ * is false twice over: `releaseWorker` is idempotent on an unheld worker, and
+ * `notified: false` means the announcement
+ * `hrn:node:hadronmemory.com:specs:cor:agt:020:09` requires was OWED AND FAILED — the one case where somebody else is relying on a post that never
+ * went out, rendered as plain success.
+ *
+ * No user-supplied value is interpolated into any of these strings. Naming the
+ * holder would want `t(...).replace('{who}', handle)`, and that expands `$&` and
+ * friends out of a user-chosen handle (#817, 35 existing sites). The roster row
+ * the click came from already names them, so the sentence loses nothing.
+ */
+function releaseOutcomeMessage(payload: ReleaseWorkerPayload): ReleaseWorkerMessage {
+  // `releasedFrom` is null exactly when nothing was released — the SDL states it
+  // as the idempotent path, and it is the value the guarded write matched on
+  // rather than one a pre-read saw.
+  if (!payload.releasedFrom) {
+    return {
+      type: 'success',
+      outcome: 'not-held',
+      text: t(
+        'app.staff.release.not-held',
+        'Nothing to release — nobody held that name. The worker stays active and keeps its name, and anyone on the team may hold it.',
+      ),
+    };
+  }
+
+  // Strictly `=== false`: `null` means no notice was owed (a self-release), and
+  // treating a falsy null as a failure would warn about an announcement nobody
+  // ever expected.
+  if (payload.notified === false) {
+    return {
+      type: 'success',
+      outcome: 'announcement-failed',
+      text: t(
+        'app.staff.release.announcement-failed',
+        'Name released — but the team-chat announcement did not post. The release stands and anyone may hold the name now; the team has no notice of it from Hadron, so tell them yourself.',
+      ),
+    };
+  }
+
+  return {
+    type: 'success',
+    outcome: 'released',
+    text: t(
+      'app.staff.release.success',
+      'Name released. The worker stays active and keeps its name — anyone may hold it now.',
+    ),
+  };
+}
 
 /**
  * castWorker's typed refusals (#974), mapped to copy that says what to DO.
@@ -499,7 +576,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       retireWorkerFormAdapter,
       { errors: false },
     ),
-    superValidate<ReleaseWorkerForm>(
+    superValidate<ReleaseWorkerForm, ReleaseWorkerMessage>(
       { workerId: '' },
       releaseWorkerFormAdapter,
       { errors: false },
@@ -862,23 +939,19 @@ export const actions: Actions = {
   // operations that differ on whether the name ever becomes available again, so
   // the portal grew the missing one instead of relabelling the wrong one.
   releaseWorker: async ({ request, locals }) => {
-    const form = await superValidate<ReleaseWorkerForm>(
+    const form = await superValidate<ReleaseWorkerForm, ReleaseWorkerMessage>(
       await request.formData(),
       releaseWorkerFormAdapter,
     );
     if (!form.valid) return fail(400, { form });
 
     try {
-      await gqlClient(locals.token).request(RELEASE_WORKER_MUTATION, {
+      const result = await gqlClient(locals.token).request<{
+        releaseWorker: ReleaseWorkerPayload;
+      }>(RELEASE_WORKER_MUTATION, {
         workerRef: form.data.workerId,
       });
-      return message(form, {
-        type: 'success',
-        text: t(
-          'app.staff.release.success',
-          'Name released. The worker stays active and keeps its name — anyone may hold it now.',
-        ),
-      });
+      return message(form, releaseOutcomeMessage(result.releaseWorker));
     } catch (e: unknown) {
       // Same staffing gate as castWorker/retireWorker, so the same legible
       // refusal rather than a raw GraphQL error.

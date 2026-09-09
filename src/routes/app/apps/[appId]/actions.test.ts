@@ -1001,26 +1001,96 @@ describe('retireWorker action', () => {
 // the worker ACTIVE and its name allocated, while retiring ends the casting and
 // reserves the name forever.
 describe('releaseWorker action', () => {
-  it('releases a held name and says the worker stays active', async () => {
-    mockRequest.mockResolvedValueOnce({});
+  /**
+   * #823 — run the action against a `ReleaseWorkerPayload` and return the
+   * message it produced. The payload is what decides the copy now, so every
+   * case below states one rather than an empty object.
+   */
+  async function release(payload: {
+    releasedFrom?: { id: string } | null;
+    notified?: boolean | null;
+  }) {
+    mockRequest.mockResolvedValueOnce({
+      releaseWorker: {
+        worker: { id: 'worker-1' },
+        forced: false,
+        releasedFrom: null,
+        notified: null,
+        ...payload,
+      },
+    });
     const result = await runAction('releaseWorker', { workerId: 'worker-1' });
+    return (result as { form: { message: { type: string; outcome?: string; text: string } } })
+      .form.message;
+  }
+
+  const HELD_BY = { id: 'user-9' };
+
+  it('releases a held name and says the worker stays active', async () => {
+    const message = await release({ releasedFrom: HELD_BY });
     expect(mockRequest.mock.calls[0]).toEqual([
       RELEASE_WORKER_MUTATION,
       { workerRef: 'worker-1' },
     ]);
-    const text = (result as { form: { message: { text: string } } }).form.message.text;
-    expect(text).toContain('stays active');
+    expect(message).toMatchObject({ type: 'success', outcome: 'released' });
+    expect(message.text).toContain('stays active');
     // The distinction is the whole point: releasing must never claim to have
     // retired anything, or the two operations start reading as one.
-    expect(text).not.toContain('reserved');
+    expect(message.text).not.toContain('reserved');
+  });
+
+  // The defect #823 reports: the action discarded the result and always said
+  // "Name released.", so an idempotent no-op on an UNHELD worker reported a
+  // release that never happened.
+  it('does not claim a release when nothing was held', async () => {
+    const message = await release({ releasedFrom: null });
+    expect(message).toMatchObject({ type: 'success', outcome: 'not-held' });
+    expect(message.text).not.toContain('Name released');
+    expect(message.text).toContain('nobody held that name');
+  });
+
+  // `notified: false` means the team-chat notice
+  // `hrn:node:hadronmemory.com:specs:cor:agt:020:09` requires was OWED AND FAILED. The release stands; the half other people rely on did not
+  // happen, and it used to render as plain success.
+  it('warns when the owed team-chat announcement failed to post', async () => {
+    const message = await release({ releasedFrom: HELD_BY, notified: false });
+    expect(message).toMatchObject({ type: 'success', outcome: 'announcement-failed' });
+    expect(message.text).toContain('did not post');
+    // It still reports the release, because the release DID happen — the
+    // warning is additional, not a replacement.
+    expect(message.text).toContain('Name released');
+  });
+
+  // `null` is "no notice was owed" (a self-release), NOT a failure. A falsy
+  // check rather than `=== false` would warn about an announcement nobody ever
+  // expected, on the most common path there is.
+  it('treats an un-owed announcement as an ordinary release, not a failure', async () => {
+    const notOwed = await release({ releasedFrom: HELD_BY, notified: null });
+    const posted = await release({ releasedFrom: HELD_BY, notified: true });
+    expect(notOwed.outcome).toBe('released');
+    expect(posted.outcome).toBe('released');
+    expect(notOwed.text).not.toContain('did not post');
+    expect(posted.text).not.toContain('did not post');
+  });
+
+  // Pins the mapping rather than any one wording: three outcomes that share a
+  // sentence are a collapse, which is the shape of the original defect. A test
+  // that pinned only the strings would pass on a mapping that returned the same
+  // text for two of them.
+  it('gives each outcome its own message', async () => {
+    const texts = [
+      (await release({ releasedFrom: HELD_BY })).text,
+      (await release({ releasedFrom: HELD_BY, notified: false })).text,
+      (await release({ releasedFrom: null })).text,
+    ];
+    expect(new Set(texts).size).toBe(3);
   });
 
   it('calls releaseWorker, never retireWorker', async () => {
     // Guards the collision #756 proposed: a "Release" button wired to
     // retireWorker would end the casting and reserve the name forever, which is
     // unrecoverable and looks like a success.
-    mockRequest.mockResolvedValueOnce({});
-    await runAction('releaseWorker', { workerId: 'worker-1' });
+    await release({ releasedFrom: HELD_BY });
     expect(mockRequest.mock.calls[0][0]).toBe(RELEASE_WORKER_MUTATION);
     expect(mockRequest.mock.calls[0][0]).not.toBe(RETIRE_WORKER_MUTATION);
   });

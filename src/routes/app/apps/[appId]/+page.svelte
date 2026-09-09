@@ -64,6 +64,8 @@
     revokeAppKeySchema,
     updateAppAgentToolsSchema,
   } from './schema';
+  import type { ReleaseWorkerMessage } from './schema';
+  import { releaseNotice } from './release-notice';
 
   type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
   type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -82,7 +84,7 @@
   type DeleteAppSuperform = SuperValidated<DeleteAppForm, App.Superforms.Message, DeleteAppForm>;
   type RemoveAppAgentSuperform = SuperValidated<RemoveAppAgentForm, App.Superforms.Message, RemoveAppAgentForm>;
   type RetireWorkerSuperform = SuperValidated<RetireWorkerForm, App.Superforms.Message, RetireWorkerForm>;
-  type ReleaseWorkerSuperform = SuperValidated<ReleaseWorkerForm, App.Superforms.Message, ReleaseWorkerForm>;
+  type ReleaseWorkerSuperform = SuperValidated<ReleaseWorkerForm, ReleaseWorkerMessage, ReleaseWorkerForm>;
   type RevokeAppKeySuperform = SuperValidated<RevokeAppKeyForm, App.Superforms.Message, RevokeAppKeyForm>;
   type UpdateAppAgentToolsSuperform = SuperValidated<UpdateAppAgentToolsForm, App.Superforms.Message, UpdateAppAgentToolsForm>;
 
@@ -556,7 +558,7 @@
     message: releaseWorkerMessage,
     submitting: releaseWorkerSubmitting,
     enhance: releaseWorkerEnhance,
-  } = superForm<ReleaseWorkerForm, App.Superforms.Message, ReleaseWorkerForm>(initialReleaseWorkerForm, {
+  } = superForm<ReleaseWorkerForm, ReleaseWorkerMessage, ReleaseWorkerForm>(initialReleaseWorkerForm, {
     validators: zod4Client(releaseWorkerSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
@@ -611,7 +613,11 @@
   const releaseWorkerActionError = $derived(
     $releaseWorkerMessage?.type === 'error' ? $releaseWorkerMessage.text : null,
   );
-  const releaseWorkerActionSuccess = $derived($releaseWorkerMessage?.type === 'success' ? $releaseWorkerMessage.text : null);
+  // #823 — the release action reports WHICH of three outcomes the server
+  // described, and the chrome follows it rather than always reading as success.
+  // The mapping lives in `release-notice.ts` so it can be tested without
+  // rendering this whole page.
+  const releaseWorkerNotice = $derived(releaseNotice($releaseWorkerMessage));
 
   // Retire is confirmed because it is one-way in the sense that matters: the
   // casting ends and the NAME stays reserved forever, so it can never be
@@ -1538,10 +1544,26 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           {releaseWorkerActionError}
         </div>
       {/if}
-      {#if releaseWorkerActionSuccess}
-        <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
-          {releaseWorkerActionSuccess}
-        </div>
+      {#if releaseWorkerNotice}
+        <!-- #823 — three outcomes, three messages, and the chrome follows the
+             one the server reported: green only for a release that happened and
+             announced itself, amber + role="alert" when an owed team-chat notice
+             failed, neutral when nothing was released at all.
+
+             `{#key}` on the role, because ONE hidden form serves every row: a
+             second release re-renders this same element, and swapping `role`
+             from status to alert in place asks an assistive technology to
+             re-register a live region it already registered as polite. Keyed,
+             the alert is a fresh insertion — which is the case that matters,
+             since it is the one nobody else was told about. -->
+        {#key releaseWorkerNotice.role}
+          <div
+            role={releaseWorkerNotice.role}
+            class="rounded-lg border px-4 py-3 text-sm {releaseWorkerNotice.class}"
+          >
+            {releaseWorkerNotice.text}
+          </div>
+        {/key}
       {/if}
 
       {#if castableAgents.length === 0}
