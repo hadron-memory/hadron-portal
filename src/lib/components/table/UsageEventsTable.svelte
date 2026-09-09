@@ -4,6 +4,7 @@
   // keeps each list's saved views distinct (e.g. 'memory:<id>:usage').
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import ViewTabs from '$lib/components/table/ViewTabs.svelte';
   import ColumnToggle from '$lib/components/table/ColumnToggle.svelte';
   import type { UsageEvent } from '$lib/components/table/usageEvent';
@@ -66,7 +67,14 @@
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — `createdAt` accessors epoch millis (sort by instant) and `tokens`
+    // a summed number rendered with thousands separators, so 'includesString'
+    // searched neither what the reader sees nor what they would paste. `fmt` is
+    // the SAME map the cell falls back to; `extras` carries the wire ISO the
+    // date accessor discarded.
+    globalFilterFn: makeGlobalFilterFn<UsageEvent>(fmt, {
+      createdAt: (row) => row.createdAt,
+    }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 

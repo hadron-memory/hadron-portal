@@ -1,0 +1,32 @@
+# #820 — fail when a grid searches something the reader cannot see.
+#
+# `globalFilterFn: 'includesString'` stringifies the ACCESSOR, and this repo's
+# column conventions deliberately make the accessor differ from the cell: date
+# accessors return epoch millis so columns sort by instant, numeric ones keep
+# counts and sizes sorting numerically. The searchable value was then the epoch
+# digits, which nobody types.
+#
+# Shaped like `no-bare-loc-citations` and `no-station-refs`: a small,
+# app-independent gate in its own job so it reports separately from `ci`.
+#
+# Unlike those it needs NO history and no base resolution. The whole tree is
+# clean as of #820, so this checks the tree as it stands rather than the diff —
+# which also means a file that regresses is caught even if the offending line
+# was not the one touched.
+name: grid-filters
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  grid-filters:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Grids must search what the reader sees
+        run: node scripts/check-grid-filters.mjs

@@ -5,6 +5,7 @@
   // 'usage:sessions' so users' saved views carry over from the old route.
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import { orgWideWorkerLabel } from '$lib/workers/worker-label';
@@ -123,7 +124,13 @@
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — `startedAt` accessors epoch millis, `duration` elapsed millis and
+    // `tokens` a sum rendered with separators, so 'includesString' searched
+    // none of what the reader sees. `fmt` is the same map the cell falls back
+    // to; the extra carries the wire ISO the date accessor discarded.
+    globalFilterFn: makeGlobalFilterFn<Session>(fmt, {
+      startedAt: (row) => row.startedAt,
+    }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 </script>

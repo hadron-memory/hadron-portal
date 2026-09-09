@@ -20,6 +20,7 @@
   import { untrack } from 'svelte';
   import { Download, Link2, Trash2 } from 'lucide-svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -214,7 +215,20 @@
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — 'includesString' stringified the ACCESSOR: `size` is raw bytes
+    // while the cell shows "2.0 KB", and `uploaded` is epoch millis (sorted by
+    // instant) while the cell shows a formatted date. Neither is what a reader
+    // types.
+    //
+    // `size` goes through the SAME `fmtSize` the cell calls, so the two cannot
+    // drift. `uploaded` cannot: the cell renders `row.uploaded`, a string built
+    // once per row, which is not derivable from the epoch the accessor returns —
+    // so it is matched from the ORIGINAL row instead, alongside the wire
+    // timestamp for a reader pasting one from an API response.
+    globalFilterFn: makeGlobalFilterFn<AssetRow>(
+      { size: (v) => fmtSize(v as number) },
+      { uploaded: (row) => row.uploaded },
+    ),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'uploaded', desc: true }],

@@ -14,6 +14,7 @@
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import SelectPublicAgent from '$lib/components/SelectPublicAgent.svelte';
@@ -176,7 +177,12 @@
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — swapped with the rest of the sweep. This grid's only numeric
+    // accessor (`memories`) renders as the number itself, so search already
+    // worked; using the shared filter keeps the two grids on this page
+    // consistent rather than leaving one on a function that fails silently the
+    // day a column starts formatting its value.
+    globalFilterFn: makeGlobalFilterFn<Agent>(fmt),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 
@@ -253,7 +259,18 @@
     onGlobalFilterChange: (u) => {
       grantsFilter = typeof u === 'function' ? u(grantsFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — `since` accessors epoch millis so the column sorts by instant,
+    // while the cell renders `fmtDate(grant.activatedAt ?? grant.createdAt)`.
+    //
+    // Matched from the ORIGINAL row by calling that same expression, rather
+    // than by formatting the accessor value: rebuilding the date from epoch
+    // millis would be a SECOND definition of what this cell shows, and a `fmt`
+    // that disagrees with the cell is the bug being fixed here, one layer down
+    // (`hrn:node:hadronmemory.com:hadron-portal:review:verify-a-sweep-by-its-output`).
+    // The wire timestamp rides along for a reader pasting one from an API.
+    globalFilterFn: makeGlobalFilterFn<AgentGrant>({}, {
+      since: (row) => `${fmtDate(row.activatedAt ?? row.createdAt)} ${row.activatedAt ?? row.createdAt ?? ''}`,
+    }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 </script>

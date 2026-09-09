@@ -8,6 +8,7 @@
   // which owns the live view and the kill switch.
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
@@ -112,7 +113,15 @@
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — `started` and `duration` accessor epoch/elapsed MILLIS so they sort
+    // chronologically, while the cells render strings built once per row
+    // (`run.started`, `run.duration`). Those strings are not derivable from the
+    // numbers, so they are matched from the ORIGINAL row rather than through a
+    // formatter that would be a second, drifting definition of "rendered".
+    globalFilterFn: makeGlobalFilterFn<RunRow>({}, {
+      started: (row) => row.started,
+      duration: (row) => row.duration,
+    }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 
