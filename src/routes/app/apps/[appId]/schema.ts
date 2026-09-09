@@ -111,6 +111,30 @@ export const releaseWorkerSchema = z.object({
   workerId: z.string().trim().min(1, 'Worker is required').prefault(''),
 });
 
+// #823 — `releaseWorker` has THREE outcomes and the click has one intent, so
+// the action reports which one the server described rather than asserting the
+// one that was asked for:
+//
+//   released            — `releasedFrom` non-null, no notice owed or one posted
+//   announcement-failed — released, and `notified: false`: the team-chat notice
+//                         `hrn:node:hadronmemory.com:specs:cor:agt:020:09`
+//                         requires was OWED AND FAILED
+//   not-held            — `releasedFrom` null: the mutation is idempotent on an
+//                         unheld worker, so nothing was released
+//
+// Carried as a field on THIS form's message rather than as a third member of
+// `App.Superforms.Message['type']`. That union has ~130 readers across the app
+// written as `=== 'success'` / `!== 'error'`, and widening it would recruit
+// every one of them silently
+// (`hrn:node:hadronmemory.com:hadron-portal:review:widening-a-union-recruits-every-fallback`).
+// Here the page maps the outcome through an exhaustive `Record`, so adding a
+// fourth member is a compile error rather than a green fallback.
+export type ReleaseOutcome = 'released' | 'announcement-failed' | 'not-held';
+
+// `outcome` is absent on the error path, which is unchanged: an error message
+// describes a release that did not happen at all.
+export type ReleaseWorkerMessage = App.Superforms.Message & { outcome?: ReleaseOutcome };
+
 // Posting to the App's TEAM CHAT (hadron-portal#732) is defined in $lib/forms
 // so the route action and TeamChatThread.svelte share one definition.
 export { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
