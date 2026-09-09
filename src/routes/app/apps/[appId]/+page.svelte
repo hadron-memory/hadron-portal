@@ -1778,9 +1778,16 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
               </div>
             {:else if cell.column.id === 'urn'}
               <!-- #735 / hrn:node:hadronmemory.com:hadron-portal:review:render-urn. Nullable by contract — absent rather
-                   than empty when the App's URN predates the flat grammar. -->
+                   than empty when the App's URN predates the flat grammar.
+
+                   #826: `linked`, because the resolver has handled `worker`
+                   since #735 — `/app/u/<urn>` lands on `/app/workers/<id>`.
+                   Without it the chip was dead text in a row that is ABOUT an
+                   entity with a page, while the name beside it linked: two
+                   renderings of one worker, one hot and one not. Not passed on
+                   the worker's OWN page, where it would link to itself. -->
               {#if worker.urn}
-                <Urn value={worker.urn} type="worker" size={8} />
+                <Urn value={worker.urn} type="worker" size={8} linked />
               {:else}
                 <span class="text-xs text-zinc-400">—</span>
               {/if}

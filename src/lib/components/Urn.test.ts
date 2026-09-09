@@ -111,3 +111,45 @@ describe('Urn.svelte — copy buttons (#310)', () => {
     expect(body).toContain('aria-label="Copy URL"');
   });
 });
+
+// #826 — `linked` had NO coverage in either direction, and it is the whole
+// mechanism behind a hot URN chip. Both arms matter: a component that always
+// links would silently make `asset` and `edge` chips point at an error page,
+// and one that never links looks identical to a working link in a screenshot.
+describe('Urn.svelte — linked chip (#826)', () => {
+  const WORKER = 'hrn:worker:hadronmemory.com:hadron-dev-team:gil';
+
+  it('renders the chip as a plain code element by default', () => {
+    const { body } = render(Urn, { props: { value: WORKER, type: 'worker' } });
+    expect(body).toContain('<code');
+    // Not merely "no href to /app/u" — no anchor at all, since the copy
+    // buttons are siblings and would not be caught by an href assertion.
+    expect(body).not.toContain('<a');
+  });
+
+  it('renders the chip as an anchor to the resolver when linked', () => {
+    const { body } = render(Urn, { props: { value: WORKER, type: 'worker', linked: true } });
+    expect(body).toContain(`href="/app/u/${WORKER}"`);
+    expect(body).not.toContain('<code');
+  });
+
+  // The anchor wraps ONLY the chip. Nesting the copy buttons inside it would be
+  // invalid markup and the anchor would swallow their clicks — the component
+  // says so in a comment, and nothing measured it.
+  it('keeps the copy buttons outside the anchor', () => {
+    const { body } = render(Urn, { props: { value: WORKER, type: 'worker', linked: true } });
+    const anchorEnd = body.indexOf('</a>');
+    expect(anchorEnd).toBeGreaterThan(-1);
+    expect(body.slice(0, anchorEnd)).not.toContain('<button');
+    expect(body.slice(anchorEnd)).toContain('aria-label="Copy URN"');
+  });
+
+  // The href carries the FULL canonical URN, not the bare value shown in the
+  // chip — the resolver is given `hrn:worker:…`, and a bare value would 404.
+  it('links the canonical URN even when the input omits the scheme', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hadronmemory.com:hadron-dev-team:gil', type: 'worker', linked: true },
+    });
+    expect(body).toContain(`href="/app/u/${WORKER}"`);
+  });
+});
