@@ -170,6 +170,17 @@ type ReleaseWorkerPayload = {
  * holder would want `t(...).replace('{who}', handle)`, and that expands `$&` and
  * friends out of a user-chosen handle (#817, 35 existing sites). The roster row
  * the click came from already names them, so the sentence loses nothing.
+ *
+ * None of them promises the name is AVAILABLE, either — @codex on #824, and the
+ * claim was in all three rather than the one line it flagged. The old copy ended
+ * "anyone may hold it now", which is a statement about a mutable global at the
+ * moment the sentence is READ: the payload's own contract says `worker`'s
+ * `heldByUserId` may carry a LATER hold, so a reader can be told the name is
+ * theirs for the taking and then refused `WORKER_HELD` on the very next click.
+ * The type comment above says exactly that, and the copy under it contradicted
+ * it. What IS observed is that a hold ended, and that releasing reserves nothing
+ * — so the messages say a released name goes to whoever binds it next, which
+ * stays true whoever that turns out to be.
  */
 function releaseOutcomeMessage(payload: ReleaseWorkerPayload): ReleaseWorkerMessage {
   // `releasedFrom` is null exactly when nothing was released — the SDL states it
@@ -181,7 +192,7 @@ function releaseOutcomeMessage(payload: ReleaseWorkerPayload): ReleaseWorkerMess
       outcome: 'not-held',
       text: t(
         'app.staff.release.not-held',
-        'Nothing to release — nobody held that name. The worker stays active and keeps its name, and anyone on the team may hold it.',
+        'Nothing to release — nobody held that name. The worker stays active and keeps its name, and the name goes to whoever binds it next.',
       ),
     };
   }
@@ -195,7 +206,7 @@ function releaseOutcomeMessage(payload: ReleaseWorkerPayload): ReleaseWorkerMess
       outcome: 'announcement-failed',
       text: t(
         'app.staff.release.announcement-failed',
-        'Name released — but the team-chat announcement did not post. The release stands and anyone may hold the name now; the team has no notice of it from Hadron, so tell them yourself.',
+        'Name released — but the team-chat announcement did not post. The hold ended and the name goes to whoever binds it next; the team has no notice of it from Hadron, so tell them yourself.',
       ),
     };
   }
@@ -205,7 +216,7 @@ function releaseOutcomeMessage(payload: ReleaseWorkerPayload): ReleaseWorkerMess
     outcome: 'released',
     text: t(
       'app.staff.release.success',
-      'Name released. The worker stays active and keeps its name — anyone may hold it now.',
+      'Name released. The worker stays active and keeps its name; the hold on it ended, and the name goes to whoever binds it next.',
     ),
   };
 }

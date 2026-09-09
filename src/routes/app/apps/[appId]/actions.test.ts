@@ -1086,6 +1086,30 @@ describe('releaseWorker action', () => {
     expect(new Set(texts).size).toBe(3);
   });
 
+  // @codex on PR #824, and the claim was in ALL THREE messages rather than the
+  // one line flagged. "anyone may hold it now" describes a MUTABLE GLOBAL at the
+  // moment the sentence is read: `ReleaseWorkerPayload.worker.heldByUserId` may
+  // already carry a LATER hold, so a reader can be told the name is theirs for
+  // the taking and be refused `WORKER_HELD` on the very next click. What the
+  // action observed is that a hold ENDED, and that releasing reserves nothing.
+  //
+  // The patterns are proxies for that class, not the wording of one branch — a
+  // test pinning the sentence would pass on the next sentence that promises the
+  // same thing, which is how the tooltip on #822 ended up enforcing its own
+  // defect.
+  it('never promises the name is available to take', async () => {
+    const texts = [
+      (await release({ releasedFrom: HELD_BY })).text,
+      (await release({ releasedFrom: HELD_BY, notified: false })).text,
+      (await release({ releasedFrom: null })).text,
+    ];
+    for (const text of texts) {
+      expect(text).not.toMatch(/anyone/i);
+      expect(text).not.toMatch(/may hold/i);
+      expect(text).not.toMatch(/\bnow\b/i);
+    }
+  });
+
   it('calls releaseWorker, never retireWorker', async () => {
     // Guards the collision #756 proposed: a "Release" button wired to
     // retireWorker would end the casting and reserve the name forever, which is
