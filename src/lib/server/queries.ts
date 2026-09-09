@@ -708,10 +708,20 @@ export const RETIRE_WORKER_MUTATION = /* GraphQL */ `
 // FAILED, so the release happened while the team-chat announcement
 // `hrn:node:hadronmemory.com:specs:cor:agt:020:09` requires did not. The action
 // currently reports plain success in that case.
+// #825 — `expectedHolderUserId` asserts WHICH hold this release was aimed at.
+// Without it the write is unconditional: the roster is a snapshot, so a hold
+// taken between render and click is force-released silently, and the team-chat
+// notice `hrn:node:hadronmemory.com:specs:cor:agt:020:09` names a person the
+// admin never chose. A mismatch now refuses WORKER_HOLD_STALE instead, carrying
+// the hold found at the moment of the write.
+//
+// `expectUnheld` is the sibling assertion and is deliberately NOT sent: passing
+// both is BAD_USER_INPUT, and this control only renders for a KNOWN hold, so
+// "expect nobody" is never the assertion this page wants to make.
 export const RELEASE_WORKER_MUTATION = /* GraphQL */ `
   ${WORKER_FIELDS}
-  mutation ReleaseWorker($workerRef: ID!) {
-    releaseWorker(workerRef: $workerRef) {
+  mutation ReleaseWorker($workerRef: ID!, $expectedHolderUserId: ID!) {
+    releaseWorker(workerRef: $workerRef, expectedHolderUserId: $expectedHolderUserId) {
       worker { ...WorkerFields }
       releasedFrom { id handle name }
       forced

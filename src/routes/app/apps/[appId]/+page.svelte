@@ -1,6 +1,7 @@
 <script lang="ts">
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
@@ -576,6 +577,15 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // #825 — a stale-hold refusal means this ROSTER is known to be wrong: the
+    // hold it drew is not the hold the server found. Superforms only
+    // invalidates on success, so without this the user re-reads the same stale
+    // row, clicks again, and asserts the same dead holder — a refusal that
+    // cannot be satisfied by doing what it says. Refetch so the next click is
+    // made against what is actually there.
+    onUpdated: ({ form: updated }) => {
+      if (updated.message?.staleHold) void invalidateAll();
+    },
   });
 
   const settingsNameError = $derived($appSettingsErrors.name?.[0] ?? null);
@@ -659,7 +669,15 @@
   // the prompt says so BEFORE the click rather than the chat announcing it
   // after.
   let releaseForm = $state<HTMLFormElement>();
-  async function releaseWorkerNamed(workerId: string, workerName: string, mine: boolean) {
+  async function releaseWorkerNamed(
+    workerId: string,
+    workerName: string,
+    mine: boolean,
+    // #825 — the hold THIS ROW showed, sent as an assertion so the write cannot
+    // land on a hold taken since. Non-null by construction: the control renders
+    // only for `self` or `other`, both of which have a holder id.
+    expectedHolderUserId: string,
+  ) {
     if ($releaseWorkerSubmitting) return;
     const prompt = mine
       ? t(
@@ -671,7 +689,7 @@
           'Force-release another member’s hold on this name? This is an admin action and it POSTS TO THE TEAM CHAT, naming you, the name, and who held it:',
         );
     if (!confirm(`${prompt} ${workerName}`)) return;
-    releaseWorkerForm.update((current) => ({ ...current, workerId }), { taint: false });
+    releaseWorkerForm.update((current) => ({ ...current, workerId, expectedHolderUserId }), { taint: false });
     await tick();
     releaseForm?.requestSubmit();
   }
@@ -1735,6 +1753,10 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       <form bind:this={releaseForm} method="POST" action="?/releaseWorker" class="hidden" use:releaseWorkerEnhance novalidate>
         <input type="hidden" name="_kind" value={$releaseWorkerForm._kind} />
         <input type="hidden" name="workerId" value={$releaseWorkerForm.workerId} />
+        <!-- #825 — the hold this click was aimed at, asserted on the write so
+             a hold taken since the roster was drawn refuses instead of being
+             released silently. -->
+        <input type="hidden" name="expectedHolderUserId" value={$releaseWorkerForm.expectedHolderUserId} />
       </form>
 
       {#if staffError}
@@ -1882,7 +1904,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                   {#if actionHold.kind === 'self' || actionHold.kind === 'other'}
                     <button
                       type="button"
-                      onclick={() => releaseWorkerNamed(worker.id, worker.name, actionHold.kind === 'self')}
+                      onclick={() => releaseWorkerNamed(worker.id, worker.name, actionHold.kind === 'self', actionHold.holderId)}
                       disabled={$releaseWorkerSubmitting}
                       class="text-xs text-indigo-600 hover:text-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-400"
                     >
