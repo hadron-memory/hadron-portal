@@ -315,10 +315,28 @@
                         >{meta[n.id].scorePct}%</span>
                       {/if}
                       {#if meta?.[n.id]?.abstractStale}
-                        <!-- #432: the abstract/preview may lag the node's content
-                             (spec 032). Vector-index hits only. -->
+                        <!-- #432: the abstract/preview may not match the node's
+                             content (spec 032). Vector-index hits only.
+
+                             #810 / hadron-server#1128 — ONE marker, TWO causes,
+                             and the copy must assert neither:
+
+                               - the fingerprint DISAGREES: the abstract was
+                                 checked at author time and the content moved;
+                               - the fingerprint is ABSENT on a node that has
+                                 both an abstract and content: never checked.
+
+                             Two wordings have now been wrong here, each by
+                             naming one cause as the cause. "The abstract lags
+                             the node content" is false for never-checked; "has
+                             not been checked against it" — my own replacement —
+                             is false for disagrees, and both bots caught it.
+                             The form that no third counterexample can break is
+                             to enumerate both and exclude neither, which is the
+                             remedy #764 arrived at after seven rounds
+                             (hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee). -->
                         <span
-                          title={t('node-list.abstract-stale', 'Preview may be out of date — the abstract lags the node content')}
+                          title={t('node-list.abstract-stale', 'Preview may not match the node content — the abstract was written against different content, or was never checked against it')}
                           class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400"
                         >{t('node-list.stale-badge', 'preview may be stale')}</span>
                       {/if}

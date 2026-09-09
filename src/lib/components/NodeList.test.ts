@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { render } from 'svelte/server';
 
@@ -41,5 +42,44 @@ describe('node listing renders the full node URN, not loc-only', () => {
   it('falls back to node.memory.urn when no memoryUrn prop is given', () => {
     const { body } = render(NodeList, { props: { nodes: [node] } });
     expect(body).toContain('micromentor.org:mmdata:preflight');
+  });
+});
+
+// #810 / hadron-server#1128 — ONE marker, TWO causes: the fingerprint
+// DISAGREES (checked at author time, content moved since) or is ABSENT on a node
+// with both an abstract and content (never checked). The copy must assert
+// neither as THE cause.
+//
+// Two wordings have been wrong here. "the abstract lags the node content" is
+// false for never-checked; "has not been checked against it" — my own
+// replacement — is false for disagrees, and @codex and @copilot both caught it
+// independently. My first version of THIS TEST pinned that second wrong wording,
+// so it was enforcing the defect.
+describe('abstract-stale tooltip wording (#810)', () => {
+  const src = readFileSync('src/lib/components/NodeList.svelte', 'utf8');
+  const tooltip =
+    src.match(/'node-list\.abstract-stale',\s*'([^']*)'/)?.[1] ?? '';
+
+  it('finds the tooltip string at all', () => {
+    // Guards the regex above: a rename would otherwise make every assertion
+    // below vacuously pass on an empty string.
+    expect(tooltip).not.toBe('');
+  });
+
+  it('leads with what is actually known — that it may not match', () => {
+    expect(tooltip).toMatch(/may not match the node content/i);
+  });
+
+  it('asserts NEITHER cause as the cause', () => {
+    // Each retired wording named one cause and was false for the other.
+    expect(tooltip).not.toMatch(/the abstract lags the node content/i);
+    expect(tooltip).not.toMatch(/^[^,]*has not been checked against it$/i);
+  });
+
+  it('enumerates BOTH causes, so no third counterexample can break it', () => {
+    // The #764 remedy: list the possibilities and exclude none.
+    expect(tooltip).toMatch(/written against different content/i);
+    expect(tooltip).toMatch(/never checked against it/i);
+    expect(tooltip).toMatch(/\bor\b/i);
   });
 });
