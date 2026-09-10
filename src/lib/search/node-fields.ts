@@ -1,5 +1,5 @@
 // The findNodes lexical scoring weight-mask fields — the server's `NodeField`
-// enum (cor:api:090:03). Shared by the /api/nodes/search endpoint (input
+// enum (hrn:node:hadronmemory.com:specs:cor:api:090:03). Shared by the /api/nodes/search endpoint (input
 // validation) and the MemoryBrowser "Fields" dropdown so the two can never
 // drift (the UI offering a field the endpoint drops, or vice-versa).
 //

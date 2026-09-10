@@ -59,7 +59,7 @@ const conversationGoalsFormAdapter = zod4(conversationGoalsSchema);
 const conversationPromptFormAdapter = zod4(conversationPromptSchema);
 const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionSchema);
 
-// cor:api:090 — scope to the agent's system memory. findNodes hides
+// hrn:node:hadronmemory.com:specs:cor:api:090 — scope to the agent's system memory. findNodes hides
 // class:'system' memories on a broad (no-memoryIds) call, so the system-memory
 // nodes only come back when we name the memory in the filter (which also
 // overrides the exclusion). Results are under `hits[].node`.

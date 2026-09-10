@@ -78,7 +78,7 @@ export const MEMORY_ASSETS_QUERY = /* GraphQL */ `
 `;
 
 // hadron-server#895 (issue #891): the uniform CROSS-memory list, per
-// hrn:node:hadronmemory.com:hadron-server:conventions:uniform-read-surface / spec cor:api:120 — `{ items, total }`, no
+// hrn:node:hadronmemory.com:hadron-server:conventions:uniform-read-surface / spec hrn:node:hadronmemory.com:specs:cor:api:120 — `{ items, total }`, no
 // `hasMore`. This is what makes portal#696's top-level Assets section possible;
 // `memoryAssets` above stays the per-memory surface.
 //
@@ -107,7 +107,7 @@ export const ASSETS_QUERY = /* GraphQL */ `
 // hadron-server#888: attach an existing asset to the graph as a `reference`
 // node whose data.asset points at it — the same shape hadron_store_file writes,
 // so a reader never branches on how the file arrived. There is no schema-level
-// Asset→Node link (cor:dmo:060:10 reserves it), so the pointer is soft and
+// Asset→Node link (hrn:node:hadronmemory.com:specs:cor:dmo:060:10 reserves it), so the pointer is soft and
 // Node.asset resolves to null once the asset is gone.
 export const CREATE_ASSET_REFERENCE_NODE_MUTATION = /* GraphQL */ `
   mutation CreateAssetReferenceNode($input: CreateAssetReferenceNodeInput!) {

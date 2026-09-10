@@ -172,7 +172,7 @@
 
   // #374 — `[[loc]]` wikilink resolutions, keyed by the authored target. The
   // loader resolves them (bare locs against this memory, per spec
-  // cor:urn:020:01); a target that is absent or null renders as a visibly
+  // hrn:node:hadronmemory.com:specs:cor:urn:020:01); a target that is absent or null renders as a visibly
   // broken reference rather than inert prose.
   const wikilinks = $derived(data.wikilinks ?? {});
   const wikilinkStrings = {

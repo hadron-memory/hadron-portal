@@ -1,5 +1,5 @@
 /**
- * #374 — loader-side wikilink resolution (spec cor:urn:020:01).
+ * #374 — loader-side wikilink resolution (spec hrn:node:hadronmemory.com:specs:cor:urn:020:01).
  *
  * The load-bearing rule here is the scope of a BARE `[[loc]]`: the containing
  * node's own memory, never "some memory that happens to have this loc". That's
@@ -188,7 +188,7 @@ describe('resolveWikilinks — cross-memory', () => {
     // Mustache-compiles every target's content on read (PR #684 review).
     // The full node URN is passed as a variable, never interpolated into the
     // document — authored content must not reach the GraphQL parser as syntax.
-    // Composed in grammar v2 (cor:urn:010:01) — flat, single colon.
+    // Composed in grammar v2 (hrn:node:hadronmemory.com:specs:cor:urn:010:01) — flat, single colon.
     expect(vars).toEqual({
       r0: 'hrn:node:hadronmemory.com:dev:findings:a',
       r1: 'hrn:node:hadronmemory.com:dev:findings:b',

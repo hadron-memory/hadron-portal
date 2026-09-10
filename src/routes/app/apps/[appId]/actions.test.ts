@@ -790,7 +790,7 @@ describe('deleteApp action', () => {
   });
 });
 
-// ── Casting (#974, cor:dmo:050:11) ──────────────────────────────────────────
+// ── Casting (#974, hrn:node:hadronmemory.com:specs:cor:dmo:050:11) ──────────────────────────────────────────
 //
 // castWorker CASTS an agent that is already installed; it mints nothing.
 //

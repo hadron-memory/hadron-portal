@@ -562,7 +562,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       return null;
     }),
     // #733: the App's WORKLOG — the authoritative artifact-to-session join
-    // (cor:agt:020:05). Same routing discipline as the team chat above: the
+    // (hrn:node:hadronmemory.com:specs:cor:agt:020:05). Same routing discipline as the team chat above: the
     // canonical operation, never appNodes.
     client
       .request<{ teamWorkItems: { items: TeamWorkItem[]; total: number } }>(TEAM_WORK_ITEMS_QUERY, {

@@ -5,7 +5,7 @@ import { SESSIONS_QUERY } from '$lib/server/queries';
 /**
  * Worker attribution on the org sessions list (hadron-server#980).
  *
- * This surface is org-wide, so `cor:agt:020:02` requires the app-qualified
+ * This surface is org-wide, so `hrn:node:hadronmemory.com:specs:cor:agt:020:02` requires the app-qualified
  * compound ("eng-team/Iris") and forbids the bare short name — worker names are
  * unique only WITHIN an App, and a human org member may share one.
  *

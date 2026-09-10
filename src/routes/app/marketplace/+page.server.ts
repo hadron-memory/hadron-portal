@@ -2,7 +2,7 @@ import { gqlClient } from '$lib/server/api';
 import { MARKETPLACE_QUERY } from '$lib/server/queries';
 import type { PageServerLoad } from './$types';
 
-/** A sanitized marketplace ref (cor:acl:080:02/04). */
+/** A sanitized marketplace ref (hrn:node:hadronmemory.com:specs:cor:acl:080:02/04). */
 export interface MarketplaceRef {
   id: string;
   name: string;
@@ -15,7 +15,7 @@ interface MarketplaceSection {
 }
 const EMPTY: MarketplaceSection = { items: [], total: 0 };
 
-// cor:acl:080:04 — browse the marketplace catalogue (listedOnMarketplace +
+// hrn:node:hadronmemory.com:specs:cor:acl:080:04 — browse the marketplace catalogue (listedOnMarketplace +
 // publicly accessible orgs / agents / memories). Public; a token is forwarded
 // when present but the server queries require no membership. Loads the first
 // page of each section.

@@ -47,6 +47,22 @@
 export const BRANCH_WORDS = ['review', 'findings', 'conventions', 'tasks', 'ops', 'specs'];
 
 /**
+ * A SPEC citation — `cor:<module>:<feature>[:<rule>[:<flow>]]` (#816).
+ *
+ * Structurally invisible to the branch-word pattern above, which is why the
+ * gate could not see one: a spec loc starts with `cor` rather than a branch
+ * word, and its tail is NUMERIC rather than `[a-z][a-z0-9-]*`. So the rule
+ * CLAUDE.md states for every Hadron reference was enforced for node locs and
+ * unenforced for the citations that carry platform law — #814 added SEVEN bare
+ * `cor:dmo:060:12` refs and CI passed every time.
+ *
+ * The module is three letters by the register in `cor:urn:010:01`; the feature
+ * is three digits and each level below it is two, which is what distinguishes a
+ * citation from ordinary prose containing a colon.
+ */
+export const SPEC_CITATION = String.raw`cor:[a-z]{3}:\d{3}(?::\d{2})*`;
+
+/**
  * The ONLY exempt files: this check and its own test.
  *
  * Both exist to contain examples of the thing being detected, so they trip it
@@ -76,7 +92,10 @@ export const EXEMPT_FILES = new Set([
 /** Inline opt-out for prose that demonstrates loc syntax instead of citing. */
 export const BARE_LOC_OK = 'bare-loc-ok';
 
-const CITATION = new RegExp(`\\b(?:${BRANCH_WORDS.join('|')}):[a-z][a-z0-9-]*`, 'g');
+const CITATION = new RegExp(
+  `\\b(?:(?:${BRANCH_WORDS.join('|')}):[a-z][a-z0-9-]*|${SPEC_CITATION})`,
+  'g',
+);
 // The contiguous URN-ish token a match sits inside.
 const TOKEN_CHARS = /[A-Za-z0-9_.:-]/;
 
@@ -92,7 +111,37 @@ function isQualified(line, index) {
   let start = index;
   while (start > 0 && TOKEN_CHARS.test(line[start - 1])) start--;
   const token = line.slice(start);
-  return token.startsWith('hrn:node:') || token.startsWith('urn:node:');
+  if (token.startsWith('hrn:node:') || token.startsWith('urn:node:')) return true;
+  return isMarkdownLinkTextWithQualifiedHref(line, start, index);
+}
+
+/**
+ * `[\`cor:urn:010:01\`](hrn:node:hadronmemory.com:specs:cor:urn:010:01)` — the
+ * TEXT is bare and the HREF right beside it carries the whole URN (#816).
+ *
+ * Not bare in the sense the rule protects. The point of qualification is that a
+ * reference says which memory it belongs to once it travels; here it travels
+ * WITH its href, and the reader can follow it from the site. Qualifying the text
+ * as well produces `[hrn:node:…:cor:urn:010:01](hrn:node:…:cor:urn:010:01)` —
+ * the same 47 characters twice — which is noise rather than clarity, and the
+ * #816 sweep produced exactly that in three places before this existed.
+ *
+ * Narrow on purpose, and checkable: the match must sit inside the `[…]` of a
+ * markdown link whose href is itself qualified. A link with a bare href is
+ * still reported, which is the case that actually loses the memory.
+ */
+function isMarkdownLinkTextWithQualifiedHref(line, tokenStart, index) {
+  const open = line.lastIndexOf('[', index);
+  if (open === -1) return false;
+  const close = line.indexOf('](', index);
+  if (close === -1) return false;
+  // Nothing but the citation, backticks or spaces between the brackets — so a
+  // sentence that merely contains a link does not exempt everything after it.
+  const inner = line.slice(open + 1, close);
+  if (!/^[`\s]*[^`\s]+[`\s]*$/.test(inner) || tokenStart < open) return false;
+  const hrefEnd = line.indexOf(')', close + 2);
+  const href = line.slice(close + 2, hrefEnd === -1 ? undefined : hrefEnd);
+  return /(?:^|\/)(?:hrn|urn):node:/.test(href);
 }
 
 /**

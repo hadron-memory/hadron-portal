@@ -99,7 +99,7 @@ export interface Agent {
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'ASSISTANT' | 'CHATBOT';
   surfaces?: string[];
-  // #974 (cor:agt:020 v0.0.3): persona is *dressing* on any Agent, not an
+  // #974 (hrn:node:hadronmemory.com:specs:cor:agt:020 v0.0.3): persona is *dressing* on any Agent, not an
   // identity — the Agent is the reusable role-actor ("backend-engineer") and
   // `personaPrompt` is a TEMPLATE ({{name}}/{{role}} bound at casting time).
   // The named individual is a Worker (see below); `Agent.personaName` was
@@ -208,7 +208,7 @@ export interface TeamChatMessage {
  * One record in a team App's WORKLOG (server #947) — an externally visible work
  * milestone: a PR opened, a branch pushed, an issue closed.
  *
- * This is the authoritative artifact-to-session join (`cor:agt:020:05`), not a
+ * This is the authoritative artifact-to-session join (`hrn:node:hadronmemory.com:specs:cor:agt:020:05`), not a
  * display convenience. Several records sharing one `ref` is the DESIGNED shape,
  * not duplication: a PR worked across three worker sessions produces three
  * records and three transcripts. Deduping them destroys the answer the worklog
@@ -219,7 +219,7 @@ export interface TeamChatMessage {
  * the server sets it to the bound worker's name, ELSE to the attributed user's
  * handle when the session was not worker-bound, and pre-#974 records carry
  * their stored `personaName` there. A human may also share a worker's name —
- * nothing reserves one (`cor:agt:020:02` scopes worker names, it does not
+ * nothing reserves one (`hrn:node:hadronmemory.com:specs:cor:agt:020:02` scopes worker names, it does not
  * forbid a person from having the same one), which is why `WorkerBadge` exists.
  *
  * So: render `workerName`, count on `workerId`, and treat a null `workerId` as
@@ -304,7 +304,7 @@ export type AppType = 'WORKSTATION' | 'CHATBOT' | 'AGENT' | 'AUTOMATION' | 'CLOU
 export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
 
 /**
- * A Worker (#974, `cor:dmo:050:11`) — the named casting of an installed Agent
+ * A Worker (#974, `hrn:node:hadronmemory.com:specs:cor:dmo:050:11`) — the named casting of an installed Agent
  * into an App: "Iris", the backend-engineer agent cast into the eng-team App.
  * The Agent carries reusable persona dressing; the Worker is the local named
  * identity that does attributable work.
@@ -312,7 +312,7 @@ export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
  * The App's **staff** are its Workers; the `AppAgent` join is only the install
  * ROSTER (which agents are available to cast). Names are unique per App,
  * case-insensitively, FOREVER — retirement and uninstall never free one — so
- * inside an App context the bare `name` is unambiguous (`cor:agt:020:02`).
+ * inside an App context the bare `name` is unambiguous (`hrn:node:hadronmemory.com:specs:cor:agt:020:02`).
  *
  * Since #991 a worker DOES have a URN — `hrn:worker:<root>:<app-slug>:<slug>`,
  * computed from the App's URN plus the derived `slug`, not stored. It is the
@@ -617,7 +617,7 @@ export interface MemoryNode {
    * it, and null for every ordinary node.
    *
    * Null ALSO means a DANGLING pointer — the asset was hard- or soft-deleted.
-   * There is no Asset→Node foreign key (cor:dmo:060:10 reserves it), so a node
+   * There is no Asset→Node foreign key (hrn:node:hadronmemory.com:specs:cor:dmo:060:10 reserves it), so a node
    * carrying `data.asset` is not a promise that a live asset is behind it.
    */
   asset?: AssetSummary | null;

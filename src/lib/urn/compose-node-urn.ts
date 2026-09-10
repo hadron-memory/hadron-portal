@@ -20,7 +20,8 @@ import { CANONICAL_SCHEME, hasSchemePrefix, normalizeScheme } from './parse-urn'
  *   result:    hrn:node:hadronmemory.com:dev:auth:tokens
  *
  * This reverses the spec-021 FR-009 behaviour this function used to
- * implement (rewriting every `:` into `::`), which `cor:urn:010:01`
+ * implement (rewriting every `:` into `::`), which
+ * `hrn:node:hadronmemory.com:specs:cor:urn:010:01`
  * supersedes.
  *
  * ## The one case that stays v1: ownership chains
@@ -82,7 +83,7 @@ export function composeNodeUrn(memoryUrn: string, value: string): string {
     return `${CANONICAL_SCHEME}:node:${chain}::${value}`;
   }
 
-  // Grammar v2 (cor:urn:010:01): flat, single colon throughout. `<root>:<slug>`
+  // Grammar v2 (hrn:node:hadronmemory.com:specs:cor:urn:010:01): flat, single colon throughout. `<root>:<slug>`
   // then the loc, whose own internal `:` separators are already v2-shaped —
   // v2 treats the loc as opaque colon-joined atoms, so it appends verbatim.
   return `${CANONICAL_SCHEME}:node:${atoms.join(':')}:${value}`;

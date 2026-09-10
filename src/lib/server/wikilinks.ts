@@ -1,7 +1,7 @@
 /**
  * Loader-side resolution of `[[loc]]` wikilinks (#374).
  *
- * Spec: cor:urn:020:01 — see `$lib/markdown/wikilink` for the rules. This
+ * Spec: hrn:node:hadronmemory.com:specs:cor:urn:020:01 — see `$lib/markdown/wikilink` for the rules. This
  * module answers the one question the renderer can't: does the target exist,
  * and where does it live?
  *

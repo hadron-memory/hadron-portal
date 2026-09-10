@@ -71,7 +71,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // `composeNodeUrn`, NOT by concatenating the memory URN with the loc.
   // Hand-rolling it produced `hrn:mem:<root>:<slug>:<loc>` for the team chat:
   // the memory's own `hrn:mem:` type word survived onto what is a NODE URN,
-  // and the separator was v1 `::`. Both are exactly what cor:urn:010:01
+  // and the separator was v1 `::`. Both are exactly what hrn:node:hadronmemory.com:specs:cor:urn:010:01
   // forbids — `mem` vs `node` is not recoverable from the string, so the
   // badge was addressing a different entity class than the page it sat on.
   // The composer strips the memory's type word, emits `hrn:node:`, and keeps

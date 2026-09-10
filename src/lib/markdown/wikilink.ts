@@ -1,7 +1,7 @@
 /**
  * `[[loc]]` wikilink references in node body markdown.
  *
- * Spec: cor:urn:020:01 (hadronmemory.com::specs) — the durable contract.
+ * Spec: hrn:node:hadronmemory.com:specs:cor:urn:020:01 — the durable contract.
  * Issue: #374.
  *
  * A wikilink is a short, loc-addressed cross-reference written inside a node's

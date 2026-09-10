@@ -63,7 +63,7 @@
     worker: SessionWorker | null;
   }
 
-  // hadron-server#980 / cor:agt:020:02: this list is org-wide, so a worker is
+  // hadron-server#980 / hrn:node:hadronmemory.com:specs:cor:agt:020:02: this list is org-wide, so a worker is
   // rendered app-qualified ("eng-team/Iris"). A bare name would be ambiguous —
   // another App may have its own Iris, and a human org member may be called
   // Iris too (which is what WorkerBadge disambiguates).

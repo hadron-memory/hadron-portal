@@ -340,3 +340,72 @@ describe('scanAddedWithContext (#811 review 2)', () => {
     expect(scanAddedWithContext(d, () => null)).toEqual([]);
   });
 });
+
+/**
+ * #816 — SPEC citations (`cor:<module>:<feature>:<rule>`).
+ *
+ * Structurally invisible to the branch-word pattern: a spec loc starts with
+ * `cor` rather than a branch word, and its tail is NUMERIC. So the rule was
+ * enforced for node locs and unenforced for the citations that carry platform
+ * law — #814 added seven bare `cor:dmo:060:12` refs and CI passed every time.
+ */
+describe('spec citations (#816)', () => {
+  it('flags a bare spec citation', () => {
+    expect(findBareCitations('// see cor:dmo:060:12 for the tombstone rule').map((f) => f.text))
+      .toEqual(['cor:dmo:060:12']);
+  });
+
+  it.each([
+    ['a feature-level citation', 'cor:agt:020'],
+    ['a rule', 'cor:api:090:03'],
+    ['a flow', 'cor:acl:080:02'],
+  ])('flags %s', (_what, citation) => {
+    expect(findBareCitations(`// per ${citation} this holds`)).toHaveLength(1);
+  });
+
+  it('stays silent on a fully-qualified spec citation', () => {
+    expect(findBareCitations('// per `hrn:node:hadronmemory.com:specs:cor:dmo:060:12` this holds')).toEqual([]);
+  });
+
+  // The shapes that merely look like one. A spec loc is three letters then
+  // three digits; anything else is prose that happens to contain colons.
+  it.each([
+    ['a version string', '// bumped to cor:v2:beta today'],
+    ['a two-letter module', '// cor:ab:010:01 is not the register shape'],
+    ['a two-digit feature', '// cor:dmo:06:12 is malformed'],
+  ])('stays silent on %s', (_what, line) => {
+    expect(findBareCitations(line)).toEqual([]);
+  });
+
+  // A markdown link carries its own qualification in the href, so the TEXT is
+  // not bare in the sense the rule protects — it travels WITH the href. The
+  // #816 sweep produced `[hrn:node:…](hrn:node:…)` in three places before this
+  // existed: the same 47 characters twice.
+  it('stays silent on link text whose href is qualified', () => {
+    const line = ' * Per [`cor:urn:010:01`](hrn:node:hadronmemory.com:specs:cor:urn:010:01), a v2 URN';
+    expect(findBareCitations(line, 'src/x.ts')).toEqual([]);
+  });
+
+  it('stays silent on link text whose href is a portal URL', () => {
+    const line = ' * Per [`cor:urn:010:01`](https://hadronmemory.com/app/u/hrn:node:hadronmemory.com:specs:cor:urn:010:01)';
+    expect(findBareCitations(line, 'src/x.ts')).toEqual([]);
+  });
+
+  // The case that actually loses the memory, and the reason the exemption is
+  // narrow: a link whose href is ALSO bare qualifies nothing.
+  it('still flags link text whose href is bare too — BOTH of them', () => {
+    // Two hits, not one: with a bare href there are two bare citations on the
+    // line, and the href is the one a reader would actually follow. Reporting
+    // only the text would half-fix it.
+    expect(findBareCitations(' * Per [`cor:urn:010:01`](cor:urn:010:01), a v2 URN', 'src/x.ts')).toHaveLength(2);
+  });
+
+  it('still flags a citation elsewhere on a line that also contains a link', () => {
+    const line = ' * [`cor:urn:010:01`](hrn:node:hadronmemory.com:specs:cor:urn:010:01) and also cor:dmo:060:12';
+    expect(findBareCitations(line, 'src/x.ts').map((f) => f.text)).toEqual(['cor:dmo:060:12']);
+  });
+
+  it('honours the bare-loc-ok escape hatch, same as a branch-word citation', () => {
+    expect(findBareCitations('// cor:dmo:060:12 as a shape — bare-loc-ok', 'src/x.ts')).toEqual([]);
+  });
+});

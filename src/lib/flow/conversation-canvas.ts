@@ -4,7 +4,7 @@
  * conversation group nodes containing their stages (ordered per the
  * conversation's data.stageOrder), topic nodes, implicit stage-sequence
  * edges, and the real routing-rule edges annotated with their evaluation
- * order (rules fire in priority order, first match wins — cor:cht:030:02).
+ * order (rules fire in priority order, first match wins — hrn:node:hadronmemory.com:specs:cor:cht:030:02).
  *
  * Pure data → data, like $lib/flow/canvas.ts, so it can be unit-tested
  * without a browser; ConversationCanvas.svelte maps this onto Svelte Flow

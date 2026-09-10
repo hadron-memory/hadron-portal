@@ -27,7 +27,7 @@ export const agentSettingsSchema = z.object({
   systemPrompt: z.string().trim().default(''),
   visibility: z.enum(['PERSONAL', 'ORGANIZATION', 'PUBLIC']).default('ORGANIZATION'),
   systemMemoryId: z.string().trim().default(''),
-  // Persona DRESSING (#974, cor:agt:020:01) — the reusable role-actor's role
+  // Persona DRESSING (#974, hrn:node:hadronmemory.com:specs:cor:agt:020:01) — the reusable role-actor's role
   // string and prompt TEMPLATE, not an identity. `personaName` is gone with the
   // Worker model: the named individual is a Worker cast into an App, named
   // there. All optional: an ordinary agent leaves them blank, and

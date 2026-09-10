@@ -143,7 +143,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     breadcrumb.push({ label: parts[i], path: ancestorLoc, nodeId });
   }
 
-  // #374 / spec cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body
+  // #374 / spec hrn:node:hadronmemory.com:specs:cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body
   // and abstract so the renderer can make them clickable (and mark the dangling
   // ones visibly broken). Bare locs resolve against `memoryNodes` above at zero
   // cost; only a cross-memory `[[org::memory::loc]]` costs a round-trip, so
@@ -798,7 +798,7 @@ export const actions: Actions = {
     //   - the prefix may be absent (`hrn:node:` / `urn:node:` / bare are all
     //     valid targetUrn inputs), and
     //   - the GRAMMAR may differ. composeNodeUrn emits v2 (single colon) per
-    //     cor:urn:010:01, while a URN pasted from an older screen or another
+    //     hrn:node:hadronmemory.com:specs:cor:urn:010:01, while a URN pasted from an older screen or another
     //     tool may still be v1 (`::`). Both spellings denote the same node, so
     //     comparing them raw would miss the no-op and fire a pointless move.
     const bare = (u: string) =>

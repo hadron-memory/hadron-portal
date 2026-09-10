@@ -3,7 +3,7 @@
 // Creates a `nodeType: reference` node at `nodeUrn` whose `data.asset` points at
 // the asset, which is the same shape hadron_store_file writes for run-created
 // files (hadron-server#888). Per the design decision this stays on the
-// CONVENTION rather than a schema-level Asset→Node link, which cor:dmo:060:10
+// CONVENTION rather than a schema-level Asset→Node link, which hrn:node:hadronmemory.com:specs:cor:dmo:060:10
 // explicitly reserves — so the pointer is a soft reference and `Node.asset`
 // resolves to null once the asset is gone.
 //

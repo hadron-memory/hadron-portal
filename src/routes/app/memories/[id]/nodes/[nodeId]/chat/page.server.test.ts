@@ -80,7 +80,7 @@ describe('chat page load — fullUrn', () => {
 
   // The team chat's badge read `hrn:mem:…:chats:team` — a NODE URN wearing the
   // MEMORY type word, because the old code concatenated `graph.urn` with the
-  // loc. cor:urn:010:01 makes `mem` vs `node` unrecoverable from the string, so
+  // loc. hrn:node:hadronmemory.com:specs:cor:urn:010:01 makes `mem` vs `node` unrecoverable from the string, so
   // that badge addressed a different entity class than the page showing it.
   it('emits an hrn:node: URN, not the memory URN with the loc appended', async () => {
     const data = await loadWith('hrn:mem:hadronmemory.com:hadron-dev-team-shared', teamChat());
