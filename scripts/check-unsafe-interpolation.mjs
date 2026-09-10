@@ -5,8 +5,8 @@
  *
  * `String.prototype.replace` expands `$&`, `` $` ``, `$'` and `$1`…`$9` **in the
  * replacement string**, and every value this portal interpolates is user- or
- * server-supplied — filenames, node and memory names, wikilink targets, and
- * `Asset.scanSignature` straight from the scan engine:
+ * server-supplied — filenames, node and memory names, wikilink targets, OAuth
+ * client ids, and `Asset.scanSignature` straight from the scan engine:
  *
  *     'Signature: {sig}'.replace('{sig}', 'Eicar$&Test')  → 'Signature: Eicar{sig}Test'
  *     'Download {file}'.replace('{file}', 'a$`b.txt')     → 'Download aDownload b.txt'
@@ -19,51 +19,114 @@
  * `t(id, text, vars)` and `fill(template, vars)` substitute through a replacer
  * FUNCTION, whose return value is used verbatim. After #817 there is no
  * legitimate placeholder `.replace` left in `src/`, so this is a bright line
- * rather than a judgement call — which is the only kind of rule a grep can
- * hold.
+ * rather than a judgement call — which is the only kind of rule a grep can hold.
  *
- * WHY THIS EXISTS AT ALL. #814 fixed two call sites with a per-site callback
- * and left 33; the repo then stated the rule in a code comment, where nothing
- * ran it. The remedy that scales is not a better comment, it is a boundary plus
- * a check that the boundary is the only door.
+ * ## Two review findings on #830, and both were about the CHECK, not the sweep
  *
- * COMMENTS ARE EXEMPT, and that exemption is load-bearing rather than a
- * convenience: the clearest way to document this defect is to show the broken
- * call, and two comments in `src/` deliberately do. The #817 sweep's own
- * automated pass rewrote those examples into nonsense before it was caught —
- * so the check that guards the rule must not punish the prose that teaches it.
+ * The first version matched line by line and treated any `//` on the line as a
+ * comment start. Both are why this one works on the whole file instead:
+ *
+ *  - **@codex:** a call formatted across lines — `.replace(` on one line, the
+ *    placeholder on the next — could not match at all. Three real sites were
+ *    live in `src/` while the gate printed `OK`, which is worse than no gate:
+ *    it is a green light over the exact defect. Prettier splits any call that
+ *    exceeds the print width, so the formatted shape is not an edge case, it is
+ *    what the formatter produces for long strings.
+ *  - **@copilot:** `before.includes('//')` treats the `//` in a `https://` URL
+ *    earlier on the line as a comment start, so any line containing a URL was
+ *    silently exempt. A bypass nobody would ever write on purpose and anyone
+ *    could write by accident.
+ *
+ * So comments are located with a scanner that knows what a string is, and are
+ * BLANKED rather than removed — offsets stay put, so line numbers stay true.
+ * Strings are deliberately left intact, because the placeholder this hunts for
+ * IS a string literal.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** `.replace('{key}', …)` and `.replace(/\{key\}/g, …)`. */
-export const UNSAFE_INTERPOLATION = /\.replace\(\s*(?:'\{\w+\}'|"\{\w+\}"|\/\\\{\w+\\\}\/[a-z]*)\s*,/;
+/**
+ * `.replace('{key}', …)`, `.replace("{key}", …)` and `.replace(/\{key\}/g, …)`,
+ * with any whitespace — NEWLINES INCLUDED — between the pieces.
+ */
+export const UNSAFE_INTERPOLATION = /\.replace\(\s*(?:'\{\w+\}'|"\{\w+\}"|\/\\\{\w+\\\}\/[a-z]*)\s*,/g;
 
 /** The i18n boundary itself, which owns the safe implementation. */
 export const EXEMPT_FILES = ['src/lib/i18n/t.ts'];
 
 /**
- * Is this occurrence inside a comment?
+ * Replace comment bodies with spaces, preserving length and newlines.
  *
- * Line comments and the continuation lines of a block comment. A placeholder
- * `.replace` inside a template literal or a string would be a false positive in
- * principle; there are none in this repo, and inventing an exemption for a case
- * that does not exist is how a gate acquires a hiding place
- * (`hrn:node:hadronmemory.com:hadron-portal:review:ci-gate-prefilter-must-be-proven`).
+ * String-aware, which is the whole point: `'https://x'` must not start a
+ * comment, and a `//` inside a template literal must not either. Escapes are
+ * honoured so `'\''` does not end the string early.
+ *
+ * Regex literals are NOT tracked. A `/` that opens one is only ambiguous with a
+ * comment when followed by another `/`, and `//` cannot open a regex literal —
+ * so the ambiguity this would resolve does not arise. Stated rather than left
+ * as an unexamined gap.
  */
-export function inComment(line, index) {
-  const before = line.slice(0, index);
-  const trimmed = before.trimStart();
-  return before.includes('//') || trimmed.startsWith('*') || trimmed.startsWith('/*');
+export function blankComments(source) {
+  let out = '';
+  let i = 0;
+  let inString = null;
+
+  while (i < source.length) {
+    const c = source[i];
+    const next = source[i + 1];
+
+    if (inString) {
+      if (c === '\\') {
+        out += source.slice(i, i + 2);
+        i += 2;
+        continue;
+      }
+      if (c === inString) inString = null;
+      out += c;
+      i += 1;
+      continue;
+    }
+
+    if (c === "'" || c === '"' || c === '`') {
+      inString = c;
+      out += c;
+      i += 1;
+      continue;
+    }
+
+    if (c === '/' && next === '/') {
+      while (i < source.length && source[i] !== '\n') {
+        out += ' ';
+        i += 1;
+      }
+      continue;
+    }
+
+    if (c === '/' && next === '*') {
+      const end = source.indexOf('*/', i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      for (; i < stop; i += 1) out += source[i] === '\n' ? '\n' : ' ';
+      continue;
+    }
+
+    out += c;
+    i += 1;
+  }
+
+  return out;
 }
 
 /** Every unsafe interpolation in a source file, with its line number. */
 export function findUnsafeInterpolation(source) {
-  return source.split('\n').flatMap((line, i) => {
-    const match = UNSAFE_INTERPOLATION.exec(line);
-    if (!match || inComment(line, match.index)) return [];
-    return [{ line: i + 1, text: line.trim() }];
-  });
+  const code = blankComments(source);
+  const hits = [];
+  UNSAFE_INTERPOLATION.lastIndex = 0;
+  let match;
+  while ((match = UNSAFE_INTERPOLATION.exec(code)) !== null) {
+    const line = code.slice(0, match.index).split('\n').length;
+    hits.push({ line, text: source.split('\n')[line - 1].trim() });
+  }
+  return hits;
 }
 
 export function sourceFilesUnder(root) {

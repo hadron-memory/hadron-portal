@@ -121,10 +121,7 @@
 <div class="flex h-full flex-col">
   <div class="mb-2 flex items-center justify-between gap-2 text-xs text-zinc-500 dark:text-zinc-400">
     <span>
-      {t('dashboard.widget.usage-activity.window', 'Last {n} days').replace(
-        '{n}',
-        String(windowDays ?? 7),
-      )}
+      {t('dashboard.widget.usage-activity.window', 'Last {n} days', { n: windowDays ?? 7 })}
     </span>
     <!-- Legend: always present for two series; ink stays a text token,
          identity rides the colored chip. -->

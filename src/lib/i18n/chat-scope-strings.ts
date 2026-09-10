@@ -18,15 +18,12 @@ export const chatScopeStrings = {
   /**
    * Composer-header segmented control: the Shared option, with a
    * group label sourced from the Agent's installation policy when
-   * available. `t()` doesn't interpolate (see AgentChat.svelte's
-   * welcome-error-hint usage), so we substitute the {group}
-   * placeholder after lookup.
+   * available. `t()` interpolates since #817 — pass vars rather than
+   * chaining `.replace`, which expands `$&` and friends out of a group
+   * label the installation policy supplied.
    */
   pickerShared: (group: string): string =>
-    t('chat-scope.picker.shared', 'Shared with {group}').replace(
-      '{group}',
-      group,
-    ),
+    t('chat-scope.picker.shared', 'Shared with {group}', { group }),
 
   /** Composer-header segmented control: Shared option fallback label. */
   pickerSharedFallback: (): string =>
