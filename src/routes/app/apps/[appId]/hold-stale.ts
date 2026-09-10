@@ -11,6 +11,8 @@
  * has three outcomes that a test can state in one line each.
  */
 
+import type { ReleaseWorkerMessage } from './schema';
+
 /**
  * What the refusal says about the hold as it stands now.
  *
@@ -64,4 +66,23 @@ export function readHoldStale(e: unknown): HoldStale {
   // Present, but neither null nor a usable id: uninterpretable, so say so
   // rather than inventing a reading of it.
   return null;
+}
+
+/**
+ * Whether a reply means this page's ROSTER is now known to be wrong (#825).
+ *
+ * True on every stale-hold path, and only there. Note it is NOT the same
+ * question as "was this an error": the `heldByUserId: null` reading is reported
+ * as a SUCCESS, because the end state the user wanted already stands — and the
+ * roster still needs refetching, because it is drawing a hold that has gone.
+ * Keying the refresh on `type === 'error'` would miss exactly that case.
+ *
+ * Extracted from the page's `onUpdated` so the CONDITION is testable without a
+ * fixture for a 2300-line route (@codex on #828). What that leaves untested is
+ * narrower than it looks: misspelling the option name is a compile error
+ * (`Object literal may only specify known properties … Did you mean to write
+ * 'onUpdated'?`), measured, not assumed.
+ */
+export function rosterIsStale(message: ReleaseWorkerMessage | null | undefined): boolean {
+  return message?.staleHold === true;
 }

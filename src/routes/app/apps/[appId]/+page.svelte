@@ -68,6 +68,7 @@
   } from './schema';
   import type { ReleaseWorkerMessage } from './schema';
   import { releaseNotice } from './release-notice';
+  import { rosterIsStale } from './hold-stale';
 
   type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
   type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -584,7 +585,7 @@
     // cannot be satisfied by doing what it says. Refetch so the next click is
     // made against what is actually there.
     onUpdated: ({ form: updated }) => {
-      if (updated.message?.staleHold) void invalidateAll();
+      if (rosterIsStale(updated.message)) void invalidateAll();
     },
   });
 

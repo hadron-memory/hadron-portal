@@ -8,7 +8,8 @@
  * the payload cannot be read at all.
  */
 import { describe, it, expect } from 'vitest';
-import { readHoldStale } from './hold-stale';
+import { readHoldStale, rosterIsStale } from './hold-stale';
+import type { ReleaseWorkerMessage } from './schema';
 
 function refusal(extensions: Record<string, unknown>) {
   return { response: { errors: [{ message: 'stale', extensions }] } };
@@ -63,5 +64,36 @@ describe('readHoldStale', () => {
     expect(readHoldStale(new Error('boom'))).toBeNull();
     expect(readHoldStale({ response: null })).toBeNull();
     expect(readHoldStale(undefined)).toBeNull();
+  });
+});
+
+/**
+ * @codex on #828: the roster refresh hangs entirely off one client callback, so
+ * a wrong condition there leaves the suite green while users resubmit the stale
+ * holder in the unchanged row.
+ */
+describe('rosterIsStale', () => {
+  it('refreshes on every stale-hold reply', () => {
+    expect(rosterIsStale({ type: 'error', staleHold: true, text: 'x' })).toBe(true);
+  });
+
+  // The case a `type === 'error'` check would miss. The `heldByUserId: null`
+  // reading is reported as a SUCCESS — the end state the user wanted already
+  // stands — and the roster is still drawing a hold that has gone.
+  it('refreshes on the stale reply that is reported as a SUCCESS', () => {
+    expect(rosterIsStale({ type: 'success', outcome: 'not-held', staleHold: true, text: 'x' })).toBe(true);
+  });
+
+  it.each([
+    ['an ordinary release', { type: 'success', outcome: 'released', text: 'x' }],
+    ['an announcement failure', { type: 'success', outcome: 'announcement-failed', text: 'x' }],
+    ['an ordinary error', { type: 'error', text: 'nope' }],
+  ])('does not refetch for %s', (_what, message) => {
+    expect(rosterIsStale(message as ReleaseWorkerMessage)).toBe(false);
+  });
+
+  it('does not refetch when there is no message at all', () => {
+    expect(rosterIsStale(undefined)).toBe(false);
+    expect(rosterIsStale(null)).toBe(false);
   });
 });
