@@ -15,6 +15,7 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalCell, PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
@@ -326,7 +327,11 @@
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — `lastSyncedAt` accessors epoch millis so the column sorts by
+    // instant; the date on screen was unsearchable. Same `fmt` the cell uses.
+    globalFilterFn: makeGlobalFilterFn<MemoryRow>(fmt, {
+      lastSyncedAt: (row) => row.lastSyncedAt,
+    }),
     // #341: Storage / Branch / Last-synced hidden in the default view (still
     // available via the column menu, and preserved by user-saved views).
     initialState: {
@@ -354,7 +359,11 @@
     onGlobalFilterChange: (u) => {
       personalGlobalFilter = typeof u === 'function' ? u(personalGlobalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — `lastSyncedAt` accessors epoch millis so the column sorts by
+    // instant; the date on screen was unsearchable. Same `fmt` the cell uses.
+    globalFilterFn: makeGlobalFilterFn<MemoryRow>(fmt, {
+      lastSyncedAt: (row) => row.lastSyncedAt,
+    }),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
     },

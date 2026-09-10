@@ -6,6 +6,7 @@
   import DOMPurify from 'dompurify';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -1218,7 +1219,9 @@
     onGlobalFilterChange: (u) => {
       edgeFilter = typeof u === 'function' ? u(edgeFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — the edge grid's accessors are strings; swapped with the revision
+    // grid below it so this page does not sit half-converted.
+    globalFilterFn: makeGlobalFilterFn<EdgeRow>({}),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 
@@ -1283,7 +1286,15 @@
     onGlobalFilterChange: (u) => {
       revisionFilter = typeof u === 'function' ? u(revisionFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — `when` accessors epoch millis so the history sorts by instant,
+    // while the cell renders `new Date(r.createdAt).toLocaleString()`. Matched
+    // from the ORIGINAL row by calling that same expression rather than
+    // rebuilding it from the epoch, which would be a second definition of what
+    // the cell shows; the raw ISO rides along, and it is also the cell's own
+    // `title`, so a reader can search what the tooltip shows them.
+    globalFilterFn: makeGlobalFilterFn<NodeRevision>({}, {
+      when: (row) => `${new Date(row.createdAt).toLocaleString()} ${row.createdAt}`,
+    }),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'when', desc: true }], // most recent first

@@ -42,6 +42,7 @@
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import type { AppKey, TeamChatMessage, Worker } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
@@ -203,7 +204,13 @@
     onGlobalFilterChange: (u) => {
       appKeyFilter = typeof u === 'function' ? u(appKeyFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — the key grid's `createdAt`/`lastUsedAt` accessor epoch millis so
+    // they sort by instant, which made both dates on screen unsearchable.
+    // `appKeyFmt` is the same map the cell falls back to.
+    globalFilterFn: makeGlobalFilterFn<AppKey>(appKeyFmt, {
+      createdAt: (row) => row.createdAt,
+      lastUsedAt: (row) => row.lastUsedAt,
+    }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 
@@ -250,7 +257,12 @@
     onGlobalFilterChange: (u) => {
       staffFilter = typeof u === 'function' ? u(staffFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — the staff grid's own accessors are all strings, so search already
+    // matched what it renders. Swapped anyway: the two grids on this page now
+    // share one filter, and the gate this sweep added is file-scoped precisely
+    // so a page cannot end up half-converted — which is how the KEY grid above
+    // sat broken while this one looked fine.
+    globalFilterFn: makeGlobalFilterFn<Worker>({}),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
   // #648: this page is canonical org-optional — an org-owned app renders its org

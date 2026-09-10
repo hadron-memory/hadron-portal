@@ -6,6 +6,7 @@
   import { t } from '$lib/i18n/t';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from './table/DataTable.svelte';
   import {
     isValidConfigName,
@@ -152,7 +153,15 @@
     onGlobalFilterChange: (u) => {
       configFilter = typeof u === 'function' ? u(configFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — NOT 'includesString': that stringifies the ACCESSOR, and
+    // `createdAt` accessors epoch millis so the column sorts by instant. A
+    // reader typing the date in front of them matched nothing. `configFmt` is
+    // the SAME map the cell falls back to, so search and screen cannot drift.
+    // The extras carry the wire ISO the accessor discarded, for a reader
+    // pasting a timestamp from an API response.
+    globalFilterFn: makeGlobalFilterFn<AiServiceConfig>(configFmt, {
+      createdAt: (row) => row.createdAt,
+    }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 

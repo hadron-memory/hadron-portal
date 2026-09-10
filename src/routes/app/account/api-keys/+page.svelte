@@ -22,6 +22,7 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { scopedActionError } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -230,7 +231,13 @@
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — `createdAt` and `lastUsedAt` accessor epoch millis so the columns
+    // sort by instant; both dates on screen were unsearchable. `fmt` is the
+    // same map the cell falls back to, and the extras carry the wire ISO.
+    globalFilterFn: makeGlobalFilterFn<UserApiKey>(fmt, {
+      createdAt: (row) => row.createdAt,
+      lastUsedAt: (row) => row.lastUsedAt,
+    }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 

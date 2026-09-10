@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "gql:validate": "node scripts/validate-graphql.mjs",
-    "gql:schema": "sh scripts/refresh-schema.sh"
+    "gql:schema": "sh scripts/refresh-schema.sh",
+    "check:grid-filters": "node scripts/check-grid-filters.mjs"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.4",

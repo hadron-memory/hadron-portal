@@ -20,6 +20,8 @@
   import { untrack } from 'svelte';
   import { Download, Link2, Trash2 } from 'lucide-svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
+  import { assetSearchExtras } from './asset-search';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -72,6 +74,12 @@
      *  (hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant). Null when unparseable. */
     uploadedMs: number | null;
     uploaded: string;
+    /** The WIRE timestamp, kept so a reader pasting an ISO string from an API
+     *  response or a log line finds the row (#829 review, @copilot). The
+     *  accessor returns epoch millis and the cell renders a formatted date, so
+     *  without this the searchable text is neither of the things a reader
+     *  actually has in their clipboard. */
+    uploadedAt: string;
     uploader: string;
     publicUrl: string | null;
     description: string | null;
@@ -139,6 +147,7 @@
         memoryUrn,
         uploadedMs: isNaN(parsed.getTime()) ? null : parsed.getTime(),
         uploaded: fmtDate(a.uploadedAt),
+        uploadedAt: a.uploadedAt,
         uploader: uploaderLabel(a),
         publicUrl: a.publicUrl,
         description: a.description,
@@ -214,7 +223,20 @@
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — 'includesString' stringified the ACCESSOR: `size` is raw bytes
+    // while the cell shows "2.0 KB", and `uploaded` is epoch millis (sorted by
+    // instant) while the cell shows a formatted date. Neither is what a reader
+    // types.
+    //
+    // `size` goes through the SAME `fmtSize` the cell calls, so the two cannot
+    // drift. `uploaded` cannot: the cell renders `row.uploaded`, a string built
+    // once per row, which is not derivable from the epoch the accessor returns —
+    // so it is matched from the ORIGINAL row instead, alongside the wire
+    // timestamp for a reader pasting one from an API response.
+    globalFilterFn: makeGlobalFilterFn<AssetRow>(
+      { size: (v) => fmtSize(v as number) },
+      assetSearchExtras(),
+    ),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'uploaded', desc: true }],

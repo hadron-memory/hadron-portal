@@ -8,6 +8,8 @@
   // which owns the live view and the kill switch.
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
+  import { runSearchExtras } from './run-search';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
@@ -39,6 +41,11 @@
     /** Epoch millis (or null) so Started sorts chronologically, not as text. */
     startedMs: number | null;
     started: string;
+    /** The WIRE timestamp, kept so a reader pasting an ISO string from an API
+     *  response or a log line finds the row (#829 review, @copilot). Neither
+     *  the accessor (epoch millis) nor the cell (a formatted string) is what
+     *  ends up in a reader's clipboard. */
+    startedRaw: string;
     duration: string;
     /** Raw elapsed ms (or null) so Duration sorts numerically. */
     durationMs: number | null;
@@ -61,6 +68,7 @@
         entryUrn: run.entryNodeUrn,
         startedMs: parseApiDate(startedRaw)?.getTime() ?? null,
         started: fmtRunTime(startedRaw),
+        startedRaw,
         duration: runDuration(run),
         durationMs: start && end && end.getTime() >= start.getTime() ? end.getTime() - start.getTime() : null,
         failure: failureCode(run) ?? '',
@@ -112,7 +120,12 @@
     onGlobalFilterChange: (u) => {
       globalFilter = typeof u === 'function' ? u(globalFilter) : u;
     },
-    globalFilterFn: 'includesString',
+    // #820 — `started` and `duration` accessor epoch/elapsed MILLIS so they sort
+    // chronologically, while the cells render strings built once per row
+    // (`run.started`, `run.duration`). Those strings are not derivable from the
+    // numbers, so they are matched from the ORIGINAL row rather than through a
+    // formatter that would be a second, drifting definition of "rendered".
+    globalFilterFn: makeGlobalFilterFn<RunRow>({}, runSearchExtras()),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 

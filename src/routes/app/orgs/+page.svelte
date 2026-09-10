@@ -8,6 +8,7 @@
   // three top-level "things I own" lists, and they should read as one surface.
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
@@ -110,7 +111,10 @@
     columnResizeMode: 'onChange',
     state: { get globalFilter() { return globalFilter; } },
     onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
-    globalFilterFn: 'includesString',
+    // #820 — the `createdAt` accessor is epoch millis so the column sorts by
+    // instant, which made the date on screen unsearchable. `fmt` is the same map
+    // the cell falls back to.
+    globalFilterFn: makeGlobalFilterFn<OrgRow>(fmt),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 </script>
