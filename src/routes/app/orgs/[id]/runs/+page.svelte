@@ -191,7 +191,7 @@
     {/each}
     {#if selectedStatuses.length > 0}
       <span class="ml-1 text-xs text-zinc-500">
-        {t('org-runs.filter.matching', '{n} matching').replace('{n}', String(visibleRowCount))}
+        {t('org-runs.filter.matching', '{n} matching', { n: visibleRowCount })}
       </span>
     {/if}
   </div>
@@ -215,9 +215,7 @@
   {:else}
     {#if data.truncated}
       <p class="text-sm text-amber-600 dark:text-amber-400">
-        {t('org-runs.truncated', 'Showing the {shown} most recent of {total} runs. Filters apply to these {shown}.')
-          .replace(/\{shown\}/g, String(rows.length))
-          .replace('{total}', String(data.total))}
+        {t('org-runs.truncated', 'Showing the {shown} most recent of {total} runs. Filters apply to these {shown}.', { shown: rows.length, total: data.total })}
       </p>
     {/if}
 
@@ -235,7 +233,7 @@
       <div role="status" class="rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60">
         <span class="font-medium text-zinc-600 dark:text-zinc-300">
           {data.truncated
-            ? t('org-runs.empty.filtered-truncated', 'No runs match the current filters — and only the {shown} most recent runs were searched.').replace('{shown}', String(rows.length))
+            ? t('org-runs.empty.filtered-truncated', 'No runs match the current filters — and only the {shown} most recent runs were searched.', { shown: rows.length })
             : t('org-runs.empty.filtered', 'No runs match the current filters.')}
         </span>
         <button

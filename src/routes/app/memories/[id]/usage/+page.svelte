@@ -128,7 +128,7 @@
             class="rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
           >
             {#each WINDOW_OPTIONS as d (d)}
-              <option value={d}>{t('usage.window-days', '{n} days').replace('{n}', String(d))}</option>
+              <option value={d}>{t('usage.window-days', '{n} days', { n: d })}</option>
             {/each}
           </select>
         </label>

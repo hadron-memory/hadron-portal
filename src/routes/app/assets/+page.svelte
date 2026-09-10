@@ -74,7 +74,7 @@
     </nav>
     {#if !data.failed && !data.noOrg && rows.length > 0}
       <span class="mb-2 text-xs text-zinc-500">
-        {t('assets-page.count', '{total} file(s)').replace('{total}', String(data.total))}
+        {t('assets-page.count', '{total} file(s)', { total: data.total })}
       </span>
     {/if}
   </div>
@@ -118,9 +118,8 @@
         {t(
           'assets-page.truncated',
           'Showing the {shown} most recent of {total} files. Search and sorting apply to these {shown}.',
-        )
-          .replace(/\{shown\}/g, String(rows.length))
-          .replace('{total}', String(data.total))}
+          { shown: rows.length, total: data.total },
+        )}
       </p>
     {/if}
 

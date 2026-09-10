@@ -106,7 +106,7 @@
   <div class="flex items-center justify-between gap-4">
     <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">
       {#if displayName}
-        {t('dashboard.heading-named', 'Welcome back, {name}').replace('{name}', displayName)}
+        {t('dashboard.heading-named', 'Welcome back, {name}', { name: displayName })}
       {:else}
         {t('dashboard.heading', 'Dashboard')}
       {/if}

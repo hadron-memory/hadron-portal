@@ -1,0 +1,34 @@
+# #817 — fail on `.replace('{placeholder}', value)` outside the i18n boundary.
+#
+# `String.prototype.replace` expands `$&`, `` $` ``, `$'` and `$1`…`$9` in the
+# REPLACEMENT string, and every value this portal interpolates is user- or
+# server-supplied. `$&` is the matched text, so the placeholder reappears inside
+# the value; a filename containing an accessible name silently corrupts it,
+# where the reader has no visible copy to compare against.
+#
+# Not a security gate — the output is escaped as text. It guards displayed
+# correctness, which nothing else does: #814 fixed two call sites and stated the
+# rule in a comment, and the other 33 stayed broken for three weeks.
+#
+# Shaped like `grid-filters`, `no-bare-loc-citations` and `no-station-refs`: a
+# small, app-independent gate in its own job so it reports separately from `ci`.
+# It checks the tree as it stands, not the diff — the whole tree is clean as of
+# #817, so a file that regresses is caught even if the offending line was not
+# the one touched.
+name: safe-interpolation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  safe-interpolation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Interpolation must not expand $& out of a value
+        run: node scripts/check-unsafe-interpolation.mjs

@@ -376,8 +376,7 @@
               <form method="POST" action="?/impersonate" use:impersonateEnhance
                 onsubmit={(e) => {
                   if (!confirm(
-                    t('org-members.impersonate.confirm', 'View the portal as {name} (read-only)?')
-                      .replace('{name}', memberName(m)),
+                    t('org-members.impersonate.confirm', 'View the portal as {name} (read-only)?', { name: memberName(m) }),
                   )) {
                     e.preventDefault();
                     return;

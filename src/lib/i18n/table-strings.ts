@@ -15,9 +15,7 @@ import { t } from './t';
 export const tableStrings = {
   /** Footer page indicator, e.g. "Page 2 of 7". */
   pageOf: (page: number, total: number): string =>
-    t('table.pagination.page-of', 'Page {page} of {total}')
-      .replace('{page}', String(page))
-      .replace('{total}', String(total)),
+    t('table.pagination.page-of', 'Page {page} of {total}', { page, total }),
 
   /** aria-label on the rows-per-page <select>. */
   rowsPerPage: (): string =>
@@ -25,7 +23,7 @@ export const tableStrings = {
 
   /** Rows-per-page <option> label, e.g. "20 per page". */
   perPage: (size: number): string =>
-    t('table.pagination.per-page', '{size} per page').replace('{size}', String(size)),
+    t('table.pagination.per-page', '{size} per page', { size }),
 
   /** aria-label on a column's drag/keyboard resize handle. */
   resizeColumn: (): string => t('table.resize-column', 'Resize column'),

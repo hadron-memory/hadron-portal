@@ -138,7 +138,8 @@
       error = t(
         'attach-asset.loc-exhausted',
         'Couldn’t find a free place for this file under this node — {n} names were already taken.',
-      ).replace('{n}', String(MAX_LOC_ATTEMPTS));
+        { n: MAX_LOC_ATTEMPTS },
+      );
     } catch (err) {
       error = err instanceof AssetUploadError ? err.message : (err as Error).message;
     } finally {
@@ -244,9 +245,7 @@
         </span>
         {#if total > assets.length}
           <span class="text-xs text-zinc-500">
-            {t('attach-asset.count', '{shown} of {total}')
-              .replace('{shown}', String(assets.length))
-              .replace('{total}', String(total))}
+            {t('attach-asset.count', '{shown} of {total}', { shown: assets.length, total: total })}
           </span>
         {/if}
       </div>

@@ -83,7 +83,7 @@
   {:else}
     {#if data.truncated}
       <p class="text-sm text-amber-600 dark:text-amber-400">
-        {t('tasks.truncated', 'Showing the first {count} tasks.').replace('{count}', String(rows.length))}
+        {t('tasks.truncated', 'Showing the first {count} tasks.', { count: rows.length })}
       </p>
     {/if}
 

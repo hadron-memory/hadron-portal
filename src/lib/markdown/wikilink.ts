@@ -24,6 +24,8 @@
  * and turning a resolution map into HTML.
  */
 
+import { fill } from '$lib/i18n/t';
+
 /** A parsed `[[…]]` target, split into its memory scope and loc. */
 export type WikilinkRef = {
   /** The target exactly as authored (trimmed), before any `|label`. Map key. */
@@ -193,7 +195,7 @@ export function renderWikilink(
     // (`[[glossary:ns1|NS1]]`, not `[[NS1]]`). On a broken reference the target
     // is the actionable half — it's what has to be fixed — so hiding it behind
     // the display text would defeat the affordance. PR #684 review, Copilot.
-    const title = escapeHtml(strings.unresolvedTitle.replace('{target}', ref.target));
+    const title = escapeHtml(fill(strings.unresolvedTitle, { target: ref.target }));
     const inner = ref.label === null ? target : `${target}|${escapeHtml(ref.label)}`;
     return `<span class="wikilink ${WIKILINK_UNRESOLVED_CLASS}" title="${title}">[[${inner}]]</span>`;
   }

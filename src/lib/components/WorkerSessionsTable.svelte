@@ -42,8 +42,8 @@
     // "in 45 min" would leave an English fragment past the i18n boundary and fix
     // the word order in English (Codex P2 on the original list).
     return d.unit === 'min'
-      ? tt('worker.sessions.expiring.minutes', 'Expires in {n} min').replace('{n}', () => String(d.value))
-      : tt('worker.sessions.expiring.hours', 'Expires in {n} h').replace('{n}', () => String(d.value));
+      ? tt('worker.sessions.expiring.minutes', 'Expires in {n} min', { n: d.value })
+      : tt('worker.sessions.expiring.hours', 'Expires in {n} h', { n: d.value });
   }
 
   /**
