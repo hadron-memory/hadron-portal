@@ -61,6 +61,10 @@ async function runAction(
     | 'revokeKey' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
     | 'postTeamChatMessage',
   fields: Record<string, string | string[]>,
+  // #825 — the signed-in user, for actions whose COPY depends on whether the
+  // caller is the party the server named. Defaults to absent, which is the
+  // shape every earlier test ran with.
+  user?: { id: string } | null,
 ) {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
@@ -74,7 +78,7 @@ async function runAction(
   const event = {
     request: { formData: async () => fd },
     params: { id: 'org-1', appId: 'app-1' },
-    locals: { token: 'tok' },
+    locals: { token: 'tok', user },
   } as unknown as Parameters<(typeof actions)[typeof name]>[0];
   return actions[name](event);
 }
@@ -1019,7 +1023,10 @@ describe('releaseWorker action', () => {
         ...payload,
       },
     });
-    const result = await runAction('releaseWorker', { workerId: 'worker-1' });
+    const result = await runAction('releaseWorker', {
+      workerId: 'worker-1',
+      expectedHolderUserId: 'user-9',
+    });
     return (result as { form: { message: { type: string; outcome?: string; text: string } } })
       .form.message;
   }
@@ -1030,7 +1037,8 @@ describe('releaseWorker action', () => {
     const message = await release({ releasedFrom: HELD_BY });
     expect(mockRequest.mock.calls[0]).toEqual([
       RELEASE_WORKER_MUTATION,
-      { workerRef: 'worker-1' },
+      // #825 — the asserted hold rides with every release now.
+      { workerRef: 'worker-1', expectedHolderUserId: 'user-9' },
     ]);
     expect(message).toMatchObject({ type: 'success', outcome: 'released' });
     expect(message.text).toContain('stays active');
@@ -1119,6 +1127,100 @@ describe('releaseWorker action', () => {
     expect(mockRequest.mock.calls[0][0]).not.toBe(RETIRE_WORKER_MUTATION);
   });
 
+  // ─── #825: the guarded write ──────────────────────────────────────────
+  //
+  // The roster is a snapshot and this page does not poll, so an UNGUARDED
+  // release acts on whoever holds the name when the click lands — and the admin
+  // path announces that person in the team chat. These pin the assertion going
+  // out and each reading of the refusal coming back.
+
+  it('asserts WHICH hold it is releasing, and never asserts "expect nobody" too', async () => {
+    mockRequest.mockResolvedValueOnce({
+      releaseWorker: { worker: { id: 'worker-1' }, forced: false, releasedFrom: HELD_BY, notified: null },
+    });
+    await runAction('releaseWorker', { workerId: 'worker-1', expectedHolderUserId: 'user-9' });
+    const vars = mockRequest.mock.calls[0][1] as Record<string, unknown>;
+    expect(vars).toMatchObject({ workerRef: 'worker-1', expectedHolderUserId: 'user-9' });
+    // Passing BOTH assertions is BAD_USER_INPUT server-side, and this control
+    // only ever renders for a KNOWN hold, so "expect nobody" is never what this
+    // page means. Absent, not false — a present `false` is still an assertion.
+    expect(vars).not.toHaveProperty('expectUnheld');
+  });
+
+  // The guard is only a guard if it cannot be omitted. A release with no
+  // asserted holder is the unconditional write that WAS the defect, so it fails
+  // loudly here rather than reaching the server unguarded.
+  it('refuses to release at all when no hold was asserted', async () => {
+    const result = (await runAction('releaseWorker', { workerId: 'worker-1' })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  function staleRefusal(extensions: Record<string, unknown>) {
+    return {
+      response: {
+        errors: [{ message: 'hold is stale', extensions: { code: 'WORKER_HOLD_STALE', workerId: 'worker-1', ...extensions } }],
+      },
+    };
+  }
+
+  async function releaseAgainst(extensions: Record<string, unknown>, user?: { id: string } | null) {
+    mockRequest.mockRejectedValueOnce(staleRefusal(extensions));
+    return (await runAction(
+      'releaseWorker',
+      { workerId: 'worker-1', expectedHolderUserId: 'user-9' },
+      user,
+    )) as { status?: number; data?: { form: { message: StaleMessage } }; form?: { message: StaleMessage } };
+  }
+
+  type StaleMessage = { type: string; outcome?: string; staleHold?: true; text: string };
+
+  function messageOf(result: { data?: { form: { message: StaleMessage } }; form?: { message: StaleMessage } }): StaleMessage {
+    // A 200 carries `form` directly; a fail() nests it under `data`.
+    return result.data?.form.message ?? result.form!.message;
+  }
+
+  // `heldByUserId: null` is a definite "nobody holds it now": the end state the
+  // user asked for already stands, so this is not an error for them to act on.
+  it('reports a hold that had already ended as nothing-to-release, not a failure', async () => {
+    const message = messageOf(await releaseAgainst({ heldByUserId: null }, { id: 'user-1' }));
+    expect(message).toMatchObject({ type: 'success', outcome: 'not-held', staleHold: true });
+    expect(message.text).not.toContain('Name released');
+  });
+
+  // The server throws BEFORE comparing the holder to the caller and will not
+  // say whose hold it is — so the client decides. Getting this wrong is the
+  // #766 mistake in a new place: describing an act the user is not performing.
+  it('does not call it a force-release when the name came to the caller', async () => {
+    const result = await releaseAgainst({ heldByUserId: 'user-1' }, { id: 'user-1' });
+    expect(result.status).toBe(409);
+    const message = messageOf(result);
+    expect(message).toMatchObject({ type: 'error', staleHold: true });
+    expect(message.text).toContain('your own account');
+    expect(message.text).not.toContain('team chat');
+  });
+
+  it('says a different holder was found, without naming or accusing them', async () => {
+    const result = await releaseAgainst({ heldByUserId: 'user-2' }, { id: 'user-1' });
+    expect(result.status).toBe(409);
+    const message = messageOf(result);
+    expect(message).toMatchObject({ type: 'error', staleHold: true });
+    expect(message.text).toContain('team chat');
+    // The portal cannot name the holder (portal#748) and must not imply the
+    // hold was taken from anyone.
+    expect(message.text).not.toContain('user-2');
+  });
+
+  // An unreadable payload must not be guessed at. It falls through to ordinary
+  // error handling, which carries the server's own message.
+  it('falls back to ordinary error handling when the refusal cannot be read', async () => {
+    const result = await releaseAgainst({}, { id: 'user-1' });
+    expect(result.status).toBe(500);
+    const message = messageOf(result);
+    expect(message.text).toBe('hold is stale');
+    expect(message).not.toHaveProperty('staleHold');
+  });
+
   it('rejects a missing worker id before the mutation', async () => {
     const result = (await runAction('releaseWorker', {})) as { status: number };
     expect(result.status).toBe(400);
@@ -1127,7 +1229,7 @@ describe('releaseWorker action', () => {
 
   it('returns a typed error when releasing fails', async () => {
     mockRequest.mockRejectedValueOnce(new Error('nope'));
-    const result = (await runAction('releaseWorker', { workerId: 'worker-1' })) as {
+    const result = (await runAction('releaseWorker', { workerId: 'worker-1', expectedHolderUserId: 'user-9' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
@@ -1143,7 +1245,7 @@ describe('releaseWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
     });
-    const result = (await runAction('releaseWorker', { workerId: 'worker-1' })) as {
+    const result = (await runAction('releaseWorker', { workerId: 'worker-1', expectedHolderUserId: 'user-9' })) as {
       data: { form: { message: { text: string } } };
     };
     const text = result.data.form.message.text;

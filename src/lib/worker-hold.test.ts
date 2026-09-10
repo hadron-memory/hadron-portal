@@ -25,6 +25,7 @@ describe('workerHold', () => {
     expect(workerHold({ heldByUserId: 'u1', heldAt: '2026-08-20T12:00:00Z' }, 'u1')).toEqual({
       kind: 'self',
       since: '2026-08-20T12:00:00Z',
+      holderId: 'u1',
     });
   });
 
@@ -32,6 +33,7 @@ describe('workerHold', () => {
     expect(workerHold({ heldByUserId: 'u2', heldAt: '2026-08-20T12:00:00Z' }, 'u1')).toEqual({
       kind: 'other',
       since: '2026-08-20T12:00:00Z',
+      holderId: 'u2',
     });
   });
 
@@ -56,14 +58,14 @@ describe('workerHold', () => {
     // The schema says heldAt is null exactly when heldByUserId is, so this
     // shape should not occur — but the UI must degrade rather than render
     // "Invalid Date" if it ever does.
-    expect(workerHold({ heldByUserId: 'u1' }, 'u1')).toEqual({ kind: 'self', since: null });
+    expect(workerHold({ heldByUserId: 'u1' }, 'u1')).toEqual({ kind: 'self', since: null, holderId: 'u1' });
   });
 });
 
 describe('isHeld', () => {
   it('is true only when a hold is KNOWN to exist', () => {
-    expect(isHeld({ kind: 'self', since: null })).toBe(true);
-    expect(isHeld({ kind: 'other', since: null })).toBe(true);
+    expect(isHeld({ kind: 'self', since: null, holderId: 'u1' })).toBe(true);
+    expect(isHeld({ kind: 'other', since: null, holderId: 'u2' })).toBe(true);
   });
 
   it('is false for none — which means not-held OR masked, never a known hold', () => {
@@ -71,5 +73,38 @@ describe('isHeld', () => {
     // evidence either way, so it cannot count as held.
     expect(isHeld({ kind: 'none' })).toBe(false);
     expect(isHeld({ kind: 'unselected' })).toBe(false);
+  });
+});
+
+// #825 — the release control asserts WHICH hold it is acting on, and it takes
+// that id from here rather than re-reading the raw field, so that narrowing
+// `kind` narrows the id with it. These pin the id on both HELD states and its
+// ABSENCE on the two that have no holder to name.
+describe('workerHold — holderId (#825)', () => {
+  it('carries the holder id on a self hold', () => {
+    expect(workerHold({ heldByUserId: 'u1', heldAt: '2026-09-09T00:00:00Z' }, 'u1')).toMatchObject({
+      kind: 'self',
+      holderId: 'u1',
+    });
+  });
+
+  it('carries the holder id on someone else’s hold, even though the holder is unnamed', () => {
+    // portal#748: the UI cannot NAME the holder without an N+1 per row. The id
+    // is a different thing from the name, and it is what the write asserts.
+    expect(workerHold({ heldByUserId: 'u2', heldAt: '2026-09-09T00:00:00Z' }, 'u1')).toMatchObject({
+      kind: 'other',
+      holderId: 'u2',
+    });
+  });
+
+  it('carries the id when the viewer is unknown, where the hold degrades to other', () => {
+    expect(workerHold({ heldByUserId: 'u2' }, null)).toMatchObject({ kind: 'other', holderId: 'u2' });
+  });
+
+  it('has no holderId on none or unselected — there is no holder to assert', () => {
+    // An empty string here would be a value that READS as one: it would satisfy
+    // a `min(1)`-less schema and assert a holder nobody has.
+    expect(workerHold({ heldByUserId: null }, 'u1')).not.toHaveProperty('holderId');
+    expect(workerHold({}, 'u1')).not.toHaveProperty('holderId');
   });
 });

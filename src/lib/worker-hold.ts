@@ -41,11 +41,11 @@ export type WorkerHold =
   | { kind: 'none' }
   /** Held by the signed-in user. `since` is null only if the server sent a
    *  holder without a `heldAt`, which the schema says cannot happen. */
-  | { kind: 'self'; since: string | null }
+  | { kind: 'self'; since: string | null; holderId: string }
   /** Held by somebody else. The holder is unnamed until the server grows a
    *  resolved `heldByUser: User` (portal#748) — resolving it client-side would
    *  be an N+1 per roster row. */
-  | { kind: 'other'; since: string | null };
+  | { kind: 'other'; since: string | null; holderId: string };
 
 /** The subset of a Worker this needs — so callers can pass a slim projection. */
 export interface WorkerHoldFields {
@@ -68,8 +68,18 @@ export function workerHold(
   if (!worker || worker.heldByUserId === undefined) return { kind: 'unselected' };
   if (worker.heldByUserId === null) return { kind: 'none' };
 
+  // #825 — `holderId` rides on the two HELD states so a caller can assert the
+  // hold it is acting on without re-deriving it from the raw field. On `self`
+  // and `other` it is a non-null string by construction (both null and
+  // undefined returned above), which is what lets the release control pass it
+  // where TypeScript can check it — narrowing `kind` narrows the id with it.
+  // Deliberately absent from `none`/`unselected`: there is no holder to name,
+  // and an empty string there would be a value that reads as one.
   const since = worker.heldAt ?? null;
-  return worker.heldByUserId === viewerId ? { kind: 'self', since } : { kind: 'other', since };
+  const holderId = worker.heldByUserId;
+  return worker.heldByUserId === viewerId
+    ? { kind: 'self', since, holderId }
+    : { kind: 'other', since, holderId };
 }
 
 /** True when a hold is known to exist — i.e. someone's name this is. */

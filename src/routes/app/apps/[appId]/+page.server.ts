@@ -57,6 +57,7 @@ import {
   updateAppAgentToolsSchema,
 } from './schema';
 import type { ReleaseWorkerMessage } from './schema';
+import { readHoldStale, type HoldStale } from './hold-stale';
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
 type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -217,6 +218,68 @@ function releaseOutcomeMessage(payload: ReleaseWorkerPayload): ReleaseWorkerMess
     text: t(
       'app.staff.release.success',
       'Name released. The worker stays active and keeps its name; the hold on it ended, and the name goes to whoever binds it next.',
+    ),
+  };
+}
+
+/**
+ * #825 — what to say when the guarded release REFUSED because the hold is not
+ * what the roster showed.
+ *
+ * Three readings, because the right sentence differs by who holds it now, and
+ * `callerId` is the only thing that can tell them apart: the server throws
+ * before comparing the holder to the caller, and deliberately does not say
+ * whose hold it is. That neutrality must not be rendered as an accusation.
+ *
+ * Nothing was released on ANY of these paths. What differs is whether the user
+ * still has something to do:
+ *
+ *   - nobody holds it     — the end state they wanted already stands, so this
+ *                           is not an error to act on. Reported as the
+ *                           `not-held` outcome, in neutral chrome.
+ *   - the caller holds it — releasing is now a SELF-release, which owes nobody
+ *                           notice. Saying "force-release" here would be the
+ *                           #766 mistake: describing an act the user is not
+ *                           about to perform.
+ *   - somebody else does  — force-releasing would announce THEM
+ *                           (`hrn:node:hadronmemory.com:specs:cor:agt:020:09`),
+ *                           and they are not who the admin agreed to release.
+ *
+ * None of the three states who holds the name NOW as a present fact — each
+ * reports what the server found when it refused. The distinction is the arm
+ * #824 added to
+ * `hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee`.
+ */
+function staleHoldMessage(stale: HoldStale & object, callerId: string | null): ReleaseWorkerMessage {
+  if (stale.kind === 'unheld') {
+    return {
+      type: 'success',
+      outcome: 'not-held',
+      staleHold: true,
+      text: t(
+        'app.staff.release.stale.unheld',
+        'Nothing to release — the hold this was aimed at had already ended. The worker stays active and keeps its name, and the name goes to whoever binds it next. The list has been refreshed.',
+      ),
+    };
+  }
+
+  if (callerId && stale.holderId === callerId) {
+    return {
+      type: 'error',
+      staleHold: true,
+      text: t(
+        'app.staff.release.stale.mine',
+        'Nothing was released. The hold changed after this list was drawn, and the name is now held under your own account — so releasing it is no longer the admin act this list offered. The list has been refreshed; release it again if that is what you want.',
+      ),
+    };
+  }
+
+  return {
+    type: 'error',
+    staleHold: true,
+    text: t(
+      'app.staff.release.stale.other',
+      'Nothing was released. The hold changed after this list was drawn, and the server found a different holder than the one this click named. Force-releasing announces the holder in the team chat, so it was refused rather than applied to somebody you did not choose. The list has been refreshed — check who holds it before clicking again.',
     ),
   };
 }
@@ -588,7 +651,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       { errors: false },
     ),
     superValidate<ReleaseWorkerForm, ReleaseWorkerMessage>(
-      { workerId: '' },
+      // Both fields are filled from the ROW at click time (#825); seeded empty
+      // with `errors: false` so the page does not render a validation error for
+      // a form nobody has aimed at a worker yet.
+      { workerId: '', expectedHolderUserId: '' },
       releaseWorkerFormAdapter,
       { errors: false },
     ),
@@ -961,9 +1027,17 @@ export const actions: Actions = {
         releaseWorker: ReleaseWorkerPayload;
       }>(RELEASE_WORKER_MUTATION, {
         workerRef: form.data.workerId,
+        expectedHolderUserId: form.data.expectedHolderUserId,
       });
       return message(form, releaseOutcomeMessage(result.releaseWorker));
     } catch (e: unknown) {
+      // #825 — the guarded write refused because the hold is not what the
+      // roster showed. Handled BEFORE the generic branches: it is not a server
+      // fault and not a permission problem, and reporting it as either would
+      // describe the wrong thing to fix.
+      const stale = readHoldStale(e);
+      if (stale) return message(form, staleHoldMessage(stale, locals.user?.id ?? null), { status: 409 });
+
       // Same staffing gate as castWorker/retireWorker, so the same legible
       // refusal rather than a raw GraphQL error.
       const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
