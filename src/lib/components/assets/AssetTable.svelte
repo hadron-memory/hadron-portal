@@ -403,7 +403,7 @@
               type="button"
               onclick={() => copyHotlink(row)}
               title={t('assets.copy-link.title', 'Copy public link — anyone with it can download this file, no sign-in required')}
-              aria-label={t('assets.copy-link.aria', 'Copy public link to {file}').replace('{file}', row.filename)}
+              aria-label={t('assets.copy-link.aria', 'Copy public link to {file}', { file: row.filename })}
               class="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
             >
               <Link2 class="size-4" />
@@ -417,7 +417,7 @@
             onclick={() => (pendingDelete = row.id)}
             disabled={busyAsset === row.id}
             title={t('assets.delete.title', 'Delete (recoverable for 24 hours)')}
-            aria-label={t('assets.delete.aria', 'Delete {file}').replace('{file}', row.filename)}
+            aria-label={t('assets.delete.aria', 'Delete {file}', { file: row.filename })}
             class="rounded p-1 text-zinc-500 hover:bg-red-100 hover:text-red-600 disabled:opacity-40 dark:hover:bg-red-900/30 dark:hover:text-red-400"
           >
             <Trash2 class="size-4" />

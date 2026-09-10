@@ -1279,9 +1279,8 @@
       {t(
         'memory-browser.truncated-notice',
         'Showing the first {loaded} of {total} nodes. The type/tag filters and the tree/graph reflect only this loaded set; the search box covers the whole memory.',
-      )
-        .replace('{loaded}', nodes.length.toLocaleString())
-        .replace('{total}', (nodesTotal ?? 0).toLocaleString())}
+        { loaded: nodes.length.toLocaleString(), total: (nodesTotal ?? 0).toLocaleString() },
+      )}
     </div>
   {/if}
 

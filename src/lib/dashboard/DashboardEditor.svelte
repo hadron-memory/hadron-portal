@@ -405,7 +405,7 @@
           </span>
 
           <label class="sr-only" for="span-{item.uid}">
-            {t('dashboard.edit.width-label', 'Width of {name}').replace('{name}', titleOf(item.type))}
+            {t('dashboard.edit.width-label', 'Width of {name}', { name: titleOf(item.type) })}
           </label>
           <select
             id="span-{item.uid}"
@@ -422,7 +422,7 @@
           </select>
 
           <label class="sr-only" for="row-span-{item.uid}">
-            {t('dashboard.edit.height-label', 'Height of {name}').replace('{name}', titleOf(item.type))}
+            {t('dashboard.edit.height-label', 'Height of {name}', { name: titleOf(item.type) })}
           </label>
           <select
             id="row-span-{item.uid}"
@@ -445,7 +445,7 @@
               type="button"
               onclick={() => toggleSettings(item)}
               title={t('dashboard.edit.settings', 'Widget settings')}
-              aria-label={t('dashboard.edit.settings-aria', 'Settings for {name}').replace('{name}', titleOf(item.type))}
+              aria-label={t('dashboard.edit.settings-aria', 'Settings for {name}', { name: titleOf(item.type) })}
               aria-expanded={openSettings === item.uid}
               class="rounded-md p-1 {openSettings === item.uid
                 ? 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200'
@@ -458,7 +458,7 @@
           <button
             type="button" onclick={() => move(i, -1)} disabled={i === 0}
             title={t('dashboard.edit.move-earlier', 'Move earlier')}
-            aria-label={t('dashboard.edit.move-earlier-aria', 'Move {name} earlier').replace('{name}', titleOf(item.type))}
+            aria-label={t('dashboard.edit.move-earlier-aria', 'Move {name} earlier', { name: titleOf(item.type) })}
             class="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-30 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5m7-7l-7 7 7 7"/></svg>
@@ -466,7 +466,7 @@
           <button
             type="button" onclick={() => move(i, 1)} disabled={i === items.length - 1}
             title={t('dashboard.edit.move-later', 'Move later')}
-            aria-label={t('dashboard.edit.move-later-aria', 'Move {name} later').replace('{name}', titleOf(item.type))}
+            aria-label={t('dashboard.edit.move-later-aria', 'Move {name} later', { name: titleOf(item.type) })}
             class="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-30 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14m-7-7l7 7-7 7"/></svg>
@@ -474,7 +474,7 @@
           <button
             type="button" onclick={() => removeAt(i)}
             title={t('dashboard.edit.remove', 'Remove')}
-            aria-label={t('dashboard.edit.remove-aria', 'Remove {name}').replace('{name}', titleOf(item.type))}
+            aria-label={t('dashboard.edit.remove-aria', 'Remove {name}', { name: titleOf(item.type) })}
             class="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50"
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
@@ -506,7 +506,7 @@
                   type="button"
                   onclick={() => removePreset(item, s.presetId!)}
                   title={t('dashboard.edit.settings-preset-delete', 'Delete preset')}
-                  aria-label={t('dashboard.edit.settings-preset-delete-aria', 'Delete preset {name}').replace('{name}', typePresets.find((p) => p.id === s.presetId)?.name ?? '')}
+                  aria-label={t('dashboard.edit.settings-preset-delete-aria', 'Delete preset {name}', { name: typePresets.find((p) => p.id === s.presetId)?.name ?? '' })}
                   class="rounded-md p-1 text-zinc-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/50"
                 >
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/></svg>
@@ -560,7 +560,7 @@
                   class="rounded-md border border-zinc-300 bg-white px-1 py-0.5 text-xs dark:border-zinc-700 dark:bg-zinc-900"
                 >
                   {#each WINDOW_OPTIONS as d (d)}
-                    <option value={d}>{t('dashboard.edit.settings-window-days', '{n} days').replace('{n}', String(d))}</option>
+                    <option value={d}>{t('dashboard.edit.settings-window-days', '{n} days', { n: d })}</option>
                   {/each}
                 </select>
               </label>

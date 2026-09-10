@@ -108,7 +108,7 @@
           type="button"
           onclick={copyHotlink}
           title={t('assets.copy-link.title', 'Copy public link — anyone with it can download this file, no sign-in required')}
-          aria-label={t('assets.copy-link.aria', 'Copy public link to {file}').replace('{file}', asset.filename)}
+          aria-label={t('assets.copy-link.aria', 'Copy public link to {file}', { file: asset.filename })}
           class="rounded-md border border-zinc-300 p-1.5 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >
           <Link2 class="size-4" />

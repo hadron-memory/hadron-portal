@@ -36,10 +36,7 @@ export const apiKeysStrings = {
 
   /** Mint-form label length validation error. */
   labelTooLong: (max: number): string =>
-    t('api-keys.mint.label-too-long', 'Name must be at most {max} characters.').replace(
-      '{max}',
-      String(max),
-    ),
+    t('api-keys.mint.label-too-long', 'Name must be at most {max} characters.', { max }),
 
   /** Mint submit-button label. Renamed from "Mint new key" to "Save"
    *  per #229. New i18n key so future translators are prompted to
@@ -131,13 +128,12 @@ export const apiKeysStrings = {
    * Default text uses a `{clientId}` placeholder rather than embedding
    * the variable, so the `t()` lookup is stable per key — a translator
    * sees `"OAuth: {clientId}"` once, not a different default for each
-   * client. Substitution happens after the i18n boundary.
+   * client. Substitution happens INSIDE the boundary since #817: a client
+   * id is server-supplied, and `.replace` would expand a `$&` in it back
+   * into the placeholder.
    */
   sourceOAuth: (clientId: string): string =>
-    t('api-keys.source.oauth', 'OAuth: {clientId}').replace(
-      '{clientId}',
-      clientId,
-    ),
+    t('api-keys.source.oauth', 'OAuth: {clientId}', { clientId }),
 
   /** Revoke-row button. */
   revokeButton: (): string => t('api-keys.revoke.button', 'Revoke'),

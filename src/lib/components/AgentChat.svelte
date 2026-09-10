@@ -362,7 +362,8 @@
         ? t(
             'agent-chat.welcome-error-hint',
             "Couldn't generate a welcome message — type below to start the chat. (Underlying error: {error})",
-          ).replace('{error}', body.welcomeError)
+            { error: body.welcomeError },
+          )
         : null;
       await refreshChatList();
       scrollMessagesToBottom();

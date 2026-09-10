@@ -162,15 +162,14 @@
         {t(
           'memory-assets.scanning',
           '{n} file(s) are being scanned for malware — download unlocks when the scan passes. This list refreshes itself.',
-        ).replace('{n}', String(pendingCount))}
+          { n: pendingCount },
+        )}
       </p>
     {/if}
 
     {#if data.truncated}
       <p class="text-sm text-amber-600 dark:text-amber-400">
-        {t('memory-assets.truncated', 'Showing {shown} of {total} files. Search and sorting apply to these {shown}.')
-          .replace(/\{shown\}/g, String(rows.length))
-          .replace('{total}', String(data.total))}
+        {t('memory-assets.truncated', 'Showing {shown} of {total} files. Search and sorting apply to these {shown}.', { shown: rows.length, total: data.total })}
       </p>
     {/if}
 

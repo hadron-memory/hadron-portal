@@ -33,7 +33,7 @@
   <div>
     <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">
       {#if displayName}
-        {t('setup.heading-named', 'Welcome to Hadron, {name}').replace('{name}', displayName)}
+        {t('setup.heading-named', 'Welcome to Hadron, {name}', { name: displayName })}
       {:else}
         {t('setup.heading', 'Welcome to Hadron')}
       {/if}
