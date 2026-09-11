@@ -41,7 +41,7 @@ export interface ActiveOrgResolution {
  *
  * The server now filters too: resolution callers fetch via
  * ORGANIZATIONS_NAV_QUERY, which passes filter.memberOnly so even a platform
- * admin only receives their memberships (cor:api:120:03). This client-side
+ * admin only receives their memberships (hrn:node:hadronmemory.com:specs:cor:api:120:03). This client-side
  * pass over members[].user.id stays as cheap defense-in-depth — it also
  * covers any caller still feeding the unfiltered browse query through
  * resolveActiveOrg.

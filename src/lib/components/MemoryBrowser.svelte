@@ -337,7 +337,7 @@
   // #433: include soft-deleted nodes (findNodes filter.includeDeleted) — an
   // audit/restore view; server-only (the slim loaded set excludes deleted).
   let includeDeleted = $state(false);
-  // #433: the fields weight-mask (findNodes fields, cor:api:090:03) — scopes a
+  // #433: the fields weight-mask (findNodes fields, hrn:node:hadronmemory.com:specs:cor:api:090:03) — scopes a
   // LEXICAL query's scoring to a subset of node fields. Empty = all fields
   // (the server default). Ignored for Fuzzy (vector retrieval) and for a
   // filter-only list (no ranking). Options are shared with the endpoint's

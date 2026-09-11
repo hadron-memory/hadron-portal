@@ -48,7 +48,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     // Scope to the agent's system memory. findNodes hides class:'system'
     // memories on a broad (no-memoryIds) call, so we MUST name the system
     // memory to see its fixture nodes — naming it also overrides the
-    // exclusion (cor:api:090:02).
+    // exclusion (hrn:node:hadronmemory.com:specs:cor:api:090:02).
     const nodesResult = await client.request<{ findNodes: { hits: Array<{ node: {
       id: string; loc: string; memoryId: string; data: unknown;
     } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] }).catch(() => null);

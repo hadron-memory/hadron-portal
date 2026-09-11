@@ -47,6 +47,22 @@
 export const BRANCH_WORDS = ['review', 'findings', 'conventions', 'tasks', 'ops', 'specs'];
 
 /**
+ * A SPEC citation — `cor:<module>:<feature>[:<rule>[:<flow>]]` (#816).
+ *
+ * Structurally invisible to the branch-word pattern above, which is why the
+ * gate could not see one: a spec loc starts with `cor` rather than a branch
+ * word, and its tail is NUMERIC rather than `[a-z][a-z0-9-]*`. So the rule
+ * CLAUDE.md states for every Hadron reference was enforced for node locs and
+ * unenforced for the citations that carry platform law — #814 added SEVEN bare
+ * `cor:dmo:060:12` refs and CI passed every time.
+ *
+ * The module is three letters by the register in `cor:urn:010:01`; the feature
+ * is three digits and each level below it is two, which is what distinguishes a
+ * citation from ordinary prose containing a colon.
+ */
+export const SPEC_CITATION = String.raw`cor:[a-z]{3}:\d{3}(?::\d{2})*`;
+
+/**
  * The ONLY exempt files: this check and its own test.
  *
  * Both exist to contain examples of the thing being detected, so they trip it
@@ -76,7 +92,10 @@ export const EXEMPT_FILES = new Set([
 /** Inline opt-out for prose that demonstrates loc syntax instead of citing. */
 export const BARE_LOC_OK = 'bare-loc-ok';
 
-const CITATION = new RegExp(`\\b(?:${BRANCH_WORDS.join('|')}):[a-z][a-z0-9-]*`, 'g');
+const CITATION = new RegExp(
+  `\\b(?:(?:${BRANCH_WORDS.join('|')}):[a-z][a-z0-9-]*|${SPEC_CITATION})`,
+  'g',
+);
 // The contiguous URN-ish token a match sits inside.
 const TOKEN_CHARS = /[A-Za-z0-9_.:-]/;
 
@@ -161,6 +180,30 @@ export function isCitationContext(file, line, column, prevLine = '', forceProse 
 }
 
 /**
+ * Did the match consume the WHOLE citation-shaped run? (#831 review, @copilot)
+ *
+ * `cor:dmo:060:12abc` is an identifier, not a citation, and the pattern must
+ * not report a prefix of one. A trailing `\b` — the obvious fix — does not do
+ * this: the regex backtracks and reports `cor:dmo:060`, trading a wrong flag
+ * for a wrong SPAN, which is worse because it looks plausible in a report.
+ * Measured before choosing:
+ *
+ *   /cor:[a-z]{3}:\d{3}(?::\d{2})*\b/  on 'cor:dmo:060:12abc'  →  'cor:dmo:060'
+ *
+ * So the boundary is checked after the match instead, where there is no
+ * backtracking to hide in: what follows may not be a word character, and may
+ * not be another `:<digit>` run the greedy match failed to take.
+ *
+ * A trailing plain `:` is deliberately allowed — `per cor:api:090: the rule…`
+ * is a citation followed by a sentence colon, and rejecting it would lose a
+ * real one to punctuation.
+ */
+function isWholeSpecCitation(line, matchEnd) {
+  const rest = line.slice(matchEnd);
+  return !/^[\w-]/.test(rest) && !/^:\d/.test(rest);
+}
+
+/**
  * Bare citations in one line of source.
  * @param {string} line
  * @param {string} [file] — when given, non-citation contexts are filtered out.
@@ -171,6 +214,7 @@ export function findBareCitations(line, file = '', prevLine = '', forceProse = f
   for (const m of line.matchAll(CITATION)) {
     if (m.index === undefined) continue;
     if (isQualified(line, m.index)) continue;
+    if (m[0].startsWith('cor:') && !isWholeSpecCitation(line, m.index + m[0].length)) continue;
     if (file && !isCitationContext(file, line, m.index + 1, prevLine, forceProse)) continue;
     out.push({ text: m[0], column: m.index + 1 });
   }

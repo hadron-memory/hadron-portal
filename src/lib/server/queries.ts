@@ -86,7 +86,7 @@ export const AGENT_FIELDS = /* GraphQL */ `
     visibility
     type
     surfaces
-    # #974 (cor:agt:020 v0.0.3): persona dressing on a reusable role-actor.
+    # #974 (hrn:node:hadronmemory.com:specs:cor:agt:020 v0.0.3): persona dressing on a reusable role-actor.
     # personaPrompt is a TEMPLATE (name/role bound when the agent is cast as a
     # Worker); the named individual is the Worker, not the Agent. personaName
     # was dropped from the schema with the Worker model — do not reintroduce it
@@ -299,7 +299,7 @@ export const PUBLIC_MEMORIES_QUERY = /* GraphQL */ `
 // portal's callers and the "Use this memory" affordance went with it in #681.
 // Re-introducing that flow needs a server-side capability first.
 
-// cor:acl:080:04 — the marketplace catalogue: listedOnMarketplace + publicly
+// hrn:node:hadronmemory.com:specs:cor:acl:080:04 — the marketplace catalogue: listedOnMarketplace + publicly
 // accessible orgs / agents / memories, as sanitized flat refs. One request
 // fetches the first page of each section (browse landing).
 export const MARKETPLACE_QUERY = /* GraphQL */ `
@@ -430,7 +430,7 @@ export const REVOKE_AGENT_ORG_GRANT_MUTATION = /* GraphQL */ `
 // (layout sidebar + OrgSwitcher/CommandBar, auth-callback landing, the
 // marketplace post-add redirect). filter.memberOnly restricts the list to the
 // caller's own memberships SERVER-side, even for a platform ADMIN/OWNER (the
-// old myOrganizations semantics — hadron-server cor:api:120:03), so an
+// old myOrganizations semantics — hadron-server hrn:node:hadronmemory.com:specs:cor:api:120:03), so an
 // admin's nav doesn't receive every live org. Selection is only what
 // resolution + nav actually read: OrgFields scalars (id/name for
 // resolveActiveOrg, urn for display) plus a
@@ -551,7 +551,7 @@ export const APP_WITH_MEMBERS_QUERY = /* GraphQL */ `
   }
 `;
 
-// ── Workers (#974, cor:dmo:050:11) ────────────────────────────────────────
+// ── Workers (#974, hrn:node:hadronmemory.com:specs:cor:dmo:050:11) ────────────────────────────────────────
 //
 // A Worker is the named CASTING of an installed Agent into an App — "Iris",
 // the backend-engineer agent cast into eng-team. The App's STAFF are its
@@ -1800,7 +1800,7 @@ export const SESSIONS_QUERY = /* GraphQL */ `
       # hadron-server#980: who did the work, nested so the list renders the
       # app-qualified compound ('eng-team/Iris') without a per-row round trip.
       # A session list is org-wide, so the bare name is NOT sufficient there
-      # (cor:agt:020:02) — hence app.urn, whose slug is the qualifier.
+      # (hrn:node:hadronmemory.com:specs:cor:agt:020:02) — hence app.urn, whose slug is the qualifier.
       #
       # retiredAt is selected because retirement ends the casting, not the
       # history: past sessions stay attributed, and the row should say so
@@ -1908,7 +1908,7 @@ export const NODE_FIELDS = /* GraphQL */ `
   }
 `;
 
-// Unified node search (cor:api:090). `findNodes` supersedes `nodes` + `nodeSearch`;
+// Unified node search (hrn:node:hadronmemory.com:specs:cor:api:090). `findNodes` supersedes `nodes` + `nodeSearch`;
 // results come back under `hits[].node` (envelope shape). Omitting `query` yields a
 // filtered list (subsumes the old `nodes`).
 //
@@ -2021,7 +2021,7 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
 `;
 
 // The team worklog (#947) — the AUTHORITATIVE artifact-to-session join
-// (cor:agt:020:05), which is what lets a merged PR trace back to the worker and
+// (hrn:node:hadronmemory.com:specs:cor:agt:020:05), which is what lets a merged PR trace back to the worker and
 // transcript that produced it.
 //
 // Read via this operation, never by walking nodes: the records live in the
@@ -2149,7 +2149,7 @@ export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
 // (keyword/hybrid), the net-new structured filters (createdBy = "my nodes",
 // updatedAfter/Before = "changed since"), and user-selectable sort. `query` is
 // optional — omitting it returns a deterministically-ordered filtered list
-// (cor:api:090). #429.
+// (hrn:node:hadronmemory.com:specs:cor:api:090). #429.
 export const NODE_FIND_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodeFind(
@@ -2176,7 +2176,7 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
       # the sort enum when present. Missing/unparseable values sort last.
       sortProperty: $sortProperty
       granularity: $granularity
-      # #433: fields is a lexical scoring weight-mask (cor:api:090:03), not a
+      # #433: fields is a lexical scoring weight-mask (hrn:node:hadronmemory.com:specs:cor:api:090:03), not a
       # hard filter; ignored by the server for vector/hybrid retrieval.
       fields: $fields
       limit: $limit
@@ -2279,7 +2279,7 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
       # data.asset), written either by createAssetReferenceNode or by
       # hadron_store_file. NULL for every ordinary node, and ALSO null when the
       # pointer dangles — there is no Asset-to-Node foreign key
-      # (cor:dmo:060:10 reserves it), so never assume a node carrying
+      # (hrn:node:hadronmemory.com:specs:cor:dmo:060:10 reserves it), so never assume a node carrying
       # data.asset still has a live asset behind it. Detail-only, for the same
       # reason as properties.
       asset {

@@ -15,7 +15,7 @@
 
 /** Selector key for the agent conversation — deliberately not a loc. */
 export const AGENT_CHAT_KEY = 'agent chat';
-/** The one well-known team chat, `cor:agt:020:04`. */
+/** The one well-known team chat, `hrn:node:hadronmemory.com:specs:cor:agt:020:04`. */
 export const TEAM_CHAT_LOC = 'chats:team';
 
 export interface AppChatEntry {

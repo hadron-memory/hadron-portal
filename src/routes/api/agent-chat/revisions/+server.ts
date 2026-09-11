@@ -145,7 +145,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      // Fetch revision nodes from the agent's system memory. cor:api:090 —
+      // Fetch revision nodes from the agent's system memory. hrn:node:hadronmemory.com:specs:cor:api:090 —
       // findNodes hides class:'system' memories on a broad call, so we scope to
       // the system memory (which also overrides the exclusion) and use
       // filter.locPrefix for the `revisions:` prefix. Results are hits[].node.

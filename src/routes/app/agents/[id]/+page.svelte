@@ -379,7 +379,7 @@
 
   // Label for the agent's own visibility (PERSONAL/ORGANIZATION/PUBLIC).
   // The old "mixed visibility" warnings (agent vs more-restrictive memory) were
-  // removed with #610: the Agent-PUBLIC congruence invariant (cor:acl:080:03) is
+  // removed with #610: the Agent-PUBLIC congruence invariant (hrn:node:hadronmemory.com:specs:cor:acl:080:03) is
   // now enforced server-side, so an incongruent PUBLIC state can't be reached,
   // and the warnings were confusing for the non-PUBLIC cases.
   const visibilityLabel: Record<string, string> = { PERSONAL: 'Personal', ORGANIZATION: 'Organization', PUBLIC: 'Public' };
@@ -1211,7 +1211,7 @@
                 <p class="mt-1 text-xs text-zinc-400">Memory the agent uses for conversations, automations, and other tasks.</p>
               </div>
             {/if}
-            <!-- #974 persona DRESSING (cor:agt:020:01). An agent is a reusable
+            <!-- #974 persona DRESSING (hrn:node:hadronmemory.com:specs:cor:agt:020:01). An agent is a reusable
                  ROLE-ACTOR ("backend-engineer"), not a named individual: the
                  name belongs to a Worker cast into an App. These two fields are
                  the template that every casting of this agent shares. Blank

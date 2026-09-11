@@ -105,7 +105,7 @@ describe('move action (#503 / #489)', () => {
   });
 
   // The no-op check must be blind to URN GRAMMAR, not just to the prefix.
-  // composeNodeUrn emits v2 (single colon) per cor:urn:010:01, but a URN pasted
+  // composeNodeUrn emits v2 (single colon) per hrn:node:hadronmemory.com:specs:cor:urn:010:01, but a URN pasted
   // from an older screen or another tool may still be v1 (`::`). Both spell the
   // same node, so both must no-op — otherwise the user gets a pointless move
   // mutation instead of "already at that destination".

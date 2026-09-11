@@ -1,10 +1,10 @@
 /**
  * #374 — `[[loc]]` wikilink parsing and rendering.
  *
- * The rules under test come from spec cor:urn:020:01: bare loc = the containing
+ * The rules under test come from spec hrn:node:hadronmemory.com:specs:cor:urn:020:01: bare loc = the containing
  * node's memory, an explicit memory prefix for cross-memory, resolve-to-one or
  * show visibly unresolved, never inert. Both URN grammars are accepted — v2
- * flat single-colon and legacy v1 `::` (cor:urn:010:01).
+ * flat single-colon and legacy v1 `::` (hrn:node:hadronmemory.com:specs:cor:urn:010:01).
  */
 import { describe, expect, it } from 'vitest';
 import { Marked } from 'marked';
@@ -57,7 +57,7 @@ describe('parseWikilinkTarget', () => {
     expect(parseWikilinkTarget('urn:node:hadronmemory.com::dev::a:b')?.loc).toBe('a:b');
   });
 
-  // cor:urn:010:01 — v2 is flat and single-colon. It carries no marker for
+  // hrn:node:hadronmemory.com:specs:cor:urn:010:01 — v2 is flat and single-colon. It carries no marker for
   // where the memory ends, so it is only unambiguously cross-memory when the
   // `hrn:node:` prefix is present; then v2's fixed positional arity applies.
   it('parses a prefixed grammar-v2 flat target positionally', () => {

@@ -340,3 +340,80 @@ describe('scanAddedWithContext (#811 review 2)', () => {
     expect(scanAddedWithContext(d, () => null)).toEqual([]);
   });
 });
+
+/**
+ * #816 — SPEC citations (`cor:<module>:<feature>:<rule>`).
+ *
+ * Structurally invisible to the branch-word pattern: a spec loc starts with
+ * `cor` rather than a branch word, and its tail is NUMERIC. So the rule was
+ * enforced for node locs and unenforced for the citations that carry platform
+ * law — #814 added seven bare `cor:dmo:060:12` refs and CI passed every time.
+ */
+describe('spec citations (#816)', () => {
+  it('flags a bare spec citation', () => {
+    expect(findBareCitations('// see cor:dmo:060:12 for the tombstone rule').map((f) => f.text))
+      .toEqual(['cor:dmo:060:12']);
+  });
+
+  it.each([
+    ['a feature-level citation', 'cor:agt:020'],
+    ['a rule', 'cor:api:090:03'],
+    ['a flow', 'cor:acl:080:02'],
+  ])('flags %s', (_what, citation) => {
+    expect(findBareCitations(`// per ${citation} this holds`)).toHaveLength(1);
+  });
+
+  it('stays silent on a fully-qualified spec citation', () => {
+    expect(findBareCitations('// per `hrn:node:hadronmemory.com:specs:cor:dmo:060:12` this holds')).toEqual([]);
+  });
+
+  // The shapes that merely look like one. A spec loc is three letters then
+  // three digits; anything else is prose that happens to contain colons.
+  it.each([
+    ['a version string', '// bumped to cor:v2:beta today'],
+    ['a two-letter module', '// cor:ab:010:01 is not the register shape'],
+    ['a two-digit feature', '// cor:dmo:06:12 is malformed'],
+  ])('stays silent on %s', (_what, line) => {
+    expect(findBareCitations(line)).toEqual([]);
+  });
+
+  // #831 review, @codex: link text is NOT exempt just because the href is
+  // qualified. The repo requires the fully-qualified form in docs, and a label
+  // copied out of rendered markdown loses its memory exactly as a bare loc in
+  // prose does. An earlier version of this gate exempted it to avoid the
+  // doubled string; the doubling is cosmetic and the rule is not, so the two
+  // comments that hit it dropped the link form instead.
+  it('flags bare link text even when the href is fully qualified', () => {
+    const line = ' * Per [`cor:urn:010:01`](hrn:node:hadronmemory.com:specs:cor:urn:010:01), a v2 URN';
+    expect(findBareCitations(line, 'src/x.ts').map((f) => f.text)).toEqual(['cor:urn:010:01']);
+  });
+
+  it('flags bare link text whose href is a portal URL', () => {
+    const line = ' * Per [`cor:urn:010:01`](https://hadronmemory.com/app/u/hrn:node:hadronmemory.com:specs:cor:urn:010:01)';
+    expect(findBareCitations(line, 'src/x.ts').map((f) => f.text)).toEqual(['cor:urn:010:01']);
+  });
+
+  // #831 review, @copilot. `cor:dmo:060:12abc` is an identifier, not a
+  // citation — and a trailing `\b`, the obvious fix, would report the PREFIX
+  // `cor:dmo:060` instead, trading a wrong flag for a wrong span.
+  it.each([
+    ['a trailing word character', '// cor:dmo:060:12abc'],
+    ['a three-digit tail', '// cor:dmo:060:123'],
+    ['a trailing hyphenated word', '// cor:dmo:060:12-beta'],
+  ])('stays silent on %s, and does not report a prefix either', (_what, line) => {
+    expect(findBareCitations(line)).toEqual([]);
+  });
+
+  it('still flags a citation followed by a sentence colon', () => {
+    // Punctuation must not cost a real citation.
+    expect(findBareCitations('// per cor:api:090: the rule holds').map((f) => f.text)).toEqual(['cor:api:090']);
+  });
+
+  it('flags a full four-level citation', () => {
+    expect(findBareCitations('// cor:acl:080:02:03 applies').map((f) => f.text)).toEqual(['cor:acl:080:02:03']);
+  });
+
+  it('honours the bare-loc-ok escape hatch, same as a branch-word citation', () => {
+    expect(findBareCitations('// cor:dmo:060:12 as a shape — bare-loc-ok', 'src/x.ts')).toEqual([]);
+  });
+});

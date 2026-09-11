@@ -3,7 +3,7 @@ import { composeNodeUrn } from './compose-node-urn';
 import { isFlatV2, parseUrn, parseUrnV2 } from './parse-urn';
 
 describe('composeNodeUrn', () => {
-  // cor:urn:010:01 — grammar v2 is flat and single-colon throughout; `::` is
+  // hrn:node:hadronmemory.com:specs:cor:urn:010:01 — grammar v2 is flat and single-colon throughout; `::` is
   // the v1 hierarchy separator, which `parseUrnV2` rejects outright. The
   // platform emits v2 (#697/#720), so the portal must too. This reverses the
   // spec-021 FR-009 `:`→`::` rewrite this composer used to perform.
@@ -44,7 +44,7 @@ describe('composeNodeUrn', () => {
   });
 
   // The one case that must NOT be modernized. A >2-atom v1 memory URN is an
-  // ownership chain — the shape v2 removed — and per cor:urn:010:01 it has no
+  // ownership chain — the shape v2 removed — and per hrn:node:hadronmemory.com:specs:cor:urn:010:01 it has no
   // string-derivable v2 form (migration may reassign slugs; the server resolves
   // it through a stored alias map). Flattening it would let v2's fixed
   // positional arity read atom 1 as the memory slug and fold the rest into the

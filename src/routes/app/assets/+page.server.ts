@@ -20,7 +20,7 @@ import type { PageServerLoad } from './$types';
 const WINDOW = 500;
 
 /**
- * hadron-server caps the uniform list's `limit` at 200 (spec cor:api:120), so a
+ * hadron-server caps the uniform list's `limit` at 200 (spec hrn:node:hadronmemory.com:specs:cor:api:120), so a
  * single request for WINDOW would be silently CLAMPED, not honoured. Page
  * explicitly instead.
  */

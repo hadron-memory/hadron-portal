@@ -1,5 +1,5 @@
 /**
- * How a Worker's name is rendered (#974, `cor:agt:020:02` v0.0.3).
+ * How a Worker's name is rendered (#974, `hrn:node:hadronmemory.com:specs:cor:agt:020:02` v0.0.3).
  *
  * A Worker name is unique per App, case-insensitively, forever — so it is
  * unambiguous *inside* an App and ambiguous everywhere else. That gives exactly

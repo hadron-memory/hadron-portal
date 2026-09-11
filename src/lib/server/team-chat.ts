@@ -32,7 +32,7 @@ export const CHAT_NODE_TYPE = 'chat';
 // Svelte components need this constant to render the Chats selector, and they
 // cannot import from `$lib/server/*`, so the definition lives there and this
 // module consumes it. Two copies of a well-known loc is exactly the drift
-// `cor:agt:020:04` warns about.
+// `hrn:node:hadronmemory.com:specs:cor:agt:020:04` warns about.
 export { TEAM_CHAT_LOC } from '$lib/app-chats';
 /** The platform message type (server #939) and this portal's legacy one. */
 export const PLATFORM_MESSAGE_NODE_TYPE = 'chat-message';
