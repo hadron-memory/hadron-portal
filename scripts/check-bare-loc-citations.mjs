@@ -111,37 +111,7 @@ function isQualified(line, index) {
   let start = index;
   while (start > 0 && TOKEN_CHARS.test(line[start - 1])) start--;
   const token = line.slice(start);
-  if (token.startsWith('hrn:node:') || token.startsWith('urn:node:')) return true;
-  return isMarkdownLinkTextWithQualifiedHref(line, start, index);
-}
-
-/**
- * `[\`cor:urn:010:01\`](hrn:node:hadronmemory.com:specs:cor:urn:010:01)` — the
- * TEXT is bare and the HREF right beside it carries the whole URN (#816).
- *
- * Not bare in the sense the rule protects. The point of qualification is that a
- * reference says which memory it belongs to once it travels; here it travels
- * WITH its href, and the reader can follow it from the site. Qualifying the text
- * as well produces `[hrn:node:…:cor:urn:010:01](hrn:node:…:cor:urn:010:01)` —
- * the same 47 characters twice — which is noise rather than clarity, and the
- * #816 sweep produced exactly that in three places before this existed.
- *
- * Narrow on purpose, and checkable: the match must sit inside the `[…]` of a
- * markdown link whose href is itself qualified. A link with a bare href is
- * still reported, which is the case that actually loses the memory.
- */
-function isMarkdownLinkTextWithQualifiedHref(line, tokenStart, index) {
-  const open = line.lastIndexOf('[', index);
-  if (open === -1) return false;
-  const close = line.indexOf('](', index);
-  if (close === -1) return false;
-  // Nothing but the citation, backticks or spaces between the brackets — so a
-  // sentence that merely contains a link does not exempt everything after it.
-  const inner = line.slice(open + 1, close);
-  if (!/^[`\s]*[^`\s]+[`\s]*$/.test(inner) || tokenStart < open) return false;
-  const hrefEnd = line.indexOf(')', close + 2);
-  const href = line.slice(close + 2, hrefEnd === -1 ? undefined : hrefEnd);
-  return /(?:^|\/)(?:hrn|urn):node:/.test(href);
+  return token.startsWith('hrn:node:') || token.startsWith('urn:node:');
 }
 
 /**
@@ -210,6 +180,30 @@ export function isCitationContext(file, line, column, prevLine = '', forceProse 
 }
 
 /**
+ * Did the match consume the WHOLE citation-shaped run? (#831 review, @copilot)
+ *
+ * `cor:dmo:060:12abc` is an identifier, not a citation, and the pattern must
+ * not report a prefix of one. A trailing `\b` — the obvious fix — does not do
+ * this: the regex backtracks and reports `cor:dmo:060`, trading a wrong flag
+ * for a wrong SPAN, which is worse because it looks plausible in a report.
+ * Measured before choosing:
+ *
+ *   /cor:[a-z]{3}:\d{3}(?::\d{2})*\b/  on 'cor:dmo:060:12abc'  →  'cor:dmo:060'
+ *
+ * So the boundary is checked after the match instead, where there is no
+ * backtracking to hide in: what follows may not be a word character, and may
+ * not be another `:<digit>` run the greedy match failed to take.
+ *
+ * A trailing plain `:` is deliberately allowed — `per cor:api:090: the rule…`
+ * is a citation followed by a sentence colon, and rejecting it would lose a
+ * real one to punctuation.
+ */
+function isWholeSpecCitation(line, matchEnd) {
+  const rest = line.slice(matchEnd);
+  return !/^[\w-]/.test(rest) && !/^:\d/.test(rest);
+}
+
+/**
  * Bare citations in one line of source.
  * @param {string} line
  * @param {string} [file] — when given, non-citation contexts are filtered out.
@@ -220,6 +214,7 @@ export function findBareCitations(line, file = '', prevLine = '', forceProse = f
   for (const m of line.matchAll(CITATION)) {
     if (m.index === undefined) continue;
     if (isQualified(line, m.index)) continue;
+    if (m[0].startsWith('cor:') && !isWholeSpecCitation(line, m.index + m[0].length)) continue;
     if (file && !isCitationContext(file, line, m.index + 1, prevLine, forceProse)) continue;
     out.push({ text: m[0], column: m.index + 1 });
   }

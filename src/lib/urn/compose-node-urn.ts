@@ -9,7 +9,7 @@ import { CANONICAL_SCHEME, hasSchemePrefix, normalizeScheme } from './parse-urn'
  *
  * ## Emits grammar v2 (flat, single-colon)
  *
- * Per [`cor:urn:010:01`](hrn:node:hadronmemory.com:specs:cor:urn:010:01), a v2
+ * Per `hrn:node:hadronmemory.com:specs:cor:urn:010:01`, a v2
  * node URN is `hrn:node:<root>:<memory-slug>:<loc>` — **single colon
  * throughout**. The `::` hierarchy separator is v1; the platform emits v2
  * (#697/#720) and `parseUrnV2` rejects `::` outright. v1 stays accepted on

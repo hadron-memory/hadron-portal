@@ -377,32 +377,40 @@ describe('spec citations (#816)', () => {
     expect(findBareCitations(line)).toEqual([]);
   });
 
-  // A markdown link carries its own qualification in the href, so the TEXT is
-  // not bare in the sense the rule protects — it travels WITH the href. The
-  // #816 sweep produced `[hrn:node:…](hrn:node:…)` in three places before this
-  // existed: the same 47 characters twice.
-  it('stays silent on link text whose href is qualified', () => {
+  // #831 review, @codex: link text is NOT exempt just because the href is
+  // qualified. The repo requires the fully-qualified form in docs, and a label
+  // copied out of rendered markdown loses its memory exactly as a bare loc in
+  // prose does. An earlier version of this gate exempted it to avoid the
+  // doubled string; the doubling is cosmetic and the rule is not, so the two
+  // comments that hit it dropped the link form instead.
+  it('flags bare link text even when the href is fully qualified', () => {
     const line = ' * Per [`cor:urn:010:01`](hrn:node:hadronmemory.com:specs:cor:urn:010:01), a v2 URN';
-    expect(findBareCitations(line, 'src/x.ts')).toEqual([]);
+    expect(findBareCitations(line, 'src/x.ts').map((f) => f.text)).toEqual(['cor:urn:010:01']);
   });
 
-  it('stays silent on link text whose href is a portal URL', () => {
+  it('flags bare link text whose href is a portal URL', () => {
     const line = ' * Per [`cor:urn:010:01`](https://hadronmemory.com/app/u/hrn:node:hadronmemory.com:specs:cor:urn:010:01)';
-    expect(findBareCitations(line, 'src/x.ts')).toEqual([]);
+    expect(findBareCitations(line, 'src/x.ts').map((f) => f.text)).toEqual(['cor:urn:010:01']);
   });
 
-  // The case that actually loses the memory, and the reason the exemption is
-  // narrow: a link whose href is ALSO bare qualifies nothing.
-  it('still flags link text whose href is bare too — BOTH of them', () => {
-    // Two hits, not one: with a bare href there are two bare citations on the
-    // line, and the href is the one a reader would actually follow. Reporting
-    // only the text would half-fix it.
-    expect(findBareCitations(' * Per [`cor:urn:010:01`](cor:urn:010:01), a v2 URN', 'src/x.ts')).toHaveLength(2);
+  // #831 review, @copilot. `cor:dmo:060:12abc` is an identifier, not a
+  // citation — and a trailing `\b`, the obvious fix, would report the PREFIX
+  // `cor:dmo:060` instead, trading a wrong flag for a wrong span.
+  it.each([
+    ['a trailing word character', '// cor:dmo:060:12abc'],
+    ['a three-digit tail', '// cor:dmo:060:123'],
+    ['a trailing hyphenated word', '// cor:dmo:060:12-beta'],
+  ])('stays silent on %s, and does not report a prefix either', (_what, line) => {
+    expect(findBareCitations(line)).toEqual([]);
   });
 
-  it('still flags a citation elsewhere on a line that also contains a link', () => {
-    const line = ' * [`cor:urn:010:01`](hrn:node:hadronmemory.com:specs:cor:urn:010:01) and also cor:dmo:060:12';
-    expect(findBareCitations(line, 'src/x.ts').map((f) => f.text)).toEqual(['cor:dmo:060:12']);
+  it('still flags a citation followed by a sentence colon', () => {
+    // Punctuation must not cost a real citation.
+    expect(findBareCitations('// per cor:api:090: the rule holds').map((f) => f.text)).toEqual(['cor:api:090']);
+  });
+
+  it('flags a full four-level citation', () => {
+    expect(findBareCitations('// cor:acl:080:02:03 applies').map((f) => f.text)).toEqual(['cor:acl:080:02:03']);
   });
 
   it('honours the bare-loc-ok escape hatch, same as a branch-word citation', () => {
