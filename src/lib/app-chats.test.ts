@@ -3,8 +3,10 @@ import {
   AGENT_CHAT_KEY,
   TEAM_CHAT_LOC,
   buildAppChatList,
+  chatFullViewFromParams,
   resolveSelectedChat,
   sortChatMessages,
+  withChatView,
 } from './app-chats';
 
 const root = (loc: string, name?: string | null, memoryId = 'mem-1') => ({
@@ -115,5 +117,48 @@ describe('sortChatMessages', () => {
     const nodes = [{ loc: 'b' }, { loc: 'a' }];
     sortChatMessages(nodes);
     expect(nodes.map((n) => n.loc)).toEqual(['b', 'a']);
+  });
+});
+
+describe('chatFullViewFromParams', () => {
+  it('reads ?view=full as the full view', () => {
+    expect(chatFullViewFromParams(new URLSearchParams('view=full'))).toBe(true);
+  });
+
+  // The default view is the tab; a malformed value must land there rather
+  // than anywhere surprising — the worst case of a bad value is the ordinary
+  // page.
+  it('treats anything else as the default view', () => {
+    expect(chatFullViewFromParams(new URLSearchParams(''))).toBe(false);
+    expect(chatFullViewFromParams(new URLSearchParams('view='))).toBe(false);
+    expect(chatFullViewFromParams(new URLSearchParams('view=FULL'))).toBe(false);
+    expect(chatFullViewFromParams(new URLSearchParams('view=maximised'))).toBe(false);
+  });
+});
+
+describe('withChatView', () => {
+  const base = new URL('https://portal.test/app/apps/a1?tab=chats&chat=chats%3Ateam');
+
+  it('adds ?view=full and keeps the chat selection', () => {
+    const full = withChatView(base, true);
+    expect(full.searchParams.get('view')).toBe('full');
+    expect(full.searchParams.get('tab')).toBe('chats');
+    expect(full.searchParams.get('chat')).toBe('chats:team');
+  });
+
+  it('removes the param on the way back, rather than writing view=', () => {
+    const back = withChatView(withChatView(base, true), false);
+    expect(back.searchParams.has('view')).toBe(false);
+    expect(back.href).toBe(base.href);
+  });
+
+  it('round-trips through chatFullViewFromParams', () => {
+    expect(chatFullViewFromParams(withChatView(base, true).searchParams)).toBe(true);
+    expect(chatFullViewFromParams(withChatView(base, false).searchParams)).toBe(false);
+  });
+
+  it('does not mutate its input', () => {
+    withChatView(base, true);
+    expect(base.searchParams.has('view')).toBe(false);
   });
 });

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  annotateDays,
   authorInitialOf,
   authorKindOf,
   authorLabelOf,
   avatarColorOf,
+  bodyOverflows,
+  dayKeyOf,
   indexBySeq,
   replyPreviewOf,
 } from './team-chat-thread';
@@ -166,5 +169,111 @@ describe('avatarColorOf', () => {
 
   it('returns a class from the palette', () => {
     expect(avatarColorOf('Tove')).toMatch(/^bg-[a-z]+-\d00$/);
+  });
+});
+
+// Local-time construction throughout: the day helpers partition by the
+// reader's calendar, so a test that pinned a UTC string would pass or fail by
+// the CI runner's zone. Building the instants from local components makes the
+// assertions zone-independent.
+const local = (y: number, m: number, d: number, h = 12, min = 0) =>
+  new Date(y, m - 1, d, h, min).toISOString();
+
+describe('dayKeyOf', () => {
+  it('keys a timestamp by its LOCAL calendar day', () => {
+    expect(dayKeyOf(local(2026, 9, 14, 0, 5))).toBe('2026-09-14');
+    expect(dayKeyOf(local(2026, 9, 14, 23, 55))).toBe('2026-09-14');
+  });
+
+  it('zero-pads so keys compare as strings', () => {
+    expect(dayKeyOf(local(2026, 1, 2))).toBe('2026-01-02');
+  });
+
+  it('returns null for something that is not a date', () => {
+    expect(dayKeyOf('not a date')).toBeNull();
+  });
+});
+
+describe('annotateDays', () => {
+  const now = new Date(2026, 8, 14, 10, 30); // 2026-09-14 local
+  const at = (iso: string, nodeId = iso) => msg({ nodeId, at: iso });
+  const days = (rows: ReturnType<typeof annotateDays>) => rows.map((r) => r.day);
+
+  it('opens a day on the first message and on every calendar-day change, not otherwise', () => {
+    const rows = annotateDays(
+      [at(local(2026, 9, 13, 23, 59)), at(local(2026, 9, 14, 0, 1)), at(local(2026, 9, 14, 9))],
+      now,
+    );
+    expect(days(rows)).toEqual([{ kind: 'yesterday' }, { kind: 'today' }, null]);
+  });
+
+  it('names today and yesterday as kinds, for the component to localize', () => {
+    const rows = annotateDays([at(local(2026, 9, 13, 23)), at(local(2026, 9, 14, 1))], now);
+    expect(days(rows)).toEqual([{ kind: 'yesterday' }, { kind: 'today' }]);
+  });
+
+  it('dates anything older, without the year while it is the current one', () => {
+    const [row] = annotateDays([at(local(2026, 9, 10))], now);
+    expect(row.day?.kind).toBe('date');
+    expect((row.day as { label: string }).label).not.toContain('2026');
+  });
+
+  it('adds the year once it is not the current one', () => {
+    const [row] = annotateDays([at(local(2025, 12, 31))], now);
+    expect((row.day as { label: string }).label).toContain('2025');
+  });
+
+  // Yesterday across a month boundary is the case a naive `day - 1` gets wrong.
+  it('finds yesterday across a month boundary', () => {
+    const [row] = annotateDays([at(local(2026, 8, 31, 20))], new Date(2026, 8, 1, 8));
+    expect(row.day).toEqual({ kind: 'yesterday' });
+  });
+
+  // A bad timestamp must not sprout separators on either side of itself; its
+  // own time cell shows the raw string, which is the disclosure.
+  it('neither opens nor closes a day on an unparseable timestamp, and shows it raw', () => {
+    const rows = annotateDays(
+      [at(local(2026, 9, 14), 'a'), at('garbage', 'b'), at(local(2026, 9, 14, 15), 'c')],
+      now,
+    );
+    expect(days(rows)).toEqual([{ kind: 'today' }, null, null]);
+    expect(rows[1].time).toBe('garbage');
+  });
+
+  it('renders the time cell as hours and minutes only', () => {
+    const [row] = annotateDays([at(local(2026, 9, 14, 9, 7))], now);
+    expect(row.time).toMatch(/9:07/);
+    expect(row.time).not.toContain('2026');
+  });
+
+  // The partition is a LOCAL calendar fact, unknowable on the server; rows
+  // still come back (with their times) so the list renders, just without
+  // separators until the browser supplies a clock.
+  it('emits no separators without a clock, and keeps the rows', () => {
+    const rows = annotateDays([at(local(2026, 9, 13)), at(local(2026, 9, 14))], null);
+    expect(days(rows)).toEqual([null, null]);
+    expect(rows).toHaveLength(2);
+  });
+
+  it('preserves the message objects by reference', () => {
+    const m = at(local(2026, 9, 14));
+    expect(annotateDays([m], now)[0].msg).toBe(m);
+  });
+});
+
+describe('bodyOverflows', () => {
+  it('reports a body taller than its clamp', () => {
+    expect(bodyOverflows(900, 320)).toBe(true);
+  });
+
+  it('reports a body that fits', () => {
+    expect(bodyOverflows(200, 320)).toBe(false);
+  });
+
+  // Sub-pixel rounding can make an exactly-fitting body read a pixel taller
+  // than its box; offering "Show more" for that reveals nothing.
+  it('absorbs a one-pixel rounding difference', () => {
+    expect(bodyOverflows(321, 320)).toBe(false);
+    expect(bodyOverflows(322, 320)).toBe(true);
   });
 });

@@ -9,13 +9,16 @@
   import { t } from '$lib/i18n/t';
   import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
   import {
+    annotateDays,
     authorInitialOf,
     authorKindOf,
     authorLabelOf,
     avatarColorOf,
     indexBySeq,
     replyPreviewOf,
+    type DayLabel,
   } from './team-chat-thread';
+  import { clampProbe } from './clamp-probe';
   import {
     TEAM_CHAT_POLL_MS,
     isAtBottom,
@@ -408,13 +411,79 @@
     const d = new Date(at);
     return Number.isNaN(d.getTime()) ? at : d.toLocaleString();
   }
+
+  // Day separators and time cells, decided in one pass over the list rather
+  // than per row in the template. The day is a LOCAL calendar fact, so the
+  // pass runs with a clock only in the browser: computed during SSR in the
+  // server's zone it could disagree with the one hydration computes, and the
+  // two would fight over the DOM. Gated on `isBrowser` like the markdown, for
+  // the same reason. `new Date()` is read on every recomputation on purpose —
+  // that is what keeps a thread left open across midnight from filing
+  // yesterday's messages under a second "Today" once the next message lands.
+  const rows = $derived(annotateDays(shownMessages, isBrowser ? new Date() : null));
+
+  function dayLabelText(day: DayLabel): string {
+    if (day.kind === 'today') return t('app.team-chat.day.today', 'Today');
+    if (day.kind === 'yesterday') return t('app.team-chat.day.yesterday', 'Yesterday');
+    return day.label;
+  }
+
+  // Long messages are CLAMPED to a fixed height and opened per message. Posts
+  // in this chat are engineering reports — tables, headings, three or four
+  // screens each — and rendering every one at full height is most of why a
+  // 200-message window scrolls through 180,000px. The clamp is CSS (`max-h-80`
+  // while not expanded); `overflowing` only decides whether to OFFER "Show
+  // more", and `clampProbe` measures it rather than guessing from the body
+  // length. Both keyed by nodeId, which is stable across polls and paging.
+  //
+  // `overflowing` is never withdrawn while a body is expanded (the probe does
+  // not measure an open body), so it alone gates the control in both states.
+  let expanded = $state<Record<string, true>>({});
+  let overflowing = $state<Record<string, true>>({});
+
+  function reportOverflow(nodeId: string, over: boolean) {
+    if (over) overflowing[nodeId] = true;
+    else delete overflowing[nodeId];
+    // A control appearing on a message ABOVE the reader moves the bottom of the
+    // thread without a scroll event. A reader who is stuck to the bottom wants
+    // the bottom, so follow it — the first render is the common case, where
+    // the markdown arrives after `onMount` has already scrolled.
+    if (over && untrack(() => stickToBottom)) void tick().then(scrollToBottom);
+  }
+
+  async function setExpanded(nodeId: string, open: boolean) {
+    if (open) expanded[nodeId] = true;
+    else delete expanded[nodeId];
+    await tick();
+    // Past an await, the component may be gone: `messagesEl` is unbound on
+    // destroy, and everything below touches its geometry.
+    if (!messagesEl) return;
+    if (!open) {
+      // Collapsing a body the reader had scrolled deep into would leave them
+      // staring at whatever was below it. Bring its top back into the THREAD's
+      // viewport if it went off — scrolling the thread only, not every
+      // scrollable ancestor the way `scrollIntoView` would, which moves the
+      // page under the reader in the tab view.
+      const el = document.getElementById(`team-chat-msg-${nodeId}`);
+      if (el) {
+        const above = el.getBoundingClientRect().top - messagesEl.getBoundingClientRect().top;
+        if (above < 0) messagesEl.scrollTop += above;
+      }
+    }
+    // Opening or closing a body moves the bottom of the thread without firing a
+    // scroll event, so the stickiness `onTranscriptScroll` maintains is stale:
+    // a reader who was at the bottom and opened the last message is no longer
+    // there, and the next poll would yank them to the end of what they are
+    // reading. Re-measure it from the geometry that now exists.
+    stickToBottom = isAtBottom(messagesEl);
+  }
 </script>
 
 <div class="flex flex-col {heightClass}">
   <div
     bind:this={messagesEl}
     onscroll={onTranscriptScroll}
-    class="flex-1 min-h-0 overflow-y-auto px-6 py-6 space-y-5 bg-gray-50 dark:bg-zinc-900"
+    class="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-6 py-6 space-y-5 bg-gray-50 dark:bg-zinc-900"
   >
     <!-- #793: which of three states the top of the thread is in. Without this,
          "nothing above" and "more, not fetched yet" look identical. -->
@@ -453,10 +522,19 @@
           {shownTotal}.
         </p>
       {/if}
-      {#each shownMessages as msg (msg.nodeId)}
+      {#each rows as row (row.msg.nodeId)}
+        {@const msg = row.msg}
         {@const label = authorLabelOf(msg)}
         {@const kind = authorKindOf(msg)}
         {@const reply = replyPreviewOf(msg, bySeq)}
+        <!-- Day separators, so each row carries only a time. -->
+        {#if row.day}
+          <div class="flex items-center gap-3 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <span aria-hidden="true" class="h-px flex-1 bg-zinc-200 dark:bg-zinc-700"></span>
+            <span>{dayLabelText(row.day)}</span>
+            <span aria-hidden="true" class="h-px flex-1 bg-zinc-200 dark:bg-zinc-700"></span>
+          </div>
+        {/if}
         <div class="flex gap-3">
           <div
             class="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full {avatarColorOf(label)}"
@@ -504,7 +582,13 @@
                    debug output. -->
               <span class="font-mono text-xs text-zinc-400 dark:text-zinc-500">#{msg.seq}</span>
 
-              <span class="text-xs text-zinc-400 dark:text-zinc-500">{formatAt(msg.at)}</span>
+              <!-- Time only; the day is on the separator above, so between them
+                   the full date is on screen. The one-line timestamp is a
+                   hover extra for anyone quoting it, set after mount so the
+                   attribute never carries the server's zone. -->
+              <time datetime={msg.at} title={isBrowser ? formatAt(msg.at) : undefined} class="text-xs text-zinc-400 dark:text-zinc-500">
+                {row.time}
+              </time>
 
               <button
                 type="button"
@@ -530,9 +614,40 @@
             {/if}
 
             <div class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-zinc-900 shadow-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100">
-              <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>blockquote]:my-2">
-                {@html renderMarkdown(msg.body)}
+              <div
+                id="team-chat-msg-{msg.nodeId}"
+                use:clampProbe={{
+                  clamped: !expanded[msg.nodeId],
+                  ready: isBrowser,
+                  onOverflow: (over) => reportOverflow(msg.nodeId, over),
+                }}
+                class="relative overflow-hidden {expanded[msg.nodeId] ? '' : 'max-h-80'}"
+              >
+                <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>blockquote]:my-2">
+                  {@html renderMarkdown(msg.body)}
+                </div>
+                {#if !expanded[msg.nodeId] && overflowing[msg.nodeId]}
+                  <!-- The fade says "this continues" where a hard cut reads as
+                       the end of the message. -->
+                  <div
+                    aria-hidden="true"
+                    class="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-linear-to-t from-white to-transparent dark:from-zinc-800"
+                  ></div>
+                {/if}
               </div>
+              {#if overflowing[msg.nodeId]}
+                <button
+                  type="button"
+                  aria-expanded={!!expanded[msg.nodeId]}
+                  aria-controls="team-chat-msg-{msg.nodeId}"
+                  onclick={() => void setExpanded(msg.nodeId, !expanded[msg.nodeId])}
+                  class="mt-2 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                >
+                  {expanded[msg.nodeId]
+                    ? t('app.team-chat.show-less', 'Show less')
+                    : t('app.team-chat.show-more', 'Show more')}
+                </button>
+              {/if}
             </div>
 
             {#if msg.mentions.length > 0}

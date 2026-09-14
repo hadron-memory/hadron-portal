@@ -1,7 +1,7 @@
 <script lang="ts">
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
-  import { invalidateAll } from '$app/navigation';
+  import { invalidateAll, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
@@ -49,7 +49,8 @@
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
-  import { AGENT_CHAT_KEY, TEAM_CHAT_LOC } from '$lib/app-chats';
+  import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, withChatView } from '$lib/app-chats';
+  import { focusTrapWhen } from '$lib/a11y/focus-trap';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t.js';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
@@ -371,6 +372,64 @@
     const current = untrack(() => activeTab);
     if (!tabs.some((tab) => tab.id === current)) activeTab = tabs[0]?.id ?? 'memory';
   });
+
+  // The team chat MAXIMISED — a fixed overlay over the whole viewport. In the
+  // tab it gets 395px of a 900px window (measured 2026-09-14: the header, the
+  // tab strip, the selector, the heading and the composer take the rest), and
+  // people read this thread for minutes at a time.
+  //
+  // The SAME <TeamChatThread> instance is re-parented by class, not remounted:
+  // the accumulated transcript, the scroll position and an unsent draft all
+  // live in it, and a remount would drop all three on every toggle.
+  //
+  // State rides the URL as `?view=full` so the full view can be linked to, via
+  // `replaceState` for the same reason AgentChat syncs `?chat=` that way — a
+  // view toggle is UI state, and a navigation would re-run the loader.
+  //
+  // Unlike `activeTab`, this is RE-SYNCED from the loader whenever page data
+  // changes: a client-side navigation to a URL without `view=full` (the chat
+  // selector links, a link to another App's chat) must leave the full view,
+  // or the page would render one thing and its URL say another. The toggle
+  // below never re-runs the loader, so it never fights this.
+  let chatMaximized = $state(untrack(() => data.initialChatFullView));
+  $effect(() => {
+    const fromUrl = data.initialChatFullView;
+    untrack(() => {
+      chatMaximized = fromUrl;
+    });
+  });
+  // The overlay exists only where the team chat renders. `?view=full` on any
+  // other tab or chat (an App whose first chat is the agent chat, a shared
+  // link opened on a non-chats tab) must not lock the page scroll behind a
+  // panel that is not on screen — so everything the overlay does keys on
+  // THIS, not on the flag alone.
+  const teamChatShown = $derived(activeTab === 'chats' && data.selectedChatKey === TEAM_CHAT_LOC);
+  const chatFullView = $derived(chatMaximized && teamChatShown);
+  function setChatMaximized(full: boolean) {
+    chatMaximized = full;
+    replaceState(withChatView(new URL(window.location.href), full), {});
+  }
+  $effect(() => {
+    if (!chatFullView) return;
+    // The page behind the overlay must not scroll under it.
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  });
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (chatFullView && e.key === 'Escape') {
+      e.preventDefault();
+      setChatMaximized(false);
+    }
+  }
+  // The post action URL REPLACES the query string (see the comment on the
+  // form), so it must carry the view too, or a non-enhanced POST would land
+  // the reader back in the tab view with their place lost.
+  const teamChatAction = $derived(
+    `?tab=chats&chat=chats%3Ateam${chatMaximized ? '&view=full' : ''}&/postTeamChatMessage`,
+  );
 
   // #768 — roving focus for the tab strip. Only the selected tab is in the
   // sequential tab order, so the strip is ONE stop rather than seven, and
@@ -1123,6 +1182,9 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
 </script>
 
 <svelte:head><title>{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
+<!-- Escape leaves the maximised team chat. Bound at the window so it works
+     from the composer, the thread and the button alike. -->
+<svelte:window onkeydown={onWindowKeydown} />
 
 <div class="space-y-4">
   <div>
@@ -1384,18 +1446,70 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
     <!-- #740: `dvh` tracks the VISIBLE viewport, so the panel doesn't run
          under a phone browser's address bar; the `vh` line before it is the
          fallback for browsers without `dvh`. Same pattern, same reason as the
-         sidebar in src/routes/app/+layout.svelte. -->
-    <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
-      <div class="mb-3">
-        <h2 class="font-semibold text-zinc-900 dark:text-white">
-          {t('app.team-chat.title', 'Team chat')}
-        </h2>
-        <p class="mt-1 max-w-2xl text-sm text-zinc-500">
-          {t(
-            'app.team-chat.description',
-            'The shared thread for this App’s team. Workers post here from their worker sessions; you post as yourself.',
-          )}
-        </p>
+         sidebar in src/routes/app/+layout.svelte.
+
+         Maximised, the same element becomes a fixed overlay (`inset-0`, so no
+         height rule is needed) and a dialog for assistive tech — it covers
+         everything else on the page, which is what `aria-modal` describes.
+         `focusTrapWhen` is what makes that description true: it moves focus in,
+         keeps Tab inside, and hands focus back to the toggle on exit. The
+         `When` form because this element stays mounted across the toggle —
+         the thread inside holds state a remount would drop. -->
+    <div
+      class={chatFullView
+        ? 'fixed inset-0 z-50 flex flex-col bg-white p-4 dark:bg-zinc-950'
+        : 'flex flex-col'}
+      style={chatFullView ? undefined : 'height: calc(100vh - 280px); height: calc(100dvh - 280px);'}
+      role={chatFullView ? 'dialog' : undefined}
+      aria-modal={chatFullView ? 'true' : undefined}
+      aria-label={chatFullView ? t('app.team-chat.full-view.label', '{app} team chat', { app: app.name }) : undefined}
+      use:focusTrapWhen={chatFullView}
+    >
+      <div class="mb-3 flex items-start gap-3">
+        <div class="min-w-0 flex-1">
+          <h2 class="font-semibold text-zinc-900 dark:text-white">
+            {#if chatFullView}
+              <!-- The App name is off-screen under the overlay, so the heading
+                   carries it: a reader with two Apps' chats open needs to know
+                   which one this is. -->
+              <span class="text-zinc-500 dark:text-zinc-400">{app.name} ·</span>
+            {/if}
+            {t('app.team-chat.title', 'Team chat')}
+          </h2>
+          {#if !chatFullView}
+            <p class="mt-1 max-w-2xl text-sm text-zinc-500">
+              {t(
+                'app.team-chat.description',
+                'The shared thread for this App’s team. Workers post here from their worker sessions; you post as yourself.',
+              )}
+            </p>
+          {/if}
+        </div>
+        <!-- One toggle in both views, so the element `focusTrapWhen` restores
+             focus to on exit is the one that will re-open it. Text plus icon,
+             so the accessible name is the visible label; the key hint is
+             decoration, kept out of that name. -->
+        <button
+          type="button"
+          onclick={() => setChatMaximized(!chatFullView)}
+          class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >
+          <svg aria-hidden="true" class="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            {#if chatFullView}
+              <path d="M6 2v4H2M10 2v4h4M6 14v-4H2M10 14v-4h4" />
+            {:else}
+              <path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" />
+            {/if}
+          </svg>
+          {chatFullView
+            ? t('app.team-chat.full-view.exit', 'Exit full view')
+            : t('app.team-chat.full-view.enter', 'Full view')}
+          {#if chatFullView}
+            <span aria-hidden="true">
+              <kbd class="rounded border border-zinc-300 px-1 font-mono text-[10px] text-zinc-500 dark:border-zinc-600 dark:text-zinc-400">Esc</kbd>
+            </span>
+          {/if}
+        </button>
       </div>
       <!-- flex flex-col is load-bearing, not decoration: the thread's root sizes
            itself with `flex-1 min-h-0`, which is inert unless its PARENT is a
@@ -1419,7 +1533,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           loadError={data.teamChatError ?? false}
           postForm={data.postTeamChatMessageForm}
           {form}
-          action="?tab=chats&chat=chats%3Ateam&/postTeamChatMessage"
+          action={teamChatAction}
           onRefresh={refreshTeamChat}
           onLoadOlder={loadOlderTeamChat}
         />

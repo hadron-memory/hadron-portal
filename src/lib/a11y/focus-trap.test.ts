@@ -13,7 +13,7 @@
  * behind it. These pin the three jobs the action has to do.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { focusTrap } from './focus-trap';
+import { focusTrap, focusTrapWhen } from './focus-trap';
 
 let opener: HTMLButtonElement;
 let dialog: HTMLDivElement;
@@ -156,5 +156,58 @@ describe('focusTrap', () => {
     byId('behind').focus();
     byId('behind').dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     expect(document.activeElement).toBe(byId('behind'));
+  });
+});
+
+/**
+ * The boolean-driven form, for a container that stays mounted while it opens
+ * and closes (the maximised team chat). Same three jobs, engaged on `true` and
+ * released on `false`; the tests here pin the switching, not the trap itself.
+ */
+describe('focusTrapWhen', () => {
+  it('does nothing while inactive', () => {
+    focusTrapWhen(dialog, false);
+    expect(document.activeElement).toBe(opener);
+    byId('behind').focus();
+    byId('behind').dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(document.activeElement).toBe(byId('behind'));
+  });
+
+  it('engages the trap when switched on: focus moves in and Tab cycles', () => {
+    const action = focusTrapWhen(dialog, false);
+    action.update(true);
+    expect(document.activeElement).toBe(byId('first'));
+    byId('last').focus();
+    const ev = tabKey();
+    byId('last').dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(byId('first'));
+  });
+
+  it('releases the trap and restores the opener when switched off', () => {
+    const action = focusTrapWhen(dialog, true);
+    expect(document.activeElement).toBe(byId('first'));
+    action.update(false);
+    expect(document.activeElement).toBe(opener);
+    // And the page behind is reachable again.
+    byId('behind').focus();
+    byId('behind').dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(document.activeElement).toBe(byId('behind'));
+  });
+
+  // Toggling twice must not stack two traps — the second `true` is a no-op.
+  it('is idempotent on repeated updates with the same value', () => {
+    const action = focusTrapWhen(dialog, true);
+    action.update(true);
+    action.update(false);
+    expect(document.activeElement).toBe(opener);
+    action.update(false);
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('releases an active trap on destroy', () => {
+    const action = focusTrapWhen(dialog, true);
+    action.destroy();
+    expect(document.activeElement).toBe(opener);
   });
 });
