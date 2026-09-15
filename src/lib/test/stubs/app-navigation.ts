@@ -38,3 +38,36 @@ export function invalidateAll(): Promise<void> {
   navigationCalls.push({ fn: 'invalidateAll', args: [] });
   return Promise.resolve();
 }
+
+// #668: `sveltekit-superforms` registers a tainted-form guard through these on
+// mount, so any client test that mounts a superforms page reaches them even
+// when the component never names them. They RECORD rather than no-op, so a test
+// that cares can assert the guard was registered; callbacks are kept so a test
+// can fire one deliberately.
+export const navigationGuards: { fn: string; callback: unknown }[] = [];
+
+export function resetNavigationGuards(): void {
+  navigationGuards.length = 0;
+}
+
+export function beforeNavigate(callback: unknown): void {
+  navigationGuards.push({ fn: 'beforeNavigate', callback });
+}
+
+export function afterNavigate(callback: unknown): void {
+  navigationGuards.push({ fn: 'afterNavigate', callback });
+}
+
+export function onNavigate(callback: unknown): void {
+  navigationGuards.push({ fn: 'onNavigate', callback });
+}
+
+export function invalidate(...args: unknown[]): Promise<void> {
+  navigationCalls.push({ fn: 'invalidate', args });
+  return Promise.resolve();
+}
+
+export function preloadData(...args: unknown[]): Promise<void> {
+  navigationCalls.push({ fn: 'preloadData', args });
+  return Promise.resolve();
+}

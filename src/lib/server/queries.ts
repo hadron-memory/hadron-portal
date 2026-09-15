@@ -2485,6 +2485,83 @@ export const DELETE_MEMORY_SHARE_MUTATION = /* GraphQL */ `
   }
 `;
 
+// ---------------------------------------------------------------------------
+// #668 — the PRINCIPAL side of memory sharing (spec 023 US3).
+//
+// The grantee side already existed (#778 `sharedWithMe`, #649 self-removal
+// above). These are the owner's half: see who this memory is shared with, grant,
+// change a role, revoke.
+//
+// `shares` is principal / org-admin only — a grantee reading the same memory
+// gets `myShare` and nothing else — so a non-owner's request for this query
+// does not return a trimmed list, it is refused. The portal hides the tab; the
+// server is the gate.
+//
+// `shareable` (server #766) is the DERIVED signal: true iff this memory can be
+// shared with an individual via MemoryShare at all (class = 'personal', spec
+// 023 FR-018). Read it rather than re-deriving from `class` here — the class
+// list is the server's to change, and a portal copy of it would go stale
+// silently and refuse a share the server would have allowed.
+export const MEMORY_SHARES_QUERY = /* GraphQL */ `
+  query MemoryShares($ref: ID!) {
+    memory(ref: $ref) {
+      id
+      name
+      urn
+      class
+      userId
+      shareable
+      shares {
+        role
+        createdAt
+        updatedAt
+        grantee { id urn handle name email avatarUrl }
+        grantor { id urn handle name }
+      }
+    }
+  }
+`;
+
+// #668: grant a share. `granteeRef` (server #769) resolves an id, email, handle
+// or hrn:user URN server-side, so the picker can pass whatever it has and the
+// resolution rules stay in one place.
+export const CREATE_MEMORY_SHARE_MUTATION = /* GraphQL */ `
+  mutation CreateMemoryShare($memoryId: ID!, $granteeRef: String!, $role: MemoryShareRole!) {
+    createMemoryShare(memoryId: $memoryId, granteeRef: $granteeRef, role: $role) {
+      memoryShare { role grantee { id handle name } }
+    }
+  }
+`;
+
+// #668: change an existing grantee's role.
+export const UPDATE_MEMORY_SHARE_ROLE_MUTATION = /* GraphQL */ `
+  mutation UpdateMemoryShareRole($memoryId: ID!, $granteeRef: String!, $role: MemoryShareRole!) {
+    updateMemoryShareRole(memoryId: $memoryId, granteeRef: $granteeRef, role: $role) {
+      memoryShare { role grantee { id handle name } }
+    }
+  }
+`;
+
+// #668: the PRINCIPAL revoking SOMEONE ELSE's share — deliberately a separate
+// document from DELETE_MEMORY_SHARE_MUTATION above, which is the grantee's
+// "leave" path.
+//
+// They are one server mutation distinguished ONLY by whether granteeRef is
+// present, and those are different authorization paths: omit it and the server
+// targets the CALLER's own row. Sharing one document would make a blank or
+// dropped granteeRef silently change which row is deleted instead of failing —
+// the `an-empty-flag-is-not-an-absent-flag` shape. `String!` here makes the
+// variable non-optional, so a missing ref is a GraphQL error before it reaches
+// a resolver that would have read it as "me".
+export const REVOKE_MEMORY_SHARE_MUTATION = /* GraphQL */ `
+  mutation RevokeMemoryShare($memoryRef: ID!, $granteeRef: String!) {
+    deleteMemoryShare(memoryRef: $memoryRef, granteeRef: $granteeRef) {
+      memoryId
+      granteeId
+    }
+  }
+`;
+
 // #647: the caller's own (org-less, user-owned) agents — the "My agents" list.
 // #782 (server): scoped SERVER-side via filter.ownedByMe (organizationId IS NULL
 // AND ownerUserId = caller), for every caller INCLUDING platform ADMIN/OWNER —
