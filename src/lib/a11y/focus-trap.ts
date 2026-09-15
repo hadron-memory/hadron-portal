@@ -42,6 +42,36 @@ function tabbable(container: HTMLElement): HTMLElement[] {
   });
 }
 
+/**
+ * `focusTrap` for a container that stays MOUNTED while it opens and closes.
+ *
+ * `focusTrap` rides the action's mount/destroy, so it wants the dialog inside an
+ * `{#if open}`. That is the wrong shape for a surface that is re-parented into
+ * a modal rather than created as one — the maximised team chat, whose thread
+ * holds an accumulated transcript, a scroll position and an unsent draft that a
+ * remount would drop. This wrapper turns the trap on and off with a boolean
+ * instead, engaging exactly the same three jobs on `true` and releasing them
+ * (with the focus restore) on `false`.
+ *
+ *   <div role="dialog" aria-modal={open ? 'true' : undefined} use:focusTrapWhen={open}>
+ */
+export function focusTrapWhen(container: HTMLElement, active: boolean) {
+  let trap: ReturnType<typeof focusTrap> | null = active ? focusTrap(container) : null;
+  return {
+    update(next: boolean) {
+      if (next && !trap) trap = focusTrap(container);
+      else if (!next && trap) {
+        trap.destroy();
+        trap = null;
+      }
+    },
+    destroy() {
+      trap?.destroy();
+      trap = null;
+    },
+  };
+}
+
 export function focusTrap(container: HTMLElement) {
   // Capture the opener BEFORE moving focus, so it can be restored on close.
   // Guarded: `document.activeElement` is <body> when nothing was focused, and

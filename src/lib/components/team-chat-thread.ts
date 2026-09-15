@@ -107,6 +107,109 @@ export function replyPreviewOf(
 }
 
 /**
+ * The LOCAL calendar day a timestamp falls on, as `YYYY-MM-DD`; null when the
+ * string is not a date.
+ *
+ * Local, not UTC, because a separator saying "Thursday" must agree with the
+ * clock on the reader's wall — a message posted at 23:30 their time is that
+ * day's, whatever UTC says. That also means the partition is only knowable in
+ * the browser; the component renders separators after mount for that reason.
+ */
+export function dayKeyOf(at: string): string | null {
+  const d = new Date(at);
+  return Number.isNaN(d.getTime()) ? null : dayKeyOfDate(d);
+}
+
+function dayKeyOfDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export type DayLabel = { kind: 'today' } | { kind: 'yesterday' } | { kind: 'date'; label: string };
+
+export interface AnnotatedMessage {
+  msg: TeamChatMessage;
+  /** Set on the first message of each day — the separator above it. */
+  day: DayLabel | null;
+  /** The time cell: hours and minutes, or the raw string when unparseable. */
+  time: string;
+}
+
+// Built once: `toLocale*String` with an options object constructs a formatter
+// per call, and a thread renders hundreds of these.
+const TIME_FORMAT = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const DAY_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+const DAY_FORMAT_WITH_YEAR = new Intl.DateTimeFormat(undefined, {
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+});
+
+/**
+ * The thread's rows with their day separators and time cells decided in ONE
+ * pass over the list — a partition is a property of the list, not of a row.
+ *
+ * The first parseable message opens a day, and so does every message whose
+ * local calendar day differs from the previous parseable one. An unparseable
+ * timestamp neither opens nor closes a day: compared as a plain value it would
+ * insert a blank separator on either side of the bad row, which is a rendering
+ * of the defect rather than a disclosure of it — its own time cell shows the
+ * raw string, and that is the disclosure.
+ *
+ * `today` and `yesterday` come back as KINDS so the component can localize
+ * them through `t()`; a dated label is formatted here because it is the
+ * platform's locale formatting, not copy. The year is shown only when it is
+ * not the current one — a thread is read in the present.
+ *
+ * `now` is null on the server: the partition is a LOCAL-calendar fact, so it
+ * is only knowable in the browser, and rows are emitted without separators
+ * until it is. Passing the clock in also makes the labels a pure function of
+ * their inputs, and re-running the pass whenever the list changes is what
+ * keeps a thread left open across midnight from showing two "Today"s.
+ */
+export function annotateDays(messages: readonly TeamChatMessage[], now: Date | null): AnnotatedMessage[] {
+  const todayKey = now ? dayKeyOfDate(now) : null;
+  let yesterdayKey: string | null = null;
+  if (now) {
+    const y = new Date(now);
+    y.setDate(now.getDate() - 1);
+    yesterdayKey = dayKeyOfDate(y);
+  }
+  let prevKey: string | null = null;
+  return messages.map((msg) => {
+    const d = new Date(msg.at);
+    const valid = !Number.isNaN(d.getTime());
+    const time = valid ? TIME_FORMAT.format(d) : msg.at;
+    let day: DayLabel | null = null;
+    if (now && valid) {
+      const key = dayKeyOfDate(d);
+      if (key !== prevKey) {
+        if (key === todayKey) day = { kind: 'today' };
+        else if (key === yesterdayKey) day = { kind: 'yesterday' };
+        else {
+          const sameYear = d.getFullYear() === now.getFullYear();
+          day = { kind: 'date', label: (sameYear ? DAY_FORMAT : DAY_FORMAT_WITH_YEAR).format(d) };
+        }
+      }
+      prevKey = key;
+    }
+    return { msg, day, time };
+  });
+}
+
+/**
+ * Does a clamped message body hide anything? Measured, not guessed from the
+ * body length: a 400-character message with a table can overflow the clamp
+ * while a 2,000-character one of short lines fits. The one-pixel tolerance
+ * absorbs sub-pixel rounding, which otherwise reports a body that fits exactly
+ * as overflowing and offers a "Show more" that reveals nothing.
+ */
+export function bodyOverflows(scrollHeight: number, clientHeight: number): boolean {
+  return scrollHeight - clientHeight > 1;
+}
+
+/**
  * Stable avatar colour per author.
  *
  * Keyed on the author LABEL rather than the id so a worker and a human with the

@@ -99,6 +99,49 @@ export function resolveSelectedChat(
   return hit ? { selected: hit, requestedMissing: false } : { selected: chats[0], requestedMissing: true };
 }
 
+/**
+ * `?view=full` — the team chat maximised to the whole viewport.
+ *
+ * In the tab it gets under half the window: the App header, the tab strip, the
+ * chat selector and the composer take the rest, and a long engineering thread
+ * is read through a letterbox. The full view is a UI state, not a different
+ * chat, so it rides the URL the same way `?chat=` does: a link to the full view
+ * opens the full view. It is toggled with `replaceState` rather than a
+ * navigation — flipping it must not re-run the loader.
+ *
+ * Only `full` is a value. Anything else, including a bare `?view=`, is the
+ * default view — the tab — rather than an error, because the worst case of a
+ * malformed value here is the ordinary page.
+ */
+const CHAT_VIEW_PARAM = 'view';
+const CHAT_VIEW_FULL = 'full';
+
+export function chatFullViewFromParams(params: URLSearchParams): boolean {
+  return params.get(CHAT_VIEW_PARAM) === CHAT_VIEW_FULL;
+}
+
+/**
+ * A copy of `url` with the view param set for `full`, or removed for the tab.
+ *
+ * Entering the full view also CANONICALIZES the selection it belongs to. The
+ * page's tab buttons change UI state without rewriting `?tab=`, so a reader
+ * who arrived at `?tab=worklog`, clicked Chats and maximised would otherwise
+ * mint `?tab=worklog&view=full` — a link that, reloaded, selects the worklog
+ * and shows no overlay (Copilot on #832). The full view is only ever the team
+ * chat's, so the URL says so.
+ */
+export function withChatView(url: URL, full: boolean): URL {
+  const next = new URL(url.href);
+  if (full) {
+    next.searchParams.set('tab', 'chats');
+    next.searchParams.set('chat', TEAM_CHAT_LOC);
+    next.searchParams.set(CHAT_VIEW_PARAM, CHAT_VIEW_FULL);
+  } else {
+    next.searchParams.delete(CHAT_VIEW_PARAM);
+  }
+  return next;
+}
+
 /** Sort chat-message nodes into transcript order. */
 export function sortChatMessages<T extends { loc: string }>(nodes: T[]): T[] {
   // Message locs are allocated `<seq>-<rand>-<author>` with a zero-padded seq,

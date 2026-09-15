@@ -30,7 +30,13 @@ import {
   APP_CHAT_ROOTS_QUERY,
 } from '$lib/server/queries';
 import { normalizeFilter, normalizeKind } from '$lib/components/worklog';
-import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, buildAppChatList, resolveSelectedChat } from '$lib/app-chats';
+import {
+  AGENT_CHAT_KEY,
+  TEAM_CHAT_LOC,
+  buildAppChatList,
+  chatFullViewFromParams,
+  resolveSelectedChat,
+} from '$lib/app-chats';
 import { loadTeamChatTail } from '$lib/server/team-chat';
 import { loadChatMessages } from '$lib/server/team-chat';
 import type {
@@ -445,6 +451,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // An explicit ?chat= wins over the one a retired tab id implies, so a link
   // carrying both is not silently overridden by the alias.
   const requestedChat = url.searchParams.get('chat') ?? alias?.chat ?? null;
+  // `?view=full` opens the team chat maximised. Parsed here with the other
+  // URL state so the page reads it once at init, like `initialTab`; toggling
+  // it afterwards is `replaceState`, not a navigation.
+  const initialChatFullView = chatFullViewFromParams(url.searchParams);
   // #648: canonical org-optional App detail. No requireNonConsumer — this
   // resolves BOTH org-owned apps (member-gated) and user-owned (org-less) apps
   // (owner-gated) through one owner-accessible path, exactly like /app/agents/[id]
@@ -739,6 +749,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     selectedChatTruncated: selectedChatMessages?.hasOlder ?? false,
     chatNotFound,
     initialTab,
+    initialChatFullView,
     worklogFilters: {
       ref: worklogRef ?? '',
       // The NORMALIZED kind, not the raw param: echoing back a rejected value

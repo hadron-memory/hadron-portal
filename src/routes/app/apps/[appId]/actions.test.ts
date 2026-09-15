@@ -1462,6 +1462,15 @@ describe('worklog loading (#733)', () => {
     expect(team.selectedChatKey).toBe('chats:team');
   });
 
+  // `?view=full` opens the team chat maximised; parsed in the loader beside
+  // `?tab=` and `?chat=` so the page reads all its URL state from one place.
+  it('reads ?view=full as the maximised team chat, and anything else as the tab', async () => {
+    stubAll({ teamWorkItems: { items: [], total: 0 } });
+    expect((await loadWithUrl('?tab=chats&chat=chats%3Ateam&view=full')).initialChatFullView).toBe(true);
+    expect((await loadWithUrl('?tab=chats&chat=chats%3Ateam')).initialChatFullView).toBe(false);
+    expect((await loadWithUrl('?view=huge')).initialChatFullView).toBe(false);
+  });
+
   it('lets an explicit ?chat= win over the one a retired tab implies', async () => {
     // A link carrying both is not silently overridden by the alias.
     stubAll({ teamWorkItems: { items: [], total: 0 } });
