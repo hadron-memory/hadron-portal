@@ -94,11 +94,10 @@ export const load: PageServerLoad = async ({ locals }) => {
       ? agents.value.map(({ id, name, urn }): AdoptTargetAgent => ({ id, name, urn }))
       : ([] as AdoptTargetAgent[]),
     adoptTargetsFailed: agents.status === 'rejected',
-    addToAgentForm: await superValidate<AddToAgentForm>(
-      { memoryId: '', agentId: '' },
-      addToAgentAdapter,
-      { errors: false },
-    ),
+    // No load-time form object: the adopt forms are plain POSTs with no client
+    // Superforms instance (see the comment in +page.svelte for why the enhanced
+    // single-form version was wrong). The ACTION still validates through
+    // `superValidate`, which is what produces the ActionData the page reads.
   };
 };
 

@@ -54,18 +54,13 @@ const RESTORED_COPY = 'instant expertise';
 const MEMORY: MarketplaceRef = { id: 'm1', name: 'Kubernetes', urn: 'hrn:mem:acme.test:k8s', description: 'Cluster lore' };
 const AGENT = { id: 'a1', name: 'Scribe', urn: 'hrn:agent:acme.test:scribe' };
 
-async function renderMarketplace(opts: {
+function renderMarketplace(opts: {
   adoptTargets?: Array<{ id: string; name: string; urn: string }>;
   adoptTargetsFailed?: boolean;
   memories?: MarketplaceRef[];
   loadFailed?: boolean;
   form?: unknown;
 } = {}) {
-  const addToAgentForm = await superValidate(
-    { memoryId: '', agentId: '' },
-    zod4(addMarketplaceMemoryToAgentSchema),
-    { errors: false },
-  );
   const memories = opts.memories ?? [MEMORY];
   return render(Page as never, {
     props: {
@@ -76,7 +71,6 @@ async function renderMarketplace(opts: {
         loadFailed: opts.loadFailed ?? false,
         adoptTargets: opts.adoptTargets ?? [],
         adoptTargetsFailed: opts.adoptTargetsFailed ?? false,
-        addToAgentForm,
       },
       form: opts.form ?? null,
     } as never,
@@ -85,7 +79,7 @@ async function renderMarketplace(opts: {
 
 describe('marketplace adopt CTA (#685)', () => {
   it('renders the agent picker and a per-memory button when the caller owns an agent', async () => {
-    const html = await renderMarketplace({ adoptTargets: [AGENT] });
+    const html = renderMarketplace({ adoptTargets: [AGENT] });
     expect(html).toContain(PICKER);
     expect(html).toContain(ADD_BUTTON);
     expect(html).toContain('?/addToAgent');
@@ -96,7 +90,7 @@ describe('marketplace adopt CTA (#685)', () => {
   });
 
   it('offers no add button at all when the caller owns no agents', async () => {
-    const html = await renderMarketplace({ adoptTargets: [] });
+    const html = renderMarketplace({ adoptTargets: [] });
     expect(html).toContain(NO_AGENTS);
     // The gate, in the failing direction. An always-rendered button passes the
     // test above and fails here.
@@ -106,7 +100,7 @@ describe('marketplace adopt CTA (#685)', () => {
   });
 
   it('an agents-query failure says so, and does NOT claim the caller has none', async () => {
-    const html = await renderMarketplace({ adoptTargets: [], adoptTargetsFailed: true });
+    const html = renderMarketplace({ adoptTargets: [], adoptTargetsFailed: true });
     expect(html).toContain(TARGETS_FAILED);
     // The distinction this state exists for: "you have no agents" is a claim
     // about the account, and the query that would establish it threw.
@@ -115,13 +109,53 @@ describe('marketplace adopt CTA (#685)', () => {
     expect(html).not.toContain(ADD_BUTTON);
   });
 
-  it('restores the copy the CTA was removed with', async () => {
-    const html = await renderMarketplace({ adoptTargets: [AGENT] });
+  /**
+   * @codex P1 on #840, and the reason the enhanced single-form version was
+   * replaced: a per-card button that wrote `memory.id` into a Superforms store
+   * on click submitted the PREVIOUS card's id, because the click and the submit
+   * it triggers run in the same task and Svelte has not flushed the store into
+   * the bound input yet.
+   *
+   * SSR cannot click, so nothing in this file catches that directly. What it
+   * CAN pin is the structural property that makes the bug impossible: each card
+   * owns a form carrying its own `memoryId` as a literal, so there is nothing
+   * to flush. A regression to one shared form fails these.
+   */
+  it('gives each memory its own form carrying its own id', () => {
+    const html = renderMarketplace({
+      adoptTargets: [AGENT],
+      memories: [MEMORY, { id: 'm2', name: 'Postgres', urn: 'hrn:mem:acme.test:pg', description: null }],
+    });
+    expect(html.match(/action="\?\/addToAgent"/g) ?? []).toHaveLength(2);
+    expect(html).toContain('value="m1"');
+    expect(html).toContain('value="m2"');
+  });
+
+  it('never renders an empty memory id waiting to be filled in by a click', () => {
+    const html = renderMarketplace({ adoptTargets: [AGENT] });
+    // The broken version rendered ONE form for the grid and one hidden
+    // memoryId, empty until a click wrote into it. That empty value is the
+    // symptom, so it is what this asserts against.
+    expect(html).not.toContain('name="memoryId" value=""');
+  });
+
+  // @codex P2: two of the caller's agents may share a display name, and then
+  // identical-looking options submit different ids.
+  it('identifies each agent option by its URN, not by name alone', () => {
+    const html = renderMarketplace({
+      adoptTargets: [AGENT, { id: 'a2', name: 'Scribe', urn: 'hrn:agent:acme.test:scribe-2' }],
+    });
+    expect(html).toContain('hrn:agent:acme.test:scribe-2');
+    expect(html.match(/Scribe/g) ?? []).toHaveLength(2);
+  });
+
+  it('restores the copy the CTA was removed with', () => {
+    const html = renderMarketplace({ adoptTargets: [AGENT] });
     expect(html).toContain(RESTORED_COPY);
   });
 
   it('renders no adopt form when the catalogue has no memories', async () => {
-    const html = await renderMarketplace({ adoptTargets: [AGENT], memories: [] });
+    const html = renderMarketplace({ adoptTargets: [AGENT], memories: [] });
     expect(html).not.toContain('?/addToAgent');
     expect(html).not.toContain(ADD_BUTTON);
   });
@@ -151,7 +185,7 @@ describe('marketplace adopt feedback is scoped to the card that produced it (#68
   const TWO: MarketplaceRef[] = [MEMORY, { id: 'm2', name: 'Postgres', urn: 'hrn:mem:acme.test:pg', description: null }];
 
   it('renders the success beside the memory it was submitted for', async () => {
-    const html = await renderMarketplace({
+    const html = renderMarketplace({
       adoptTargets: [AGENT],
       memories: TWO,
       form: await actionData('m2', { type: 'success', text: 'Added to your agent.' }),
@@ -162,7 +196,7 @@ describe('marketplace adopt feedback is scoped to the card that produced it (#68
   });
 
   it('renders a refusal beside the memory it was submitted for', async () => {
-    const html = await renderMarketplace({
+    const html = renderMarketplace({
       adoptTargets: [AGENT],
       memories: TWO,
       form: await actionData('m1', { type: 'error', text: 'Nope.' }),
@@ -172,7 +206,7 @@ describe('marketplace adopt feedback is scoped to the card that produced it (#68
   });
 
   it('shows nothing when the last action was a different form', async () => {
-    const html = await renderMarketplace({
+    const html = renderMarketplace({
       adoptTargets: [AGENT],
       memories: TWO,
       form: {
