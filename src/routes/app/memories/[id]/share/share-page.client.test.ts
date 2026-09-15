@@ -49,6 +49,7 @@ async function mountShare(shares: ReturnType<typeof share>[]) {
         class: 'personal', userId: 'owner-1', shareable: true, shares,
       },
       shares,
+      user: { id: 'owner-1', handle: 'holger', roles: [] },
       createForm, roleForm, revokeForm,
     },
     form: null,

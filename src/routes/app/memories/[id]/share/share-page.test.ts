@@ -1,14 +1,24 @@
 /**
- * #668 — what the Sharing tab renders in each of the states the server can put
- * it in. Three of them look similar and mean different things:
+ * #668 — what the Sharing tab renders in each of the states it can be in.
+ * Three look similar and mean different things:
  *
- *   shares: null   → you may not see this list        (say so)
- *   shares: []     → nobody has access                (empty state)
- *   shareable:false→ this memory cannot be shared     (explain why)
+ *   not the principal → you may not see this list     (say so)
+ *   shares: []        → nobody has access             (empty state)
+ *   shareable: false  → cannot be shared at all       (explain why)
  *
  * Collapsing any pair is the defect this file exists to catch, and each is
  * asserted against the OTHERS' copy as well as its own — a test that only
  * checks its own string passes when two states render identically.
+ *
+ * ## The first row used to be keyed on `shares: null`, and that was wrong
+ *
+ * @codex P1 on #839: `Memory.shares` is declared NON-NULL and hadron-server's
+ * resolver returns `[]` on every unauthorized path — verified in
+ * `resolvers.types.ts`, not inferred from the SDL. So `null` never arrives, the
+ * state was unreachable, and an unentitled caller fell through to the EMPTY
+ * state: told "not shared with anyone yet" about someone else's memory, and
+ * offered a grant form. Entitlement now comes from `canManageShares`, and the
+ * fixtures below vary the USER rather than the nullness of the list.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
@@ -50,9 +60,14 @@ const share = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+const OWNER = { id: 'owner-1', handle: 'holger', roles: [] as string[] };
+const STRANGER = { id: 'someone-else', handle: 'ada', roles: [] as string[] };
+
 async function renderShare(opts: {
-  shares: ReturnType<typeof share>[] | null;
+  shares: ReturnType<typeof share>[];
   shareable?: boolean;
+  /** Who is looking. Defaults to the memory's principal. */
+  user?: { id: string; handle: string; roles: string[] };
 }) {
   const [createForm, roleForm, revokeForm] = await Promise.all([
     superValidate({ granteeRef: '', role: 'reader' as const }, zod4(createShareSchema), { errors: false }),
@@ -67,20 +82,43 @@ async function renderShare(opts: {
   };
   return render(Page, {
     props: {
-      data: { shareMemory, shares: opts.shares, createForm, roleForm, revokeForm } as never,
+      data: {
+        shareMemory,
+        shares: opts.shares,
+        user: opts.user ?? OWNER,
+        createForm, roleForm, revokeForm,
+      } as never,
       form: null as never,
     },
   }).body;
 }
 
 describe('#668 Sharing tab — the three states are distinguishable', () => {
-  it('a REFUSED list says so, and never reads as "nobody has access"', async () => {
-    const html = await renderShare({ shares: null });
+  it('a caller who is not the principal is told so, never "nobody has access"', async () => {
+    // The #839 P1, pinned: the server hands this caller `[]` exactly as it
+    // hands the owner `[]` for an unshared memory. Only the user distinguishes
+    // them, so only the user is varied here.
+    const html = await renderShare({ shares: [], user: STRANGER });
     expect(html).toContain(NOT_VISIBLE);
     expect(html).not.toContain(EMPTY);
-    // And offers no controls — the caller is not the principal.
     expect(html).not.toContain(ADD_FORM);
     expect(html).not.toContain(REVOKE_BUTTON);
+  });
+
+  it('hides OTHER PEOPLE’S grantees from an unentitled caller', async () => {
+    // Belt and braces: were the server ever to return rows to someone the
+    // portal does not consider entitled, the page must still not render them.
+    const html = await renderShare({ shares: [share()], user: STRANGER });
+    expect(html).toContain(NOT_VISIBLE);
+    expect(html).not.toContain('Ada Lovelace');
+    expect(html).not.toContain('hrn:user:ada');
+  });
+
+  it('lets a platform admin through, mirroring the resolver', () => {
+    return renderShare({ shares: [share()], user: { ...STRANGER, roles: ['ADMIN'] } }).then((html) => {
+      expect(html).not.toContain(NOT_VISIBLE);
+      expect(html).toContain('Ada Lovelace');
+    });
   });
 
   it('an EMPTY list says nobody has access, and never reads as refused', async () => {

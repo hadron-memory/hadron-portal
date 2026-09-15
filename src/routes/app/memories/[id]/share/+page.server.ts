@@ -43,7 +43,7 @@ type ShareMemory = {
   class: string | null;
   userId: string | null;
   shareable: boolean;
-  shares: MemoryShareRow[] | null;
+  shares: MemoryShareRow[];
 };
 
 export const load: PageServerLoad = async ({ params, locals }) => {
@@ -67,10 +67,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   return {
     shareMemory: data.memory,
-    // `shares` is nullable on the wire for a caller the server declined to show
-    // it to. Kept DISTINCT from the empty list: "you may not see this" and
-    // "nobody has access" are different facts, and the page says so.
-    shares: data.memory.shares,
+    // `Memory.shares` is NON-NULL and hadron-server returns `[]` on every
+    // unauthorized path — so an empty array here means EITHER "nobody has
+    // access" OR "you may not see this", indistinguishably (@codex P1 on #839).
+    // The page must not read it as the first: `canManageShares` decides which
+    // it is, from facts on the entity, before the list is rendered at all.
+    shares: data.memory.shares ?? [],
     createForm,
     roleForm,
     revokeForm,

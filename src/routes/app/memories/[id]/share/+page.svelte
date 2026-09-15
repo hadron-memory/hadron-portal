@@ -15,6 +15,7 @@
   import { scopedActionError } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
+  import { canManageShares } from '$lib/memory/can-manage-shares';
   import { type SearchUser, userLabel } from '$lib/users/search-user';
   import type { PageData, ActionData } from './$types';
   import { createShareSchema, revokeShareSchema, updateShareRoleSchema } from './schema';
@@ -29,11 +30,18 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const memory = $derived(data.shareMemory);
-  // `shares: null` means the server declined to show the list; `[]` means
-  // nobody has access. Different facts, rendered differently — collapsing them
-  // would tell a reader who may not see the list that it is empty.
   const shares = $derived(data.shares);
-  const canSeeShares = $derived(shares !== null);
+
+  // @codex P1 on #839. `Memory.shares` is NON-NULL and the server returns `[]`
+  // on every unauthorized path, so an empty list is NOT evidence that nobody
+  // has access — for a grantee or an ordinary org member it is evidence of
+  // nothing at all. Rendering it as the empty state told them "not shared with
+  // anyone yet" about someone else's memory, and offered them a grant form.
+  //
+  // So the list is only read as a fact about the memory once we know the
+  // caller is entitled to it. ONE predicate, shared with the tab in the layout
+  // — two copies of this would drift and one of them would start lying again.
+  const canSeeShares = $derived(canManageShares(memory, data.user));
 
   type ShareRow = {
     granteeId: string;

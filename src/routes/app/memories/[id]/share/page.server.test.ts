@@ -76,17 +76,18 @@ describe('share load()', () => {
     expect(res.shareMemory.shareable).toBe(true);
   });
 
-  it('keeps a REFUSED list (null) distinct from an empty one', async () => {
-    // The page renders these differently on purpose: null is "you may not see
-    // this", [] is "nobody has access". Coercing null to [] here would tell a
-    // non-owner the memory is shared with nobody.
-    mockRequest.mockResolvedValueOnce({ memory: memory({ shares: null }) });
+  it('hands the page the memory PRINCIPAL, which is what entitlement is decided on', async () => {
+    // @codex P1 on #839: `Memory.shares` is non-null and the server returns
+    // `[]` to unauthorized callers, so the LIST cannot carry entitlement. The
+    // page derives it from `userId` instead, so the loader must pass it
+    // through — dropping it would silently make everyone unentitled.
+    mockRequest.mockResolvedValueOnce({ memory: memory({ shares: [] }) });
     const { load } = await importMod();
 
-    const res = (await load(loadEv())) as { shares: unknown[] | null };
+    const res = (await load(loadEv())) as { shareMemory: { userId: string | null }; shares: unknown[] };
 
-    expect(res.shares).toBeNull();
-    expect(res.shares).not.toEqual([]);
+    expect(res.shareMemory.userId).toBe('owner-1');
+    expect(res.shares).toEqual([]);
   });
 
   it('404s on a missing memory rather than rendering an empty page', async () => {

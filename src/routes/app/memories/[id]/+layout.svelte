@@ -9,6 +9,7 @@
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { t } from '$lib/i18n/t';
+  import { canManageShares } from '$lib/memory/can-manage-shares';
   import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
 
@@ -123,6 +124,12 @@
   // was already computed as `isAgentSystem`, because the tab list needs it too.
   const isSystemMemory = $derived(data.graph.class === 'system');
 
+  // #668 / @codex P1 on #839 — the SAME predicate the Sharing page gates on,
+  // imported rather than restated. `Memory.shares` is non-null and returns `[]`
+  // to callers who may not read it, so neither surface can tell entitlement
+  // from emptiness on its own; two copies of the rule would drift.
+  const canShare = $derived(canManageShares(data.graph, data.user));
+
   const path = $derived($page.url.pathname);
   // Node detail / create pages bring their own chrome — hide the tab layout there
   // (the regex matches /nodes/<id> and /nodes/new).
@@ -137,16 +144,22 @@
     { id: 'settings', label: t('memory-detail.tab.settings', 'Settings'), href: `${basePath}/settings` },
     // #668 — who this memory is shared with (spec 023 US3 MemoryShare).
     //
-    // Offered whenever the memory could be shared AT ALL, not only when the
-    // caller may manage it: `Memory.shares` is principal/org-admin-only and the
-    // page renders the server's refusal as an explanation. Gating the tab on
-    // ownership here would need the portal to re-derive an authorization answer
-    // the server already gives, and get it wrong in one of the two directions.
+    // Offered only to someone who can actually read the share list. The first
+    // version of this offered it to everyone, on the reasoning that the page
+    // would render the server's refusal — but there IS no refusal to render:
+    // `Memory.shares` is non-null and unauthorized callers get `[]`, so the
+    // page had nothing to distinguish "not yours" from "shared with nobody"
+    // (@codex P1 on #839). A tab whose only honest content is "you cannot see
+    // this" is not worth offering.
     //
-    // Hidden on a `system` memory for the same reason Subscriptions is (#755):
+    // HIDDEN, not removed — `${basePath}/share` still resolves, and still
+    // explains itself, for a bookmark or a typed URL. Same shape as the
+    // Subscriptions note below.
+    //
+    // Also hidden on a `system` memory, for the reason Subscriptions is (#755):
     // an agent's system memory is the agent's own configuration store, never a
     // thing a person is granted access to.
-    ...(isSystemMemory
+    ...(isSystemMemory || !canShare
       ? []
       : [{ id: 'share', label: t('memory-detail.tab.share', 'Sharing'), href: `${basePath}/share` }]),
     { id: 'integrations', label: t('memory-detail.tab.integrations', 'Integrations'), href: `${basePath}/integrations` },
