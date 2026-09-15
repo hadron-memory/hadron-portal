@@ -42,6 +42,9 @@
   // #364: the "Organization: <name>" caption + URN belong to the Profile tab
   // only. On every other tab the sub-route renders its own section heading
   // (Memories / Agents / Apps / …) as the page caption.
+  // #729: which is also why the org symbol sits INSIDE that block rather than
+  // beside the breadcrumb — a building glyph next to "Members" or "Usage" would
+  // be marking the wrong noun.
   const isProfile = $derived(activeTab?.id === 'profile');
 </script>
 
@@ -54,8 +57,43 @@
         isProfile ? { label: data.org.name } : { label: data.org.name, href: basePath },
       ]} />
       {#if isProfile}
-        <h1 class="mt-1 text-2xl font-bold text-zinc-900 dark:text-white">
-          <span class="font-normal text-zinc-400">{t('org-detail.prefix.organization', 'Organization:')}</span> {data.org.name}
+        <h1 class="mt-1 flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
+          <!-- #729: an org reads as a company, not as another record — mark it
+               in the header the way a runnable node is marked (#322) and a chat
+               node since #722. Same family as those glyphs: 24-box, stroke 2,
+               round joins, indigo. `h-6 w-6` rather than the node page's `h-5`
+               because this caption is `text-2xl` (24px) where that one is
+               `text-xl` (20px) — the mark tracks the type size it sits beside.
+               `aria-hidden` because the caption right of it already says
+               "Organization:"; this is a second rendering of a word that is
+               present, not information only available as a picture. -->
+          <svg data-testid="org-symbol" class="h-6 w-6 shrink-0 text-indigo-500 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"></path>
+            <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"></path>
+            <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"></path>
+            <path d="M10 6h4"></path>
+            <path d="M10 10h4"></path>
+            <path d="M10 14h4"></path>
+            <path d="M10 18h4"></path>
+          </svg>
+          <!-- An org name is user-chosen free text, so a long unbroken one is
+               reachable. `min-w-0 break-words` is ONE remedy in two classes,
+               and neither half works alone — measured at 375px with a 51-char
+               unbroken name, horizontal overflow past the viewport:
+
+                 before this icon ............. 345px   (already broken)
+                 with the icon, neither class .. 377px  (+32 = glyph + gap)
+                 + break-words only ............ 377px  (no change)
+                 + min-w-0 only ................ 377px  (no change)
+                 + both ......................... 18px  (the tab strip alone)
+
+               `min-w-0` lets the flex item shrink below its longest word;
+               `break-words` gives that word somewhere to go. With only the
+               first the word still cannot break, and with only the second the
+               item never shrinks far enough to need to. The 18px floor is a
+               pre-existing tab-strip overflow, not this header.
+               (hrn:node:hadronmemory.com:hadron-portal:review:content-sized-control-needs-min-w-0) -->
+          <span class="min-w-0 break-words"><span class="font-normal text-zinc-400">{t('org-detail.prefix.organization', 'Organization:')}</span> {data.org.name}</span>
         </h1>
         <Urn value={data.org.urn} type="org" />
       {/if}
