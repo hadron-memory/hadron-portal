@@ -1,7 +1,7 @@
 <script lang="ts">
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
-  import { invalidateAll, replaceState } from '$app/navigation';
+  import { afterNavigate, invalidateAll, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
@@ -371,6 +371,17 @@
   $effect(() => {
     const current = untrack(() => activeTab);
     if (!tabs.some((tab) => tab.id === current)) activeTab = tabs[0]?.id ?? 'memory';
+  });
+  // "Read once at init" is not enough on its own: SvelteKit REUSES this
+  // component for a query-only navigation, so a same-App link to
+  // `?tab=chats&chat=chats:team&view=full` followed from the Worklog tab
+  // brought new loader data to a page whose `activeTab` still said worklog —
+  // and the full view below, which keys on the chat being shown, never opened
+  // (@codex on #832). `afterNavigate` is the honest signal, as on the worker
+  // detail page: once per navigation, after the new data is applied, and never
+  // on a tab click, which deliberately does not navigate.
+  afterNavigate(() => {
+    activeTab = (data.initialTab as TabId | null) ?? 'chats';
   });
 
   // The team chat MAXIMISED — a fixed overlay over the whole viewport. In the

@@ -120,11 +120,25 @@ export function chatFullViewFromParams(params: URLSearchParams): boolean {
   return params.get(CHAT_VIEW_PARAM) === CHAT_VIEW_FULL;
 }
 
-/** A copy of `url` with the view param set for `full`, or removed for the tab. */
+/**
+ * A copy of `url` with the view param set for `full`, or removed for the tab.
+ *
+ * Entering the full view also CANONICALIZES the selection it belongs to. The
+ * page's tab buttons change UI state without rewriting `?tab=`, so a reader
+ * who arrived at `?tab=worklog`, clicked Chats and maximised would otherwise
+ * mint `?tab=worklog&view=full` — a link that, reloaded, selects the worklog
+ * and shows no overlay (Copilot on #832). The full view is only ever the team
+ * chat's, so the URL says so.
+ */
 export function withChatView(url: URL, full: boolean): URL {
   const next = new URL(url.href);
-  if (full) next.searchParams.set(CHAT_VIEW_PARAM, CHAT_VIEW_FULL);
-  else next.searchParams.delete(CHAT_VIEW_PARAM);
+  if (full) {
+    next.searchParams.set('tab', 'chats');
+    next.searchParams.set('chat', TEAM_CHAT_LOC);
+    next.searchParams.set(CHAT_VIEW_PARAM, CHAT_VIEW_FULL);
+  } else {
+    next.searchParams.delete(CHAT_VIEW_PARAM);
+  }
   return next;
 }
 

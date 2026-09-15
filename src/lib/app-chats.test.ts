@@ -152,6 +152,25 @@ describe('withChatView', () => {
     expect(back.href).toBe(base.href);
   });
 
+  // The tab buttons change UI state without rewriting `?tab=`, so the URL
+  // the reader maximises from can name another tab. The full view is only
+  // ever the team chat's; a link to it must reload as the team chat.
+  it('canonicalizes the tab and chat when entering the full view', () => {
+    const fromWorklog = new URL('https://portal.test/app/apps/a1?tab=worklog&worklogKind=pr');
+    const full = withChatView(fromWorklog, true);
+    expect(full.searchParams.get('tab')).toBe('chats');
+    expect(full.searchParams.get('chat')).toBe('chats:team');
+    expect(full.searchParams.get('view')).toBe('full');
+    // Unrelated state is kept.
+    expect(full.searchParams.get('worklogKind')).toBe('pr');
+  });
+
+  it('leaves the selection alone when exiting', () => {
+    const back = withChatView(new URL('https://portal.test/app/apps/a1?tab=chats&chat=chats%3Ateam&view=full'), false);
+    expect(back.searchParams.get('tab')).toBe('chats');
+    expect(back.searchParams.get('chat')).toBe('chats:team');
+  });
+
   it('round-trips through chatFullViewFromParams', () => {
     expect(chatFullViewFromParams(withChatView(base, true).searchParams)).toBe(true);
     expect(chatFullViewFromParams(withChatView(base, false).searchParams)).toBe(false);

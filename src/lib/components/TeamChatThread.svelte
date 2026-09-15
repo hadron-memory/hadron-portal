@@ -451,6 +451,36 @@
     if (over && untrack(() => stickToBottom)) void tick().then(scrollToBottom);
   }
 
+  // `overflow-hidden` clips a clamped body VISUALLY only: a link below the
+  // fold is still in the tab order, so a keyboard user would tab from the
+  // visible part into an invisible link — and the browser would scroll the
+  // clipped box to an arbitrary slice of the message to show it (@codex P1 on
+  // #832). Focus landing anywhere in a clamped body opens it: the reader has
+  // asked to reach that content, and opening is the honest answer. The
+  // `scrollTop` reset undoes the browser's own reveal-scroll, which is
+  // meaningless once nothing is clipped.
+  function onClampedFocusIn(nodeId: string, el: HTMLElement, target: EventTarget | null) {
+    if (expanded[nodeId] || !overflowing[nodeId]) return;
+    el.scrollTop = 0;
+    void setExpanded(nodeId, true).then(() => {
+      // The browser's reveal-scroll went into the clipped wrapper (undone
+      // above), not the thread; now that the body is open, bring the focused
+      // control into the thread's viewport ourselves.
+      if (target instanceof HTMLElement) revealInThread(target);
+    });
+  }
+
+  // Scroll the THREAD — and only the thread — so `el` is inside its viewport.
+  // Not `scrollIntoView`, which also scrolls every other scrollable ancestor
+  // and moves the page under the reader in the tab view.
+  function revealInThread(el: HTMLElement) {
+    if (!messagesEl) return;
+    const r = el.getBoundingClientRect();
+    const s = messagesEl.getBoundingClientRect();
+    if (r.top < s.top) messagesEl.scrollTop += r.top - s.top;
+    else if (r.bottom > s.bottom) messagesEl.scrollTop += r.bottom - s.bottom;
+  }
+
   async function setExpanded(nodeId: string, open: boolean) {
     if (open) expanded[nodeId] = true;
     else delete expanded[nodeId];
@@ -460,15 +490,10 @@
     if (!messagesEl) return;
     if (!open) {
       // Collapsing a body the reader had scrolled deep into would leave them
-      // staring at whatever was below it. Bring its top back into the THREAD's
-      // viewport if it went off — scrolling the thread only, not every
-      // scrollable ancestor the way `scrollIntoView` would, which moves the
-      // page under the reader in the tab view.
+      // staring at whatever was below it. Bring its top back into the thread's
+      // viewport if it went off.
       const el = document.getElementById(`team-chat-msg-${nodeId}`);
-      if (el) {
-        const above = el.getBoundingClientRect().top - messagesEl.getBoundingClientRect().top;
-        if (above < 0) messagesEl.scrollTop += above;
-      }
+      if (el) revealInThread(el);
     }
     // Opening or closing a body moves the bottom of the thread without firing a
     // scroll event, so the stickiness `onTranscriptScroll` maintains is stale:
@@ -622,6 +647,7 @@
                   onOverflow: (over) => reportOverflow(msg.nodeId, over),
                 }}
                 class="relative overflow-hidden {expanded[msg.nodeId] ? '' : 'max-h-80'}"
+                onfocusin={(e) => onClampedFocusIn(msg.nodeId, e.currentTarget, e.target)}
               >
                 <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert [&>*]:my-1 [&>p]:my-1 [&>ul]:my-1 [&>ol]:my-1 [&>blockquote]:my-2">
                   {@html renderMarkdown(msg.body)}
