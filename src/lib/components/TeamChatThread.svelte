@@ -417,10 +417,44 @@
   // pass runs with a clock only in the browser: computed during SSR in the
   // server's zone it could disagree with the one hydration computes, and the
   // two would fight over the DOM. Gated on `isBrowser` like the markdown, for
-  // the same reason. `new Date()` is read on every recomputation on purpose —
-  // that is what keeps a thread left open across midnight from filing
-  // yesterday's messages under a second "Today" once the next message lands.
-  const rows = $derived(annotateDays(shownMessages, isBrowser ? new Date() : null));
+  // the same reason.
+  //
+  // "Today" and "Yesterday" are relative to a clock nothing reactive holds, so
+  // `dayTick` stands in for it: bumped at the next LOCAL midnight and whenever
+  // the tab becomes visible again (a laptop woken after a day off), so a quiet
+  // thread left open does not keep saying "Today" about yesterday. A message
+  // arriving would also recompute — but `mergeTranscript` returns the same
+  // array when nothing changed, so polling alone cannot be relied on for this
+  // (@codex P2 on #832).
+  let dayTick = $state(0);
+  $effect(() => {
+    if (!isBrowser) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const armForNextMidnight = () => {
+      const now = new Date();
+      const midnight = new Date(now);
+      midnight.setHours(24, 0, 0, 0);
+      // A second past, so the recomputation reads a clock that is already on
+      // the new day rather than racing the boundary.
+      timer = setTimeout(() => {
+        dayTick += 1;
+        armForNextMidnight();
+      }, midnight.getTime() - now.getTime() + 1000);
+    };
+    armForNextMidnight();
+    const onVisibility = () => {
+      if (!document.hidden) dayTick += 1;
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  });
+  const rows = $derived.by(() => {
+    void dayTick; // the clock dependency; see above
+    return annotateDays(shownMessages, isBrowser ? new Date() : null);
+  });
 
   function dayLabelText(day: DayLabel): string {
     if (day.kind === 'today') return t('app.team-chat.day.today', 'Today');
