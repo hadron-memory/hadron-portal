@@ -17,6 +17,7 @@
   import { downloadAriaLabel, downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import { getAssetDownloadUrl, AssetUploadError, type AssetSummary } from '$lib/api/assetUpload';
+  import { assetErrorMessage } from '$lib/assets/error-messages';
 
   interface Props {
     asset: AssetSummary;
@@ -43,7 +44,7 @@
     try {
       window.location.href = await getAssetDownloadUrl(asset.id);
     } catch (err) {
-      error = err instanceof AssetUploadError ? err.message : (err as Error).message;
+      error = assetErrorMessage(err instanceof AssetUploadError ? err.code : undefined, (err as Error).message);
     } finally {
       busy = false;
     }

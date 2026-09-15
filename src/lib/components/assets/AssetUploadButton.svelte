@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Paperclip, X } from 'lucide-svelte';
   import { uploadAsset, AssetUploadError, type AssetSummary } from '$lib/api/assetUpload';
+  import { assetErrorMessage } from '$lib/assets/error-messages';
 
   interface Props {
     memoryId: string;
@@ -47,7 +48,7 @@
       onuploaded?.(asset);
     } catch (err) {
       if (err instanceof AssetUploadError) {
-        error = err.message;
+        error = assetErrorMessage(err.code, err.message);
         onerror?.(err);
       } else {
         error = (err as Error).message;

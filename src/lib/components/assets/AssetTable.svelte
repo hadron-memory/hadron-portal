@@ -34,6 +34,7 @@
     AssetUploadError,
     type AssetSummary,
   } from '$lib/api/assetUpload';
+  import { assetErrorMessage } from '$lib/assets/error-messages';
 
   interface Props {
     assets: AssetSummary[];
@@ -249,7 +250,7 @@
     try {
       window.location.href = await getAssetDownloadUrl(row.id);
     } catch (err) {
-      error = err instanceof AssetUploadError ? err.message : (err as Error).message;
+      error = assetErrorMessage(err instanceof AssetUploadError ? err.code : undefined, (err as Error).message);
     } finally {
       busyAsset = null;
     }
@@ -277,7 +278,7 @@
       pendingDelete = null;
       ondeleted?.(row.id);
     } catch (err) {
-      error = err instanceof AssetUploadError ? err.message : (err as Error).message;
+      error = assetErrorMessage(err instanceof AssetUploadError ? err.code : undefined, (err as Error).message);
     } finally {
       busyAsset = null;
     }

@@ -36,6 +36,27 @@ const KNOWN: Record<string, number> = {
   // the request was malformed.
   SCAN_PENDING: 409,
   SCAN_BLOCKED: 409,
+  // #707 — the upload-side scan verdict, and the reason that issue's first part
+  // sat open for a month. `completeAssetUpload` throws this when the inline scan
+  // returns BLOCKED, and it was MISSING here: the code fell to the catch-all and
+  // a user who uploaded an infected file was told "the server had a problem".
+  // A verdict about their file, reported as our outage — the exact thing
+  // hadron-server#924 stopped being unavoidable.
+  //
+  // 409 rather than 400, joining the scan family above: nothing about the
+  // request was malformed, and the distinction a caller acts on is carried by
+  // the CODE, not the status.
+  MALWARE_BLOCKED: 409,
+  // Found by diffing this table against every `new AssetUploadError(...)` in
+  // hadron-server rather than against the issue's list — both of these reach
+  // portal endpoints (`complete` and `download`; `begin` and `list`) and both
+  // were landing as 500s.
+  //
+  // `restoreAsset`'s two codes (ASSET_BYTES_GONE, ASSET_NOT_DELETED) are
+  // deliberately still absent: the portal has no restore path, so mapping them
+  // would be a claim about a surface that does not exist here.
+  MEMORY_ENCRYPTED_NO_KEY: 409,
+  TOOL_NOT_ENABLED: 403,
   // Genuine client faults.
   BAD_USER_INPUT: 400,
   GRAPHQL_VALIDATION_FAILED: 400,

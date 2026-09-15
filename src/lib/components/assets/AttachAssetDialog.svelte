@@ -27,6 +27,7 @@
     type AssetSummary,
     type AssetReferenceNode,
   } from '$lib/api/assetUpload';
+  import { assetErrorMessage } from '$lib/assets/error-messages';
   import AssetUploadButton from './AssetUploadButton.svelte';
 
   interface Props {
@@ -98,7 +99,7 @@
       // Surface it: an empty picker is otherwise indistinguishable from a
       // memory that genuinely holds no files.
       listFailed = true;
-      error = err instanceof AssetUploadError ? err.message : (err as Error).message;
+      error = assetErrorMessage(err instanceof AssetUploadError ? err.code : undefined, (err as Error).message);
     } finally {
       loading = false;
     }
@@ -141,7 +142,7 @@
         { n: MAX_LOC_ATTEMPTS },
       );
     } catch (err) {
-      error = err instanceof AssetUploadError ? err.message : (err as Error).message;
+      error = assetErrorMessage(err instanceof AssetUploadError ? err.code : undefined, (err as Error).message);
     } finally {
       attaching = null;
     }
@@ -224,7 +225,7 @@
           <AssetUploadButton
             {memoryId}
             onuploaded={onUploaded}
-            onerror={(err) => (error = err.message)}
+            onerror={(err) => (error = assetErrorMessage(err.code, err.message))}
           />
         </div>
       {:else}

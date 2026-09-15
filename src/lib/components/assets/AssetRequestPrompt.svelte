@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { Upload, X } from 'lucide-svelte';
   import { uploadAsset, AssetUploadError, type AssetSummary } from '$lib/api/assetUpload';
+  import { assetErrorMessage } from '$lib/assets/error-messages';
 
   // In-chat picker triggered by an `asset.requested` event from the chat
   // stream (h-asset-request-upload tool call). The chat container mounts
@@ -106,7 +107,7 @@
       clearTimer();
       onuploaded?.(asset);
     } catch (err) {
-      error = err instanceof AssetUploadError ? err.message : (err as Error).message;
+      error = assetErrorMessage(err instanceof AssetUploadError ? err.code : undefined, (err as Error).message);
     } finally {
       uploading = false;
       controller = null;

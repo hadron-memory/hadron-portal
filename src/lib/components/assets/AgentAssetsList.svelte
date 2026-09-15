@@ -8,6 +8,7 @@
     AssetUploadError,
     type AssetSummary,
   } from '$lib/api/assetUpload';
+  import { assetErrorMessage } from '$lib/assets/error-messages';
   import AssetChip from './AssetChip.svelte';
   import { downloadAriaLabel, downloadTitle } from '$lib/assets/scan-state';
 
@@ -36,7 +37,7 @@
       total = result.total;
       hasMore = result.hasMore;
     } catch (err) {
-      error = err instanceof AssetUploadError ? err.message : (err as Error).message;
+      error = assetErrorMessage(err instanceof AssetUploadError ? err.code : undefined, (err as Error).message);
     } finally {
       loading = false;
     }
@@ -48,7 +49,7 @@
       const url = await getAssetDownloadUrl(asset.id);
       window.location.href = url;
     } catch (err) {
-      error = err instanceof AssetUploadError ? err.message : (err as Error).message;
+      error = assetErrorMessage(err instanceof AssetUploadError ? err.code : undefined, (err as Error).message);
     } finally {
       busyAsset = null;
     }
@@ -62,7 +63,7 @@
       assets = assets.filter((a) => a.id !== asset.id);
       total -= 1;
     } catch (err) {
-      error = err instanceof AssetUploadError ? err.message : (err as Error).message;
+      error = assetErrorMessage(err instanceof AssetUploadError ? err.code : undefined, (err as Error).message);
     } finally {
       busyAsset = null;
     }
