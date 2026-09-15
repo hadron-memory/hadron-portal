@@ -63,7 +63,16 @@ export default defineConfig({
             // `$app/*` has no implementation outside a running SvelteKit app.
             // Aliased to a recorder rather than mocked per-test, so every
             // component that navigates gets the same one.
+            //
+            // #668: aliases, NOT per-test `vi.mock`, is the only thing that
+            // works for `environment` and `stores` — Vite resolves imports
+            // while transforming `sveltekit-superforms` (SuperDebug pulls in
+            // both), which happens BEFORE any mock is installed, so a mocked
+            // test dies at import with a resolver error instead of running.
             '$app/navigation': resolve(__dirname, 'src/lib/test/stubs/app-navigation.ts'),
+            '$app/environment': resolve(__dirname, 'src/lib/test/stubs/app-environment.ts'),
+            '$app/stores': resolve(__dirname, 'src/lib/test/stubs/app-stores.ts'),
+            '$app/forms': resolve(__dirname, 'src/lib/test/stubs/app-forms.ts'),
           },
         },
       },
