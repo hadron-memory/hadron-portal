@@ -343,7 +343,7 @@ export const actions: Actions = {
           type: 'error',
           // @copilot on #837: the FALLBACK is user-visible copy, so it goes
           // through the i18n boundary even though this page's older siblings
-          // leave theirs raw. review:user-strings-through-t-helper is explicit
+          // leave theirs raw. hrn:node:hadronmemory.com:hadron-portal:review:user-strings-through-t-helper is explicit
           // that the carve-out is a narrow KIND of string — section headers,
           // page titles — and that an error message always routes through
           // `t()` whatever its neighbours do. Not sweeping the siblings here;
@@ -352,7 +352,7 @@ export const actions: Actions = {
           // The server's own message still wins when there is one:
           // `extractGqlError` only falls back when the error carries no
           // GraphQL message, and inventing a cause is what
-          // review:diagnostic-message-must-not-guarantee forbids.
+          // hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee forbids.
           text: extractGqlError(
             e,
             t('memory-settings.retry-embeds.failed', 'Failed to re-drive embeddings'),
