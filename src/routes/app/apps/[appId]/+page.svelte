@@ -52,8 +52,10 @@
   import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
   import { submittedForm } from '$lib/forms/submitted-form';
-  import { t } from '$lib/i18n/t.js';
+  import { fill, t } from '$lib/i18n/t.js';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
+  import skillGetStarted from '$lib/assets/skill-get-started.md?raw';
+  import skillSearch from '$lib/assets/skill-search.md?raw';
   import type { PageData, ActionData } from './$types';
   import {
     addAgentSchema,
@@ -998,40 +1000,30 @@
       zip.file('.hadron/plugin/.claude-plugin/marketplace.json', JSON.stringify(marketplaceManifest, null, 2));
       zip.file('.hadron/plugin/plugins/hadron/.claude-plugin/plugin.json', JSON.stringify(pluginManifest, null, 2));
       zip.file('.mcp.json', JSON.stringify(mcpConfig, null, 2));
-      zip.file('.hadron/plugin/plugins/hadron/skills/get-started/SKILL.md',
-`---
-name: get-started
-description: Learn how to use Hadron knowledge memory in this project
----
-
-You are helping the user get started with Hadron, a knowledge memory platform for AI agents.
-
-This project is connected to Hadron app "${app.name}".
-
-Available MCP tools:
-- **hadron_start_session** / **hadron_end_session** — Track work sessions
-- **hadron_find_nodes** — Search nodes by name, tags, or description
-- **hadron_get_node** — Read a node's full content and edges
-- **hadron_get_next_node** — Navigate to the next sibling node
-- **hadron_create_node** — Create a new node
-- **hadron_update_node** — Partially update a node
-- **hadron_move_node** — Rename or move a node
-- **hadron_validate** — Validate graph structure
-- **hadron_sync_graph** — Trigger a sync from the git source
-
-Start by calling hadron_start_session, then use hadron_find_nodes to explore what knowledge is available.
-When you learn something new, save it with hadron_create_node or hadron_update_node.
-`);
-      zip.file('.hadron/plugin/plugins/hadron/skills/search/SKILL.md',
-`---
-name: search
-description: Search the Hadron knowledge graph
----
-
-Search the Hadron knowledge graph for relevant information.
-Use hadron_find_nodes with the user's query to find matching nodes, then read the most relevant ones with hadron_get_node.
-Present the results concisely.
-`);
+      // #774 — the two skill bodies live in `.md` assets rather than inline
+      // template literals. They were the repo's second instance of the #751
+      // hazard, unguarded: a backtick inside a multi-line template literal
+      // terminates the string, and esbuild then reports a nonsense error on the
+      // FOLLOWING line. The bodies are Markdown, where a tool name is naturally
+      // written in backticks, and they dodged it by using `**bold**` — a
+      // convention nothing enforced and no future editor had reason to know.
+      //
+      // Chosen over widening `gql:validate` to scan every template literal:
+      // that guard would have to tell `${x}px` from a paragraph across 180+
+      // literals and every wrapped JSDoc line, so it ships with a
+      // false-positive rate. This deletes the hazard rather than watching it —
+      // and #817 is the argument, since a gate printing OK over live code is
+      // worse than no gate. @Ada's ruling, on that evidence.
+      //
+      // `fill` rather than `.replace('{appName}', …)`: an App name is
+      // user-chosen, and `String.prototype.replace` expands `$&` and friends
+      // out of the replacement (#817). Same one safe door as every other
+      // substitution in this repo.
+      zip.file(
+        '.hadron/plugin/plugins/hadron/skills/get-started/SKILL.md',
+        fill(skillGetStarted, { appName: app.name }),
+      );
+      zip.file('.hadron/plugin/plugins/hadron/skills/search/SKILL.md', skillSearch);
     }
 
     if (tools.includes('CLAUDE_CODE'))
