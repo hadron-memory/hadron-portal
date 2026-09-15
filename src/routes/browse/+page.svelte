@@ -81,6 +81,30 @@
               {/if}
             </div>
           </div>
+
+          <!-- #685 — the catalogue had no call to action at all.
+
+               This link is NOT the adopt button, and that is deliberate.
+               Adoption attaches a memory to an agent, which needs a session;
+               this route is the signed-OUT front door (its loader builds a bare
+               `gqlClient()` with no token). The obvious fix — send the reader to
+               /app/marketplace — is wrong for a reason only visible by driving
+               both pages: this list is every PUBLIC memory, while the
+               marketplace is the `listedOnMarketplace` subset, so "use THIS
+               memory" would routinely land on a catalogue that does not contain
+               it. Locally it lands on an EMPTY one.
+
+               `/app/u/<urn>` resolves the memory itself, so the promise the
+               label makes is one the destination keeps. Signed out, the /app
+               layout redirects to /signin carrying this path, so the reader
+               arrives where they were going. No `?memory=` parameter: that is
+               the dead intent #686/#838 removed one commit before this. -->
+          <a
+            href="/app/u/{encodeURIComponent(memory.urn)}"
+            class="rounded-lg border border-zinc-300 px-3 py-2 text-center text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            {t('browse.open-memory', 'Open this memory')}
+          </a>
         </div>
       {/each}
     </div>

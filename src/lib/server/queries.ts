@@ -294,10 +294,19 @@ export const PUBLIC_MEMORIES_QUERY = /* GraphQL */ `
 
 // `addToMyMemories` was retired server-side in hadron-server#771 (spec 048,
 // Phase D): it bookmarked a public memory by subscribing the caller's PERSONAL
-// ORG, and personal orgs no longer exist — `MemorySubscription` has no
-// user-scoped form, so there is no replacement mutation to point at. The
-// portal's callers and the "Use this memory" affordance went with it in #681.
-// Re-introducing that flow needs a server-side capability first.
+// ORG, and personal orgs no longer exist — `MemorySubscription` still has no
+// user-scoped form (`@@unique([memoryId, organizationId])`, no user column).
+// The portal's callers and the "Use this memory" affordance went with it in
+// #681.
+//
+// #685 restored adoption WITHOUT that mutation coming back, so the sentence
+// this comment used to end on — "re-introducing that flow needs a server-side
+// capability first" — was wrong by the time it was read. The capability was
+// already there under a different name: `addMemoryToAgent`
+// (ADD_MEMORY_TO_AGENT_MUTATION below) attaches a PUBLIC memory to an agent the
+// caller owns, which is what the marketplace copy always promised. A bookmark
+// with no agent attached is still unbuilt; that is a narrower gap than the one
+// recorded here before.
 
 // hrn:node:hadronmemory.com:specs:cor:acl:080:04 — the marketplace catalogue: listedOnMarketplace + publicly
 // accessible orgs / agents / memories, as sanitized flat refs. One request
