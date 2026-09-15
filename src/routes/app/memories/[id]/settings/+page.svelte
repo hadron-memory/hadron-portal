@@ -70,6 +70,24 @@
         : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
   );
 
+  // #695 / @codex P2 on #837 — who may re-drive failed embeddings.
+  //
+  // The server gates `retryFailedEmbeddings` with
+  // `requireOwnerOrOrgRole(ctx, memory, 'ADMIN')` (read in
+  // `resolvers.mutation.memory.ts`, not inferred from the SDL comment): the
+  // memory's owner, OR an ADMIN/OWNER of its org. That is DELIBERATELY not
+  // `canDelete` above, which is stricter — on a personal memory it is
+  // owner-only, so reusing it would hide the control from an org admin the
+  // server would have allowed. Wrong in the other direction, but still wrong.
+  //
+  // Unlike the #839 share case this is only a pointless affordance, not a
+  // false statement: the mutation THROWS for an unauthorized caller and the
+  // page surfaces that verbatim. Hiding it stops offering a button whose only
+  // outcome is FORBIDDEN.
+  const canRetryEmbeds = $derived(
+    ownerIsViewer || myMember?.role === 'ADMIN' || myMember?.role === 'OWNER',
+  );
+
   const initialSettingsForm = untrack(() => submittedForm<MemorySettingsForm>(form, 'updateMemorySettings') as MemorySettingsSuperform | null ?? data.form);
   const {
     form: settingsForm,
@@ -770,7 +788,7 @@
          be a summary that disagrees with the server whenever the failures are
          on page two. So the action is always offered while the index is on,
          and the server's returned count is the only claim made. -->
-    {#if g.vectorIndexEnabled}
+    {#if g.vectorIndexEnabled && canRetryEmbeds}
       <form method="POST" action="?/retryFailedEmbeddings" use:retryEmbedsEnhance
         class="mt-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-3" novalidate>
         <input type="hidden" name="_kind" value="retryFailedEmbeddings" />

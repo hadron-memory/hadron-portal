@@ -52,9 +52,17 @@ import Page from './+page.svelte';
 
 const RETRY_CONTROL = 'Retry failed embeds';
 
+const OWNER_ID = 'owner-1';
+const OWNER = { id: OWNER_ID, handle: 'holger', githubUsername: null, name: 'Holger', avatarUrl: null, roles: [] as string[] };
+const STRANGER = { ...OWNER, id: 'someone-else' };
+
 async function renderSettings(opts: {
   /** The PERSISTED state — what the memory actually is. */
   savedVectorIndexEnabled: boolean;
+  /** Who is looking. Defaults to the memory's owner. */
+  user?: typeof OWNER;
+  /** The viewer's role in the memory's org, when they have one. */
+  orgRole?: 'ADMIN' | 'OWNER' | 'READER';
   /** The checkbox's initial value — what the user may have just ticked. */
   formVectorIndexEnabled?: boolean;
   /** An `ActionData`-shaped result from a previous submit, if any. */
@@ -70,6 +78,7 @@ async function renderSettings(opts: {
     class: 'knowledge',
     isEncrypted: false,
     organizationId: 'org-1',
+    userId: OWNER_ID,
     shortDescription: null,
     description: null,
     tags: [],
@@ -126,13 +135,22 @@ async function renderSettings(opts: {
   // — user, org, activeOrgId, impersonation and a dozen more — none of which
   // this page's vector-index section touches. Reconstructing all of it would
   // add fixture surface without adding a single assertion.
+  //
+  // The cost of that cast, paid once here: an earlier edit left DUPLICATE
+  // `owner` / `ownerUserId` keys in this literal, the later `null` pair won,
+  // and every gate case failed for a reason that had nothing to do with the
+  // gate. TypeScript flags a duplicate key — `as never` does not.
   return render(Page, {
     props: {
       data: {
         graph,
+        user: opts.user ?? OWNER,
+        ownerUserId: OWNER_ID,
+        owner: { id: OWNER_ID, handle: 'holger', name: 'Holger' },
+        org: opts.orgRole
+          ? { id: 'org-1', members: [{ user: { id: (opts.user ?? OWNER).id }, role: opts.orgRole }] }
+          : null,
         allOrgs: [],
-        owner: null,
-        ownerUserId: null,
         form,
         vectorForm,
         schemaForm,
@@ -184,6 +202,40 @@ describe('#695 re-drive control visibility', () => {
     const html = await renderSettings({
       savedVectorIndexEnabled: true,
       formVectorIndexEnabled: false,
+    });
+    expect(html).toContain(RETRY_CONTROL);
+  });
+});
+
+describe('#695 re-drive control — who is offered it (@codex P2 on #837)', () => {
+  it('offers it to the memory owner', async () => {
+    const html = await renderSettings({ savedVectorIndexEnabled: true });
+    expect(html).toContain(RETRY_CONTROL);
+  });
+
+  it('withholds it from a viewer who is neither owner nor org admin', async () => {
+    // A MemoryShare grantee or an ordinary org member. The server refuses them
+    // with FORBIDDEN, so the button's only possible outcome was an error.
+    const html = await renderSettings({ savedVectorIndexEnabled: true, user: STRANGER });
+    expect(html).not.toContain(RETRY_CONTROL);
+    // The vector-index form is untouched — this is the re-drive control being
+    // withheld, not the section disappearing.
+    expect(html).toContain('?/updateVectorIndex');
+  });
+
+  it('withholds it from a non-admin org member', async () => {
+    const html = await renderSettings({
+      savedVectorIndexEnabled: true, user: STRANGER, orgRole: 'READER',
+    });
+    expect(html).not.toContain(RETRY_CONTROL);
+  });
+
+  it.each(['ADMIN', 'OWNER'] as const)('offers it to an org %s, who the server allows', async (role) => {
+    // Deliberately WIDER than this page's `canDelete`, which is owner-only on a
+    // personal memory. Gating on `canDelete` would have hidden the control from
+    // someone the server would have let through.
+    const html = await renderSettings({
+      savedVectorIndexEnabled: true, user: STRANGER, orgRole: role,
     });
     expect(html).toContain(RETRY_CONTROL);
   });
