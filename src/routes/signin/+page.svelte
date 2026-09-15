@@ -15,8 +15,9 @@
   // used to become a `/browse?addMemory=<id>` post-auth redirect, but
   // `addToMyMemories` was retired in hadron-server#771 and #681 removed both
   // the CTAs that produced it and the `/browse` branch that read it — leaving a
-  // parameter /signin and /signup only passed to each other. Links written
-  // before #681 still carry it; it is ignored, and they land on the dashboard.
+  // parameter that /signin and /signup only passed to each other. Links
+  // written before #681 still carry it; it is ignored, and they land on the
+  // dashboard.
   // Reviving adoption is #685, which needs a server capability, not this.
   // #439: only honor a same-origin local path; ignore attacker-supplied
   // absolute/protocol-relative targets so we never forward them into the
