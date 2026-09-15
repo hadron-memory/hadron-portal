@@ -815,7 +815,18 @@
                hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee -->
           <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
             {#if retriedCount === 0}
-              {t('memory-settings.retry-embeds.none', 'No failed embeddings to re-drive.')}
+              <!-- @copilot on #837: NEUTRAL, because 0 has two causes. The
+                   mutation returns 0 when nothing was failing AND when the
+                   memory is not vector-indexed, and `g.vectorIndexEnabled` is
+                   only this page's last-loaded state — which this form now
+                   deliberately does not refresh. So the index can have been
+                   turned off elsewhere and "no failed embeddings" would be a
+                   diagnosis the count cannot support. This says what happened
+                   instead, which is all the count actually tells us
+                   (hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee).
+                   My own queries.ts comment named the two causes and I then
+                   wrote copy that picked one. -->
+              {t('memory-settings.retry-embeds.none', 'No nodes were queued for re-embedding.')}
             {:else if retriedCount === 1}
               {t('memory-settings.retry-embeds.queued-one', 'Queued 1 node for re-embedding.')}
             {:else}

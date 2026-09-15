@@ -262,7 +262,10 @@ describe('#695 re-drive outcome copy', () => {
       savedVectorIndexEnabled: true,
       actionData: await retryResult({ retriedCount: 0 }),
     });
-    expect(html).toContain('No failed embeddings to re-drive.');
+    expect(html).toContain('No nodes were queued for re-embedding.');
+    // NEUTRAL: 0 also means "not vector-indexed", so the copy must not
+    // diagnose which (@copilot on #837).
+    expect(html).not.toContain('No failed embeddings');
   });
 
   it('renders a singular count without the plural noun', async () => {
