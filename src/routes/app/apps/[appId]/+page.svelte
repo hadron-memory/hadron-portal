@@ -1487,7 +1487,13 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
             {/if}
             {t('app.team-chat.title', 'Team chat')}
           </h2>
-          {#if !chatFullView}
+          {#if chatFullView}
+            <!-- The App header, and the URN chip on it, are under the overlay.
+                 A name is not addressable; the URN is what a reader copies into
+                 a CLI call or a message (hrn:node:hadronmemory.com:hadron-portal:review:render-urn).
+                 @codex on #832. -->
+            <div class="mt-1"><Urn value={app.urn} type="app" size={10} /></div>
+          {:else}
             <p class="mt-1 max-w-2xl text-sm text-zinc-500">
               {t(
                 'app.team-chat.description',
