@@ -114,11 +114,26 @@ describe('#668 Sharing tab — the three states are distinguishable', () => {
     expect(html).not.toContain('hrn:user:ada');
   });
 
-  it('lets a platform admin through, mirroring the resolver', () => {
-    return renderShare({ shares: [share()], user: { ...STRANGER, roles: ['ADMIN'] } }).then((html) => {
-      expect(html).not.toContain(NOT_VISIBLE);
-      expect(html).toContain('Ada Lovelace');
-    });
+  it('lets a platform admin SEE the list but not change it (@copilot on #839)', async () => {
+    // Read and write are different server gates: `Memory.shares` admits a
+    // platform admin; every mutation goes through `requireMemorySharePrincipal`,
+    // which is `memory.userId === ctx.userId` with no admin bypass. An admin
+    // offered these controls would get FORBIDDEN on every submit.
+    const html = await renderShare({ shares: [share()], user: { ...STRANGER, roles: ['ADMIN'] } });
+    expect(html).not.toContain(NOT_VISIBLE);
+    expect(html).toContain('Ada Lovelace');
+    expect(html).not.toContain(ADD_FORM);
+    expect(html).not.toContain('?/updateShareRole');
+    expect(html).not.toContain(REVOKE_BUTTON);
+    // The role is still SHOWN, just not editable.
+    expect(html).toContain('Reader');
+  });
+
+  it('gives the principal all three controls', async () => {
+    const html = await renderShare({ shares: [share()] });
+    expect(html).toContain(ADD_FORM);
+    expect(html).toContain('?/updateShareRole');
+    expect(html).toContain(REVOKE_BUTTON);
   });
 
   it('an EMPTY list says nobody has access, and never reads as refused', async () => {
@@ -165,6 +180,32 @@ describe('#668 Sharing tab — the rows', () => {
   it('renders the share date, not a raw epoch', async () => {
     const html = await renderShare({ shares: [share({ createdAt: '1789430400000' })] });
     expect(html).not.toContain('1789430400000');
+  });
+
+  it('renders the GRANTOR’s URN too, not just their name', async () => {
+    // @copilot on #839: the grantor is a referenced entity on this view as much
+    // as the grantee. hrn:node:hadronmemory.com:hadron-portal:review:render-urn.
+    const html = await renderShare({ shares: [share()] });
+    expect(html).toContain('hrn:user:holger');
+  });
+
+  it('renders a null grantor URN as absent', async () => {
+    const html = await renderShare({
+      shares: [share({ grantor: { id: 'g-9', urn: null, handle: null, name: 'Nameless' } })],
+    });
+    expect(html).toContain('Nameless');
+    expect(html).not.toContain('hrn:user:null');
+  });
+
+  it('keeps the actions column un-hideable', async () => {
+    // @copilot on #839: the column menu (and a persisted saved view) would
+    // otherwise remove the only role/revoke affordances on the page.
+    const html = await renderShare({ shares: [share()] });
+    const menu = html.slice(html.indexOf('Columns'));
+    // Every hideable column appears as a checkbox row in the menu; Actions
+    // must not be among them.
+    expect(menu).toContain('URN');
+    expect(menu.slice(0, menu.indexOf('</details>'))).not.toContain('Actions');
   });
 
   it('offers a role control carrying both server enum values', async () => {

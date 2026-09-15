@@ -69,6 +69,73 @@ const revokeButtons = (target: HTMLElement) =>
 const revokeForm = (target: HTMLElement) =>
   target.querySelector<HTMLFormElement>('form[action="?/revokeShare"]');
 
+describe('#668 Shared column sorts by INSTANT (@copilot on #839)', () => {
+  // Only this lane can prove it. The `node` lane renders in data order because
+  // nothing has sorted yet, and a unit test on the accessor would pass just as
+  // well against the raw-string accessor this replaced — mutating `accessorFn`
+  // back to `accessorKey` left every other test green.
+  //
+  // The FIXTURE is the load-bearing part, and the obvious one is a trap. The
+  // three-offset set in `src/lib/table/table-logic.test.ts` has the property
+  // that wall-clock-ASCENDING and instant-DESCENDING are the same sequence —
+  // so a correct implementation sorted on the first (descending) click looks
+  // exactly like the defect, and the first draft of this test "failed"
+  // against working code. These values avoid that: all four orderings differ.
+  //
+  //          wall  offset   instant
+  //   alpha   10    +00      10:00Z
+  //   bravo   11    +03      08:00Z
+  //   charlie 12    +03      09:00Z
+  //
+  //   wall ascending     : alpha, bravo, charlie
+  //   instant ascending  : bravo, charlie, alpha
+  //   instant descending : alpha, charlie, bravo
+  const ROWS = [
+    { id: 'u-a', handle: 'alpha', at: '2026-07-30T10:00:00+00:00' },
+    { id: 'u-b', handle: 'bravo', at: '2026-07-30T11:00:00+03:00' },
+    { id: 'u-c', handle: 'charlie', at: '2026-07-30T12:00:00+03:00' },
+  ];
+  const INSTANT_ASC = ['bravo', 'charlie', 'alpha'];
+  const INSTANT_DESC = ['alpha', 'charlie', 'bravo'];
+  const WALL_ASC = ['alpha', 'bravo', 'charlie'];
+
+  const personOrder = (target: HTMLElement) =>
+    [...target.querySelectorAll('tbody tr')].map(
+      (tr) => tr.querySelector('td')?.textContent?.trim() ?? '',
+    );
+
+  it('orders by instant, never by wall clock', async () => {
+    const { target, unmount } = await mountShare(
+      ROWS.map((r) => ({ ...share(r.id, r.handle), createdAt: r.at })),
+    );
+    try {
+      const header = [...target.querySelectorAll('th')].find(
+        (th) => th.textContent?.trim().startsWith('Shared') &&
+          !th.textContent.includes('Shared by'),
+      );
+      expect(header).toBeDefined();
+
+      click(header);
+      const first = personOrder(target);
+      click(header);
+      const second = personOrder(target);
+
+      // Whichever direction the first click picks, the pair must be the two
+      // INSTANT orderings — asserted as a set so the test does not depend on
+      // TanStack's default direction.
+      expect([first, second].map((o) => o.join(',')).sort()).toEqual(
+        [INSTANT_ASC.join(','), INSTANT_DESC.join(',')].sort(),
+      );
+      // And neither may be the wall-clock ordering, which is what the
+      // raw-string accessor produced.
+      expect(first).not.toEqual(WALL_ASC);
+      expect(second).not.toEqual(WALL_ASC);
+    } finally {
+      unmount();
+    }
+  });
+});
+
 describe('#668 revoke confirm (client)', () => {
   it('opens a revoke form carrying the clicked row’s grantee ref, never a blank one', async () => {
     const { target, unmount } = await mountShare([share('u-2', 'ada'), share('u-3', 'bob')]);

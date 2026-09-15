@@ -108,14 +108,23 @@ describe('share load()', () => {
 });
 
 describe('createShare action', () => {
-  it('sends the memory from params and the grantee ref from the form', async () => {
-    mockRequest.mockResolvedValueOnce({ createMemoryShare: { memoryShare: { role: 'writer' } } });
+  it('addresses the mutation by the memory’s CANONICAL ID, not the route ref', async () => {
+    // @copilot on #839: `[id]` is a ref and may be a URN, but `memoryId` on
+    // this mutation is a strict id — the server looks it up with
+    // `findUnique({ where: { id } })`. A URN would match no row and every grant
+    // would fail FORBIDDEN, indistinguishably from "not the principal".
+    mockRequest
+      .mockResolvedValueOnce({ memory: memory({ id: 'mem-canonical' }) })
+      .mockResolvedValueOnce({ createMemoryShare: { memoryShare: { role: 'writer' } } });
     const { actions } = await importMod();
 
-    await actions.createShare(ev({ _kind: 'createShare', granteeRef: 'u-2', role: 'writer' }, 'mem-real'));
+    await actions.createShare(
+      ev({ _kind: 'createShare', granteeRef: 'u-2', role: 'writer' }, 'hrn:mem:acme.com:notes'),
+    );
 
-    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
-    expect(vars).toEqual({ memoryId: 'mem-real', granteeRef: 'u-2', role: 'writer' });
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, Record<string, unknown>];
+    expect(vars).toEqual({ memoryId: 'mem-canonical', granteeRef: 'u-2', role: 'writer' });
+    expect(vars.memoryId).not.toBe('hrn:mem:acme.com:notes');
   });
 
   it('refuses a blank grantee before calling the server', async () => {
@@ -150,14 +159,18 @@ describe('createShare action', () => {
 });
 
 describe('updateShareRole action', () => {
-  it('passes grantee and role through', async () => {
-    mockRequest.mockResolvedValueOnce({ updateMemoryShareRole: { memoryShare: { role: 'writer' } } });
+  it('passes grantee and role through, on the canonical id', async () => {
+    mockRequest
+      .mockResolvedValueOnce({ memory: memory({ id: 'mem-canonical' }) })
+      .mockResolvedValueOnce({ updateMemoryShareRole: { memoryShare: { role: 'writer' } } });
     const { actions } = await importMod();
 
-    await actions.updateShareRole(ev({ _kind: 'updateShareRole', granteeRef: 'u-2', role: 'writer' }));
+    await actions.updateShareRole(
+      ev({ _kind: 'updateShareRole', granteeRef: 'u-2', role: 'writer' }, 'hrn:mem:acme.com:notes'),
+    );
 
-    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
-    expect(vars).toEqual({ memoryId: 'mem-1', granteeRef: 'u-2', role: 'writer' });
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, Record<string, unknown>];
+    expect(vars).toEqual({ memoryId: 'mem-canonical', granteeRef: 'u-2', role: 'writer' });
   });
 
   it('refuses a blank grantee', async () => {
@@ -170,13 +183,15 @@ describe('updateShareRole action', () => {
 
 describe('revokeShare action', () => {
   it('always sends an explicit granteeRef', async () => {
-    mockRequest.mockResolvedValueOnce({ deleteMemoryShare: { memoryId: 'mem-1', granteeId: 'u-2' } });
+    mockRequest
+      .mockResolvedValueOnce({ memory: memory({ id: 'mem-canonical' }) })
+      .mockResolvedValueOnce({ deleteMemoryShare: { memoryId: 'mem-canonical', granteeId: 'u-2' } });
     const { actions } = await importMod();
 
     await actions.revokeShare(ev({ _kind: 'revokeShare', granteeRef: 'u-2' }));
 
-    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
-    expect(vars).toEqual({ memoryRef: 'mem-1', granteeRef: 'u-2' });
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, Record<string, unknown>];
+    expect(vars).toEqual({ memoryRef: 'mem-canonical', granteeRef: 'u-2' });
     // The ref must be PRESENT and non-empty. Omitting it is the server's
     // "remove my own share" path, so a revoke that lost its ref would delete
     // the caller's row and report success.

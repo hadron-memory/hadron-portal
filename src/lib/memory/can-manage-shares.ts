@@ -19,13 +19,24 @@
  * Nothing on the wire distinguishes the two, so the gate has to be computed
  * from facts that ARE on the entity.
  *
- * ## What it mirrors
+ * ## READ and EDIT are different gates, and the server does not treat them alike
  *
- * The server's own rule, for the only class where shares can exist. Shares are
- * `personal`-class only (spec 023 FR-018), personal memories are user-owned,
- * and the resolver short-circuits `if (!orgId) return []` — so the org-admin
- * fallback cannot apply to them. That leaves the principal and a platform
- * admin, which is what this returns.
+ * @copilot on #839 caught this and it is verified in the resolvers:
+ *
+ * - **read** (`Memory.shares`, `resolvers.types.ts`) allows the principal, a
+ *   platform ADMIN/OWNER, or an org ADMIN/OWNER of the owning org.
+ * - **write** (`createMemoryShare` / `updateMemoryShareRole` /
+ *   `deleteMemoryShare` with a grantee) goes through
+ *   `requireMemorySharePrincipal` → `isMemorySharePrincipal`, which is exactly
+ *   `memory.userId === ctx.userId`. **No platform-admin bypass.**
+ *
+ * So a platform admin may LIST a memory's shares and may not change them. One
+ * predicate for both would either hide the list from them or offer them three
+ * controls whose every submission is FORBIDDEN. Hence two functions.
+ *
+ * The org-admin read branch is deliberately not modelled here: shares exist
+ * only on personal-class memories, which are user-owned, and the read resolver
+ * short-circuits `if (!orgId) return []` before reaching it.
  *
  * ## It is a DISPLAY gate, never the boundary
  *
@@ -52,19 +63,34 @@ export interface ShareGateUser {
   roles?: string[] | null;
 }
 
-export function canManageShares(
+/**
+ * Is this caller the memory's PRINCIPAL — the only identity the server lets
+ * create, re-role or revoke a share?
+ */
+export function isSharePrincipal(
   memory: ShareGateMemory | null | undefined,
   user: ShareGateUser | null | undefined,
 ): boolean {
   if (!memory || !user?.id) return false;
+  // The `!= null` is defence in depth, NOT the thing that stops a
+  // null-matches-null grant — the `!user?.id` guard above already does that,
+  // proven by mutating this line away and watching every test stay green.
+  return memory.userId != null && memory.userId === user.id;
+}
 
-  // The principal. The `!= null` is defence in depth, NOT the thing that stops
-  // a null-matches-null grant — the `!user?.id` guard above already does that,
-  // proven by mutating this line away and watching every test stay green. It
-  // stays so the comparison remains correct if that guard is ever loosened, and
-  // is described as belt-and-braces rather than as load-bearing.
-  if (memory.userId != null && memory.userId === user.id) return true;
-
+/** May this caller SEE the share list? Principal, or a platform admin. */
+export function canSeeShares(
+  memory: ShareGateMemory | null | undefined,
+  user: ShareGateUser | null | undefined,
+): boolean {
+  if (!memory || !user?.id) return false;
+  if (isSharePrincipal(memory, user)) return true;
   const roles = user.roles ?? [];
   return roles.includes('ADMIN') || roles.includes('OWNER');
 }
+
+/**
+ * May this caller CHANGE the shares? Principal only — a platform admin reading
+ * the list is not entitled to edit it (`isMemorySharePrincipal`).
+ */
+export const canEditShares = isSharePrincipal;

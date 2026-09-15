@@ -79,13 +79,33 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   };
 };
 
+// @copilot on #839: `[id]` is a REF — the loader passes it to `memory(ref:)`,
+// which accepts an id OR a URN. But `createMemoryShare` / `updateMemoryShareRole`
+// take `memoryId`, and the server looks that up with
+// `findUnique({ where: { id: memoryId } })` (`isMemorySharePrincipal`) — a
+// strict id, no ref resolution. So on a URN-addressed page the list LOADS and
+// then every grant and role change fails FORBIDDEN, because the URN matched no
+// row and "no such memory" and "not the principal" are deliberately
+// indistinguishable.
+//
+// Resolving through the same query the page already ran gives the canonical id
+// and costs no extra round trip.
+async function resolveMemoryId(token: string | null | undefined, ref: string): Promise<string> {
+  const data = await gqlClient(token).request<{ memory: { id: string } | null }>(
+    MEMORY_SHARES_QUERY,
+    { ref },
+  );
+  if (!data.memory) throw error(404, 'Memory not found');
+  return data.memory.id;
+}
+
 export const actions: Actions = {
   createShare: async ({ request, params, locals }) => {
     const form = await superValidate<CreateShareForm>(await request.formData(), createShareFormAdapter);
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(CREATE_MEMORY_SHARE_MUTATION, {
-        memoryId: params.id,
+        memoryId: await resolveMemoryId(locals.token, params.id),
         granteeRef: form.data.granteeRef,
         role: form.data.role,
       });
@@ -104,7 +124,7 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(UPDATE_MEMORY_SHARE_ROLE_MUTATION, {
-        memoryId: params.id,
+        memoryId: await resolveMemoryId(locals.token, params.id),
         granteeRef: form.data.granteeRef,
         role: form.data.role,
       });
@@ -123,7 +143,11 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(REVOKE_MEMORY_SHARE_MUTATION, {
-        memoryRef: params.id,
+        // `deleteMemoryShare` takes a REF (#785) and would accept the URN, but
+        // it is resolved the same way as its siblings so all three address the
+        // memory identically — a surface where two of three accept a URN is
+        // the kind of asymmetry that gets discovered as a bug report.
+        memoryRef: await resolveMemoryId(locals.token, params.id),
         granteeRef: form.data.granteeRef,
       });
       return { form, revokedFrom: form.data.granteeRef };

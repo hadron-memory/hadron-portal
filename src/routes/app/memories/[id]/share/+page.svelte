@@ -15,7 +15,7 @@
   import { scopedActionError } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
-  import { canManageShares } from '$lib/memory/can-manage-shares';
+  import { canEditShares, canSeeShares as maySeeShares } from '$lib/memory/can-manage-shares';
   import { type SearchUser, userLabel } from '$lib/users/search-user';
   import type { PageData, ActionData } from './$types';
   import { createShareSchema, revokeShareSchema, updateShareRoleSchema } from './schema';
@@ -41,7 +41,13 @@
   // So the list is only read as a fact about the memory once we know the
   // caller is entitled to it. ONE predicate, shared with the tab in the layout
   // — two copies of this would drift and one of them would start lying again.
-  const canSeeShares = $derived(canManageShares(memory, data.user));
+  const canSeeShares = $derived(maySeeShares(memory, data.user));
+  // @copilot on #839: READ and EDIT are different server gates. `Memory.shares`
+  // admits a platform admin; every share MUTATION goes through
+  // `requireMemorySharePrincipal`, which is `memory.userId === ctx.userId` with
+  // no admin bypass. One predicate for both would have offered an admin three
+  // controls whose every submission is FORBIDDEN.
+  const canEdit = $derived(canEditShares(memory, data.user));
 
   type ShareRow = {
     granteeId: string;
@@ -50,7 +56,10 @@
     granteeUrn: string | null;
     role: string;
     grantedBy: string;
+    grantorUrn: string | null;
     granted: string;
+    /** Epoch millis — what the column SORTS on. See the column def. */
+    grantedAt: number;
   };
 
   // The GRANTEE's stable id is what every mutation is keyed on — never the
@@ -65,7 +74,11 @@
       granteeUrn: s.grantee.urn,
       role: s.role,
       grantedBy: s.grantor.name || s.grantor.handle || s.grantor.id,
+      grantorUrn: s.grantor.urn,
       granted: s.createdAt,
+      grantedAt: new Date(Number.isFinite(Number(s.createdAt)) && s.createdAt !== ''
+        ? Number(s.createdAt)
+        : s.createdAt).getTime(),
     })),
   );
 
@@ -74,7 +87,7 @@
       ? t('memory-share.role.writer', 'Writer')
       : t('memory-share.role.reader', 'Reader');
 
-  const formatGranted = (value: string) => {
+  const formatGranted = (value: string | number) => {
     const ms = Number(value);
     const d = new Date(Number.isFinite(ms) && value !== '' ? ms : value);
     return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
@@ -86,19 +99,27 @@
     { accessorKey: 'granteeUrn', id: 'granteeUrn', header: 'URN', size: 260 },
     { accessorKey: 'role', id: 'role', header: t('memory-share.col.role', 'Role'), size: 150 },
     { accessorKey: 'grantedBy', id: 'grantedBy', header: t('memory-share.col.granted-by', 'Shared by'), size: 160 },
-    // The accessor stays the raw timestamp so the column sorts by INSTANT, not
-    // by the rendered string. `fmt` below then gives SEARCH the same text the
-    // cell shows — without it a reader typing the date in front of them matches
-    // nothing, which is
-    // hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant
-    // and the defect the #820 sweep existed to remove.
-    { accessorKey: 'granted', id: 'granted', header: t('memory-share.col.granted', 'Shared'), size: 120 },
-    { id: 'actions', header: t('memory-share.col.actions', 'Actions'), size: 220, enableSorting: false },
+    // @copilot on #839: an `accessorKey` on the raw string sorts by WALL CLOCK
+    // and ignores the offset — the `DateTime` scalar only promises a
+    // `Date.parse`-able value, so `23:00+02:00` sorts after `22:00Z` while being
+    // an hour earlier. `src/lib/table/table-logic.test.ts` pins that exact
+    // defect. My previous comment claimed this sorted "by INSTANT" and it did
+    // not. An `accessorFn` returning epoch millis does
+    // (hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant).
+    //
+    // The rendered text comes from `fmt` at display time, and the raw wire value
+    // is kept as a search extra so a reader can still type what a log line
+    // showed them.
+    { accessorFn: (r: ShareRow) => r.grantedAt, id: 'granted', header: t('memory-share.col.granted', 'Shared'), size: 120 },
+    // @copilot on #839: NOT hideable. The column menu and saved views would
+    // otherwise remove the only role and revoke affordances on the page, and a
+    // persisted view would keep them gone. Matches `AssetTable`.
+    { id: 'actions', header: t('memory-share.col.actions', 'Actions'), size: 220, enableSorting: false, enableHiding: false },
   ];
   // ONE map, read by both the cell and the filter, so the two cannot drift —
   // a `fmt` that disagrees with what is rendered is the same bug one layer down.
   const fmt: ColumnFormatters = {
-    granted: (v) => formatGranted(v as string),
+    granted: (v) => formatGranted(v as string | number),
     role: (v) => roleLabel(v as string),
   };
 
@@ -110,7 +131,10 @@
     columnResizeMode: 'onChange',
     state: { get globalFilter() { return globalFilter; } },
     onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
-    globalFilterFn: makeGlobalFilterFn<ShareRow>(fmt),
+    // The accessor is now epoch millis, so the wire value is carried as a
+    // search extra — otherwise a reader who pastes an ISO timestamp matches
+    // nothing. Same arrangement as the sessions grid after #820.
+    globalFilterFn: makeGlobalFilterFn<ShareRow>(fmt, { granted: (row) => row.granted }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 
@@ -265,6 +289,12 @@
               <span class="text-zinc-400">—</span>
             {/if}
           {:else if cell.column.id === 'role'}
+            {#if !canEdit}
+              <!-- A platform admin may READ this list; the mutations are
+                   principal-only, so they see the role rather than a control
+                   whose every submission is FORBIDDEN (@copilot on #839). -->
+              <span class="text-zinc-600 dark:text-zinc-300">{roleLabel(row.role)}</span>
+            {:else}
             <form method="POST" action="?/updateShareRole" use:roleEnhance class="flex items-center gap-2" novalidate>
               <input type="hidden" name="_kind" value="updateShareRole" />
               <input type="hidden" name="granteeRef" value={row.granteeRef} />
@@ -284,8 +314,11 @@
               </select>
               <noscript><button type="submit" class="text-xs underline">{t('memory-share.role.apply', 'Apply')}</button></noscript>
             </form>
+            {/if}
           {:else if cell.column.id === 'actions'}
-            {#if confirmRevokeFor === row.granteeId}
+            {#if !canEdit}
+              <span class="text-zinc-400">—</span>
+            {:else if confirmRevokeFor === row.granteeId}
               <form method="POST" action="?/revokeShare" use:revokeEnhance class="flex items-center gap-2" novalidate>
                 <input type="hidden" name="_kind" value="revokeShare" />
                 <input type="hidden" name="granteeRef" value={row.granteeRef} />
@@ -305,6 +338,18 @@
                 {t('memory-share.revoke', 'Remove access')}
               </button>
             {/if}
+          {:else if cell.column.id === 'grantedBy'}
+            <!-- @copilot on #839: the grantor is a referenced entity on this
+                 view as much as the grantee is, and the query already selects
+                 its URN — so it carries one too
+                 (hrn:node:hadronmemory.com:hadron-portal:review:render-urn).
+                 Null renders as absent, never as an empty chip. -->
+            <div class="flex min-w-0 items-center gap-2">
+              <span class="truncate">{row.grantedBy}</span>
+              {#if row.grantorUrn}
+                <Urn value={row.grantorUrn} type="user" size={8} compact />
+              {/if}
+            </div>
           {:else if cell.column.id === 'granted'}
             <div class="truncate">{fmt.granted?.(row.granted)}</div>
           {:else}
@@ -314,7 +359,7 @@
       </DataTable>
     {/if}
 
-    {#if memory.shareable}
+    {#if memory.shareable && canEdit}
       <section class="max-w-lg">
         <h3 class="mb-3 text-sm font-medium text-zinc-900 dark:text-white">
           {t('memory-share.add.heading', 'Share with someone')}

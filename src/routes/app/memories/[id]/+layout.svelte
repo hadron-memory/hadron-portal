@@ -9,7 +9,7 @@
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { t } from '$lib/i18n/t';
-  import { canManageShares } from '$lib/memory/can-manage-shares';
+  import { canSeeShares } from '$lib/memory/can-manage-shares';
   import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
 
@@ -124,11 +124,13 @@
   // was already computed as `isAgentSystem`, because the tab list needs it too.
   const isSystemMemory = $derived(data.graph.class === 'system');
 
-  // #668 / @codex P1 on #839 — the SAME predicate the Sharing page gates on,
-  // imported rather than restated. `Memory.shares` is non-null and returns `[]`
+  // #668 / @codex P1 on #839 — the same READ predicate the Sharing page gates
+  // its list on, imported rather than restated. Read, not edit: a platform
+  // admin may see the list and may not change it, so the tab follows the
+  // former (@copilot on #839). `Memory.shares` is non-null and returns `[]`
   // to callers who may not read it, so neither surface can tell entitlement
   // from emptiness on its own; two copies of the rule would drift.
-  const canShare = $derived(canManageShares(data.graph, data.user));
+  const canShare = $derived(canSeeShares(data.graph, data.user));
 
   const path = $derived($page.url.pathname);
   // Node detail / create pages bring their own chrome — hide the tab layout there
