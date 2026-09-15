@@ -163,9 +163,16 @@
           <!-- min-w-0 because a <select> is sized by its longest <option>, and
                these options carry a URN
                (hrn:node:hadronmemory.com:hadron-portal:review:content-sized-control-needs-min-w-0). -->
+          <!-- @copilot: the picker's validation error renders under the
+               submitted card, so without these a keyboard or screen-reader user
+               gets no field-level signal that the agent choice is what failed.
+               The error id is stable and derived from the submitted memory, so
+               it points at the message that actually rendered. -->
           <select
             id="marketplaceAdoptAgent"
             bind:value={selectedAgentId}
+            aria-invalid={addToAgentError ? 'true' : undefined}
+            aria-describedby={addToAgentError ? `adopt-error-${submittedMemoryId}` : undefined}
             class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
           >
             <option value="">{t('marketplace.adopt.agent-placeholder', 'Choose an agent…')}</option>
@@ -200,15 +207,22 @@
                 <!-- Static. Never written during the click that submits it. -->
                 <input type="hidden" name="memoryId" value={memory.id} />
                 <input type="hidden" name="agentId" value={selectedAgentId} />
+                <!-- @copilot: every card's button read "Add to agent", so a
+                     screen-reader user navigating by control could not tell
+                     which memory they were attaching — the surrounding card
+                     text is not part of the button's accessible name. The
+                     visible label stays short; the accessible one names the
+                     memory. -->
                 <button
                   type="submit"
+                  aria-label={t('marketplace.adopt.submit.named', 'Add {memory} to agent', { memory: memory.name })}
                   class="w-full rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500"
                 >
                   {t('marketplace.adopt.submit', 'Add to agent')}
                 </button>
 
                 {#if submittedMemoryId === memory.id && addToAgentError}
-                  <p role="alert" class="text-xs text-red-600 dark:text-red-400">{addToAgentError}</p>
+                  <p id="adopt-error-{memory.id}" role="alert" class="text-xs text-red-600 dark:text-red-400">{addToAgentError}</p>
                 {/if}
                 {#if submittedMemoryId === memory.id && addToAgentSuccess}
                   <p role="status" class="text-xs text-green-700 dark:text-green-400">{addToAgentSuccess}</p>

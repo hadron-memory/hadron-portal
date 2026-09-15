@@ -4,6 +4,7 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
+import { t } from '$lib/i18n/t';
 import { fetchOwnedAgents } from '$lib/server/personal-agents';
 import { ADD_MEMORY_TO_AGENT_MUTATION, MARKETPLACE_QUERY } from '$lib/server/queries';
 import { addMarketplaceMemoryToAgentSchema } from './schema';
@@ -149,11 +150,24 @@ export const actions: Actions = {
       // upsert is idempotent (#501), so this same success covers re-attaching
       // one the agent already had, and a message promising more than the call
       // establishes is hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee.
-      return message(form, { type: 'success', text: 'Added to your agent.' });
+      return message(form, {
+        type: 'success',
+        text: t('marketplace.adopt.success', 'Added to your agent.'),
+      });
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to add this memory to your agent') },
+        {
+          type: 'error',
+          // The FALLBACK goes through t(); the server's own GraphQL message is
+          // passed through untranslated, because it is the server's sentence
+          // and not ours to restate (hrn:node:hadronmemory.com:hadron-portal:review:user-strings-through-t-helper —
+          // and #837, where this exact line was the miss).
+          text: extractGqlError(
+            e,
+            t('marketplace.adopt.error', 'Failed to add this memory to your agent'),
+          ),
+        },
         { status: 500 },
       );
     }
