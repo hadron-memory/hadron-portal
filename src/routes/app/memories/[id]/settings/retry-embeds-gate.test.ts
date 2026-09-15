@@ -241,6 +241,17 @@ describe('#695 re-drive control — who is offered it (@codex P2 on #837)', () =
   });
 });
 
+// NOT TESTED, deliberately: that the re-drive does not `invalidateAll`
+// (@copilot on #837). A first attempt asserted the string in this component's
+// source, which is the shape
+// hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail
+// warns about — it cannot tell WHICH superForm on a ten-form page it matched,
+// and its negative clause would false-fail the day another form legitimately
+// wants the default. The real test is a client-lane mount that submits and
+// asserts nothing reached the `$app/navigation` recorder; this page is ~2300
+// lines with ten superforms behind a tab gate, and that fixture is its own
+// piece of work — the same call, for the same reason, as declining @codex's
+// client test on #828. The reasoning lives in the comment at the call site.
 describe('#695 re-drive outcome copy', () => {
   it('renders the ZERO count as a real answer, not as nothing', async () => {
     // The case a falsy check silently swallows — and the COMMON one, since a

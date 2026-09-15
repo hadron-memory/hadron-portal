@@ -6,6 +6,7 @@ import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
+import { t } from '$lib/i18n/t';
 import {
   UPDATE_MEMORY_MUTATION,
   DELETE_MEMORY_MUTATION,
@@ -338,7 +339,25 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to re-drive embeddings') },
+        {
+          type: 'error',
+          // @copilot on #837: the FALLBACK is user-visible copy, so it goes
+          // through the i18n boundary even though this page's older siblings
+          // leave theirs raw. review:user-strings-through-t-helper is explicit
+          // that the carve-out is a narrow KIND of string — section headers,
+          // page titles — and that an error message always routes through
+          // `t()` whatever its neighbours do. Not sweeping the siblings here;
+          // that is a separate, complete pass.
+          //
+          // The server's own message still wins when there is one:
+          // `extractGqlError` only falls back when the error carries no
+          // GraphQL message, and inventing a cause is what
+          // review:diagnostic-message-must-not-guarantee forbids.
+          text: extractGqlError(
+            e,
+            t('memory-settings.retry-embeds.failed', 'Failed to re-drive embeddings'),
+          ),
+        },
         { status: 500 },
       );
     }

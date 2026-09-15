@@ -252,11 +252,17 @@
   } = superForm<RetryFailedEmbeddingsForm, App.Superforms.Message, RetryFailedEmbeddingsForm>(initialRetryEmbedsForm, {
     validators: zod4Client(retryFailedEmbeddingsSchema),
     clearOnSubmit: 'none',
-    // #772: re-driving changes stored node state, so the page's own view of
-    // this memory is stale afterwards. Superforms invalidates by default; kept
-    // explicit because this action's whole effect is on data this page does
-    // not itself render.
-    invalidateAll: true,
+    // @copilot on #837: do NOT invalidate. Superforms invalidates by default,
+    // and here that default is expensive and buys nothing — this route's layout
+    // loader pages the memory's ENTIRE graph to completion (2000 nodes and
+    // edges per request, `+layout.server.ts`), so a button whose whole result
+    // is a count would re-fetch every node in the memory.
+    //
+    // Nothing this page renders changes: the re-drive re-stamps
+    // `embeddingFailedAt` on nodes, and the portal displays no embedding state
+    // anywhere (#257's slices 4/6 were never built — see #695's PR body). The
+    // count comes back in the action result, not from the reloaded data.
+    invalidateAll: false,
   });
 
   // The count comes back as DATA, not as message prose, so the sentence is
