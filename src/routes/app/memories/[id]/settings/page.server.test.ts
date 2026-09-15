@@ -852,3 +852,99 @@ describe('memory settings load — the owner (#652)', () => {
     }
   });
 });
+
+// ── `retryFailedEmbeddings` (#695 / server #882) ────────────────────────────
+
+function retryEv(form: Record<string, string> = {}, memId = 'mem-id-abc') {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(form)) fd.append(k, v);
+  return {
+    params: { id: memId },
+    locals: { token: 'test-token' },
+    request: { formData: async () => fd },
+  } as unknown as Parameters<
+    Awaited<ReturnType<typeof importActions>>['retryFailedEmbeddings']
+  >[0];
+}
+
+function retriedCountOf(result: unknown): unknown {
+  return (result as { retriedCount?: unknown } | undefined)?.retriedCount;
+}
+
+describe('memory-detail `retryFailedEmbeddings` action (#695 / server #882)', () => {
+  it('addresses the memory from params.id, not from the form', async () => {
+    // The mutation takes only a memoryRef, and the route already knows it. If
+    // it ever came off the form instead, a caller could re-drive a DIFFERENT
+    // memory than the page they are on — so the ref's provenance is pinned.
+    mockRequest.mockResolvedValueOnce({ retryFailedEmbeddings: 4 });
+    const actions = await importActions();
+
+    await actions.retryFailedEmbeddings(retryEv({ memoryRef: 'mem-SOMEONE-ELSE' }, 'mem-real'));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars).toEqual({ memoryRef: 'mem-real' });
+  });
+
+  it('returns the server count as DATA, and sets no success message prose', async () => {
+    // The outcome sentence has a number in it, so it must be built at the t()
+    // boundary on the client. A server-authored sentence here would be
+    // permanently untranslatable — and a success `message` would be dead
+    // string competing with the rendered one.
+    mockRequest.mockResolvedValueOnce({ retryFailedEmbeddings: 12 });
+    const actions = await importActions();
+
+    const result = await actions.retryFailedEmbeddings(retryEv());
+
+    expect(retriedCountOf(result)).toBe(12);
+    expect(successMessage(result)).toBeUndefined();
+  });
+
+  it('distinguishes zero from absent — 0 is a real answer, not a missing one', async () => {
+    // `retriedCount === 0` renders "No failed embeddings to re-drive."; a
+    // NULLISH count renders nothing at all. A falsy check would collapse the
+    // two and silently swallow the zero case, which is the common one.
+    mockRequest.mockResolvedValueOnce({ retryFailedEmbeddings: 0 });
+    const actions = await importActions();
+
+    const result = await actions.retryFailedEmbeddings(retryEv());
+
+    expect(retriedCountOf(result)).toBe(0);
+    expect(retriedCountOf(result)).not.toBeNull();
+    expect(retriedCountOf(result)).not.toBeUndefined();
+  });
+
+  it('surfaces a GraphQL failure as a scoped error message and no count', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const actions = await importActions();
+
+    const result = await actions.retryFailedEmbeddings(retryEv());
+
+    expect(successMessage(result)).toMatchObject({ type: 'error' });
+    // No count on the failure path: a rendered "Queued 0 nodes" beside an
+    // error would report work that never happened.
+    expect(retriedCountOf(result)).toBeUndefined();
+  });
+
+  it('rejects a payload carrying a SIBLING action’s discriminator', async () => {
+    // The page posts four forms to four actions. A `_kind` from the wrong one
+    // must fail validation rather than re-driving embeddings because a
+    // different form was submitted.
+    const actions = await importActions();
+
+    const result = await actions.retryFailedEmbeddings(retryEv({ _kind: 'updateVectorIndex' }));
+
+    expect(superFormFrom(result)?.valid).toBe(false);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('accepts an omitted _kind, since the schema defaults it', async () => {
+    mockRequest.mockResolvedValueOnce({ retryFailedEmbeddings: 1 });
+    const actions = await importActions();
+
+    const result = await actions.retryFailedEmbeddings(retryEv());
+
+    expect(retriedCountOf(result)).toBe(1);
+  });
+});

@@ -69,6 +69,18 @@ export const vectorIndexSettingsSchema = z.object({
   acknowledgeVectorInversionRisk: booleanString.default(false),
 });
 
+// #695 (server #882): re-drive every node whose last embed attempt FAILED.
+// The mutation takes only the memory ref, which the action reads from
+// `params.id` — so this form carries nothing but its discriminator. It exists
+// as a form rather than a bare button so the outcome can be reported through
+// the same scoped-message path as its siblings, instead of a second mechanism
+// on one page.
+export const retryFailedEmbeddingsSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('retryFailedEmbeddings').default('retryFailedEmbeddings'),
+});
+
 // #588: the shared JSON-payload soft size cap (alias, not a copy — PR #613
 // review flagged the drift risk of two independent 256KB constants).
 export const SCHEMA_JSON_MAX = JSON_FIELD_MAX;
@@ -127,4 +139,5 @@ export const deleteMemorySchema = z.object({
 export type MemorySettingsSchema = typeof memorySettingsSchema;
 export type VectorIndexSettingsSchema = typeof vectorIndexSettingsSchema;
 export type MemorySchemaSettingsSchema = typeof memorySchemaSettingsSchema;
+export type RetryFailedEmbeddingsSchema = typeof retryFailedEmbeddingsSchema;
 export type DeleteMemorySchema = typeof deleteMemorySchema;
