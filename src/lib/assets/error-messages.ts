@@ -89,6 +89,21 @@ const MESSAGES: Record<string, () => string> = {
  * build does not know.
  */
 export function assetErrorMessage(code: string | undefined, serverMessage: string): string {
-  const mapped = code ? MESSAGES[code] : undefined;
+  // `Object.hasOwn`, not a bare `MESSAGES[code]` (@copilot on #833). `code`
+  // arrives from the wire, and a plain object literal inherits from
+  // Object.prototype — so three of its keys break the fallback this module
+  // documents, measured rather than assumed:
+  //
+  //   __proto__    → truthy, not callable  → TypeError
+  //   valueOf      → truthy, throws on call → TypeError
+  //   constructor  → callable, returns {}   → an OBJECT where the signature
+  //                                           promises a string
+  //   toString     → callable               → "[object Undefined]"
+  //
+  // The last two are the worse pair: they do not throw, so the caller renders
+  // garbage into an error slot and nothing reports a fault. Not reachable from
+  // today's server codes — but this function's whole contract is that an
+  // UNKNOWN code falls back, and "unknown" is precisely the set no one controls.
+  const mapped = code && Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : undefined;
   return mapped ? mapped() : serverMessage;
 }

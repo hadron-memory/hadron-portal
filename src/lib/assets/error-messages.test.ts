@@ -71,6 +71,18 @@ describe('assetErrorMessage', () => {
     expect(assetErrorMessage(code, SERVER_MESSAGE)).toBe(SERVER_MESSAGE);
   });
 
+  // @copilot on #833: a plain object literal inherits from Object.prototype,
+  // so these resolve to something truthy and the fallback never runs. Two of
+  // them do not even throw — `constructor` returns an OBJECT and `toString`
+  // returns "[object Undefined]" — which renders garbage into an error slot
+  // with nothing reporting a fault.
+  it.each(['__proto__', 'constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
+    'falls back for the inherited key %s rather than resolving it',
+    (code) => {
+      expect(assetErrorMessage(code, SERVER_MESSAGE)).toBe(SERVER_MESSAGE);
+    },
+  );
+
   // Every mapped message must be a real sentence rather than an empty string —
   // a lookup that returns '' renders as a silent failure, which is the one
   // outcome worse than the raw prose.
