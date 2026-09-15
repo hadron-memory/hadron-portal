@@ -111,28 +111,54 @@ describe('signin action', () => {
     expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', undefined);
   });
 
-  it('passes through the marketplace redirect hidden field', async () => {
+  // #686: this used to be titled "passes through the MARKETPLACE redirect
+  // hidden field" and used `/browse?addMemory=<id>` as its value, from the
+  // sign-up intent chain removed in that issue. The chain is gone; this test is
+  // NOT. It is the only positive coverage of the hidden FORM FIELD as a
+  // redirect source — a different input from the `?redirect=` query string
+  // covered above — and deleting it with its example would have taken that
+  // coverage with it (Dara's rule: ask whose property a test is actually
+  // pinning before deleting it by call site). Re-pointed at a live path.
+  it('passes through a redirect supplied as a hidden form field', async () => {
     mockStartBoundMagicLink.mockResolvedValueOnce({ ok: true });
 
-    await runSignin(
-      { email: 'ada@example.test', redirect: '/browse?addMemory=demo-memory' },
-      '?memory=demo-memory',
-    );
+    await runSignin({ email: 'ada@example.test', redirect: '/app/memories' });
 
     expect(mockStartBoundMagicLink).toHaveBeenCalledWith(
       expect.anything(),
       'ada@example.test',
-      '/browse?addMemory=demo-memory',
+      '/app/memories',
     );
   });
 
   it('drops unsafe hidden-field redirects before starting the magic-link flow', async () => {
     mockStartBoundMagicLink.mockResolvedValueOnce({ ok: true });
 
-    await runSignin({ email: 'ada@example.test', redirect: 'https://evil.test' }, '?memory=demo-memory');
+    await runSignin({ email: 'ada@example.test', redirect: 'https://evil.test' });
 
     expect(mockStartBoundMagicLink).toHaveBeenCalledWith(expect.anything(), 'ada@example.test', undefined);
   });
+
+
+  // #686: a link written before #681 still carries `?memory=` / `?graph=`.
+  // It must be INERT — not resurrected into a redirect by anything. Pinned on
+  // the action because the action is what hands a redirect to the magic-link
+  // flow; if the removed intent were ever re-added in either place, a redirect
+  // would appear here instead of `undefined`.
+  it.each(['?memory=demo-memory', '?graph=demo-memory'])(
+    'ignores the retired sign-up intent in %s and sends no redirect',
+    async (search) => {
+      mockStartBoundMagicLink.mockResolvedValueOnce({ ok: true });
+
+      await runSignin({ email: 'ada@example.test' }, search);
+
+      expect(mockStartBoundMagicLink).toHaveBeenCalledWith(
+        expect.anything(),
+        'ada@example.test',
+        undefined,
+      );
+    },
+  );
 
   it('returns magic-link failures as Superforms messages', async () => {
     mockStartBoundMagicLink.mockResolvedValueOnce({ ok: false, status: 502, error: 'Could not reach the server.' });

@@ -11,17 +11,19 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
-  // If coming from marketplace with a memory param, redirect back there after auth
-  const memoryId = $derived(page.url.searchParams.get('memory') ?? page.url.searchParams.get('graph'));
+  // #686: no `?memory=` / `?graph=` handling here on purpose. That parameter
+  // used to become a `/browse?addMemory=<id>` post-auth redirect, but
+  // `addToMyMemories` was retired in hadron-server#771 and #681 removed both
+  // the CTAs that produced it and the `/browse` branch that read it — leaving a
+  // parameter /signin and /signup only passed to each other. Links written
+  // before #681 still carry it; it is ignored, and they land on the dashboard.
+  // Reviving adoption is #685, which needs a server capability, not this.
   // #439: only honor a same-origin local path; ignore attacker-supplied
   // absolute/protocol-relative redirect targets.
   const explicitRedirect = $derived(
     isLocalPath(page.url.searchParams.get('redirect')) ? page.url.searchParams.get('redirect') : null
   );
-  const emailRedirect = $derived(explicitRedirect ?? (memoryId ? `/browse?addMemory=${memoryId}` : null));
-  const postAuthRedirect = $derived(
-    emailRedirect ?? '/app/dashboard'
-  );
+  const postAuthRedirect = $derived(explicitRedirect ?? '/app/dashboard');
   // #477: go through the portal's own /auth/start/github so it can set the
   // session-fixation nonce cookie before bouncing to the server's OAuth start.
   const githubUrl = $derived(
@@ -98,8 +100,8 @@
 
       <!-- Email -->
       <form method="POST" use:emailEnhance novalidate>
-        {#if emailRedirect}
-          <input type="hidden" name="redirect" value={emailRedirect} />
+        {#if explicitRedirect}
+          <input type="hidden" name="redirect" value={explicitRedirect} />
         {/if}
         <label for="email" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Email</label>
         <input
@@ -130,7 +132,7 @@
     {/if}
 
     <p class="mt-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
-      Already have an account? <a href="/signin{explicitRedirect ? `?redirect=${encodeURIComponent(explicitRedirect)}` : memoryId ? `?memory=${memoryId}` : ''}" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Sign in</a>
+      Already have an account? <a href="/signin{explicitRedirect ? `?redirect=${encodeURIComponent(explicitRedirect)}` : ''}" class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Sign in</a>
     </p>
   </div>
 </div>
