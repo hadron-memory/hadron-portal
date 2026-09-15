@@ -103,13 +103,25 @@ describe('org-detail header symbol (#729)', () => {
     expect(symbol.slice(0, symbol.indexOf('>'))).toContain('aria-hidden="true"');
   });
 
-  it('lets the icon keep its size and a long org name break instead of overflowing', () => {
+  it('keeps shrink-0 on the icon and BOTH halves of the min-w-0 + break-words remedy', () => {
     // `min-w-0 break-words` is one remedy in two classes and NEITHER half
     // works alone — measured at 375px with a 51-char unbroken name, either
     // one on its own leaves 377px of horizontal overflow and both together
     // leave 18px (a pre-existing tab-strip overflow, not this header). So
     // both are asserted: dropping either is the bug coming back.
     // hrn:node:hadronmemory.com:hadron-portal:review:content-sized-control-needs-min-w-0.
+    //
+    // This test pins the CLASS CONTRACT, and its name says so rather than
+    // promising the overflow behaviour itself — because NEITHER lane can
+    // check that. `node` renders to an HTML string with no box model, and
+    // jsdom has no layout engine: `clientWidth`, `scrollWidth`, `offsetWidth`
+    // and `getBoundingClientRect().width` all measure 0 there (probed on
+    // this tree, not recalled). So a longer fixture name would read like an
+    // overflow test and assert exactly what this one does — the shape
+    // hrn:node:hadronmemory.com:hadron-portal:review:comment-cannot-enforce-a-per-instance-rule
+    // warns about, a check that looks like it ran. The overflow evidence is the browser
+    // measurement in the comment above and on PR #836; this is its
+    // regression pin.
     const html = renderAt('/app/orgs/org-1');
     const symbol = html.slice(html.indexOf('data-testid="org-symbol"'));
     expect(symbol.slice(0, symbol.indexOf('>'))).toContain('shrink-0');
