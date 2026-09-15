@@ -972,6 +972,25 @@ export const DELETE_MEMORY_MUTATION = /* GraphQL */ `
   mutation DeleteMemory($id: ID!) { deleteMemory(id: $id) }
 `;
 
+// #695 (server #882, merged in server #883): operator recovery for embeddings
+// that failed PERMANENTLY. Re-stamps every live node carrying
+// embeddingFailedAt, clears the failure state, wakes the embedding worker, and
+// returns HOW MANY were re-stamped.
+//
+// The return value is a count of nodes QUEUED, not nodes fixed — the worker has
+// not run yet when this resolves, so any copy built on it must say what was
+// queued rather than what now works
+// (hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee).
+//
+// It returns 0 for two different reasons — nothing was failing, and the memory
+// is not vector-indexed at all — so a caller that can be in the second state
+// must not render the first as an explanation.
+//
+// Gate: memory owner or org-ADMIN, the same one `updateMemory` uses.
+export const RETRY_FAILED_EMBEDDINGS_MUTATION = /* GraphQL */ `
+  mutation RetryFailedEmbeddings($memoryRef: ID!) { retryFailedEmbeddings(memoryRef: $memoryRef) }
+`;
+
 // #520: clone a memory's whole graph into a new memory at targetUrn
 // (`<org>::<slug>`). Server rejects system/encrypted sources and an occupied
 // or malformed targetUrn (BAD_USER_INPUT). Returns the new memory.

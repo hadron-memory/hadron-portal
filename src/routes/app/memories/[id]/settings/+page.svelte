@@ -16,6 +16,7 @@
     deleteMemorySchema,
     memorySchemaSettingsSchema,
     memorySettingsSchema,
+    retryFailedEmbeddingsSchema,
     vectorIndexSettingsSchema,
   } from './schema';
 
@@ -23,10 +24,12 @@
   type VectorIndexSettingsForm = Infer<typeof vectorIndexSettingsSchema, 'zod4'>;
   type MemorySchemaSettingsForm = Infer<typeof memorySchemaSettingsSchema, 'zod4'>;
   type DeleteMemoryForm = Infer<typeof deleteMemorySchema, 'zod4'>;
+  type RetryFailedEmbeddingsForm = Infer<typeof retryFailedEmbeddingsSchema, 'zod4'>;
   type MemorySettingsSuperform = SuperValidated<MemorySettingsForm, App.Superforms.Message, MemorySettingsForm>;
   type VectorIndexSettingsSuperform = SuperValidated<VectorIndexSettingsForm, App.Superforms.Message, VectorIndexSettingsForm>;
   type MemorySchemaSettingsSuperform = SuperValidated<MemorySchemaSettingsForm, App.Superforms.Message, MemorySchemaSettingsForm>;
   type DeleteMemorySuperform = SuperValidated<DeleteMemoryForm, App.Superforms.Message, DeleteMemoryForm>;
+  type RetryFailedEmbeddingsSuperform = SuperValidated<RetryFailedEmbeddingsForm, App.Superforms.Message, RetryFailedEmbeddingsForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const g = $derived(data.graph);
@@ -65,6 +68,24 @@
       (isOwnerOnly
         ? !!data.user?.id && data.user.id === g.userId
         : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
+  );
+
+  // #695 / @codex P2 on #837 — who may re-drive failed embeddings.
+  //
+  // The server gates `retryFailedEmbeddings` with
+  // `requireOwnerOrOrgRole(ctx, memory, 'ADMIN')` (read in
+  // `resolvers.mutation.memory.ts`, not inferred from the SDL comment): the
+  // memory's owner, OR an ADMIN/OWNER of its org. That is DELIBERATELY not
+  // `canDelete` above, which is stricter — on a personal memory it is
+  // owner-only, so reusing it would hide the control from an org admin the
+  // server would have allowed. Wrong in the other direction, but still wrong.
+  //
+  // Unlike the #839 share case this is only a pointless affordance, not a
+  // false statement: the mutation THROWS for an unauthorized caller and the
+  // page surfaces that verbatim. Hiding it stops offering a button whose only
+  // outcome is FORBIDDEN.
+  const canRetryEmbeds = $derived(
+    ownerIsViewer || myMember?.role === 'ADMIN' || myMember?.role === 'OWNER',
   );
 
   const initialSettingsForm = untrack(() => submittedForm<MemorySettingsForm>(form, 'updateMemorySettings') as MemorySettingsSuperform | null ?? data.form);
@@ -222,6 +243,39 @@
       }
     },
   });
+  // ── Re-drive failed embeddings (#695 / server #882) ─────────────────
+  const initialRetryEmbedsForm = untrack(() => submittedForm<RetryFailedEmbeddingsForm>(form, 'retryFailedEmbeddings') as RetryFailedEmbeddingsSuperform | null ?? data.retryEmbedsForm);
+  const {
+    message: retryEmbedsMessage,
+    submitting: retryEmbedsSubmitting,
+    enhance: retryEmbedsEnhance,
+  } = superForm<RetryFailedEmbeddingsForm, App.Superforms.Message, RetryFailedEmbeddingsForm>(initialRetryEmbedsForm, {
+    validators: zod4Client(retryFailedEmbeddingsSchema),
+    clearOnSubmit: 'none',
+    // @copilot on #837: do NOT invalidate. Superforms invalidates by default,
+    // and here that default is expensive and buys nothing — this route's layout
+    // loader pages the memory's ENTIRE graph to completion (2000 nodes and
+    // edges per request, `+layout.server.ts`), so a button whose whole result
+    // is a count would re-fetch every node in the memory.
+    //
+    // Nothing this page renders changes: the re-drive re-stamps
+    // `embeddingFailedAt` on nodes, and the portal displays no embedding state
+    // anywhere (#257's slices 4/6 were never built — see #695's PR body). The
+    // count comes back in the action result, not from the reloaded data.
+    invalidateAll: false,
+  });
+
+  // The count comes back as DATA, not as message prose, so the sentence is
+  // built here at the t() boundary with the number substituted AFTER it.
+  // Scoped by `_kind` so a sibling action's result never renders under this
+  // control (hrn:node:hadronmemory.com:hadron-portal:review:superforms-scope-message-by-kind).
+  const retriedCount = $derived.by(() => {
+    if (!submittedForm<RetryFailedEmbeddingsForm>(form, 'retryFailedEmbeddings')) return null;
+    const n = (form as { retriedCount?: unknown } | null)?.retriedCount;
+    return typeof n === 'number' ? n : null;
+  });
+  const retryEmbedsError = $derived(scopedActionError<RetryFailedEmbeddingsForm>(form, 'retryFailedEmbeddings', $retryEmbedsMessage));
+
   // ── Property schema (#588 / server #725) ────────────────────────────
   const initialSchemaForm = untrack(() => submittedForm<MemorySchemaSettingsForm>(form, 'updateSchema') as MemorySchemaSettingsSuperform | null ?? data.schemaForm);
   const {
@@ -721,6 +775,74 @@
         </div>
       {/if}
     </form>
+
+    <!-- #695 (server #882): operator recovery for PERMANENTLY failed embeds.
+         A sibling form, not a control inside the one above: nesting forms is
+         invalid HTML, and a re-drive must not carry that form's unsaved dials.
+
+         Gated on `g.vectorIndexEnabled` — the SAVED state — and deliberately
+         NOT on `$vectorForm.vectorIndexEnabled`, which is the checkbox's
+         current value and may be an unsaved tick. On an unsaved tick the
+         memory is not indexed yet, so the mutation returns 0 and the reader
+         would be told "no failed embeddings" about a memory that has no index
+         at all — two different facts behind one number
+         (hrn:node:hadronmemory.com:hadron-portal:review:control-gated-on-the-fact-not-a-summary).
+
+         It is NOT gated on "this memory has failed nodes", which is what #695
+         suggests: that needs a per-memory failed-node rollup, and neither
+         `Memory` nor this page has one. Counting a fetched page of nodes would
+         be a summary that disagrees with the server whenever the failures are
+         on page two. So the action is always offered while the index is on,
+         and the server's returned count is the only claim made. -->
+    {#if g.vectorIndexEnabled && canRetryEmbeds}
+      <form method="POST" action="?/retryFailedEmbeddings" use:retryEmbedsEnhance
+        class="mt-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-3" novalidate>
+        <input type="hidden" name="_kind" value="retryFailedEmbeddings" />
+
+        <div>
+          <h3 class="text-sm font-medium text-zinc-900 dark:text-white">{t('memory-settings.retry-embeds.heading', 'Failed embeddings')}</h3>
+          <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            {t('memory-settings.retry-embeds.help', 'Re-drives every node whose last embed attempt failed. Timeouts and server errors already retry themselves on a backoff — use this for failures that need an operator, such as a dimension mismatch or a rejected request.')}
+          </p>
+        </div>
+
+        {#if retryEmbedsError}
+          <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{retryEmbedsError}</div>
+        {:else if retriedCount !== null}
+          <!-- Says what was QUEUED, not what now works: the embedding worker
+               has not run when the mutation resolves, so a node counted here
+               may fail again on its next attempt.
+               hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee -->
+          <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+            {#if retriedCount === 0}
+              <!-- @copilot on #837: NEUTRAL, because 0 has two causes. The
+                   mutation returns 0 when nothing was failing AND when the
+                   memory is not vector-indexed, and `g.vectorIndexEnabled` is
+                   only this page's last-loaded state — which this form now
+                   deliberately does not refresh. So the index can have been
+                   turned off elsewhere and "no failed embeddings" would be a
+                   diagnosis the count cannot support. This says what happened
+                   instead, which is all the count actually tells us
+                   (hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee).
+                   My own queries.ts comment named the two causes and I then
+                   wrote copy that picked one. -->
+              {t('memory-settings.retry-embeds.none', 'No nodes were queued for re-embedding.')}
+            {:else if retriedCount === 1}
+              {t('memory-settings.retry-embeds.queued-one', 'Queued 1 node for re-embedding.')}
+            {:else}
+              {t('memory-settings.retry-embeds.queued', 'Queued {n} nodes for re-embedding.', { n: retriedCount })}
+            {/if}
+          </div>
+        {/if}
+
+        <button type="submit" disabled={$retryEmbedsSubmitting}
+          class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+          {$retryEmbedsSubmitting
+            ? t('memory-settings.retry-embeds.submitting', 'Re-driving...')
+            : t('memory-settings.retry-embeds.submit', 'Retry failed embeds')}
+        </button>
+      </form>
+    {/if}
   </section>
 
   <!-- #588 (server #725): Property schema — declared collections + typed

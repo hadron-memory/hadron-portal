@@ -6,9 +6,11 @@ import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
+import { t } from '$lib/i18n/t';
 import {
   UPDATE_MEMORY_MUTATION,
   DELETE_MEMORY_MUTATION,
+  RETRY_FAILED_EMBEDDINGS_MUTATION,
   ORGANIZATIONS_QUERY,
   RESOLVE_URN_QUERY,
   USER_PROFILE_QUERY,
@@ -20,6 +22,7 @@ import {
   deleteMemorySchema,
   memorySchemaSettingsSchema,
   memorySettingsSchema,
+  retryFailedEmbeddingsSchema,
   vectorIndexSettingsSchema,
 } from './schema';
 
@@ -27,10 +30,12 @@ const memorySettingsFormAdapter = zod4(memorySettingsSchema);
 const vectorIndexSettingsFormAdapter = zod4(vectorIndexSettingsSchema);
 const memorySchemaSettingsFormAdapter = zod4(memorySchemaSettingsSchema);
 const deleteMemoryFormAdapter = zod4(deleteMemorySchema);
+const retryFailedEmbeddingsFormAdapter = zod4(retryFailedEmbeddingsSchema);
 type MemorySettingsForm = Infer<typeof memorySettingsSchema, 'zod4'>;
 type VectorIndexSettingsForm = Infer<typeof vectorIndexSettingsSchema, 'zod4'>;
 type MemorySchemaSettingsForm = Infer<typeof memorySchemaSettingsSchema, 'zod4'>;
 type DeleteMemoryForm = Infer<typeof deleteMemorySchema, 'zod4'>;
+type RetryFailedEmbeddingsForm = Infer<typeof retryFailedEmbeddingsSchema, 'zod4'>;
 
 // FR-026: enabling the vector index on an encrypted memory without
 // acknowledging the embedding-inversion disclosure fails with this code.
@@ -118,7 +123,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
           return null;
         })
     : null;
-  const [form, vectorForm, schemaForm, deleteForm] = await Promise.all([
+  const [form, vectorForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
     superValidate<MemorySettingsForm>(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false }),
     superValidate<VectorIndexSettingsForm>(
       {
@@ -142,8 +147,9 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
       deleteMemoryFormAdapter,
       { errors: false },
     ),
+    superValidate<RetryFailedEmbeddingsForm>({}, retryFailedEmbeddingsFormAdapter, { errors: false }),
   ]);
-  return { allOrgs, owner, ownerUserId, form, vectorForm, schemaForm, deleteForm };
+  return { allOrgs, owner, ownerUserId, form, vectorForm, schemaForm, deleteForm, retryEmbedsForm };
 };
 
 export const actions: Actions = {
@@ -295,6 +301,63 @@ export const actions: Actions = {
       return message(
         form,
         { type: 'error', text: extractGqlError(e, 'Failed to update vector index') },
+        { status: 500 },
+      );
+    }
+  },
+
+  // #695 (server #882): re-drive permanently-failed embeddings. Its own action
+  // rather than a branch of updateVectorIndex, because it is a one-shot
+  // operation on stored state and not a settings edit — folding it in would let
+  // a re-drive carry whatever unsaved dial values happened to be in that form.
+  retryFailedEmbeddings: async ({ request, params, locals }) => {
+    const form = await superValidate<RetryFailedEmbeddingsForm>(
+      await request.formData(),
+      retryFailedEmbeddingsFormAdapter,
+    );
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      const res = await gqlClient(locals.token).request<{ retryFailedEmbeddings: number }>(
+        RETRY_FAILED_EMBEDDINGS_MUTATION,
+        { memoryRef: params.id },
+      );
+      // The count is what the SERVER re-stamped, never a number this page
+      // derived — the portal has no failed-node rollup to derive one from, and
+      // a count assembled here could disagree with the work actually done.
+      //
+      // Returned as DATA rather than as prose in `message`. The outcome copy is
+      // a status message with a number in it, so it has to be built at the
+      // `t()` boundary on the client — a sentence assembled here would be
+      // permanently untranslatable, and interpolating the count before that
+      // boundary is what #817 exists to stop
+      // (hrn:node:hadronmemory.com:hadron-portal:review:user-strings-through-t-helper).
+      // No success `message` is set: its text would be dead string nobody
+      // renders, and the presence of `retriedCount` under this form's own
+      // `_kind` is already the success signal.
+      return { form, retriedCount: res.retryFailedEmbeddings };
+    } catch (e: unknown) {
+      return message(
+        form,
+        {
+          type: 'error',
+          // @copilot on #837: the FALLBACK is user-visible copy, so it goes
+          // through the i18n boundary even though this page's older siblings
+          // leave theirs raw. hrn:node:hadronmemory.com:hadron-portal:review:user-strings-through-t-helper is explicit
+          // that the carve-out is a narrow KIND of string — section headers,
+          // page titles — and that an error message always routes through
+          // `t()` whatever its neighbours do. Not sweeping the siblings here;
+          // that is a separate, complete pass.
+          //
+          // The server's own message still wins when there is one:
+          // `extractGqlError` only falls back when the error carries no
+          // GraphQL message, and inventing a cause is what
+          // hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee forbids.
+          text: extractGqlError(
+            e,
+            t('memory-settings.retry-embeds.failed', 'Failed to re-drive embeddings'),
+          ),
+        },
         { status: 500 },
       );
     }
