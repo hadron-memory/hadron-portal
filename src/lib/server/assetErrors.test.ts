@@ -43,6 +43,40 @@ describe('mapAssetError', () => {
     expect(mapAssetError(gqlError('SCAN_BLOCKED'), 'x')[1].status).toBe(409);
   });
 
+  // #707 — the defect that issue's first part is about. This code was ABSENT
+  // from the table, so an infected upload fell to the catch-all and the user was
+  // told "the server had a problem": a verdict about their file, reported as our
+  // outage. hadron-server#924 made the code reachable; nothing consumed it.
+  it('maps a blocked upload to 409 rather than an INTERNAL 500', () => {
+    const [body, init] = mapAssetError(gqlError('MALWARE_BLOCKED'), 'completeAssetUpload');
+    expect(init.status).toBe(409);
+    expect(body.code).toBe('MALWARE_BLOCKED');
+    // The status is the half that matters here: 500 is the bug, and 400 would
+    // say the request was malformed when it was not.
+    expect(init.status).not.toBe(500);
+    expect(init.status).not.toBe(400);
+  });
+
+  // Found by diffing this table against every `new AssetUploadError(...)` in
+  // hadron-server, not against the issue — both reach portal endpoints and both
+  // were landing as 500s.
+  it.each([
+    ['MEMORY_ENCRYPTED_NO_KEY', 409],
+    ['TOOL_NOT_ENABLED', 403],
+  ])('maps %s to %i', (code, status) => {
+    expect(mapAssetError(gqlError(code as string), 'x')[1].status).toBe(status);
+  });
+
+  // The portal has no restore path, so these two reach nothing here. Mapping
+  // them would assert a surface that does not exist — and if a restore endpoint
+  // is ever added, this test failing is the reminder to map them deliberately.
+  it.each(['ASSET_BYTES_GONE', 'ASSET_NOT_DELETED'])(
+    'leaves %s unmapped, because the portal never calls restoreAsset',
+    (code) => {
+      expect(mapAssetError(gqlError(code), 'x')[1].status).toBe(500);
+    },
+  );
+
   it('maps the upload-refusal code to 400', () => {
     const [body, init] = mapAssetError(gqlError('MEMORY_NOT_ACCEPTING_UPLOADS'), 'x');
     expect(init.status).toBe(400);
