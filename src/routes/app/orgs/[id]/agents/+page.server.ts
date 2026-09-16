@@ -57,9 +57,20 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const client = gqlClient(locals.token);
   // #382: the org comes from the LAYOUT, which has already run
   // ORGANIZATION_QUERY for this same `params.id` on this same request. Fetching
-  // it again here was a second identical round trip per page load. The layout
-  // also raises the missing-org 404 and lets transient errors propagate as 500,
-  // which is the same split the removed comment described.
+  // it again here was a second identical round trip per page load.
+  //
+  // The comment removed from here claimed a 404-vs-500 split — transient errors
+  // propagating, only a missing org 404ing. @copilot on #842 caught me
+  // re-asserting it: the layout's `.catch` coerces EVERY rejection to 404, so
+  // that split does not exist. It did not exist before this change either. This
+  // loader called `parent()` (via `requireNonConsumer`), so the layout always
+  // resolved FIRST and its 404 already won — the propagation the old comment
+  // described was unreachable while it was being written. Nothing regressed
+  // here; a correct-sounding sentence was simply never true.
+  //
+  // Whether the layout SHOULD distinguish them is real and is filed separately:
+  // it governs every org page, and the answer has to account for a non-member,
+  // for whom a 500 would be worse than the 404 they get today.
   const { org } = await parent();
   const [apps, grantsData, publicAgents] = await Promise.all([
     // Which agents are already installed as an App → { agentId: { appId, appName } }.
