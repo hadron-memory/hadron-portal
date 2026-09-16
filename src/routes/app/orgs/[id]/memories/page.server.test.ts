@@ -54,13 +54,16 @@ async function runAction(
   } as never);
 }
 
-function ev(opts: { orgId?: string; userId?: string; tab?: string } = {}) {
+function ev(opts: { orgId?: string; userId?: string; tab?: string; org?: unknown } = {}) {
   const orgId = opts.orgId ?? 'org-1';
   const search = opts.tab ? `?tab=${opts.tab}` : '';
   return {
     params: { id: orgId },
     locals: { token: 'test-token', user: { id: opts.userId ?? 'u1' } },
-    parent: async () => ({}),
+    // #382: the org now arrives from the LAYOUT rather than from a second
+    // ORGANIZATION_QUERY in this loader, so the parent stub has to supply it.
+    // That the old `{}` stub stopped working is the contract change showing up.
+    parent: async () => ({ org: opts.org ?? fakeOrg }),
     url: new URL(`https://x/app/orgs/${orgId}/memories${search}`),
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
@@ -70,11 +73,13 @@ const fakeOrg = {
   members: [], memories: [], agents: [], subscriptions: [],
 };
 
-function routeMock(myMemories: unknown[]) {
+function routeMock(myMemories: unknown[], publicMemories: unknown[] = []) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === ORGANIZATION_QUERY) return { organization: fakeOrg };
     if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
-    if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
+    if (query === PUBLIC_MEMORIES_QUERY) {
+      return { memories: { items: publicMemories, total: publicMemories.length } };
+    }
     if (query === MEMORIES_QUERY) return { memories: { items: myMemories, total: myMemories.length } };
     throw new Error('Unexpected query');
   });
@@ -385,5 +390,56 @@ describe('memories-list unsubscribe action', () => {
 
     expect(result.status).toBe(500);
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+});
+
+/**
+ * #382 — the loader must NOT re-fetch the organization.
+ *
+ * The org layout already runs ORGANIZATION_QUERY for this same `params.id` on
+ * this same request; this loader used to run it again, and used its result for
+ * the owned/subscribed exclusion sets.
+ *
+ * The LOAD is pinned here. The ACTIONS deliberately still fetch the org
+ * themselves and must: a form POST runs the action BEFORE the layout load
+ * re-runs, so `parent()` is not available to them — which is why this asserts
+ * on `load` alone rather than on the module.
+ */
+describe('org memories load() — the org comes from the layout (#382)', () => {
+  it('returns the layout-supplied org and issues no ORGANIZATION_QUERY', async () => {
+    routeMock([]);
+    const load = await importLoad();
+    const result = (await load(ev())) as unknown as { org: unknown };
+
+    expect(result.org).toBe(fakeOrg);
+    expect(mockRequest.mock.calls.filter(([q]) => q === ORGANIZATION_QUERY)).toHaveLength(0);
+    // Still asks for what it does need, so "queried nothing" cannot pass this.
+    expect(mockRequest.mock.calls.filter(([q]) => q === MEMORIES_QUERY)).toHaveLength(1);
+  });
+
+  it('still exposes the exclusion sets built from that org', async () => {
+    // The org the layout hands over is what feeds availableMemories, so a
+    // loader that ACCEPTED the org and ignored it fails here rather than
+    // passing the absence check above.
+    //
+    // The public list must actually CONTAIN the excluded row, or `.some()` is
+    // false because the list is empty and the assertion never reaches the
+    // exclusion at all (hrn:node:hadronmemory.com:hadron-portal:review:a-spare-test-must-reach-the-matcher —
+    // the first draft of this test did exactly that).
+    const publicRows = [
+      { id: 'pub-1', name: 'Owned by this org', organizationId: 'org-9' },
+      { id: 'pub-2', name: 'Genuinely available', organizationId: 'org-9' },
+    ];
+    routeMock([], publicRows);
+    const load = await importLoad();
+    const result = (await load(
+      ev({ org: { ...fakeOrg, memories: [{ id: 'pub-1' }] } }),
+    )) as unknown as { availableMemories: Array<{ id: string }> };
+
+    // pub-1 is excluded BECAUSE the layout's org owns it …
+    expect(result.availableMemories.map((m) => m.id)).not.toContain('pub-1');
+    // … and pub-2 survives, which proves the filter ran rather than the list
+    // being empty.
+    expect(result.availableMemories.map((m) => m.id)).toContain('pub-2');
   });
 });

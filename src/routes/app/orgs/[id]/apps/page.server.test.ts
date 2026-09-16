@@ -39,6 +39,9 @@ function route() {
   });
 }
 
+/** The org the LAYOUT supplies. #382: the loader reads it from here. */
+const PARENT_ORG = { id: 'org-1', name: 'Org from layout' };
+
 async function runDelete(fields: Record<string, string>) {
   const { actions } = await importServer();
   const fd = new FormData();
@@ -66,13 +69,18 @@ describe('org apps load()', () => {
     const result = await load({
       params: { id: 'org-1' },
       locals: { token: 'tok' },
-      parent: async () => ({}),
+      parent: async () => ({ org: PARENT_ORG }),
     } as unknown as Parameters<typeof load>[0]) as {
+      org: unknown;
       apps: Array<{ id: string }>;
       deleteForm: { data: { _kind: string; id: string } };
     };
 
     expect(result.apps).toHaveLength(1);
+    // #382: `org` comes from the layout. Asserting it is what makes the
+    // parent stub load-bearing — with `parent: async () => ({})` this loader
+    // returns `org: undefined` and every other assertion here still passes.
+    expect((result as unknown as { org: unknown }).org).toBe(PARENT_ORG);
     expect(result.deleteForm.data).toMatchObject({
       _kind: 'deleteApp',
       id: '',
@@ -122,5 +130,36 @@ describe('org apps delete action', () => {
       type: 'error',
       text: 'cannot delete',
     });
+  });
+});
+
+/**
+ * #382 — the loader must NOT re-fetch the organization.
+ *
+ * `/app/orgs/[id]/+layout.server.ts` already runs ORGANIZATION_QUERY for this
+ * same `params.id` on this same request, and this loader used to run it again:
+ * two identical round trips per page load.
+ *
+ * Pinned as an ABSENCE, and an absence is the assertion most likely to pass for
+ * the wrong reason — so the companion test above asserts the org still arrives,
+ * from the parent. One without the other is satisfied by a loader that returns
+ * nothing at all.
+ */
+describe('org apps load() — the org comes from the layout, not a second query (#382)', () => {
+  it('issues no ORGANIZATION_QUERY of its own', async () => {
+    route();
+    const { load } = await importServer();
+
+    await load({
+      params: { id: 'org-1' },
+      locals: { token: 'tok' },
+      parent: async () => ({ org: PARENT_ORG }),
+    } as unknown as Parameters<typeof load>[0]);
+
+    const orgQueries = mockRequest.mock.calls.filter(([q]) => q === ORGANIZATION_QUERY);
+    expect(orgQueries).toHaveLength(0);
+    // And it still asks for what it actually needs, so "no queries at all"
+    // cannot pass this.
+    expect(mockRequest.mock.calls.filter(([q]) => q === APPS_QUERY)).toHaveLength(1);
   });
 });
