@@ -63,13 +63,19 @@ function route(opts: { grants?: unknown[]; grantsError?: boolean; publicAgents?:
   });
 }
 
+/** The org the LAYOUT supplies. #382: the loader reads it from here. */
+const PARENT_ORG = { id: ORG_ID, name: 'Org from layout', agents: [] };
+
 async function runLoad() {
   const { load } = await import('./+page.server');
   return (await load({
     params: { id: ORG_ID },
     locals: { token: 'tok' },
-    parent: vi.fn().mockResolvedValue({ isConsumerMode: false }),
+    // #382: the org now arrives from the LAYOUT rather than from a second
+    // ORGANIZATION_QUERY in this loader.
+    parent: vi.fn().mockResolvedValue({ isConsumerMode: false, org: PARENT_ORG }),
   } as never)) as {
+    org: unknown;
     subscribedGrants: unknown[] | null;
     subscribablePublicAgents: Array<{ id: string }>;
     subscribeForm: { data: { agentId: string } };
@@ -259,5 +265,27 @@ describe('org agents unsubscribe action (#651)', () => {
       status: 500,
       data: { form: { message: { type: 'error', text: 'AgentOrgGrant not found.' } } },
     });
+  });
+});
+
+/**
+ * #382 — the loader must NOT re-fetch the organization.
+ *
+ * The org layout already runs ORGANIZATION_QUERY for this same `params.id` on
+ * this same request; this loader used to run it again.
+ *
+ * Both directions are pinned, because an ABSENCE assertion is the one most
+ * likely to pass for the wrong reason: a loader that fetched nothing and
+ * returned nothing would satisfy "no ORGANIZATION_QUERY" on its own.
+ */
+describe('org agents load() — the org comes from the layout (#382)', () => {
+  it('returns the layout-supplied org and issues no ORGANIZATION_QUERY', async () => {
+    route({});
+    const result = await runLoad();
+
+    expect(result.org).toBe(PARENT_ORG);
+    expect(mockRequest.mock.calls.filter(([q]) => q === ORGANIZATION_QUERY)).toHaveLength(0);
+    // Still asks for what it does need, so "queried nothing" cannot pass.
+    expect(mockRequest.mock.calls.filter(([q]) => q === PUBLIC_AGENTS_QUERY)).toHaveLength(1);
   });
 });

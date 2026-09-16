@@ -1,6 +1,6 @@
 # Plan: standalone Memories / Agents / Apps routes (#382)
 
-Status: **draft — one decision open (§4), nothing moved yet.**
+Status: **§4 answered — B, by @Holger, 2026-09-16. Slice 1 landed.**
 Branch: `refactor/382-standalone-resource-routes`.
 
 ## 1. Why there is a plan doc
@@ -102,6 +102,9 @@ Small, removes a real per-request cost, and leaves the URLs users have.
 **Recommendation: B**, with the issue retitled, because the symptom that
 produced the dispatch is not a routing symptom at all (§5).
 
+> **Decided: B** (@Holger, 2026-09-16). No route moves. The URLs users have
+> stay; the duplicated query goes.
+
 ## 5. What actually causes the reported symptom, and it is neither A nor B
 
 The report was: *"My memories shows the same two entries whichever organization
@@ -124,8 +127,15 @@ routing migration.
 
 Under **B**:
 
-1. Remove the duplicated `ORGANIZATION_QUERY` from the three list loaders; read
-   `org` from `parent()`. Pin the request count in a test.
+1. ~~Remove the duplicated `ORGANIZATION_QUERY` from the three list loaders;
+   read `org` from `parent()`. Pin the request count in a test.~~ **Done.**
+   All three loaders read `parent()`. The dead local 404s went with it — the
+   layout raises that before the page loader runs. Each route pins BOTH
+   directions: no `ORGANIZATION_QUERY` of its own, **and** the layout's org
+   still reaching the page, because an absence assertion alone is satisfied by
+   a loader that fetches nothing. Mutation-checked in both directions per
+   route. The memories ACTIONS still fetch the org themselves and must: a form
+   POST runs the action before the layout load re-runs.
 2. Widen the personal-memory query from class to ownership (separate issue).
 3. Update `hrn:node:hadronmemory.com:hadron-portal:conventions:orgless-detail-routes` — **done** ahead of both, since
    the dispatch asked for the stale wording to be fixed regardless.

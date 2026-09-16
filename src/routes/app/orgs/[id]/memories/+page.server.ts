@@ -1,4 +1,4 @@
-import { error, fail } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -39,10 +39,16 @@ const unsubscribeOrgMemoryFormAdapter = zod4(unsubscribeOrgMemorySchema);
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
-  const [orgData, systemMemories, publicMemories, myMemories] = await Promise.all([
-    client.request<{ organization: Organization | null }>(
-      ORGANIZATION_QUERY, { ref: params.id },
-    ),
+  // #382: the org comes from the LAYOUT, which has already run
+  // ORGANIZATION_QUERY for this same `params.id` on this same request. Fetching
+  // it again here was a second identical round trip per page load, and the
+  // layout raises the missing-org 404 before this loader runs at all — so the
+  // null check that used to follow could never fire.
+  //
+  // The ACTIONS below still fetch it themselves, and must: a form POST runs the
+  // action BEFORE the layout load re-runs, so `parent()` is not available there.
+  const { org } = await parent();
+  const [systemMemories, publicMemories, myMemories] = await Promise.all([
     fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
       .catch(() => [] as Memory[]),
     fetchAllItems<Memory>(gqlClient(), PUBLIC_MEMORIES_QUERY, 'memories')
@@ -50,12 +56,9 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     fetchAllItems<Memory>(client, MEMORIES_QUERY, 'memories')
       .catch(() => [] as Memory[]),
   ]);
-  // organization(ref:) returns null for a missing org (denied throws above) —
-  // surface it as a clean 404 rather than a TypeError 500.
-  if (!orgData?.organization) throw error(404, 'Organization not found');
   // Exclude memories already owned or subscribed to by this org
-  const ownedIds = new Set((orgData.organization.memories ?? []).map((m) => m.id));
-  const subscribedIds = new Set((orgData.organization.subscriptions ?? []).map((s) => s.memory.id));
+  const ownedIds = new Set((org.memories ?? []).map((m) => m.id));
+  const subscribedIds = new Set((org.subscriptions ?? []).map((s) => s.memory.id));
   const availableMemories = publicMemories.filter(
     (m) => !ownedIds.has(m.id) && !subscribedIds.has(m.id) && m.organizationId !== params.id,
   );
@@ -99,7 +102,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     ),
   ]);
   return {
-    org: orgData.organization,
+    org,
     systemMemories,
     availableMemories,
     personalMemories,

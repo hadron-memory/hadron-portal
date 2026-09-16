@@ -1,4 +1,4 @@
-import { error, fail } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -8,14 +8,12 @@ import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
 import {
-  ORGANIZATION_QUERY,
   ORG_APP_INSTALLS_QUERY,
   ORG_AGENT_GRANTS_QUERY,
   PUBLIC_AGENTS_QUERY,
   CREATE_AGENT_ORG_GRANT_MUTATION,
   REVOKE_AGENT_ORG_GRANT_MUTATION,
 } from '$lib/server/queries';
-import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { orgAgentSubscribeSchema, orgAgentUnsubscribeSchema } from './schema';
 
@@ -57,11 +55,13 @@ export interface AgentGrant {
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
-  const [data, apps, grantsData, publicAgents] = await Promise.all([
-    // Let transient GraphQL/network errors propagate (→ 500); a genuinely
-    // missing org is handled by the `!data.organization` 404 below. (Coercing
-    // every error to 404 here would hide real failures — the spec-018 lesson.)
-    client.request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: params.id }),
+  // #382: the org comes from the LAYOUT, which has already run
+  // ORGANIZATION_QUERY for this same `params.id` on this same request. Fetching
+  // it again here was a second identical round trip per page load. The layout
+  // also raises the missing-org 404 and lets transient errors propagate as 500,
+  // which is the same split the removed comment described.
+  const { org } = await parent();
+  const [apps, grantsData, publicAgents] = await Promise.all([
     // Which agents are already installed as an App → { agentId: { appId, appName } }.
     // Non-fatal: on failure the "Open" affordance simply doesn't render.
     fetchAllItems<AppInstall>(client, ORG_APP_INSTALLS_QUERY, 'apps', { orgId: params.id }).catch(
@@ -89,7 +89,6 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }),
   ]);
 
-  if (!data.organization) throw error(404, 'Organization not found');
 
   // First install wins if an agent is installed in more than one app.
   const installedByAgent: Record<string, { appId: string; appName: string }> = {};
@@ -128,7 +127,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   ]);
 
   return {
-    org: data.organization,
+    org,
     installedByAgent,
     subscribedGrants,
     subscribablePublicAgents,
