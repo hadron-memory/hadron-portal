@@ -56,7 +56,7 @@ function describeClause(clause: UiClause): string {
   // already a `Set` and therefore immune, so a prototype key cannot reach a
   // clause built the normal way. Guarded anyway because the `??` here is the
   // only thing standing between a hand-built tree and an inherited value being
-  // interpolated into a user-facing sentence — and `?? ` does not fire on one,
+  // interpolated into a user-facing sentence — and `??` does not fire on one,
   // since a function is not nullish.
   const phrase = lookupOwn(OPERATOR_PHRASES, clause.operator) ?? clause.operator;
   return `${field} ${phrase} ${describeValue(clause.value, clause.operator)}`.trimEnd();

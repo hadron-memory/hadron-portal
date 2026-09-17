@@ -380,6 +380,15 @@
   ondragover={(e) => { if (dragUid) e.preventDefault(); }}
   ondrop={(e) => e.preventDefault()}
 >
+  <!-- #835: the three `WIDGET_REGISTRY[item.type]` reads in this template index
+       the literal directly and dereference the result, so they depend on an
+       invariant rather than a guard: EVERY path into `items` admits only
+       registered types. There are two, and both enforce it — the seed filters
+       through `lookupOwn` (see `items`), and `addWidget` takes a `WidgetType`
+       chosen from the registry itself. Add a third (restore-from-draft, a
+       preset applied straight from a server payload, an undo buffer) and it
+       must filter the same way, or an unregistered type reaches here and
+       renders an empty widget in silence. -->
   {#each items as item, i (item.uid)}
     {@const Widget = WIDGET_REGISTRY[item.type].component}
     <div

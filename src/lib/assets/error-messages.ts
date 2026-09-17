@@ -96,10 +96,11 @@ export function assetErrorMessage(code: string | undefined, serverMessage: strin
   // WITHOUT throwing (`constructor` returns an object where the signature
   // promises a string; `toString` returns "[object Undefined]").
   //
-  // This was #833's inline `Object.hasOwn`. #835 found seven more sites and
-  // moved the guard behind one named helper, so the class has a single
-  // implementation, a single test suite over the prototype keys, and one thing
-  // for a reviewer to look for rather than a spelling to re-derive per site.
+  // This was #833's inline `Object.hasOwn`. #835 swept the rest — 19 lookups
+  // across 12 files — and moved the guard behind one named helper, so the class
+  // has a single implementation, a single test suite over the prototype keys,
+  // and one thing for a reviewer to look for rather than a spelling to
+  // re-derive per site.
   const mapped = lookupOwn(MESSAGES, code);
   return mapped ? mapped() : serverMessage;
 }
