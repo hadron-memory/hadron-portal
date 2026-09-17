@@ -7,6 +7,7 @@
  * a 1900-line component can only be checked by rendering the whole App page.
  * Here it is a function with a test.
  */
+import { lookupOwn } from '$lib/lookup';
 import type { ReleaseOutcome, ReleaseWorkerMessage } from './schema';
 
 export type ReleaseNotice = { text: string; role: 'status' | 'alert'; class: string };
@@ -59,6 +60,11 @@ export function releaseNotice(message: ReleaseWorkerMessage | undefined | null):
   // lookup is then `undefined` at runtime while typed non-nullable, and reading
   // `.role` off it throws inside a `$derived` — taking the whole page down to
   // decorate a box. Unknown degrades to neutral, exactly as absent does.
-  const chrome = (message.outcome && CHROME[message.outcome]) || NEUTRAL;
+  // #835 — `lookupOwn` for the same cross-version reason the comment above
+  // gives. An inherited key is truthy, so `|| NEUTRAL` never fires and `chrome`
+  // becomes a function whose `.role` and `.class` are both undefined: the
+  // notice renders with no ARIA role, which is the a11y half of the very
+  // degradation this fallback exists to prevent.
+  const chrome = lookupOwn(CHROME, message.outcome) ?? NEUTRAL;
   return { text: message.text, role: chrome.role, class: chrome.class };
 }

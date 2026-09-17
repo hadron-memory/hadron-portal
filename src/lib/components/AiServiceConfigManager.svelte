@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { lookupOwn } from '$lib/lookup';
   import { invalidateAll } from '$app/navigation';
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
   import type { AiConfigOwnerType, AiServiceConfig, AIProvider } from '$lib/types';
@@ -426,7 +427,7 @@
           id="ac-model"
           type="text"
           bind:value={modelInput}
-          placeholder={DEFAULT_MODELS[providerInput]}
+          placeholder={lookupOwn(DEFAULT_MODELS, providerInput)}
           class={inputClass}
         />
       </div>

@@ -2,6 +2,7 @@
   import type { PageData } from './$types';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
+  import { lookupOwn } from '$lib/lookup';
 
   let { data }: { data: PageData } = $props();
 
@@ -17,8 +18,13 @@
   };
 
   function typeMeta(entityType: string) {
+    // #835 — `lookupOwn`. `entityType` is the search hit's kind, straight off
+    // the wire. Indexed directly, an inherited key is non-nullish, so the `??`
+    // below never runs and the chip gets a function whose `.label` and `.cls`
+    // are both undefined — losing exactly the "show the raw type verbatim"
+    // fallback this function was written to provide.
     return (
-      TYPE_META[entityType] ?? {
+      lookupOwn(TYPE_META, entityType) ?? {
         label: entityType,
         cls: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200',
       }

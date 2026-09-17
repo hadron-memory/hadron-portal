@@ -67,6 +67,24 @@ describe('releaseNotice', () => {
     expect(notice?.class).not.toContain('green');
   });
 
+  // #835 — the same degradation the test above pins, for the keys the literal
+  // inherits. `CHROME[outcome]` was truthy for these, so `|| NEUTRAL` never
+  // fired and `chrome.role` came back undefined: the notice rendered with no
+  // ARIA role at all, which is the a11y failure the neutral fallback exists to
+  // prevent. Asserting NEUTRAL's role rather than "not green".
+  it.each(['constructor', '__proto__', 'toString', 'valueOf'])(
+    'degrades the inherited key %s to neutral, keeping the ARIA role',
+    (outcome) => {
+      const notice = releaseNotice({
+        type: 'success',
+        outcome: outcome as ReleaseOutcome,
+        text: 'Something happened.',
+      });
+      expect(notice?.role).toBe('status');
+      expect(notice?.class).not.toContain('green');
+    },
+  );
+
   it('gives each outcome its own chrome', () => {
     const chrome = (['released', 'announcement-failed', 'not-held'] as const).map(
       (outcome) => {

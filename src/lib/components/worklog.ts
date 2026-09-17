@@ -1,3 +1,4 @@
+import { lookupOwn } from '$lib/lookup';
 import type { TeamWorkItem } from '$lib/types';
 
 /**
@@ -115,5 +116,14 @@ const ACTION_CLASSES: Record<string, string> = {
 const ACTION_NEUTRAL = 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300';
 
 export function actionClass(action: string): string {
-  return ACTION_CLASSES[action?.trim().toLowerCase()] ?? ACTION_NEUTRAL;
+  // #835 — `lookupOwn`, because the docblock above is exactly the contract a
+  // bare index breaks. `action` is a FREE VERB on the worklog
+  // (`hadron_record_work(action:)` accepts any string), so `constructor` and
+  // `__proto__` are values a caller can genuinely record. Indexed directly they
+  // are non-nullish, so `??` never reaches ACTION_NEUTRAL and the chip is
+  // handed a function or Object.prototype as its class list.
+  //
+  // Lowercasing narrows but does not close it: `toString`/`valueOf` fold to
+  // non-keys, `constructor` and `__proto__` are already lowercase.
+  return lookupOwn(ACTION_CLASSES, action?.trim().toLowerCase()) ?? ACTION_NEUTRAL;
 }

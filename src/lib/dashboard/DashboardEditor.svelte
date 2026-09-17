@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { lookupOwn } from '$lib/lookup';
   // #636 / server #788: the in-place dashboard editor. Rendered by
   // /app/dashboard when the user hits Customize: the same 12-col grid the
   // dashboard shows, with each widget wrapped in edit chrome — drag a card to
@@ -52,7 +53,7 @@
   } = $props();
 
   const titleOf = (type: WidgetType): string => {
-    const def = WIDGET_REGISTRY[type];
+    const def = lookupOwn(WIDGET_REGISTRY, type);
     return def ? t(def.titleKey, def.titleDefault) : type;
   };
 
@@ -82,7 +83,7 @@
   // Seeded from the loaded placements once; the editor then owns this state
   // (same capture-initial-value pattern as the old picker), so untrack the seed.
   let items = $state(
-    untrack(() => placements.filter((p) => WIDGET_REGISTRY[p.type]).map(withUid)),
+    untrack(() => placements.filter((p) => lookupOwn(WIDGET_REGISTRY, p.type)).map(withUid)),
   );
 
   // What gets posted: the placements in display order, uid stripped. Also the
@@ -114,7 +115,7 @@
   );
 
   function addWidget(type: WidgetType) {
-    const def = WIDGET_REGISTRY[type];
+    const def = lookupOwn(WIDGET_REGISTRY, type);
     items = [
       ...items,
       withUid({

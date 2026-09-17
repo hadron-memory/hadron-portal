@@ -10,6 +10,7 @@ import {
   DELETE_DASHBOARD_WIDGET_PRESET_MUTATION,
 } from '$lib/server/queries';
 import { WIDGET_TYPE_FROM_SERVER, WIDGET_TYPE_TO_SERVER } from '$lib/dashboard/widgets/types';
+import { lookupOwn } from '$lib/lookup';
 import type { WidgetType } from '$lib/dashboard/widgets/types';
 import type { RequestHandler } from './$types';
 
@@ -20,7 +21,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     config?: unknown;
   };
   const serverType =
-    typeof body.type === 'string' ? WIDGET_TYPE_TO_SERVER[body.type as WidgetType] : undefined;
+    typeof body.type === 'string' ? lookupOwn(WIDGET_TYPE_TO_SERVER, body.type) : undefined;
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   if (!serverType || !name || body.config == null || typeof body.config !== 'object' || Array.isArray(body.config)) {
     return json({ error: 'Invalid preset payload.' }, { status: 400 });
@@ -36,7 +37,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }>(CREATE_DASHBOARD_WIDGET_PRESET_MUTATION, { type: serverType, name, config: body.config });
     const p = data.createDashboardWidgetPreset;
     return json({
-      preset: { id: p.id, type: WIDGET_TYPE_FROM_SERVER[p.type], name: p.name, config: p.config },
+      preset: { id: p.id, type: lookupOwn(WIDGET_TYPE_FROM_SERVER, p.type), name: p.name, config: p.config },
     });
   } catch (e) {
     // Duplicate names come back as BAD_USER_INPUT with a human message — the

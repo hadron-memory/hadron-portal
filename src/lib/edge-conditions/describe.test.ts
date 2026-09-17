@@ -25,6 +25,24 @@ describe('describeField', () => {
   });
 });
 
+// #835. Belt-and-braces rather than a live defect: `deserialize()` refuses any
+// operator outside `UI_OPERATORS`, which is already a Set and therefore immune,
+// so a clause built the normal way cannot carry one of these. Pinned because
+// the `?? clause.operator` fallback is what a hand-built tree relies on, and it
+// does NOT fire on an inherited key — a function is not nullish, so the phrase
+// slot would have been filled with `function Object() { [native code] }`
+// interpolated into a user-facing sentence.
+describe('describeCondition — inherited operator keys (#835)', () => {
+  it.each(['constructor', '__proto__', 'toString', 'valueOf'])(
+    'shows the operator %s verbatim rather than an inherited value',
+    (operator) => {
+      const out = describeCondition(group('and', [clause('score', operator, '3')]));
+      // The documented fallback is the operator itself, so assert exactly that.
+      expect(out).toBe(`when score ${operator} 3`);
+    },
+  );
+});
+
 describe('describeCondition', () => {
   it('is null for an empty condition (caller phrases "always")', () => {
     expect(describeCondition(null)).toBeNull();

@@ -3,6 +3,7 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { lookupOwn } from '$lib/lookup';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
@@ -446,7 +447,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // otherwise — an unknown value falls back to the default rather than
   // rendering a blank page where no tab body matches.
   const rawTab = url.searchParams.get('tab');
-  const alias = rawTab ? RETIRED_TAB_ALIASES[rawTab] : undefined;
+  // #835 — `lookupOwn`. This key is whatever a visitor types into `?tab=`, and
+  // an inherited one made `alias` truthy, so `initialTab` became `undefined`
+  // where the comment above promises "coerced to null otherwise". Benign
+  // downstream (the page does `?? 'chats'`), but the code and its stated
+  // contract disagreed, and this is the site that shows how short the distance
+  // is from "our own enum" to attacker-typed: one `searchParams.get`.
+  const alias = lookupOwn(RETIRED_TAB_ALIASES, rawTab);
   const initialTab = alias ? alias.tab : APP_TAB_IDS.includes(rawTab ?? '') ? rawTab : null;
   // An explicit ?chat= wins over the one a retired tab id implies, so a link
   // carrying both is not silently overridden by the alias.
@@ -921,7 +928,11 @@ export const actions: Actions = {
       // including a transport failure with no GraphQL payload — falls through
       // to the server's own message rather than being relabelled as a user
       // mistake (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
-      const known = CAST_WORKER_ERRORS[gqlErrorCode(e) ?? ''];
+      // #835 — `lookupOwn`: the key is the server's `extensions.code`, so an
+      // inherited one returns a callable that `known()` below would invoke,
+      // putting `{}` into a user-facing error slot instead of the server's own
+      // message. Same shape as the asset copy table fixed in #833.
+      const known = lookupOwn(CAST_WORKER_ERRORS, gqlErrorCode(e));
       return message(
         form,
         {
@@ -972,7 +983,8 @@ export const actions: Actions = {
         text: t('app.team-chat.post.success', 'Posted to the team chat.'),
       });
     } catch (e: unknown) {
-      const known = TEAM_CHAT_POST_ERRORS[gqlErrorCode(e) ?? ''];
+      // #835 — as above: wire-supplied key, so guard the lookup.
+      const known = lookupOwn(TEAM_CHAT_POST_ERRORS, gqlErrorCode(e));
       return message(
         form,
         {

@@ -14,6 +14,7 @@
 
 import { ClientError } from 'graphql-request';
 import { LOC_CONFLICT_CODE } from '$lib/assets/error-codes';
+import { lookupOwn } from '$lib/lookup';
 
 /**
  * Codes hadron-server actually emits on the asset surface, each with the status
@@ -97,7 +98,12 @@ export function mapAssetError(
   if (err instanceof ClientError && err.response?.errors?.length) {
     const first = err.response.errors[0];
     const code = (first.extensions as { code?: string } | undefined)?.code;
-    const status = code ? KNOWN[code] : undefined;
+    // #835 — `lookupOwn`, not `KNOWN[code]`. `code` comes off the wire, and an
+    // inherited key makes `status` a FUNCTION that passes the truthiness guard
+    // below; `json(body, { status })` then throws on a non-numeric status,
+    // turning an unmapped code into a crash instead of the clean 500 the
+    // `console.error` path underneath is written to produce.
+    const status = lookupOwn(KNOWN, code);
     if (code && status) {
       return [{ code, message: first.message ?? 'asset request failed' }, { status }];
     }

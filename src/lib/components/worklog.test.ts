@@ -144,6 +144,32 @@ describe('actionClass', () => {
     expect(actionClass('rebased')).toContain('zinc');
     expect(actionClass('')).toContain('zinc');
   });
+
+  // #835 — the sharpest instance of the class, because `action` really is free:
+  // `hadron_record_work(action:)` takes any verb, so these are values a caller
+  // can genuinely record rather than a theoretical key. Indexed directly they
+  // are non-nullish, so `?? ACTION_NEUTRAL` never ran and the chip was handed a
+  // function (or Object.prototype) as its class list.
+  //
+  // Asserting the NEUTRAL value, not merely `not.toContain('violet')` — the
+  // weaker assertion passes on the garbage too, which is the trap
+  // `hrn:node:hadronmemory.com:hadron-portal:findings:a-lookup-table-answers-for-keys-it-does-not-have`
+  // names.
+  it.each(['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty'])(
+    'falls back to neutral for the inherited key %s',
+    (action) => {
+      expect(actionClass(action)).toContain('zinc');
+    },
+  );
+
+  it('lowercasing narrows the hazard but does not close it', () => {
+    // Worth pinning because it is the reason this site needed the guard at all:
+    // `toString`/`valueOf` fold to non-keys under toLowerCase(), so someone
+    // measuring only those two would conclude the site was already safe.
+    // `constructor` and `__proto__` are already lowercase and reach the table.
+    expect(actionClass('CONSTRUCTOR')).toContain('zinc');
+    expect(actionClass('  constructor  ')).toContain('zinc');
+  });
 });
 
 // Codex P2 + Copilot on #739. The tool control previously derived its OPTIONS
