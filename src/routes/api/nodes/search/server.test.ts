@@ -10,7 +10,9 @@ vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) 
 
 import { POST } from './+server';
 
-beforeEach(() => mockRequest.mockReset());
+beforeEach(() => {
+  mockRequest.mockReset();
+});
 
 function ev(body: unknown, token: string | null = 'tok') {
   return { request: { json: async () => body }, locals: { token } } as unknown as Parameters<

@@ -11,7 +11,9 @@ const mockFetchAll = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: vi.fn() }) }));
 vi.mock('$lib/server/paginate', () => ({ fetchAllItems: (...a: unknown[]) => mockFetchAll(...a) }));
 
-beforeEach(() => mockFetchAll.mockReset());
+beforeEach(() => {
+  mockFetchAll.mockReset();
+});
 
 describe('fetchOwnedMemories', () => {
   it('keeps only org-less (user-owned) memories, dropping org-owned ones', async () => {

@@ -13,7 +13,9 @@ import {
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 
-beforeEach(() => mockRequest.mockReset());
+beforeEach(() => {
+  mockRequest.mockReset();
+});
 
 async function importMod() {
   return import('./+server');

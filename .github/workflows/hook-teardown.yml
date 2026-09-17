@@ -1,0 +1,31 @@
+# #848 — fail when a before* hook hands vitest a teardown it never meant to.
+#
+# `mockReset()` and friends return THE MOCK, and vitest calls a function
+# returned from `beforeEach`/`beforeAll` as a teardown callback — so
+# `beforeEach(() => m.mockReset())` invokes `m` after every test. Usually
+# invisible; with a rejecting implementation installed it is an unhandled
+# rejection reported against the test that just PASSED, with no assertion
+# message and a stack pointing at the fixture.
+#
+# Shaped like `grid-filters` and `no-station-refs`: a small, app-independent
+# gate in its own job so it reports separately from `ci`, needing no history
+# and no base resolution. The tree is clean as of #848, so it checks the tree
+# as it stands rather than the diff — which also catches a file that regresses
+# on a line nobody touched.
+name: hook-teardown
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  hook-teardown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: A before* hook must not return a mock
+        run: node scripts/check-hook-teardown.mjs

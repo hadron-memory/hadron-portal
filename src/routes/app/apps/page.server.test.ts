@@ -22,7 +22,9 @@ function ev() {
 }
 
 describe('/app/apps (My apps)', () => {
-  beforeEach(() => fetchOwnedApps.mockReset());
+  beforeEach(() => {
+    fetchOwnedApps.mockReset();
+  });
 
   it('returns the caller\'s own apps on success', async () => {
     const apps = [{ id: 'p1', urn: 'u', name: 'P', organizationId: null }];

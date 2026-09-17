@@ -16,7 +16,9 @@ const mockFetchAll = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: vi.fn() }) }));
 vi.mock('$lib/server/paginate', () => ({ fetchAllItems: (...a: unknown[]) => mockFetchAll(...a) }));
 
-beforeEach(() => mockFetchAll.mockReset());
+beforeEach(() => {
+  mockFetchAll.mockReset();
+});
 
 describe('MY_AGENTS_QUERY / MY_APPS_QUERY', () => {
   it('scope server-side with filter.ownedByMe', () => {

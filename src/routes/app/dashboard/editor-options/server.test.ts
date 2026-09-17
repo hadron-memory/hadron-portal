@@ -12,7 +12,9 @@ afterAll(() => errorSpy.mockRestore());
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 
-beforeEach(() => mockRequest.mockReset());
+beforeEach(() => {
+  mockRequest.mockReset();
+});
 
 function ev() {
   return { locals: { token: 't' } } as unknown as Parameters<

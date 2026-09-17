@@ -13,7 +13,9 @@ afterAll(() => errorSpy.mockRestore());
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 
-beforeEach(() => mockRequest.mockReset());
+beforeEach(() => {
+  mockRequest.mockReset();
+});
 
 async function runGet(search = '') {
   const { GET } = await import('./+server');
