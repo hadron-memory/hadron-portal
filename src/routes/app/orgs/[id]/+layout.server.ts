@@ -1,8 +1,80 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { ORGANIZATION_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { LayoutServerLoad } from './$types';
+
+/**
+ * #843 — the codes that mean "this URL names no org you can open", so a 404 is
+ * the honest answer. Everything NOT listed propagates and becomes a 500.
+ *
+ * Every entry is lifted from the server's `formatError.ts` mapping table rather
+ * than guessed. A guessed SCREAMING_CASE constant matches nothing and fails
+ * silently — `hrn:node:hadronmemory.com:hadron-portal:findings:node-write-error-codes-are-class-names`
+ * is that mistake, and `AmbiguousLegacyUrnError` below is why it matters here:
+ * that code really is the class name, not `AMBIGUOUS_LEGACY_URN`.
+ *
+ *   ORGANIZATION_NOT_FOUND  the ref resolved to nothing (typed on the wire by
+ *                           hadron-server#1175; before that it existed only
+ *                           inside the message text).
+ *   URN_NOT_QUALIFIED       a relative-form or malformed URN in the route param.
+ *   BAD_USER_INPUT          `resolveOrgRef` raises both BEFORE any DB lookup, so
+ *                           they are facts about the ref, never about the
+ *                           server's health.
+ *   FORBIDDEN               a non-member read. 404 rather than 403 so the
+ *                           refusal does not disclose that the org exists.
+ *
+ * `AmbiguousLegacyUrnError` is deliberately NOT here, though it is equally a
+ * fact about the ref. It means the ref resolves to MORE than one org — the
+ * opposite of absent — and hadron-server raises it precisely to fail loudly
+ * rather than resolve to an arbitrary one. Answering "Organization not found"
+ * would send the reader looking for a deleted org instead of a URN collision,
+ * which is the same confident false statement this whole change removes. It
+ * falls through to the 500, where a loud failure is what everyone involved
+ * wants.
+ *
+ * FORBIDDEN cannot fire from this query yet — see UNTYPED_REFUSAL below. It is
+ * listed anyway, deliberately: it is not speculative copy for an invented state
+ * (the trap `hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only`
+ * warns about) but the post-fix half of a mapping whose pre-fix half is the arm
+ * directly underneath, and having both here is what makes that arm a clean
+ * delete instead of an edit.
+ */
+const REF_NAMES_NO_OPENABLE_ORG: ReadonlySet<string> = new Set([
+  'ORGANIZATION_NOT_FOUND',
+  'URN_NOT_QUALIFIED',
+  'BAD_USER_INPUT',
+  'FORBIDDEN',
+]);
+
+/**
+ * TEMPORARY, and a deliberate deviation from
+ * `hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only`,
+ * which names INTERNAL_SERVER_ERROR as the one code no allowlist may map.
+ *
+ * `organization(ref:)` refuses a non-member with `throw new Error('Forbidden')`
+ * (hadron-server `resolvers.query.org.ts:446`) — a plain Error, which Apollo
+ * wraps as INTERNAL_SERVER_ERROR, keeping the message and dropping the type.
+ * So a permission boundary and a genuine resolver crash arrive under one code,
+ * and the portal cannot tell them apart.
+ *
+ * Both ways out of that are worse than this arm:
+ *
+ *   - matching the message text `Forbidden` keys behaviour on prose that is not
+ *     a contract — `hrn:node:hadronmemory.com:dev:conventions:the-error-code-is-the-contract-the-prose-is-not`,
+ *     which names this exact move and says the wrong code is better fixed than
+ *     compensated for;
+ *   - letting it through as a 500 regresses the non-member from a correct 404
+ *     to an outage page, AND opens an enumeration channel this route does not
+ *     have today (404 for absent, 500 for present-but-private).
+ *
+ * So the pre-existing 404 is KEPT for this code, with its lie narrowed from
+ * "every rejection" to "a resolver crash", and the honest fix requested where
+ * it belongs. DELETE this constant and its branch once the server types that
+ * refusal: `FORBIDDEN` is already in the set above, so nothing else changes.
+ */
+const UNTYPED_REFUSAL = 'INTERNAL_SERVER_ERROR';
 
 // #336: org-detail is a tab layout (mirrors /app/memories/[id]). The layout
 // renders the breadcrumb + header + tab bar; each tab is a sub-route rendered
@@ -16,8 +88,52 @@ import type { LayoutServerLoad } from './$types';
 export const load: LayoutServerLoad = async ({ params, locals }) => {
   const data = await gqlClient(locals.token)
     .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: params.id })
-    .catch(() => {
-      throw error(404, 'Organization not found');
+    .catch((e: unknown) => {
+      // #843: this branch used to coerce EVERY rejection to 404, so a server
+      // outage told the user their organization does not exist. Since #842 the
+      // memories, agents and apps loaders read this layout's org via parent()
+      // instead of fetching their own, which makes this one branch the error
+      // behaviour of the whole org surface.
+      // NOTE — salvaging a partial `data.organization` here does not work, and
+      // this comment exists so the next reader does not re-derive that the
+      // expensive way (I tried it on this branch; @codex caught it).
+      //
+      // The App loader DOES salvage from its APP_QUERY catch, so the pattern
+      // looks transferable. It is not, because the two selection sets differ in
+      // nullability. Every nested field ORGANIZATION_QUERY selects is non-null
+      // — `members: [OrgMember!]!`, `memories: [Memory!]!`, `agents: [Agent!]!`,
+      // `subscriptions: [MemorySubscription!]!`,
+      // `exchangeConnections: [ExchangeConnection!]!` — while the root
+      // `organization(ref: ID!): Organization` is nullable. So when one of those
+      // resolvers errors, GraphQL null propagation carries the null UP to the
+      // nearest nullable ancestor, which is `organization` itself: the response
+      // is `data.organization = null`, never a usable org alongside an error.
+      // A salvage branch here is unreachable by construction.
+      //
+      // The consequence is a real and PRE-EXISTING limitation rather than
+      // something this change introduces: a single nested field failing — say
+      // `exchangeConnections` refusing for a non-admin member — still replaces
+      // the whole org surface (every tab, via parent()) with a verdict about
+      // the org. Fixing it needs the failure-prone lists split out of this
+      // query, or their nullability changed server-side; both are larger than
+      // #843 and neither belongs in this catch.
+      const code = extractGqlErrorCode(e);
+
+      // No GraphQL errors payload at all: the server never answered with one.
+      // graphql-request reports a connection failure, a bad gateway or an HTML
+      // error body this way, and none of them can be a refusal — a refusal is
+      // something a working server decided. This is the issue's headline case
+      // and the one arm that needs no code to be sure of.
+      if (code === null) throw e;
+
+      if (REF_NAMES_NO_OPENABLE_ORG.has(code) || code === UNTYPED_REFUSAL) {
+        throw error(404, 'Organization not found');
+      }
+
+      // Anything else is a code this route has no answer for. Rethrowing keeps
+      // it a distinguishable 500 rather than a confident false statement about
+      // the org — the whole point of the issue.
+      throw e;
     });
 
   if (!data.organization) throw error(404, 'Organization not found');
