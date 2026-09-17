@@ -94,25 +94,29 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
       // memories, agents and apps loaders read this layout's org via parent()
       // instead of fetching their own, which makes this one branch the error
       // behaviour of the whole org surface.
-      // Before classifying, check whether the org actually came back.
-      // graphql-request rejects on ANY GraphQL error even when usable data is
-      // present, and ORGANIZATION_QUERY selects a lot of nested fields —
-      // members, memories (+subscriptions), agents, subscriptions,
-      // exchangeConnections. A failure in one of those says nothing about
-      // whether the org exists or may be read, so it must not be turned into a
-      // verdict about the org: `exchangeConnections` refusing for a non-admin
-      // member would otherwise replace the whole org surface with "Organization
-      // not found" for someone looking at their own, fully-loaded org.
+      // NOTE — salvaging a partial `data.organization` here does not work, and
+      // this comment exists so the next reader does not re-derive that the
+      // expensive way (I tried it on this branch; @codex caught it).
       //
-      // Salvaging the partial response rather than erroring is the same call
-      // the App loader already makes for the same reason (see its APP_QUERY
-      // catch). Every consumer of `org` reads its nested lists
-      // nullish-guarded — e.g. `(org.memories ?? [])` in the memories tab — so
-      // a list that failed renders empty instead of crashing the page.
-      const partial = (e as { response?: { data?: { organization?: Organization | null } } })
-        ?.response?.data?.organization;
-      if (partial) return { organization: partial };
-
+      // The App loader DOES salvage from its APP_QUERY catch, so the pattern
+      // looks transferable. It is not, because the two selection sets differ in
+      // nullability. Every nested field ORGANIZATION_QUERY selects is non-null
+      // — `members: [OrgMember!]!`, `memories: [Memory!]!`, `agents: [Agent!]!`,
+      // `subscriptions: [MemorySubscription!]!`,
+      // `exchangeConnections: [ExchangeConnection!]!` — while the root
+      // `organization(ref: ID!): Organization` is nullable. So when one of those
+      // resolvers errors, GraphQL null propagation carries the null UP to the
+      // nearest nullable ancestor, which is `organization` itself: the response
+      // is `data.organization = null`, never a usable org alongside an error.
+      // A salvage branch here is unreachable by construction.
+      //
+      // The consequence is a real and PRE-EXISTING limitation rather than
+      // something this change introduces: a single nested field failing — say
+      // `exchangeConnections` refusing for a non-admin member — still replaces
+      // the whole org surface (every tab, via parent()) with a verdict about
+      // the org. Fixing it needs the failure-prone lists split out of this
+      // query, or their nullability changed server-side; both are larger than
+      // #843 and neither belongs in this catch.
       const code = extractGqlErrorCode(e);
 
       // No GraphQL errors payload at all: the server never answered with one.

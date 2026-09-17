@@ -163,33 +163,32 @@ describe('org-detail layout load()', () => {
     });
   });
 
-  describe('a nested field failure is not a verdict about the org', () => {
-    it('renders the salvaged org when the payload still carried one', async () => {
-      // graphql-request rejects on ANY GraphQL error even when data is present.
-      // ORGANIZATION_QUERY selects members, memories, agents, subscriptions and
-      // exchangeConnections, so one of those refusing must not replace the
-      // whole org surface — every tab reads this layout via parent() since #842.
+  describe('a nested field failure (known limitation, pinned deliberately)', () => {
+    it('a non-null nested field erroring nulls the org, so the whole surface 404s', async () => {
+      // This pins a limitation, NOT a behaviour anyone wants — read the loader's
+      // note before changing it.
+      //
+      // Every nested field ORGANIZATION_QUERY selects is non-null in the SDL
+      // (members/memories/agents/subscriptions/exchangeConnections are all
+      // [X!]!), while `organization(ref:)` is nullable. So a nested resolver
+      // erroring propagates its null UP to `organization`: the payload is
+      // `data.organization = null`, never a usable org next to an error. The
+      // shape below is what the server can actually emit — an earlier version of
+      // this file asserted `data: { organization: fakeOrg }`, which GraphQL
+      // cannot produce, and thereby "proved" a salvage branch that was
+      // unreachable by construction.
+      //
+      // Consequence: `exchangeConnections` refusing for a non-admin member
+      // replaces every tab of their own org with "Organization not found". That
+      // is pre-existing (the old blanket catch did the same) and is fixed by
+      // splitting the query or changing nullability server-side, not here.
       const nested = Object.assign(new Error('exchangeConnections failed'), {
         response: {
-          data: { organization: fakeOrg },
+          data: { organization: null },
           errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }],
         },
       });
       mockRequest.mockRejectedValue(nested);
-      const load = await importLoad();
-      expect(await load(ev({}))).toEqual({ org: fakeOrg });
-    });
-
-    it('still 404s when the errored payload carried no org', async () => {
-      // The salvage must not swallow a real miss: `data` present but
-      // `organization` null is the not-found case, not a partial success.
-      const missing = Object.assign(new Error('nope'), {
-        response: {
-          data: { organization: null },
-          errors: [{ message: 'nope', extensions: { code: 'ORGANIZATION_NOT_FOUND' } }],
-        },
-      });
-      mockRequest.mockRejectedValue(missing);
       expect((await loadAndCatch() as { status: number }).status).toBe(404);
     });
   });
