@@ -22,7 +22,9 @@ function ev() {
 }
 
 describe('/app/agents (My agents)', () => {
-  beforeEach(() => fetchOwnedAgents.mockReset());
+  beforeEach(() => {
+    fetchOwnedAgents.mockReset();
+  });
 
   it('returns the caller\'s own agents on success', async () => {
     const agents = [{ id: 'a1', urn: 'u', name: 'A', organizationId: null }];

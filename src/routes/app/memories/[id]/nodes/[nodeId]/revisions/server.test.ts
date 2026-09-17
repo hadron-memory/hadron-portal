@@ -15,7 +15,9 @@ import {
   CLEAR_NODE_HISTORY_MUTATION,
 } from '$lib/server/queries';
 
-beforeEach(() => mockRequest.mockReset());
+beforeEach(() => {
+  mockRequest.mockReset();
+});
 
 function ev(body: unknown, token: string | null = 'tok', nodeId = 'node-1') {
   return {

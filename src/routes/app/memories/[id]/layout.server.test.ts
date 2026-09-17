@@ -29,7 +29,9 @@ vi.mock('$lib/graph-utils', () => ({
   buildGraphViewData: () => ({ topics: [], folderNodes: [], hierEdges: [] }),
 }));
 
-beforeEach(() => mockRequest.mockReset());
+beforeEach(() => {
+  mockRequest.mockReset();
+});
 
 async function importLoad() {
   const mod = await import('./+layout.server');

@@ -16,7 +16,9 @@ afterAll(() => errorSpy.mockRestore());
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 
-beforeEach(() => mockRequest.mockReset());
+beforeEach(() => {
+  mockRequest.mockReset();
+});
 
 async function importMod() {
   return import('./+page.server');
@@ -156,7 +158,9 @@ const saveVars = () =>
     | undefined;
 
 describe('/app/dashboard saveLayout action (#788)', () => {
-  beforeEach(() => mockRequest.mockResolvedValue({ setDashboardWidgets: [] }));
+  beforeEach(() => {
+    mockRequest.mockResolvedValue({ setDashboardWidgets: [] });
+  });
 
   it('maps portal ids → server enum in array order, keeping server row ids', async () => {
     const result = await runSave([
