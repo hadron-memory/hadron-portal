@@ -82,6 +82,26 @@ describe('POST /app/dashboard/widget-presets (#806)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  // #835/#846 (@copilot) — the same rejection, at the request boundary, for the
+  // keys `WIDGET_TYPE_TO_SERVER` inherits. This is the strongest place in the
+  // sweep to pin the class: `type` here is a field of a JSON body the caller
+  // writes, so it is attacker-typed in the plainest possible sense.
+  //
+  // Before the guard, `WIDGET_TYPE_TO_SERVER['constructor']` was the truthy
+  // Object constructor, so `serverType` passed the `!serverType` check and the
+  // handler went on to CALL the API with it. Asserting both halves — the 400
+  // AND that no request was issued — because the second is what "validated
+  // before we talk to the server" actually means, and a 400 alone would still
+  // pass if the mutation had been attempted and failed.
+  it.each(Object.getOwnPropertyNames(Object.prototype))(
+    'rejects the inherited type key %s with 400 before calling the API',
+    async (type) => {
+      const { status } = await runPost({ type, name: 'x', config: {} });
+      expect(status).toBe(400);
+      expect(mockRequest).not.toHaveBeenCalled();
+    },
+  );
+
   it('surfaces a duplicate-name server error as a 400 with the message', async () => {
     mockRequest.mockRejectedValueOnce(new Error('A preset with that name already exists.'));
     const { status, body } = await runPost({

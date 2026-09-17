@@ -22,8 +22,8 @@
  * times as of #833, three of them inside one fortnight, each by someone who had
  * just fixed it elsewhere. That is why this is a named helper rather than an
  * inlined `Object.hasOwn` repeated at every site — one implementation, one test
- * suite covering the prototype keys exhaustively, and a single thing for a
- * reviewer to look for.
+ * suite covering every key Object.prototype owns — enumerated rather than
+ * hand-listed — and a single thing for a reviewer to look for.
  *
  * Do NOT reach for this when the table is BUILT rather than written as a
  * literal. `new Map()` is immune by construction and is the better answer

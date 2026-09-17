@@ -31,15 +31,16 @@ import {
   APP_CHAT_ROOTS_QUERY,
 } from '$lib/server/queries';
 import { normalizeFilter, normalizeKind } from '$lib/components/worklog';
+// AGENT_CHAT_KEY / TEAM_CHAT_LOC moved out with RETIRED_TAB_ALIASES into
+// `tab-intent.ts`; they have no other reader here.
 import {
-  AGENT_CHAT_KEY,
-  TEAM_CHAT_LOC,
   buildAppChatList,
   chatFullViewFromParams,
   resolveSelectedChat,
 } from '$lib/app-chats';
 import { loadTeamChatTail } from '$lib/server/team-chat';
 import { loadChatMessages } from '$lib/server/team-chat';
+import { resolveTabIntent } from './tab-intent';
 import type {
   Organization,
   App,
@@ -406,25 +407,6 @@ const WORKLOG_PAGE_SIZE = 200;
 // 100, that nothing kept in step is the drift this module's own TEAM_CHAT_LOC
 // comment warns about.
 
-/** The App page's tab ids, for validating `?tab=`. Kept in sync with the
- *  `TabId` union in +page.svelte; an unknown value falls back to the default. */
-const APP_TAB_IDS: readonly string[] = ['chats', 'worklog', 'staff', 'memory', 'settings', 'client'];
-
-/**
- * #744 folded the separate `chat` (agent) and `team-chat` tabs into one `chats`
- * tab. Those ids are in the wild — in PR descriptions, team-chat messages and
- * anyone's bookmarks — so they still resolve, to the Chats tab with the right
- * conversation preselected. Dropping them would land the reader on the default
- * tab with no indication anything was redirected.
- *
- * Kept as an explicit alias map rather than a silent fallback: an unknown tab
- * SHOULD fall back, a retired-but-known one should land where it moved to.
- */
-const RETIRED_TAB_ALIASES: Record<string, { tab: string; chat: string }> = {
-  chat: { tab: 'chats', chat: AGENT_CHAT_KEY },
-  'team-chat': { tab: 'chats', chat: TEAM_CHAT_LOC },
-};
-
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   // #785: this load no longer carries the team chat's refresh. The poll reads
   // `team-chat/+server.ts` directly, because a background tick must not be able
@@ -443,21 +425,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const worklogTool = normalizeFilter(url.searchParams.get('worklogTool'));
 
   // `?tab=` so a filtered worklog URL lands on the worklog rather than the
-  // page's default tab. Validated against the known set and coerced to null
-  // otherwise — an unknown value falls back to the default rather than
-  // rendering a blank page where no tab body matches.
-  const rawTab = url.searchParams.get('tab');
-  // #835 — `lookupOwn`. This key is whatever a visitor types into `?tab=`, and
-  // an inherited one made `alias` truthy, so `initialTab` became `undefined`
-  // where the comment above promises "coerced to null otherwise". Benign
-  // downstream (the page does `?? 'chats'`), but the code and its stated
-  // contract disagreed, and this is the site that shows how short the distance
-  // is from "our own enum" to attacker-typed: one `searchParams.get`.
-  const alias = lookupOwn(RETIRED_TAB_ALIASES, rawTab);
-  const initialTab = alias ? alias.tab : APP_TAB_IDS.includes(rawTab ?? '') ? rawTab : null;
-  // An explicit ?chat= wins over the one a retired tab id implies, so a link
-  // carrying both is not silently overridden by the alias.
-  const requestedChat = url.searchParams.get('chat') ?? alias?.chat ?? null;
+  // page's default tab, and `?chat=` to preselect a conversation. Both rules
+  // live in `tab-intent.ts` — pure, and therefore testable without mocking this
+  // loader's ten queries (@copilot on #846).
+  const { initialTab, requestedChat } = resolveTabIntent(url.searchParams);
   // `?view=full` opens the team chat maximised. Parsed here with the other
   // URL state so the page reads it once at init, like `initialTab`; toggling
   // it afterwards is `replaceState`, not a navigation.

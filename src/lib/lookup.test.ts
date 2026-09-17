@@ -13,23 +13,24 @@ import { lookupOwn } from './lookup';
 const TABLE = { known: 'mapped', falsy: '' } as Record<string, string>;
 
 /**
- * The keys `Object.prototype` supplies. `constructor` and `toString` are the
- * ones that matter — they return something plausible rather than throwing — but
- * all of them defeat a truthiness guard, so all of them are pinned.
+ * The keys `Object.prototype` supplies — DERIVED, not hand-listed (@copilot on
+ * #846, and the correction was fair twice over).
  *
- * `hasOwnProperty` is in the list deliberately: it is the key a prober is most
+ * The hand-written list omitted `__defineGetter__`, `__defineSetter__`,
+ * `__lookupGetter__` and `__lookupSetter__` while the docblock above it claimed
+ * to be exhaustive. Replacing the claim with the enumeration is strictly better
+ * than completing the list by hand: a hand-list is exhaustive on the day it is
+ * written and silently stops being so, which is the same failure this whole
+ * module exists to prevent — a table that answers for a key nobody enumerated.
+ *
+ * `hasOwnProperty` is worth naming even so: it is the key a prober is most
  * likely to type, and the one whose NAME makes the guard look already applied.
+ *
+ * `constructor` and `toString` are the pair that matter — they return something
+ * plausible rather than throwing — but every one of these defeats a truthiness
+ * guard, so every one is pinned.
  */
-const PROTOTYPE_KEYS = [
-  '__proto__',
-  'constructor',
-  'toString',
-  'valueOf',
-  'hasOwnProperty',
-  'isPrototypeOf',
-  'propertyIsEnumerable',
-  'toLocaleString',
-] as const;
+const PROTOTYPE_KEYS = Object.getOwnPropertyNames(Object.prototype);
 
 describe('lookupOwn', () => {
   it('returns the value for a key the table owns', () => {
@@ -49,6 +50,16 @@ describe('lookupOwn', () => {
 
   it.each([null, undefined])('returns undefined for a %s key', (key) => {
     expect(lookupOwn(TABLE, key)).toBeUndefined();
+  });
+
+  it('enumerates every inherited key, so this suite cannot silently narrow', () => {
+    // The guard on the guard: if a future runtime adds an own property to
+    // Object.prototype, the cases below cover it automatically — but only if
+    // the list is genuinely the enumeration and not a snapshot someone pasted.
+    expect(PROTOTYPE_KEYS).toContain('constructor');
+    expect(PROTOTYPE_KEYS).toContain('__proto__');
+    expect(PROTOTYPE_KEYS).toContain('__defineGetter__');
+    expect(PROTOTYPE_KEYS.length).toBeGreaterThanOrEqual(12);
   });
 
   it.each(PROTOTYPE_KEYS)('returns undefined for the inherited key %s', (key) => {
