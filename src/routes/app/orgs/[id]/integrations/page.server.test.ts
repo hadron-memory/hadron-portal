@@ -5,6 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  ORG_INTEGRATIONS_TAB_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
   DELETE_EXCHANGE_CONNECTION_MUTATION,
   LINK_GITHUB_APP_MUTATION,
@@ -109,8 +110,13 @@ function superFormFrom(result: unknown) {
   } | undefined)?.form;
 }
 
-function routeMock(opts: { aiConfigs?: { data?: unknown; error?: unknown } }) {
+function routeMock(opts: { aiConfigs?: { data?: unknown; error?: unknown }; org?: unknown }) {
   mockRequest.mockImplementation(async (query: string) => {
+    // #845: this tab reads `exchangeConnections`, `members` and the GitHub App
+    // fields, none of which the layout carries any more — so it fetches the org
+    // itself and THIS is where a test supplies one. `ev({ org })` feeds
+    // parent(), which now only carries chrome.
+    if (query === ORG_INTEGRATIONS_TAB_QUERY) return { organization: opts.org ?? fakeOrg };
     if (query === AI_SERVICE_CONFIGS_QUERY) {
       if (opts.aiConfigs?.error !== undefined) throw opts.aiConfigs.error;
       // hadron-server#473: wrap in the uniform { items, total } envelope.
@@ -124,9 +130,10 @@ function routeMock(opts: { aiConfigs?: { data?: unknown; error?: unknown } }) {
 
 describe('Integrations load()', () => {
   it('happy path → returns org data, configs, and seeded GitHub Superforms', async () => {
-    routeMock({ aiConfigs: { data: { aiServiceConfigs: fakeAiConfigs } } });
+    // #845: the org is supplied through the QUERY mock now, not parent().
+    routeMock({ aiConfigs: { data: { aiServiceConfigs: fakeAiConfigs } }, org: fakeConfiguredOrg });
     const load = await importLoad();
-    const result = (await load(ev({ org: fakeConfiguredOrg }))) as {
+    const result = (await load(ev())) as {
       org: typeof fakeConfiguredOrg;
       configs: typeof fakeAiConfigs;
       configsError: boolean;

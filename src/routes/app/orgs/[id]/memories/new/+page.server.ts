@@ -4,7 +4,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
-import { CREATE_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION, ORGANIZATION_QUERY } from '$lib/server/queries';
+import { CREATE_MEMORY_MUTATION, UPDATE_MEMORY_MUTATION, ORG_CHROME_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { createMemorySchema } from './schema';
@@ -14,7 +14,7 @@ const createMemoryFormAdapter = zod4(createMemorySchema);
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ organization: Organization }>(
-    ORGANIZATION_QUERY, { ref: params.id },
+    ORG_CHROME_QUERY, { ref: params.id },
   );
   const prefillSlug = (url.searchParams.get('slug') ?? '').trim();
   // #556: the Personal Memories tab deep-links here with ?class=personal so the

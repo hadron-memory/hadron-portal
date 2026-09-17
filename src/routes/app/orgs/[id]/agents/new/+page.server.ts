@@ -4,7 +4,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
-import { ORGANIZATION_QUERY, CREATE_AGENT_MUTATION, UPDATE_AGENT_MUTATION } from '$lib/server/queries';
+import { CREATE_AGENT_MUTATION, UPDATE_AGENT_MUTATION, ORG_CHROME_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { createAgentSchema } from './schema';
@@ -14,7 +14,7 @@ const createAgentFormAdapter = zod4(createAgentSchema);
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ organization: Organization | null }>(
-    ORGANIZATION_QUERY, { ref: params.id },
+    ORG_CHROME_QUERY, { ref: params.id },
   ).catch(() => { throw error(404, 'Organization not found'); });
   if (!data.organization) throw error(404, 'Organization not found');
   // #320: the header command bar (Create mode) can deep-link here with the

@@ -1,17 +1,25 @@
 /**
  * Tests for the org-detail Profile-tab loader (#336).
  *
- * The org (incl. 404 handling) is loaded by +layout.server.ts and reached via
- * parent(); those cases live in `layout.server.test.ts`. As of #364 this loader
- * does nothing but forward the parent org — the Memories/Agents/Apps quick-stat
- * cards (and their APPS_QUERY overfetch, originally spec 015) were removed, so
- * the loader issues no GraphQL request of its own.
+ * #845 CHANGED THE CONTRACT THESE TESTS PIN. Read this before "fixing" one.
+ *
+ * #364/#382 had this loader forward the parent org and issue no query of its
+ * own. That could not survive #845: the layout now fetches CHROME ONLY (id,
+ * name, urn), because every nested field on Organization is non-null while
+ * `organization(ref:)` is nullable — so one list resolver failing propagated a
+ * null up to `organization` and the layout's 404 replaced every tab.
+ *
+ * The Profile tab renders `members`, `createdAt` and `subscriptions`, so it now
+ * fetches the full org itself through `loadOrgDetail`. The assertion that
+ * inverted — "issues no GraphQL request of its own" — is replaced by one
+ * pinning the opposite, deliberately, rather than deleted.
  *
  * Strategy: mock `$lib/server/api`'s `gqlClient`, import `load` from
  * `+page.server.ts`, and call it directly with a hand-rolled event. We do NOT
  * spin up SvelteKit.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ORG_PROFILE_QUERY } from '$lib/server/queries';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -39,7 +47,9 @@ function ev(opts: { orgId?: string; token?: string | null; userId?: string | nul
       token: opts.token === undefined ? 'test-token' : opts.token,
       user: { id: opts.userId === undefined ? 'user-1' : opts.userId },
     },
-    parent: async () => ({ org: fakeOrg }),
+      // #845: chrome only. Kept load-bearing on purpose — if this loader ever
+    // goes back to reading a list off parent(), the fixture must not supply it.
+    parent: async () => ({ org: { id: fakeOrg.id, name: fakeOrg.name, urn: fakeOrg.urn } }),
   } as unknown as Parameters<Awaited<ReturnType<typeof importMod>>['load']>[0];
 }
 
@@ -71,7 +81,8 @@ function fieldError(result: unknown, field: string): string | undefined {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('org-detail Profile load()', () => {
-  it('forwards the parent org and the current user id', async () => {
+  it('returns the org it fetched, and the current user id', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: fakeOrg });
     const { load } = await importMod();
     const result = await load(ev({ orgId: 'org-id-123', userId: 'user-1' }));
     expect(result).toMatchObject({ org: fakeOrg, currentUserId: 'user-1' });
@@ -79,15 +90,29 @@ describe('org-detail Profile load()', () => {
   });
 
   it('null currentUserId when there is no logged-in user', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: fakeOrg });
     const { load } = await importMod();
     const result = await load(ev({ userId: null }));
     expect(result).toMatchObject({ org: fakeOrg, currentUserId: null });
   });
 
-  it('issues no GraphQL request of its own (org comes from parent())', async () => {
+  // #845, and the inverse of what #382 pinned here. The Profile tab reads
+  // `members`/`createdAt`/`subscriptions`, none of which the layout carries any
+  // more, so it MUST issue its own query — and asserting the document keeps
+  // that honest rather than counting calls.
+  it('fetches the full org itself, because the layout carries chrome only', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: fakeOrg });
     const { load } = await importMod();
     await load(ev({}));
-    expect(mockRequest).not.toHaveBeenCalled();
+    expect(mockRequest).toHaveBeenCalledWith(ORG_PROFILE_QUERY, { ref: 'org-id-123' });
+  });
+
+  // The containment #845 bought: a nested list failing nulls `organization`,
+  // and that now takes out THIS TAB rather than the chrome every tab renders.
+  it('404s this tab when the org comes back null, leaving the layout intact', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: null });
+    const { load } = await importMod();
+    await expect(load(ev({}))).rejects.toMatchObject({ status: 404 });
   });
 });
 

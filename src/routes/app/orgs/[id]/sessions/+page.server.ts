@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { requireNonConsumer } from '$lib/server/guards';
-import { ORGANIZATION_QUERY, SESSIONS_QUERY } from '$lib/server/queries';
+import { SESSIONS_QUERY, ORG_CHROME_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
@@ -46,7 +46,7 @@ export const load: PageServerLoad = async ({ params, locals, url, parent }) => {
   const client = gqlClient(locals.token);
   const [orgData, sessionsData] = await Promise.all([
     client
-      .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: params.id })
+      .request<{ organization: Organization | null }>(ORG_CHROME_QUERY, { ref: params.id })
       .catch(() => {
         throw error(404, 'Organization not found');
       }),

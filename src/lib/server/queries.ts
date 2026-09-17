@@ -480,6 +480,181 @@ export const EXCHANGE_CONNECTION_FIELDS = /* GraphQL */ `
   }
 `;
 
+/**
+ * The org fields the DETAIL LAYOUT's chrome needs — breadcrumb, header, tab bar
+ * — and nothing else (#845).
+ *
+ * The point of this query is what it does NOT select. Every nested field on
+ * Organization is non-null in the SDL (members, memories, agents, subscriptions
+ * and exchangeConnections are all [X!]!) while `organization(ref:)` itself is
+ * nullable, so GraphQL null propagation carries ANY nested resolver failure up
+ * to `organization` — the payload becomes `data.organization = null` and the
+ * layout, which cannot tell that from a missing org, renders "Organization not
+ * found" over every tab. One list refusing (exchangeConnections for a
+ * non-admin member, say) took out the whole org surface for someone looking at
+ * their own org.
+ *
+ * A selection set of three scalars has no nested resolver that can fail, so the
+ * layout's verdict is now about the ORG and nothing else. Tabs that need a list
+ * fetch it themselves and degrade on their own.
+ *
+ * Keep it scalar-only. Adding a nested field here re-opens #845 silently —
+ * `hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers`
+ * governs changes to this payload.
+ */
+export const ORG_CHROME_QUERY = /* GraphQL */ `
+  query OrgChrome($ref: ID!) {
+    organization(ref: $ref) {
+      id
+      name
+      urn
+    }
+  }
+`;
+
+
+/**
+ * Per-tab slices of the org (#845, @codex P1 on #847).
+ *
+ * Splitting the fat query off the LAYOUT stopped one list from nulling the org
+ * for every tab, but it left five tabs sharing one selection set — so
+ * `exchangeConnections` refusing for a non-admin member still took out Profile,
+ * Memories, Agents and Tasks along with Integrations. A tab must not invoke a
+ * resolver it does not render.
+ *
+ * Each of these selects the lists ONE tab reads, so a refusal reaches only the
+ * tab whose data it is. All of them keep `...OrgFields` because every tab wants
+ * the org's own scalars, and those cannot fail independently.
+ *
+ * Adding a list to one of these means that tab now shares that list's failures
+ * — which is the whole point, so do it deliberately and say why.
+ */
+export const ORG_MEMBERS_TAB_QUERY = /* GraphQL */ `
+  ${ORG_FIELDS}
+  query OrgMembersTab($ref: ID!) {
+    organization(ref: $ref) {
+      ...OrgFields
+      members {
+        id
+        role
+        canInvite
+        createdAt
+        user { id handle githubUsername name avatarUrl email }
+      }
+    }
+  }
+`;
+
+/** The exchange-connection detail route reads only that list. */
+export const ORG_EXCHANGE_CONNECTIONS_QUERY = /* GraphQL */ `
+  ${ORG_FIELDS}
+  ${EXCHANGE_CONNECTION_FIELDS}
+  query OrgExchangeConnections($ref: ID!) {
+    organization(ref: $ref) {
+      ...OrgFields
+      exchangeConnections {
+        ...ExchangeConnectionFields
+      }
+    }
+  }
+`;
+
+export const ORG_PROFILE_QUERY = /* GraphQL */ `
+  ${ORG_FIELDS}
+  ${MEMORY_FIELDS}
+  query OrgProfile($ref: ID!) {
+    organization(ref: $ref) {
+      ...OrgFields
+      members {
+        id
+        role
+        canInvite
+        createdAt
+        user { id handle githubUsername name avatarUrl email }
+      }
+      subscriptions {
+        id
+        role
+        activated
+        memory { ...MemoryFields organization { id name urn } }
+        organization { id name urn }
+      }
+    }
+  }
+`;
+
+export const ORG_MEMORIES_TAB_QUERY = /* GraphQL */ `
+  ${ORG_FIELDS}
+  ${MEMORY_FIELDS}
+  query OrgMemoriesTab($ref: ID!) {
+    organization(ref: $ref) {
+      ...OrgFields
+      memories {
+        ...MemoryFields
+        subscriptions {
+          id
+          role
+          organization { id name urn }
+        }
+      }
+      subscriptions {
+        id
+        role
+        activated
+        memory { ...MemoryFields organization { id name urn } }
+        organization { id name urn }
+      }
+    }
+  }
+`;
+
+export const ORG_AGENTS_TAB_QUERY = /* GraphQL */ `
+  ${ORG_FIELDS}
+  ${AGENT_FIELDS}
+  query OrgAgentsTab($ref: ID!) {
+    organization(ref: $ref) {
+      ...OrgFields
+      agents {
+        ...AgentFields
+      }
+    }
+  }
+`;
+
+export const ORG_INTEGRATIONS_TAB_QUERY = /* GraphQL */ `
+  ${ORG_FIELDS}
+  ${EXCHANGE_CONNECTION_FIELDS}
+  query OrgIntegrationsTab($ref: ID!) {
+    organization(ref: $ref) {
+      ...OrgFields
+      members {
+        id
+        role
+        canInvite
+        createdAt
+        user { id handle githubUsername name avatarUrl email }
+      }
+      exchangeConnections {
+        ...ExchangeConnectionFields
+      }
+    }
+  }
+`;
+
+/**
+ * The Tasks tab needs only the org's memory IDS — they are the security
+ * boundary for RUNNABLE_NODES_QUERY (an empty set must NOT become "every
+ * accessible memory"), so this asks for the ids and nothing else.
+ */
+export const ORG_TASK_MEMORY_IDS_QUERY = /* GraphQL */ `
+  query OrgTaskMemoryIds($ref: ID!) {
+    organization(ref: $ref) {
+      id
+      memories { id }
+    }
+  }
+`;
+
 export const ORGANIZATION_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}

@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  ORGANIZATION_QUERY,
+  ORG_AGENTS_TAB_QUERY,
   ORG_APP_INSTALLS_QUERY,
   ORG_AGENT_GRANTS_QUERY,
   PUBLIC_AGENTS_QUERY,
@@ -47,7 +47,7 @@ const grant = (agentId: string, orgId: string, over: Record<string, unknown> = {
 
 function route(opts: { grants?: unknown[]; grantsError?: boolean; publicAgents?: unknown[] }) {
   mockRequest.mockImplementation(async (query: string) => {
-    if (query === ORGANIZATION_QUERY) {
+    if (query === ORG_AGENTS_TAB_QUERY) {
       return { organization: { id: ORG_ID, name: 'Org', agents: [] } };
     }
     if (query === ORG_APP_INSTALLS_QUERY) return { apps: { items: [], total: 0 } };
@@ -72,7 +72,7 @@ async function runLoad() {
     params: { id: ORG_ID },
     locals: { token: 'tok' },
     // #382: the org now arrives from the LAYOUT rather than from a second
-    // ORGANIZATION_QUERY in this loader.
+    // ORG_AGENTS_TAB_QUERY in this loader.
     parent: vi.fn().mockResolvedValue({ isConsumerMode: false, org: PARENT_ORG }),
   } as never)) as {
     org: unknown;
@@ -271,21 +271,27 @@ describe('org agents unsubscribe action (#651)', () => {
 /**
  * #382 — the loader must NOT re-fetch the organization.
  *
- * The org layout already runs ORGANIZATION_QUERY for this same `params.id` on
+ * The org layout already runs ORG_AGENTS_TAB_QUERY for this same `params.id` on
  * this same request; this loader used to run it again.
  *
  * Both directions are pinned, because an ABSENCE assertion is the one most
  * likely to pass for the wrong reason: a loader that fetched nothing and
- * returned nothing would satisfy "no ORGANIZATION_QUERY" on its own.
+ * returned nothing would satisfy "no ORG_AGENTS_TAB_QUERY" on its own.
  */
-describe('org agents load() — the org comes from the layout (#382)', () => {
-  it('returns the layout-supplied org and issues no ORGANIZATION_QUERY', async () => {
+describe('org agents load() — the org comes from THIS LOADER (#382 → #845)', () => {
+  // Inverted deliberately by #845. The layout now fetches chrome only, because
+  // Organization's nested fields are non-null while `organization(ref:)` is
+  // nullable — so one list failing nulled the org and 404'd every tab. The
+  // Agents tab renders `org.agents`, so it fetches the org itself now.
+  it('issues its own ORG_AGENTS_TAB_QUERY rather than taking the org from parent()', async () => {
     route({});
     const result = await runLoad();
 
-    expect(result.org).toBe(PARENT_ORG);
-    expect(mockRequest.mock.calls.filter(([q]) => q === ORGANIZATION_QUERY)).toHaveLength(0);
-    // Still asks for what it does need, so "queried nothing" cannot pass.
+    // Not PARENT_ORG: the fetched one wins, and `name` is what tells them apart.
+    expect(result.org).not.toBe(PARENT_ORG);
+    expect((result.org as { name: string }).name).toBe('Org');
+    expect(mockRequest.mock.calls.filter(([q]) => q === ORG_AGENTS_TAB_QUERY)).toHaveLength(1);
+    // Still asks for what it also needs, so "queried nothing" cannot pass.
     expect(mockRequest.mock.calls.filter(([q]) => q === PUBLIC_AGENTS_QUERY)).toHaveLength(1);
   });
 });

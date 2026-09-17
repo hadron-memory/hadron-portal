@@ -7,8 +7,8 @@ import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
 import {
-  ORGANIZATION_QUERY,
   EXCHANGE_CONNECTION_FIELDS,
+  ORG_EXCHANGE_CONNECTIONS_QUERY,
 } from '$lib/server/queries';
 import type { Organization, ExchangeConnection } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -63,7 +63,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   // Load organization
   const orgData = await gqlClient(locals.token).request<{ organization: Organization | null }>(
-    ORGANIZATION_QUERY,
+    ORG_EXCHANGE_CONNECTIONS_QUERY,
     { ref: params.id },
   ).catch(() => { throw error(404, 'Organization not found'); });
 

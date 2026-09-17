@@ -5,12 +5,12 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
-  ORGANIZATION_QUERY,
   CREATE_MEMORY_MUTATION,
   UPDATE_MEMORY_MUTATION,
   CREATE_AGENT_MUTATION,
   UPDATE_AGENT_MUTATION,
   ADD_MEMORY_TO_AGENT_MUTATION,
+  ORG_CHROME_QUERY,
 } from '$lib/server/queries';
 import type { Organization, Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -21,7 +21,7 @@ const createChatbotFormAdapter = zod4(createChatbotSchema);
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const data = await gqlClient(locals.token).request<{ organization: Organization | null }>(
-    ORGANIZATION_QUERY, { ref: params.id },
+    ORG_CHROME_QUERY, { ref: params.id },
   ).catch(() => { throw error(404, 'Organization not found'); });
   if (!data.organization) throw error(404, 'Organization not found');
   const form = await superValidate({}, createChatbotFormAdapter, { errors: false });

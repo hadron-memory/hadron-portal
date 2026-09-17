@@ -2,8 +2,9 @@ import { fail } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { loadOrgDetail } from '$lib/server/org-detail';
 import { extractGqlError } from '$lib/server/gqlError';
-import { UPDATE_ORGANIZATION_MUTATION } from '$lib/server/queries';
+import { UPDATE_ORGANIZATION_MUTATION, ORG_PROFILE_QUERY } from '$lib/server/queries';
 import { parseDisplayUrn } from '$lib/urn/parse-urn';
 import type { Actions, PageServerLoad } from './$types';
 import { orgProfileSchema } from './schema';
@@ -12,7 +13,8 @@ const orgProfileFormAdapter = zod4(orgProfileSchema);
 
 // #336: this page is the Profile tab of the org-detail tab layout (the
 // dashboard landing). The org (incl. 404 handling) is already loaded by
-// +layout.server.ts; pull it from parent() rather than re-issuing
+// +layout.server.ts as CHROME ONLY (#845). This tab renders members,
+// createdAt and subscriptions, so it fetches its own slice rather than reading
 // ORGANIZATION_QUERY.
 //
 // Spec 014 D7: this page IS the dashboard. requireNonConsumer is not applied
@@ -28,8 +30,9 @@ const orgProfileFormAdapter = zod4(orgProfileSchema);
 // gate the Edit affordance to admins; the server enforces the real ADMIN check
 // on the `update` action regardless. #609: the isVisible edit was removed — it
 // is a system-managed listing flag, not a user-facing public/private toggle.
-export const load: PageServerLoad = async ({ parent, locals }) => {
-  const { org } = await parent();
+export const load: PageServerLoad = async ({ params, locals }) => {
+  // #845: the layout carries chrome only; this tab needs the full org.
+  const org = await loadOrgDetail(locals.token, params.id, ORG_PROFILE_QUERY);
   const form = await superValidate(
     { name: org.name ?? '', urn: parseDisplayUrn(org.urn, 'org').bareValue },
     orgProfileFormAdapter,

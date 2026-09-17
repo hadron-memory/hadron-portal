@@ -3,12 +3,12 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { loadOrgDetail } from '$lib/server/org-detail';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
 import {
-  ORGANIZATION_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   DELETE_MEMORY_MUTATION,
   SYNC_MEMORY_MUTATION,
@@ -16,6 +16,7 @@ import {
   MEMORIES_QUERY,
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
+  ORG_MEMORIES_TAB_QUERY,
 } from '$lib/server/queries';
 import type { Organization, Memory } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -39,7 +40,11 @@ const unsubscribeOrgMemoryFormAdapter = zod4(unsubscribeOrgMemorySchema);
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
-  // #382: the org comes from the LAYOUT, which has already run
+  // #382 → #845: the org NO LONGER comes from the layout, which now carries
+  // chrome only. This tab renders `memories` and `subscriptions`, and a list
+  // resolver that fails nulls the whole org — so asking for it here keeps that
+  // failure inside this tab. Superseded comment kept in outline:
+  // #382 had this read parent(), which had already run
   // ORGANIZATION_QUERY for this same `params.id` on this same request. Fetching
   // it again here was a second identical round trip per page load, and the
   // layout raises the missing-org 404 before this loader runs at all — so the
@@ -47,7 +52,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   //
   // The ACTIONS below still fetch it themselves, and must: a form POST runs the
   // action BEFORE the layout load re-runs, so `parent()` is not available there.
-  const { org } = await parent();
+  // #845: the layout carries chrome only; this tab needs the full org.
+  const org = await loadOrgDetail(locals.token, params.id, ORG_MEMORIES_TAB_QUERY);
   const [systemMemories, publicMemories, myMemories] = await Promise.all([
     fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
       .catch(() => [] as Memory[]),
@@ -144,8 +150,13 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
     let data: { organization: Organization };
     try {
+      // #845: the memories SLICE, not ORGANIZATION_QUERY. An action runs
+      // before the layout load so it has no parent() to read, but the reason
+      // for a narrow selection is the same one the loaders have — this action
+      // syncs memories and has no business invoking `exchangeConnections`,
+      // whose refusal would fail the sync with an unrelated error.
       data = await client.request<{ organization: Organization }>(
-        ORGANIZATION_QUERY, { ref: params.id },
+        ORG_MEMORIES_TAB_QUERY, { ref: params.id },
       );
     } catch (e: unknown) {
       return message(
