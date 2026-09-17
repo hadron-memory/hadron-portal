@@ -24,6 +24,7 @@
  * The fallback is the design, not a gap in it.
  */
 import { t } from '$lib/i18n/t';
+import { lookupOwn } from '$lib/lookup';
 
 /**
  * The scan verdicts (`hrn:node:hadronmemory.com:specs:cor:dmo:060:12`) and the
@@ -89,21 +90,17 @@ const MESSAGES: Record<string, () => string> = {
  * build does not know.
  */
 export function assetErrorMessage(code: string | undefined, serverMessage: string): string {
-  // `Object.hasOwn`, not a bare `MESSAGES[code]` (@copilot on #833). `code`
-  // arrives from the wire, and a plain object literal inherits from
-  // Object.prototype — so three of its keys break the fallback this module
-  // documents, measured rather than assumed:
+  // `lookupOwn`, not a bare `MESSAGES[code]` (@copilot on #833). `code` arrives
+  // from the wire, and a plain object literal inherits from Object.prototype —
+  // so four of its keys break the fallback this module documents, two of them
+  // WITHOUT throwing (`constructor` returns an object where the signature
+  // promises a string; `toString` returns "[object Undefined]").
   //
-  //   __proto__    → truthy, not callable  → TypeError
-  //   valueOf      → truthy, throws on call → TypeError
-  //   constructor  → callable, returns {}   → an OBJECT where the signature
-  //                                           promises a string
-  //   toString     → callable               → "[object Undefined]"
-  //
-  // The last two are the worse pair: they do not throw, so the caller renders
-  // garbage into an error slot and nothing reports a fault. Not reachable from
-  // today's server codes — but this function's whole contract is that an
-  // UNKNOWN code falls back, and "unknown" is precisely the set no one controls.
-  const mapped = code && Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : undefined;
+  // This was #833's inline `Object.hasOwn`. #835 swept the rest — 19 lookups
+  // across 12 files — and moved the guard behind one named helper, so the class
+  // has a single implementation, a single test suite over the prototype keys,
+  // and one thing for a reviewer to look for rather than a spelling to
+  // re-derive per site.
+  const mapped = lookupOwn(MESSAGES, code);
   return mapped ? mapped() : serverMessage;
 }

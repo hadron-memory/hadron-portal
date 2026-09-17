@@ -77,6 +77,24 @@ describe('mapAssetError', () => {
     },
   );
 
+  // #835 — an inherited key made `KNOWN[code]` a FUNCTION, which passed the
+  // `if (code && status)` guard and became the `status` handed to `json()`.
+  // That is a crash on a non-numeric status rather than the clean 500 this
+  // function's unmapped path is written to produce.
+  //
+  // Asserting the full unmapped SHAPE — status AND code — not just "not 200":
+  // the body is what the endpoint's callers branch on, and a `status` that is
+  // an object would satisfy a laxer assertion.
+  it.each(['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty'])(
+    'treats the inherited key %s as unmapped, with a numeric 500',
+    (code) => {
+      const [body, init] = mapAssetError(gqlError(code), 'x');
+      expect(init.status).toBe(500);
+      expect(typeof init.status).toBe('number');
+      expect(body.code).toBe('INTERNAL');
+    },
+  );
+
   it('maps the upload-refusal code to 400', () => {
     const [body, init] = mapAssetError(gqlError('MEMORY_NOT_ACCEPTING_UPLOADS'), 'x');
     expect(init.status).toBe(400);

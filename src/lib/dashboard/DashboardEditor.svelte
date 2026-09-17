@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { lookupOwn } from '$lib/lookup';
   // #636 / server #788: the in-place dashboard editor. Rendered by
   // /app/dashboard when the user hits Customize: the same 12-col grid the
   // dashboard shows, with each widget wrapped in edit chrome — drag a card to
@@ -52,7 +53,7 @@
   } = $props();
 
   const titleOf = (type: WidgetType): string => {
-    const def = WIDGET_REGISTRY[type];
+    const def = lookupOwn(WIDGET_REGISTRY, type);
     return def ? t(def.titleKey, def.titleDefault) : type;
   };
 
@@ -82,7 +83,7 @@
   // Seeded from the loaded placements once; the editor then owns this state
   // (same capture-initial-value pattern as the old picker), so untrack the seed.
   let items = $state(
-    untrack(() => placements.filter((p) => WIDGET_REGISTRY[p.type]).map(withUid)),
+    untrack(() => placements.filter((p) => lookupOwn(WIDGET_REGISTRY, p.type)).map(withUid)),
   );
 
   // What gets posted: the placements in display order, uid stripped. Also the
@@ -114,7 +115,7 @@
   );
 
   function addWidget(type: WidgetType) {
-    const def = WIDGET_REGISTRY[type];
+    const def = lookupOwn(WIDGET_REGISTRY, type);
     items = [
       ...items,
       withUid({
@@ -379,6 +380,15 @@
   ondragover={(e) => { if (dragUid) e.preventDefault(); }}
   ondrop={(e) => e.preventDefault()}
 >
+  <!-- #835: the three `WIDGET_REGISTRY[item.type]` reads in this template index
+       the literal directly and dereference the result, so they depend on an
+       invariant rather than a guard: EVERY path into `items` admits only
+       registered types. There are two, and both enforce it — the seed filters
+       through `lookupOwn` (see `items`), and `addWidget` takes a `WidgetType`
+       chosen from the registry itself. Add a third (restore-from-draft, a
+       preset applied straight from a server payload, an undo buffer) and it
+       must filter the same way, or an unregistered type reaches here and
+       renders an empty widget in silence. -->
   {#each items as item, i (item.uid)}
     {@const Widget = WIDGET_REGISTRY[item.type].component}
     <div

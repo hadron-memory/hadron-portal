@@ -9,6 +9,7 @@
 import { t } from '$lib/i18n/t';
 import type { UiClause, UiCondition, UiGroup, UiValue } from './types.js';
 import { labelFor } from './known-variables.js';
+import { lookupOwn } from '$lib/lookup';
 
 /**
  * Friendly display name for a variable path. Envelope fields
@@ -50,7 +51,14 @@ function describeClause(clause: UiClause): string {
   if (clause.operator === 'missing') {
     return `${field} ${t('edge-conditions.describe.missing', 'is not set')}`;
   }
-  const phrase = OPERATOR_PHRASES[clause.operator] ?? clause.operator;
+  // #835 — `lookupOwn`. The real gate is upstream and it is a good one:
+  // `deserialize()` refuses any operator outside `UI_OPERATORS`, which is
+  // already a `Set` and therefore immune, so a prototype key cannot reach a
+  // clause built the normal way. Guarded anyway because the `??` here is the
+  // only thing standing between a hand-built tree and an inherited value being
+  // interpolated into a user-facing sentence — and `??` does not fire on one,
+  // since a function is not nullish.
+  const phrase = lookupOwn(OPERATOR_PHRASES, clause.operator) ?? clause.operator;
   return `${field} ${phrase} ${describeValue(clause.value, clause.operator)}`.trimEnd();
 }
 

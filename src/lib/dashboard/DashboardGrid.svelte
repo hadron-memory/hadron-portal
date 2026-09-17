@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { lookupOwn } from '$lib/lookup';
   // #636: the dashboard layout framework. Lays widgets out on a 12-column grid
   // on desktop; each widget declares how many columns to span. On smaller
   // screens every widget is full-width (see the note on clamping below).
@@ -15,7 +16,7 @@
   // server-provided selections).
   const resolved = $derived(
     placements.flatMap((p) => {
-      const def = WIDGET_REGISTRY[p.type];
+      const def = lookupOwn(WIDGET_REGISTRY, p.type);
       return def ? [{ placement: p, def }] : [];
     }),
   );

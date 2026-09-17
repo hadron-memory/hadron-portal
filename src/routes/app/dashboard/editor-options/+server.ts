@@ -8,6 +8,7 @@ import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { DASHBOARD_WIDGET_PRESETS_QUERY, MEMORY_OPTIONS_QUERY } from '$lib/server/queries';
 import { WIDGET_TYPE_FROM_SERVER } from '$lib/dashboard/widgets/types';
+import { lookupOwn } from '$lib/lookup';
 import type { WidgetType } from '$lib/dashboard/widgets/types';
 import type { RequestHandler } from './$types';
 
@@ -67,7 +68,7 @@ export const GET: RequestHandler = async ({ locals }) => {
     // Map the server enum to portal ids, dropping presets for types this
     // portal build doesn't know (defensive, mirrors the placements loader).
     presets = presetData.dashboardWidgetPresets.flatMap((p) => {
-      const type = WIDGET_TYPE_FROM_SERVER[p.type];
+      const type = lookupOwn(WIDGET_TYPE_FROM_SERVER, p.type);
       return type ? [{ id: p.id, type, name: p.name, config: p.config }] : [];
     });
   } catch (e) {

@@ -8,6 +8,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { DASHBOARD_QUERY, SET_DASHBOARD_WIDGETS_MUTATION } from '$lib/server/queries';
 import { WIDGET_TYPE_FROM_SERVER, WIDGET_TYPE_TO_SERVER } from '$lib/dashboard/widgets/types';
+import { lookupOwn } from '$lib/lookup';
 import type { WidgetDataMap, WidgetPlacement, WidgetType } from '$lib/dashboard/widgets/types';
 import { DEFAULT_PLACEMENTS } from '$lib/dashboard/widgets/defaults';
 import type { Actions, PageServerLoad } from './$types';
@@ -33,7 +34,11 @@ function toPlacements(widgets: ServerWidget[]): WidgetPlacement[] {
   return [...widgets]
     .sort((a, b) => a.position - b.position)
     .flatMap((w) => {
-      const type = WIDGET_TYPE_FROM_SERVER[w.type];
+      // #835: guarded lookup — `w.type` is wire data. The GraphQL enum is the
+      // real gate here (DashboardWidgetType has three members, so a prototype
+      // key cannot survive validation); this is belt-and-braces so the class
+      // reads the same at every site rather than needing that argument re-made.
+      const type = lookupOwn(WIDGET_TYPE_FROM_SERVER, w.type);
       return type
         ? [{ id: w.id, type, span: w.span, rowSpan: w.rowSpan, config: w.config ?? null }]
         : [];
@@ -62,7 +67,7 @@ export const load: PageServerLoad = async ({ locals }) => {
     // from that placement's own config), skipping unknown types defensively.
     const widgetData: WidgetDataMap = {};
     for (const d of data.dashboardWidgetData) {
-      if (WIDGET_TYPE_FROM_SERVER[d.type]) widgetData[d.widgetId] = d.data;
+      if (lookupOwn(WIDGET_TYPE_FROM_SERVER, d.type)) widgetData[d.widgetId] = d.data;
     }
     // Default widgets render before the user activates any widget server-side
     // (dashboardWidgetData is empty until then) and their placements carry no
@@ -134,7 +139,7 @@ export const actions: Actions = {
         config?: unknown;
       };
       const serverType =
-        typeof rec.type === 'string' ? WIDGET_TYPE_TO_SERVER[rec.type as WidgetType] : undefined;
+        typeof rec.type === 'string' ? lookupOwn(WIDGET_TYPE_TO_SERVER, rec.type) : undefined;
       if (!serverType) return [];
       return [
         {
