@@ -79,7 +79,8 @@ describe('loadOrgDetail', () => {
   // THE case. A non-null nested list erroring propagates its null up to
   // `organization`, and graphql-request turns that whole response into a
   // rejection — so the payload has to be read off the error, not the resolve.
-  it('null propagation (a rejection carrying organization: null) is a 404, NOT a 500', async () => {
+  // The CODE still decides: a refusal is this tab's 404 …
+  it('null propagation from a refusal is a 404, NOT a 500', async () => {
     mockRejects(
       rejection({
         data: { organization: null },
@@ -99,6 +100,18 @@ describe('loadOrgDetail', () => {
       expect((await rejectsWith()).status).toBe(404);
     },
   );
+
+  // … and a CRASH is not. @copilot on #847: an earlier version took any
+  // payload-bearing rejection as a 404, which reported a broken resolver as
+  // "Organization not found" — the #843 lie, one level down.
+  it('null propagation from an INTERNAL_SERVER_ERROR propagates, it is not a 404', async () => {
+    const crash = rejection({
+      data: { organization: null },
+      errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }],
+    });
+    mockRejects(crash);
+    expect(await rejectsWith()).toBe(crash);
+  });
 
   it('a transport failure is rethrown unchanged, so an outage stays a 500', async () => {
     // Same rule as the org layout: no GraphQL payload at all cannot be a

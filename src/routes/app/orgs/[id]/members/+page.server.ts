@@ -5,12 +5,12 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
-  ORGANIZATION_QUERY,
   ADD_MEMBER_MUTATION,
   UPDATE_MEMBER_MUTATION,
   REMOVE_MEMBER_MUTATION,
   CREATE_USER_INVITATION_MUTATION,
   START_IMPERSONATION_MUTATION,
+  ORG_MEMBERS_TAB_QUERY,
 } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -36,7 +36,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // The "Add existing user" picker searches on demand via /api/users/search —
   // we deliberately no longer bulk-load every user (with their emails) into the
   // page just to populate a dropdown (#414 privacy).
-  const orgData = await client.request<{ organization: Organization }>(ORGANIZATION_QUERY, {
+  const orgData = await client.request<{ organization: Organization }>(ORG_MEMBERS_TAB_QUERY, {
     ref: params.id,
   });
   const [addForm, updateForm, removeForm, inviteForm, leaveForm, impersonateForm] =

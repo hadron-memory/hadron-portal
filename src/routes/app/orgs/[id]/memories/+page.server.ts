@@ -9,7 +9,6 @@ import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
 import {
-  ORGANIZATION_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   DELETE_MEMORY_MUTATION,
   SYNC_MEMORY_MUTATION,
@@ -151,8 +150,13 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
     let data: { organization: Organization };
     try {
+      // #845: the memories SLICE, not ORGANIZATION_QUERY. An action runs
+      // before the layout load so it has no parent() to read, but the reason
+      // for a narrow selection is the same one the loaders have — this action
+      // syncs memories and has no business invoking `exchangeConnections`,
+      // whose refusal would fail the sync with an unrelated error.
       data = await client.request<{ organization: Organization }>(
-        ORGANIZATION_QUERY, { ref: params.id },
+        ORG_MEMORIES_TAB_QUERY, { ref: params.id },
       );
     } catch (e: unknown) {
       return message(

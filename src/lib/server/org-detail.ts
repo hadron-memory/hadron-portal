@@ -54,21 +54,24 @@ export async function loadOrgDetail(
   try {
     data = await gqlClient(token).request<{ organization: Organization | null }>(document, { ref });
   } catch (e: unknown) {
-    // A rejection that still carried the org shape tells us which case this is.
-    // `organization: null` beside an error is precisely the null-propagation
-    // signature — the org resolved, one of ITS fields did not — and for this
-    // tab that is indistinguishable from absent.
     const payload = (e as { response?: { data?: { organization?: Organization | null } } })
       ?.response?.data;
-    if (payload && 'organization' in payload) {
-      data = { organization: payload.organization ?? null };
-    } else {
-      // No org shape at all: either the org itself is the problem, or the
-      // server is. Same allowlist the layout uses, so the two agree.
-      const code = extractGqlErrorCode(e);
-      if (code !== 'ORGANIZATION_NOT_FOUND' && code !== 'FORBIDDEN') throw e;
-      data = { organization: null };
-    }
+
+    // A rejection that still carried a USABLE org is a partial success: some
+    // nullable field failed without propagating, and erroring the tab over it
+    // would throw away a page that renders.
+    if (payload?.organization) return payload.organization;
+
+    // Otherwise the org is null — cleanly absent, or nulled by a non-null
+    // nested field that failed. Those are indistinguishable from here, so the
+    // CODE decides, exactly as it does in the layout. @copilot on #847: an
+    // earlier version treated any payload-bearing rejection as this tab's 404,
+    // which quietly turned a resolver CRASH (`INTERNAL_SERVER_ERROR`) into
+    // "Organization not found" — the confident false statement #843 removed
+    // from the layout, reintroduced one level down.
+    const code = extractGqlErrorCode(e);
+    if (code !== 'ORGANIZATION_NOT_FOUND' && code !== 'FORBIDDEN') throw e;
+    data = { organization: null };
   }
 
   if (!data.organization) throw error(404, 'Organization not found');

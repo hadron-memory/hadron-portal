@@ -529,6 +529,36 @@ export const ORG_CHROME_QUERY = /* GraphQL */ `
  * Adding a list to one of these means that tab now shares that list's failures
  * — which is the whole point, so do it deliberately and say why.
  */
+export const ORG_MEMBERS_TAB_QUERY = /* GraphQL */ `
+  ${ORG_FIELDS}
+  query OrgMembersTab($ref: ID!) {
+    organization(ref: $ref) {
+      ...OrgFields
+      members {
+        id
+        role
+        canInvite
+        createdAt
+        user { id handle githubUsername name avatarUrl email }
+      }
+    }
+  }
+`;
+
+/** The exchange-connection detail route reads only that list. */
+export const ORG_EXCHANGE_CONNECTIONS_QUERY = /* GraphQL */ `
+  ${ORG_FIELDS}
+  ${EXCHANGE_CONNECTION_FIELDS}
+  query OrgExchangeConnections($ref: ID!) {
+    organization(ref: $ref) {
+      ...OrgFields
+      exchangeConnections {
+        ...ExchangeConnectionFields
+      }
+    }
+  }
+`;
+
 export const ORG_PROFILE_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}

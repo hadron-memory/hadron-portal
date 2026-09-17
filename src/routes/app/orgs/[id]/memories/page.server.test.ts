@@ -10,7 +10,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DELETE_MEMORY_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
-  ORGANIZATION_QUERY,
   ORG_MEMORIES_TAB_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   PUBLIC_MEMORIES_QUERY,
@@ -227,10 +226,10 @@ describe('memories-list syncAll action', () => {
       },
     });
     expect(mockRequest.mock.calls).toEqual([
-      // The ACTION keeps the fat ORGANIZATION_QUERY: an action runs BEFORE
-      // the layout load, so it has no parent() to read and #845's per-tab
-      // split applies to loaders only.
-      [ORGANIZATION_QUERY, { ref: 'org-1' }],
+      // The action fetches the memories SLICE too (#845): it runs before the
+      // layout load so it has no parent(), but it has no business invoking
+      // `exchangeConnections` either.
+      [ORG_MEMORIES_TAB_QUERY, { ref: 'org-1' }],
       [SYNC_MEMORY_MUTATION, { id: 'mem-1' }],
       [SYNC_MEMORY_MUTATION, { id: 'mem-3' }],
     ]);
@@ -278,7 +277,7 @@ describe('memories-list syncAll action', () => {
     expect(result.status).toBe(500);
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
     expect(mockRequest).toHaveBeenCalledTimes(1);
-    expect(mockRequest).toHaveBeenCalledWith(ORGANIZATION_QUERY, { ref: 'org-1' });
+    expect(mockRequest).toHaveBeenCalledWith(ORG_MEMORIES_TAB_QUERY, { ref: 'org-1' });
   });
 });
 
