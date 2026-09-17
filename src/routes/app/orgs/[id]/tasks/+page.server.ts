@@ -1,6 +1,6 @@
 import { gqlClient } from '$lib/server/api';
 import { loadOrgDetail } from '$lib/server/org-detail';
-import { RUNNABLE_NODES_QUERY } from '$lib/server/queries';
+import { RUNNABLE_NODES_QUERY, ORG_TASK_MEMORY_IDS_QUERY } from '$lib/server/queries';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import type { MemoryNode } from '$lib/types';
 import type { PageServerLoad } from './$types';
@@ -8,7 +8,8 @@ import type { PageServerLoad } from './$types';
 // "Task Nodes" — runnable nodes (Node.isRunnable=true) scoped to the ACTIVE
 // org's memories, mirroring the other org-scoped sections (memories/agents/
 // apps under /app/orgs/[id]/). The org (with its memories) is loaded by the
-// org [id] layout, so we read it from `parent()` and scope the query to its
+// org [id] layout as CHROME ONLY since #845, so this loader fetches the org's
+// memory IDS itself (ORG_TASK_MEMORY_IDS_QUERY) and scopes the query to its
 // memory ids rather than listing every accessible task.
 
 // Cap the listing; flagged in the UI if we hit it.
@@ -21,7 +22,7 @@ type RunnableNode = Pick<MemoryNode, 'id' | 'memoryId' | 'loc' | 'name' | 'descr
 
 export const load: PageServerLoad = async ({ params, locals }) => {
   // #845: the layout carries chrome only; this tab needs the full org.
-  const org = await loadOrgDetail(locals.token, params.id);
+  const org = await loadOrgDetail(locals.token, params.id, ORG_TASK_MEMORY_IDS_QUERY);
   const memoryIds = (org?.memories ?? []).map((m) => m.id);
 
   // No org memories → no tasks. Critically, do NOT call nodes() with an empty

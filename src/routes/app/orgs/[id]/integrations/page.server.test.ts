@@ -5,7 +5,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  ORGANIZATION_QUERY,
+  ORG_INTEGRATIONS_TAB_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
   DELETE_EXCHANGE_CONNECTION_MUTATION,
   LINK_GITHUB_APP_MUTATION,
@@ -116,7 +116,7 @@ function routeMock(opts: { aiConfigs?: { data?: unknown; error?: unknown }; org?
     // fields, none of which the layout carries any more — so it fetches the org
     // itself and THIS is where a test supplies one. `ev({ org })` feeds
     // parent(), which now only carries chrome.
-    if (query === ORGANIZATION_QUERY) return { organization: opts.org ?? fakeOrg };
+    if (query === ORG_INTEGRATIONS_TAB_QUERY) return { organization: opts.org ?? fakeOrg };
     if (query === AI_SERVICE_CONFIGS_QUERY) {
       if (opts.aiConfigs?.error !== undefined) throw opts.aiConfigs.error;
       // hadron-server#473: wrap in the uniform { items, total } envelope.

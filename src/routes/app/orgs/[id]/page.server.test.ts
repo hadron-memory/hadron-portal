@@ -19,7 +19,7 @@
  * spin up SvelteKit.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ORGANIZATION_QUERY } from '$lib/server/queries';
+import { ORG_PROFILE_QUERY } from '$lib/server/queries';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -104,7 +104,7 @@ describe('org-detail Profile load()', () => {
     mockRequest.mockResolvedValueOnce({ organization: fakeOrg });
     const { load } = await importMod();
     await load(ev({}));
-    expect(mockRequest).toHaveBeenCalledWith(ORGANIZATION_QUERY, { ref: 'org-id-123' });
+    expect(mockRequest).toHaveBeenCalledWith(ORG_PROFILE_QUERY, { ref: 'org-id-123' });
   });
 
   // The containment #845 bought: a nested list failing nulls `organization`,

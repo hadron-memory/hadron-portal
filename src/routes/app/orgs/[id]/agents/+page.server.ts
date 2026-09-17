@@ -14,6 +14,7 @@ import {
   PUBLIC_AGENTS_QUERY,
   CREATE_AGENT_ORG_GRANT_MUTATION,
   REVOKE_AGENT_ORG_GRANT_MUTATION,
+  ORG_AGENTS_TAB_QUERY,
 } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 import { orgAgentSubscribeSchema, orgAgentUnsubscribeSchema } from './schema';
@@ -56,7 +57,10 @@ export interface AgentGrant {
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
   const client = gqlClient(locals.token);
-  // #382: the org comes from the LAYOUT, which has already run
+  // #382 → #845: the org NO LONGER comes from the layout, which now carries
+  // chrome only. This tab renders `org.agents`, so it asks for that slice
+  // itself and a failure there stops at this tab. Superseded comment:
+  // #382 had this read parent(), which had already run
   // ORGANIZATION_QUERY for this same `params.id` on this same request. Fetching
   // it again here was a second identical round trip per page load.
   //
@@ -73,7 +77,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // it governs every org page, and the answer has to account for a non-member,
   // for whom a 500 would be worse than the 404 they get today.
   // #845: the layout carries chrome only; this tab needs the full org.
-  const org = await loadOrgDetail(locals.token, params.id);
+  const org = await loadOrgDetail(locals.token, params.id, ORG_AGENTS_TAB_QUERY);
   const [apps, grantsData, publicAgents] = await Promise.all([
     // Which agents are already installed as an App → { agentId: { appId, appName } }.
     // Non-fatal: on failure the "Open" affordance simply doesn't render.

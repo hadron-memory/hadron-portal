@@ -11,6 +11,7 @@ import {
   DELETE_MEMORY_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
   ORGANIZATION_QUERY,
+  ORG_MEMORIES_TAB_QUERY,
   ORG_SYSTEM_MEMORIES_QUERY,
   PUBLIC_MEMORIES_QUERY,
   MEMORIES_QUERY,
@@ -61,7 +62,7 @@ function ev(opts: { orgId?: string; userId?: string; tab?: string; org?: unknown
     params: { id: orgId },
     locals: { token: 'test-token', user: { id: opts.userId ?? 'u1' } },
     // #382: the org now arrives from the LAYOUT rather than from a second
-    // ORGANIZATION_QUERY in this loader, so the parent stub has to supply it.
+    // ORG_MEMORIES_TAB_QUERY in this loader, so the parent stub has to supply it.
     // That the old `{}` stub stopped working is the contract change showing up.
     parent: async () => ({ org: opts.org ?? fakeOrg }),
     url: new URL(`https://x/app/orgs/${orgId}/memories${search}`),
@@ -77,7 +78,7 @@ function routeMock(myMemories: unknown[], publicMemories: unknown[] = [], org: u
   mockRequest.mockImplementation(async (query: string) => {
     // #845: the loader fetches the org itself, so this is where a test injects
     // one — not through parent(), which now carries chrome only.
-    if (query === ORGANIZATION_QUERY) return { organization: org ?? fakeOrg };
+    if (query === ORG_MEMORIES_TAB_QUERY) return { organization: org ?? fakeOrg };
     if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
     if (query === PUBLIC_MEMORIES_QUERY) {
       return { memories: { items: publicMemories, total: publicMemories.length } };
@@ -103,7 +104,7 @@ describe('memories-list load() — personalMemories (spec 034)', () => {
 
   it('memories() failure degrades to an empty personalMemories list (no throw)', async () => {
     mockRequest.mockImplementation(async (query: string) => {
-      if (query === ORGANIZATION_QUERY) return { organization: fakeOrg };
+      if (query === ORG_MEMORIES_TAB_QUERY) return { organization: fakeOrg };
       if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
       if (query === PUBLIC_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
       if (query === MEMORIES_QUERY) throw new Error('boom');
@@ -226,6 +227,9 @@ describe('memories-list syncAll action', () => {
       },
     });
     expect(mockRequest.mock.calls).toEqual([
+      // The ACTION keeps the fat ORGANIZATION_QUERY: an action runs BEFORE
+      // the layout load, so it has no parent() to read and #845's per-tab
+      // split applies to loaders only.
       [ORGANIZATION_QUERY, { ref: 'org-1' }],
       [SYNC_MEMORY_MUTATION, { id: 'mem-1' }],
       [SYNC_MEMORY_MUTATION, { id: 'mem-3' }],
@@ -398,7 +402,7 @@ describe('memories-list unsubscribe action', () => {
 /**
  * #382 — the loader must NOT re-fetch the organization.
  *
- * The org layout already runs ORGANIZATION_QUERY for this same `params.id` on
+ * The org layout already runs ORG_MEMORIES_TAB_QUERY for this same `params.id` on
  * this same request; this loader used to run it again, and used its result for
  * the owned/subscribed exclusion sets.
  *
@@ -409,19 +413,19 @@ describe('memories-list unsubscribe action', () => {
  */
 describe('org memories load() — the org comes from THIS LOADER (#382 → #845)', () => {
   // #382/#842 pinned the opposite here: the org came from parent() and this
-  // loader issued no ORGANIZATION_QUERY. #845 had to invert it. The layout now
+  // loader issued no ORG_MEMORIES_TAB_QUERY. #845 had to invert it. The layout now
   // fetches chrome only (id/name/urn), because every nested field on
   // Organization is non-null while `organization(ref:)` is nullable — so one
   // list resolver failing propagated its null up to `organization` and the
   // layout's 404 replaced every tab of the org. This tab reads `memories` and
   // `subscriptions`, so it asks for them itself and a failure stops here.
-  it('issues its own ORGANIZATION_QUERY, since the layout no longer carries the lists', async () => {
+  it('issues its own ORG_MEMORIES_TAB_QUERY, since the layout no longer carries the lists', async () => {
     routeMock([]);
     const load = await importLoad();
     const result = (await load(ev())) as unknown as { org: unknown };
 
     expect(result.org).toEqual(fakeOrg);
-    expect(mockRequest.mock.calls.filter(([q]) => q === ORGANIZATION_QUERY)).toHaveLength(1);
+    expect(mockRequest.mock.calls.filter(([q]) => q === ORG_MEMORIES_TAB_QUERY)).toHaveLength(1);
     // Still asks for what it also needs, so "queried nothing" cannot pass this.
     expect(mockRequest.mock.calls.filter(([q]) => q === MEMORIES_QUERY)).toHaveLength(1);
   });

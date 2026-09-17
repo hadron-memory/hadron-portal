@@ -17,6 +17,7 @@ import {
   UNLINK_GITHUB_APP_MUTATION,
   DELETE_EXCHANGE_CONNECTION_MUTATION,
   TEST_EXCHANGE_CONNECTION_MUTATION,
+  ORG_INTEGRATIONS_TAB_QUERY,
 } from '$lib/server/queries';
 import type { AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -79,7 +80,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // #845: the layout carries chrome only — this tab reads `exchangeConnections`,
   // `members` and the GitHub App fields, so it fetches the full org itself. The
   // guard above still runs off parent(), which is what it is for.
-  const org = await loadOrgDetail(locals.token, params.id);
+  const org = await loadOrgDetail(locals.token, params.id, ORG_INTEGRATIONS_TAB_QUERY);
   // The registry list is org-ADMIN gated server-side; non-admin members get a
   // GraphQL error here — surface it as an empty/error state, not a 500.
   const configsData = await fetchAllItems<AiServiceConfig>(

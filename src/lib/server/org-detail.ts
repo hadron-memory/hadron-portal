@@ -1,55 +1,76 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { ORGANIZATION_QUERY } from '$lib/server/queries';
+import { extractGqlErrorCode } from '$lib/server/gqlError';
 import type { Organization } from '$lib/types';
 
 /**
- * The FULL org detail, for a tab that needs one of its nested lists (#845).
+ * Fetch ONE TAB's slice of the org (#845).
  *
- * ## Why this is not on the layout
+ * ## Why the layout does not do this
  *
  * `/app/orgs/[id]/+layout.server.ts` fetches `ORG_CHROME_QUERY` — three scalars
  * — and nothing else. Every nested field on `Organization` is non-null in the
  * SDL (`members`, `memories`, `agents`, `subscriptions`, `exchangeConnections`
  * are all `[X!]!`) while `organization(ref:)` itself is nullable, so GraphQL
  * null propagation carries ANY nested resolver failure up to `organization`.
- * With the fat query on the layout, one list refusing — `exchangeConnections`
- * for a non-admin member, say — nulled the org and the layout's 404 replaced
- * the whole org surface, every tab, for someone looking at their own org.
+ * With the fat query on the layout, one list refusing nulled the org and the
+ * layout's 404 replaced the whole org surface.
  *
- * Moving the fat query down here does not make that propagation go away; it
- * CONTAINS it. A list failure now takes out the tab that asked for the list,
- * and the breadcrumb, header and tab bar keep rendering from the layout's
- * scalars, so the reader can still navigate to the tabs that work.
+ * ## Why `document` is a parameter rather than one shared query
  *
- * ## On the second query
+ * @codex's P1 on #847: moving the fat query DOWN is not containment if all five
+ * tabs then share it. `exchangeConnections` refusing for a non-admin member
+ * still took out Profile, Memories, Agents and Tasks along with Integrations,
+ * because they all invoked that resolver to render lists they never show. Each
+ * caller now passes the slice it actually renders (`ORG_PROFILE_QUERY`,
+ * `ORG_MEMORIES_TAB_QUERY`, …), so a refusal reaches only the tab whose data it
+ * is.
  *
- * #842 removed a duplicate `ORGANIZATION_QUERY` from these loaders, which is
- * the change this partially walks back — so it is worth being precise about
- * what it costs. #842 was removing a SECOND COPY of the same fat query. Here
- * the layout's query is three scalars, so a tab that needs the detail issues
- * one fat query and one trivial one, where before #842 it issued two fat ones.
- * The tabs that need NO list (apps, runs, sessions, ai-configs) are strictly
- * better off than under #842: they now load the chrome alone rather than every
- * member, memory, agent, subscription and exchange connection the org has.
+ * ## What a failure does here
  *
- * The direction that removes the remaining fat query is per-tab ROOT list
- * queries (`memories(orgId:)`, `agents(orgId:)`) instead of reaching through
- * `organization`, which also makes them paginable. Out of scope here; #845
- * records it.
+ * `graphql-request` rejects on ANY GraphQL error, so a null-propagated org
+ * arrives as a rejection carrying `data.organization === null` — it never
+ * reaches a plain `if (!data.organization)` check (@copilot, same review; the
+ * first version of this helper had exactly that bug and advertised a 404 while
+ * returning a 500).
+ *
+ * So: a response that came back with a null org — whether cleanly or through a
+ * rejection — is this tab's 404. Anything else (transport failure, a code this
+ * route has no answer for) propagates as a 500, matching the layout's rule in
+ * `+layout.server.ts`. Either way the chrome above survives, because
+ * `+error.svelte` in this route renders INSIDE the org layout.
  */
 export async function loadOrgDetail(
   token: string | null | undefined,
   ref: string,
+  document: string,
 ): Promise<Organization> {
-  const data = await gqlClient(token).request<{ organization: Organization | null }>(
-    ORGANIZATION_QUERY,
-    { ref },
-  );
-  // The layout has already resolved this same ref and raised its own 404/500 by
-  // the time a page load runs, so reaching a null here means the org went away
-  // between the two requests, or a nested list failed and propagated. Either
-  // way this tab has nothing to render.
+  // try/catch rather than a chained `.catch()`: one promise, awaited where it
+  // is created. The chained form left a rejected promise briefly unattached,
+  // which Node reports as an unhandled rejection and a test runner then blames
+  // on whatever test is running — a failure that has nothing to do with the
+  // behaviour under test and costs a long time to trace.
+  let data: { organization: Organization | null };
+  try {
+    data = await gqlClient(token).request<{ organization: Organization | null }>(document, { ref });
+  } catch (e: unknown) {
+    // A rejection that still carried the org shape tells us which case this is.
+    // `organization: null` beside an error is precisely the null-propagation
+    // signature — the org resolved, one of ITS fields did not — and for this
+    // tab that is indistinguishable from absent.
+    const payload = (e as { response?: { data?: { organization?: Organization | null } } })
+      ?.response?.data;
+    if (payload && 'organization' in payload) {
+      data = { organization: payload.organization ?? null };
+    } else {
+      // No org shape at all: either the org itself is the problem, or the
+      // server is. Same allowlist the layout uses, so the two agree.
+      const code = extractGqlErrorCode(e);
+      if (code !== 'ORGANIZATION_NOT_FOUND' && code !== 'FORBIDDEN') throw e;
+      data = { organization: null };
+    }
+  }
+
   if (!data.organization) throw error(404, 'Organization not found');
   return data.organization;
 }

@@ -101,10 +101,14 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     .request<{ organization: OrgChrome | null }>(ORG_CHROME_QUERY, { ref: params.id })
     .catch((e: unknown) => {
       // #843: this branch used to coerce EVERY rejection to 404, so a server
-      // outage told the user their organization does not exist. Since #842 the
-      // memories, agents and apps loaders read this layout's org via parent()
-      // instead of fetching their own, which makes this one branch the error
-      // behaviour of the whole org surface.
+      // outage told the user their organization does not exist.
+      //
+      // Since #845 the only tabs still reading this payload are the ones that
+      // need NOTHING but the chrome — apps, runs, sessions, ai-configs. The
+      // tabs that render a list (profile, memories, agents, integrations,
+      // tasks) fetch their own slice, so this branch is no longer the error
+      // behaviour of the whole org surface. It is still the error behaviour of
+      // the chrome, which every tab draws, so it stays the strictest one here.
       //
       // #845 is why the query above is `ORG_CHROME_QUERY` and not
       // `ORGANIZATION_QUERY`. Every nested field on Organization is non-null in
