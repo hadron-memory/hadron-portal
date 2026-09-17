@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { offendingLines, scanSource, testFilesUnder } from './check-hook-teardown.mjs';
+import { allTestFiles, offendingLines, scanSource, testFilesUnder } from './check-hook-teardown.mjs';
 
 /**
  * #848 — the gate's own test.
@@ -27,6 +27,21 @@ describe('offendingLines — fires', () => {
   ])('%s', (_what, line) => {
     expect(offendingLines(line)).toHaveLength(1);
   });
+
+  // @codex and @copilot, both, on #849: a line-based scan gave the gate a
+  // bypass, and these are the shapes prettier produces on a long callback.
+  it.each([
+    ['arrow body wrapped onto the next line', 'beforeEach(() =>\n  mockRequest.mockReset()\n);'],
+    ['the whole callback wrapped', 'beforeEach(\n  () => mockRequest.mockReset(),\n);'],
+    ['beforeAll, wrapped', 'beforeAll(\n  () => spy.mockRestore(),\n);'],
+  ])('%s', (_what, src) => {
+    expect(offendingLines(src)).toHaveLength(1);
+  });
+
+  it('reports the line the HOOK starts on, not the line the mock call is on', () => {
+    const src = ['// a', 'beforeEach(() =>', '  mockRequest.mockReset()', ');'].join('\n');
+    expect(offendingLines(src)).toEqual([{ line: 2, text: 'beforeEach(() =>' }]);
+  });
 });
 
 describe('offendingLines — silent, each for a reason', () => {
@@ -46,6 +61,12 @@ describe('offendingLines — silent, each for a reason', () => {
     // A hook that deliberately returns a cleanup is a documented vitest
     // feature; undecidable without types, and not this gate's business.
     ['an intentional teardown', 'beforeEach(() => setupServer());'],
+    // THE self-reference. This file is full of fixture strings exactly like the
+    // ones above, and the gate now scans scripts/ — so a fixture must not read
+    // as an offence. They are preceded on their line by `[`, `(` or `,`; a real
+    // hook starts its line. If this fired, the gate would flag its own tests.
+    ['a fixture string in an array', "    ['the canonical case', 'beforeEach(() => m.mockReset());'],"],
+    ['a fixture passed as an argument', "    expect(offendingLines('beforeEach(() => m.mockReset());'));"],
   ])('%s', (_what, line) => {
     expect(offendingLines(line)).toEqual([]);
   });
@@ -71,8 +92,8 @@ describe('scanSource', () => {
 describe('the repository itself', () => {
   // The gate is only worth having if the tree satisfies it, and this is also
   // what stops the #848 sweep silently regressing.
-  it('has no before* hook returning a mock', () => {
-    const offenders = testFilesUnder('src')
+  it('has no before* hook returning a mock, across EVERY vitest root', () => {
+    const offenders = allTestFiles()
       .map((f) => scanSource(f, readFileSync(f, 'utf8')))
       .filter(Boolean);
     expect(offenders).toEqual([]);
@@ -81,6 +102,13 @@ describe('the repository itself', () => {
   it('scans a plausible number of files, so a broken walk cannot read as clean', () => {
     // The mirror of the check above: `offenders === []` is also what an empty
     // file list produces (hrn:node:hadronmemory.com:hadron-portal:review:a-spare-test-must-reach-the-matcher).
-    expect(testFilesUnder('src').length).toBeGreaterThan(100);
+    expect(allTestFiles().length).toBeGreaterThan(100);
+  });
+
+  it('covers scripts/ as well as src/, since vitest runs both', () => {
+    // @codex on #849 — the gate scripts' own suites are precisely where this
+    // defect would sit unnoticed. Asserting THIS file is in the scanned set.
+    expect(allTestFiles()).toContain('scripts/check-hook-teardown.test.ts');
+    expect(testFilesUnder('scripts').length).toBeGreaterThan(0);
   });
 });

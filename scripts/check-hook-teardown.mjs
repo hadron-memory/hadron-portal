@@ -47,17 +47,48 @@ import { join } from 'node:path';
  * A `before*` hook whose arrow body is a bare `<something>.mock<Method>(…)`
  * call — no braces, so the call's value is returned.
  *
- * Anchored on the hook name so an ordinary `x.mockReset()` statement inside a
- * block body is untouched; that is the shape this gate exists to promote.
+ * Matched against the WHOLE SOURCE with `\s*` between the tokens, not line by
+ * line (@codex and @copilot, both, on #849). A line-based scan misses the two
+ * shapes a formatter produces on a long callback —
+ *
+ *     beforeEach(() =>
+ *       mockRequest.mockReset()
+ *     );
+ *     beforeEach(
+ *       () => mockRequest.mockReset(),
+ *     );
+ *
+ * — which return the mock exactly as the one-liner does. A gate that reports
+ * success on the wrapped form is a gate with a bypass in it, and prettier
+ * wraps at 100 columns in this repo.
+ *
+ * ANCHORED AT A LINE START (`^[ \t]*`) for a reason that is not cosmetic: this
+ * gate scans `scripts/` too, and this very file's test suite is full of
+ * FIXTURE STRINGS like `'beforeEach(() => m.mockReset());'`. Those sit inside
+ * an array or an argument list, so they are preceded on their line by `[`, `(`
+ * or `,` and never start one. A real hook is a statement and always does. That
+ * keeps the gate honest about its own tests without an exclusion list — the
+ * thing `hrn:node:hadronmemory.com:hadron-portal:review:ci-gate-prefilter-must-be-proven`
+ * warns about.
+ *
+ * The cost is a hook buried mid-line (`describe('x', () => { beforeEach(…) })`
+ * all on one line), which nothing in this repo writes and prettier would break
+ * up anyway.
  */
 export const HOOK_RETURNS_MOCK =
-  /\b(beforeEach|beforeAll)\(\s*\(\)\s*=>\s*[A-Za-z_$][A-Za-z0-9_$.]*\.mock[A-Za-z]*\(/;
+  /^[ \t]*(beforeEach|beforeAll)\(\s*(?:\(\)\s*=>\s*|\(\s*\(\)\s*=>\s*)[A-Za-z_$][A-Za-z0-9_$.]*\.mock[A-Za-z]*\(/gm;
 
-/** Every offending line in a source file, with its line number. */
+/** Every offending hook in a source file, with the line it starts on. */
 export function offendingLines(source) {
-  return source
-    .split('\n')
-    .flatMap((text, i) => (HOOK_RETURNS_MOCK.test(text) ? [{ line: i + 1, text: text.trim() }] : []));
+  const hits = [];
+  // `lastIndex` is shared state on a /g regex — rebuild per call so repeated
+  // calls (and the test suite's many small inputs) cannot interfere.
+  const re = new RegExp(HOOK_RETURNS_MOCK.source, 'gm');
+  for (const m of source.matchAll(re)) {
+    const line = source.slice(0, m.index).split('\n').length;
+    hits.push({ line, text: source.split('\n')[line - 1].trim() });
+  }
+  return hits;
 }
 
 export function scanSource(file, source) {
@@ -77,8 +108,23 @@ export function testFilesUnder(root) {
   return files;
 }
 
+/**
+ * Every root vitest runs tests from (@codex on #849).
+ *
+ * `vitest.config.ts`'s node project includes `scripts/**` as well as `src/**`,
+ * and the gate scripts' own suites are exactly where a hook like this would go
+ * unnoticed — a CI gate whose test file has the defect the gate exists to
+ * prevent is the joke that writes itself. Scanning them is safe because of the
+ * line-start anchor above.
+ */
+export const TEST_ROOTS = ['src', 'scripts'];
+
+export function allTestFiles(roots = TEST_ROOTS) {
+  return roots.flatMap((root) => testFilesUnder(root));
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const files = testFilesUnder('src');
+  const files = allTestFiles();
   const offenders = files
     .map((file) => scanSource(file, readFileSync(file, 'utf8')))
     .filter((hit) => hit !== null);
@@ -88,8 +134,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   } else {
     for (const { file, hits } of offenders) {
       for (const hit of hits) {
+        // No synthesized replacement. The obvious `hit.text.replace(/^.*=>/…)`
+        // is GREEDY and eats through the inner arrow of
+        // `mockImplementation(() => 1)`, emitting a malformed suggestion for
+        // one of the cases this rule explicitly matches (@copilot on #849).
+        // A wrong fix-it in an error message is worse than none — the reader
+        // pastes it. The instruction is generic instead, which is correct for
+        // every shape.
         console.error(
-          `::error file=${file},line=${hit.line}::This hook RETURNS the mock, and vitest calls a function returned from before*/beforeAll as a teardown — so the mock is invoked after every test. Harmless until a test leaves a rejecting implementation installed, then it is an unhandled rejection blamed on the wrong test. Use a block body: (() => { ${hit.text.replace(/^.*=>\s*/, '').replace(/\);\s*$/, '')}; }). See #848.`,
+          `::error file=${file},line=${hit.line}::This hook RETURNS the mock, and vitest calls a function returned from beforeEach/beforeAll as a teardown — so the mock is invoked after every test. Harmless until a test leaves a rejecting implementation installed, then it is an unhandled rejection blamed on the wrong test. Wrap the body in braces so the hook returns nothing. See #848.`,
         );
       }
     }
