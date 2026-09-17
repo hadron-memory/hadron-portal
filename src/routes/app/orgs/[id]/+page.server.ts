@@ -2,6 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { loadOrgDetail } from '$lib/server/org-detail';
 import { extractGqlError } from '$lib/server/gqlError';
 import { UPDATE_ORGANIZATION_MUTATION } from '$lib/server/queries';
 import { parseDisplayUrn } from '$lib/urn/parse-urn';
@@ -28,8 +29,9 @@ const orgProfileFormAdapter = zod4(orgProfileSchema);
 // gate the Edit affordance to admins; the server enforces the real ADMIN check
 // on the `update` action regardless. #609: the isVisible edit was removed — it
 // is a system-managed listing flag, not a user-facing public/private toggle.
-export const load: PageServerLoad = async ({ parent, locals }) => {
-  const { org } = await parent();
+export const load: PageServerLoad = async ({ params, locals }) => {
+  // #845: the layout carries chrome only; this tab needs the full org.
+  const org = await loadOrgDetail(locals.token, params.id);
   const form = await superValidate(
     { name: org.name ?? '', urn: parseDisplayUrn(org.urn, 'org').bareValue },
     orgProfileFormAdapter,

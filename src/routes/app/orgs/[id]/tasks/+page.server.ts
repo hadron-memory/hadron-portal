@@ -1,4 +1,5 @@
 import { gqlClient } from '$lib/server/api';
+import { loadOrgDetail } from '$lib/server/org-detail';
 import { RUNNABLE_NODES_QUERY } from '$lib/server/queries';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import type { MemoryNode } from '$lib/types';
@@ -18,8 +19,9 @@ type RunnableNode = Pick<MemoryNode, 'id' | 'memoryId' | 'loc' | 'name' | 'descr
   memory?: { id: string; urn: string; name: string } | null;
 };
 
-export const load: PageServerLoad = async ({ locals, parent }) => {
-  const { org } = await parent();
+export const load: PageServerLoad = async ({ params, locals }) => {
+  // #845: the layout carries chrome only; this tab needs the full org.
+  const org = await loadOrgDetail(locals.token, params.id);
   const memoryIds = (org?.memories ?? []).map((m) => m.id);
 
   // No org memories → no tasks. Critically, do NOT call nodes() with an empty

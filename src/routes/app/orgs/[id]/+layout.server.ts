@@ -1,9 +1,20 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
-import { ORGANIZATION_QUERY } from '$lib/server/queries';
+import { ORG_CHROME_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
 import type { LayoutServerLoad } from './$types';
+
+/**
+ * What the layout puts on `data.org`: the chrome fields, and only those (#845).
+ *
+ * Typed as a SLICE of Organization rather than as Organization, so a consumer
+ * that starts reading `org.memories` off the layout payload fails to COMPILE
+ * instead of reading undefined at runtime. Tabs that need more fetch it
+ * themselves and return their own (fuller) `org`, which takes precedence in the
+ * page's merged `data`.
+ */
+export type OrgChrome = Pick<Organization, 'id' | 'name' | 'urn'>;
 
 /**
  * #843 — the codes that mean "this URL names no org you can open", so a 404 is
@@ -87,36 +98,25 @@ const UNTYPED_REFUSAL = 'INTERNAL_SERVER_ERROR';
 // admin-only sub-routes keep their own guard.
 export const load: LayoutServerLoad = async ({ params, locals }) => {
   const data = await gqlClient(locals.token)
-    .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: params.id })
+    .request<{ organization: OrgChrome | null }>(ORG_CHROME_QUERY, { ref: params.id })
     .catch((e: unknown) => {
       // #843: this branch used to coerce EVERY rejection to 404, so a server
       // outage told the user their organization does not exist. Since #842 the
       // memories, agents and apps loaders read this layout's org via parent()
       // instead of fetching their own, which makes this one branch the error
       // behaviour of the whole org surface.
-      // NOTE — salvaging a partial `data.organization` here does not work, and
-      // this comment exists so the next reader does not re-derive that the
-      // expensive way (I tried it on this branch; @codex caught it).
       //
-      // The App loader DOES salvage from its APP_QUERY catch, so the pattern
-      // looks transferable. It is not, because the two selection sets differ in
-      // nullability. Every nested field ORGANIZATION_QUERY selects is non-null
-      // — `members: [OrgMember!]!`, `memories: [Memory!]!`, `agents: [Agent!]!`,
-      // `subscriptions: [MemorySubscription!]!`,
-      // `exchangeConnections: [ExchangeConnection!]!` — while the root
-      // `organization(ref: ID!): Organization` is nullable. So when one of those
-      // resolvers errors, GraphQL null propagation carries the null UP to the
-      // nearest nullable ancestor, which is `organization` itself: the response
-      // is `data.organization = null`, never a usable org alongside an error.
-      // A salvage branch here is unreachable by construction.
-      //
-      // The consequence is a real and PRE-EXISTING limitation rather than
-      // something this change introduces: a single nested field failing — say
-      // `exchangeConnections` refusing for a non-admin member — still replaces
-      // the whole org surface (every tab, via parent()) with a verdict about
-      // the org. Fixing it needs the failure-prone lists split out of this
-      // query, or their nullability changed server-side; both are larger than
-      // #843 and neither belongs in this catch.
+      // #845 is why the query above is `ORG_CHROME_QUERY` and not
+      // `ORGANIZATION_QUERY`. Every nested field on Organization is non-null in
+      // the SDL while `organization(ref:)` is nullable, so null propagation
+      // carried ANY nested resolver failure up to `organization` — and this
+      // catch, unable to tell that from a missing org, answered for the whole
+      // surface. A scalar-only selection has no nested resolver to fail, so the
+      // verdict below is now about the ORG and nothing else. (Salvaging a
+      // partial `data.organization` was tried on #844 and is unreachable by
+      // construction for the same propagation reason — see
+      // `hrn:node:hadronmemory.com:hadron-portal:findings:null-propagation-makes-partial-salvage-unreachable`
+      // before reaching for it again.)
       const code = extractGqlErrorCode(e);
 
       // No GraphQL errors payload at all: the server never answered with one.

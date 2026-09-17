@@ -17,7 +17,7 @@
  * direction alone would ratify a broken fixture.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ORGANIZATION_QUERY } from '$lib/server/queries';
+import { ORG_CHROME_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -40,7 +40,9 @@ function ev(opts: { orgId?: string } = {}) {
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
-const fakeOrg = { id: 'org-id-123', name: 'Acme', urn: 'urn:org:acme', members: [] };
+// The chrome slice, and ONLY that — a fixture carrying `members` here would
+// quietly ratify a layout that still selects it (#845).
+const fakeOrg = { id: 'org-id-123', name: 'Acme', urn: 'urn:org:acme' };
 
 /**
  * A graphql-request ClientError as the server actually delivers one: the code
@@ -70,7 +72,12 @@ describe('org-detail layout load()', () => {
     const load = await importLoad();
     const result = await load(ev({}));
     expect(result).toEqual({ org: fakeOrg });
-    expect(mockRequest).toHaveBeenCalledWith(ORGANIZATION_QUERY, { ref: 'org-id-123' });
+    // #845: the CHROME query, not ORGANIZATION_QUERY. Asserting the document
+    // rather than just "a call happened" is the whole point — the layout must
+    // not select a nested list, because a non-null list that fails propagates
+    // its null up to `organization` and turns one tab's failure into a 404 over
+    // the entire org surface.
+    expect(mockRequest).toHaveBeenCalledWith(ORG_CHROME_QUERY, { ref: 'org-id-123' });
   });
 
   it('organization is null → 404', async () => {
@@ -191,5 +198,53 @@ describe('org-detail layout load()', () => {
       mockRequest.mockRejectedValue(nested);
       expect((await loadAndCatch() as { status: number }).status).toBe(404);
     });
+  });
+});
+
+/**
+ * #845 — the regression guard for the FIX, not for the symptom.
+ *
+ * The defect was never in this loader's logic; it was in what the loader ASKED
+ * FOR. Every nested field on Organization is non-null in the SDL while
+ * `organization(ref:)` is nullable, so a nested resolver failing propagates its
+ * null up to `organization`, and a layout that cannot tell that from a missing
+ * org renders "Organization not found" across every tab.
+ *
+ * A scalar-only selection has nothing nested to fail. So the thing worth
+ * pinning is the SHAPE of the document — asserted structurally (nesting depth)
+ * rather than by listing today's field names, because a list added next year
+ * under a name nobody predicted is exactly the case a name-based check misses.
+ */
+describe('#845 — ORG_CHROME_QUERY selects no nested field', () => {
+  function maxDepth(doc: string): number {
+    let depth = 0;
+    let max = 0;
+    for (const ch of doc) {
+      if (ch === '{') max = Math.max(max, ++depth);
+      else if (ch === '}') depth--;
+    }
+    return max;
+  }
+
+  it('nests exactly two levels: the operation, then organization', () => {
+    // 2 = `query { organization { …scalars } }`. Three would mean a selection
+    // set inside `organization`, i.e. a resolver that can null the whole org.
+    expect(maxDepth(ORG_CHROME_QUERY)).toBe(2);
+  });
+
+  it('the depth check can actually fail', () => {
+    // hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail —
+    // a structural assertion that never trips on the shape it forbids is
+    // decoration. This is the shape it forbids.
+    const withNested = `query OrgChrome($ref: ID!) { organization(ref: $ref) { id members { id } } }`;
+    expect(maxDepth(withNested)).toBe(3);
+  });
+
+  it('still asks for the three fields the chrome renders', () => {
+    // The other direction: a query that selects nothing would pass the depth
+    // check and break every header on the org surface.
+    for (const field of ['id', 'name', 'urn']) {
+      expect(ORG_CHROME_QUERY).toMatch(new RegExp(`\\b${field}\\b`));
+    }
   });
 });

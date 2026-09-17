@@ -73,9 +73,11 @@ const fakeOrg = {
   members: [], memories: [], agents: [], subscriptions: [],
 };
 
-function routeMock(myMemories: unknown[], publicMemories: unknown[] = []) {
+function routeMock(myMemories: unknown[], publicMemories: unknown[] = [], org: unknown = undefined) {
   mockRequest.mockImplementation(async (query: string) => {
-    if (query === ORGANIZATION_QUERY) return { organization: fakeOrg };
+    // #845: the loader fetches the org itself, so this is where a test injects
+    // one — not through parent(), which now carries chrome only.
+    if (query === ORGANIZATION_QUERY) return { organization: org ?? fakeOrg };
     if (query === ORG_SYSTEM_MEMORIES_QUERY) return { memories: { items: [], total: 0 } };
     if (query === PUBLIC_MEMORIES_QUERY) {
       return { memories: { items: publicMemories, total: publicMemories.length } };
@@ -405,22 +407,42 @@ describe('memories-list unsubscribe action', () => {
  * re-runs, so `parent()` is not available to them — which is why this asserts
  * on `load` alone rather than on the module.
  */
-describe('org memories load() — the org comes from the layout (#382)', () => {
-  it('returns the layout-supplied org and issues no ORGANIZATION_QUERY', async () => {
+describe('org memories load() — the org comes from THIS LOADER (#382 → #845)', () => {
+  // #382/#842 pinned the opposite here: the org came from parent() and this
+  // loader issued no ORGANIZATION_QUERY. #845 had to invert it. The layout now
+  // fetches chrome only (id/name/urn), because every nested field on
+  // Organization is non-null while `organization(ref:)` is nullable — so one
+  // list resolver failing propagated its null up to `organization` and the
+  // layout's 404 replaced every tab of the org. This tab reads `memories` and
+  // `subscriptions`, so it asks for them itself and a failure stops here.
+  it('issues its own ORGANIZATION_QUERY, since the layout no longer carries the lists', async () => {
     routeMock([]);
     const load = await importLoad();
     const result = (await load(ev())) as unknown as { org: unknown };
 
-    expect(result.org).toBe(fakeOrg);
-    expect(mockRequest.mock.calls.filter(([q]) => q === ORGANIZATION_QUERY)).toHaveLength(0);
-    // Still asks for what it does need, so "queried nothing" cannot pass this.
+    expect(result.org).toEqual(fakeOrg);
+    expect(mockRequest.mock.calls.filter(([q]) => q === ORGANIZATION_QUERY)).toHaveLength(1);
+    // Still asks for what it also needs, so "queried nothing" cannot pass this.
     expect(mockRequest.mock.calls.filter(([q]) => q === MEMORIES_QUERY)).toHaveLength(1);
   });
 
+  it('ignores an org handed down by parent(), which now carries chrome only', async () => {
+    // The direction that would silently rot: if this loader kept reading
+    // parent(), it would get an object with no `memories` at all and every
+    // exclusion below would pass vacuously. Handing it a DIFFERENT org proves
+    // the fetched one is what is used.
+    routeMock([]);
+    const load = await importLoad();
+    const result = (await load(
+      ev({ org: { id: 'someone-else', name: 'Wrong', urn: 'urn:org:wrong' } }),
+    )) as unknown as { org: { id: string } };
+    expect(result.org.id).toBe('org-1');
+  });
+
   it('still exposes the exclusion sets built from that org', async () => {
-    // The org the layout hands over is what feeds availableMemories, so a
-    // loader that ACCEPTED the org and ignored it fails here rather than
-    // passing the absence check above.
+    // The org THIS LOADER fetches is what feeds availableMemories, so a loader
+    // that fetched it and ignored it fails here rather than passing the count
+    // check above.
     //
     // The public list must actually CONTAIN the excluded row, or `.some()` is
     // false because the list is empty and the assertion never reaches the
@@ -430,13 +452,11 @@ describe('org memories load() — the org comes from the layout (#382)', () => {
       { id: 'pub-1', name: 'Owned by this org', organizationId: 'org-9' },
       { id: 'pub-2', name: 'Genuinely available', organizationId: 'org-9' },
     ];
-    routeMock([], publicRows);
+    routeMock([], publicRows, { ...fakeOrg, memories: [{ id: 'pub-1' }] });
     const load = await importLoad();
-    const result = (await load(
-      ev({ org: { ...fakeOrg, memories: [{ id: 'pub-1' }] } }),
-    )) as unknown as { availableMemories: Array<{ id: string }> };
+    const result = (await load(ev())) as unknown as { availableMemories: Array<{ id: string }> };
 
-    // pub-1 is excluded BECAUSE the layout's org owns it …
+    // pub-1 is excluded BECAUSE the org this loader fetched owns it …
     expect(result.availableMemories.map((m) => m.id)).not.toContain('pub-1');
     // … and pub-2 survives, which proves the filter ran rather than the list
     // being empty.

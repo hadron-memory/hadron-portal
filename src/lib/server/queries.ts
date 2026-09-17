@@ -480,6 +480,38 @@ export const EXCHANGE_CONNECTION_FIELDS = /* GraphQL */ `
   }
 `;
 
+/**
+ * The org fields the DETAIL LAYOUT's chrome needs — breadcrumb, header, tab bar
+ * — and nothing else (#845).
+ *
+ * The point of this query is what it does NOT select. Every nested field on
+ * Organization is non-null in the SDL (members, memories, agents, subscriptions
+ * and exchangeConnections are all [X!]!) while `organization(ref:)` itself is
+ * nullable, so GraphQL null propagation carries ANY nested resolver failure up
+ * to `organization` — the payload becomes `data.organization = null` and the
+ * layout, which cannot tell that from a missing org, renders "Organization not
+ * found" over every tab. One list refusing (exchangeConnections for a
+ * non-admin member, say) took out the whole org surface for someone looking at
+ * their own org.
+ *
+ * A selection set of three scalars has no nested resolver that can fail, so the
+ * layout's verdict is now about the ORG and nothing else. Tabs that need a list
+ * fetch it themselves and degrade on their own.
+ *
+ * Keep it scalar-only. Adding a nested field here re-opens #845 silently —
+ * `hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers`
+ * governs changes to this payload.
+ */
+export const ORG_CHROME_QUERY = /* GraphQL */ `
+  query OrgChrome($ref: ID!) {
+    organization(ref: $ref) {
+      id
+      name
+      urn
+    }
+  }
+`;
+
 export const ORGANIZATION_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}

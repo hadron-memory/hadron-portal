@@ -3,6 +3,7 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { loadOrgDetail } from '$lib/server/org-detail';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
@@ -47,7 +48,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   //
   // The ACTIONS below still fetch it themselves, and must: a form POST runs the
   // action BEFORE the layout load re-runs, so `parent()` is not available there.
-  const { org } = await parent();
+  // #845: the layout carries chrome only; this tab needs the full org.
+  const org = await loadOrgDetail(locals.token, params.id);
   const [systemMemories, publicMemories, myMemories] = await Promise.all([
     fetchAllItems<Memory>(client, ORG_SYSTEM_MEMORIES_QUERY, 'memories', { orgId: params.id })
       .catch(() => [] as Memory[]),

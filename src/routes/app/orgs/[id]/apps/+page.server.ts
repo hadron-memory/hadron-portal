@@ -30,6 +30,10 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // it again here was a second identical round trip per page load — and the
   // layout is also where the missing-org 404 is raised, so the local null check
   // that used to follow could never fire.
+  // #382/#842: this tab reads only the chrome fields (id, name), which the
+  // layout already carries — so it keeps taking the org from parent() and
+  // issues no query of its own. #845 moved only the tabs that need a nested
+  // LIST off the layout payload.
   const { org } = await parent();
   const appsData = await fetchAllItems<App>(client, APPS_QUERY, 'apps', { orgId: params.id })
     .catch(() => [] as App[]);
