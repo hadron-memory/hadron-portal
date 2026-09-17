@@ -18,12 +18,21 @@ import type { LayoutServerLoad } from './$types';
  *   ORGANIZATION_NOT_FOUND  the ref resolved to nothing (typed on the wire by
  *                           hadron-server#1175; before that it existed only
  *                           inside the message text).
- *   URN_NOT_QUALIFIED       a relative-form URN in the route param. `resolveOrgRef`
- *   BAD_USER_INPUT          raises both BEFORE any DB lookup, so they are facts
- *   AmbiguousLegacyUrnError about the ref, never about the server's health. An
- *                           org renamed twice can make the third one reachable.
+ *   URN_NOT_QUALIFIED       a relative-form or malformed URN in the route param.
+ *   BAD_USER_INPUT          `resolveOrgRef` raises both BEFORE any DB lookup, so
+ *                           they are facts about the ref, never about the
+ *                           server's health.
  *   FORBIDDEN               a non-member read. 404 rather than 403 so the
  *                           refusal does not disclose that the org exists.
+ *
+ * `AmbiguousLegacyUrnError` is deliberately NOT here, though it is equally a
+ * fact about the ref. It means the ref resolves to MORE than one org — the
+ * opposite of absent — and hadron-server raises it precisely to fail loudly
+ * rather than resolve to an arbitrary one. Answering "Organization not found"
+ * would send the reader looking for a deleted org instead of a URN collision,
+ * which is the same confident false statement this whole change removes. It
+ * falls through to the 500, where a loud failure is what everyone involved
+ * wants.
  *
  * FORBIDDEN cannot fire from this query yet — see UNTYPED_REFUSAL below. It is
  * listed anyway, deliberately: it is not speculative copy for an invented state
@@ -36,7 +45,6 @@ const REF_NAMES_NO_OPENABLE_ORG: ReadonlySet<string> = new Set([
   'ORGANIZATION_NOT_FOUND',
   'URN_NOT_QUALIFIED',
   'BAD_USER_INPUT',
-  'AmbiguousLegacyUrnError',
   'FORBIDDEN',
 ]);
 
@@ -86,6 +94,25 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
       // memories, agents and apps loaders read this layout's org via parent()
       // instead of fetching their own, which makes this one branch the error
       // behaviour of the whole org surface.
+      // Before classifying, check whether the org actually came back.
+      // graphql-request rejects on ANY GraphQL error even when usable data is
+      // present, and ORGANIZATION_QUERY selects a lot of nested fields —
+      // members, memories (+subscriptions), agents, subscriptions,
+      // exchangeConnections. A failure in one of those says nothing about
+      // whether the org exists or may be read, so it must not be turned into a
+      // verdict about the org: `exchangeConnections` refusing for a non-admin
+      // member would otherwise replace the whole org surface with "Organization
+      // not found" for someone looking at their own, fully-loaded org.
+      //
+      // Salvaging the partial response rather than erroring is the same call
+      // the App loader already makes for the same reason (see its APP_QUERY
+      // catch). Every consumer of `org` reads its nested lists
+      // nullish-guarded — e.g. `(org.memories ?? [])` in the memories tab — so
+      // a list that failed renders empty instead of crashing the page.
+      const partial = (e as { response?: { data?: { organization?: Organization | null } } })
+        ?.response?.data?.organization;
+      if (partial) return { organization: partial };
+
       const code = extractGqlErrorCode(e);
 
       // No GraphQL errors payload at all: the server never answered with one.

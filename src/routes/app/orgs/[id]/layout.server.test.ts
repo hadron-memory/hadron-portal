@@ -87,7 +87,6 @@ describe('org-detail layout load()', () => {
       ['ORGANIZATION_NOT_FOUND', 'the ref resolved to no org'],
       ['URN_NOT_QUALIFIED', 'a relative-form URN in the route param'],
       ['BAD_USER_INPUT', 'a malformed URN in the route param'],
-      ['AmbiguousLegacyUrnError', 'a legacy URN naming two orgs after a rename'],
     ])('%s → 404 (%s)', async (code) => {
       mockRequest.mockRejectedValue(gqlError(code));
       const thrown = await loadAndCatch();
@@ -151,6 +150,47 @@ describe('org-detail layout load()', () => {
       const unknown = gqlError('SOME_NEW_CODE');
       mockRequest.mockRejectedValue(unknown);
       expect(await loadAndCatch()).toBe(unknown);
+    });
+
+    it('AmbiguousLegacyUrnError is rethrown, NOT reported as not-found', async () => {
+      // That code means the ref names MORE than one org — the opposite of
+      // absent — and the server raises it to fail loudly rather than resolve to
+      // an arbitrary one. A 404 saying "Organization not found" would send the
+      // reader looking for a deleted org instead of a URN collision.
+      const ambiguous = gqlError('AmbiguousLegacyUrnError', 'ref matches two organizations');
+      mockRequest.mockRejectedValue(ambiguous);
+      expect(await loadAndCatch()).toBe(ambiguous);
+    });
+  });
+
+  describe('a nested field failure is not a verdict about the org', () => {
+    it('renders the salvaged org when the payload still carried one', async () => {
+      // graphql-request rejects on ANY GraphQL error even when data is present.
+      // ORGANIZATION_QUERY selects members, memories, agents, subscriptions and
+      // exchangeConnections, so one of those refusing must not replace the
+      // whole org surface — every tab reads this layout via parent() since #842.
+      const nested = Object.assign(new Error('exchangeConnections failed'), {
+        response: {
+          data: { organization: fakeOrg },
+          errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }],
+        },
+      });
+      mockRequest.mockRejectedValue(nested);
+      const load = await importLoad();
+      expect(await load(ev({}))).toEqual({ org: fakeOrg });
+    });
+
+    it('still 404s when the errored payload carried no org', async () => {
+      // The salvage must not swallow a real miss: `data` present but
+      // `organization` null is the not-found case, not a partial success.
+      const missing = Object.assign(new Error('nope'), {
+        response: {
+          data: { organization: null },
+          errors: [{ message: 'nope', extensions: { code: 'ORGANIZATION_NOT_FOUND' } }],
+        },
+      });
+      mockRequest.mockRejectedValue(missing);
+      expect((await loadAndCatch() as { status: number }).status).toBe(404);
     });
   });
 });
