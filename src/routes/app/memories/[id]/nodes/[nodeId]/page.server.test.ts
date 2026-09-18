@@ -29,7 +29,7 @@ async function importLoad() {
   return mod.load;
 }
 
-type BreadcrumbSeg = { label: string; path: string; nodeId: string | null };
+type BreadcrumbSeg = { label: string; path: string; nodeId: string | null; title?: string };
 type LoadResult = { node: unknown; breadcrumb: BreadcrumbSeg[] };
 
 // SvelteKit's generated PageServerLoad return type widens to `T | void`
@@ -44,7 +44,7 @@ function loadEvent(opts: {
   // #260: org-less route — the memory id is `params.id` (the old `gid`).
   gid: string;
   nodeId: string;
-  parentGraphNodes: Array<{ id: string; memoryId: string; loc: string }>;
+  parentGraphNodes: Array<{ id: string; memoryId: string; loc: string; name?: string }>;
   /** #761 — incoming query string (`?tab=…`), '' for none. */
   search?: string;
 }) {
@@ -1198,5 +1198,115 @@ describe('node-detail action — updateData', () => {
       gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":1}' },
     }));
     expect((result as { status: number }).status).toBe(500);
+  });
+});
+
+/**
+ * An ancestor crumb shows the ancestor NODE'S NAME, not its loc segment.
+ *
+ * The crumb already renders a name for every other segment it can — the memory
+ * ("Holger Personal Taxes", not `holger-personal-taxes`) and the leaf
+ * (`node.name`). Ancestors were the only slugs, which made ONE node render
+ * under two labels depending on where you stood: a parent titled
+ * "Form: FBAR (FinCEN Form 114)" on its own page became `form-fbar` the moment
+ * you clicked into a child.
+ *
+ * Pinned in both directions, because the fallback is load-bearing: a segment
+ * with no node must KEEP its slug, and the "+ Create parent node" affordance
+ * reads `seg.label` to seed the new node's name.
+ */
+describe('node-detail load — an ancestor crumb shows its name', () => {
+  const MEM = 'mem-A';
+
+  function nodeAt(loc: string, id: string) {
+    return {
+      id, memoryId: MEM, loc, name: 'FBAR — penalties and relief procedures',
+      nodeType: 'reference', alias: null, description: null, content: null,
+      tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+      isRunnable: null, createdAt: '', updatedAt: '',
+      outgoingEdges: [], incomingEdges: [],
+    };
+  }
+
+  it('uses the ancestor node’s name, and keeps its loc on the title', async () => {
+    mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'penalties-pk') });
+
+    const result = await runLoad(loadEvent({
+      gid: MEM,
+      nodeId: 'penalties-pk',
+      parentGraphNodes: [
+        { id: 'fbar-pk', memoryId: MEM, loc: 'form-fbar', name: 'Form: FBAR (FinCEN Form 114)' },
+        { id: 'penalties-pk', memoryId: MEM, loc: 'form-fbar:penalties', name: 'FBAR — penalties and relief procedures' },
+      ],
+    }));
+
+    const ancestor = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(ancestor?.label).toBe('Form: FBAR (FinCEN Form 114)');
+    expect(ancestor?.nodeId).toBe('fbar-pk');
+    // The loc is what a reader copies into a URN or a wikilink. Substituting
+    // the name must not take away the only place it was visible.
+    expect(ancestor?.title).toBe('Form: FBAR (FinCEN Form 114) — form-fbar');
+  });
+
+  it('keeps the SLUG for an ancestor that has no node', async () => {
+    // The other direction, and it is not symmetry for its own sake: this is the
+    // input the "+ Create parent node" form reads, and it seeds the new node's
+    // name from `seg.label`. A name substituted here would have nothing behind
+    // it, and the create form would propose it as fact.
+    mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'penalties-pk') });
+
+    const result = await runLoad(loadEvent({
+      gid: MEM,
+      nodeId: 'penalties-pk',
+      parentGraphNodes: [
+        { id: 'penalties-pk', memoryId: MEM, loc: 'form-fbar:penalties', name: 'FBAR — penalties' },
+      ],
+    }));
+
+    const ancestor = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(ancestor?.label).toBe('form-fbar');
+    expect(ancestor?.nodeId).toBeNull();
+    expect(ancestor?.title).toBeUndefined();
+  });
+
+  it('falls back to the slug when the ancestor node exists but is unnamed', async () => {
+    // `name` is non-null in the slim projection's type, but an empty string is
+    // not a usable label and would render a blank crumb with a live link.
+    mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'penalties-pk') });
+
+    const result = await runLoad(loadEvent({
+      gid: MEM,
+      nodeId: 'penalties-pk',
+      parentGraphNodes: [
+        { id: 'fbar-pk', memoryId: MEM, loc: 'form-fbar', name: '' },
+        { id: 'penalties-pk', memoryId: MEM, loc: 'form-fbar:penalties', name: 'FBAR — penalties' },
+      ],
+    }));
+
+    const ancestor = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(ancestor?.label).toBe('form-fbar');
+    // Still linked — the node exists, only its label is unusable.
+    expect(ancestor?.nodeId).toBe('fbar-pk');
+  });
+
+  it('a foreign-memory ancestor lends neither its id NOR its name (#234)', async () => {
+    // #234 scoped the ID lookup to this memory. The name comes off the same
+    // map, so it inherits that scoping — asserted rather than assumed, because
+    // a name borrowed from another memory's node would be a confident false
+    // label on a crumb that correctly refuses to link.
+    mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'penalties-pk') });
+
+    const result = await runLoad(loadEvent({
+      gid: MEM,
+      nodeId: 'penalties-pk',
+      parentGraphNodes: [
+        { id: 'foreign-pk', memoryId: 'mem-B', loc: 'form-fbar', name: 'Someone else’s FBAR' },
+        { id: 'penalties-pk', memoryId: MEM, loc: 'form-fbar:penalties', name: 'FBAR — penalties' },
+      ],
+    }));
+
+    const ancestor = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(ancestor?.label).toBe('form-fbar');
+    expect(ancestor?.nodeId).toBeNull();
   });
 });

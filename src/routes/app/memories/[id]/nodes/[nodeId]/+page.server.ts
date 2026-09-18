@@ -126,21 +126,55 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // with any other memory the caller can access that happens to share the loc,
   // producing breadcrumb links like memories/A/nodes/<B's PK>. See #234.
   const memoryNodes = parentData.graphNodes ?? [];
-  const ancestorIdByLoc = new Map<string, string>();
+  const ancestorByLoc = new Map<string, { id: string; name: string | null }>();
   for (const n of memoryNodes) {
-    if (n.memoryId === params.id) ancestorIdByLoc.set(n.loc, n.id);
+    if (n.memoryId === params.id) ancestorByLoc.set(n.loc, { id: n.id, name: n.name ?? null });
   }
 
   const parts = node.loc.split(':');
-  const breadcrumb: Array<{ label: string; path: string; nodeId: string | null }> = [];
+  const breadcrumb: Array<{
+    label: string;
+    path: string;
+    nodeId: string | null;
+    title?: string;
+  }> = [];
 
   for (let i = 0; i < parts.length; i++) {
     const ancestorLoc = parts.slice(0, i + 1).join(':');
     let nodeId: string | null = null;
+    // An ancestor that EXISTS shows its NAME, like every other segment of this
+    // crumb — the memory renders as "Holger Personal Taxes", and the leaf
+    // renders `node.name`. Ancestors were the only slugs left, and not by
+    // choice: the crumb began as pure loc-splitting, when a slug was the only
+    // thing available, and the commit that added this very lookup (to make
+    // ancestors hotlinks, #124) carried `label: parts[i]` forward unchanged.
+    // The effect was that one node had two identities — a parent titled
+    // "Form: FBAR (FinCEN Form 114)" on its own page became `form-fbar` the
+    // moment you clicked into a child.
+    //
+    // The name is free: `graphNodes` already carries it and the layout has
+    // already paged it to completion, so this is the same map lookup with a
+    // second field.
+    let label = parts[i];
+    let title: string | undefined;
     if (i < parts.length - 1) {
-      nodeId = ancestorIdByLoc.get(ancestorLoc) ?? null;
+      const hit = ancestorByLoc.get(ancestorLoc);
+      nodeId = hit?.id ?? null;
+      if (hit?.name) {
+        label = hit.name;
+        // The loc stays reachable on hover. It is what a reader copies into a
+        // URN, a CLI call or a wikilink, and substituting the name would
+        // otherwise take the only place it was visible.
+        title = `${hit.name} — ${ancestorLoc}`;
+      }
     }
-    breadcrumb.push({ label: parts[i], path: ancestorLoc, nodeId });
+    // A segment with NO node keeps its slug, necessarily — there is no name to
+    // show. That is also what the "+ Create parent node" affordance below the
+    // crumb reads (`seg.label` seeds the new node's name), and it only renders
+    // when `!seg.nodeId`, i.e. exactly when no substitution happened. The two
+    // cannot drift apart: the branch that sets a name is the branch that sets
+    // a nodeId.
+    breadcrumb.push({ label, path: ancestorLoc, nodeId, title });
   }
 
   // #374 / spec hrn:node:hadronmemory.com:specs:cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body

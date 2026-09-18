@@ -1489,8 +1489,8 @@
     { label: 'Nodes', href: `${basePath}/nodes` },
     ...data.breadcrumb.slice(0, -1).map((seg) =>
       seg.nodeId
-        ? { label: seg.label, href: `${basePath}/nodes/${seg.nodeId}` }
-        : { label: seg.label }
+        ? { label: seg.label, href: `${basePath}/nodes/${seg.nodeId}`, title: seg.title }
+        : { label: seg.label, title: seg.title }
     ),
     { label: node.name },
   ]} />
