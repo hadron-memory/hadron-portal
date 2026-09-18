@@ -107,7 +107,7 @@ type InstallableAgent = { id: string; name: string; urn: string };
  * (`hrn:node:hadronmemory.com:hadron-portal:findings:a-measurement-is-only-as-good-as-its-question`).
  *
  * `agents` is optional because the document that omits it is a legal choice
- * this loader makes on `app.agentId`, not an error.
+ * this loader makes on `appHasAgent`, not an error.
  */
 type AppOrg = Pick<Organization, 'id' | 'name' | 'urn' | 'members'> & {
   agents?: InstallableAgent[];
@@ -506,6 +506,25 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // org's agents for an org app, or the caller's own personal agents ∪ PUBLIC
   // agents for an org-less app — mirroring the server install gate (createApp: a
   // personal App may install a PUBLIC or the caller's OWN personal agent).
+  // @copilot on #852: ONE predicate for "does this App already have an Agent",
+  // and it is `app.agent` — the one `+page.svelte` renders from — not
+  // `app.agentId`.
+  //
+  // They can disagree. `agent` is nullable in the SDL while `agentId` is a
+  // scalar column, and the APP_QUERY catch above deliberately SALVAGES a
+  // partial payload, so a failing `agent` relation yields `agent: null` with
+  // `agentId` still set. Under the old `agentId` test the page then drew its
+  // `{:else}` arm — "No agent linked yet." — while the loader had decided the
+  // opposite and returned `availableAgents: []`, which suppresses the link
+  // picker that arm exists to offer. The reader is told no Agent is linked and
+  // given nothing to do about it.
+  //
+  // That divergence pre-dates this change (`availableAgents` was gated on
+  // `agentId` before the document was), so the rendered outcome is unchanged by
+  // #851 — but the fix belongs with the diff that gave the predicate a second
+  // consumer rather than being left for whoever trips over it.
+  const appHasAgent = !!app.agent;
+
   let org: AppOrg | null = null;
   let availableAgents: InstallableAgent[] = [];
   if (app.organizationId) {
@@ -529,10 +548,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     org = await loadOrgDetail<AppOrg>(
       locals.token,
       app.organizationId,
-      app.agentId ? APP_DETAIL_ORG_QUERY : APP_DETAIL_ORG_WITH_AGENTS_QUERY,
+      appHasAgent ? APP_DETAIL_ORG_QUERY : APP_DETAIL_ORG_WITH_AGENTS_QUERY,
     );
-    availableAgents = app.agentId ? [] : (org.agents ?? []);
-  } else if (!app.agentId) {
+    availableAgents = appHasAgent ? [] : (org.agents ?? []);
+  } else if (!appHasAgent) {
     const [mine, publicAgents] = await Promise.all([
       // #782: MY_AGENTS_QUERY is scoped server-side (filter.ownedByMe), so it's
       // already the caller's own org-less agents — no client-side filter needed.

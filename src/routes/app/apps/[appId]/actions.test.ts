@@ -46,7 +46,12 @@ function baseApp(over: Record<string, unknown> = {}) {
     sessionTimeoutSeconds: 3600,
     anonymousTtlDays: 14,
     agentId: 'agent-1',
-    agent: null,
+    // Coherent with agentId on purpose (#852). `agent: null` beside a set
+    // `agentId` is the SALVAGE state — a partial payload whose `agent` relation
+    // failed — not the default one, and a fixture that ships it by default
+    // quietly makes every test exercise the rarer path. Tests that want the
+    // divergence pass `agent: null` explicitly.
+    agent: { id: 'agent-1', name: 'Agent One', urn: 'hrn:agent:one' },
     ...over,
   };
 }
@@ -179,7 +184,9 @@ describe('load', () => {
             description: null, systemPrompt: null,
             createUserPermission: 'DENY', identifyUserMethod: 'USER_ID',
             sessionTimeoutSeconds: 3600, anonymousTtlDays: 14,
-            agentId: 'agent-1', agent: null,
+            // Coherent with agentId — see baseApp. These cases are about the STAFF
+            // fetch, so they must not also stage the salvage divergence.
+            agentId: 'agent-1', agent: { id: 'agent-1', name: 'Agent One', urn: 'hrn:agent:one' },
           },
         });
       }
@@ -225,7 +232,9 @@ describe('load', () => {
             description: null, systemPrompt: null,
             createUserPermission: 'DENY', identifyUserMethod: 'USER_ID',
             sessionTimeoutSeconds: 3600, anonymousTtlDays: 14,
-            agentId: 'agent-1', agent: null,
+            // Coherent with agentId — see baseApp. These cases are about the STAFF
+            // fetch, so they must not also stage the salvage divergence.
+            agentId: 'agent-1', agent: { id: 'agent-1', name: 'Agent One', urn: 'hrn:agent:one' },
           },
         });
       }
@@ -1714,7 +1723,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
 
   describe('the document asks only for what the page renders', () => {
     it('an App with no Agent yet selects the agents slice (the install picker renders)', async () => {
-      stubOrg({ resolve: { organization: { ...ORG, agents: [{ id: 'a1', name: 'One', urn: 'hrn:agent:one' }] } } }, { agentId: null });
+      stubOrg({ resolve: { organization: { ...ORG, agents: [{ id: 'a1', name: 'One', urn: 'hrn:agent:one' }] } } }, { agentId: null, agent: null });
       const { result } = await loadAndCatch();
       expect(mockRequest).toHaveBeenCalledWith(APP_DETAIL_ORG_WITH_AGENTS_QUERY, { ref: 'org-1' });
       expect(mockRequest).not.toHaveBeenCalledWith(APP_DETAIL_ORG_QUERY, expect.anything());
@@ -1729,7 +1738,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
       // list, so its failure would null the org and 404 the page over data the
       // page cannot show.
       // hrn:node:hadronmemory.com:hadron-portal:review:a-route-must-not-invoke-a-resolver-it-does-not-render
-      stubOrg({ resolve: { organization: ORG } }, { agentId: 'agent-1' });
+      stubOrg({ resolve: { organization: ORG } }, { agentId: 'agent-1', agent: { id: 'agent-1', name: 'Linked', urn: 'hrn:agent:linked' } });
       const { result } = await loadAndCatch();
       expect(mockRequest).toHaveBeenCalledWith(APP_DETAIL_ORG_QUERY, { ref: 'org-1' });
       expect(mockRequest).not.toHaveBeenCalledWith(APP_DETAIL_ORG_WITH_AGENTS_QUERY, expect.anything());
@@ -1751,6 +1760,39 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
           expect(doc).toMatch(new RegExp(`\\b${rendered}\\b`));
         }
       }
+    });
+
+    it('only the WITH_AGENTS document carries `agents`', async () => {
+      // @copilot on #852: the loop above pins three lists that were never in
+      // either document, and so cannot catch the regression that actually
+      // threatens THIS pair — `agents` creeping into the base document. The
+      // branch tests assert which document was REQUESTED, not what is in it, so
+      // adding `agents` back to the base would have left every test green while
+      // restoring the exact discarded-resolver invocation this change removes.
+      expect(APP_DETAIL_ORG_WITH_AGENTS_QUERY).toMatch(/\bagents\b/);
+      expect(APP_DETAIL_ORG_QUERY).not.toMatch(/\bagents\b/);
+    });
+  });
+
+  describe('@copilot on #852 — the loader and the page use ONE predicate', () => {
+    it('a salvaged App with agentId but a null agent selects the agents slice', async () => {
+      // `agent` is nullable in the SDL, `agentId` is a scalar column, and the
+      // APP_QUERY catch salvages a partial payload — so a failing `agent`
+      // relation leaves `agent: null` with `agentId` set. The page renders its
+      // "No agent linked yet." arm off `app.agent`; gating the loader on
+      // `app.agentId` made it answer the opposite question and return
+      // `availableAgents: []`, which suppresses the link picker that arm exists
+      // to offer. The reader is told no Agent is linked and handed no way to
+      // link one.
+      stubOrg(
+        { resolve: { organization: { ...ORG, agents: [{ id: 'a1', name: 'One', urn: 'hrn:agent:one' }] } } },
+        { agentId: 'agent-1', agent: null },
+      );
+      const { result } = await loadAndCatch();
+      expect(mockRequest).toHaveBeenCalledWith(APP_DETAIL_ORG_WITH_AGENTS_QUERY, { ref: 'org-1' });
+      expect((result as { availableAgents: unknown[] }).availableAgents).toEqual([
+        { id: 'a1', name: 'One', urn: 'hrn:agent:one' },
+      ]);
     });
   });
 });

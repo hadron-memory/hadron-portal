@@ -531,7 +531,8 @@ export const EXCHANGE_CONNECTION_FIELDS = /* GraphQL */ `
  * Two documents rather than one because the picker is conditional: an App that
  * already has an Agent sets `availableAgents` to `[]` regardless, so selecting
  * `agents` for it would invoke a resolver whose result is discarded. The caller
- * picks on `app.agentId`.
+ * picks on `app.agent` — the same predicate the page renders the picker from,
+ * NOT `app.agentId`, which can disagree with it (@copilot on #852).
  */
 const APP_DETAIL_ORG_FIELDS = /* GraphQL */ `
   fragment AppDetailOrgFields on Organization {
