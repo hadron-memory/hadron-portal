@@ -104,26 +104,11 @@ describe('org-detail layout load()', () => {
     });
 
     it('FORBIDDEN → 404, so a refusal does not disclose that the org exists', async () => {
-      // Forward-compatible: organization(ref:) cannot emit this yet (see the
-      // INTERNAL_SERVER_ERROR case below). Pinned now so the day the server
-      // types that refusal, the behaviour it lands on is already asserted and
-      // the temporary arm can be deleted without writing a new test.
+      // No longer forward-compatible: hadron-server#1188 types this refusal, so
+      // this case is now the one a non-member actually lands on. The temporary
+      // INTERNAL_SERVER_ERROR → 404 arm that stood in for it was deleted with
+      // that PR, and its replacement is the rethrow case below.
       mockRequest.mockRejectedValue(gqlError('FORBIDDEN', 'Forbidden'));
-      expect((await loadAndCatch() as { status: number }).status).toBe(404);
-    });
-
-    it('INTERNAL_SERVER_ERROR → 404, the TEMPORARY arm for the untyped refusal', async () => {
-      // hadron-server `resolvers.query.org.ts:446` refuses a non-member with a
-      // plain `new Error('Forbidden')`, which Apollo wraps as
-      // INTERNAL_SERVER_ERROR — so a permission boundary and a resolver crash
-      // share one code and the portal cannot separate them.
-      //
-      // Keeping the pre-existing 404 is the lesser of the two errors: a 500
-      // here would both regress the non-member to an outage page and let a
-      // prober tell an org that exists from one that does not. This assertion
-      // is expected to be DELETED, not changed, once the refusal carries
-      // FORBIDDEN — the case above is where it goes.
-      mockRequest.mockRejectedValue(gqlError('INTERNAL_SERVER_ERROR', 'Forbidden'));
       expect((await loadAndCatch() as { status: number }).status).toBe(404);
     });
   });
@@ -149,6 +134,26 @@ describe('org-detail layout load()', () => {
       });
       mockRequest.mockRejectedValue(badGateway);
       expect(await loadAndCatch()).toBe(badGateway);
+    });
+
+    it('INTERNAL_SERVER_ERROR is rethrown — the arm #843 existed to remove', async () => {
+      // This is the case the whole issue was about, and it is pinned by NAME
+      // rather than folded into "an unrecognised code" below, because it is not
+      // merely unrecognised: `hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only`
+      // names INTERNAL_SERVER_ERROR as the ONE code no allowlist may map, and
+      // this route deviated from that knowingly while the server had no way to
+      // say "Forbidden" in a code. hadron-server#1188 typed that refusal, so the
+      // deviation is gone and this assertion is what stops it coming back.
+      //
+      // The message is 'Forbidden' on purpose — it is the exact payload the old
+      // arm was built for. Reading it would re-create the prose-matching this
+      // route refused to do (`hrn:node:hadronmemory.com:dev:conventions:the-error-code-is-the-contract-the-prose-is-not`),
+      // so a rethrow here is the assertion that nothing reads it.
+      const crash = gqlError('INTERNAL_SERVER_ERROR', 'Forbidden');
+      mockRequest.mockRejectedValue(crash);
+      const thrown = await loadAndCatch();
+      expect(thrown).toBe(crash);
+      expect((thrown as { status?: number }).status).toBeUndefined();
     });
 
     it('an unrecognised code is rethrown unchanged', async () => {
