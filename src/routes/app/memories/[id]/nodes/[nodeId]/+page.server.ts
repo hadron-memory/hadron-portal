@@ -126,10 +126,28 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // with any other memory the caller can access that happens to share the loc,
   // producing breadcrumb links like memories/A/nodes/<B's PK>. See #234.
   const memoryNodes = parentData.graphNodes ?? [];
+  // Read here rather than at the wikilink call below: the breadcrumb needs
+  // `graph.urn` too, to qualify an ancestor's loc into a real node URN.
+  const { graph, nodesFailed } = parentData as {
+    graph?: { urn?: string | null } | null;
+    nodesFailed?: boolean;
+  };
   const ancestorByLoc = new Map<string, { id: string; name: string | null }>();
   for (const n of memoryNodes) {
     if (n.memoryId === params.id) ancestorByLoc.set(n.loc, { id: n.id, name: n.name ?? null });
   }
+
+  // A memory whose URN the layout could not supply (a failed graph read) falls
+  // back to the bare loc rather than rendering nothing — "couldn't qualify it"
+  // is not "there is no address".
+  const ancestorUrn = (loc: string): string | null => {
+    if (!graph?.urn) return null;
+    try {
+      return composeNodeUrn(graph.urn, loc);
+    } catch {
+      return null;
+    }
+  };
 
   const parts = node.loc.split(':');
   const breadcrumb: Array<{
@@ -162,10 +180,22 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
       nodeId = hit?.id ?? null;
       if (hit?.name) {
         label = hit.name;
-        // The loc stays reachable on hover. It is what a reader copies into a
-        // URN, a CLI call or a wikilink, and substituting the name would
-        // otherwise take the only place it was visible.
-        title = `${hit.name} — ${ancestorLoc}`;
+        // @codex on #853: the ADDRESS stays reachable on hover, and it is the
+        // fully-qualified node URN rather than the bare loc. Substituting the
+        // name removes the only place the address was visible, and a bare loc
+        // would not replace it — a bare loc does not say which memory it
+        // belongs to once pasted into a CLI call, an MCP tool or a message,
+        // which is the whole reason this repo gates bare-loc citations.
+        //
+        // NOT a `Urn` component here, which is what the review suggested.
+        // `hrn:node:hadronmemory.com:hadron-portal:review:render-urn` is about
+        // a view that NAMES another entity — a detail page, a table cell — and
+        // this crumb already links to the ancestor's own page, where its URN is
+        // rendered properly. A URN chip per segment would also make the trail
+        // unreadable and undo the truncation this change is half about.
+        title = ancestorUrn(ancestorLoc)
+          ? `${hit.name} — ${ancestorUrn(ancestorLoc)}`
+          : `${hit.name} — ${ancestorLoc}`;
       }
     }
     // A segment with NO node keeps its slug, necessarily — there is no name to
@@ -186,10 +216,6 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // `nodesFailed` matters as much as the node list: the layout returns an empty
   // `graphNodes` for BOTH an empty memory and a failed graph fetch, and without
   // the flag an outage would repaint every valid link as corpus rot.
-  const { graph, nodesFailed } = parentData as {
-    graph?: { urn?: string | null } | null;
-    nodesFailed?: boolean;
-  };
   const wikilinksPromise = resolveWikilinks(
     gqlClient(locals.token),
     [node.content, node.abstract],

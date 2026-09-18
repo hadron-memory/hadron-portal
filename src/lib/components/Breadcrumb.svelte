@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { t } from '$lib/i18n/t';
+
   /**
    * The shared breadcrumb.
    *
@@ -32,7 +34,14 @@
   legible fallback on a narrow screen instead of the thing that produced the
   multi-line trail in the first place.
 -->
-<nav aria-label="Breadcrumb" class="flex items-center gap-1 text-sm flex-wrap">
+<!--
+  The landmark name goes through `t()` like any other user-visible string: a
+  screen-reader user on a non-English locale would otherwise hear the English
+  word "Breadcrumb" announced over a trail whose every label IS translated —
+  and an accessible name is the one place a reader has no visible copy to
+  compare against (@codex on #853).
+-->
+<nav aria-label={t('breadcrumb.landmark', 'Breadcrumb')} class="flex items-center gap-1 text-sm flex-wrap">
   {#each items as item, i}
     {#if i > 0}
       <!-- Decorative: the nav landmark and aria-current carry the structure,

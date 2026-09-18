@@ -71,6 +71,9 @@ describe('Breadcrumb', () => {
 
   it('marks the current page and hides the separators from assistive tech', () => {
     const out = html(TRAIL);
+    // Routed through `t()` — the assertion is on the rendered default, which is
+    // what ships today; the point of the check is that the landmark is named at
+    // all, and t() is the boundary that lets it be translated later.
     expect(out).toContain('aria-label="Breadcrumb"');
     expect(out).toContain('aria-current="page"');
     // Exactly one — aria-current on an ancestor would announce the wrong
