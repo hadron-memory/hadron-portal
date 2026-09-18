@@ -33,7 +33,11 @@ export type OrgChrome = Pick<Organization, 'id' | 'name' | 'urn'>;
  *   BAD_USER_INPUT          `resolveOrgRef` raises both BEFORE any DB lookup, so
  *                           they are facts about the ref, never about the
  *                           server's health.
- *   FORBIDDEN               a non-member read. 404 rather than 403 so the
+ *   FORBIDDEN               a non-member read (typed on the wire by
+ *                           hadron-server#1188; before that it was a plain
+ *                           `Error` Apollo wrapped as INTERNAL_SERVER_ERROR,
+ *                           indistinguishable from a resolver crash, which is
+ *                           what #843 was about). 404 rather than 403 so the
  *                           refusal does not disclose that the org exists.
  *
  * `AmbiguousLegacyUrnError` is deliberately NOT here, though it is equally a
@@ -44,13 +48,6 @@ export type OrgChrome = Pick<Organization, 'id' | 'name' | 'urn'>;
  * which is the same confident false statement this whole change removes. It
  * falls through to the 500, where a loud failure is what everyone involved
  * wants.
- *
- * FORBIDDEN cannot fire from this query yet — see UNTYPED_REFUSAL below. It is
- * listed anyway, deliberately: it is not speculative copy for an invented state
- * (the trap `hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only`
- * warns about) but the post-fix half of a mapping whose pre-fix half is the arm
- * directly underneath, and having both here is what makes that arm a clean
- * delete instead of an edit.
  */
 const REF_NAMES_NO_OPENABLE_ORG: ReadonlySet<string> = new Set([
   'ORGANIZATION_NOT_FOUND',
@@ -58,34 +55,6 @@ const REF_NAMES_NO_OPENABLE_ORG: ReadonlySet<string> = new Set([
   'BAD_USER_INPUT',
   'FORBIDDEN',
 ]);
-
-/**
- * TEMPORARY, and a deliberate deviation from
- * `hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only`,
- * which names INTERNAL_SERVER_ERROR as the one code no allowlist may map.
- *
- * `organization(ref:)` refuses a non-member with `throw new Error('Forbidden')`
- * (hadron-server `resolvers.query.org.ts:446`) — a plain Error, which Apollo
- * wraps as INTERNAL_SERVER_ERROR, keeping the message and dropping the type.
- * So a permission boundary and a genuine resolver crash arrive under one code,
- * and the portal cannot tell them apart.
- *
- * Both ways out of that are worse than this arm:
- *
- *   - matching the message text `Forbidden` keys behaviour on prose that is not
- *     a contract — `hrn:node:hadronmemory.com:dev:conventions:the-error-code-is-the-contract-the-prose-is-not`,
- *     which names this exact move and says the wrong code is better fixed than
- *     compensated for;
- *   - letting it through as a 500 regresses the non-member from a correct 404
- *     to an outage page, AND opens an enumeration channel this route does not
- *     have today (404 for absent, 500 for present-but-private).
- *
- * So the pre-existing 404 is KEPT for this code, with its lie narrowed from
- * "every rejection" to "a resolver crash", and the honest fix requested where
- * it belongs. DELETE this constant and its branch once the server types that
- * refusal: `FORBIDDEN` is already in the set above, so nothing else changes.
- */
-const UNTYPED_REFUSAL = 'INTERNAL_SERVER_ERROR';
 
 // #336: org-detail is a tab layout (mirrors /app/memories/[id]). The layout
 // renders the breadcrumb + header + tab bar; each tab is a sub-route rendered
@@ -130,7 +99,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
       // and the one arm that needs no code to be sure of.
       if (code === null) throw e;
 
-      if (REF_NAMES_NO_OPENABLE_ORG.has(code) || code === UNTYPED_REFUSAL) {
+      if (REF_NAMES_NO_OPENABLE_ORG.has(code)) {
         throw error(404, 'Organization not found');
       }
 
