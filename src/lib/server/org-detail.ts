@@ -4,9 +4,26 @@ import { extractGqlErrorCode } from '$lib/server/gqlError';
 import type { Organization } from '$lib/types';
 
 /**
- * Fetch ONE TAB's slice of the org (#845).
+ * Fetch ONE CALLER's slice of the org, classifying a failure instead of
+ * collapsing it (#845, widened by #851).
  *
- * ## Why the layout does not do this
+ * Two kinds of caller use this, and the difference is worth knowing because it
+ * decides what the allowlist below may contain:
+ *
+ *   - **an org-detail TAB**, whose `ref` is `params.id` — a user-supplied route
+ *     param. A malformed one is caller error, but the tab never sees it:
+ *     `/app/orgs/[id]/+layout.server.ts` runs first and answers the ref-shape
+ *     codes (`URN_NOT_QUALIFIED`, `BAD_USER_INPUT`) with its own 404.
+ *   - **an App detail page** (#851), whose `ref` is `app.organizationId` — an id
+ *     the SERVER handed us. There is no layout in front of it, and a ref-shape
+ *     refusal on a server-supplied id is a server fault, not caller error.
+ *
+ * Both land on the same two-code allowlist, for opposite reasons: for a tab
+ * because the layout already spent the other codes, for an App page because the
+ * other codes would be lies about the caller. Do not widen it to match the
+ * layout's four — that set is specifically about a ref a human typed.
+ *
+ * ## Why the org layout does not do this
  *
  * `/app/orgs/[id]/+layout.server.ts` fetches `ORG_CHROME_QUERY` — three scalars
  * — and nothing else. Every nested field on `Organization` is non-null in the
@@ -40,22 +57,21 @@ import type { Organization } from '$lib/types';
  * `+layout.server.ts`. Either way the chrome above survives, because
  * `+error.svelte` in this route renders INSIDE the org layout.
  */
-export async function loadOrgDetail(
+export async function loadOrgDetail<T = Organization>(
   token: string | null | undefined,
   ref: string,
   document: string,
-): Promise<Organization> {
+): Promise<T> {
   // try/catch rather than a chained `.catch()`: one promise, awaited where it
   // is created. The chained form left a rejected promise briefly unattached,
   // which Node reports as an unhandled rejection and a test runner then blames
   // on whatever test is running — a failure that has nothing to do with the
   // behaviour under test and costs a long time to trace.
-  let data: { organization: Organization | null };
+  let data: { organization: T | null };
   try {
-    data = await gqlClient(token).request<{ organization: Organization | null }>(document, { ref });
+    data = await gqlClient(token).request<{ organization: T | null }>(document, { ref });
   } catch (e: unknown) {
-    const payload = (e as { response?: { data?: { organization?: Organization | null } } })
-      ?.response?.data;
+    const payload = (e as { response?: { data?: { organization?: T | null } } })?.response?.data;
 
     // A rejection that still carried a USABLE org is a partial success: some
     // nullable field failed without propagating, and erroring the tab over it

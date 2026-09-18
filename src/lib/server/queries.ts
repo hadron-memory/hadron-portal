@@ -502,6 +502,75 @@ export const EXCHANGE_CONNECTION_FIELDS = /* GraphQL */ `
  * `hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers`
  * governs changes to this payload.
  */
+/**
+ * The App detail page's org slice (#851) — and its `…_WITH_AGENTS` variant.
+ *
+ * `ORGANIZATION_QUERY` was here before, selecting `memories`, `subscriptions`,
+ * `exchangeConnections` and the full `...AgentFields` to render a breadcrumb
+ * and one permission check. All are non-null lists (`[X!]!`) while
+ * `organization(ref:)` is nullable, so ANY of them refusing propagated a null
+ * to `organization` and 404'd the App page over data it never draws — the #845
+ * mechanism, and
+ * `hrn:node:hadronmemory.com:hadron-portal:review:a-route-must-not-invoke-a-resolver-it-does-not-render`.
+ *
+ * What survives, and why each is genuinely rendered:
+ *
+ *   - the chrome three — breadcrumb, back link, `<title>`;
+ *   - **`members`** — `AiServiceConfigSection` derives `canManage` from
+ *     `m.user.id === currentUserId && role in (OWNER, ADMIN)`. Selected at FULL
+ *     `OrgMember` width on purpose: narrowing to the two fields it reads would
+ *     buy no containment, because the hazard is the list being non-null rather
+ *     than how wide its rows are, and it would force a prop-type change on a
+ *     component three routes share. Bytes, not safety.
+ *   - **`agents { id name urn }`** — only in the `…_WITH_AGENTS` variant, and
+ *     only those three, because that is what the install `<select>` draws
+ *     (`{a.name} ({a.urn})`, keyed by `a.id`) and what the loader's own
+ *     `InstallableAgent` type already says. `...AgentFields` would have dragged
+ *     in `memoryItems { memory { … } }` and `imports { importedAgent { … } }`.
+ *
+ * Two documents rather than one because the picker is conditional: an App that
+ * already has an Agent sets `availableAgents` to `[]` regardless, so selecting
+ * `agents` for it would invoke a resolver whose result is discarded. The caller
+ * picks on `app.agentId`.
+ */
+const APP_DETAIL_ORG_FIELDS = /* GraphQL */ `
+  fragment AppDetailOrgFields on Organization {
+    id
+    name
+    urn
+    members {
+      id
+      role
+      canInvite
+      createdAt
+      user { id handle githubUsername name avatarUrl email }
+    }
+  }
+`;
+
+export const APP_DETAIL_ORG_QUERY = /* GraphQL */ `
+  ${APP_DETAIL_ORG_FIELDS}
+  query AppDetailOrg($ref: ID!) {
+    organization(ref: $ref) {
+      ...AppDetailOrgFields
+    }
+  }
+`;
+
+export const APP_DETAIL_ORG_WITH_AGENTS_QUERY = /* GraphQL */ `
+  ${APP_DETAIL_ORG_FIELDS}
+  query AppDetailOrgWithAgents($ref: ID!) {
+    organization(ref: $ref) {
+      ...AppDetailOrgFields
+      agents {
+        id
+        name
+        urn
+      }
+    }
+  }
+`;
+
 export const ORG_CHROME_QUERY = /* GraphQL */ `
   query OrgChrome($ref: ID!) {
     organization(ref: $ref) {

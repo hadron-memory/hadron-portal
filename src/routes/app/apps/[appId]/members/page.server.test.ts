@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   APP_WITH_MEMBERS_QUERY,
   ENSURE_APP_MEMBER_MUTATION,
-  ORGANIZATION_QUERY,
+  ORG_CHROME_QUERY,
   REMOVE_APP_MEMBER_MUTATION,
 } from '$lib/server/queries';
 
@@ -132,7 +132,7 @@ describe('app members load()', () => {
     const result = await load(loadEv());
 
     expect(mockRequest).toHaveBeenNthCalledWith(1, APP_WITH_MEMBERS_QUERY, { ref: 'app-1' });
-    expect(mockRequest).toHaveBeenNthCalledWith(2, ORGANIZATION_QUERY, { ref: 'org-1' });
+    expect(mockRequest).toHaveBeenNthCalledWith(2, ORG_CHROME_QUERY, { ref: 'org-1' });
     expect(result).toMatchObject({ app: fakeApp, org: fakeOrg, members: fakeApp.members });
     // #653: no bulk user list is loaded any more.
     expect(result).not.toHaveProperty('allUsers');
@@ -305,5 +305,82 @@ describe('app members ensure/remove actions', () => {
 
     expect(result).toMatchObject({ status: 500 });
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'nope' });
+  });
+});
+
+/**
+ * #851 — the org lookup classifies its failures.
+ *
+ * Same defect and same fix as the App detail page: a bare
+ * `.catch(() => ({ organization: null }))` classified nothing, so an outage
+ * rendered "Organization not found" for the App's own members page.
+ *
+ * Both directions share `orgRefusal`, so a builder producing a shape
+ * `extractGqlErrorCode` cannot read fails the 404 cases rather than silently
+ * passing the rethrow ones.
+ */
+describe('#851 — the members-page org lookup classifies its failures', () => {
+  function orgRefusal(code: string, message = 'nope') {
+    return Object.assign(new Error(`${message}: ${JSON.stringify({ code })}`), {
+      response: { errors: [{ message, extensions: { code } }] },
+    });
+  }
+
+  async function loadAndCatch() {
+    const { load } = await importMod();
+    try {
+      return { thrown: undefined as unknown, result: await load(loadEv()) };
+    } catch (e) {
+      return { thrown: e, result: undefined };
+    }
+  }
+
+  it.each([
+    ['ORGANIZATION_NOT_FOUND'],
+    ['FORBIDDEN'],
+  ])('%s → the pre-existing 404', async (code) => {
+    mockRequest
+      .mockResolvedValueOnce({ app: fakeApp })
+      .mockRejectedValueOnce(orgRefusal(code));
+    const { thrown } = await loadAndCatch();
+    expect((thrown as { status: number }).status).toBe(404);
+    expect((thrown as { body?: { message?: string } }).body?.message).toBe('Organization not found');
+  });
+
+  it('INTERNAL_SERVER_ERROR is rethrown, not reported as a missing org', async () => {
+    const crash = orgRefusal('INTERNAL_SERVER_ERROR', 'boom');
+    mockRequest.mockResolvedValueOnce({ app: fakeApp }).mockRejectedValueOnce(crash);
+    const { thrown } = await loadAndCatch();
+    expect(thrown).toBe(crash);
+    expect((thrown as { status?: number }).status).toBeUndefined();
+  });
+
+  it('a transport failure with no GraphQL payload is rethrown — the outage case', async () => {
+    const boom = new Error('fetch failed');
+    mockRequest.mockResolvedValueOnce({ app: fakeApp }).mockRejectedValueOnce(boom);
+    const { thrown } = await loadAndCatch();
+    expect(thrown).toBe(boom);
+    expect((thrown as { status?: number }).status).toBeUndefined();
+  });
+
+  it('an org-less (spec 047) app returns org: null and never queries an org', async () => {
+    // The distinction the 404 above exists to preserve: no organizationId is a
+    // personal App, not a failed lookup, and it must not 404.
+    mockRequest.mockResolvedValueOnce({ app: { ...fakeApp, organizationId: null } });
+    const { result, thrown } = await loadAndCatch();
+    expect(thrown).toBeUndefined();
+    expect((result as { org: unknown }).org).toBeNull();
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for the chrome slice, not a list it never renders', () => {
+    // This page reads `org.id` for the back link. ORGANIZATION_QUERY invoked
+    // five non-null lists to produce it, any one of which could null the org
+    // and 404 the page —
+    // hrn:node:hadronmemory.com:hadron-portal:review:a-route-must-not-invoke-a-resolver-it-does-not-render
+    for (const unrendered of ['members', 'memories', 'agents', 'subscriptions', 'exchangeConnections']) {
+      expect(ORG_CHROME_QUERY).not.toMatch(new RegExp(`\\b${unrendered}\\b`));
+    }
+    expect(ORG_CHROME_QUERY).toMatch(/\bid\b/);
   });
 });

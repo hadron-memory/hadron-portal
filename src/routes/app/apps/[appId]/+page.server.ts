@@ -6,9 +6,11 @@ import { gqlClient } from '$lib/server/api';
 import { lookupOwn } from '$lib/lookup';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
+import { loadOrgDetail } from '$lib/server/org-detail';
 import { t } from '$lib/i18n/t';
 import {
-  ORGANIZATION_QUERY,
+  APP_DETAIL_ORG_QUERY,
+  APP_DETAIL_ORG_WITH_AGENTS_QUERY,
   APP_QUERY,
   MY_AGENTS_QUERY,
   PUBLIC_AGENTS_QUERY,
@@ -78,6 +80,38 @@ type RetireWorkerForm = Infer<typeof retireWorkerSchema, 'zod4'>;
 type ReleaseWorkerForm = Infer<typeof releaseWorkerSchema, 'zod4'>;
 type RevokeAppKeyForm = Infer<typeof revokeAppKeySchema, 'zod4'>;
 type UpdateAppAgentToolsForm = Infer<typeof updateAppAgentToolsSchema, 'zod4'>;
+
+/**
+ * The agent fields the install picker draws: `{a.name} ({a.urn})`, keyed by
+ * `a.id`. Shared by all three sources — the org's agents, the caller's own
+ * personal agents, and PUBLIC agents — because the `<select>` renders them
+ * identically.
+ */
+type InstallableAgent = { id: string; name: string; urn: string };
+
+/**
+ * What this loader puts on `data.org` (#851): the chrome three, plus `agents`
+ * only when the install picker is rendered.
+ *
+ * A SLICE of Organization rather than Organization, for the reason `OrgChrome`
+ * in `/app/orgs/[id]/+layout.server.ts` is one: a consumer that starts reading
+ * `org.memories` or `org.exchangeConnections` off this payload must fail to
+ * COMPILE rather than read undefined at runtime. Typing it as the full entity
+ * while fetching a slice is a lie the compiler would help maintain.
+ *
+ * It earned that keep immediately: `members` is on this list only because
+ * narrowing the type failed to compile against `+page.svelte`'s
+ * `members={org?.members ?? []}`, which my own grep census had missed — the
+ * pattern I searched for required `org.`, and optional chaining writes `org?.`.
+ * The compiler is an exhaustive census; a regex is a guess about spelling
+ * (`hrn:node:hadronmemory.com:hadron-portal:findings:a-measurement-is-only-as-good-as-its-question`).
+ *
+ * `agents` is optional because the document that omits it is a legal choice
+ * this loader makes on `app.agentId`, not an error.
+ */
+type AppOrg = Pick<Organization, 'id' | 'name' | 'urn' | 'members'> & {
+  agents?: InstallableAgent[];
+};
 
 // Route-local, but a `/* GraphQL */` const rather than an inline string so
 // `pnpm gql:validate` sees it — an inline document is invisible to the gate
@@ -472,23 +506,40 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // org's agents for an org app, or the caller's own personal agents ∪ PUBLIC
   // agents for an org-less app — mirroring the server install gate (createApp: a
   // personal App may install a PUBLIC or the caller's OWN personal agent).
-  let org: Organization | null = null;
-  let availableAgents: Array<{ id: string; name: string; urn: string }> = [];
+  let org: AppOrg | null = null;
+  let availableAgents: InstallableAgent[] = [];
   if (app.organizationId) {
-    const orgData = await client
-      .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: app.organizationId })
-      .catch(() => ({ organization: null }));
-    if (!orgData.organization) throw error(404, 'Organization not found');
-    org = orgData.organization;
+    // #851: `loadOrgDetail` rather than a bare `.catch(() => ({ organization:
+    // null }))`. That catch took no argument, so nothing was classified: a
+    // connection failure, a bad gateway, a resolver crash and a genuine refusal
+    // all fell into the 404 below and told the reader their App's organization
+    // does not exist. During an outage that was EVERY org-owned App page. The
+    // 404 itself stays — for an org-owned app a missing org is a real error and
+    // not the org-less (spec 047) case, which is what the comment above is
+    // about — but now only a code that means it answers it.
+    //
+    // #851 also narrows the DOCUMENT. `ORGANIZATION_QUERY` selected memories,
+    // subscriptions, exchangeConnections and the full AgentFields to draw a
+    // breadcrumb and one permission check; all are non-null lists, so any one of
+    // them refusing nulled the org and 404'd this page over data it never shows.
+    // `members` stays (AiServiceConfigSection's canManage), `agents` is asked
+    // for only when the install picker renders — an App that already has an
+    // Agent sets `availableAgents` to [] regardless, so selecting the list for
+    // it would invoke a resolver whose result is discarded.
+    org = await loadOrgDetail<AppOrg>(
+      locals.token,
+      app.organizationId,
+      app.agentId ? APP_DETAIL_ORG_QUERY : APP_DETAIL_ORG_WITH_AGENTS_QUERY,
+    );
     availableAgents = app.agentId ? [] : (org.agents ?? []);
   } else if (!app.agentId) {
     const [mine, publicAgents] = await Promise.all([
       // #782: MY_AGENTS_QUERY is scoped server-side (filter.ownedByMe), so it's
       // already the caller's own org-less agents — no client-side filter needed.
-      fetchAllItems<{ id: string; name: string; urn: string }>(
+      fetchAllItems<InstallableAgent>(
         client, MY_AGENTS_QUERY, 'agents',
       ).catch(() => []),
-      fetchAllItems<{ id: string; name: string; urn: string }>(
+      fetchAllItems<InstallableAgent>(
         client, PUBLIC_AGENTS_QUERY, 'publicAgents',
       ).catch(() => []),
     ]);
