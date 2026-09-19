@@ -96,6 +96,23 @@ describe('the gate passes what it should', () => {
     ).toEqual([]);
   });
 
+  it('a wrapping rail whose REPEATED UNIT is a wrapper still counts', () => {
+    // The real shape on the agent page: the {#each} repeats a <div> and THOSE
+    // are the wrapping container's direct flex items, so each tab is its own
+    // item and they wrap. Measured in the running app — 637px of tabs in a
+    // 308px rail landed on three rows.
+    expect(
+      offences(`
+      <div class="flex flex-wrap items-center gap-1 border-b border-zinc-200">
+        {#each subTabs as subTab (subTab.id)}
+          <div class="flex items-center">
+            <button class="border-b-2 px-3 py-1.5">{subTab.label}</button>
+          </div>
+        {/each}
+      </div>`),
+    ).toEqual([]);
+  });
+
   it('a WRAPPING rail is satisfied without the scroll classes', () => {
     // `flex-wrap` is the other correct answer to #858 — the agent page's
     // chatbot sub-tab bar. Measured in the running app at 390px: 637px of tabs
@@ -327,6 +344,21 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
         {#each tabs as tab (tab.id)}<a class="px-4 {active ? 'border-b-2' : 'border-b-2'}">{tab.label}</a>{/each}
       </div>`),
     ).toContain('strip-does-not-scroll');
+  });
+
+  it('a flex-wrap WRAPPER around a single non-wrapping row does not count', () => {
+    // @copilot on #863. CSS wrapping lays out only an element's DIRECT flex
+    // items, so this rail wraps exactly one item — the inner row — and the tabs
+    // inside it stay on one line and overflow. A path-shaped test called this
+    // satisfied; the layout-container rule does not.
+    const k = kinds(`
+      <div class="flex flex-wrap gap-1 border-b border-zinc-200">
+        <div class="flex">
+          {#each tabs as tab (tab.id)}<button class="border-b-2 px-3">{tab.label}</button>{/each}
+        </div>
+      </div>`);
+    expect(k).toContain('strip-does-not-scroll');
+    expect(k).toContain('tab-can-shrink');
   });
 
   it('reports an unparseable file rather than passing it', () => {

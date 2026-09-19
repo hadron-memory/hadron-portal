@@ -330,13 +330,48 @@ export function analyse(source) {
     const pathTo = (tab) => [rail, ...tab.ancestors.slice(tab.ancestors.indexOf(rail) + 1)];
     const satisfies = (pred) => tabs.every((tab) => pathTo(tab).some((el) => pred(el)));
 
+    // Scrolling IS path-shaped: an `overflow-x-auto` anywhere above the tabs
+    // creates a scroll container that contains their overflow.
     const scrolls = satisfies((el) => SCROLLS.test(el.active));
+
+    /**
+     * The element that actually LAYS OUT a tab — whose flex rules decide
+     * whether that tab wraps.
+     *
+     * Wrapping is NOT path-shaped, which is the difference from scrolling:
+     * `flex-wrap` only wraps an element's DIRECT flex items (@copilot on #863).
+     * A `flex flex-wrap` rail whose tabs sit inside a single inner `flex` row
+     * wraps that one row and nothing else — the tabs stay on one line and
+     * overflow, while a path-shaped test would call the strip satisfied.
+     *
+     * So: walk from just below the rail down to the tab and take the HIGHEST
+     * element sharing the tab's repeat depth. That is the unit the loop
+     * repeats (or the tab itself when there is no loop), and its parent is what
+     * lays those units out.
+     *
+     *   rail(flex-wrap) > {#each} div > button   -> container is the RAIL, the
+     *                                               repeated divs wrap  ✓
+     *   rail(flex-wrap) > div.flex > {#each} a   -> container is div.flex,
+     *                                               which does not wrap  ✗
+     */
+    const layoutContainerOf = (tab) => {
+      // `pathTo` stops above the tab, because a SCROLLER may be the rail or
+      // anything between — never the tab itself. The layout container is found
+      // from the chain WITH the tab on the end, since a tab that is its own
+      // repeated unit is laid out by the rail directly.
+      const chain = [...pathTo(tab), tab];
+      const unitIndex = chain.slice(1).findIndex((el) => el.repeats === tab.repeats);
+      return unitIndex === -1 ? chain[chain.length - 2] : chain[unitIndex];
+    };
     // `flex-wrap` only does anything on a FLEX CONTAINER — the property is
     // ignored outside one. So the wrapping element must carry `flex` (or
     // `inline-flex`, which FLEX also matches) AS WELL, on the same element.
     // Accepting a bare `flex-wrap` anywhere on the path would let a token with
     // no effect excuse a strip that genuinely overflows (@copilot on #863).
-    const wraps = satisfies((el) => WRAPS.test(el.active) && FLEX.test(el.active));
+    const wraps = tabs.every((tab) => {
+      const container = layoutContainerOf(tab);
+      return !!container && WRAPS.test(container.active) && FLEX.test(container.active);
+    });
 
     if (!scrolls && !wraps) {
       out.push({ kind: 'strip-does-not-scroll', start: rail.start, tabs: tabs.length });
