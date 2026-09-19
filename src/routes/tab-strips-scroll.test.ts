@@ -21,9 +21,10 @@
  *
  * So the predicate now reads the MARKUP: comments stripped, class attributes
  * extracted, and the required tokens asserted on the specific elements that
- * must carry them. `guardCanFail` below runs that real predicate against
- * synthetic unfixed source, rather than comparing a hand-written string to
- * itself as the first draft's "proven to fail" case did.
+ * must carry them, with the proven-to-fail cases running that real predicate
+ * over synthetic unfixed source — including markup stripped of the classes
+ * beside a comment that names them all, the exact shape that fooled the first
+ * draft.
  *
  * Deliberately NOT keyed on `role="tablist"`: the node detail page's strip
  * (#854) is plain `<button>`s with no ARIA roles, so an ARIA-keyed predicate
@@ -97,11 +98,20 @@ function tabClasses(src: string): string[] {
 describe('#858 — tab strips scroll instead of overflowing', () => {
   it.each(STRIPS)('$label: the strip itself scrolls ($measured)', ({ file }) => {
     const strips = stripClasses(markup(file));
-    // A file with no strip at all would otherwise pass `every` vacuously — the
-    // shape this predicate has to be pinned against, since a refactor that
-    // renames the container is indistinguishable from one that removes it.
-    expect(strips.length).toBeGreaterThan(0);
-    for (const c of strips) expect(c).toMatch(/\boverflow-x-auto\b/);
+    // EXACTLY one, not "at least one" (@copilot on #859). This predicate is a
+    // global filter over class attributes — it cannot verify that the element
+    // carrying `overflow-x-auto` is the one CONTAINING the tabs, because that
+    // needs a real parse of the markup rather than a regex over its source.
+    //
+    // Pinning the count is how that limitation is made safe HERE: with one
+    // match per file the strip is unambiguous, and the day a file grows a
+    // second flex/gap-0 row this fails and someone has to look, rather than the
+    // guard quietly starting to assert about the wrong element.
+    //
+    // The real containment check belongs in #858's CI gate, which can afford to
+    // parse. This file should be deleted when that lands.
+    expect(strips).toHaveLength(1);
+    expect(strips[0]).toMatch(/\boverflow-x-auto\b/);
   });
 
   it.each(STRIPS)('$label: every tab refuses to shrink or wrap', ({ file }) => {
@@ -141,10 +151,22 @@ describe('#858 — tab strips scroll instead of overflowing', () => {
       expect(strips.every((c) => /\boverflow-x-auto\b/.test(c))).toBe(false);
     });
 
-    it('flags tabs with no shrink-0 / whitespace-nowrap', () => {
+    it('flags tabs with no shrink-0', () => {
       const tabs = tabClasses(UNFIXED_STRIP);
       expect(tabs.length).toBeGreaterThan(0);
       expect(tabs.every((c) => /\bshrink-0\b/.test(c))).toBe(false);
+    });
+
+    it('flags tabs with no whitespace-nowrap, INDEPENDENTLY of shrink-0', () => {
+      // @copilot on #859: the case above happens to omit both, so it would
+      // still pass if the predicate stopped checking `whitespace-nowrap`
+      // altogether. Each required token needs a fixture that omits only IT —
+      // otherwise half the requirement is unproven.
+      const shrinkOnly = '<button class="shrink-0 border-b-2 px-4 py-2">One</button>';
+      const tabs = tabClasses(shrinkOnly);
+      expect(tabs.length).toBeGreaterThan(0);
+      expect(tabs.every((c) => /\bshrink-0\b/.test(c))).toBe(true);
+      expect(tabs.every((c) => /\bwhitespace-nowrap\b/.test(c))).toBe(false);
     });
 
     it('is NOT fooled by a comment naming the classes — the original defect', () => {
