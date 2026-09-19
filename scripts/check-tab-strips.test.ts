@@ -598,6 +598,26 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     ).toContain('tab-can-wrap');
   });
 
+  it('a NON-INTERACTIVE tab element is still a tab', () => {
+    // @copilot on #865. `ViewTabs` renders its ACTIVE tab as a <div>, because
+    // that tab contains a caret <button> and a button cannot nest in a button.
+    // With `a`/`button` only, the active branch of a strip on every list page
+    // was never checked, so a regression limited to it passed the gate.
+    //
+    // Widening was measured first: coverage is identical either way — 20 rails,
+    // 13 strips, the same twelve files. `border-b-2` does the discriminating,
+    // not the tag name.
+    expect(
+      kinds(`
+      <div class="flex items-center gap-2 border-b border-zinc-200">
+        <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          <div class="flex shrink-0 border-b-2 px-3 py-2"><span>Active</span></div>
+          <button class="flex shrink-0 border-b-2 px-3 py-2"><span class="truncate">Other</span></button>
+        </div>
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
   it('a tab with NEITHER whitespace-nowrap nor truncate is still reported', () => {
     // The spare above must not become a blanket pass: `truncate` has to be
     // present somewhere on the tab, not merely possible.

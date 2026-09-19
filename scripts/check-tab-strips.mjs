@@ -163,8 +163,22 @@ const WRAPS = /\bflex-wrap\b/;
 /** `min-w-0` — what lets a flex item shrink below its content. */
 const CAN_SHRINK = /\bmin-w-0\b/;
 
-/** Tags that can be a tab. */
-const TAB_TAGS = new Set(['a', 'button']);
+/**
+ * Tags that can be a tab.
+ *
+ * `div`/`span`/`li` are here because a tab is not always an interactive
+ * element: `ViewTabs` renders its ACTIVE tab as a `<div>`, since that tab
+ * contains a caret `<button>` and a button cannot nest inside a button. With
+ * `a`/`button` only, the active branch of a strip on every list page in the
+ * portal was never checked, so a regression limited to it would pass
+ * (@copilot on #865).
+ *
+ * Measured before widening, because a wider tab predicate is how a gate starts
+ * over-firing: coverage is IDENTICAL either way — 20 rails, 13 strips, the same
+ * twelve files. It reclassifies nothing; it only stops skipping the active tab.
+ * The `border-b-2` requirement is what does the discriminating, not the tag.
+ */
+const TAB_TAGS = new Set(['a', 'button', 'div', 'span', 'li']);
 
 /**
  * Class text with every VARIANT-PREFIXED token dropped.
