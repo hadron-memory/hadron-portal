@@ -119,6 +119,14 @@
     validationMethod: 'submit-only',
     resetForm: false,
     invalidateAll: true,
+    // @codex on #857: `afterNavigate` re-seeds the editor, and by the time it
+    // runs the navigation cannot be cancelled — so without this a click on any
+    // link silently discards a multi-KB draft. Superforms' own guard runs on
+    // `beforeNavigate`, which is the only moment the reader still has a choice.
+    taintedMessage: t(
+      'worker.briefing.override.discard',
+      'You have unsaved changes to this worker’s override. Leave the page and lose them?',
+    ),
   },
   );
 
@@ -586,7 +594,21 @@
           {/if}
         </section>
 
-        <form method="POST" action="?/updateBriefing" use:briefingEnhance class="space-y-2" novalidate>
+        <!-- The action carries tab+view, not just the action name (@codex and
+               @copilot on #857). A bare `?/updateBriefing` REPLACES the query
+               string, so a JS-off submit from ?tab=briefing&view=source lands
+               back on Profile/Rendered — and a validation or server failure
+               then leaves the preserved text and the error message in a panel
+               the same reader can no longer see. SvelteKit identifies the
+               action by the `/`-prefixed key, so the other params ride along
+               untouched. Harmless when enhanced: the params already match. -->
+          <form
+            method="POST"
+            action="?tab=briefing&view=source&/updateBriefing"
+            use:briefingEnhance
+            class="space-y-2"
+            novalidate
+          >
           <input type="hidden" name="_kind" value="updateBriefing" />
           <div class="flex flex-wrap items-baseline justify-between gap-2">
             <label for="promptOverride" class="text-sm font-medium text-zinc-900 dark:text-white">

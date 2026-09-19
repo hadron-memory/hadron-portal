@@ -86,6 +86,38 @@ beforeEach(() => {
   setStubPage('https://example.test/app/workers/w-a?tab=briefing', { id: 'w-a' });
 });
 
+describe('#1010 — the no-JS path keeps its view (@codex/@copilot on #857)', () => {
+  it('the form action carries tab and view, not just the action name', async () => {
+    const mounted = mountComponent(Page as never, { data: await dataFor(worker('w-a', 'X')) } as never);
+    try {
+      openSource(mounted.target);
+      const action = mounted.target.querySelector('form[method="POST"]')?.getAttribute('action') ?? '';
+      // A bare `?/updateBriefing` replaces the query string, so a JS-off submit
+      // lands on Profile/Rendered — and a failure leaves the preserved text and
+      // the error in a panel that reader can no longer see.
+      expect(action).toContain('tab=briefing');
+      expect(action).toContain('view=source');
+      expect(action).toContain('/updateBriefing');
+    } finally {
+      mounted.unmount();
+    }
+  });
+});
+
+describe('#1010 — an unsaved draft is not discarded silently', () => {
+  it('registers a beforeNavigate guard, the only moment the reader can still cancel', async () => {
+    // `afterNavigate` re-seeds the editor, and by then the navigation has
+    // already happened. Superforms' tainted guard runs on `beforeNavigate`,
+    // which is why the option — not a bigger afterNavigate — is the fix.
+    const mounted = mountComponent(Page as never, { data: await dataFor(worker('w-a', 'X')) } as never);
+    try {
+      expect(navigationGuards.some((g) => g.fn === 'beforeNavigate')).toBe(true);
+    } finally {
+      mounted.unmount();
+    }
+  });
+});
+
 describe('#1010 — the briefing editor re-seeds when the worker changes', () => {
   it('shows the NEW worker’s override after a worker-to-worker navigation', async () => {
     const mounted = mountComponent(Page as never, { data: await dataFor(worker('w-a', 'ADA-ONLY TEXT')) } as never);
