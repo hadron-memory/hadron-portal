@@ -354,7 +354,24 @@ export interface Worker {
   /** The worker-scoped working memory in the App's container (null until provisioned). */
   memoryId: string | null;
   /** The role-agent behind the casting. */
-  agent: { id: string; name: string; urn: string; personaRole?: string | null } | null;
+  agent: {
+    id: string;
+    name: string;
+    urn: string;
+    personaRole?: string | null;
+    /**
+     * #1010 — the agent's RAW persona template, selected only by
+     * WORKER_QUERY and never by WorkerFields (which feeds the Staff
+     * roster, where a template per row is the hadron-cli#459 mistake).
+     *
+     * Optional because the roster does not ask for it, and nullable for
+     * TWO different reasons a consumer must tell apart: the agent carries
+     * no template, or the AGENT read gate denied it — which is a
+     * different gate from the one guarding the composed `prompt`, so a
+     * caller can legitimately have one and not the other.
+     */
+    personaPrompt?: string | null;
+  } | null;
   /**
    * Retirement instant — a retired worker stops authoring and takes no new
    * sessions, but the row and its name reservation survive.

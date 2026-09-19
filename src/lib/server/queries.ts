@@ -871,12 +871,55 @@ const WORKER_FIELDS = /* GraphQL */ `
 // briefing live, which is multi-KB, and dumping that into a page payload is the
 // same defect hadron-cli#459 is open about on `worker list --json`. #737 covers
 // showing it behind an explicit expand.
+/**
+ * #1010 — amend a worker's promptOverride, the per-worker individuality layered
+ * over the role agent's shared template.
+ *
+ * `promptOverride` REPLACES the whole override; it is not appended. The trap
+ * this repo must not build is a "save the boot briefing" control: the composed
+ * briefing is bound-template + override + a derived register block, so writing
+ * it back folds the shared template into the override and prepends it again on
+ * every render, compounding each save. Only the override is writable, and
+ * `updateWorker` takes only the override — the server offers no way to write
+ * the composed prompt at all.
+ *
+ * Refuses WORKER_RETIRED for a retired casting (which takes no new bindings, so
+ * an override could never be delivered) and requires staffing access.
+ */
+export const UPDATE_WORKER_MUTATION = /* GraphQL */ `
+  mutation UpdateWorker($workerRef: ID!, $promptOverride: String) {
+    updateWorker(workerRef: $workerRef, promptOverride: $promptOverride) {
+      id
+      promptOverride
+    }
+  }
+`;
+
 export const WORKER_QUERY = /* GraphQL */ `
   ${WORKER_FIELDS}
   query Worker($ref: ID!) {
     worker(ref: $ref) {
       ...WorkerFields
       app { id name urn organizationId }
+      # #1010 — the agent's RAW persona template, merged into the fragment's
+      # agent selection rather than added to WorkerFields: the fragment also
+      # feeds the Staff roster, and a template per row is the hadron-cli#459
+      # mistake in miniature. Selected here for the Briefing tab's Source view,
+      # which shows the inherited half read-only beside the editable override.
+      # (NB no backticks in this file's GraphQL comments — one terminates the
+      # template literal, portal#715. The gate caught exactly that here.)
+      #
+      # NOT derivable from the composed prompt by subtraction: resolvers.worker.ts
+      # builds it as bound-template + override + a DERIVED register block
+      # (spec 049 Phase 6) evaluated per reader, so the composed string does not
+      # end with the override and slicing it would mis-cut.
+      #
+      # Nullable twice over: the agent may carry no template, AND this goes
+      # through the AGENT read gate while the composed prompt sits behind the
+      # worker's own (maySeeWorkerInternals) — so a caller who can read the
+      # briefing may still get null here. Render that as "not visible to you",
+      # never as "no template".
+      agent { personaPrompt }
       # The resolved boot briefing (#737): the agent's template with
       # {{name}}/{{role}} bound, plus any per-worker override. The most literal
       # answer to "who is this" — it is the worker's operating instructions in
