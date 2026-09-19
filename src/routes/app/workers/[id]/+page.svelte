@@ -146,6 +146,21 @@
   // this still does not couple the buttons to the URL.
   afterNavigate(() => {
     activeTab = (data.initialTab as WorkerTabId | null) ?? 'profile';
+    // #1010 / @codex on #857 — the SAME reuse trap, one field further in.
+    //
+    // The Superforms store is seeded ONCE from the initial `data`, so walking
+    // /app/workers/A → /app/workers/B left it holding A's override. Against
+    // B's stored value that reads as dirty, which ENABLES Save — and the form
+    // posts to `?/updateBriefing` on B's route, writing A's individuality onto
+    // B. One worker's text silently becoming another's is the worst outcome
+    // this page could have, and nothing about it looks wrong on screen.
+    //
+    // Reset here rather than keying on worker.id, for the reason the comment
+    // above gives: a navigation is the honest signal, and a same-worker
+    // query-only navigation should re-seed too (the loader re-read the worker,
+    // so the stored override may have changed under an open editor).
+    $briefingData.promptOverride = data.worker.promptOverride ?? '';
+    showSource = false;
   });
 
   async function focusTab(id: WorkerTabId) {
@@ -523,19 +538,21 @@
               class="max-h-72 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 font-mono text-xs whitespace-pre-wrap break-words text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">{inheritedTemplate}</pre>
           {:else}
             <p class="rounded-lg border border-dashed border-zinc-300 px-4 py-3 text-xs text-zinc-500 dark:border-zinc-700">
-              {#if data.worker.prompt}
-                <!-- The composed briefing is readable but the template is not:
-                     they sit behind DIFFERENT gates (the worker's vs the
-                     agent's), so this is "not visible to you", never "there is
-                     no template". Saying the latter would be a false statement
-                     about the agent. -->
-                {t(
-                  'worker.briefing.inherited.hidden',
-                  'The agent’s template isn’t visible to you — reading it needs access to the agent itself, which is a different permission from reading this worker.',
-                )}
-              {:else}
-                {t('worker.briefing.inherited.none', 'This role agent carries no template.')}
-              {/if}
+              <!-- @codex on #857: this said "hidden" or "no template" by
+                   branching on `worker.prompt`, and that predicate cannot tell
+                   them apart. The composed prompt is non-null whenever an
+                   OVERRIDE exists even with no template at all, so an agent
+                   that genuinely carries none was reported as one being
+                   withheld; and a prompt masked by the worker gate would read
+                   as "no template", which is a false statement about the agent.
+                   Nothing in this payload distinguishes the two cases, so the
+                   copy names both instead of picking one — the same posture as
+                   the team chat's `unattributed` author, where the honest
+                   rendering of a record that cannot say is to say so. -->
+              {t(
+                'worker.briefing.inherited.unavailable',
+                'No template is shown here — either this role agent carries none, or reading it needs access to the agent itself, which is a different permission from reading this worker. The agent page says which.',
+              )}
             </p>
           {/if}
         </section>
