@@ -1,13 +1,22 @@
 #!/usr/bin/env node
 /**
- * #858 — a horizontal tab strip in the portal's narrow content column must
- * scroll rather than push the page off a phone screen.
+ * #858 — a horizontal tab strip in the portal's narrow content column must not
+ * push the page off a phone screen.
  *
- * The content column is ~308px at a 390px viewport. A strip of tabs wider than
- * that overflows the DOCUMENT unless the strip carries `overflow-x-auto`, and
- * unless each tab carries `shrink-0 whitespace-nowrap` — without those, flex
- * compresses the labels into unreadable columns instead of letting the strip
- * scroll. PR #746 established the fix on the App detail page; #854 found the
+ * The content column is ~308px at a 390px viewport, and a strip of tabs wider
+ * than that overflows the DOCUMENT. There are TWO satisfying answers and this
+ * gate accepts either:
+ *
+ *   SCROLL — `overflow-x-auto` on the rail or between it and the tabs, with
+ *            each tab pinned (`shrink-0`, and `whitespace-nowrap` or
+ *            `truncate` on whatever carries the label). Without the pins flex
+ *            compresses the labels into unreadable columns instead of letting
+ *            the strip scroll.
+ *   WRAP   — `flex flex-wrap` on the element that lays the tabs out, whose
+ *            tabs must then NOT be pinned: either pin reintroduces the
+ *            overflow. Measured, see `WRAPS`.
+ *
+ * PR #746 established the scrolling fix on the App detail page; #854 found the
  * identical defect on the node detail page months later; #859 fixed four more,
  * one of which (`/app/account`) was overflowing the document by 10px and nobody
  * had noticed.
@@ -39,8 +48,15 @@
  *
  *   rail — an element whose class carries `flex` and `border-b` (the underline
  *          rail every tab strip in this repo draws), but not `border-b-2`
- *   tab  — an `<a>` or `<button>` under that rail whose class carries
- *          `border-b-2` (the per-tab underline)
+ *   tab  — an `<a>`, `<button>`, `<div>`, `<span>` or `<li>` under that rail
+ *          whose class carries `border-b-2` (the per-tab underline)
+ *
+ * The tab is NOT required to be interactive, and that is load-bearing rather
+ * than lax: `ViewTabs` renders its ACTIVE tab as a `<div>`, because that tab
+ * holds a caret `<button>` and a button cannot nest in a button. Restricting to
+ * `a`/`button` skipped the active branch of a strip on every list page. See
+ * `TAB_TAGS` for the measurement showing the wider set reclassifies nothing —
+ * `border-b-2` does the discriminating, not the tag name.
  *
  * A rail with two or more tabs is a strip. Two, not three: `/app/memories` and
  * `/app/orgs/[id]/agents` both have exactly two and both sat at exactly 308px
