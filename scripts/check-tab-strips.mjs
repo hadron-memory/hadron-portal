@@ -354,14 +354,32 @@ export function analyse(source) {
      *   rail(flex-wrap) > div.flex > {#each} a   -> container is div.flex,
      *                                               which does not wrap  ✗
      */
+    /**
+     * Does this element stand for exactly ONE RENDERED tab?
+     *
+     * Both halves are needed. One tab NODE under it is not enough — if that
+     * node repeats deeper than the element does, the element holds the whole
+     * loop, so many rendered tabs share it as a single flex item.
+     */
+    const tabsUnder = (el) => tabs.filter((t) => t === el || t.ancestors.includes(el));
+    const holdsOneRenderedTab = (el) => {
+      const under = tabsUnder(el);
+      return under.length === 1 && under[0].repeats === el.repeats;
+    };
+
     const layoutContainerOf = (tab) => {
       // `pathTo` stops above the tab, because a SCROLLER may be the rail or
       // anything between — never the tab itself. The layout container is found
       // from the chain WITH the tab on the end, since a tab that is its own
-      // repeated unit is laid out by the rail directly.
+      // unit is laid out by the rail directly.
       const chain = [...pathTo(tab), tab];
-      const unitIndex = chain.slice(1).findIndex((el) => el.repeats === tab.repeats);
-      return unitIndex === -1 ? chain[chain.length - 2] : chain[unitIndex];
+      // Climb while each element still stands for one rendered tab. The first
+      // element that does NOT is the one laying those units out — it is the
+      // flex container whose items they are, and whose `flex-wrap` decides
+      // whether they wrap.
+      let i = chain.length - 1;
+      while (i > 0 && holdsOneRenderedTab(chain[i])) i -= 1;
+      return chain[i];
     };
     // `flex-wrap` only does anything on a FLEX CONTAINER — the property is
     // ignored outside one. So the wrapping element must carry `flex` (or

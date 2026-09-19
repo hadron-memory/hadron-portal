@@ -361,6 +361,23 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     expect(k).toContain('tab-can-shrink');
   });
 
+  it('STATIC tabs nested in a wrapper do not count as wrapping either', () => {
+    // @copilot on #863, second time on this rule. With no {#each} every element
+    // shares a repeat depth, so a container chosen by repeat depth alone picked
+    // the rail and called this wrapped. The two buttons are direct children of
+    // ONE non-wrapping row, which is a single flex item of the wrapping rail —
+    // so they stay on one line.
+    const k = kinds(`
+      <div class="flex flex-wrap border-b border-zinc-200">
+        <div class="flex">
+          <button class="border-b-2 px-3">One</button>
+          <button class="border-b-2 px-3">Two</button>
+        </div>
+      </div>`);
+    expect(k).toContain('strip-does-not-scroll');
+    expect(k).toContain('tab-can-shrink');
+  });
+
   it('reports an unparseable file rather than passing it', () => {
     // A gate that silently skips what it cannot read can be switched off by a
     // toolchain change nobody notices.
