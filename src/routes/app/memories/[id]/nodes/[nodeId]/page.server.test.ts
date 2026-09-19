@@ -29,7 +29,7 @@ async function importLoad() {
   return mod.load;
 }
 
-type BreadcrumbSeg = { label: string; path: string; nodeId: string | null };
+type BreadcrumbSeg = { label: string; path: string; nodeId: string | null; title?: string };
 type LoadResult = { node: unknown; breadcrumb: BreadcrumbSeg[] };
 
 // SvelteKit's generated PageServerLoad return type widens to `T | void`
@@ -44,9 +44,11 @@ function loadEvent(opts: {
   // #260: org-less route — the memory id is `params.id` (the old `gid`).
   gid: string;
   nodeId: string;
-  parentGraphNodes: Array<{ id: string; memoryId: string; loc: string }>;
+  parentGraphNodes: Array<{ id: string; memoryId: string; loc: string; name?: string }>;
   /** #761 — incoming query string (`?tab=…`), '' for none. */
   search?: string;
+  /** #853 — the memory URN the crumb qualifies ancestor locs against. */
+  memoryUrn?: string | null;
 }) {
   return {
     params: { id: opts.gid, nodeId: opts.nodeId },
@@ -56,6 +58,14 @@ function loadEvent(opts: {
     ),
     parent: vi.fn().mockResolvedValue({
       graphNodes: opts.parentGraphNodes,
+      // #853: the breadcrumb qualifies an ancestor loc into a full node URN
+      // from this, exactly as the wikilink resolver already does.
+      // `'memoryUrn' in opts`, not `??` — an explicit null is the "the layout
+      // could not supply a memory URN" case a test needs to stage, and `??`
+      // would quietly replace it with the default and assert nothing.
+      graph: 'memoryUrn' in opts
+        ? (opts.memoryUrn === null ? null : { urn: opts.memoryUrn })
+        : { urn: 'hrn:mem:acme.com:mem-a' },
       isConsumerMode: false,
       activeOrgId: 'org-1',
     }),
@@ -1198,5 +1208,184 @@ describe('node-detail action — updateData', () => {
       gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":1}' },
     }));
     expect((result as { status: number }).status).toBe(500);
+  });
+});
+
+/**
+ * An ancestor crumb shows the ancestor NODE'S NAME, not its loc segment.
+ *
+ * The crumb already renders a name for every other segment it can — the memory
+ * ("Holger Personal Taxes", not `holger-personal-taxes`) and the leaf
+ * (`node.name`). Ancestors were the only slugs, which made ONE node render
+ * under two labels depending on where you stood: a parent titled
+ * "Form: FBAR (FinCEN Form 114)" on its own page became `form-fbar` the moment
+ * you clicked into a child.
+ *
+ * Pinned in both directions, because the fallback is load-bearing: a segment
+ * with no node must KEEP its slug, and the "+ Create parent node" affordance
+ * reads `seg.label` to seed the new node's name.
+ */
+describe('node-detail load — an ancestor crumb shows its name', () => {
+  const MEM = 'mem-A';
+
+  function nodeAt(loc: string, id: string) {
+    return {
+      id, memoryId: MEM, loc, name: 'FBAR — penalties and relief procedures',
+      nodeType: 'reference', alias: null, description: null, content: null,
+      tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+      isRunnable: null, createdAt: '', updatedAt: '',
+      outgoingEdges: [], incomingEdges: [],
+    };
+  }
+
+  it('uses the ancestor node’s name, and keeps its loc on the title', async () => {
+    mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'penalties-pk') });
+
+    const result = await runLoad(loadEvent({
+      gid: MEM,
+      nodeId: 'penalties-pk',
+      parentGraphNodes: [
+        { id: 'fbar-pk', memoryId: MEM, loc: 'form-fbar', name: 'Form: FBAR (FinCEN Form 114)' },
+        { id: 'penalties-pk', memoryId: MEM, loc: 'form-fbar:penalties', name: 'FBAR — penalties and relief procedures' },
+      ],
+    }));
+
+    const ancestor = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(ancestor?.label).toBe('Form: FBAR (FinCEN Form 114)');
+    expect(ancestor?.nodeId).toBe('fbar-pk');
+    // @codex on #853: the address a reader copies must be the FULLY-QUALIFIED
+    // node URN, not a bare loc — a bare loc does not say which memory it
+    // belongs to once pasted into a CLI call or an MCP tool, which is the whole
+    // reason this repo gates bare-loc citations.
+    expect(ancestor?.title).toBe(
+      'Form: FBAR (FinCEN Form 114) — hrn:node:acme.com:mem-a:form-fbar',
+    );
+  });
+
+  it('keeps the SLUG for an ancestor that has no node', async () => {
+    // The other direction, and it is not symmetry for its own sake: this is the
+    // input the "+ Create parent node" form reads, and it seeds the new node's
+    // name from `seg.label`. A name substituted here would have nothing behind
+    // it, and the create form would propose it as fact.
+    mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'penalties-pk') });
+
+    const result = await runLoad(loadEvent({
+      gid: MEM,
+      nodeId: 'penalties-pk',
+      parentGraphNodes: [
+        { id: 'penalties-pk', memoryId: MEM, loc: 'form-fbar:penalties', name: 'FBAR — penalties' },
+      ],
+    }));
+
+    const ancestor = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(ancestor?.label).toBe('form-fbar');
+    expect(ancestor?.nodeId).toBeNull();
+    expect(ancestor?.title).toBeUndefined();
+  });
+
+  it('falls back to the slug when the ancestor node exists but is unnamed', async () => {
+    // `name` is non-null in the slim projection's type, but an empty string is
+    // not a usable label and would render a blank crumb with a live link.
+    mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'penalties-pk') });
+
+    const result = await runLoad(loadEvent({
+      gid: MEM,
+      nodeId: 'penalties-pk',
+      parentGraphNodes: [
+        { id: 'fbar-pk', memoryId: MEM, loc: 'form-fbar', name: '' },
+        { id: 'penalties-pk', memoryId: MEM, loc: 'form-fbar:penalties', name: 'FBAR — penalties' },
+      ],
+    }));
+
+    const ancestor = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(ancestor?.label).toBe('form-fbar');
+    // Still linked — the node exists, only its label is unusable.
+    expect(ancestor?.nodeId).toBe('fbar-pk');
+  });
+
+  it('a foreign-memory ancestor lends neither its id NOR its name (#234)', async () => {
+    // #234 scoped the ID lookup to this memory. The name comes off the same
+    // map, so it inherits that scoping — asserted rather than assumed, because
+    // a name borrowed from another memory's node would be a confident false
+    // label on a crumb that correctly refuses to link.
+    mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'penalties-pk') });
+
+    const result = await runLoad(loadEvent({
+      gid: MEM,
+      nodeId: 'penalties-pk',
+      parentGraphNodes: [
+        { id: 'foreign-pk', memoryId: 'mem-B', loc: 'form-fbar', name: 'Someone else’s FBAR' },
+        { id: 'penalties-pk', memoryId: MEM, loc: 'form-fbar:penalties', name: 'FBAR — penalties' },
+      ],
+    }));
+
+    const ancestor = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(ancestor?.label).toBe('form-fbar');
+    expect(ancestor?.nodeId).toBeNull();
+  });
+});
+
+/**
+ * #853, @codex — an ancestor's hover text carries the FULLY-QUALIFIED node URN.
+ *
+ * Substituting the name for the slug removes the only place the ancestor's
+ * address was visible, so the address has to go somewhere. A bare loc would not
+ * do: it does not say which memory it belongs to once pasted into a CLI call,
+ * an MCP tool or a message — the reason this repo gates bare-loc citations at
+ * all.
+ */
+describe('node-detail load — an ancestor crumb carries a qualified URN', () => {
+  const MEM = 'mem-A';
+
+  function nodeAt(loc: string, id: string) {
+    return {
+      id, memoryId: MEM, loc, name: 'child',
+      nodeType: 'reference', alias: null, description: null, content: null,
+      tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+      isRunnable: null, createdAt: '', updatedAt: '',
+      outgoingEdges: [], incomingEdges: [],
+    };
+  }
+
+  const ancestors = [
+    { id: 'fbar-pk', memoryId: MEM, loc: 'form-fbar', name: 'Form: FBAR' },
+    { id: 'pen-pk', memoryId: MEM, loc: 'form-fbar:penalties', name: 'child' },
+  ];
+
+  it('qualifies the loc against the memory URN', async () => {
+    mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'pen-pk') });
+    const result = await runLoad(loadEvent({
+      gid: MEM, nodeId: 'pen-pk', parentGraphNodes: ancestors,
+      memoryUrn: 'hrn:mem:baragaun.com:holger-personal-taxes',
+    }));
+    expect(result.breadcrumb.find((s) => s.path === 'form-fbar')?.title).toBe(
+      'Form: FBAR — hrn:node:baragaun.com:holger-personal-taxes:form-fbar',
+    );
+  });
+
+  it('falls back to the bare loc when the memory URN is unavailable', async () => {
+    // The layout returns no `graph` when the memory read failed. "Couldn't
+    // qualify it" is not "there is no address" — the loc still beats nothing,
+    // and the crumb must not render a broken or empty title.
+    mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'pen-pk') });
+    const result = await runLoad(loadEvent({
+      gid: MEM, nodeId: 'pen-pk', parentGraphNodes: ancestors, memoryUrn: null,
+    }));
+    expect(result.breadcrumb.find((s) => s.path === 'form-fbar')?.title).toBe(
+      'Form: FBAR — form-fbar',
+    );
+  });
+
+  it('falls back to the bare loc when the memory URN is malformed', async () => {
+    // composeNodeUrn throws on a wrong-type prefix. A throw here would take out
+    // the whole node page over a hover string.
+    mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'pen-pk') });
+    const result = await runLoad(loadEvent({
+      gid: MEM, nodeId: 'pen-pk', parentGraphNodes: ancestors,
+      memoryUrn: 'hrn:node:not-a-memory:at-all',
+    }));
+    expect(result.breadcrumb.find((s) => s.path === 'form-fbar')?.title).toBe(
+      'Form: FBAR — form-fbar',
+    );
   });
 });

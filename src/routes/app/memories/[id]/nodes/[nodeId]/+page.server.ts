@@ -126,21 +126,85 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // with any other memory the caller can access that happens to share the loc,
   // producing breadcrumb links like memories/A/nodes/<B's PK>. See #234.
   const memoryNodes = parentData.graphNodes ?? [];
-  const ancestorIdByLoc = new Map<string, string>();
+  // Read here rather than at the wikilink call below: the breadcrumb needs
+  // `graph.urn` too, to qualify an ancestor's loc into a real node URN.
+  const { graph, nodesFailed } = parentData as {
+    graph?: { urn?: string | null } | null;
+    nodesFailed?: boolean;
+  };
+  const ancestorByLoc = new Map<string, { id: string; name: string | null }>();
   for (const n of memoryNodes) {
-    if (n.memoryId === params.id) ancestorIdByLoc.set(n.loc, n.id);
+    if (n.memoryId === params.id) ancestorByLoc.set(n.loc, { id: n.id, name: n.name ?? null });
   }
 
+  // A memory whose URN the layout could not supply (a failed graph read) falls
+  // back to the bare loc rather than rendering nothing — "couldn't qualify it"
+  // is not "there is no address".
+  const ancestorUrn = (loc: string): string | null => {
+    if (!graph?.urn) return null;
+    try {
+      return composeNodeUrn(graph.urn, loc);
+    } catch {
+      return null;
+    }
+  };
+
   const parts = node.loc.split(':');
-  const breadcrumb: Array<{ label: string; path: string; nodeId: string | null }> = [];
+  const breadcrumb: Array<{
+    label: string;
+    path: string;
+    nodeId: string | null;
+    title?: string;
+  }> = [];
 
   for (let i = 0; i < parts.length; i++) {
     const ancestorLoc = parts.slice(0, i + 1).join(':');
     let nodeId: string | null = null;
+    // An ancestor that EXISTS shows its NAME, like every other segment of this
+    // crumb — the memory renders as "Holger Personal Taxes", and the leaf
+    // renders `node.name`. Ancestors were the only slugs left, and not by
+    // choice: the crumb began as pure loc-splitting, when a slug was the only
+    // thing available, and the commit that added this very lookup (to make
+    // ancestors hotlinks, #124) carried `label: parts[i]` forward unchanged.
+    // The effect was that one node had two identities — a parent titled
+    // "Form: FBAR (FinCEN Form 114)" on its own page became `form-fbar` the
+    // moment you clicked into a child.
+    //
+    // The name is free: `graphNodes` already carries it and the layout has
+    // already paged it to completion, so this is the same map lookup with a
+    // second field.
+    let label = parts[i];
+    let title: string | undefined;
     if (i < parts.length - 1) {
-      nodeId = ancestorIdByLoc.get(ancestorLoc) ?? null;
+      const hit = ancestorByLoc.get(ancestorLoc);
+      nodeId = hit?.id ?? null;
+      if (hit?.name) {
+        label = hit.name;
+        // @codex on #853: the ADDRESS stays reachable on hover, and it is the
+        // fully-qualified node URN rather than the bare loc. Substituting the
+        // name removes the only place the address was visible, and a bare loc
+        // would not replace it — a bare loc does not say which memory it
+        // belongs to once pasted into a CLI call, an MCP tool or a message,
+        // which is the whole reason this repo gates bare-loc citations.
+        //
+        // NOT a `Urn` component here, which is what the review suggested.
+        // `hrn:node:hadronmemory.com:hadron-portal:review:render-urn` is about
+        // a view that NAMES another entity — a detail page, a table cell — and
+        // this crumb already links to the ancestor's own page, where its URN is
+        // rendered properly. A URN chip per segment would also make the trail
+        // unreadable and undo the truncation this change is half about.
+        title = ancestorUrn(ancestorLoc)
+          ? `${hit.name} — ${ancestorUrn(ancestorLoc)}`
+          : `${hit.name} — ${ancestorLoc}`;
+      }
     }
-    breadcrumb.push({ label: parts[i], path: ancestorLoc, nodeId });
+    // A segment with NO node keeps its slug, necessarily — there is no name to
+    // show. That is also what the "+ Create parent node" affordance below the
+    // crumb reads (`seg.label` seeds the new node's name), and it only renders
+    // when `!seg.nodeId`, i.e. exactly when no substitution happened. The two
+    // cannot drift apart: the branch that sets a name is the branch that sets
+    // a nodeId.
+    breadcrumb.push({ label, path: ancestorLoc, nodeId, title });
   }
 
   // #374 / spec hrn:node:hadronmemory.com:specs:cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body
@@ -152,10 +216,6 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // `nodesFailed` matters as much as the node list: the layout returns an empty
   // `graphNodes` for BOTH an empty memory and a failed graph fetch, and without
   // the flag an outage would repaint every valid link as corpus rot.
-  const { graph, nodesFailed } = parentData as {
-    graph?: { urn?: string | null } | null;
-    nodesFailed?: boolean;
-  };
   const wikilinksPromise = resolveWikilinks(
     gqlClient(locals.token),
     [node.content, node.abstract],
