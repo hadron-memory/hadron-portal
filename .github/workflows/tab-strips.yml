@@ -1,0 +1,29 @@
+# #858 — a tab strip in the narrow content column must scroll, not push the
+# page off a phone screen. PR #746 fixed this on one page; #854 found it on
+# another months later; #859 fixed four more. Two instances of one class across
+# a gap of months is the argument for a gate rather than a third fix.
+name: tab-strips
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tab-strips:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The gate PARSES the Svelte AST rather than grepping source — which is
+      # the whole reason it can answer "which element scrolls" — so it needs
+      # svelte installed. That is also why this job installs where the
+      # grep-based gates do not.
+      - name: Enable corepack
+        run: corepack enable
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Every tab strip scrolls
+        run: node scripts/check-tab-strips.mjs
