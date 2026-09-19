@@ -10,6 +10,7 @@
   import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
   import {
     annotateDays,
+    authorHrefOf,
     authorInitialOf,
     authorKindOf,
     authorLabelOf,
@@ -585,6 +586,7 @@
         {@const msg = row.msg}
         {@const label = authorLabelOf(msg)}
         {@const kind = authorKindOf(msg)}
+        {@const authorHref = authorHrefOf(msg)}
         {@const reply = replyPreviewOf(msg, bySeq)}
         <!-- Day separators, so each row carries only a time. -->
         {#if row.day}
@@ -603,7 +605,25 @@
 
           <div class="min-w-0 flex-1">
             <div class="mb-1 flex flex-wrap items-center gap-2">
-              <span class="text-sm font-semibold text-zinc-900 dark:text-white">{label}</span>
+              <!-- The author's name links to its profile when the envelope
+                   carries an id to link WITH — `authorHrefOf` derives that from
+                   the same author kind the badge beside it renders, so the two
+                   cannot disagree. A `legacy` or `unattributed` author stays
+                   plain text: it has a name but no id, and a name-based link
+                   would resolve to whoever holds that name today rather than to
+                   whoever posted. -->
+              {#if authorHref}
+                <a
+                  href={authorHref}
+                  class="rounded text-sm font-semibold text-zinc-900 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 dark:text-white"
+                  title={kind === 'worker'
+                    ? t('app.team-chat.author.worker.link', 'Open this worker’s profile')
+                    : t('app.team-chat.author.human.link', 'Open this person’s profile')}
+                >{label}</a
+                >
+              {:else}
+                <span class="text-sm font-semibold text-zinc-900 dark:text-white">{label}</span>
+              {/if}
 
               <!-- The attribution badge is the reason this tab exists: a reader
                    must be able to tell a teammate's post from a human's without
