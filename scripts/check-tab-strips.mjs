@@ -164,6 +164,40 @@ function unconditional(cls) {
 }
 
 /**
+ * Class text with every `{…}` interpolation removed, leaving what is applied
+ * UNCONDITIONALLY.
+ *
+ * This REVERSES a decision made in #860, and the reversal is the point.
+ * `classText` deliberately kept interpolations so that
+ * `class="border-b-2 {compact ? 'shrink-0' : 'shrink-0'}"` would not be
+ * reported for a class the element really does have. But that reasoning only
+ * holds when EVERY branch supplies the token, and nothing checked that:
+ * `{compact ? 'overflow-x-auto' : ''}` satisfied the predicate while the false
+ * arm rendered a strip that overflows (@copilot on #863).
+ *
+ * Requiring the token in the static part is blunt, and it can report a strip
+ * that genuinely interpolates a layout class in every branch. Measured across
+ * `src/`: NO strip supplies any of the four required classes only from inside
+ * an interpolation, so that costs nothing today — and if one is written later,
+ * a false positive is loud and gets fixed, where this false negative was
+ * silent. Same trade as the detection/requirement split above, in the same
+ * direction.
+ *
+ * Interpolations are still read for DETECTION, so a tab whose `border-b-2` is
+ * interpolated is still found and still checked.
+ */
+function staticPart(cls) {
+  let out = '';
+  let depth = 0;
+  for (const ch of cls) {
+    if (ch === '{') depth += 1;
+    else if (ch === '}') depth = Math.max(0, depth - 1);
+    else if (depth === 0) out += ch;
+  }
+  return out;
+}
+
+/**
  * The full text of an element's `class`, expressions included.
  *
  * Taken as a raw source slice rather than by reading Text nodes, because a
@@ -225,9 +259,10 @@ export function elementsWithAncestry(ast, source) {
         cls,
         // `active` keeps only the unconditionally-applied tokens and is what
         // REQUIREMENTS read — whether it scrolls, wraps, or pins its tabs.
-        // Strict on purpose: a required class that only applies from 640px up
-        // does not fix a 390px overflow.
-        active: unconditional(cls),
+        // Strict on purpose, twice over: a required class that only applies
+        // from 640px up does not fix a 390px overflow, and one that only
+        // applies on one arm of a ternary does not fix the other arm.
+        active: unconditional(staticPart(cls)),
         start: node.start,
         ancestors,
         repeats,

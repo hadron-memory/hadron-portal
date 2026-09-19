@@ -45,14 +45,17 @@ describe('the gate passes what it should', () => {
     ).toEqual([]);
   });
 
-  it('tokens supplied through an interpolation still count', () => {
-    // Svelte classes are routinely part static, part expression. Reading only
-    // the static chunks would demand a class the element already has.
+  it('a static required class beside an interpolation is fine', () => {
+    // The normal shape in this repo: layout classes static, colour classes
+    // interpolated. Nothing here is conditional about whether the strip
+    // scrolls or its tabs are pinned.
     expect(
       offences(`
       <div class="flex gap-0 overflow-x-auto border-b">
-        <button class="border-b-2 {compact ? 'shrink-0 whitespace-nowrap' : 'shrink-0 whitespace-nowrap'}">One</button>
-        <button class="border-b-2 {compact ? 'shrink-0 whitespace-nowrap' : 'shrink-0 whitespace-nowrap'}">Two</button>
+        {#each tabs as tab (tab.id)}
+          <a class="shrink-0 whitespace-nowrap border-b-2 px-4
+            {active === tab.id ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-zinc-500'}">{tab.label}</a>
+        {/each}
       </div>`),
     ).toEqual([]);
   });
@@ -284,6 +287,44 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
       kinds(`
       <div class="flex gap-0 border-b sm:gap-2 dark:border-zinc-800">
         {#each tabs as tab (tab.id)}<a class="border-b-2 px-4">{tab.label}</a>{/each}
+      </div>`),
+    ).toContain('strip-does-not-scroll');
+  });
+
+  it('a required class supplied by ONE ARM of a ternary is reported', () => {
+    // @copilot on #863, and a REVERSAL of #860's decision to count interpolated
+    // tokens. That decision was defensible only while every branch supplied the
+    // token, and nothing checked it — so `{compact ? 'overflow-x-auto' : ''}`
+    // satisfied the gate while the false arm rendered a strip that overflows.
+    expect(
+      kinds(`
+      <div class="flex gap-0 border-b {compact ? 'overflow-x-auto' : ''}">
+        {#each tabs as tab (tab.id)}<a class="shrink-0 whitespace-nowrap border-b-2 px-4">{tab.label}</a>{/each}
+      </div>`),
+    ).toContain('strip-does-not-scroll');
+  });
+
+  it('tab classes supplied only inside an interpolation are reported', () => {
+    // The same rule on the other two tokens. Note this fixture has the classes
+    // in BOTH arms — it is still reported, because requiring the static part is
+    // deliberately blunt and errs toward reporting. Measured: no strip in src/
+    // supplies a required class this way, so it costs nothing today.
+    const k = kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b">
+        {#each tabs as tab (tab.id)}<a class="border-b-2 px-4 {compact ? 'shrink-0 whitespace-nowrap' : 'shrink-0 whitespace-nowrap'}">{tab.label}</a>{/each}
+      </div>`);
+    expect(k).toContain('tab-can-shrink');
+    expect(k).toContain('tab-can-wrap');
+  });
+
+  it('an interpolated border-b-2 is still DETECTED as a tab', () => {
+    // Detection still reads the raw text, so tightening the REQUIREMENTS did
+    // not shrink what the gate looks at. A tab whose underline class is
+    // interpolated is found, and then reported for the classes it lacks.
+    expect(
+      kinds(`
+      <div class="flex gap-0 border-b">
+        {#each tabs as tab (tab.id)}<a class="px-4 {active ? 'border-b-2' : 'border-b-2'}">{tab.label}</a>{/each}
       </div>`),
     ).toContain('strip-does-not-scroll');
   });
