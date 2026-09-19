@@ -540,6 +540,24 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     ).toEqual([]);
   });
 
+  it('a constant shadowed by {@const} is not resolved either', () => {
+    // @copilot on #865, second binding form. `{@const}` is the likeliest
+    // deliberate shadow of the three, since it exists to name a value computed
+    // per iteration.
+    expect(
+      offences(`
+      <script>
+        const tabBase = 'shrink-0 whitespace-nowrap border-b-2 px-3 py-2';
+      </script>
+      <div class="flex gap-0 border-b border-zinc-200">
+        {#each views as v (v.id)}
+          {@const tabBase = v.klass}
+          <button class="{tabBase}">One</button>
+        {/each}
+      </div>`),
+    ).toEqual([]);
+  });
+
   it('a constant built at runtime is NOT resolved', () => {
     // Only string literals and interpolation-free templates count. Guessing at
     // a value assembled at runtime would be worse than not seeing it — so the

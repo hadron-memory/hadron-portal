@@ -312,6 +312,12 @@ function templateBoundNames(ast) {
       addPattern(node.value);
       addPattern(node.error);
     }
+    // `{@const name = …}` — a template-local binding, and the one most likely
+    // to shadow a class constant deliberately, since it exists to name a value
+    // computed per iteration (@copilot on #865).
+    if (node.type === 'ConstTag') {
+      for (const d of node.declaration?.declarations ?? []) addPattern(d.id);
+    }
     if (node.type === 'SnippetBlock') {
       if (node.expression?.type === 'Identifier') names.add(node.expression.name);
       (node.parameters ?? []).forEach(addPattern);
