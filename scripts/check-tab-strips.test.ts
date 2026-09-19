@@ -467,9 +467,11 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
  *
  * Every case above feeds a synthetic string to `offences()`. None of them runs
  * the repository walk, so none of them measures how much of the portal this
- * gate actually covers — and the answer turned out to be 3 of 20 rails, which
- * is how a blind gate passed its own twelve tests and reported `OK` across 153
- * files (@copilot on #860).
+ * gate actually covers — and when this block was written the answer was 3 of
+ * 20 rails, which is how a blind gate passed its own twelve tests and reported
+ * `OK` across 153 files (@copilot on #860). It is 11 of 20 today; the count is
+ * asserted below rather than described here, so this paragraph cannot drift
+ * again.
  *
  * `check-grid-filters.test.ts` and `check-hook-teardown.test.ts` assert against
  * the real tree; this file did not. These are that assertion, and the
@@ -484,16 +486,19 @@ describe('the repository as it stands', () => {
   /**
    * The strips this predicate can currently SEE, by path.
    *
-   * This list is deliberately exact rather than a count, and it is SHORT — the
-   * portal has far more tab strips than three. The rest are invisible because a
-   * strip built with `{#each}` is one AST node however many tabs it renders,
-   * and because a class token held in a script constant never appears in the
-   * attribute source. Both are tracked on #858.
+   * This list is deliberately exact rather than a count, and it is still SHORT
+   * of the whole repository: ELEVEN strips across ten files, out of twenty
+   * rails. The nine that remain invisible all have ONE cause — a class token
+   * held in a script constant never appears in the attribute source, so
+   * `classText` cannot see it and the rail reports zero tabs. That is the last
+   * item on #858.
    *
-   * When #858 widens the predicate this assertion WILL fail, and that is the
-   * design: closing the gap should be a visible edit to this list, not a number
-   * that quietly drifts. If you are here because you added a tab strip, add it
-   * — and check the gate really sees it rather than only appending the path.
+   * The `{#each}` cause is FIXED, and this list grew by seven files when it
+   * was — which is the mechanism working. When #858 closes the last gap this
+   * assertion WILL fail again, and closing it should be a visible edit here
+   * rather than a number that quietly drifts. If you are here because you added
+   * a tab strip, add it — and check the gate really sees it rather than only
+   * appending the path.
    */
   const SEEN_AS_STRIPS = [
     'src/routes/app/account/+layout.svelte',

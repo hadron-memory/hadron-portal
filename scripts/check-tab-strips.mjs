@@ -68,8 +68,11 @@
  *
  * Measured on this commit: of TWENTY rails in `src/`, this predicate recognises
  * ELEVEN as tab strips. A green run means "the 11 strips I can parse are fine",
- * NOT "every tab strip in the portal scrolls". The nine it misses are not
- * innocents it examined and cleared; they are rails it never resolved.
+ * NOT "every tab strip in the portal is safe at phone width". The nine it
+ * misses are not innocents it examined and cleared; they are rails it never
+ * resolved.
+ *
+ * "Safe", not "scrolls": a `flex-wrap` strip passes without scrolling at all.
  *
  * ONE blind spot accounts for all nine, and it is tracked on #858:
  *
@@ -381,15 +384,19 @@ export function analyse(source) {
      * wraps that one row and nothing else — the tabs stay on one line and
      * overflow, while a path-shaped test would call the strip satisfied.
      *
-     * So: walk from just below the rail down to the tab and take the HIGHEST
-     * element sharing the tab's repeat depth. That is the unit the loop
-     * repeats (or the tab itself when there is no loop), and its parent is what
-     * lays those units out.
+     * So: climb from the tab while each element still stands for exactly ONE
+     * RENDERED tab. The first element that does not is the container laying
+     * those units out; the one below it is the item.
      *
-     *   rail(flex-wrap) > {#each} div > button   -> container is the RAIL, the
-     *                                               repeated divs wrap  ✓
-     *   rail(flex-wrap) > div.flex > {#each} a   -> container is div.flex,
-     *                                               which does not wrap  ✗
+     * NOT "the highest element sharing the tab's repeat depth" — that was the
+     * first attempt and it is wrong for STATIC tabs, where every element shares
+     * depth 0 and the search returns the rail (@copilot on #863). Repeat depth
+     * is one input to `holdsOneRenderedTab`, not the question.
+     *
+     *   rail(flex-wrap) > {#each} div > button   -> container RAIL,      wraps ✓
+     *   rail(flex-wrap) > div.flex > {#each} a   -> container div.flex,  no    ✗
+     *   rail(flex-wrap) > div.flex > button ×2   -> container div.flex,  no    ✗
+     *   rail(flex-wrap) > button ×2              -> container RAIL,      wraps ✓
      */
     /**
      * Does this element stand for exactly ONE RENDERED tab?
