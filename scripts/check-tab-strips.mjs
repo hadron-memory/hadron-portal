@@ -63,6 +63,34 @@
  * in normal inline flow), so none does. A future strip with a popover in it
  * should keep `shrink-0` on the tabs and suppress this check deliberately,
  * with a comment saying why — not by quietly widening the rail predicate.
+ *
+ * ## WHAT THIS GATE CANNOT SEE YET — read this before trusting a green run
+ *
+ * Measured on this commit: of TWENTY rails in `src/`, this predicate recognises
+ * THREE as tab strips. It is not a filter that found 17 innocents; it is a
+ * predicate that cannot see them. A green run therefore means "the 3 strips I
+ * can parse are fine", NOT "every tab strip in the portal scrolls".
+ *
+ * The three it sees are `/app/apps/[appId]`, the node detail page (10 literal
+ * tabs — this gate found and fixed that one), and `/app/orgs/[id]/agents`.
+ *
+ * Two blind spots account for all 17, and both are tracked on #858:
+ *
+ *   1. `{#each}` — a strip rendered from a loop is ONE `<a>`/`<button>` node in
+ *      the AST however many tabs it renders, so `tabs.length < 2` skips it.
+ *      Eight rails skip for this reason, including `/app/account`,
+ *      `/app/memories` and `/app/assets` — the three strips #859 fixed. If any
+ *      of them regressed tomorrow, this gate would stay green.
+ *   2. A class token supplied by a script constant is invisible to `classText`,
+ *      which reads the attribute's source slice only. `/app/orgs/[id]/memories`
+ *      builds its tabs from a `subTabBase` constant holding `border-b-2`, so
+ *      that rail reports zero tabs. Nine rails report zero tabs.
+ *
+ * Also unhandled: a Tailwind breakpoint variant satisfies these regexes —
+ * `sm:overflow-x-auto` matches SCROLLS while being inactive at the phone width
+ * this gate exists to protect.
+ *
+ * Until #858 closes those, do NOT read this gate's silence as coverage.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -128,26 +156,38 @@ export function elementsWithAncestry(ast, source) {
   return found;
 }
 
-/** Offences in one Svelte source. Exported for the gate's own test suite. */
-export function offences(source) {
+/**
+ * One source, analysed: the strips this predicate could SEE, and the offences
+ * among them. The two are returned together on purpose — a caller that reports
+ * offences without reporting how many strips it recognised is reporting "no
+ * problems found" when the honest claim is "nothing examined". That gap is what
+ * the blind-spot note above is about, and `stripsSeen` is the number the gate's
+ * own suite asserts on so the coverage cannot silently drop to zero.
+ */
+export function analyse(source) {
   let ast;
   try {
     ast = parse(source, { modern: true });
   } catch {
     // A file this parser cannot read is not a silent pass: say so, so a syntax
     // change in the toolchain cannot turn the gate off without anyone noticing.
-    return [{ kind: 'unparseable', detail: 'svelte/compiler could not parse this file' }];
+    return {
+      stripsSeen: 0,
+      offences: [{ kind: 'unparseable', detail: 'svelte/compiler could not parse this file' }],
+    };
   }
 
   const all = elementsWithAncestry(ast, source);
   const rails = all.filter((e) => FLEX.test(e.cls) && RAIL_BORDER.test(e.cls) && !TAB_BORDER.test(e.cls));
   const out = [];
+  let stripsSeen = 0;
 
   for (const rail of rails) {
     const tabs = all.filter(
       (e) => TAB_TAGS.has(e.name) && TAB_BORDER.test(e.cls) && e.ancestors.includes(rail),
     );
     if (tabs.length < 2) continue;
+    stripsSeen += 1;
 
     // Containment: the scrolling element may be the rail itself or anything
     // between it and the tabs — `/app/assets` scrolls on an inner <nav>.
@@ -164,7 +204,12 @@ export function offences(source) {
       if (!NO_WRAP.test(tab.cls)) out.push({ kind: 'tab-can-wrap', start: tab.start });
     }
   }
-  return out;
+  return { stripsSeen, offences: out };
+}
+
+/** Offences in one Svelte source. Exported for the gate's own test suite. */
+export function offences(source) {
+  return analyse(source).offences;
 }
 
 const MESSAGES = {
@@ -194,9 +239,12 @@ function svelteFiles(dir, acc = []) {
 function main() {
   const files = svelteFiles('src');
   let failed = 0;
+  let stripsSeen = 0;
   for (const file of files) {
     const source = readFileSync(file, 'utf8');
-    for (const o of offences(source)) {
+    const { stripsSeen: seen, offences: found } = analyse(source);
+    stripsSeen += seen;
+    for (const o of found) {
       failed += 1;
       console.log(`::error file=${file},line=${lineOf(source, o.start)}::${MESSAGES[o.kind]}`);
     }
@@ -205,7 +253,16 @@ function main() {
     console.log(`\n${failed} tab-strip problem(s) across ${files.length} .svelte files.`);
     process.exit(1);
   }
-  console.log(`OK — every tab strip scrolls (${files.length} .svelte files).`);
+  // Report the DENOMINATOR, not just the verdict. "OK — every tab strip
+  // scrolls" is the claim this gate cannot currently support: it recognises a
+  // minority of the repo's rails, so silence over a strip it never parsed is
+  // not evidence about that strip. See the blind-spot note at the top.
+  console.log(
+    `OK — the ${stripsSeen} tab strip(s) this gate can parse all scroll (${files.length} .svelte files).`,
+  );
+  console.log(
+    'COVERAGE IS PARTIAL: strips built with {#each} or a shared class constant are invisible to this predicate. See #858.',
+  );
 }
 
 // Only run when invoked directly, so the test suite can import the predicate.
