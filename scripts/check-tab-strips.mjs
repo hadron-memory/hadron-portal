@@ -172,6 +172,7 @@ export function analyse(source) {
     // A file this parser cannot read is not a silent pass: say so, so a syntax
     // change in the toolchain cannot turn the gate off without anyone noticing.
     return {
+      railsSeen: 0,
       stripsSeen: 0,
       offences: [{ kind: 'unparseable', detail: 'svelte/compiler could not parse this file' }],
     };
@@ -204,7 +205,12 @@ export function analyse(source) {
       if (!NO_WRAP.test(tab.cls)) out.push({ kind: 'tab-can-wrap', start: tab.start });
     }
   }
-  return { stripsSeen, offences: out };
+  // `railsSeen` is reported beside `stripsSeen` because THE GAP BETWEEN THEM IS
+  // THE BUG. A rail this predicate found but could not resolve into 2+ tabs is
+  // not an innocent bystander — it is a tab strip going unchecked. The gate's
+  // suite asserts both numbers so the gap cannot widen unnoticed, and so that
+  // closing it (#858) is a visible, deliberate edit rather than a silent drift.
+  return { railsSeen: rails.length, stripsSeen, offences: out };
 }
 
 /** Offences in one Svelte source. Exported for the gate's own test suite. */
@@ -226,18 +232,24 @@ function lineOf(source, index) {
   return typeof index === 'number' ? source.slice(0, index).split('\n').length : 1;
 }
 
-function svelteFiles(dir, acc = []) {
+/**
+ * Every `.svelte` file under `dir`. Exported so the gate's own suite runs THIS
+ * walk over the real tree rather than only feeding synthetic strings to the
+ * predicate — the gap @copilot found on #860, and the reason a gate covering 3
+ * of 20 rails passed its own twelve tests.
+ */
+export function svelteFilesUnder(dir, acc = []) {
   for (const entry of readdirSync(dir)) {
     if (entry === 'node_modules' || entry.startsWith('.')) continue;
     const full = join(dir, entry);
-    if (statSync(full).isDirectory()) svelteFiles(full, acc);
+    if (statSync(full).isDirectory()) svelteFilesUnder(full, acc);
     else if (entry.endsWith('.svelte')) acc.push(full);
   }
   return acc;
 }
 
 function main() {
-  const files = svelteFiles('src');
+  const files = svelteFilesUnder('src');
   let failed = 0;
   let stripsSeen = 0;
   for (const file of files) {
