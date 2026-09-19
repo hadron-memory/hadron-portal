@@ -37,11 +37,16 @@
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">Account</h1>
   </div>
 
-  <div class="flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
+  <!-- #858 — scrolls rather than overflowing. Measured at a 390px viewport:
+       these four tabs are 335px in a 308px column, so the page ran 10px off
+       the right edge. `shrink-0 whitespace-nowrap` on each tab is the other
+       half — without them flex compresses four labels into unreadable columns
+       instead of letting the strip scroll (PR #746, item 2). -->
+  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
     {#each tabs as tab (tab.id)}
       <a
         href={tab.href}
-        class="border-b-2 px-4 py-2 text-sm font-medium transition
+        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
           {activeTab === tab.id
             ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
             : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
