@@ -65,6 +65,40 @@ export function authorLabelOf(msg: Pick<TeamChatMessage, 'authorWorkerId' | 'aut
   }
 }
 
+/**
+ * Where an author's name links to, or null when there is nowhere to go.
+ *
+ * The four author kinds already encode exactly this, which is why the rule
+ * lives here rather than as a second guess in the template: `worker` and
+ * `human` are the two that carry an id, and an id is what both profile routes
+ * resolve (`worker(ref:)` and `user(ref:)` each take an id, a name/handle or a
+ * URN). `legacy` and `unknown` carry NO id by definition — that is their whole
+ * meaning — so they must render as plain text.
+ *
+ * Linking them anyway is the failure to avoid, and it would be easy: a `legacy`
+ * message has a perfectly good `authorName`, so a name-based guess would
+ * produce a link that looks right and resolves to whoever holds that name
+ * TODAY. The pre-worker author and the current holder of the name are not the
+ * same entity, and the point of the `legacy` kind is to stop claiming they are.
+ *
+ * Returns the worker route for a worker — not the agent's. A Worker is the
+ * named casting an agent was cast into, and it is the worker that posted; its
+ * page carries the role, the holder and the sessions, and links on to the Agent
+ * for anyone who wants the template behind it.
+ */
+export function authorHrefOf(
+  msg: Pick<TeamChatMessage, 'authorWorkerId' | 'authorUserId' | 'authorName'>,
+): string | null {
+  switch (authorKindOf(msg)) {
+    case 'worker':
+      return `/app/workers/${encodeURIComponent(msg.authorWorkerId as string)}`;
+    case 'human':
+      return `/app/user/${encodeURIComponent(msg.authorUserId as string)}`;
+    default:
+      return null;
+  }
+}
+
 /** The single letter in the avatar disc. */
 export function authorInitialOf(label: string): string {
   const ch = label.trim().charAt(0);

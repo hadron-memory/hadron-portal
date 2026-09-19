@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   annotateDays,
+  authorHrefOf,
   authorInitialOf,
   authorKindOf,
   authorLabelOf,
@@ -275,5 +276,73 @@ describe('bodyOverflows', () => {
   it('absorbs a one-pixel rounding difference', () => {
     expect(bodyOverflows(321, 320)).toBe(false);
     expect(bodyOverflows(322, 320)).toBe(true);
+  });
+});
+
+/**
+ * Where an author's name links to.
+ *
+ * The rule is derived from the author KIND rather than from the presence of a
+ * field, so this is tested against the same four cases `authorKindOf` defines —
+ * otherwise the link and the badge beside it could disagree about what a
+ * message is.
+ */
+describe('authorHrefOf', () => {
+  it('links a worker to its worker profile, not to the agent behind it', () => {
+    // A Worker is the named casting that posted; its page carries the role, the
+    // holder and the sessions, and links on to the Agent. The Agent is the
+    // template, and several workers can share one.
+    expect(
+      authorHrefOf({ authorWorkerId: 'w-1', authorUserId: null, authorName: 'Gil' }),
+    ).toBe('/app/workers/w-1');
+  });
+
+  it('links a human to the user profile', () => {
+    expect(
+      authorHrefOf({ authorWorkerId: null, authorUserId: 'u-1', authorName: 'holger' }),
+    ).toBe('/app/user/u-1');
+  });
+
+  it('does NOT link a pre-worker (legacy) author, however good its name looks', () => {
+    // The trap this exists to prevent: a legacy message carries a perfectly
+    // usable `authorName`, so a name-based link would render and resolve — to
+    // whoever holds that name TODAY. The pre-worker author and the current
+    // holder are not the same entity, which is the entire reason the `legacy`
+    // kind exists rather than being folded into `worker`.
+    expect(
+      authorHrefOf({ authorWorkerId: null, authorUserId: null, authorName: 'Ada' }),
+    ).toBeNull();
+  });
+
+  it('does NOT link an unattributed author', () => {
+    expect(
+      authorHrefOf({ authorWorkerId: null, authorUserId: null, authorName: null }),
+    ).toBeNull();
+  });
+
+  it('agrees with authorKindOf on every case', () => {
+    // One rule, two renderings (the link and the badge). Deriving both from the
+    // kind is what stops a message being badged `pre-worker` while its name
+    // links somewhere, so pin the correspondence rather than the two outputs
+    // separately.
+    const cases = [
+      { authorWorkerId: 'w-1', authorUserId: null, authorName: 'Gil' },
+      { authorWorkerId: null, authorUserId: 'u-1', authorName: 'holger' },
+      { authorWorkerId: null, authorUserId: null, authorName: 'Ada' },
+      { authorWorkerId: null, authorUserId: null, authorName: null },
+    ];
+    for (const c of cases) {
+      const linked = authorHrefOf(c) !== null;
+      const kind = authorKindOf(c);
+      expect(linked).toBe(kind === 'worker' || kind === 'human');
+    }
+  });
+
+  it('percent-encodes an id rather than splicing it into the path', () => {
+    // Ids are server-supplied, but this builds a URL and the cost of being
+    // wrong is a broken or mis-targeted link, not a compile error.
+    expect(
+      authorHrefOf({ authorWorkerId: 'a/b?c', authorUserId: null, authorName: 'x' }),
+    ).toBe('/app/workers/a%2Fb%3Fc');
   });
 });
