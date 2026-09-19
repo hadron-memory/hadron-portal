@@ -12,7 +12,8 @@
  * the class it was written for.
  */
 import { describe, expect, it } from 'vitest';
-import { offences } from './check-tab-strips.mjs';
+import { readFileSync } from 'node:fs';
+import { analyse, offences, svelteFilesUnder } from './check-tab-strips.mjs';
 
 /** A strip with everything right — the shape the repo now has everywhere. */
 const FIXED = `
@@ -144,5 +145,95 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     // A gate that silently skips what it cannot read can be switched off by a
     // toolchain change nobody notices.
     expect(kinds('<div class="flex border-b"><button class="border-b-2">')).toContain('unparseable');
+  });
+});
+
+/**
+ * The gate against the REAL TREE — #858, and the finding that made it necessary.
+ *
+ * Every case above feeds a synthetic string to `offences()`. None of them runs
+ * the repository walk, so none of them measures how much of the portal this
+ * gate actually covers — and the answer turned out to be 3 of 20 rails, which
+ * is how a blind gate passed its own twelve tests and reported `OK` across 153
+ * files (@copilot on #860).
+ *
+ * `check-grid-filters.test.ts` and `check-hook-teardown.test.ts` assert against
+ * the real tree; this file did not. These are that assertion, and the
+ * file-count floor is the half that is easy to omit — a walk over zero files
+ * produces `[]` exactly like a clean tree does
+ * (`hrn:node:hadronmemory.com:hadron-portal:review:a-spare-test-must-reach-the-matcher`).
+ */
+describe('the repository as it stands', () => {
+  const scan = () =>
+    svelteFilesUnder('src').map((file) => ({ file, ...analyse(readFileSync(file, 'utf8')) }));
+
+  /**
+   * The strips this predicate can currently SEE, by path.
+   *
+   * This list is deliberately exact rather than a count, and it is SHORT — the
+   * portal has far more tab strips than three. The rest are invisible because a
+   * strip built with `{#each}` is one AST node however many tabs it renders,
+   * and because a class token held in a script constant never appears in the
+   * attribute source. Both are tracked on #858.
+   *
+   * When #858 widens the predicate this assertion WILL fail, and that is the
+   * design: closing the gap should be a visible edit to this list, not a number
+   * that quietly drifts. If you are here because you added a tab strip, add it
+   * — and check the gate really sees it rather than only appending the path.
+   */
+  const SEEN_AS_STRIPS = [
+    'src/routes/app/apps/[appId]/+page.svelte',
+    'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte',
+    'src/routes/app/orgs/[id]/agents/+page.svelte',
+  ];
+
+  it('walks a plausible number of real .svelte files', () => {
+    // The mirror of every "no offences" assertion in this file: an empty file
+    // list produces the same clean result as a clean tree, so the walk has to
+    // be proven to have happened at all.
+    expect(svelteFilesUnder('src').length).toBeGreaterThan(100);
+  });
+
+  it('has no tab strip that stops scrolling', () => {
+    const offenders = scan()
+      .filter((r) => r.offences.length > 0)
+      .map((r) => `${r.file}: ${r.offences.map((o: { kind: string }) => o.kind).join(', ')}`);
+    expect(offenders).toEqual([]);
+  });
+
+  it('recognises exactly the strips it is known to cover, BY NAME', () => {
+    const seen = scan()
+      .filter((r) => r.stripsSeen > 0)
+      .map((r) => r.file)
+      .sort();
+    expect(seen).toEqual(SEEN_AS_STRIPS);
+  });
+
+  it('finds far more rails than it can resolve into strips — the gap IS #858', () => {
+    const rails = scan().reduce((n, r) => n + r.railsSeen, 0);
+    const strips = scan().reduce((n, r) => n + r.stripsSeen, 0);
+
+    expect(strips).toBe(SEEN_AS_STRIPS.length);
+    // A floor, not an equality: an unrelated PR adding a `flex border-b` row
+    // should not fail this suite, but the walk collapsing should.
+    expect(rails).toBeGreaterThanOrEqual(20);
+    // Stated as an assertion so it reads as a defect under repair rather than a
+    // property of the design. Delete it when the gap closes.
+    expect(rails).toBeGreaterThan(strips);
+  });
+
+  it('WOULD flag a real repository file that lost its scroll class', () => {
+    // The other direction, run over real content rather than a fixture: proof
+    // that the walk reaches the matcher and that a genuine regression in a
+    // covered file fails. #859's mutation check missed its bug by mutating one
+    // case; this mutates EVERY instance and asserts the mutation applied, since
+    // a no-op edit reads as a passing guard.
+    const file = 'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte';
+    const original = readFileSync(file, 'utf8');
+    const mutated = original.replaceAll('overflow-x-auto', '');
+
+    expect(mutated).not.toBe(original);
+    expect(analyse(original).offences).toEqual([]);
+    expect(offences(mutated).map((o) => o.kind)).toContain('strip-does-not-scroll');
   });
 });
