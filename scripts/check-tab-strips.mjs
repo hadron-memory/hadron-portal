@@ -401,6 +401,38 @@ function classText(el, source, constants = new Map()) {
  * renders when the collection is empty, so an element there is rendered at most
  * once and is not repeated.
  */
+/**
+ * Does this fragment render text that belongs to the ENCLOSING element?
+ *
+ * Descends through control-flow blocks (`{#if}`, `{#each}`, `{#await}`,
+ * `{#key}`) because text inside them is rendered by the enclosing element, and
+ * STOPS at a child element, whose text is that child's own.
+ */
+function ownTextIn(fragment) {
+  let found = false;
+  const seen = new Set();
+  const walk = (n) => {
+    if (found || !n || typeof n !== 'object' || seen.has(n)) return;
+    seen.add(n);
+    // A child element owns its text; it is handled separately by `childrenOf`.
+    if (n.type === 'RegularElement' || n.type === 'Component' || n.type === 'SvelteElement') return;
+    if (
+      (n.type === 'Text' && (n.data ?? n.raw ?? '').trim() !== '') ||
+      n.type === 'ExpressionTag' ||
+      n.type === 'HtmlTag'
+    ) {
+      found = true;
+      return;
+    }
+    for (const value of Object.values(n)) {
+      if (Array.isArray(value)) value.forEach(walk);
+      else if (value && typeof value === 'object' && 'type' in value) walk(value);
+    }
+  };
+  (fragment?.nodes ?? []).forEach(walk);
+  return found;
+}
+
 export function elementsWithAncestry(ast, source) {
   // Resolved once per file, not per element: the map is module-scoped.
   const constants = classConstants(ast);
@@ -413,14 +445,16 @@ export function elementsWithAncestry(ast, source) {
     if (node.type === 'RegularElement') {
       const cls = classText(node, source, constants);
       // Text belonging to THIS element rather than to a child — a plain text
-      // node, or an expression tag like `{tab.label}`, which wraps the same
-      // way. Used by `cannotWrap`: an element with its own text cannot delegate
-      // the no-wrap requirement to its children.
-      const hasOwnText = (node.fragment?.nodes ?? []).some(
-        (c) =>
-          (c.type === 'Text' && (c.data ?? c.raw ?? '').trim() !== '') ||
-          c.type === 'ExpressionTag',
-      );
+      // node, an expression tag like `{tab.label}`, or an `{@html}` tag, all of
+      // which wrap the same way. Used by `cannotWrap`: an element with its own
+      // text cannot delegate the no-wrap requirement to its children.
+      //
+      // The walk descends THROUGH control flow and stops at child ELEMENTS,
+      // which is the whole subtlety (@copilot on #865). Reading only immediate
+      // fragment nodes missed `{#if compact}{tab.label}{:else}{tab.label}{/if}`
+      // — text rendered directly in the tab, via a block — so the tab looked
+      // text-free and delegated the requirement to a truncating span beside it.
+      const hasOwnText = ownTextIn(node.fragment);
       const el = {
         name: node.name,
         hasOwnText,

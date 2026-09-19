@@ -660,6 +660,26 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     ).toContain('tab-can-wrap');
   });
 
+  it('text rendered through {#if} directly in the tab counts as its own text', () => {
+    // @copilot on #865. `hasOwnText` read only immediate fragment nodes, so
+    // `{#if}{tab.label}{:else}{tab.label}{/if}` looked text-free — and the tab
+    // then delegated the no-wrap requirement to a truncating span beside it,
+    // while the block renders unwrapped text directly in the tab.
+    //
+    // The walk descends through control flow and stops at child ELEMENTS.
+    expect(
+      kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}
+          <a class="shrink-0 border-b-2 px-4">
+            {#if compact}{tab.short}{:else}{tab.label}{/if}
+            <span class="truncate">•</span>
+          </a>
+        {/each}
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
   it('a tab with NEITHER whitespace-nowrap nor truncate is still reported', () => {
     // The spare above must not become a blanket pass: `truncate` has to be
     // present somewhere on the tab, not merely possible.
