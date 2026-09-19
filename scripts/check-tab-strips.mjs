@@ -131,6 +131,9 @@ const NO_WRAP = /\bwhitespace-nowrap\b/;
  */
 const WRAPS = /\bflex-wrap\b/;
 
+/** `min-w-0` — what lets a flex item shrink below its content. */
+const CAN_SHRINK = /\bmin-w-0\b/;
+
 /** Tags that can be a tab. */
 const TAB_TAGS = new Set(['a', 'button']);
 
@@ -148,11 +151,10 @@ const TAB_TAGS = new Set(['a', 'button']);
  * REPORTING: an element whose required class is conditional gets flagged, which
  * is the safe direction for a gate about a layout defect.
  *
- * Interpolated class expressions survive, because a Svelte ternary is written
- * with spaces around its `:` — `{active ? 'a' : 'b'}` tokenises to
- * `{active`, `?`, `'a'`, `:`, `'b'}`, and only the bare `:` is dropped. The
- * tokens inside the branches still count, which is what the interpolation test
- * pins.
+ * This runs on the output of `staticPart`, not on raw class text, so by the
+ * time it sees anything the interpolations are already gone and branch tokens
+ * do NOT count — see `staticPart` for why that reversed #860. Its own job is
+ * only the variant prefixes.
  *
  * @copilot on #863, and #858's fourth fix.
  */
@@ -202,9 +204,14 @@ function staticPart(cls) {
  *
  * Taken as a raw source slice rather than by reading Text nodes, because a
  * Svelte class is routinely part static and part interpolated —
- * `class="border-b-2 px-4 {active ? 'x' : 'y'}"` — and a token inside the
- * interpolation is still applied. Reading only the Text chunks would miss it
- * and the gate would demand a class the element already has.
+ * `class="border-b-2 px-4 {active ? 'x' : 'y'}"` — and DETECTION must see the
+ * whole thing: a tab whose `border-b-2` is interpolated is still a tab.
+ *
+ * What this returns is therefore the RAW text, used for detection only.
+ * REQUIREMENTS read `el.active`, which is this run through `staticPart` and
+ * `unconditional` — so an interpolated or variant-prefixed token does NOT
+ * satisfy a requirement. That split is deliberate and each half has tests;
+ * see the note on `staticPart`.
  *
  * Returns '' for an element with no class at all, and for `class:foo` directives
  * (a different attribute type), which no strip in this repo uses for these
@@ -334,6 +341,36 @@ export function analyse(source) {
     // creates a scroll container that contains their overflow.
     const scrolls = satisfies((el) => SCROLLS.test(el.active));
 
+    // A flex item cannot shrink below its content unless it can: `min-width`
+    // defaults to `auto`, which resolves to the content-based minimum.
+    //
+    // This matters ONLY for an element BETWEEN the rail and the scroller,
+    // and the exception is the reason. Per the flexbox spec a flex item that is
+    // itself a SCROLL CONTAINER has an automatic minimum size of zero — so the
+    // scroller does not need `min-w-0` to shrink, and in this repo the scroller
+    // is always a direct child of the rail. Measured, because @codex read it
+    // the other way and named two real files: forcing `min-width: auto` on the
+    // scroller in BOTH `/app/assets` and `/app/orgs/[id]` leaves document
+    // overflow at 0, unchanged, with the strip still scrolling.
+    //
+    // Insert one non-scrolling flex `<div>` between rail and scroller, though,
+    // and the same forcing takes document overflow from 0 to 580px — that
+    // element has no `overflow` of its own, so its automatic minimum binds and
+    // it refuses to shrink. That shape has no instance here yet, which is
+    // exactly when it is cheap to gate.
+    const scrollerFor = (tab) => pathTo(tab).find((el) => SCROLLS.test(el.active));
+    if (scrolls) {
+      const blockers = new Set();
+      for (const tab of tabs) {
+        const chain = pathTo(tab);
+        const scroller = scrollerFor(tab);
+        for (const el of chain.slice(1, chain.indexOf(scroller))) {
+          if (!CAN_SHRINK.test(el.active) && !SCROLLS.test(el.active)) blockers.add(el);
+        }
+      }
+      for (const el of blockers) out.push({ kind: 'scroller-cannot-shrink', start: el.start });
+    }
+
     /**
      * The element that actually LAYS OUT a tab — whose flex rules decide
      * whether that tab wraps.
@@ -367,7 +404,19 @@ export function analyse(source) {
       return under.length === 1 && under[0].repeats === el.repeats;
     };
 
-    const layoutContainerOf = (tab) => {
+    /**
+     * The container that lays a tab out, and the ITEM it lays out.
+     *
+     * Both matter. The container's `flex-wrap` decides whether the units wrap.
+     * The ITEM — the repeated wrapper when there is one, the tab otherwise — is
+     * the box that actually has to fit, so `shrink-0` on a wrapper stops it
+     * fitting, and `whitespace-nowrap` on a wrapper is INHERITED by the tab
+     * inside it and stops its label breaking (@codex on #863). Measured on the
+     * agent sub-tab bar at 390px with one 46-char label: either class on the
+     * WRAPPER takes document overflow from 0 to 17px, and the button's computed
+     * `white-space` reads `nowrap` — inheritance, not a coincidence.
+     */
+    const layoutOf = (tab) => {
       // `pathTo` stops above the tab, because a SCROLLER may be the rail or
       // anything between — never the tab itself. The layout container is found
       // from the chain WITH the tab on the end, since a tab that is its own
@@ -376,10 +425,10 @@ export function analyse(source) {
       // Climb while each element still stands for one rendered tab. The first
       // element that does NOT is the one laying those units out — it is the
       // flex container whose items they are, and whose `flex-wrap` decides
-      // whether they wrap.
+      // whether they wrap. The one below it is the item.
       let i = chain.length - 1;
       while (i > 0 && holdsOneRenderedTab(chain[i])) i -= 1;
-      return chain[i];
+      return { container: chain[i], item: chain[i + 1] ?? tab };
     };
     // `flex-wrap` only does anything on a FLEX CONTAINER — the property is
     // ignored outside one. So the wrapping element must carry `flex` (or
@@ -387,7 +436,7 @@ export function analyse(source) {
     // Accepting a bare `flex-wrap` anywhere on the path would let a token with
     // no effect excuse a strip that genuinely overflows (@copilot on #863).
     const wraps = tabs.every((tab) => {
-      const container = layoutContainerOf(tab);
+      const { container } = layoutOf(tab);
       return !!container && WRAPS.test(container.active) && FLEX.test(container.active);
     });
 
@@ -414,12 +463,21 @@ export function analyse(source) {
     // checks entirely — which is what this did — accepted a strip that
     // overflows, while the comment above claimed those classes were wrong
     // (@copilot on #863).
+    //
+    // On a wrapping strip the LAYOUT ITEM is checked as well as the tab, and it
+    // is not a formality: the item is the box that has to fit, `white-space` is
+    // INHERITED, and the same two classes on a repeated wrapper produce the
+    // same 17px (@codex on #863). Checking only the nested tab passed that.
     for (const tab of tabs) {
       if (wraps) {
-        if (NO_SHRINK.test(tab.active))
-          out.push({ kind: 'wrapping-tab-cannot-shrink', start: tab.start });
-        if (NO_WRAP.test(tab.active))
-          out.push({ kind: 'wrapping-tab-cannot-break', start: tab.start });
+        const { item } = layoutOf(tab);
+        const boxes = item === tab ? [tab] : [tab, item];
+        for (const box of boxes) {
+          if (NO_SHRINK.test(box.active))
+            out.push({ kind: 'wrapping-tab-cannot-shrink', start: box.start });
+          if (NO_WRAP.test(box.active))
+            out.push({ kind: 'wrapping-tab-cannot-break', start: box.start });
+        }
       } else {
         if (!NO_SHRINK.test(tab.active)) out.push({ kind: 'tab-can-shrink', start: tab.start });
         if (!NO_WRAP.test(tab.active)) out.push({ kind: 'tab-can-wrap', start: tab.start });
@@ -446,6 +504,8 @@ const MESSAGES = {
     'This tab has no `shrink-0`, so flex compresses the labels into unreadable columns instead of letting the strip scroll. See #858.',
   'tab-can-wrap':
     'This tab has no `whitespace-nowrap`, so a long label wraps and the strip grows vertically rather than horizontally. See #858.',
+  'scroller-cannot-shrink':
+    'This element sits between the tab rail and the scrolling element and has no `min-w-0`, so as a flex item its `min-width: auto` resolves to its content width and it refuses to shrink — the page overflows instead of the strip scrolling. Measured: 580px of document overflow at 390px. Add `min-w-0` here. (The scroller itself does not need it: a flex item that is a scroll container already has an automatic minimum size of zero.) See #858.',
   'wrapping-tab-cannot-shrink':
     'This tab is on a WRAPPING strip but carries `shrink-0`, so a label wider than the phone column cannot shrink and pushes the page off the right edge. Measured: 342px in a 308px rail, 17px of document overflow. `shrink-0` is for SCROLLING strips — remove it here, or make the strip scroll instead. See #858.',
   'wrapping-tab-cannot-break':

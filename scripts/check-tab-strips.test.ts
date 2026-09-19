@@ -402,6 +402,59 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     ).toContain(kind);
   });
 
+  it.each([
+    ['whitespace-nowrap on the repeated WRAPPER', 'flex items-center whitespace-nowrap', 'wrapping-tab-cannot-break'],
+    ['shrink-0 on the repeated WRAPPER', 'flex items-center shrink-0', 'wrapping-tab-cannot-shrink'],
+  ])('%s is reported', (_what, wrapperCls, kind) => {
+    // @codex on #863: these checks inspected only the nested <button>, so the
+    // same two classes on the repeated wrapper passed. `white-space` is
+    // INHERITED, and the wrapper is the direct flex item that has to fit.
+    // Measured on the agent sub-tab bar at 390px, one 46-char label: either
+    // class on the WRAPPER takes document overflow 0 -> 17px, with the
+    // button's computed `white-space` reading `nowrap`.
+    expect(
+      kinds(`
+      <div class="flex flex-wrap items-center gap-1 border-b border-zinc-200">
+        {#each subTabs as subTab (subTab.id)}
+          <div class="${wrapperCls}"><button class="border-b-2 px-3">{subTab.label}</button></div>
+        {/each}
+      </div>`),
+    ).toContain(kind);
+  });
+
+  it('an intermediate flex item between rail and scroller needs min-w-0', () => {
+    // @codex on #863, scoped by measurement. A flex item's `min-width: auto`
+    // resolves to its content width, so it refuses to shrink and the page
+    // overflows instead of the strip scrolling — 580px at 390px when I built
+    // this shape in the running app.
+    expect(
+      kinds(`
+      <div class="flex gap-0 border-b border-zinc-200">
+        <div class="flex">
+          <nav class="flex gap-0 overflow-x-auto">
+            {#each tabs as tab (tab.id)}<a class="shrink-0 whitespace-nowrap border-b-2 px-4">{tab.label}</a>{/each}
+          </nav>
+        </div>
+      </div>`),
+    ).toContain('scroller-cannot-shrink');
+  });
+
+  it('the SCROLLER itself does not need min-w-0 — it is a scroll container', () => {
+    // The exception, and the reason the rule is scoped to INTERMEDIATE
+    // elements. Per the flexbox spec a flex item that is a scroll container has
+    // an automatic minimum size of zero. Measured: forcing `min-width: auto` on
+    // the scroller in both `/app/assets` and `/app/orgs/[id]` left document
+    // overflow at 0, unchanged. Demanding it here would be cargo cult.
+    expect(
+      offences(`
+      <div class="flex items-end justify-between border-b border-zinc-200">
+        <nav class="flex gap-0 overflow-x-auto">
+          {#each tabs as tab (tab.id)}<a class="shrink-0 whitespace-nowrap border-b-2 px-4">{tab.label}</a>{/each}
+        </nav>
+      </div>`),
+    ).toEqual([]);
+  });
+
   it('reports an unparseable file rather than passing it', () => {
     // A gate that silently skips what it cannot read can be switched off by a
     // toolchain change nobody notices.
