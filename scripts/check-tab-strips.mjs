@@ -338,8 +338,18 @@ export function elementsWithAncestry(ast, source) {
     let nextAncestors = ancestors;
     if (node.type === 'RegularElement') {
       const cls = classText(node, source, constants);
+      // Text belonging to THIS element rather than to a child — a plain text
+      // node, or an expression tag like `{tab.label}`, which wraps the same
+      // way. Used by `cannotWrap`: an element with its own text cannot delegate
+      // the no-wrap requirement to its children.
+      const hasOwnText = (node.fragment?.nodes ?? []).some(
+        (c) =>
+          (c.type === 'Text' && (c.data ?? c.raw ?? '').trim() !== '') ||
+          c.type === 'ExpressionTag',
+      );
       const el = {
         name: node.name,
+        hasOwnText,
         // `cls` is the raw class text and is what DETECTION reads — whether a
         // thing is a rail or a tab. Permissive on purpose: a strip whose
         // `border-b` is variant-prefixed is still a strip worth checking, and
@@ -483,6 +493,34 @@ export function analyse(source) {
      * node repeats deeper than the element does, the element holds the whole
      * loop, so many rendered tabs share it as a single flex item.
      */
+    /**
+     * Can NO text inside this element wrap?
+     *
+     * `white-space` is inherited, so the class may sit on the element or on
+     * everything below it — but "somewhere below it" is NOT enough, which is
+     * the correction here. A `some()` over descendants accepted
+     * `{#if compact}<span class="truncate">…{:else}<span>…{/if}`, where one
+     * possible label still wraps, and accepted an unrelated nested control
+     * carrying `truncate` beside a plain label (@codex and @copilot on #865).
+     *
+     * So: the element itself carries it, OR it has no text of its own and
+     * EVERY element child is covered in the same way. `ViewTabs`'s tab is a
+     * <button> whose sole child is `<span class="truncate">{v.name}</span>` —
+     * no own text, one covered child — which is why that real case passes
+     * while both counter-examples do not.
+     *
+     * `hasOwnText` counts an expression tag too: `{tab.label}` sitting directly
+     * in the tab is text that wraps like any other.
+     */
+    const childrenOf = (el) =>
+      all.filter((e) => e.ancestors.length > 0 && e.ancestors[e.ancestors.length - 1] === el);
+    const cannotWrap = (el) => {
+      if (NO_WRAP.test(el.active)) return true;
+      if (el.hasOwnText) return false;
+      const kids = childrenOf(el);
+      return kids.length > 0 && kids.every(cannotWrap);
+    };
+
     const tabsUnder = (el) => tabs.filter((t) => t === el || t.ancestors.includes(el));
     const holdsOneRenderedTab = (el) => {
       const under = tabsUnder(el);
@@ -565,14 +603,7 @@ export function analyse(source) {
         }
       } else {
         if (!NO_SHRINK.test(tab.active)) out.push({ kind: 'tab-can-shrink', start: tab.start });
-        // The no-wrap requirement may be met on the tab OR on the element
-        // actually holding the label — `ViewTabs` puts `truncate` on an inner
-        // <span>, and `white-space` applies to the text wherever it is set.
-        // Requiring it on the tab itself would report correct markup.
-        const noWrapHere =
-          NO_WRAP.test(tab.active) ||
-          all.some((e) => e.ancestors.includes(tab) && NO_WRAP.test(e.active));
-        if (!noWrapHere) out.push({ kind: 'tab-can-wrap', start: tab.start });
+        if (!cannotWrap(tab)) out.push({ kind: 'tab-can-wrap', start: tab.start });
       }
     }
   }
@@ -656,7 +687,7 @@ function main() {
     `OK — the ${stripsSeen} tab strip(s) this gate can parse do not overflow a phone screen (${files.length} .svelte files).`,
   );
   console.log(
-    `The other ${railsSeen - stripsSeen} rail(s) matching flex+border-b carry no border-b-2 children, so they are not tab strips. See #858.`,
+    `The other ${railsSeen - stripsSeen} rail(s) matching flex+border-b resolved to no border-b-2 children. Today all seven are genuinely not tab strips, and the suite pins them BY NAME — but this line reports what the predicate resolved, not that the rest are safe: a strip whose classes come from an imported or runtime-built constant would land here too. See #858.`,
   );
 }
 

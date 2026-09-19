@@ -553,6 +553,51 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     ).toEqual([]);
   });
 
+  it('a CONDITIONAL label where only one branch truncates is reported', () => {
+    // @codex and @copilot on #865. A `some()` over descendants accepted this:
+    // the `{:else}` span can still wrap, so one possible label overflows. The
+    // rule is now "every element child is covered", not "some descendant is".
+    expect(
+      kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}
+          <a class="shrink-0 border-b-2 px-4">
+            {#if compact}<span class="truncate">{tab.label}</span>{:else}<span>{tab.label}</span>{/if}
+          </a>
+        {/each}
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
+  it('an unrelated nested control with truncate does not cover a plain label', () => {
+    // The other half of the same finding: `truncate` on something that is not
+    // the label. The label span has no covering class, so the tab is reported.
+    expect(
+      kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}
+          <a class="shrink-0 border-b-2 px-4">
+            <span>{tab.label}</span>
+            <span class="truncate text-xs">x</span>
+          </a>
+        {/each}
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
+  it('a tab with its OWN text cannot delegate no-wrap to a child', () => {
+    // `hasOwnText`: `{tab.label}` sitting directly in the tab is text that
+    // wraps like any other, so a covered child does not rescue it.
+    expect(
+      kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}
+          <a class="shrink-0 border-b-2 px-4">{tab.label}<span class="truncate">•</span></a>
+        {/each}
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
   it('a tab with NEITHER whitespace-nowrap nor truncate is still reported', () => {
     // The spare above must not become a blanket pass: `truncate` has to be
     // present somewhere on the tab, not merely possible.
@@ -578,9 +623,9 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
  * the repository walk, so none of them measures how much of the portal this
  * gate actually covers — and when this block was written the answer was 3 of
  * 20 rails, which is how a blind gate passed its own twelve tests and reported
- * `OK` across 153 files (@copilot on #860). It is 11 of 20 today; the count is
- * asserted below rather than described here, so this paragraph cannot drift
- * again.
+ * `OK` across 153 files (@copilot on #860). The counts live in the assertions
+ * below rather than in this paragraph, which is the only way a coverage note
+ * stops going stale — it went stale twice while #858 was being closed.
  *
  * `check-grid-filters.test.ts` and `check-hook-teardown.test.ts` assert against
  * the real tree; this file did not. These are that assertion, and the
@@ -595,19 +640,18 @@ describe('the repository as it stands', () => {
   /**
    * The strips this predicate can currently SEE, by path.
    *
-   * This list is deliberately exact rather than a count, and it is still SHORT
-   * of the whole repository: ELEVEN strips across ten files, out of twenty
-   * rails. The nine that remain invisible all have ONE cause — a class token
-   * held in a script constant never appears in the attribute source, so
-   * `classText` cannot see it and the rail reports zero tabs. That is the last
-   * item on #858.
+   * Exact rather than a count, so the coverage set cannot change silently.
    *
-   * The `{#each}` cause is FIXED, and this list grew by seven files when it
-   * was — which is the mechanism working. When #858 closes the last gap this
-   * assertion WILL fail again, and closing it should be a visible edit here
-   * rather than a number that quietly drifts. If you are here because you added
-   * a tab strip, add it — and check the gate really sees it rather than only
-   * appending the path.
+   * Every strip the portal has is now here — #858's three predicate fixes
+   * ({#each}, Tailwind variants, class constants) closed the last of the blind
+   * spots, and this list grew from three files to twelve across them. The
+   * rails NOT here are pinned separately as `RAILS_WITH_NO_TABS`, so "the rest
+   * are not strips" is an assertion rather than an assumption.
+   *
+   * If you are here because you added a tab strip, add it — and check the gate
+   * really SEES it rather than only appending the path. If you are here because
+   * this failed unexpectedly, a rail has changed shape and that is the question
+   * to answer before editing the list.
    */
   const SEEN_AS_STRIPS = [
     'src/lib/components/table/ViewTabs.svelte',
@@ -626,6 +670,35 @@ describe('the repository as it stands', () => {
 
   /** Thirteen strips across twelve files — the agent detail page carries two. */
   const STRIPS_TOTAL = 13;
+
+  /**
+   * The rails that resolve to NO tabs — pinned by name, because the CI line
+   * says they are not tab strips and that is an inference the predicate does
+   * not make (@codex on #865).
+   *
+   * Each was read and is genuinely not a strip: a chat header, a banner, a
+   * browser header, a form row, two editor toolbars, a marketing panel. What
+   * makes the claim safe is that this list is EXACT — a new rail landing here
+   * because its classes come from an imported or runtime-built constant fails
+   * this test rather than being quietly described as a non-strip.
+   */
+  const RAILS_WITH_NO_TABS = [
+    'src/lib/components/AgentChat.svelte',
+    'src/lib/components/ImpersonationBanner.svelte',
+    'src/lib/components/MemoryBrowser.svelte',
+    'src/lib/components/SelectUser.svelte',
+    'src/lib/dashboard/DashboardEditor.svelte',
+    'src/lib/dashboard/DashboardEditor.svelte',
+    'src/routes/+page.svelte',
+  ];
+
+  it('the rails resolving to NO tabs are exactly the known non-strips', () => {
+    const noTabRails: string[] = [];
+    for (const { file, railsSeen, stripsSeen } of scan()) {
+      for (let i = 0; i < railsSeen - stripsSeen; i += 1) noTabRails.push(file);
+    }
+    expect(noTabRails.sort()).toEqual([...RAILS_WITH_NO_TABS].sort());
+  });
 
   it('walks a plausible number of real .svelte files', () => {
     // The mirror of every "no offences" assertion in this file: an empty file
