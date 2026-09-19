@@ -79,6 +79,50 @@ describe('the gate passes what it should', () => {
       </div>`),
     ).toEqual([]);
   });
+
+  it('an {#each} strip that scrolls is accepted', () => {
+    // The shape eight rails use, and the one the gate could not see at all
+    // until `repeats` existed. ONE <a> node, many runtime tabs.
+    expect(
+      offences(`
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}
+          <a href={tab.href} class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2">{tab.label}</a>
+        {/each}
+      </div>`),
+    ).toEqual([]);
+  });
+
+  it('a WRAPPING rail is satisfied without the scroll classes', () => {
+    // `flex-wrap` is the other correct answer to #858 — the agent page's
+    // chatbot sub-tab bar. Measured in the running app at 390px: 637px of tabs
+    // in a 308px rail wrap onto THREE rows, rail 111px tall, document overflow
+    // 0. Demanding `overflow-x-auto` here would be a false positive, and
+    // demanding `whitespace-nowrap` would REINTRODUCE the overflow.
+    expect(
+      offences(`
+      <div class="flex flex-wrap items-center gap-1 border-b border-zinc-200">
+        {#each subTabs as subTab (subTab.id)}
+          <button class="border-b-2 px-3 py-1.5">{subTab.label}</button>
+        {/each}
+      </div>`),
+    ).toEqual([]);
+  });
+
+  it('an {:else} fallback tab is NOT treated as repeated', () => {
+    // Only the each block's BODY repeats. Its fallback renders at most once,
+    // so a lone tab there leaves the rail a one-tab rail, not a strip.
+    expect(
+      offences(`
+      <div class="flex gap-0 border-b">
+        {#each [] as tab}
+          <span>{tab}</span>
+        {:else}
+          <button class="border-b-2 px-3">Empty</button>
+        {/each}
+      </div>`),
+    ).toEqual([]);
+  });
 });
 
 describe('the gate FLAGS what it should — the half that makes it real', () => {
@@ -141,6 +185,35 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     ).toContain('strip-does-not-scroll');
   });
 
+  it('an {#each} strip with NO overflow-x-auto — the eight-rail blind spot', () => {
+    // The fire half of the each-block repair. Before `repeats`, this returned
+    // [] because one AST node read as one tab, and the rail was skipped as "not
+    // a strip" — which is how all three strips #859 fixed stayed invisible.
+    const looped = `
+      <div class="flex gap-0 border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}
+          <a href={tab.href} class="border-b-2 px-4 py-2">{tab.label}</a>
+        {/each}
+      </div>`;
+    expect(kinds(looped)).toContain('strip-does-not-scroll');
+    expect(kinds(looped)).toContain('tab-can-shrink');
+    expect(kinds(looped)).toContain('tab-can-wrap');
+  });
+
+  it('a WRAPPING rail is still required to be a rail — flex-wrap is not a blanket pass', () => {
+    // The spare above must not become an escape hatch: `flex-wrap` excuses the
+    // scroll classes, it does not excuse a strip that neither wraps NOR
+    // scrolls. Same markup, wrap removed.
+    expect(
+      kinds(`
+      <div class="flex items-center gap-1 border-b border-zinc-200">
+        {#each subTabs as subTab (subTab.id)}
+          <button class="border-b-2 px-3 py-1.5">{subTab.label}</button>
+        {/each}
+      </div>`),
+    ).toContain('strip-does-not-scroll');
+  });
+
   it('reports an unparseable file rather than passing it', () => {
     // A gate that silently skips what it cannot read can be switched off by a
     // toolchain change nobody notices.
@@ -182,10 +255,20 @@ describe('the repository as it stands', () => {
    * — and check the gate really sees it rather than only appending the path.
    */
   const SEEN_AS_STRIPS = [
+    'src/routes/app/account/+layout.svelte',
+    'src/routes/app/agents/[id]/+page.svelte',
     'src/routes/app/apps/[appId]/+page.svelte',
+    'src/routes/app/assets/+page.svelte',
+    'src/routes/app/memories/+page.svelte',
+    'src/routes/app/memories/[id]/+layout.svelte',
     'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte',
+    'src/routes/app/orgs/[id]/+layout.svelte',
     'src/routes/app/orgs/[id]/agents/+page.svelte',
+    'src/routes/app/workers/[id]/+page.svelte',
   ];
+
+  /** Eleven strips across ten files — the agent detail page carries two. */
+  const STRIPS_TOTAL = 11;
 
   it('walks a plausible number of real .svelte files', () => {
     // The mirror of every "no offences" assertion in this file: an empty file
@@ -213,7 +296,7 @@ describe('the repository as it stands', () => {
     const rails = scan().reduce((n, r) => n + r.railsSeen, 0);
     const strips = scan().reduce((n, r) => n + r.stripsSeen, 0);
 
-    expect(strips).toBe(SEEN_AS_STRIPS.length);
+    expect(strips).toBe(STRIPS_TOTAL);
     // A floor, not an equality: an unrelated PR adding a `flex border-b` row
     // should not fail this suite, but the walk collapsing should.
     expect(rails).toBeGreaterThanOrEqual(20);

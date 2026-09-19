@@ -26,9 +26,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       # Named for what it CHECKS, not for what a green run would like to mean.
-      # This predicate currently recognises 3 of the 20 rails in src/ — strips
-      # built with {#each} or a shared class constant are invisible to it — so
-      # "Every tab strip scrolls" was a claim the job cannot support. Rename
-      # this back only when #858's four fixes make it true.
+      # This predicate currently recognises 11 of the 20 rails in src/ — a strip
+      # whose tab classes come from a shared script constant is still invisible
+      # to it — so "Every tab strip scrolls" is a claim the job cannot yet
+      # support. Rename this back only when #858 closes that last gap.
       - name: The tab strips this gate can parse all scroll
         run: node scripts/check-tab-strips.mjs

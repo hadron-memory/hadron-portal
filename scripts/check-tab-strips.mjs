@@ -67,30 +67,30 @@
  * ## WHAT THIS GATE CANNOT SEE YET — read this before trusting a green run
  *
  * Measured on this commit: of TWENTY rails in `src/`, this predicate recognises
- * THREE as tab strips. It is not a filter that found 17 innocents; it is a
- * predicate that cannot see them. A green run therefore means "the 3 strips I
- * can parse are fine", NOT "every tab strip in the portal scrolls".
+ * ELEVEN as tab strips. A green run means "the 11 strips I can parse are fine",
+ * NOT "every tab strip in the portal scrolls". The nine it misses are not
+ * innocents it examined and cleared; they are rails it never resolved.
  *
- * The three it sees are `/app/apps/[appId]`, the node detail page (10 literal
- * tabs — this gate found and fixed that one), and `/app/orgs/[id]/agents`.
+ * ONE blind spot accounts for all nine, and it is tracked on #858:
  *
- * Two blind spots account for all 17, and both are tracked on #858:
- *
- *   1. `{#each}` — a strip rendered from a loop is ONE `<a>`/`<button>` node in
- *      the AST however many tabs it renders, so `tabs.length < 2` skips it.
- *      Eight rails skip for this reason, including `/app/account`,
- *      `/app/memories` and `/app/assets` — the three strips #859 fixed. If any
- *      of them regressed tomorrow, this gate would stay green.
- *   2. A class token supplied by a script constant is invisible to `classText`,
- *      which reads the attribute's source slice only. `/app/orgs/[id]/memories`
- *      builds its tabs from a `subTabBase` constant holding `border-b-2`, so
- *      that rail reports zero tabs. Nine rails report zero tabs.
+ *   A class token supplied by a script constant is invisible to `classText`,
+ *   which reads the attribute's source slice only. `/app/orgs/[id]/memories`
+ *   builds its tabs from a `subTabBase` constant holding `border-b-2`, so that
+ *   rail reports ZERO tabs and is skipped. Nine rails report zero tabs.
  *
  * Also unhandled: a Tailwind breakpoint variant satisfies these regexes —
  * `sm:overflow-x-auto` matches SCROLLS while being inactive at the phone width
- * this gate exists to protect.
+ * this gate exists to protect. No instance exists today; it is a hole.
  *
- * Until #858 closes those, do NOT read this gate's silence as coverage.
+ * FIXED, and recorded because the shape recurs: `{#each}` used to account for
+ * eight more. A looped strip is ONE `<a>`/`<button>` node in the AST however
+ * many tabs it renders, so counting AST nodes reported one tab and skipped the
+ * rail — including all three strips #859 fixed. `repeats` in
+ * `elementsWithAncestry` is the repair. Teaching the gate to see them found two
+ * unguarded strips immediately, one of which was real (`/app/orgs/[id]`).
+ *
+ * Until the class-constant gap closes, do NOT read this gate's silence as
+ * coverage of the whole repository.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -103,6 +103,26 @@ const FLEX = /\bflex(?![-\w])/;
 const SCROLLS = /\boverflow-x-auto\b/;
 const NO_SHRINK = /\bshrink-0\b/;
 const NO_WRAP = /\bwhitespace-nowrap\b/;
+
+/**
+ * `flex-wrap` is the OTHER correct answer to #858, and the gate has to know it.
+ *
+ * The requirement is that a strip must not push the page off a phone screen.
+ * Scrolling is one way; wrapping onto a second line is another, and the chatbot
+ * sub-tab bar on the agent detail page chose it deliberately (`flex flex-wrap
+ * gap-1`). Demanding `overflow-x-auto` there would be a FALSE POSITIVE, and
+ * demanding `shrink-0 whitespace-nowrap` would be actively wrong — those exist
+ * to stop a non-wrapping strip squashing, and on a wrapping rail
+ * `whitespace-nowrap` makes a long label unbreakable, which is how you get the
+ * overflow back.
+ *
+ * So a wrapping rail is not an exclusion: it is a second satisfying shape, and
+ * the tests pin both. Per
+ * `hrn:node:hadronmemory.com:hadron-portal:review:ci-gate-prefilter-must-be-proven`,
+ * the alternative — listing this file as an exception — is where a real
+ * offender would later hide.
+ */
+const WRAPS = /\bflex-wrap\b/;
 
 /** Tags that can be a tab. */
 const TAB_TAGS = new Set(['a', 'button']);
@@ -133,26 +153,50 @@ function classText(el, source) {
 
 /**
  * Every element in the template, each with the chain of element ancestors
- * above it — the chain is what makes the containment check possible.
+ * above it — the chain is what makes the containment check possible — and with
+ * `repeats`, the number of `{#each}` bodies it sits inside.
+ *
+ * `repeats` exists because THE AST IS NOT THE PAGE. A strip written as
+ *
+ *   <div class="flex gap-0 border-b">
+ *     {#each tabs as tab}<a class="border-b-2">{tab.label}</a>{/each}
+ *   </div>
+ *
+ * contains exactly ONE `<a>` node however many tabs it renders, so counting AST
+ * nodes reported one tab and the rail was skipped as "not a strip". That is the
+ * single biggest hole this gate shipped with — eight of twenty rails, including
+ * all three strips #859 fixed (@codex on #860).
+ *
+ * Only the each block's BODY increments the count. Its `{:else}` fallback
+ * renders when the collection is empty, so an element there is rendered at most
+ * once and is not repeated.
  */
 export function elementsWithAncestry(ast, source) {
   const found = [];
   const seen = new Set();
-  const visit = (node, ancestors) => {
+  const visit = (node, ancestors, repeats) => {
     if (!node || typeof node !== 'object' || seen.has(node)) return;
     seen.add(node);
     let nextAncestors = ancestors;
     if (node.type === 'RegularElement') {
-      const el = { name: node.name, cls: classText(node, source), start: node.start, ancestors };
+      const el = {
+        name: node.name,
+        cls: classText(node, source),
+        start: node.start,
+        ancestors,
+        repeats,
+      };
       found.push(el);
       nextAncestors = [...ancestors, el];
     }
-    for (const value of Object.values(node)) {
-      if (Array.isArray(value)) value.forEach((c) => visit(c, nextAncestors));
-      else if (value && typeof value === 'object' && 'type' in value) visit(value, nextAncestors);
+    for (const [key, value] of Object.entries(node)) {
+      const childRepeats = node.type === 'EachBlock' && key === 'body' ? repeats + 1 : repeats;
+      if (Array.isArray(value)) value.forEach((c) => visit(c, nextAncestors, childRepeats));
+      else if (value && typeof value === 'object' && 'type' in value)
+        visit(value, nextAncestors, childRepeats);
     }
   };
-  visit(ast.fragment, []);
+  visit(ast.fragment, [], 0);
   return found;
 }
 
@@ -187,22 +231,41 @@ export function analyse(source) {
     const tabs = all.filter(
       (e) => TAB_TAGS.has(e.name) && TAB_BORDER.test(e.cls) && e.ancestors.includes(rail),
     );
-    if (tabs.length < 2) continue;
+    // A tab inside an `{#each}` that is itself inside this rail stands for
+    // however many the loop renders — which is the whole reason the strip was
+    // written as a loop. Counting it as ONE is what made eight rails invisible,
+    // so it counts as "enough to be a strip" on its own.
+    //
+    // `> rail.repeats` rather than `> 0`: when the RAIL is itself inside an
+    // each block, only a FURTHER each block between rail and tab means the tabs
+    // repeat within one strip.
+    const effectiveTabs = tabs.reduce((n, t) => n + (t.repeats > rail.repeats ? 2 : 1), 0);
+    if (effectiveTabs < 2) continue;
     stripsSeen += 1;
 
-    // Containment: the scrolling element may be the rail itself or anything
-    // between it and the tabs — `/app/assets` scrolls on an inner <nav>.
-    const scrolls = tabs.every((tab) => {
-      const path = [rail, ...tab.ancestors.slice(tab.ancestors.indexOf(rail) + 1)];
-      return path.some((el) => SCROLLS.test(el.cls));
-    });
-    if (!scrolls) {
+    // Containment: the element that solves the overflow may be the rail itself
+    // or anything between it and the tabs — `/app/assets` scrolls on an inner
+    // <nav>, and a wrapping rail wraps for everything below it.
+    const pathTo = (tab) => [rail, ...tab.ancestors.slice(tab.ancestors.indexOf(rail) + 1)];
+    const satisfies = (re) => tabs.every((tab) => pathTo(tab).some((el) => re.test(el.cls)));
+
+    const scrolls = satisfies(SCROLLS);
+    const wraps = satisfies(WRAPS);
+
+    if (!scrolls && !wraps) {
       out.push({ kind: 'strip-does-not-scroll', start: rail.start, tabs: tabs.length });
     }
 
-    for (const tab of tabs) {
-      if (!NO_SHRINK.test(tab.cls)) out.push({ kind: 'tab-can-shrink', start: tab.start });
-      if (!NO_WRAP.test(tab.cls)) out.push({ kind: 'tab-can-wrap', start: tab.start });
+    // Only a strip that solves this by SCROLLING needs its tabs pinned. On a
+    // wrapping rail both classes are wrong: `shrink-0` is unnecessary because
+    // the tab moves to the next line instead of being squashed, and
+    // `whitespace-nowrap` would stop a long label breaking and reintroduce the
+    // overflow this gate exists to prevent.
+    if (!wraps) {
+      for (const tab of tabs) {
+        if (!NO_SHRINK.test(tab.cls)) out.push({ kind: 'tab-can-shrink', start: tab.start });
+        if (!NO_WRAP.test(tab.cls)) out.push({ kind: 'tab-can-wrap', start: tab.start });
+      }
     }
   }
   // `railsSeen` is reported beside `stripsSeen` because THE GAP BETWEEN THEM IS
@@ -273,7 +336,7 @@ function main() {
     `OK — the ${stripsSeen} tab strip(s) this gate can parse all scroll (${files.length} .svelte files).`,
   );
   console.log(
-    'COVERAGE IS PARTIAL: strips built with {#each} or a shared class constant are invisible to this predicate. See #858.',
+    'COVERAGE IS PARTIAL: a strip whose tab classes come from a shared script constant is still invisible to this predicate. See #858.',
   );
 }
 
