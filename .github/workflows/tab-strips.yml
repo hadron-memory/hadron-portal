@@ -25,10 +25,15 @@ jobs:
         run: corepack enable
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      # Named for what it CHECKS, not for what a green run would like to mean.
-      # This predicate currently recognises 3 of the 20 rails in src/ — strips
-      # built with {#each} or a shared class constant are invisible to it — so
-      # "Every tab strip scrolls" was a claim the job cannot support. Rename
-      # this back only when #858's four fixes make it true.
-      - name: The tab strips this gate can parse all scroll
+      # Named for what it CHECKS, not for what a green run would like to mean,
+      # and the name has been wrong twice for two different reasons:
+      #   - "Every tab strip scrolls" overstated COVERAGE. This predicate
+      #     recognises 11 of the 20 rails in src/; a strip whose tab classes
+      #     come from a shared script constant is still invisible to it (#858).
+      #   - "…all scroll" overstated the REMEDY. A `flex flex-wrap` strip passes
+      #     without scrolling, so the agent sub-tab bar is a green strip that
+      #     does not scroll at all.
+      # What the job actually proves is that the strips it can parse do not
+      # overflow a phone screen. Say that.
+      - name: Parsed tab strips do not overflow a phone screen
         run: node scripts/check-tab-strips.mjs
