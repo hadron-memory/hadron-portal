@@ -231,6 +231,63 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     expect(kinds(bogus)).toContain('tab-can-shrink');
   });
 
+  it.each([
+    ['sm:overflow-x-auto on the rail', 'flex gap-0 sm:overflow-x-auto border-b', 'shrink-0 whitespace-nowrap border-b-2'],
+    ['md:overflow-x-auto on the rail', 'flex gap-0 md:overflow-x-auto border-b', 'shrink-0 whitespace-nowrap border-b-2'],
+    ['a dark: variant', 'flex gap-0 dark:overflow-x-auto border-b', 'shrink-0 whitespace-nowrap border-b-2'],
+  ])('%s does not satisfy the scroll requirement', (_what, railCls, tabCls) => {
+    // This gate protects ONE viewport — ~308px at 390px wide — and `:` is a
+    // word boundary, so a variant-prefixed class satisfies a naive \b regex
+    // while being inactive at exactly that width (@codex on #860, @copilot on
+    // #863). A required class that only applies from 640px up does not fix a
+    // 390px overflow.
+    expect(
+      kinds(`
+      <div class="${railCls}">
+        {#each tabs as tab (tab.id)}<a class="${tabCls} px-4 py-2">{tab.label}</a>{/each}
+      </div>`),
+    ).toContain('strip-does-not-scroll');
+  });
+
+  it('sm:flex-wrap does not satisfy the WRAP requirement either', () => {
+    expect(
+      kinds(`
+      <div class="flex items-center gap-1 sm:flex-wrap border-b">
+        {#each subTabs as subTab (subTab.id)}<button class="border-b-2 px-3">{subTab.label}</button>{/each}
+      </div>`),
+    ).toContain('strip-does-not-scroll');
+  });
+
+  it('a variant-prefixed shrink-0 / whitespace-nowrap does not pin a tab', () => {
+    const k = kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b">
+        {#each tabs as tab (tab.id)}<a class="sm:shrink-0 lg:whitespace-nowrap border-b-2 px-4">{tab.label}</a>{/each}
+      </div>`);
+    expect(k).toContain('tab-can-shrink');
+    expect(k).toContain('tab-can-wrap');
+  });
+
+  it('variant tokens on a rail do not stop it being DETECTED as a rail', () => {
+    // The split that makes the rule safe: detection reads the RAW class text
+    // and only the REQUIREMENTS read the unconditional subset. A rail carrying
+    // responsive tweaks alongside its base classes is still found and still
+    // checked, rather than being dropped because some of its tokens are
+    // prefixed.
+    //
+    // A rail whose flex/border are ONLY variant-prefixed is also still
+    // detected. That is a deliberate choice and not obviously free: at 390px
+    // such an element is not a flex row at all, so flagging it is arguably a
+    // false positive. It is left permissive because a false positive is LOUD
+    // and gets fixed, while the alternative fails silently — which is the
+    // defect this whole gate exists to stop. No instance exists in the repo.
+    expect(
+      kinds(`
+      <div class="flex gap-0 border-b sm:gap-2 dark:border-zinc-800">
+        {#each tabs as tab (tab.id)}<a class="border-b-2 px-4">{tab.label}</a>{/each}
+      </div>`),
+    ).toContain('strip-does-not-scroll');
+  });
+
   it('reports an unparseable file rather than passing it', () => {
     // A gate that silently skips what it cannot read can be switched off by a
     // toolchain change nobody notices.

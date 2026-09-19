@@ -78,9 +78,11 @@
  *   builds its tabs from a `subTabBase` constant holding `border-b-2`, so that
  *   rail reports ZERO tabs and is skipped. Nine rails report zero tabs.
  *
- * Also unhandled: a Tailwind breakpoint variant satisfies these regexes —
- * `sm:overflow-x-auto` matches SCROLLS while being inactive at the phone width
- * this gate exists to protect. No instance exists today; it is a hole.
+ * FIXED, and recorded because the shape recurs: a Tailwind VARIANT used to
+ * satisfy every one of these regexes — `sm:overflow-x-auto` matches a `\b`
+ * pattern because `:` is a word boundary, while applying only from 640px up.
+ * `unconditional()` is the repair, and the detection/requirement split below is
+ * what keeps it from causing the opposite failure.
  *
  * FIXED, and recorded because the shape recurs: `{#each}` used to account for
  * eight more. A looped strip is ONE `<a>`/`<button>` node in the AST however
@@ -131,6 +133,35 @@ const WRAPS = /\bflex-wrap\b/;
 
 /** Tags that can be a tab. */
 const TAB_TAGS = new Set(['a', 'button']);
+
+/**
+ * Class text with every VARIANT-PREFIXED token dropped.
+ *
+ * This gate protects exactly ONE viewport — the ~308px content column at 390px
+ * — and a Tailwind variant is the one way to carry a required class while it is
+ * inactive there. `sm:overflow-x-auto` satisfies a word-boundary regex (`:` IS
+ * a word boundary) while applying only from 640px up, so the phone-width
+ * overflow this gate exists to catch would sail through CI. `dark:` and
+ * `hover:` are conditional for different reasons and are no better.
+ *
+ * Dropping any token containing `:` is deliberately blunt and errs toward
+ * REPORTING: an element whose required class is conditional gets flagged, which
+ * is the safe direction for a gate about a layout defect.
+ *
+ * Interpolated class expressions survive, because a Svelte ternary is written
+ * with spaces around its `:` — `{active ? 'a' : 'b'}` tokenises to
+ * `{active`, `?`, `'a'`, `:`, `'b'}`, and only the bare `:` is dropped. The
+ * tokens inside the branches still count, which is what the interpolation test
+ * pins.
+ *
+ * @copilot on #863, and #858's fourth fix.
+ */
+function unconditional(cls) {
+  return cls
+    .split(/\s+/)
+    .filter((token) => !token.includes(':'))
+    .join(' ');
+}
 
 /**
  * The full text of an element's `class`, expressions included.
@@ -184,9 +215,19 @@ export function elementsWithAncestry(ast, source) {
     seen.add(node);
     let nextAncestors = ancestors;
     if (node.type === 'RegularElement') {
+      const cls = classText(node, source);
       const el = {
         name: node.name,
-        cls: classText(node, source),
+        // `cls` is the raw class text and is what DETECTION reads — whether a
+        // thing is a rail or a tab. Permissive on purpose: a strip whose
+        // `border-b` is variant-prefixed is still a strip worth checking, and
+        // being strict here would make the gate MISS it.
+        cls,
+        // `active` keeps only the unconditionally-applied tokens and is what
+        // REQUIREMENTS read — whether it scrolls, wraps, or pins its tabs.
+        // Strict on purpose: a required class that only applies from 640px up
+        // does not fix a 390px overflow.
+        active: unconditional(cls),
         start: node.start,
         ancestors,
         repeats,
@@ -252,15 +293,15 @@ export function analyse(source) {
     // or anything between it and the tabs — `/app/assets` scrolls on an inner
     // <nav>, and a wrapping rail wraps for everything below it.
     const pathTo = (tab) => [rail, ...tab.ancestors.slice(tab.ancestors.indexOf(rail) + 1)];
-    const satisfies = (pred) => tabs.every((tab) => pathTo(tab).some((el) => pred(el.cls)));
+    const satisfies = (pred) => tabs.every((tab) => pathTo(tab).some((el) => pred(el)));
 
-    const scrolls = satisfies((cls) => SCROLLS.test(cls));
+    const scrolls = satisfies((el) => SCROLLS.test(el.active));
     // `flex-wrap` only does anything on a FLEX CONTAINER — the property is
     // ignored outside one. So the wrapping element must carry `flex` (or
     // `inline-flex`, which FLEX also matches) AS WELL, on the same element.
     // Accepting a bare `flex-wrap` anywhere on the path would let a token with
     // no effect excuse a strip that genuinely overflows (@copilot on #863).
-    const wraps = satisfies((cls) => WRAPS.test(cls) && FLEX.test(cls));
+    const wraps = satisfies((el) => WRAPS.test(el.active) && FLEX.test(el.active));
 
     if (!scrolls && !wraps) {
       out.push({ kind: 'strip-does-not-scroll', start: rail.start, tabs: tabs.length });
@@ -273,8 +314,8 @@ export function analyse(source) {
     // overflow this gate exists to prevent.
     if (!wraps) {
       for (const tab of tabs) {
-        if (!NO_SHRINK.test(tab.cls)) out.push({ kind: 'tab-can-shrink', start: tab.start });
-        if (!NO_WRAP.test(tab.cls)) out.push({ kind: 'tab-can-wrap', start: tab.start });
+        if (!NO_SHRINK.test(tab.active)) out.push({ kind: 'tab-can-shrink', start: tab.start });
+        if (!NO_WRAP.test(tab.active)) out.push({ kind: 'tab-can-wrap', start: tab.start });
       }
     }
   }
