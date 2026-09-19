@@ -51,6 +51,7 @@ async function dataFor(w: ReturnType<typeof worker>) {
       { errors: false },
     ),
     initialTab: 'briefing',
+    initialView: 'source',
     workerSessions: [],
     sessionsTruncated: false,
     worklog: [],

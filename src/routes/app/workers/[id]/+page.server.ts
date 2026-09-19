@@ -25,6 +25,18 @@ const updateBriefingAdapter = zod4(updateBriefingSchema);
  */
 const WORKER_TAB_IDS: readonly string[] = ['profile', 'briefing', 'sessions', 'worklog'];
 
+/**
+ * #1010 — the Briefing tab's view mode, validated here for the same reason
+ * `?tab=` is: URL parsing lives in one place, and an unknown value falls back
+ * rather than reaching the component.
+ *
+ * It exists at all because a purely client-side toggle left the override
+ * editor unreachable with JavaScript off (@codex on #857) — which also made
+ * this page's non-enhanced POST handling unreachable. Addressable also means
+ * a Source view can be linked to.
+ */
+const WORKER_VIEW_IDS: readonly string[] = ['rendered', 'source'];
+
 /** Worker sessions shown before "…and N more". */
 const SESSION_PAGE_SIZE = 20;
 /** Worklog rows fetched; `total` tells the reader how many exist beyond them. */
@@ -46,6 +58,8 @@ const WORKLOG_PAGE_SIZE = 50;
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   const rawTab = url.searchParams.get('tab');
   const initialTab = WORKER_TAB_IDS.includes(rawTab ?? '') ? rawTab : null;
+  const rawView = url.searchParams.get('view');
+  const initialView = WORKER_VIEW_IDS.includes(rawView ?? '') ? rawView : null;
   let worker: Worker | null;
   try {
     ({ worker } = await gqlClient(locals.token).request<{ worker: Worker | null }>(WORKER_QUERY, {
@@ -129,6 +143,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     worker,
     briefingForm,
     initialTab,
+    initialView,
     workerSessions: sessions ? sessions.slice(0, SESSION_PAGE_SIZE) : null,
     sessionsTruncated,
     worklog: worklog?.items ?? null,

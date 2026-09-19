@@ -62,7 +62,14 @@
   // it would then be prepended again on every render, compounding with each
   // save. So Source shows the inherited half read-only beside the editable
   // half, and says which is which.
-  let showSource = $state(false);
+  // URL-addressable, like `?tab=` above (@codex on #857). As pure client state
+  // the Source editor was unreachable with JavaScript off — which also made the
+  // non-enhanced POST handling this page just gained unreachable, so that fix
+  // would have been theatre. Seeding from the loader means the server can
+  // render the editor, the form posts without JS, and a Source view is
+  // linkable. The toggle buttons still only flip local state: switching views
+  // is not a navigation and must not push history.
+  let showSource = $state(untrack(() => data.initialView === 'source'));
   let isBrowser = $state(false);
   onMount(() => {
     isBrowser = true;
@@ -176,7 +183,7 @@
     // A's verdict — a banner asserting something about a worker it never
     // touched, which is worse than no banner at all.
     $briefingMessage = undefined;
-    showSource = false;
+    showSource = data.initialView === 'source';
   });
 
   async function focusTab(id: WorkerTabId) {
@@ -519,9 +526,15 @@
           </div>
         {:else}
           <p class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+            <!-- @codex on #857, and it is the SAME defect as the Source
+                 panel's, one branch over: `prompt` is masked to null by the
+                 worker-internals gate, so a denied reader lands here too. The
+                 old copy asserted that the agent has no template AND the worker
+                 no override — two claims the payload cannot support, which
+                 could also contradict the Source panel beside it. -->
             {t(
               'worker.briefing.empty',
-              'No boot briefing: the role agent carries no template and this worker has no override. Anything you save below becomes the whole briefing.',
+              'No briefing is shown — either nothing has been written for this worker yet, or reading it needs access this page cannot confirm you have.',
             )}
           </p>
         {/if}

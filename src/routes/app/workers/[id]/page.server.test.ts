@@ -545,6 +545,34 @@ describe('#1010 — the briefing editor writes the override', () => {
   });
 });
 
+describe('#1010 — the briefing view is URL-addressable (@codex on #857)', () => {
+  it('accepts each real view id', async () => {
+    for (const view of ['rendered', 'source']) {
+      mockRequest.mockResolvedValueOnce({ worker: WORKER });
+      const data = (await runLoad('w-1', `?tab=briefing&view=${view}`)) as unknown as {
+        initialView: string | null;
+      };
+      expect(data.initialView, view).toBe(view);
+    }
+  });
+
+  it('falls back to null for an unknown view rather than passing it through', async () => {
+    mockRequest.mockResolvedValueOnce({ worker: WORKER });
+    const data = (await runLoad('w-1', '?tab=briefing&view=nonsense')) as unknown as {
+      initialView: string | null;
+    };
+    expect(data.initialView).toBeNull();
+  });
+
+  it('is null when no view is requested', async () => {
+    // Which the component reads as Rendered — the safe default, since Source
+    // is the half that can be SAVED from.
+    mockRequest.mockResolvedValueOnce({ worker: WORKER });
+    const data = (await runLoad('w-1', '?tab=briefing')) as unknown as { initialView: string | null };
+    expect(data.initialView).toBeNull();
+  });
+});
+
 describe('#1010 — WORKER_QUERY carries the inherited template', () => {
   it('selects the agent\'s personaPrompt, for the Source view\'s read-only half', () => {
     expect(WORKER_QUERY).toMatch(/agent\s*\{\s*personaPrompt\s*\}/);
