@@ -2,15 +2,25 @@ import { fail, error } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { loadOrgDetail } from '$lib/server/org-detail';
 import {
   APP_WITH_MEMBERS_QUERY,
   ENSURE_APP_MEMBER_MUTATION,
   REMOVE_APP_MEMBER_MUTATION,
-  ORGANIZATION_QUERY,
+  ORG_CHROME_QUERY,
 } from '$lib/server/queries';
 import { appMemberErrorCode, translateAppMemberError, appMemberErrorStatus } from '$lib/i18n/app-member-errors';
 import { t } from '$lib/i18n/t';
 import type { App, AppMember, Organization } from '$lib/types';
+
+/**
+ * What this loader puts on `data.org` (#851): the chrome three, of which the
+ * page renders `org.id` for the back link. A SLICE of Organization, so a
+ * consumer that starts reading a list off this payload fails to COMPILE
+ * rather than reading undefined at runtime — the reason `OrgChrome` exists in
+ * `/app/orgs/[id]/+layout.server.ts`.
+ */
+type OrgChrome = Pick<Organization, 'id' | 'name' | 'urn'>;
 import type { Actions, PageServerLoad } from './$types';
 import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
 
@@ -38,15 +48,25 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // real error, NOT the org-less case — 404 rather than silently mislabelling
   // the app as personal (which would point the breadcrumb at "My apps" and hide
   // org-derived controls). Mirrors the canonical detail loader.
-  let org: Organization | null = null;
+  //
+  // #851: that 404 stays; what changed is what may reach it. The previous
+  // `.catch(() => ({ organization: null }))` took no argument and so classified
+  // nothing — an outage, a bad gateway and a genuine refusal all arrived here
+  // as "Organization not found". `loadOrgDetail` answers only the two codes
+  // that mean it and rethrows the rest as a distinguishable 500.
+  //
+  // ORG_CHROME_QUERY, not ORGANIZATION_QUERY: this page reads `org.id` and
+  // nothing else. The fat query invoked members, memories, agents,
+  // subscriptions and exchangeConnections — five non-null lists whose failure
+  // propagates a null up to `organization` — to render a back link
+  // (`hrn:node:hadronmemory.com:hadron-portal:review:a-route-must-not-invoke-a-resolver-it-does-not-render`).
+  let org: OrgChrome | null = null;
   if (appData.app.organizationId) {
-    const orgData = await client
-      .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, {
-        ref: appData.app.organizationId,
-      })
-      .catch(() => ({ organization: null }));
-    if (!orgData.organization) throw error(404, 'Organization not found');
-    org = orgData.organization;
+    org = await loadOrgDetail<OrgChrome>(
+      locals.token,
+      appData.app.organizationId,
+      ORG_CHROME_QUERY,
+    );
   }
 
   const members = appData.app.members ?? [];

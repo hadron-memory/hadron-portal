@@ -6,7 +6,8 @@ import {
   CAST_WORKER_MUTATION,
   CREATE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
-  ORGANIZATION_QUERY,
+  APP_DETAIL_ORG_QUERY,
+  APP_DETAIL_ORG_WITH_AGENTS_QUERY,
   UNINSTALL_AGENT_FROM_APP_MUTATION,
   RELEASE_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
@@ -45,7 +46,12 @@ function baseApp(over: Record<string, unknown> = {}) {
     sessionTimeoutSeconds: 3600,
     anonymousTtlDays: 14,
     agentId: 'agent-1',
-    agent: null,
+    // Coherent with agentId on purpose (#852). `agent: null` beside a set
+    // `agentId` is the SALVAGE state — a partial payload whose `agent` relation
+    // failed — not the default one, and a fixture that ships it by default
+    // quietly makes every test exercise the rarer path. Tests that want the
+    // divergence pass `agent: null` explicitly.
+    agent: { id: 'agent-1', name: 'Agent One', urn: 'hrn:agent:one' },
     ...over,
   };
 }
@@ -108,7 +114,7 @@ describe('load', () => {
             id: 'app-1',
             name: 'Demo App',
             urn: 'hadronmemory.com:demo-org:demo-app',
-            // #648: org-owned app → the loader fetches the org (ORGANIZATION_QUERY
+            // #648: org-owned app → the loader fetches the org (the App-detail slice
             // below) and availableAgents = org.agents.
             organizationId: 'org-1',
             appType: 'CHATBOT',
@@ -124,7 +130,7 @@ describe('load', () => {
           },
         });
       }
-      if (query === ORGANIZATION_QUERY) {
+      if (query === APP_DETAIL_ORG_WITH_AGENTS_QUERY) {
         return Promise.resolve({
           organization: {
             id: 'org-1',
@@ -178,7 +184,9 @@ describe('load', () => {
             description: null, systemPrompt: null,
             createUserPermission: 'DENY', identifyUserMethod: 'USER_ID',
             sessionTimeoutSeconds: 3600, anonymousTtlDays: 14,
-            agentId: 'agent-1', agent: null,
+            // Coherent with agentId — see baseApp. These cases are about the STAFF
+            // fetch, so they must not also stage the salvage divergence.
+            agentId: 'agent-1', agent: { id: 'agent-1', name: 'Agent One', urn: 'hrn:agent:one' },
           },
         });
       }
@@ -224,7 +232,9 @@ describe('load', () => {
             description: null, systemPrompt: null,
             createUserPermission: 'DENY', identifyUserMethod: 'USER_ID',
             sessionTimeoutSeconds: 3600, anonymousTtlDays: 14,
-            agentId: 'agent-1', agent: null,
+            // Coherent with agentId — see baseApp. These cases are about the STAFF
+            // fetch, so they must not also stage the salvage divergence.
+            agentId: 'agent-1', agent: { id: 'agent-1', name: 'Agent One', urn: 'hrn:agent:one' },
           },
         });
       }
@@ -1582,5 +1592,207 @@ describe('team chat tail paging (#738)', () => {
     ]);
     const result = await runLoad();
     expect(result.teamChatTotal).toBe(501);
+  });
+});
+
+/**
+ * #851 — the org lookup on an org-owned App classifies its failures.
+ *
+ * The loader used to fetch the org with `.catch(() => ({ organization: null }))`
+ * and 404 on the null. That catch took no argument, so nothing was classified:
+ * an outage, a bad gateway, a resolver crash and a genuine refusal all rendered
+ * "Organization not found", which during an outage was every org-owned App page.
+ *
+ * Pinned in BOTH directions with the SAME `orgRefusal` builder, deliberately: if
+ * that builder produced a shape `extractGqlErrorCode` cannot read, every code
+ * would look like `null`, the rethrow cases would still pass and only the 404
+ * cases would fail. One direction alone ratifies a broken fixture — the lesson
+ * from #850's sibling test on `/app/orgs/[id]`.
+ */
+describe('#851 — the App-detail org lookup classifies its failures', () => {
+  /** A graphql-request rejection as the server actually delivers one. */
+  function orgRefusal(code: string, message = 'nope') {
+    return Object.assign(new Error(`${message}: ${JSON.stringify({ code })}`), {
+      response: { errors: [{ message, extensions: { code } }] },
+    });
+  }
+
+  const ORG = { id: 'org-1', name: 'Demo Org', urn: 'hrn:org:demo', members: [], agents: [] };
+
+  /**
+   * `outcome` is an explicit {resolve}|{reject} rather than "an Error means
+   * reject", because a graphql-request rejection IS an object with a `response`
+   * key and so is a successful payload — sniffing would couple the harness to
+   * the shape under test.
+   */
+  function stubOrg(
+    outcome: { resolve: unknown } | { reject: unknown },
+    appOver: Record<string, unknown> = {},
+  ) {
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) {
+        return Promise.resolve({ app: baseApp({ organizationId: 'org-1', ...appOver }) });
+      }
+      if (query === APP_DETAIL_ORG_QUERY || query === APP_DETAIL_ORG_WITH_AGENTS_QUERY) {
+        return 'reject' in outcome ? Promise.reject(outcome.reject) : Promise.resolve(outcome.resolve);
+      }
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === APP_CHAT_ROOTS_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) {
+        return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
+      }
+      if (query === TEAM_WORK_ITEMS_QUERY) {
+        return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
+      }
+      return Promise.resolve({ resolveAiServiceConfigs: [] });
+    });
+    mockFetchAllItems.mockResolvedValue([]);
+  }
+
+  async function loadAndCatch() {
+    const { load } = await import('./+page.server');
+    try {
+      return {
+        thrown: undefined as unknown,
+        result: await load({
+          params: { id: 'org-1', appId: 'app-1' },
+          locals: { token: 'tok', user: { id: 'user-1' } },
+          parent: async () => ({}),
+          depends: () => {},
+          url: new URL('http://localhost/app/apps/app-1'),
+        } as unknown as Parameters<typeof load>[0]),
+      };
+    } catch (e) {
+      return { thrown: e, result: undefined };
+    }
+  }
+
+  describe('a code meaning the org is not openable → the pre-existing 404', () => {
+    it.each([
+      ['ORGANIZATION_NOT_FOUND', 'the App references an org that resolved to nothing'],
+      ['FORBIDDEN', 'the caller can see the App but not its org'],
+    ])('%s → 404 (%s)', async (code) => {
+      stubOrg({ reject: orgRefusal(code) });
+      const { thrown } = await loadAndCatch();
+      expect((thrown as { status: number }).status).toBe(404);
+      expect((thrown as { body?: { message?: string } }).body?.message).toBe('Organization not found');
+    });
+
+    it('a cleanly null org is still this page\'s 404', async () => {
+      // Not the org-less (spec 047) case: `organizationId` is set, so a null org
+      // is a real error. Mislabelling it as personal would point the breadcrumb
+      // at "My apps" and hide org-derived controls.
+      stubOrg({ resolve: { organization: null } });
+      expect(((await loadAndCatch()).thrown as { status: number }).status).toBe(404);
+    });
+  });
+
+  describe('anything else propagates → 500, not a false "not found"', () => {
+    it('INTERNAL_SERVER_ERROR is rethrown — the defect this issue is about', async () => {
+      // A resolver crash is not a fact about the org. Before #851 this rendered
+      // "Organization not found", which is a confident false statement about
+      // the reader's own data.
+      const crash = orgRefusal('INTERNAL_SERVER_ERROR', 'boom');
+      stubOrg({ reject: crash });
+      const { thrown } = await loadAndCatch();
+      expect(thrown).toBe(crash);
+      expect((thrown as { status?: number }).status).toBeUndefined();
+    });
+
+    it('a transport failure with no GraphQL payload is rethrown — the outage case', async () => {
+      // The headline: during an outage graphql-request rejects with a plain
+      // Error carrying no `response`, so there is no code to read. Nothing here
+      // can be a refusal — a refusal is something a working server decided.
+      const boom = new Error('fetch failed');
+      stubOrg({ reject: boom });
+      const { thrown } = await loadAndCatch();
+      expect(thrown).toBe(boom);
+      expect((thrown as { status?: number }).status).toBeUndefined();
+    });
+
+    it('a ref-shape refusal is rethrown, because the ref came from the SERVER', async () => {
+      // `/app/orgs/[id]` answers URN_NOT_QUALIFIED with a 404 — correctly, its
+      // ref is a route param a human typed. Here the ref is `app.organizationId`,
+      // handed to us by the server, so a malformed one is a server fault and a
+      // 404 would blame the reader for it.
+      const malformed = orgRefusal('URN_NOT_QUALIFIED');
+      stubOrg({ reject: malformed });
+      expect((await loadAndCatch()).thrown).toBe(malformed);
+    });
+  });
+
+  describe('the document asks only for what the page renders', () => {
+    it('an App with no Agent yet selects the agents slice (the install picker renders)', async () => {
+      stubOrg({ resolve: { organization: { ...ORG, agents: [{ id: 'a1', name: 'One', urn: 'hrn:agent:one' }] } } }, { agentId: null, agent: null });
+      const { result } = await loadAndCatch();
+      expect(mockRequest).toHaveBeenCalledWith(APP_DETAIL_ORG_WITH_AGENTS_QUERY, { ref: 'org-1' });
+      expect(mockRequest).not.toHaveBeenCalledWith(APP_DETAIL_ORG_QUERY, expect.anything());
+      expect((result as { availableAgents: unknown[] }).availableAgents).toEqual([
+        { id: 'a1', name: 'One', urn: 'hrn:agent:one' },
+      ]);
+    });
+
+    it('an App that already has an Agent does NOT select agents', async () => {
+      // `availableAgents` is [] for it regardless, so selecting the list would
+      // invoke a resolver whose result is discarded — and `agents` is a non-null
+      // list, so its failure would null the org and 404 the page over data the
+      // page cannot show.
+      // hrn:node:hadronmemory.com:hadron-portal:review:a-route-must-not-invoke-a-resolver-it-does-not-render
+      stubOrg({ resolve: { organization: ORG } }, { agentId: 'agent-1', agent: { id: 'agent-1', name: 'Linked', urn: 'hrn:agent:linked' } });
+      const { result } = await loadAndCatch();
+      expect(mockRequest).toHaveBeenCalledWith(APP_DETAIL_ORG_QUERY, { ref: 'org-1' });
+      expect(mockRequest).not.toHaveBeenCalledWith(APP_DETAIL_ORG_WITH_AGENTS_QUERY, expect.anything());
+      expect((result as { availableAgents: unknown[] }).availableAgents).toEqual([]);
+    });
+
+    it('neither document selects a list the page never draws', () => {
+      // Asserted on the documents themselves rather than on a call, because the
+      // defect was in what the loader ASKED FOR. `ORGANIZATION_QUERY` pulled
+      // memories, subscriptions and exchangeConnections — three more non-null
+      // lists, each able to null the org and 404 this page on its own.
+      for (const doc of [APP_DETAIL_ORG_QUERY, APP_DETAIL_ORG_WITH_AGENTS_QUERY]) {
+        for (const unrendered of ['memories', 'subscriptions', 'exchangeConnections']) {
+          expect(doc).not.toMatch(new RegExp(`\\b${unrendered}\\b`));
+        }
+        // The other direction: a document that selected nothing would pass the
+        // check above and break the breadcrumb on every org-owned App.
+        for (const rendered of ['id', 'name', 'urn', 'members']) {
+          expect(doc).toMatch(new RegExp(`\\b${rendered}\\b`));
+        }
+      }
+    });
+
+    it('only the WITH_AGENTS document carries `agents`', async () => {
+      // @copilot on #852: the loop above pins three lists that were never in
+      // either document, and so cannot catch the regression that actually
+      // threatens THIS pair — `agents` creeping into the base document. The
+      // branch tests assert which document was REQUESTED, not what is in it, so
+      // adding `agents` back to the base would have left every test green while
+      // restoring the exact discarded-resolver invocation this change removes.
+      expect(APP_DETAIL_ORG_WITH_AGENTS_QUERY).toMatch(/\bagents\b/);
+      expect(APP_DETAIL_ORG_QUERY).not.toMatch(/\bagents\b/);
+    });
+  });
+
+  describe('@copilot on #852 — the loader and the page use ONE predicate', () => {
+    it('a salvaged App with agentId but a null agent selects the agents slice', async () => {
+      // `agent` is nullable in the SDL, `agentId` is a scalar column, and the
+      // APP_QUERY catch salvages a partial payload — so a failing `agent`
+      // relation leaves `agent: null` with `agentId` set. The page renders its
+      // "No agent linked yet." arm off `app.agent`; gating the loader on
+      // `app.agentId` made it answer the opposite question and return
+      // `availableAgents: []`, which suppresses the link picker that arm exists
+      // to offer. The reader is told no Agent is linked and handed no way to
+      // link one.
+      stubOrg(
+        { resolve: { organization: { ...ORG, agents: [{ id: 'a1', name: 'One', urn: 'hrn:agent:one' }] } } },
+        { agentId: 'agent-1', agent: null },
+      );
+      const { result } = await loadAndCatch();
+      expect(mockRequest).toHaveBeenCalledWith(APP_DETAIL_ORG_WITH_AGENTS_QUERY, { ref: 'org-1' });
+      expect((result as { availableAgents: unknown[] }).availableAgents).toEqual([
+        { id: 'a1', name: 'One', urn: 'hrn:agent:one' },
+      ]);
+    });
   });
 });
