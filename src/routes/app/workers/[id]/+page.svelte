@@ -9,13 +9,14 @@
   import { onMount, tick, untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
   import { superForm } from 'sveltekit-superforms/client';
+  import { submittedForm } from '$lib/forms/submitted-form';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import { updateBriefingSchema } from './schema';
+  import { updateBriefingSchema, type UpdateBriefingForm } from './schema';
   import { t } from '$lib/i18n/t';
   import { isHeld, workerHold } from '$lib/worker-hold';
   import type { PageData } from './$types';
 
-  let { data }: { data: PageData } = $props();
+  let { data, form }: { data: PageData; form: unknown } = $props();
 
   // #758 — Profile · Worker sessions · Worklog.
   //
@@ -89,12 +90,21 @@
     submitting: briefingSubmitting,
     enhance: briefingEnhance,
   } = superForm(
+    // @copilot on #857: prefer the SUBMITTED form when the action returned one.
+    // Without this a non-enhanced POST — JS off, or an SSR response after a
+    // refusal — discards the server's message AND the text the reader just
+    // typed, handing them back the stored value as if nothing had happened.
+    // Same shape the App page uses for its post form.
+    //
     // untrack: superForm takes the INITIAL form and owns the store from then
-    // on, so a top-level `data.briefingForm` read is intentional here — the
-    // same shape the App page uses for its post form. `briefingDirty` below
-    // does read `data` reactively, which is what keeps the button honest after
-    // a save invalidates.
-    untrack(() => data.briefingForm),
+    // on, so a top-level read is intentional. `briefingDirty` below reads
+    // `data` reactively, which is what keeps the button honest after a save
+    // invalidates, and `afterNavigate` re-seeds on a worker change.
+    untrack(
+      () =>
+        (submittedForm<UpdateBriefingForm>(form, 'updateBriefing') as typeof data.briefingForm | null) ??
+        data.briefingForm,
+    ),
     {
     validators: zod4Client(updateBriefingSchema),
     // The whole override is one field with no cross-field rules, so validating
@@ -160,6 +170,12 @@
     // query-only navigation should re-seed too (the loader re-read the worker,
     // so the stored override may have changed under an open editor).
     $briefingData.promptOverride = data.worker.promptOverride ?? '';
+    // @codex on #857: clear the RESULT too, not just the value. A save or a
+    // refusal on worker A leaves "Override saved" (or a permission error) in
+    // the store; reusing the instance for worker B would show B's editor under
+    // A's verdict — a banner asserting something about a worker it never
+    // touched, which is worse than no banner at all.
+    $briefingMessage = undefined;
     showSource = false;
   });
 

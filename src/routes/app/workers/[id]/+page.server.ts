@@ -181,7 +181,18 @@ export const actions: Actions = {
                 'You don’t have permission to amend this worker. Editing a casting needs contributor access to the App’s organization, or a non-reader role in the App.',
               )
             : extractGqlError(e, 'Failed to save the override');
-      return message(form, { type: 'error', text }, { status: code === 'FORBIDDEN' ? 403 : 400 });
+      // @copilot on #857: only KNOWN client-error codes get a 4xx. The previous
+      // `: 400` swept transport failures and unrecognised codes in with them,
+      // labelling an outage as bad input — the same defect this repo just spent
+      // #843 and #851 removing from two other surfaces, written fresh here.
+      //
+      // 500 rather than a rethrow, deliberately: a rethrow renders the error
+      // page and DISCARDS the override the reader just typed, which for a
+      // multi-KB briefing is a worse outcome than the status code was worth.
+      // The message keeps their text on screen; the status stops monitoring and
+      // retry logic from reading a server fault as a user mistake.
+      const status = code === 'FORBIDDEN' ? 403 : code === 'WORKER_RETIRED' ? 400 : 500;
+      return message(form, { type: 'error', text }, { status });
     }
   },
 };

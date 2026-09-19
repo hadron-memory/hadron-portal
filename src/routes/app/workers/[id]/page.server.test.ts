@@ -494,6 +494,39 @@ describe('#1010 — the briefing editor writes the override', () => {
     expect(msg?.text).toMatch(/retired/i);
   });
 
+  it('does NOT label an outage a client error', async () => {
+    // @copilot on #857. A transport failure carries no GraphQL payload, so
+    // there is no code to recognise — and the previous mapping swept it in
+    // with the 4xx refusals, telling monitoring and retry logic that a server
+    // fault was bad input. The same defect #843 and #851 removed from two
+    // other surfaces.
+    mockRequest.mockRejectedValueOnce(new Error('fetch failed'));
+    const res = (await runAction('x')) as { status?: number };
+    expect(res?.status).toBe(500);
+  });
+
+  it('does NOT label an unrecognised GraphQL code a client error either', async () => {
+    mockRequest.mockRejectedValueOnce(
+      Object.assign(new Error('boom'), {
+        response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
+      }),
+    );
+    const res = (await runAction('x')) as { status?: number };
+    expect(res?.status).toBe(500);
+  });
+
+  it('keeps the typed override on screen when the save fails', async () => {
+    // 500 rather than a rethrow, on purpose: a rethrow renders the error page
+    // and discards what the reader typed. For a multi-KB briefing that is a
+    // worse outcome than the status code was worth, so the form comes back
+    // carrying their text.
+    mockRequest.mockRejectedValueOnce(new Error('fetch failed'));
+    const res = (await runAction('TEXT THE READER TYPED')) as {
+      data?: { form?: { data?: { promptOverride?: string } } };
+    };
+    expect(res?.data?.form?.data?.promptOverride).toBe('TEXT THE READER TYPED');
+  });
+
   it('reports a staffing refusal as 403 with an actionable message', async () => {
     // The portal deliberately does NOT pre-derive staffing access to hide the
     // editor — the App page's own note explains why a hidden control is worse

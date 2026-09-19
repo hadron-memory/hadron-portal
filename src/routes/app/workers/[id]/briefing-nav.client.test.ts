@@ -109,6 +109,38 @@ describe('#1010 — the briefing editor re-seeds when the worker changes', () =>
     }
   });
 
+  it('clears a previous worker’s SAVE RESULT, not just its text', async () => {
+    // @codex on #857: reusing the instance for worker B under A's "Override
+    // saved" banner asserts something about a worker it never touched.
+    //
+    // The banner is driven through the ACTION-RESULT path (@copilot's other
+    // finding on the same commit), so this exercises both fixes at once: the
+    // form prop seeds the message, and afterNavigate must clear it.
+    const posted = await superValidate(
+      { promptOverride: 'ADA-ONLY TEXT' },
+      zod4(updateBriefingSchema),
+      { errors: false },
+    );
+    const mounted = mountComponent(Page as never, {
+      data: await dataFor(worker('w-a', 'ADA-ONLY TEXT')),
+      form: { form: { ...posted, message: { type: 'success', text: 'Override saved.' } } },
+    } as never);
+    try {
+      openSource(mounted.target);
+      const before = [...mounted.target.querySelectorAll('[role="status"]')].map((e) => e.textContent);
+      expect(before.some((txt) => txt?.includes('Override saved'))).toBe(true);
+
+      (mounted.props as { data: unknown }).data = await dataFor(worker('w-b', 'DARA-ONLY TEXT'));
+      fireAfterNavigate();
+      openSource(mounted.target);
+
+      const after = [...mounted.target.querySelectorAll('[role="status"]')].map((e) => e.textContent);
+      expect(after.some((txt) => txt?.includes('Override saved'))).toBe(false);
+    } finally {
+      mounted.unmount();
+    }
+  });
+
   it('clears the editor when the new worker has no override', async () => {
     // The emptier direction of the same fault: navigating from a worker WITH an
     // override to one without must not leave the first worker's text in a box
