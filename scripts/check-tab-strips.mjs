@@ -422,7 +422,7 @@ export function offences(source) {
 
 const MESSAGES = {
   'strip-does-not-scroll':
-    'This tab strip has no `overflow-x-auto` on the rail or between it and the tabs, so at phone widths it pushes the page off the right edge instead of scrolling. See #858.',
+    'This tab strip neither scrolls nor wraps, so at phone widths it pushes the page off the right edge. Fix it EITHER by adding `overflow-x-auto` to the rail or an element between it and the tabs (plus `shrink-0 whitespace-nowrap` on each tab), OR by putting `flex flex-wrap` on the element that lays the tabs out. See #858.',
   'tab-can-shrink':
     'This tab has no `shrink-0`, so flex compresses the labels into unreadable columns instead of letting the strip scroll. See #858.',
   'tab-can-wrap':
@@ -467,12 +467,16 @@ function main() {
     console.log(`\n${failed} tab-strip problem(s) across ${files.length} .svelte files.`);
     process.exit(1);
   }
-  // Report the DENOMINATOR, not just the verdict. "OK — every tab strip
-  // scrolls" is the claim this gate cannot currently support: it recognises a
-  // minority of the repo's rails, so silence over a strip it never parsed is
-  // not evidence about that strip. See the blind-spot note at the top.
+  // Report the DENOMINATOR, not just the verdict — silence over a strip this
+  // gate never parsed is not evidence about that strip (see the blind-spot note
+  // at the top).
+  //
+  // And say "do not overflow", not "scroll": a `flex-wrap` strip PASSES without
+  // scrolling, so claiming every parsed strip scrolls is false about the agent
+  // sub-tab bar specifically (@copilot on #863). The check is about phone-width
+  // overflow; scrolling is one of two ways to satisfy it.
   console.log(
-    `OK — the ${stripsSeen} tab strip(s) this gate can parse all scroll (${files.length} .svelte files).`,
+    `OK — the ${stripsSeen} tab strip(s) this gate can parse do not overflow a phone screen (${files.length} .svelte files).`,
   );
   console.log(
     'COVERAGE IS PARTIAL: a strip whose tab classes come from a shared script constant is still invisible to this predicate. See #858.',
