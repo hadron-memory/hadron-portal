@@ -275,13 +275,67 @@ function staticPart(cls) {
  * tabless rail and the strip was skipped entirely (@copilot and @codex on
  * #860). Two real strips hid behind it.
  */
+/**
+ * Every name bound by the TEMPLATE — `{#each … as name, i}`, `{#await … then
+ * name}`, `{#snippet name(param)}`, `{:catch e}`.
+ *
+ * Collected so `classConstants` can refuse to resolve a name the template
+ * rebinds. `{#each tabs as tabBase}` makes `{tabBase}` inside that block the
+ * loop item, NOT the module constant, and inlining the constant's classes there
+ * would describe an element by markup it does not have (@copilot on #865).
+ *
+ * The response is to DROP such a name rather than to resolve it scope-aware.
+ * That is deliberate: the result is a rail this gate cannot resolve, and an
+ * unresolvable rail is not silent — it lands in `railsSeen - stripsSeen`, where
+ * the `RAILS_WITH_NO_TABS` pin fails on it by name. A wrong inlining would be
+ * silent; a dropped one is loud. No instance exists in the repo today.
+ */
+function templateBoundNames(ast) {
+  const names = new Set();
+  const addPattern = (pattern) => {
+    if (!pattern || typeof pattern !== 'object') return;
+    if (pattern.type === 'Identifier') names.add(pattern.name);
+    for (const value of Object.values(pattern)) {
+      if (Array.isArray(value)) value.forEach(addPattern);
+      else if (value && typeof value === 'object' && 'type' in value) addPattern(value);
+    }
+  };
+  const seen = new Set();
+  const walk = (node) => {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    if (node.type === 'EachBlock') {
+      addPattern(node.context);
+      if (node.index) names.add(node.index);
+    }
+    if (node.type === 'AwaitBlock') {
+      addPattern(node.value);
+      addPattern(node.error);
+    }
+    if (node.type === 'SnippetBlock') {
+      if (node.expression?.type === 'Identifier') names.add(node.expression.name);
+      (node.parameters ?? []).forEach(addPattern);
+    }
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) value.forEach(walk);
+      else if (value && typeof value === 'object' && 'type' in value) walk(value);
+    }
+  };
+  walk(ast.fragment);
+  return names;
+}
+
 function classConstants(ast) {
   const found = new Map();
+  const shadowed = templateBoundNames(ast);
   const body = ast.instance?.content?.body ?? [];
   for (const node of body) {
     if (node.type !== 'VariableDeclaration' || node.kind !== 'const') continue;
     for (const d of node.declarations ?? []) {
       if (d.id?.type !== 'Identifier' || !d.init) continue;
+      // A name the template rebinds is not this constant wherever it appears,
+      // so it is not resolved at all. See `templateBoundNames`.
+      if (shadowed.has(d.id.name)) continue;
       if (d.init.type === 'Literal' && typeof d.init.value === 'string') {
         found.set(d.id.name, d.init.value);
       } else if (d.init.type === 'TemplateLiteral' && d.init.expressions?.length === 0) {

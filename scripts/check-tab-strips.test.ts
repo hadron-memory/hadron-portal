@@ -516,6 +516,30 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     expect(k).toContain('tab-can-wrap');
   });
 
+  it('a constant SHADOWED by an each-binding is not resolved', () => {
+    // @copilot on #865. `{#each tabs as tabBase}` rebinds the name, so
+    // `{tabBase}` inside that block is the loop item, not the module constant.
+    // Inlining the constant's classes there would describe the element by
+    // markup it does not have — a SILENT false pass.
+    //
+    // The response is to drop the name rather than resolve it scope-aware, and
+    // the trade is deliberate: the rail becomes unresolvable, which is loud
+    // (`RAILS_WITH_NO_TABS` fails on it by name) where a wrong inlining is not.
+    // Here that means no strip is detected at all, so no offence is reported —
+    // and the repository pin is what would catch it in a real file.
+    expect(
+      offences(`
+      <script>
+        const tabBase = 'shrink-0 whitespace-nowrap border-b-2 px-3 py-2';
+      </script>
+      <div class="flex gap-0 border-b border-zinc-200">
+        {#each views as tabBase (tabBase.id)}
+          <button class="{tabBase}">One</button>
+        {/each}
+      </div>`),
+    ).toEqual([]);
+  });
+
   it('a constant built at runtime is NOT resolved', () => {
     // Only string literals and interpolation-free templates count. Guessing at
     // a value assembled at runtime would be worse than not seeing it — so the
