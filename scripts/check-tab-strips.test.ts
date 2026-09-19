@@ -214,6 +214,23 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     ).toContain('strip-does-not-scroll');
   });
 
+  it('flex-wrap on a NON-FLEX element does not excuse an overflowing strip', () => {
+    // @copilot on #863: `flex-wrap` is ignored outside a flex container, so a
+    // bare `flex-wrap` on an intermediate <div> changes nothing about the
+    // layout. Accepting it would let a token with no effect silence the gate.
+    const bogus = `
+      <div class="flex gap-0 border-b border-zinc-200">
+        <div class="flex-wrap">
+          {#each tabs as tab (tab.id)}
+            <a href={tab.href} class="border-b-2 px-4 py-2">{tab.label}</a>
+          {/each}
+        </div>
+      </div>`;
+    expect(kinds(bogus)).toContain('strip-does-not-scroll');
+    // and the tab classes are still required, since nothing wraps
+    expect(kinds(bogus)).toContain('tab-can-shrink');
+  });
+
   it('reports an unparseable file rather than passing it', () => {
     // A gate that silently skips what it cannot read can be switched off by a
     // toolchain change nobody notices.

@@ -121,6 +121,11 @@ const NO_WRAP = /\bwhitespace-nowrap\b/;
  * `hrn:node:hadronmemory.com:hadron-portal:review:ci-gate-prefilter-must-be-proven`,
  * the alternative — listing this file as an exception — is where a real
  * offender would later hide.
+ *
+ * It is only satisfying ON A FLEX CONTAINER, though: `flex-wrap` is ignored
+ * outside one, so this token is always tested together with `FLEX` on the SAME
+ * element. A bare `flex-wrap` on a non-flex ancestor changes nothing about the
+ * layout and must not excuse a strip that overflows.
  */
 const WRAPS = /\bflex-wrap\b/;
 
@@ -247,10 +252,15 @@ export function analyse(source) {
     // or anything between it and the tabs — `/app/assets` scrolls on an inner
     // <nav>, and a wrapping rail wraps for everything below it.
     const pathTo = (tab) => [rail, ...tab.ancestors.slice(tab.ancestors.indexOf(rail) + 1)];
-    const satisfies = (re) => tabs.every((tab) => pathTo(tab).some((el) => re.test(el.cls)));
+    const satisfies = (pred) => tabs.every((tab) => pathTo(tab).some((el) => pred(el.cls)));
 
-    const scrolls = satisfies(SCROLLS);
-    const wraps = satisfies(WRAPS);
+    const scrolls = satisfies((cls) => SCROLLS.test(cls));
+    // `flex-wrap` only does anything on a FLEX CONTAINER — the property is
+    // ignored outside one. So the wrapping element must carry `flex` (or
+    // `inline-flex`, which FLEX also matches) AS WELL, on the same element.
+    // Accepting a bare `flex-wrap` anywhere on the path would let a token with
+    // no effect excuse a strip that genuinely overflows (@copilot on #863).
+    const wraps = satisfies((cls) => WRAPS.test(cls) && FLEX.test(cls));
 
     if (!scrolls && !wraps) {
       out.push({ kind: 'strip-does-not-scroll', start: rail.start, tabs: tabs.length });
