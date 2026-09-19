@@ -1,9 +1,16 @@
-import { error } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
+import { message, superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { TEAM_WORK_ITEMS_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { t } from '$lib/i18n/t';
+import { TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_MUTATION, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
-import type { PageServerLoad } from './$types';
+import type { Actions, PageServerLoad } from './$types';
+import { updateBriefingSchema } from './schema';
+
+const updateBriefingAdapter = zod4(updateBriefingSchema);
 
 /**
  * #758 — the worker page's tab ids. These are ADDRESSES, not labels: they are
@@ -16,7 +23,7 @@ import type { PageServerLoad } from './$types';
  * URL parsing lives in one place and an unknown value falls back to the default
  * instead of rendering a page where no panel matches.
  */
-const WORKER_TAB_IDS: readonly string[] = ['profile', 'sessions', 'worklog'];
+const WORKER_TAB_IDS: readonly string[] = ['profile', 'briefing', 'sessions', 'worklog'];
 
 /** Worker sessions shown before "…and N more". */
 const SESSION_PAGE_SIZE = 20;
@@ -109,12 +116,72 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   const sessionsTruncated = !!sessions && sessions.length > SESSION_PAGE_SIZE;
 
+  // #1010: seeded with the worker's CURRENT override, so the Source view opens
+  // on what is stored rather than on an empty box a reader could mistake for
+  // "there is no override" and save over.
+  const briefingForm = await superValidate(
+    { promptOverride: worker.promptOverride ?? '' },
+    updateBriefingAdapter,
+    { errors: false },
+  );
+
   return {
     worker,
+    briefingForm,
     initialTab,
     workerSessions: sessions ? sessions.slice(0, SESSION_PAGE_SIZE) : null,
     sessionsTruncated,
     worklog: worklog?.items ?? null,
     worklogTotal: worklog?.total ?? 0,
   };
+};
+
+export const actions: Actions = {
+  /**
+   * #1010 — save the worker's prompt OVERRIDE.
+   *
+   * Named for what it writes. It is deliberately not `updateBriefing` on the
+   * wire either: the briefing is composed and underivable from this input, so a
+   * name promising to save "the briefing" would misdescribe the one thing this
+   * action can do.
+   */
+  updateBriefing: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), updateBriefingAdapter);
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      await gqlClient(locals.token).request(UPDATE_WORKER_MUTATION, {
+        workerRef: params.id,
+        // The mutation null-clears by PRESENCE, so an empty textarea must reach
+        // the server as an empty STRING to clear the override. Sending null
+        // here would be indistinguishable from "leave it untouched", and the
+        // reader who just emptied the box would see their text come back.
+        promptOverride: form.data.promptOverride,
+      });
+      return message(form, {
+        type: 'success',
+        text: t('worker.briefing.saved', 'Override saved. It reaches this worker at its next bind.'),
+      });
+    } catch (e: unknown) {
+      const code = extractGqlErrorCode(e);
+      // Both refusals are the server's to make and are reported as it stated
+      // them: the portal does not pre-derive staffing access to hide the editor
+      // (the App page's own note on STAFFING_FORBIDDEN explains why a hidden
+      // control is worse than a refused one), and a retired worker is a fact
+      // the payload carries, so the UI disables the editor for it too.
+      const text =
+        code === 'WORKER_RETIRED'
+          ? t(
+              'worker.briefing.error.retired',
+              'This worker is retired — it takes no new session bindings, so an override would never be delivered.',
+            )
+          : code === 'FORBIDDEN'
+            ? t(
+                'worker.briefing.error.forbidden',
+                'You don’t have permission to amend this worker. Editing a casting needs contributor access to the App’s organization, or a non-reader role in the App.',
+              )
+            : extractGqlError(e, 'Failed to save the override');
+      return message(form, { type: 'error', text }, { status: code === 'FORBIDDEN' ? 403 : 400 });
+    }
+  },
 };

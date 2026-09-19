@@ -4,8 +4,13 @@
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import WorkerSessionsTable from '$lib/components/WorkerSessionsTable.svelte';
-  import { tick, untrack } from 'svelte';
+  import { marked } from 'marked';
+  import DOMPurify from 'dompurify';
+  import { onMount, tick, untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
+  import { superForm } from 'sveltekit-superforms/client';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
+  import { updateBriefingSchema } from './schema';
   import { t } from '$lib/i18n/t';
   import { isHeld, workerHold } from '$lib/worker-hold';
   import type { PageData } from './$types';
@@ -23,12 +28,16 @@
   // of every `hrn:worker:` URN a worker signs its outward-facing work with, so
   // a deep link here is exactly the link #761 taught to survive the resolver.
   // Labels may be reworded; these ids may not.
-  type WorkerTabId = 'profile' | 'sessions' | 'worklog';
+  type WorkerTabId = 'profile' | 'briefing' | 'sessions' | 'worklog';
   let activeTab = $state<WorkerTabId>(
     untrack(() => (data.initialTab as WorkerTabId | null) ?? 'profile'),
   );
   const tabs: { id: WorkerTabId; label: string }[] = [
     { id: 'profile', label: t('worker.tabs.profile', 'Profile') },
+    // #1010 — the boot briefing, moved off Profile where it was a collapsed
+    // <details>. It is multi-KB and it is now editable, which is more than a
+    // disclosure triangle should carry.
+    { id: 'briefing', label: t('worker.tabs.briefing', 'Boot briefing') },
     // "Worker sessions", never a bare "Sessions": a reader could take that to
     // mean their own chat sessions, which are not Hadron entities at all
     // (hadron-server#1034). The tab is always present — an unavailable or empty
@@ -36,6 +45,72 @@
     { id: 'sessions', label: t('worker.tabs.sessions', 'Worker sessions') },
     { id: 'worklog', label: t('worker.tabs.worklog', 'Worklog') },
   ];
+
+  // ── Boot briefing (#1010) ──────────────────────────────────────────
+  //
+  // Rendered shows the COMPOSED briefing; Source edits the OVERRIDE. They are
+  // deliberately not two views of one string, which is the one place this tab
+  // departs from the node Content tab it otherwise mirrors — and the reason is
+  // that the briefing is DERIVED and unwritable:
+  //
+  //   prompt = boundTemplate + promptOverride + derivedRegisterBlock
+  //
+  // `updateWorker` takes only `promptOverride`; the server exposes no way to
+  // write the composed prompt. Offering a Source view that edited the whole
+  // briefing would let a reader save the template back into the override, and
+  // it would then be prepended again on every render, compounding with each
+  // save. So Source shows the inherited half read-only beside the editable
+  // half, and says which is which.
+  let showSource = $state(false);
+  let isBrowser = $state(false);
+  onMount(() => {
+    isBrowser = true;
+  });
+
+  // `worker` and `retired` are declared further down with the profile bindings.
+  /** The agent's RAW template. Null when the agent has none, OR when the agent
+   *  read gate denies it — the composed prompt sits behind the worker gate, so
+   *  the two can disagree and the panel distinguishes them. */
+  const inheritedTemplate = $derived(data.worker.agent?.personaPrompt ?? null);
+
+  function renderMarkdown(text: string): string {
+    // DOMPurify needs a real DOM and cannot run under SSR, so emit nothing
+    // until mounted: the {@html} sink is only ever fed sanitized HTML, never
+    // raw prompt text during SSR or the pre-hydration render
+    // (hrn:node:hadronmemory.com:hadron-portal:review:sanitize-html-with-dompurify).
+    if (!isBrowser || !text) return '';
+    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+  }
+  const renderedBriefing = $derived(data.worker.prompt ? renderMarkdown(data.worker.prompt) : '');
+
+  const {
+    form: briefingData,
+    message: briefingMessage,
+    submitting: briefingSubmitting,
+    enhance: briefingEnhance,
+  } = superForm(
+    // untrack: superForm takes the INITIAL form and owns the store from then
+    // on, so a top-level `data.briefingForm` read is intentional here — the
+    // same shape the App page uses for its post form. `briefingDirty` below
+    // does read `data` reactively, which is what keeps the button honest after
+    // a save invalidates.
+    untrack(() => data.briefingForm),
+    {
+    validators: zod4Client(updateBriefingSchema),
+    // The whole override is one field with no cross-field rules, so validating
+    // per keystroke only flickers; the submit is the meaningful moment.
+    validationMethod: 'submit-only',
+    resetForm: false,
+    invalidateAll: true,
+  },
+  );
+
+  // Unsaved-edit guard: comparing against the SERVER's value, not a snapshot
+  // taken at mount, so a successful save (which invalidates and re-seeds)
+  // clears the flag instead of leaving it armed forever.
+  const briefingDirty = $derived(
+    ($briefingData.promptOverride ?? '') !== (data.worker.promptOverride ?? ''),
+  );
 
   // The ARIA tab pattern, taken from src/routes/app/memories/+page.svelte
   // rather than from the App detail page's strip — which is plain buttons with
@@ -352,28 +427,186 @@
     {/if}
 
     <!-- ───────── BOOT BRIEFING (#737) ─────────
-         The most literal answer to "who is this" — but multi-KB, and
-         hadron-cli#459 is an open issue about exactly this content appearing
-         where it was not wanted. So: collapsed by default, never inline.
-         <details> rather than a JS toggle, so it works without hydration and
-         carries the disclosure semantics for free. -->
-    {#if worker.prompt}
-      <details class="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <summary class="cursor-pointer px-5 py-3 text-sm font-medium text-zinc-900 dark:text-white">
-          {t('worker.briefing.title', 'Boot briefing')}
-        </summary>
-        <div class="border-t border-zinc-200 px-5 py-3 dark:border-zinc-800">
-          <p class="mb-2 text-xs text-zinc-500">
+         Moved to its own tab by #1010 — multi-KB and now editable, which is
+         more than a disclosure triangle on Profile should carry. -->
+    </div>
+  {/if}
+
+  {#if activeTab === 'briefing'}
+    <div id="panel-briefing" role="tabpanel" aria-labelledby="tab-briefing" tabindex="0" class="space-y-4 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h2 class="font-semibold text-zinc-900 dark:text-white">
+            {t('worker.briefing.title', 'Boot briefing')}
+          </h2>
+          <p class="mt-1 text-sm text-zinc-500">
             {t(
               'worker.briefing.description',
-              'What this worker is told at the start of every worker session: its role agent’s template with the name and role bound, plus any per-worker override. It renders live, so a copy goes stale.',
+              'What this worker is told at the start of every worker session: its role agent’s template with the name and role bound, plus this worker’s override. It renders live, so a copy goes stale.',
             )}
           </p>
-          <pre
-            class="max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-xs text-zinc-700 dark:text-zinc-300">{worker.prompt}</pre>
         </div>
-      </details>
-    {/if}
+
+        <!-- role=group + aria-pressed, per
+             hrn:node:hadronmemory.com:hadron-portal:review:segmented-control-aria-pressed:
+             the active state is otherwise carried by background colour alone,
+             which no assistive technology can read. -->
+        <div
+          role="group"
+          aria-label={t('worker.briefing.view-mode', 'Briefing view')}
+          class="flex shrink-0 overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
+        >
+          <button
+            type="button"
+            aria-pressed={!showSource}
+            class="px-2 py-1 text-xs {!showSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+            onclick={() => (showSource = false)}
+          >{t('worker.briefing.rendered', 'Rendered')}</button>
+          <button
+            type="button"
+            aria-pressed={showSource}
+            class="px-2 py-1 text-xs {showSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+            onclick={() => (showSource = true)}
+          >{t('worker.briefing.source', 'Source')}</button>
+        </div>
+      </div>
+
+      {#if !showSource}
+        <!-- ── RENDERED: the composed briefing, which is what the worker is
+             actually told. Read-only by nature, not by choice — see the Source
+             view for what can be changed. -->
+        {#if data.worker.prompt}
+          <div class="rounded-xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+            {#if isBrowser}
+              <div class="prose prose-sm prose-zinc max-w-none dark:prose-invert">{@html renderedBriefing}</div>
+            {:else}
+              <!-- Pre-hydration: the sanitizer cannot run, so show the text
+                   verbatim rather than an empty panel that reads as "no
+                   briefing". -->
+              <pre class="whitespace-pre-wrap break-words font-mono text-xs text-zinc-700 dark:text-zinc-300">{data.worker.prompt}</pre>
+            {/if}
+          </div>
+        {:else}
+          <p class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
+            {t(
+              'worker.briefing.empty',
+              'No boot briefing: the role agent carries no template and this worker has no override. Anything you save below becomes the whole briefing.',
+            )}
+          </p>
+        {/if}
+      {:else}
+        <!-- ── SOURCE: the two halves, separated, because only one is writable.
+             This is the one place the tab departs from a node's Content tab,
+             and deliberately: the briefing is DERIVED (bound template +
+             override + a register block the server evaluates per reader), so
+             there is no single source string to edit. -->
+        <section class="space-y-2">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 class="text-sm font-medium text-zinc-900 dark:text-white">
+              {t('worker.briefing.inherited.title', 'Inherited from the role agent')}
+            </h3>
+            {#if data.worker.agent}
+              <a
+                href="/app/agents/{data.worker.agent.id}"
+                class="text-xs text-indigo-500 hover:underline dark:text-indigo-400"
+              >{t('worker.briefing.inherited.edit', 'Edit on the agent →')}</a>
+            {/if}
+          </div>
+          <p class="text-xs text-zinc-500">
+            {t(
+              'worker.briefing.inherited.description',
+              'Shared by every worker cast from this agent, so it is not editable here — the placeholders are bound to this worker’s name and role when the briefing renders.',
+            )}
+          </p>
+          {#if inheritedTemplate}
+            <pre
+              class="max-h-72 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 font-mono text-xs whitespace-pre-wrap break-words text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">{inheritedTemplate}</pre>
+          {:else}
+            <p class="rounded-lg border border-dashed border-zinc-300 px-4 py-3 text-xs text-zinc-500 dark:border-zinc-700">
+              {#if data.worker.prompt}
+                <!-- The composed briefing is readable but the template is not:
+                     they sit behind DIFFERENT gates (the worker's vs the
+                     agent's), so this is "not visible to you", never "there is
+                     no template". Saying the latter would be a false statement
+                     about the agent. -->
+                {t(
+                  'worker.briefing.inherited.hidden',
+                  'The agent’s template isn’t visible to you — reading it needs access to the agent itself, which is a different permission from reading this worker.',
+                )}
+              {:else}
+                {t('worker.briefing.inherited.none', 'This role agent carries no template.')}
+              {/if}
+            </p>
+          {/if}
+        </section>
+
+        <form method="POST" action="?/updateBriefing" use:briefingEnhance class="space-y-2" novalidate>
+          <input type="hidden" name="_kind" value="updateBriefing" />
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <label for="promptOverride" class="text-sm font-medium text-zinc-900 dark:text-white">
+              {t('worker.briefing.override.title', 'This worker’s override')}
+            </label>
+            {#if briefingDirty}
+              <span class="text-xs text-amber-600 dark:text-amber-400">
+                {t('worker.briefing.override.unsaved', 'Unsaved changes')}
+              </span>
+            {/if}
+          </div>
+          <p class="text-xs text-zinc-500">
+            {t(
+              'worker.briefing.override.description',
+              'Individuality layered over the shared template — what is true of THIS casting and not of every casting of the role. Saving REPLACES the whole override; emptying it clears it. It reaches the worker at its next bind.',
+            )}
+          </p>
+          <textarea
+            id="promptOverride"
+            name="promptOverride"
+            bind:value={$briefingData.promptOverride}
+            disabled={retired}
+            rows="14"
+            spellcheck="false"
+            class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+          ></textarea>
+
+          {#if retired}
+            <!-- A fact the payload carries, so the control is disabled rather
+                 than left to fail: updateWorker refuses WORKER_RETIRED. The
+                 STAFFING permission is NOT pre-derived the same way — the
+                 server's refusal is the authority there, and a hidden control
+                 is a worse answer than a refused one. -->
+            <p class="text-xs text-zinc-500">
+              {t(
+                'worker.briefing.override.retired',
+                'This worker is retired — it takes no new session bindings, so an override could never be delivered.',
+              )}
+            </p>
+          {:else}
+            <div class="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={$briefingSubmitting || !briefingDirty}
+                class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {$briefingSubmitting
+                  ? t('worker.briefing.override.saving', 'Saving…')
+                  : t('worker.briefing.override.save', 'Save override')}
+              </button>
+            </div>
+          {/if}
+
+          {#if $briefingMessage}
+            <!-- role per outcome, per
+                 hrn:node:hadronmemory.com:hadron-portal:review:superforms-banner-a11y-roles:
+                 an error is assertive, a success is polite. -->
+            <p
+              role={$briefingMessage.type === 'error' ? 'alert' : 'status'}
+              class="rounded-lg border px-3 py-2 text-sm {$briefingMessage.type === 'error'
+                ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
+                : 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'}"
+            >{$briefingMessage.text}</p>
+          {/if}
+        </form>
+      {/if}
     </div>
   {/if}
 
