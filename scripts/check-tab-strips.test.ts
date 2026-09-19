@@ -455,6 +455,115 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     ).toEqual([]);
   });
 
+  it('a tab whose border-b-2 comes from a script CONSTANT is seen', () => {
+    // #858's last blind spot. `classText` reads the attribute source, so a
+    // token held in a const never appeared there and the rail reported zero
+    // tabs — the strip was skipped entirely, not examined and cleared. Two real
+    // strips hid behind this (@copilot and @codex on #860).
+    expect(
+      kinds(`
+      <script>
+        const subTabBase = 'border-b-2 px-3 py-1.5 text-sm font-medium';
+        const on = 'border-indigo-500';
+        const off = 'border-transparent';
+      </script>
+      <div class="flex gap-1 border-b border-zinc-200">
+        <button class="{subTabBase} {sub === 'a' ? on : off}">One</button>
+        <button class="{subTabBase} {sub === 'b' ? on : off}">Two</button>
+      </div>`),
+    ).toContain('strip-does-not-scroll');
+  });
+
+  it('a resolved constant satisfies a REQUIREMENT, because it always applies', () => {
+    // The other direction: `{tabBase}` is a bare identifier, so it is applied
+    // unconditionally and its tokens are genuinely static. Resolving it must
+    // therefore satisfy the requirements, not merely trip detection.
+    expect(
+      offences(`
+      <script>
+        const tabBase = 'shrink-0 whitespace-nowrap border-b-2 px-3 py-2';
+      </script>
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        <button class="{tabBase}">One</button>
+        <button class="{tabBase}">Two</button>
+      </div>`),
+    ).toEqual([]);
+  });
+
+  it('a TERNARY is not resolved, even when its branches are constants', () => {
+    // The restriction that keeps this safe. Only a BARE identifier is inlined;
+    // `{a ? x : y}` does not always apply, so it stays an interpolation for
+    // `staticPart` to strip. Resolving it would re-open the one-armed-ternary
+    // hole closed in 2d0266f.
+    //
+    // The mutation that proves this is specific, and the first one I tried was
+    // NOT it: resolving the branch identifiers while LEAVING the braces changes
+    // nothing, because `staticPart` strips the braces either way, so this test
+    // passed and looked proven. The mutation that fails it resolves the
+    // branches AND drops the braces — which is what "resolving a ternary" would
+    // actually mean. A weaker mutation reporting a pass is the instrument
+    // measuring nothing again.
+    const k = kinds(`
+      <script>
+        const pinned = 'shrink-0 whitespace-nowrap';
+        const loose = '';
+      </script>
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        <button class="border-b-2 {compact ? pinned : loose}">One</button>
+        <button class="border-b-2 {compact ? pinned : loose}">Two</button>
+      </div>`);
+    expect(k).toContain('tab-can-shrink');
+    expect(k).toContain('tab-can-wrap');
+  });
+
+  it('a constant built at runtime is NOT resolved', () => {
+    // Only string literals and interpolation-free templates count. Guessing at
+    // a value assembled at runtime would be worse than not seeing it — so the
+    // rail is simply not resolved, which the coverage pins below record.
+    expect(
+      offences(`
+      <script>
+        const tabBase = ['border-b-2', size].join(' ');
+      </script>
+      <div class="flex gap-0 border-b border-zinc-200">
+        <button class="{tabBase}">One</button>
+        <button class="{tabBase}">Two</button>
+      </div>`),
+    ).toEqual([]);
+  });
+
+  it('`truncate` on the LABEL satisfies the no-wrap requirement', () => {
+    // Tailwind's `truncate` IS `white-space: nowrap` (plus ellipsis), and
+    // `ViewTabs` — the saved-view strip on every list page — writes it that way
+    // on an inner span. Measured with its real class strings at 390px, a
+    // 43-char label: with `truncate` the tab is 38px tall (one line), without
+    // it 58px (two). Demanding `whitespace-nowrap` on the tab would have
+    // reported correct markup rendering in every list in the portal.
+    expect(
+      offences(`
+      <script>
+        const tabBase = 'flex shrink-0 max-w-[14rem] items-center gap-1 border-b-2 px-3 py-2';
+      </script>
+      <div class="flex items-center gap-2 border-b border-zinc-200">
+        <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          <button class="{tabBase}"><span class="truncate">One</span></button>
+          <button class="{tabBase}"><span class="truncate">Two</span></button>
+        </div>
+      </div>`),
+    ).toEqual([]);
+  });
+
+  it('a tab with NEITHER whitespace-nowrap nor truncate is still reported', () => {
+    // The spare above must not become a blanket pass: `truncate` has to be
+    // present somewhere on the tab, not merely possible.
+    expect(
+      kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}<a class="shrink-0 border-b-2 px-4"><span>{tab.label}</span></a>{/each}
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
   it('reports an unparseable file rather than passing it', () => {
     // A gate that silently skips what it cannot read can be switched off by a
     // toolchain change nobody notices.
@@ -501,6 +610,7 @@ describe('the repository as it stands', () => {
    * appending the path.
    */
   const SEEN_AS_STRIPS = [
+    'src/lib/components/table/ViewTabs.svelte',
     'src/routes/app/account/+layout.svelte',
     'src/routes/app/agents/[id]/+page.svelte',
     'src/routes/app/apps/[appId]/+page.svelte',
@@ -510,11 +620,12 @@ describe('the repository as it stands', () => {
     'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte',
     'src/routes/app/orgs/[id]/+layout.svelte',
     'src/routes/app/orgs/[id]/agents/+page.svelte',
+    'src/routes/app/orgs/[id]/memories/+page.svelte',
     'src/routes/app/workers/[id]/+page.svelte',
   ];
 
-  /** Eleven strips across ten files — the agent detail page carries two. */
-  const STRIPS_TOTAL = 11;
+  /** Thirteen strips across twelve files — the agent detail page carries two. */
+  const STRIPS_TOTAL = 13;
 
   it('walks a plausible number of real .svelte files', () => {
     // The mirror of every "no offences" assertion in this file: an empty file

@@ -64,22 +64,31 @@
  * should keep `shrink-0` on the tabs and suppress this check deliberately,
  * with a comment saying why — not by quietly widening the rail predicate.
  *
- * ## WHAT THIS GATE CANNOT SEE YET — read this before trusting a green run
+ * ## WHAT THIS GATE SEES — read this before trusting a green run
  *
  * Measured on this commit: of TWENTY rails in `src/`, this predicate recognises
- * ELEVEN as tab strips. A green run means "the 11 strips I can parse are fine",
- * NOT "every tab strip in the portal is safe at phone width". The nine it
- * misses are not innocents it examined and cleared; they are rails it never
- * resolved.
+ * THIRTEEN as tab strips. A green run means "the 13 strips I can parse are
+ * fine", NOT "every tab strip in the portal is safe at phone width".
  *
  * "Safe", not "scrolls": a `flex-wrap` strip passes without scrolling at all.
  *
- * ONE blind spot accounts for all nine, and it is tracked on #858:
+ * The other SEVEN are not blind spots. Each was examined and is genuinely not a
+ * tab strip — a header row, a banner, a toolbar, an aspect-ratio box: `flex` +
+ * `border-b` with no `border-b-2` children. They are true negatives, and the
+ * `border-b-2` requirement is what excludes them. Listing them here because
+ * "20 rails, 13 strips" otherwise reads as seven more things to fix, which is
+ * how a denominator becomes its own kind of false claim:
  *
- *   A class token supplied by a script constant is invisible to `classText`,
- *   which reads the attribute's source slice only. `/app/orgs/[id]/memories`
- *   builds its tabs from a `subTabBase` constant holding `border-b-2`, so that
- *   rail reports ZERO tabs and is skipped. Nine rails report zero tabs.
+ *   AgentChat, ImpersonationBanner, MemoryBrowser, SelectUser,
+ *   DashboardEditor (x2), routes/+page
+ *
+ * FIXED, and recorded because the shape recurs: a class token supplied by a
+ * script CONSTANT used to be invisible — `classText` reads the attribute source,
+ * so `class="{subTabBase} …"` showed no `border-b-2` and the rail reported zero
+ * tabs. Two real strips hid behind it, `ViewTabs` (which renders on every list
+ * page) and `/app/orgs/[id]/memories` (which was genuinely broken).
+ * `classConstants`/`inlineConstants` are the repair, and they inline ONLY a
+ * bare identifier — a ternary stays conditional.
  *
  * FIXED, and recorded because the shape recurs: a Tailwind VARIANT used to
  * satisfy every one of these regexes — `sm:overflow-x-auto` matches a `\b`
@@ -94,8 +103,10 @@
  * `elementsWithAncestry` is the repair. Teaching the gate to see them found two
  * unguarded strips immediately, one of which was real (`/app/orgs/[id]`).
  *
- * Until the class-constant gap closes, do NOT read this gate's silence as
- * coverage of the whole repository.
+ * There is no known blind spot left. That is a stronger claim than this file
+ * has ever made, so it is the one to re-verify rather than inherit: the
+ * suite pins WHICH strips are seen, by name, and `railsSeen` beside
+ * `stripsSeen` is what would show the gap reopening.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -107,7 +118,22 @@ const TAB_BORDER = /\bborder-b-2(?![-\w])/;
 const FLEX = /\bflex(?![-\w])/;
 const SCROLLS = /\boverflow-x-auto\b/;
 const NO_SHRINK = /\bshrink-0\b/;
-const NO_WRAP = /\bwhitespace-nowrap\b/;
+/**
+ * What stops a tab's label wrapping. `truncate` is the second spelling and has
+ * to be here: Tailwind's `truncate` IS `overflow:hidden; text-overflow:ellipsis;
+ * white-space:nowrap`, so it satisfies this requirement outright.
+ *
+ * `ViewTabs.svelte` — the saved-view strip on EVERY list page — writes it that
+ * way, `truncate` on the label span inside a `max-w-[14rem]` tab. Measured with
+ * its real class strings at 390px, one 43-char label: with `truncate` the tab
+ * is 224px and 38px tall (one line); without it, 58px tall (two lines). The
+ * span's computed `white-space` reads `nowrap` in the first case.
+ *
+ * Demanding `whitespace-nowrap` there would have been a false positive on a
+ * component rendering in every list in the portal — and the "fix" would have
+ * been to add a redundant class to correct markup.
+ */
+const NO_WRAP = /\b(?:whitespace-nowrap|truncate)\b/;
 
 /**
  * `flex-wrap` is the OTHER correct answer to #858, and the gate has to know it.
@@ -220,7 +246,55 @@ function staticPart(cls) {
  * (a different attribute type), which no strip in this repo uses for these
  * layout tokens.
  */
-function classText(el, source) {
+/**
+ * Module-level `const NAME = 'string literal'` declarations, as a name → text
+ * map. Only plain string literals and interpolation-free template literals
+ * count: a value assembled at runtime is not something this can resolve, and
+ * guessing would be worse than not seeing it.
+ *
+ * This is #858's last blind spot. A strip written as
+ *
+ *   const subTabBase = 'border-b-2 px-3 py-1.5 …';
+ *   <button class="{subTabBase} {active ? … : …}">
+ *
+ * carries `border-b-2` nowhere in the attribute source, so `classText` saw a
+ * tabless rail and the strip was skipped entirely (@copilot and @codex on
+ * #860). Two real strips hid behind it.
+ */
+function classConstants(ast) {
+  const found = new Map();
+  const body = ast.instance?.content?.body ?? [];
+  for (const node of body) {
+    if (node.type !== 'VariableDeclaration' || node.kind !== 'const') continue;
+    for (const d of node.declarations ?? []) {
+      if (d.id?.type !== 'Identifier' || !d.init) continue;
+      if (d.init.type === 'Literal' && typeof d.init.value === 'string') {
+        found.set(d.id.name, d.init.value);
+      } else if (d.init.type === 'TemplateLiteral' && d.init.expressions?.length === 0) {
+        found.set(d.id.name, d.init.quasis.map((q) => q.value.cooked ?? '').join(''));
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Inline `{name}` interpolations that resolve to a known string constant.
+ *
+ * ONLY a bare identifier is inlined, and that restriction is the whole safety
+ * of it: `{tabBase}` always applies, so its tokens are genuinely unconditional
+ * and belong in the static text. `{active ? a : b}` does NOT always apply, so
+ * it is left as an interpolation for `staticPart` to strip — resolving it would
+ * re-open the one-armed-ternary hole closed in 2d0266f.
+ */
+function inlineConstants(cls, constants) {
+  if (constants.size === 0) return cls;
+  return cls.replace(/\{\s*([A-Za-z_$][\w$]*)\s*\}/g, (whole, name) =>
+    constants.has(name) ? constants.get(name) : whole,
+  );
+}
+
+function classText(el, source, constants = new Map()) {
   const attr = (el.attributes ?? []).find((a) => a.type === 'Attribute' && a.name === 'class');
   if (!attr) return '';
   if (attr.value === true) return '';
@@ -228,7 +302,9 @@ function classText(el, source) {
   if (parts.length === 0) return '';
   const start = parts[0].start;
   const end = parts[parts.length - 1].end;
-  return typeof start === 'number' && typeof end === 'number' ? source.slice(start, end) : '';
+  const raw =
+    typeof start === 'number' && typeof end === 'number' ? source.slice(start, end) : '';
+  return inlineConstants(raw, constants);
 }
 
 /**
@@ -252,6 +328,8 @@ function classText(el, source) {
  * once and is not repeated.
  */
 export function elementsWithAncestry(ast, source) {
+  // Resolved once per file, not per element: the map is module-scoped.
+  const constants = classConstants(ast);
   const found = [];
   const seen = new Set();
   const visit = (node, ancestors, repeats) => {
@@ -259,7 +337,7 @@ export function elementsWithAncestry(ast, source) {
     seen.add(node);
     let nextAncestors = ancestors;
     if (node.type === 'RegularElement') {
-      const cls = classText(node, source);
+      const cls = classText(node, source, constants);
       const el = {
         name: node.name,
         // `cls` is the raw class text and is what DETECTION reads — whether a
@@ -487,7 +565,14 @@ export function analyse(source) {
         }
       } else {
         if (!NO_SHRINK.test(tab.active)) out.push({ kind: 'tab-can-shrink', start: tab.start });
-        if (!NO_WRAP.test(tab.active)) out.push({ kind: 'tab-can-wrap', start: tab.start });
+        // The no-wrap requirement may be met on the tab OR on the element
+        // actually holding the label — `ViewTabs` puts `truncate` on an inner
+        // <span>, and `white-space` applies to the text wherever it is set.
+        // Requiring it on the tab itself would report correct markup.
+        const noWrapHere =
+          NO_WRAP.test(tab.active) ||
+          all.some((e) => e.ancestors.includes(tab) && NO_WRAP.test(e.active));
+        if (!noWrapHere) out.push({ kind: 'tab-can-wrap', start: tab.start });
       }
     }
   }
@@ -544,9 +629,11 @@ function main() {
   const files = svelteFilesUnder('src');
   let failed = 0;
   let stripsSeen = 0;
+  let railsSeen = 0;
   for (const file of files) {
     const source = readFileSync(file, 'utf8');
-    const { stripsSeen: seen, offences: found } = analyse(source);
+    const { railsSeen: rails, stripsSeen: seen, offences: found } = analyse(source);
+    railsSeen += rails;
     stripsSeen += seen;
     for (const o of found) {
       failed += 1;
@@ -569,7 +656,7 @@ function main() {
     `OK — the ${stripsSeen} tab strip(s) this gate can parse do not overflow a phone screen (${files.length} .svelte files).`,
   );
   console.log(
-    'COVERAGE IS PARTIAL: a strip whose tab classes come from a shared script constant is still invisible to this predicate. See #858.',
+    `The other ${railsSeen - stripsSeen} rail(s) matching flex+border-b carry no border-b-2 children, so they are not tab strips. See #858.`,
   );
 }
 
