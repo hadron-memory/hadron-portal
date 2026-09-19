@@ -361,15 +361,20 @@
 
   <!-- Own vs Subscribed (#486). Subscribed = the org's AgentOrgGrants for
        agents owned by OTHER orgs. -->
-  <div class="flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
+  <!-- #858 — `overflow-x-auto` while this strip still FITS: measured at a 390px
+       viewport it is 308px in a 308px column, exactly at the edge. The count
+       badge below rides INSIDE its button in normal inline flow, so the
+       `overflow-y: auto` that a non-visible `overflow-x` forces has nothing
+       vertical to clip here. -->
+  <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
     <button
       type="button"
-      class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'own' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+      class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'own' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
       onclick={() => (activeTab = 'own')}
     >{t('org-agents.tab.own', 'Organization agents')}</button>
     <button
       type="button"
-      class="border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'subscribed' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+      class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'subscribed' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
       onclick={() => (activeTab = 'subscribed')}
     >{t('org-agents.tab.subscribed', 'Subscribed')}
       {#if subscribedGrants && subscribedGrants.length > 0}

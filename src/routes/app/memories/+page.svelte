@@ -148,7 +148,11 @@
   </div>
 
   <!-- Tabs (ARIA tab pattern) -->
-  <div role="tablist" aria-label={t('my-memories.tabs-label', 'Memories')} class="flex gap-0 border-b border-zinc-200 dark:border-zinc-800">
+  <!-- #858 — `overflow-x-auto` while this strip still FITS. Measured at 390px
+       it is 308px in a 308px column: exactly at the edge, so one added tab or
+       one longer translated label puts it over, and nobody would be watching
+       when that happens. -->
+  <div role="tablist" aria-label={t('my-memories.tabs-label', 'Memories')} class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
     {#each tabs as tab (tab.id)}
       <button
         type="button"
@@ -159,7 +163,7 @@
         tabindex={activeTab === tab.id ? 0 : -1}
         onclick={() => (activeTab = tab.id)}
         onkeydown={onTabKeydown}
-        class="border-b-2 px-4 py-2 text-sm font-medium transition
+        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
           {activeTab === tab.id
             ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
             : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"

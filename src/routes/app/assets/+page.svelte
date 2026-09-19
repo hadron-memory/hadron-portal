@@ -60,12 +60,22 @@
   <!-- Links, not buttons: each slice is a different server query, so the tab
        belongs in the URL. -->
   <div class="flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">
-    <nav class="flex gap-0" aria-label={t('assets-page.tabs.aria-label', 'File scope')}>
+    <!-- #858 — `min-w-0` as well as `overflow-x-auto`, and the min-w-0 is the
+         load-bearing half here. This nav is a flex ITEM of the
+         `justify-between` row above, and a flex item's default
+         `min-width: auto` refuses to shrink below its content — so
+         `overflow-x-auto` alone would never engage and the row would push the
+         count off-screen instead. Same defect #746 hit on the App page's
+         AI-config select. -->
+    <nav
+      class="flex min-w-0 gap-0 overflow-x-auto"
+      aria-label={t('assets-page.tabs.aria-label', 'File scope')}
+    >
       {#each ASSET_TABS as tab (tab)}
         <a
           href={href(tab)}
           aria-current={activeTab === tab ? 'page' : undefined}
-          class="border-b-2 px-4 py-2 text-sm font-medium transition
+          class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
             {activeTab === tab
               ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
               : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200'}"
@@ -73,7 +83,9 @@
       {/each}
     </nav>
     {#if !data.failed && !data.noOrg && rows.length > 0}
-      <span class="mb-2 text-xs text-zinc-500">
+      <!-- shrink-0: the nav may now shrink, so without this the COUNT becomes
+           the thing that gets squeezed instead. -->
+      <span class="mb-2 shrink-0 text-xs text-zinc-500">
         {t('assets-page.count', '{total} file(s)', { total: data.total })}
       </span>
     {/if}
