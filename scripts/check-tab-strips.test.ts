@@ -378,6 +378,30 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     expect(k).toContain('tab-can-shrink');
   });
 
+  it.each([
+    ['whitespace-nowrap', 'whitespace-nowrap border-b-2', 'wrapping-tab-cannot-break'],
+    ['shrink-0', 'shrink-0 border-b-2', 'wrapping-tab-cannot-shrink'],
+  ])('a WRAPPING strip whose tabs carry %s is reported', (_what, tabCls, kind) => {
+    // @copilot on #863: skipping the tab checks whenever `wraps` accepted a
+    // strip that overflows, while the comment above the branch said those
+    // classes were wrong here. Measured on the agent sub-tab bar at 390px, one
+    // 46-char label in a 308px rail:
+    //
+    //   plain              308px, two lines, document overflow 0
+    //   shrink-0           342px, one line,  document overflow 17px
+    //   whitespace-nowrap  342px, one line,  document overflow 17px
+    //
+    // Either class alone reintroduces the defect, so both are reported.
+    expect(
+      kinds(`
+      <div class="flex flex-wrap items-center gap-1 border-b border-zinc-200">
+        {#each subTabs as subTab (subTab.id)}
+          <div class="flex items-center"><button class="${tabCls} px-3">{subTab.label}</button></div>
+        {/each}
+      </div>`),
+    ).toContain(kind);
+  });
+
   it('reports an unparseable file rather than passing it', () => {
     // A gate that silently skips what it cannot read can be switched off by a
     // toolchain change nobody notices.

@@ -395,13 +395,32 @@ export function analyse(source) {
       out.push({ kind: 'strip-does-not-scroll', start: rail.start, tabs: tabs.length });
     }
 
-    // Only a strip that solves this by SCROLLING needs its tabs pinned. On a
-    // wrapping rail both classes are wrong: `shrink-0` is unnecessary because
-    // the tab moves to the next line instead of being squashed, and
-    // `whitespace-nowrap` would stop a long label breaking and reintroduce the
-    // overflow this gate exists to prevent.
-    if (!wraps) {
-      for (const tab of tabs) {
+    // The two solutions want OPPOSITE tab classes, so the requirement inverts
+    // rather than switching off.
+    //
+    // A SCROLLING strip needs its tabs pinned — without `shrink-0` flex squashes
+    // them, without `whitespace-nowrap` labels wrap and the strip grows down.
+    //
+    // A WRAPPING strip needs them NOT pinned, and that is not a style opinion.
+    // Measured in the running app on the agent sub-tab bar at 390px, same 46-char
+    // label in a 308px rail:
+    //
+    //   plain                 tab 308px, 2 lines,  document overflow 0
+    //   shrink-0              tab 342px, 1 line,   document overflow 17px
+    //   whitespace-nowrap     tab 342px, 1 line,   document overflow 17px
+    //
+    // Either class alone reintroduces exactly the defect this gate exists to
+    // prevent, so a wrapping rail carrying them is REPORTED. Skipping the tab
+    // checks entirely — which is what this did — accepted a strip that
+    // overflows, while the comment above claimed those classes were wrong
+    // (@copilot on #863).
+    for (const tab of tabs) {
+      if (wraps) {
+        if (NO_SHRINK.test(tab.active))
+          out.push({ kind: 'wrapping-tab-cannot-shrink', start: tab.start });
+        if (NO_WRAP.test(tab.active))
+          out.push({ kind: 'wrapping-tab-cannot-break', start: tab.start });
+      } else {
         if (!NO_SHRINK.test(tab.active)) out.push({ kind: 'tab-can-shrink', start: tab.start });
         if (!NO_WRAP.test(tab.active)) out.push({ kind: 'tab-can-wrap', start: tab.start });
       }
@@ -427,6 +446,10 @@ const MESSAGES = {
     'This tab has no `shrink-0`, so flex compresses the labels into unreadable columns instead of letting the strip scroll. See #858.',
   'tab-can-wrap':
     'This tab has no `whitespace-nowrap`, so a long label wraps and the strip grows vertically rather than horizontally. See #858.',
+  'wrapping-tab-cannot-shrink':
+    'This tab is on a WRAPPING strip but carries `shrink-0`, so a label wider than the phone column cannot shrink and pushes the page off the right edge. Measured: 342px in a 308px rail, 17px of document overflow. `shrink-0` is for SCROLLING strips — remove it here, or make the strip scroll instead. See #858.',
+  'wrapping-tab-cannot-break':
+    'This tab is on a WRAPPING strip but carries `whitespace-nowrap`, so a long label cannot break onto a second line and pushes the page off the right edge. Measured: 342px in a 308px rail, 17px of document overflow. `whitespace-nowrap` is for SCROLLING strips — remove it here, or make the strip scroll instead. See #858.',
   unparseable: 'This file could not be parsed, so the tab-strip gate could not check it. See #858.',
 };
 
