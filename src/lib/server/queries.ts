@@ -2930,10 +2930,21 @@ export const MY_APPS_QUERY = /* GraphQL */ `
 // The portal maps the server enum to WidgetType and fans the data out by type.
 export const DASHBOARD_QUERY = /* GraphQL */ `
   query Dashboard {
-    # #1176 — the same slice as PERSONAL_MEMORIES_QUERY, and it has to stay the
-    # same: this count and that list are the same claim on two pages. Under the
-    # class filter the stat under-reported by exactly the rows the list was
-    # missing.
+    # #1176 — the same slice as PERSONAL_MEMORIES_QUERY, and it has to stay
+    # the same: this count and that list are the same claim on two pages.
+    #
+    # But this count is only the loader's FALLBACK. The dashboard loader does
+    # "if (!widgetData['memory-stats'])", and the server's dashboardWidgetData
+    # supplies it whenever present — so on a normal account the number a user
+    # sees does NOT come from here. Measured at the time of this change: the
+    # widget rendered 87 against a "My memories" list of 4, because the server's
+    # MEMORY_STATS provider calls memories() with NO filter while its own
+    # comment claims the count matches the portal's memory list exactly. That
+    # is hadron-server's to fix; reported, not worked around.
+    #
+    # Swapping it here is still right — the fallback must not disagree with the
+    # list it stands in for — but it does not fix the visible stat, and saying
+    # otherwise would describe a repair this query did not make.
     memories(filter: { ownedByMe: true }, limit: 0) {
       total
     }
