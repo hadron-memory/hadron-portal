@@ -525,7 +525,13 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
  * every node it targets is one.
  *
  * These pin the ROUTING, which is the whole of the fix: same input, different
- * door, chosen from the submitted value.
+ * door.
+ *
+ * #868: the door is chosen by the shared chooser (`$lib/server/nodeKindDoor`)
+ * from the node's kind BEFORE the write unioned with its kind AFTER — not, as
+ * #867 had it, from the submitted value alone. One case below was flipped as
+ * part of that; it is marked, because it had pinned a refusal as if it were the
+ * contract.
  */
 describe('edit-node action — the task kind door (#864, server #1201)', () => {
   function nodeRow(over: Record<string, unknown> = {}) {
@@ -567,13 +573,30 @@ describe('edit-node action — the task kind door (#864, server #1201)', () => {
     expect(doc).not.toContain('updateTaskNode');
   });
 
-  it('chooses by the SUBMITTED value, not the stored one', async () => {
-    // The server reads the RESULTING state. A node that is runnable today but
-    // is being switched off must go through the generic door, or the write
-    // claims a kind it is giving up.
+  /**
+   * FLIPPED on #868. This case previously read "chooses by the SUBMITTED value,
+   * not the stored one" and asserted the generic door — and it was WRONG about
+   * the server, not merely about a preference.
+   *
+   * The reasoning behind it was "the write claims a kind it is giving up", which
+   * sounds right and is not what the gate does. `assertGovernedWrite` takes the
+   * union of the kinds the node HAD and the kinds it WILL have, because a
+   * result-only gate would let the generic surface UN-GOVERN a node in one call
+   * — `updateNode(isRunnable: false)` would simply delete the capability marker.
+   * So the removal needs the task door too, and the refusal even changes voice
+   * to say so: "This write would REMOVE the marker that makes this a RUNNABLE
+   * node — un-governing it."
+   *
+   * Converting a node TO a task worked after #867; converting one BACK did not,
+   * and this test asserted the broken direction was correct. Left as its own
+   * case with this note rather than quietly re-worded, because a ratchet
+   * pointing backwards is worth more as a labelled correction than as a clean
+   * diff (review:convention-ratchets-must-be-flipped).
+   */
+  it('routes the REMOVAL of the runnable marker through updateTaskNode too', async () => {
     const doc = await runSave({ name: 'n' }, nodeRow({ isRunnable: true }));
-    expect(doc).toContain('updateNode(');
-    expect(doc).not.toContain('updateTaskNode');
+    expect(doc).toContain('updateTaskNode');
+    expect(doc).not.toContain('updateNode(');
   });
 
   it('carries the SAME input through either door', async () => {

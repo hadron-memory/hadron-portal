@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
-import { NODE_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_QUERY } from '$lib/server/queries';
+import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 import type { MemoryNode } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -27,9 +28,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       // default), so this is no longer load-bearing — kept deliberately;
       // see routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts
       // updateContent for the rationale.
-      await client.request(UPDATE_NODE_MUTATION, {
-        input: { memoryId, loc: u.loc, tags: node.tags ?? [], seq: u.seq },
-      });
+      // #868: the door is chosen per node from the node being written. This
+      // endpoint is the tree view's drag-to-reorder, so a memory holding ONE
+      // task node made every reorder that touched it fail.
+      const input = { memoryId, loc: u.loc, tags: node.tags ?? [], seq: u.seq };
+      await client.request(nodeUpdateDocument(node, input), { input });
     }
     return json({ ok: true });
   } catch (e: unknown) {

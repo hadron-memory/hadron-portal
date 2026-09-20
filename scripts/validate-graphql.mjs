@@ -25,6 +25,7 @@ import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSchema, parse, validate, visit, specifiedRules, GraphQLError } from 'graphql';
 import { declaredVariables, findCallerMismatches } from './check-graphql-callers.mjs';
+import { findDoorViolations } from './check-node-write-doors.mjs';
 
 export const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SRC_DIR = join(ROOT, 'src');
@@ -354,6 +355,14 @@ function main(argv) {
   // document truncates everything after it, so the other checks are reasoning
   // about a document the author never wrote.
   const terminated = collectCommentTerminated();
+  // #868: every node-update write must go through the kind's door. Checked here
+  // rather than as its own workflow because it needs the same document map, and
+  // because a governed refusal IS a schema-contract failure — it is the server
+  // telling the portal it called the wrong operation.
+  const doors = findDoorViolations(sourceFiles(SRC_DIR), ROOT, (name) => {
+    const doc = byName.get(name);
+    return doc === undefined ? undefined : resolveInterpolations(doc, byName);
+  });
 
   if (asJson) {
     console.log(
@@ -371,6 +380,11 @@ function main(argv) {
           commentTerminatedFailures: terminated.map(({ name, file, line }) => ({ name, file, line })),
           namingMismatches: naming.length,
           namingFailures: naming.map(({ name, file, line, errors }) => ({ name, file, line, errors })),
+          // #868. `routedNodeWrites` is reported even when it is healthy: the
+          // count is what distinguishes "no violations" from "nothing looked at".
+          routedNodeWrites: doors.routed,
+          doorViolations: doors.failures.length,
+          doorFailures: doors.failures,
         },
         null,
         2,
@@ -381,17 +395,22 @@ function main(argv) {
       console.error(`✗ ${failure.file}:${failure.line}  ${failure.name}`);
       for (const message of failure.errors) console.error(`    ${message}`);
     }
+    for (const violation of doors.failures) console.error(`✗ ${violation}`);
     // Never let a skipped call site read as a passing one.
     for (const skip of callers.skipped) console.warn(`… skipped ${skip}`);
 
     const docSummary = `${documents.length} documents, ${failures.length} invalid, ${naming.length} misnamed`;
     const callSummary = `${callers.checked} call sites, ${callers.failures.length} mismatched`;
-    const summary = `${docSummary}; ${callSummary} (schema: ${relative(ROOT, schemaPath)})`;
+    // The routed count is printed on the PASSING line too — a gate that only
+    // ever says "clean" cannot be told apart from one that stopped looking.
+    const doorSummary = `${doors.routed} node writes routed through the kind door`;
+    const summary = `${docSummary}; ${callSummary}; ${doorSummary} (schema: ${relative(ROOT, schemaPath)})`;
     if (
       terminated.length > 0 ||
       failures.length > 0 ||
       naming.length > 0 ||
-      callers.failures.length > 0
+      callers.failures.length > 0 ||
+      doors.failures.length > 0
     ) {
       console.error(`\n✗ ${summary}`);
       if (terminated.length > 0) {
@@ -407,6 +426,12 @@ function main(argv) {
       if (callers.failures.length > 0) {
         console.error("  A caller's variable keys must match the operation's $variables.");
       }
+      if (doors.failures.length > 0) {
+        console.error(
+          '  A node update must pick its mutation with nodeUpdateDocument() — the ' +
+            'server refuses the generic door for any governed node (server #1201).',
+        );
+      }
     } else {
       console.log(`✓ ${summary}`);
     }
@@ -415,7 +440,8 @@ function main(argv) {
   return terminated.length > 0 ||
     failures.length > 0 ||
     naming.length > 0 ||
-    callers.failures.length > 0
+    callers.failures.length > 0 ||
+    doors.failures.length > 0
     ? 1
     : 0;
 }

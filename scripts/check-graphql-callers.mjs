@@ -25,6 +25,22 @@ import { parse } from 'graphql';
 const PAGER_INJECTED = ['limit', 'offset'];
 
 /**
+ * #868 — the helper that picks a node-update mutation at runtime, and the
+ * operation its result is checked against. See `isDocumentChooser` below.
+ */
+const DOCUMENT_CHOOSER = 'nodeUpdateDocument';
+const CHOOSER_REPRESENTATIVE = 'UPDATE_NODE_MUTATION';
+
+/** `nodeUpdateDocument(…)` in the document position of a `.request(…)` call. */
+function isDocumentChooser(node) {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === DOCUMENT_CHOOSER
+  );
+}
+
+/**
  * Map each document const to the variables its operation declares.
  * Returns { NAME: { required: Set, all: Set } }.
  */
@@ -235,7 +251,25 @@ function callSites(source) {
 
       if (docArg) {
         const line = source.getLineAndCharacterOfPosition(docArg.getStart(source)).line + 1;
-        if (ts.isIdentifier(docArg)) {
+        if (isDocumentChooser(docArg)) {
+          // #868: `client.request(nodeUpdateDocument(node, input), { input })`.
+          // The document is chosen at RUNTIME from the node's governed kind, so
+          // there is no identifier here to look up — and without this branch
+          // every routed node write would fall through to the opaque path and
+          // stop being variable-checked. Nine call sites going quietly
+          // unchecked is worse than the rename this gate was built to catch.
+          //
+          // Resolving to one representative operation is sound only because the
+          // four doors declare identical variables, which is NOT assumed here:
+          // `doorVariablesAgree` in check-node-write-doors.mjs asserts it, and
+          // reds this gate's own run if a door ever diverges.
+          found.push({
+            docName: CHOOSER_REPRESENTATIVE,
+            vars: readVariablesArg(varsArg, locals, node.getStart(source)),
+            injected,
+            line,
+          });
+        } else if (ts.isIdentifier(docArg)) {
           found.push({
             docName: docArg.text,
             vars: readVariablesArg(varsArg, locals, node.getStart(source)),
