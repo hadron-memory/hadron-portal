@@ -2712,13 +2712,29 @@ export const MEMORIES_QUERY = /* GraphQL */ `
   }
 `;
 
-// #627: the caller's owner-only memories (personal + private). The loader keeps
-// only the USER-OWNED ones (organizationId == null) to present an org-less "My
-// memories" list — org-anchored personal memories still live under their org.
+// #627/#1176: the caller's OWN org-less memories — the "My memories" list.
+//
+// `ownedByMe` asks the server the question this list is actually about. It used
+// to ask `memoryClasses: [personal, private]` and repair the result in the
+// client, and the CLASS FILTER WAS THE DEFECT: class was only ever a proxy for
+// ownership, correct while every user-owned memory was personal. Since #653 a
+// free-standing `knowledge` memory is org-less and user-owned, so the proxy
+// stopped holding and those rows went missing with no error anywhere.
+//
+// Measured on @Holger's rows: 4 memories he owns, 2 of them listed. The two
+// invisible ones (`holger:flow-lab`, `holger:holgers-gear`) are `knowledge`.
+//
+// Ownership is NOT derivable from the fields the API exposes — `Memory.userId`
+// is visible and is the personal/private owner only, while the other classes
+// key on `ownerUserId`, which is not in the SDL at all. So a client asks for
+// the slice; it must not compute it. That is why the client-side
+// `organizationId == null` repair is gone rather than kept as a belt: it was
+// correct, and `ownedByMe` is org-less by definition, so keeping it would imply
+// the server's answer needed checking.
 export const PERSONAL_MEMORIES_QUERY = /* GraphQL */ `
   ${MEMORY_FIELDS}
   query PersonalMemories($limit: Int, $offset: Int) {
-    memories(filter: { memoryClasses: [personal, private] }, limit: $limit, offset: $offset) {
+    memories(filter: { ownedByMe: true }, limit: $limit, offset: $offset) {
       items {
         ...MemoryFields
       }
@@ -2733,7 +2749,7 @@ export const PERSONAL_MEMORIES_QUERY = /* GraphQL */ `
 // is needed (Copilot review on #661).
 export const PERSONAL_MEMORIES_LITE_QUERY = /* GraphQL */ `
   query PersonalMemoriesLite($limit: Int, $offset: Int) {
-    memories(filter: { memoryClasses: [personal, private] }, limit: $limit, offset: $offset) {
+    memories(filter: { ownedByMe: true }, limit: $limit, offset: $offset) {
       items {
         id
         name
@@ -2914,7 +2930,11 @@ export const MY_APPS_QUERY = /* GraphQL */ `
 // The portal maps the server enum to WidgetType and fans the data out by type.
 export const DASHBOARD_QUERY = /* GraphQL */ `
   query Dashboard {
-    memories(filter: { memoryClasses: [personal, private] }, limit: 0) {
+    # #1176 — the same slice as PERSONAL_MEMORIES_QUERY, and it has to stay the
+    # same: this count and that list are the same claim on two pages. Under the
+    # class filter the stat under-reported by exactly the rows the list was
+    # missing.
+    memories(filter: { ownedByMe: true }, limit: 0) {
       total
     }
     agents(limit: 0) {
