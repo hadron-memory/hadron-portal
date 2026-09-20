@@ -127,6 +127,34 @@ describe('scanSource — the drift shape', () => {
     expect(failures[0]).toContain('the whole query registry');
   });
 
+  /**
+   * @copilot: the docstring said it covered `./queries` and the matcher beside
+   * it tested for `/server/queries`, which a relative import does not contain.
+   * A file inside `src/lib/server/` could therefore namespace-import the
+   * registry relatively and slip the whole family — and the raw-text prefilter
+   * carried the same string, so the file was never even parsed.
+   *
+   * This PR's own recurring defect, committed one more time in the commit that
+   * introduced the constant.
+   */
+  it.each([
+    "import * as q from '$lib/server/queries';",
+    "import * as q from './queries';",
+    "import * as q from '../queries';",
+    "import * as q from '../../server/queries';",
+  ])('fails a namespace import spelled %s', (imp) => {
+    const { failures, looked } = scanSource(ORDINARY, `${imp}\nawait client.request(q[key], { input });\n`);
+    expect(looked).toBe(true);
+    expect(failures).toHaveLength(1);
+  });
+
+  // The segment match must not swallow a neighbour. There is one module named
+  // `queries` in the tree and a rule that also claimed `subqueries` would be
+  // refusing a file for importing something else entirely.
+  it('stays silent on a module that merely ends in the same letters', () => {
+    expect(scanSource(ORDINARY, "import * as q from './subqueries';\n").looked).toBe(false);
+  });
+
   it('fails an aliased import even though the call site never names a door', () => {
     const { failures } = scanSource(
       ORDINARY,

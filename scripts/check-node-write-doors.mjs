@@ -85,8 +85,20 @@ export const CHOOSER = 'nodeUpdateDocument';
  */
 export const DOCUMENT_REGISTRY = 'src/lib/server/queries.ts';
 
-/** How the registry is spelled in an import — `$lib/server/queries`, `./queries`. */
-export const REGISTRY_MODULE_SUFFIX = '/server/queries';
+/**
+ * How the registry is spelled in an import: `$lib/server/queries`, but also
+ * `./queries` and `../queries` from inside `src/lib/server/`.
+ *
+ * Matched on the last path SEGMENT rather than on `/server/queries`, which a
+ * relative import does not contain — a docstring here claimed to cover
+ * `./queries` while the matcher beside it did not (@copilot), which is this
+ * PR's own recurring defect committed one more time. There is exactly one
+ * module named `queries` in the tree, so a segment match is unambiguous.
+ */
+export const REGISTRY_MODULE = /(^|\/)queries(\.[cm]?[jt]s)?$/;
+
+/** The same question against raw file text, for the pre-parse filter. */
+export const REGISTRY_IMPORT_TEXT = /['"][^'"]*(^|\/|['"])queries(\.[cm]?[jt]s)?['"]/;
 
 /**
  * EXACT call sites exempted, each with the reason it is not routed.
@@ -202,7 +214,7 @@ function doorReferences(source) {
   for (const statement of source.statements) {
     if (!ts.isImportDeclaration(statement)) continue;
     if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
-    if (!statement.moduleSpecifier.text.endsWith(REGISTRY_MODULE_SUFFIX)) continue;
+    if (!REGISTRY_MODULE.test(statement.moduleSpecifier.text)) continue;
     const bindings = statement.importClause?.namedBindings;
     if (bindings && ts.isNamespaceImport(bindings)) {
       found.push({
@@ -439,7 +451,7 @@ export function scanSource(rel, text) {
     // (@copilot). The namespace import is what gets reported; admitting the
     // file here is what lets the walk see it. Cheap: it only widens which
     // files are PARSED, and the walk finds nothing in an ordinary one.
-    !text.includes(REGISTRY_MODULE_SUFFIX) &&
+    !REGISTRY_IMPORT_TEXT.test(text) &&
     !text.includes('nodeUpdateDocument')
   ) {
     return { failures: [], routed: 0, looked: false };
