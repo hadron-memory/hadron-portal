@@ -4,8 +4,9 @@
 // through. A helper makes the right thing easy; it does not make the wrong
 // thing impossible, and "remember to call the chooser" written in a comment is
 // enforced by whoever happens to read that file
-// (review:comment-cannot-enforce-a-per-instance-rule). Eight call sites each
-// remembering to route is the shape that produced #868 in the first place.
+// (hrn:node:hadronmemory.com:hadron-portal:review:comment-cannot-enforce-a-per-instance-rule).
+// Ten call sites each remembering to route is the shape that produced #868 in
+// the first place.
 //
 // So this gate inverts the default: naming a node-update mutation document at a
 // `.request(...)` call site FAILS unless the call site is in ALLOWED below,
@@ -44,9 +45,9 @@ export const DOOR_MODULE = 'src/lib/server/nodeKindDoor.ts';
  *
  * An exact list, never a pattern: a pattern is a hiding place, because the next
  * file that happens to match inherits an exemption nobody granted it
- * (review:exception-lists-not-patterns-in-ratchets). Keyed by file, so moving a
- * call within a file does not silently re-grant it — the file is the unit a
- * reviewer actually reads.
+ * (hrn:node:hadronmemory.com:hadron-cli:review:an-exemption-you-cannot-enumerate-is-a-hiding-place).
+ * Keyed by file, so moving a call within a file does not silently re-grant it —
+ * the file is the unit a reviewer actually reads.
  */
 export const ALLOWED = new Map([
   [
@@ -197,7 +198,8 @@ export function doorVariablesAgree(resolve) {
  *
  * Separated from the disk walk so the gate's own test can state a case as a
  * string rather than a fixture tree, and so each SILENCE below is a case the
- * test can name (review:ci-gate-prefilter-must-be-proven).
+ * test can name:
+ * hrn:node:hadronmemory.com:hadron-portal:review:ci-gate-prefilter-must-be-proven
  */
 export function scanSource(rel, text) {
   const exempt = ALLOWED.has(rel);

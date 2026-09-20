@@ -591,7 +591,8 @@ describe('edit-node action — the task kind door (#864, server #1201)', () => {
    * and this test asserted the broken direction was correct. Left as its own
    * case with this note rather than quietly re-worded, because a ratchet
    * pointing backwards is worth more as a labelled correction than as a clean
-   * diff (review:convention-ratchets-must-be-flipped).
+   * diff — see
+   * hrn:node:hadronmemory.com:hadron-server:review:convention-ratchets-must-be-flipped
    */
   it('routes the REMOVAL of the runnable marker through updateTaskNode too', async () => {
     const doc = await runSave({ name: 'n' }, nodeRow({ isRunnable: true }));

@@ -26,7 +26,8 @@
 // NINTH site added next year has to opt OUT — visibly, in the allowlist
 // `scripts/check-node-write-doors.mjs` enforces — rather than remember to opt
 // in. A comment saying "remember to route this" would be enforced by whoever
-// happens to read the file (review:comment-cannot-enforce-a-per-instance-rule).
+// happens to read the file — see
+// hrn:node:hadronmemory.com:hadron-portal:review:comment-cannot-enforce-a-per-instance-rule
 //
 // ## This register MIRRORS the server's, and that is a liability
 //
@@ -77,8 +78,8 @@ export interface GovernedState {
 /**
  * The object being sent as `UpdateNodeInput`. It carries the governance signals
  * when it touches them and arbitrary other fields when it does not — hence the
- * index signature, without which TypeScript's weak-type check rejects the six
- * inputs that mention neither signal, which are precisely the six #868 is about.
+ * index signature, without which TypeScript's weak-type check rejects every
+ * input that mentions neither signal — which is precisely the set #868 is about.
  */
 export interface NodeUpdateInput extends GovernedState {
   [field: string]: unknown;
