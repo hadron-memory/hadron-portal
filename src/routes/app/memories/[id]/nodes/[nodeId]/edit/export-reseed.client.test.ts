@@ -11,6 +11,19 @@
  *
  * A server render never mounts, so the `node` lane cannot see any of this.
  *
+ * ## What this harness does and does NOT prove
+ *
+ * Swapping `props.data` is not a real navigation. Measured: superForm does NOT
+ * re-seed here (the name field keeps node A's value), while in the running app
+ * it DOES — a router navigation invalidates and superForm syncs from the new
+ * page data, which a bare prop swap never triggers.
+ *
+ * So these cases prove exactly one thing: the state THIS PAGE owns re-seeds.
+ * The superForm half is covered by a browser measurement rather than by this
+ * file, and saying so beats a test whose name implies more than it checks —
+ * @copilot read the same code and concluded the name leaks too, which is true
+ * of this harness and false of the app.
+ *
  * This is the THIRD time this trap has been hit in this repo: #857 wrote one
  * worker's prompt override onto another the same way, which is why
  * `hrn:node:hadronmemory.com:hadron-portal:review:a-reused-component-must-reseed-its-form`
