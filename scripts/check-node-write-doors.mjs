@@ -85,6 +85,9 @@ export const CHOOSER = 'nodeUpdateDocument';
  */
 export const DOCUMENT_REGISTRY = 'src/lib/server/queries.ts';
 
+/** How the registry is spelled in an import — `$lib/server/queries`, `./queries`. */
+export const REGISTRY_MODULE_SUFFIX = '/server/queries';
+
 /**
  * EXACT call sites exempted, each with the reason it is not routed.
  *
@@ -178,6 +181,37 @@ export function isTestFile(rel) {
  */
 function doorReferences(source) {
   const found = [];
+
+  // A NAMESPACE IMPORT of the document registry, flagged on its own.
+  //
+  // @copilot: a computed key defeats the name walk — `const key = 'UPDATE_' +
+  // 'NODE_MUTATION'; queries[key]` puts the door's name in no AST node at all,
+  // and no static walk can see it without evaluating expressions.
+  //
+  // Resolving that is dataflow analysis, and it is also the wrong target: this
+  // gate's threat model is a colleague who writes the natural thing and does
+  // not know the door exists, not one hiding a write from CI. But the FAMILY
+  // is closable without any of that, because every member of it needs the same
+  // import first — you cannot reach `queries.X`, `queries['X']` or
+  // `queries[key]` without binding the namespace. So the import is the thing
+  // reported, and the computed key never gets a foothold.
+  //
+  // Measured before adding it: ZERO namespace imports exist in any file that
+  // calls `.request(`, so this costs nothing today and refuses a shape nobody
+  // is using rather than breaking one somebody is.
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    if (!ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    if (!statement.moduleSpecifier.text.endsWith(REGISTRY_MODULE_SUFFIX)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamespaceImport(bindings)) {
+      found.push({
+        name: `* as ${bindings.name.text} (the whole query registry)`,
+        line: source.getLineAndCharacterOfPosition(bindings.getStart(source)).line + 1,
+      });
+    }
+  }
+
   const visit = (node) => {
     // Identifier, string literal, OR a no-substitution template literal —
     // `queries[`UPDATE_NODE_MUTATION`]` is a third node kind, and a rule
@@ -400,6 +434,12 @@ export function scanSource(rel, text) {
     !exempt &&
     !DOOR_DOCUMENTS.some((d) => text.includes(d)) &&
     !DOOR_OPERATIONS.some((op) => text.includes(op)) &&
+    // Any file importing the registry at all, because a NAMESPACE import can
+    // reach a door under a name no text search finds — a computed key
+    // (@copilot). The namespace import is what gets reported; admitting the
+    // file here is what lets the walk see it. Cheap: it only widens which
+    // files are PARSED, and the walk finds nothing in an ordinary one.
+    !text.includes(REGISTRY_MODULE_SUFFIX) &&
     !text.includes('nodeUpdateDocument')
   ) {
     return { failures: [], routed: 0, looked: false };

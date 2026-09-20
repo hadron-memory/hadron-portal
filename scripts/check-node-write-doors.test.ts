@@ -93,13 +93,40 @@ describe('scanSource — the drift shape', () => {
       "import * as queries from '$lib/server/queries';\n" +
         'await client.request(queries.UPDATE_NODE_MUTATION, { input });\n',
     );
-    expect(failures).toHaveLength(1);
-    expect(failures[0]).toContain('UPDATE_NODE_MUTATION');
+    // TWO lines the author has to look at: the namespace import itself, and
+    // the property access that names the door. Both are reported because both
+    // are edits, and either one alone leaves the file reaching the registry.
+    expect(failures).toHaveLength(2);
+    expect(failures.join(' ')).toContain('UPDATE_NODE_MUTATION');
+    expect(failures.join(' ')).toContain('the whole query registry');
   });
 
   // `import { X as Y }` and `const { X: y } = ns` both put the door name in the
   // PROPERTY position — the local binding is whatever the author chose, and a
   // text search for the door name at the call site finds nothing.
+  /**
+   * @copilot: a computed key puts the door's name in no AST node at all
+   * (`const key = 'UPDATE_' + 'NODE_MUTATION'; queries[key]`), which no static
+   * walk can see. Resolving that is dataflow analysis and the wrong target
+   * anyway — but the FAMILY closes without it, because every member needs the
+   * same namespace import first. So the import is what is reported.
+   *
+   * Measured before adding it: zero namespace imports of the registry exist in
+   * any file that calls `.request(`, so this refuses a shape nobody uses.
+   */
+  it('fails a namespace import of the query registry, whatever is done with it', () => {
+    const { failures } = scanSource(
+      ORDINARY,
+      "import * as queries from '$lib/server/queries';\n" +
+        "const key = 'UPDATE_' + 'NODE_MUTATION';\n" +
+        'await client.request(queries[key], { input });\n',
+    );
+    // Only the import — the computed key names nothing the walk can see, which
+    // is the whole point: the import is what makes the family unreachable.
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('the whole query registry');
+  });
+
   it('fails an aliased import even though the call site never names a door', () => {
     const { failures } = scanSource(
       ORDINARY,

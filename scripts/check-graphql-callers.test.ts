@@ -263,6 +263,15 @@ describe('the node-write chooser (#868)', () => {
       'hoisted into a local',
       'const mutation = nodeUpdateDocument(node, input);\nawait client.request(mutation, { input });',
     ],
+    // @copilot: a destructured namespace binding is neither an import
+    // specifier nor a property access at the call site.
+    [
+      'destructured off a namespace, then hoisted',
+      "import * as door from '$lib/server/nodeKindDoor';\n" +
+        'const { nodeUpdateDocument: choose } = door;\n' +
+        'const mutation = choose(node, input);\n' +
+        'await client.request(mutation, { input });',
+    ],
   ])('checks a routed call %s', (_what, code) => {
     const { checked, failures } = check(code);
     expect(checked).toBe(1);

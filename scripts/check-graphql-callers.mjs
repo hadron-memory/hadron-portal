@@ -39,6 +39,7 @@ const CHOOSER_REPRESENTATIVE = 'UPDATE_NODE_MUTATION';
  */
 function chooserBindings(source) {
   const names = new Set([DOCUMENT_CHOOSER]);
+
   for (const statement of source.statements) {
     if (!ts.isImportDeclaration(statement)) continue;
     const bindings = statement.importClause?.namedBindings;
@@ -49,6 +50,27 @@ function chooserBindings(source) {
       }
     }
   }
+
+  // `const { nodeUpdateDocument: choose } = door` — a destructured namespace
+  // binding, which is neither an import specifier nor a property access at the
+  // call site (@copilot). Walked rather than read off the statements, since it
+  // can sit anywhere.
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name)
+    ) {
+      for (const element of node.name.elements) {
+        const source_ = element.propertyName ?? element.name;
+        if (ts.isIdentifier(source_) && source_.text === DOCUMENT_CHOOSER && ts.isIdentifier(element.name)) {
+          names.add(element.name.text);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+
   return names;
 }
 
