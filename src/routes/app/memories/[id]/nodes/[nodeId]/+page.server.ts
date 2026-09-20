@@ -7,7 +7,11 @@ import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, UPDATE_TASK_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+// #868: every node write on this page goes through the door chooser. The
+// mutation documents are deliberately NOT imported here — naming one directly
+// is what `scripts/check-node-write-doors.mjs` fails.
+import { assertNodeUpdateDoor, nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
@@ -489,6 +493,26 @@ export const actions: Actions = {
     // urn), so a stale URL can't redirect the move anyway. An occupied
     // destination fails loudly with NODE_ALREADY_EXISTS (#501).
     const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
+
+    // #868: updateMeta is the ONE action here that can change a governance
+    // signal, so its resulting kind is the SUBMITTED `isRunnable` merged over
+    // the node. Un-ticking Runnable on a task node is still a TASK-door write
+    // (before ∪ after), a direction #867's submitted-value-only routing got
+    // wrong.
+    //
+    // Chosen BEFORE the move, not after (@copilot on PR #869). The chooser can
+    // refuse — a node matching two governed kinds has no door — and a refusal
+    // raised after `moveNode` has committed leaves the node relocated with none
+    // of the edit applied, reported as a 500. Nothing below needs the move to
+    // have happened first, so the refusal costs nothing when it comes first and
+    // costs a half-applied edit when it comes second.
+    const input = { memoryId: currentNode.memoryId, loc, name, nodeType, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable };
+    try {
+      assertNodeUpdateDoor(currentNode, input);
+    } catch (e: unknown) {
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
+    }
+
     if (loc !== currentNode.loc) {
       if (!currentNode.memory?.urn) {
         return message(form, { type: 'error', text: 'Node has no memory URN to move by.' }, { status: 500 });
@@ -509,9 +533,7 @@ export const actions: Actions = {
     }
 
     try {
-      await client.request(UPDATE_NODE_MUTATION, {
-        input: { memoryId: currentNode.memoryId, loc, name, nodeType, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable },
-      });
+      await client.request(nodeUpdateDocument(currentNode, input), { input });
       return message(form, { type: 'success', text: t('node.meta.saved', 'Node settings saved.') });
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
@@ -599,23 +621,25 @@ export const actions: Actions = {
       const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
-      await client.request(UPDATE_NODE_MUTATION, {
-        input: {
-          // #237: memoryId from the node, not the URL. Selects the target
-          // together with loc; omitted fields (name, description, …) are
-          // preserved by updateNode.
-          memoryId: node.memoryId,
-          loc: node.loc,
-          // #235 history: the old upsertNode resolver cleared omitted tags
-          // (`input.tags ?? []`). updateNode preserves omitted tags, so
-          // this explicit pass-through is no longer load-bearing — but it
-          // is still correct (it round-trips the user's tags verbatim), so
-          // it stays. The `?? []` guards a null-tags schema-shape
-          // regression at runtime.
-          tags: node.tags ?? [],
-          content,
-        },
-      });
+      // #868: this edit touches neither governance signal, so the resulting
+      // kind is the node's CURRENT one — which is why the fetched node, not the
+      // input, decides the door.
+      const input = {
+        // #237: memoryId from the node, not the URL. Selects the target
+        // together with loc; omitted fields (name, description, …) are
+        // preserved by updateNode.
+        memoryId: node.memoryId,
+        loc: node.loc,
+        // #235 history: the old upsertNode resolver cleared omitted tags
+        // (`input.tags ?? []`). updateNode preserves omitted tags, so
+        // this explicit pass-through is no longer load-bearing — but it
+        // is still correct (it round-trips the user's tags verbatim), so
+        // it stays. The `?? []` guards a null-tags schema-shape
+        // regression at runtime.
+        tags: node.tags ?? [],
+        content,
+      };
+      await client.request(nodeUpdateDocument(node, input), { input });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
     }
@@ -634,17 +658,18 @@ export const actions: Actions = {
       const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
-      await client.request(UPDATE_NODE_MUTATION, {
-        input: {
-          // #237: memoryId from the node, not the URL.
-          memoryId: node.memoryId,
-          loc: node.loc,
-          // #235: explicit tags pass-through — no longer load-bearing
-          // under updateNode, kept deliberately. See updateContent.
-          tags: node.tags ?? [],
-          abstract,
-        },
-      });
+      // #868: neither governance signal is touched — the door follows the
+      // node's current kind. See updateContent.
+      const input = {
+        // #237: memoryId from the node, not the URL.
+        memoryId: node.memoryId,
+        loc: node.loc,
+        // #235: explicit tags pass-through — no longer load-bearing
+        // under updateNode, kept deliberately. See updateContent.
+        tags: node.tags ?? [],
+        abstract,
+      };
+      await client.request(nodeUpdateDocument(node, input), { input });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
     }
@@ -680,17 +705,18 @@ export const actions: Actions = {
       const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
       if (!node) return fail(404, { error: 'Node not found' });
 
-      await client.request(UPDATE_NODE_MUTATION, {
-        input: {
-          // #237: memoryId from the node, not the URL.
-          memoryId: node.memoryId,
-          loc: node.loc,
-          // #235: explicit tags pass-through — no longer load-bearing
-          // under updateNode, kept deliberately. See updateContent.
-          tags: node.tags ?? [],
-          data,
-        },
-      });
+      // #868: neither governance signal is touched — the door follows the
+      // node's current kind. See updateContent.
+      const input = {
+        // #237: memoryId from the node, not the URL.
+        memoryId: node.memoryId,
+        loc: node.loc,
+        // #235: explicit tags pass-through — no longer load-bearing
+        // under updateNode, kept deliberately. See updateContent.
+        tags: node.tags ?? [],
+        data,
+      };
+      await client.request(nodeUpdateDocument(node, input), { input });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
     }
@@ -725,16 +751,17 @@ export const actions: Actions = {
       if (writeTo !== '') merged.output = { writeTo, mode };
       else delete merged.output;
 
-      await client.request(UPDATE_NODE_MUTATION, {
-        input: {
-          // #237: memoryId from the node, not the URL.
-          memoryId: node.memoryId,
-          loc: node.loc,
-          // #235: explicit tags pass-through — see updateContent.
-          tags: node.tags ?? [],
-          data: merged,
-        },
-      });
+      // #868: neither governance signal is touched — the door follows the
+      // node's current kind. See updateContent.
+      const input = {
+        // #237: memoryId from the node, not the URL.
+        memoryId: node.memoryId,
+        loc: node.loc,
+        // #235: explicit tags pass-through — see updateContent.
+        tags: node.tags ?? [],
+        data: merged,
+      };
+      await client.request(nodeUpdateDocument(node, input), { input });
       return message(form, { type: 'success', text: t('node.flow.saved', 'Flow settings saved.') });
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Save failed') }, { status: 500 });
@@ -911,19 +938,20 @@ export const actions: Actions = {
       // Measured: every call returned "This write would produce a RUNNABLE
       // node, which only updateTaskNode may update."
       //
-      // The other generic-mutation call sites on this page are refused for the
-      // same reason whenever the node is already runnable; they are NOT fixed
-      // here because each needs its own answer for what the resulting kind is.
-      // Filed as #868 rather than guessed at.
-      await client.request(UPDATE_TASK_NODE_MUTATION, {
-        input: {
-          memoryId: node.memoryId,
-          loc: node.loc,
-          // #235: explicit tags pass-through — see updateContent.
-          tags: node.tags ?? [],
-          isRunnable: true,
-        },
-      });
+      // #867 named `UPDATE_TASK_NODE_MUTATION` here directly. It now goes
+      // through the chooser like every other write on this page — not because
+      // the answer changes (it does not; `isRunnable: true` is unconditional),
+      // but because a hand-named door is a rule enforced by whoever reads this
+      // file. Converting a node that is ALREADY governed some other way is the
+      // case a fixed answer gets wrong, and the chooser refuses it loudly.
+      const input = {
+        memoryId: node.memoryId,
+        loc: node.loc,
+        // #235: explicit tags pass-through — see updateContent.
+        tags: node.tags ?? [],
+        isRunnable: true,
+      };
+      await client.request(nodeUpdateDocument(node, input), { input });
       return {
         convertedToTask: true,
         ...message(form, { type: 'success', text: t('node-actions.convert-to-task.saved', 'Node converted to a task.') }),
@@ -970,20 +998,21 @@ export const actions: Actions = {
           { status: 400 },
         );
       }
-      await client.request(UPDATE_NODE_MUTATION, {
-        input: {
-          // #237: memoryId from the node, not the URL.
-          memoryId: node.memoryId,
-          loc: node.loc,
-          // #235: explicit tags pass-through — no longer load-bearing
-          // under updateNode, kept deliberately. See updateContent.
-          tags: node.tags ?? [],
-          edges: edges.map((e) => ({
-            targetId: e.targetId,
-            name: e.name ?? null,
-          })),
-        },
-      });
+      // #868: neither governance signal is touched — the door follows the
+      // node's current kind. See updateContent.
+      const input = {
+        // #237: memoryId from the node, not the URL.
+        memoryId: node.memoryId,
+        loc: node.loc,
+        // #235: explicit tags pass-through — no longer load-bearing
+        // under updateNode, kept deliberately. See updateContent.
+        tags: node.tags ?? [],
+        edges: edges.map((e) => ({
+          targetId: e.targetId,
+          name: e.name ?? null,
+        })),
+      };
+      await client.request(nodeUpdateDocument(node, input), { input });
       return message(form, { type: 'success', text: t('node.edges.saved', 'Edges saved.') });
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update edges') }, { status: 500 });
@@ -1008,6 +1037,17 @@ export const actions: Actions = {
     );
     if (!anchorNode) return fail(404, { error: 'Anchor node not found' });
     try {
+      // #868: the door is chosen PER SIBLING, from the node being written —
+      // never from `anchorNode`, which is not one of them. A reorder mixes
+      // kinds routinely: one task node among ordinary siblings is the common
+      // case, and it is the whole reason a reorder failed at all.
+      //
+      // TWO PASSES (@copilot on PR #869): every door is settled before the
+      // first write, because the chooser can REFUSE and refusing on a later
+      // sibling would leave the earlier ones reordered under a 500 that says
+      // nothing about it. See /api/nodes/reorder for the full note, including
+      // what this deliberately does NOT fix.
+      const planned: { node: MemoryNode; input: Record<string, unknown> }[] = [];
       for (const u of updates) {
         // #335 (closes the #234 follow-up): scope the read to the anchor's
         // memory. Previously NODE_QUERY(loc:) was memory-blind, so a foreign
@@ -1015,16 +1055,23 @@ export const actions: Actions = {
         // a wrong `name` into anchorNode.memoryId's row. Now it's pinned.
         const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { ref: u.loc, memoryRef: anchorNode.memoryId });
         if (!node) continue;
-        await client.request(UPDATE_NODE_MUTATION, {
-          input: {
-            memoryId: anchorNode.memoryId,
-            loc: u.loc,
-            // #235: explicit tags pass-through — no longer load-bearing
-            // under updateNode, kept deliberately. See updateContent.
-            tags: node.tags ?? [],
-            seq: u.seq,
-          },
-        });
+        const input = {
+          memoryId: anchorNode.memoryId,
+          loc: u.loc,
+          // #235: explicit tags pass-through — no longer load-bearing
+          // under updateNode, kept deliberately. See updateContent.
+          tags: node.tags ?? [],
+          seq: u.seq,
+        };
+        assertNodeUpdateDoor(node, input);
+        planned.push({ node, input });
+      }
+      for (const { node, input } of planned) {
+        // Chooser INLINE, preflight via assertNodeUpdateDoor above — hoisting
+        // the document into `planned` makes this call opaque to
+        // check-graphql-callers and its variables stop being checked. Measured
+        // twice on this PR: the checked count drops by one per hoisted site.
+        await client.request(nodeUpdateDocument(node, input), { input });
       }
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Reorder failed' });

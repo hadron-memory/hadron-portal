@@ -610,6 +610,18 @@ export interface MemoryNode {
   properties?: Record<string, unknown> | null;
   ownerRepo: string | null;
   isRunnable: boolean | null;
+  // #868 (server #1201): what this node is FOR — an OPEN string whose GOVERNED
+  // values ('review', 'spec') route a write to that kind's own door. Together
+  // with `isRunnable` it is what `nodeUpdateDocument` reads; nothing renders it.
+  //
+  // OPTIONAL, and that is a fact about the server rather than a convenience:
+  // the slim `GraphNode` projection behind `memoryNodes` has no `role` field at
+  // all, so the layout's reconstructed `graphNodes` rows cannot carry one. A
+  // node fetched through NODE_FIELDS always has it; one reconstructed from the
+  // tree payload never does. See the note in $lib/server/nodeKindDoor.ts about
+  // what that costs — a routing decision taken from a row that never had the
+  // field reads as "ungoverned" and is refused by the server, loudly.
+  role?: string | null;
   createdAt: string;
   updatedAt: string;
   memory?: {

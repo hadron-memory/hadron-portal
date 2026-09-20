@@ -2205,6 +2205,16 @@ export const NODE_FIELDS = /* GraphQL */ `
     data
     ownerRepo
     isRunnable
+    # #868 (server #1201): role and isRunnable are the two GOVERNANCE SIGNALS,
+    # and they are selected here — on the shared fragment — because every
+    # node-write call site needs the node's CURRENT kind to pick its door. Six
+    # of the nine never touch either signal, so their resulting kind IS the
+    # current one; a call site that cannot see these two fields cannot route,
+    # and routing it through the generic door is what #868 is.
+    # Not rendered anywhere today. See $lib/server/nodeKindDoor.ts.
+    # (No backticks in this comment: the file is a template literal and one
+    # inside a GraphQL # comment ends it — collectCommentTerminated catches it.)
+    role
     createdAt
     updatedAt
     outgoingEdges {
@@ -2683,6 +2693,34 @@ export const UPDATE_TASK_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
   mutation UpdateTaskNode($input: UpdateNodeInput!) {
     updateTaskNode(input: $input) { ...NodeFields }
+  }
+`;
+
+// The other two governed kinds (#868). `Node.role` is an OPEN string, and a
+// small CLOSED subset of its values is governed the same way `isRunnable` is:
+// 'review' (a safety check must not be rewritable through the generic surface)
+// and 'spec' (the corpus discipline resting on #1152).
+//
+// The portal cannot CREATE either kind — it has no `role` field, and whether it
+// should gain one is product scope (@Ada on #868, @Holger's call). It can
+// absolutely be POINTED AT one the CLI created, and the refusal is then
+// identical to the task kind's: every generic write against it is refused,
+// whatever it edits. So the UPDATE doors are here and the CREATE doors are not.
+//
+// Never chosen by hand — `nodeUpdateDocument` in ./nodeKindDoor.ts picks the
+// door, and `scripts/check-node-write-doors.mjs` fails a call site that does
+// not go through it.
+export const UPDATE_REVIEW_NODE_MUTATION = /* GraphQL */ `
+  ${NODE_FIELDS}
+  mutation UpdateReviewNode($input: UpdateNodeInput!) {
+    updateReviewNode(input: $input) { ...NodeFields }
+  }
+`;
+
+export const UPDATE_SPEC_NODE_MUTATION = /* GraphQL */ `
+  ${NODE_FIELDS}
+  mutation UpdateSpecNode($input: UpdateNodeInput!) {
+    updateSpecNode(input: $input) { ...NodeFields }
   }
 `;
 

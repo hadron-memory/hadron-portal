@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
-import { NODE_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_QUERY } from '$lib/server/queries';
+import { assertNodeUpdateDoor, nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 import type { MemoryNode } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -17,6 +18,21 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const client = gqlClient(locals.token);
   try {
+    // #868: TWO PASSES, and the split is the point (@copilot on PR #869).
+    //
+    // The door is chosen per node from the node being written — this endpoint
+    // is the tree view's drag-to-reorder, so a memory holding ONE task node
+    // made every reorder that touched it fail. But the chooser can also REFUSE
+    // (a node matching two governed kinds has no door), and refusing on the
+    // fifth sibling after four have already been written leaves the tree in an
+    // order the user never asked for, under a 500 that says nothing about it.
+    //
+    // So: resolve every node and every door FIRST, write only once they all
+    // have one. This does not make the batch atomic — a refusal from the
+    // SERVER mid-loop still half-applies, and that wants a batch mutation
+    // rather than a reordering here — but it removes the half-apply this PR
+    // would otherwise have added.
+    const planned: { node: MemoryNode; input: Record<string, unknown> }[] = [];
     for (const u of updates) {
       // #335: scope the read to the target memory — node(loc:) is otherwise
       // memory-blind and now errors on a cross-memory loc collision.
@@ -27,9 +43,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       // default), so this is no longer load-bearing — kept deliberately;
       // see routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts
       // updateContent for the rationale.
-      await client.request(UPDATE_NODE_MUTATION, {
-        input: { memoryId, loc: u.loc, tags: node.tags ?? [], seq: u.seq },
-      });
+      const input = { memoryId, loc: u.loc, tags: node.tags ?? [], seq: u.seq };
+      assertNodeUpdateDoor(node, input);
+      planned.push({ node, input });
+    }
+    for (const { node, input } of planned) {
+      // The chooser is called INLINE here, not hoisted into `planned`, and the
+      // preflight above is `assertNodeUpdateDoor` for the same reason: passing a
+      // local to `.request()` makes the call opaque to check-graphql-callers,
+      // which silently stops cross-checking its variables. Measured twice on
+      // this PR — the checked call-site count drops by one per hoisted site.
+      await client.request(nodeUpdateDocument(node, input), { input });
     }
     return json({ ok: true });
   } catch (e: unknown) {

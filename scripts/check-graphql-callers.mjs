@@ -25,6 +25,91 @@ import { parse } from 'graphql';
 const PAGER_INJECTED = ['limit', 'offset'];
 
 /**
+ * #868 — the helper that picks a node-update mutation at runtime, and the
+ * operation its result is checked against. Resolved through `isChooserCall`
+ * and `chooserLocals` below, which cover the aliased and hoisted spellings.
+ */
+const DOCUMENT_CHOOSER = 'nodeUpdateDocument';
+const CHOOSER_REPRESENTATIVE = 'UPDATE_NODE_MUTATION';
+
+/**
+ * The local names `nodeUpdateDocument` is bound to in this file — it may be
+ * imported under an alias, which routes perfectly well but would leave this
+ * gate skipping the call's variables (@copilot on PR #869).
+ */
+function chooserBindings(source) {
+  const names = new Set([DOCUMENT_CHOOSER]);
+
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      if ((element.propertyName ?? element.name).text === DOCUMENT_CHOOSER) {
+        names.add(element.name.text);
+      }
+    }
+  }
+
+  // `const { nodeUpdateDocument: choose } = door` — a destructured namespace
+  // binding, which is neither an import specifier nor a property access at the
+  // call site (@copilot). Walked rather than read off the statements, since it
+  // can sit anywhere.
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isObjectBindingPattern(node.name)
+    ) {
+      for (const element of node.name.elements) {
+        const source_ = element.propertyName ?? element.name;
+        if (ts.isIdentifier(source_) && source_.text === DOCUMENT_CHOOSER && ts.isIdentifier(element.name)) {
+          names.add(element.name.text);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+
+  return names;
+}
+
+/** A call to the chooser, under any local name or through a namespace. */
+function isChooserCall(node, names) {
+  if (!ts.isCallExpression(node)) return false;
+  const callee = node.expression;
+  return (
+    (ts.isIdentifier(callee) && names.has(callee.text)) ||
+    (ts.isPropertyAccessExpression(callee) && callee.name.text === DOCUMENT_CHOOSER)
+  );
+}
+
+/**
+ * Locals holding a chooser result — `const mutation = nodeUpdateDocument(…)`.
+ *
+ * Passing that local to `.request()` counts as routed for the door gate while
+ * reading as an unknown document here, so the call's variables were silently
+ * skipped (@copilot). Measured on this PR in the other direction: hoisting the
+ * chooser into a local dropped the checked call-site count 290 → 288.
+ */
+function chooserLocals(source, names) {
+  const locals = new Set();
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      isChooserCall(node.initializer, names)
+    ) {
+      locals.add(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return locals;
+}
+
+/**
  * Map each document const to the variables its operation declares.
  * Returns { NAME: { required: Set, all: Set } }.
  */
@@ -211,6 +296,8 @@ function readVariablesArg(node, locals, callPos) {
  */
 function callSites(source) {
   const locals = collectLocalObjects(source);
+  const chooserNames = chooserBindings(source);
+  const chooserHeld = chooserLocals(source, chooserNames);
   const found = [];
   const visit = (node) => {
     if (ts.isCallExpression(node)) {
@@ -235,13 +322,49 @@ function callSites(source) {
 
       if (docArg) {
         const line = source.getLineAndCharacterOfPosition(docArg.getStart(source)).line + 1;
-        if (ts.isIdentifier(docArg)) {
+        const viaChooser =
+          isChooserCall(docArg, chooserNames) ||
+          (ts.isIdentifier(docArg) && chooserHeld.has(docArg.text));
+        if (viaChooser) {
+          // #868: `client.request(nodeUpdateDocument(node, input), { input })`.
+          // The document is chosen at RUNTIME from the node's governed kind, so
+          // there is no identifier here to look up — and without this branch
+          // every routed node write would fall through to the opaque path and
+          // stop being variable-checked. Every routed node write going quietly
+          // unchecked is worse than the rename this gate was built to catch —
+          // measured while writing this: the checked count drops from 290 to
+          // 280 with this branch removed.
+          //
+          // Resolving to one representative operation is sound only because the
+          // four doors declare identical variables, which is NOT assumed here:
+          // `doorVariablesAgree` in check-node-write-doors.mjs asserts it, and
+          // reds this gate's own run if a door ever diverges.
+          found.push({
+            docName: CHOOSER_REPRESENTATIVE,
+            vars: readVariablesArg(varsArg, locals, node.getStart(source)),
+            injected,
+            line,
+          });
+        } else if (ts.isIdentifier(docArg)) {
           found.push({
             docName: docArg.text,
             vars: readVariablesArg(varsArg, locals, node.getStart(source)),
             injected,
             line,
           });
+        } else if (ts.isCallExpression(docArg)) {
+          // A call in the document position that did NOT resolve to the
+          // chooser — a wrapper, a factory, anything (@copilot on PR #869).
+          //
+          // Reported as SKIPPED rather than resolved. Chasing a wrapper's
+          // return value transitively is dataflow analysis, and a gate that
+          // does it badly is worse than one that says it does not: it would
+          // report a confident result on a document it guessed at. This module
+          // already promises in its own header that an unreadable call is
+          // "counted as SKIPPED and reported, never silently treated as
+          // passing" — the variables argument delivered that and the DOCUMENT
+          // argument did not, which is the actual defect here.
+          found.push({ unresolved: true, line, text: docArg.getText(source).slice(0, 60) });
         } else if (isInlineDocument(docArg)) {
           // An operation written inline never reaches the `/* GraphQL */`
           // extractor, so it is validated by NOTHING — not the schema check,
@@ -282,6 +405,14 @@ export function findCallerMismatches(files, declared, root) {
     const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
 
     for (const site of callSites(source)) {
+      if (site.unresolved) {
+        skipped.push(
+          `${rel}:${site.line}  ${site.text} (document expression not statically ` +
+            'resolvable — if it wraps nodeUpdateDocument, call it inline so the ' +
+            "call's variables stay checked)",
+        );
+        continue;
+      }
       if (site.inline) {
         failures.push({
           file: rel,

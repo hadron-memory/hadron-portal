@@ -223,3 +223,70 @@ describe('findCallerMismatches', () => {
     expect(r.failures[0].errors.join(' ')).toMatch(/passes "orgId".*"orgRef"/);
   });
 });
+
+/**
+ * #868/#869 — the chooser branch.
+ *
+ * `client.request(nodeUpdateDocument(node, input), { input })` has no
+ * identifier to look up, so without a branch for it every routed node write
+ * falls to the opaque path and stops being variable-checked. Measured on the
+ * real tree: removing the branch drops the checked call-site count 290 → 280.
+ *
+ * @copilot on PR #869 found the two spellings that branch did not cover — an
+ * aliased import and a hoisted result — each of which counts as ROUTED for the
+ * door gate while reading as an unknown document here. That combination is the
+ * bad one: the write is correct and its variables are silently unchecked.
+ */
+describe('the node-write chooser (#868)', () => {
+  const declared = new Map([
+    ['UPDATE_NODE_MUTATION', { all: new Set(['input']), required: new Set(['input']), opName: 'UpdateNode' }],
+  ]);
+
+  function check(text: string) {
+    const file = join(tmpdir(), `chooser-${Math.random().toString(36).slice(2)}.ts`);
+    writeFileSync(file, text);
+    try {
+      return findCallerMismatches([file], declared, tmpdir());
+    } finally {
+      rmSync(file, { force: true });
+    }
+  }
+
+  it.each([
+    ['written inline', 'await client.request(nodeUpdateDocument(node, input), { input });'],
+    [
+      'imported under an alias',
+      "import { nodeUpdateDocument as choose } from '$lib/server/nodeKindDoor';\n" +
+        'await client.request(choose(node, input), { input });',
+    ],
+    [
+      'hoisted into a local',
+      'const mutation = nodeUpdateDocument(node, input);\nawait client.request(mutation, { input });',
+    ],
+    // @copilot: a destructured namespace binding is neither an import
+    // specifier nor a property access at the call site.
+    [
+      'destructured off a namespace, then hoisted',
+      "import * as door from '$lib/server/nodeKindDoor';\n" +
+        'const { nodeUpdateDocument: choose } = door;\n' +
+        'const mutation = choose(node, input);\n' +
+        'await client.request(mutation, { input });',
+    ],
+  ])('checks a routed call %s', (_what, code) => {
+    const { checked, failures } = check(code);
+    expect(checked).toBe(1);
+    expect(failures).toEqual([]);
+  });
+
+  // The direction that matters: a routed call whose variables are WRONG must
+  // still be caught. A branch that resolves the document but stops checking
+  // would pass the three cases above and this one is what tells them apart.
+  it('still catches a wrong variable key behind the chooser', () => {
+    const { failures } = check(
+      'const mutation = nodeUpdateDocument(node, input);\n' +
+        'await client.request(mutation, { wrong: value });',
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0].errors[0]).toContain('"wrong"');
+  });
+});
