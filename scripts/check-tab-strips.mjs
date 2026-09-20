@@ -1,13 +1,22 @@
 #!/usr/bin/env node
 /**
- * #858 — a horizontal tab strip in the portal's narrow content column must
- * scroll rather than push the page off a phone screen.
+ * #858 — a horizontal tab strip in the portal's narrow content column must not
+ * push the page off a phone screen.
  *
- * The content column is ~308px at a 390px viewport. A strip of tabs wider than
- * that overflows the DOCUMENT unless the strip carries `overflow-x-auto`, and
- * unless each tab carries `shrink-0 whitespace-nowrap` — without those, flex
- * compresses the labels into unreadable columns instead of letting the strip
- * scroll. PR #746 established the fix on the App detail page; #854 found the
+ * The content column is ~308px at a 390px viewport, and a strip of tabs wider
+ * than that overflows the DOCUMENT. There are TWO satisfying answers and this
+ * gate accepts either:
+ *
+ *   SCROLL — `overflow-x-auto` on the rail or between it and the tabs, with
+ *            each tab pinned (`shrink-0`, and `whitespace-nowrap` or
+ *            `truncate` on whatever carries the label). Without the pins flex
+ *            compresses the labels into unreadable columns instead of letting
+ *            the strip scroll.
+ *   WRAP   — `flex flex-wrap` on the element that lays the tabs out, whose
+ *            tabs must then NOT be pinned: either pin reintroduces the
+ *            overflow. Measured, see `WRAPS`.
+ *
+ * PR #746 established the scrolling fix on the App detail page; #854 found the
  * identical defect on the node detail page months later; #859 fixed four more,
  * one of which (`/app/account`) was overflowing the document by 10px and nobody
  * had noticed.
@@ -39,8 +48,15 @@
  *
  *   rail — an element whose class carries `flex` and `border-b` (the underline
  *          rail every tab strip in this repo draws), but not `border-b-2`
- *   tab  — an `<a>` or `<button>` under that rail whose class carries
- *          `border-b-2` (the per-tab underline)
+ *   tab  — an `<a>`, `<button>`, `<div>`, `<span>` or `<li>` under that rail
+ *          whose class carries `border-b-2` (the per-tab underline)
+ *
+ * The tab is NOT required to be interactive, and that is load-bearing rather
+ * than lax: `ViewTabs` renders its ACTIVE tab as a `<div>`, because that tab
+ * holds a caret `<button>` and a button cannot nest in a button. Restricting to
+ * `a`/`button` skipped the active branch of a strip on every list page. See
+ * `TAB_TAGS` for the measurement showing the wider set reclassifies nothing —
+ * `border-b-2` does the discriminating, not the tag name.
  *
  * A rail with two or more tabs is a strip. Two, not three: `/app/memories` and
  * `/app/orgs/[id]/agents` both have exactly two and both sat at exactly 308px
@@ -64,22 +80,31 @@
  * should keep `shrink-0` on the tabs and suppress this check deliberately,
  * with a comment saying why — not by quietly widening the rail predicate.
  *
- * ## WHAT THIS GATE CANNOT SEE YET — read this before trusting a green run
+ * ## WHAT THIS GATE SEES — read this before trusting a green run
  *
  * Measured on this commit: of TWENTY rails in `src/`, this predicate recognises
- * ELEVEN as tab strips. A green run means "the 11 strips I can parse are fine",
- * NOT "every tab strip in the portal is safe at phone width". The nine it
- * misses are not innocents it examined and cleared; they are rails it never
- * resolved.
+ * THIRTEEN as tab strips. A green run means "the 13 strips I can parse are
+ * fine", NOT "every tab strip in the portal is safe at phone width".
  *
  * "Safe", not "scrolls": a `flex-wrap` strip passes without scrolling at all.
  *
- * ONE blind spot accounts for all nine, and it is tracked on #858:
+ * The other SEVEN are not blind spots. Each was examined and is genuinely not a
+ * tab strip — a header row, a banner, a toolbar, an aspect-ratio box: `flex` +
+ * `border-b` with no `border-b-2` children. They are true negatives, and the
+ * `border-b-2` requirement is what excludes them. Listing them here because
+ * "20 rails, 13 strips" otherwise reads as seven more things to fix, which is
+ * how a denominator becomes its own kind of false claim:
  *
- *   A class token supplied by a script constant is invisible to `classText`,
- *   which reads the attribute's source slice only. `/app/orgs/[id]/memories`
- *   builds its tabs from a `subTabBase` constant holding `border-b-2`, so that
- *   rail reports ZERO tabs and is skipped. Nine rails report zero tabs.
+ *   AgentChat, ImpersonationBanner, MemoryBrowser, SelectUser,
+ *   DashboardEditor (x2), routes/+page
+ *
+ * FIXED, and recorded because the shape recurs: a class token supplied by a
+ * script CONSTANT used to be invisible — `classText` reads the attribute source,
+ * so `class="{subTabBase} …"` showed no `border-b-2` and the rail reported zero
+ * tabs. Two real strips hid behind it, `ViewTabs` (which renders on every list
+ * page) and `/app/orgs/[id]/memories` (which was genuinely broken).
+ * `classConstants`/`inlineConstants` are the repair, and they inline ONLY a
+ * bare identifier — a ternary stays conditional.
  *
  * FIXED, and recorded because the shape recurs: a Tailwind VARIANT used to
  * satisfy every one of these regexes — `sm:overflow-x-auto` matches a `\b`
@@ -94,8 +119,10 @@
  * `elementsWithAncestry` is the repair. Teaching the gate to see them found two
  * unguarded strips immediately, one of which was real (`/app/orgs/[id]`).
  *
- * Until the class-constant gap closes, do NOT read this gate's silence as
- * coverage of the whole repository.
+ * There is no known blind spot left. That is a stronger claim than this file
+ * has ever made, so it is the one to re-verify rather than inherit: the
+ * suite pins WHICH strips are seen, by name, and `railsSeen` beside
+ * `stripsSeen` is what would show the gap reopening.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -107,7 +134,22 @@ const TAB_BORDER = /\bborder-b-2(?![-\w])/;
 const FLEX = /\bflex(?![-\w])/;
 const SCROLLS = /\boverflow-x-auto\b/;
 const NO_SHRINK = /\bshrink-0\b/;
-const NO_WRAP = /\bwhitespace-nowrap\b/;
+/**
+ * What stops a tab's label wrapping. `truncate` is the second spelling and has
+ * to be here: Tailwind's `truncate` IS `overflow:hidden; text-overflow:ellipsis;
+ * white-space:nowrap`, so it satisfies this requirement outright.
+ *
+ * `ViewTabs.svelte` — the saved-view strip on EVERY list page — writes it that
+ * way, `truncate` on the label span inside a `max-w-[14rem]` tab. Measured with
+ * its real class strings at 390px, one 43-char label: with `truncate` the tab
+ * is 224px and 38px tall (one line); without it, 58px tall (two lines). The
+ * span's computed `white-space` reads `nowrap` in the first case.
+ *
+ * Demanding `whitespace-nowrap` there would have been a false positive on a
+ * component rendering in every list in the portal — and the "fix" would have
+ * been to add a redundant class to correct markup.
+ */
+const NO_WRAP = /\b(?:whitespace-nowrap|truncate)\b/;
 
 /**
  * `flex-wrap` is the OTHER correct answer to #858, and the gate has to know it.
@@ -137,8 +179,22 @@ const WRAPS = /\bflex-wrap\b/;
 /** `min-w-0` — what lets a flex item shrink below its content. */
 const CAN_SHRINK = /\bmin-w-0\b/;
 
-/** Tags that can be a tab. */
-const TAB_TAGS = new Set(['a', 'button']);
+/**
+ * Tags that can be a tab.
+ *
+ * `div`/`span`/`li` are here because a tab is not always an interactive
+ * element: `ViewTabs` renders its ACTIVE tab as a `<div>`, since that tab
+ * contains a caret `<button>` and a button cannot nest inside a button. With
+ * `a`/`button` only, the active branch of a strip on every list page in the
+ * portal was never checked, so a regression limited to it would pass
+ * (@copilot on #865).
+ *
+ * Measured before widening, because a wider tab predicate is how a gate starts
+ * over-firing: coverage is IDENTICAL either way — 20 rails, 13 strips, the same
+ * twelve files. It reclassifies nothing; it only stops skipping the active tab.
+ * The `border-b-2` requirement is what does the discriminating, not the tag.
+ */
+const TAB_TAGS = new Set(['a', 'button', 'div', 'span', 'li']);
 
 /**
  * Class text with every VARIANT-PREFIXED token dropped.
@@ -220,7 +276,115 @@ function staticPart(cls) {
  * (a different attribute type), which no strip in this repo uses for these
  * layout tokens.
  */
-function classText(el, source) {
+/**
+ * Module-level `const NAME = 'string literal'` declarations, as a name → text
+ * map. Only plain string literals and interpolation-free template literals
+ * count: a value assembled at runtime is not something this can resolve, and
+ * guessing would be worse than not seeing it.
+ *
+ * This is #858's last blind spot. A strip written as
+ *
+ *   const subTabBase = 'border-b-2 px-3 py-1.5 …';
+ *   <button class="{subTabBase} {active ? … : …}">
+ *
+ * carries `border-b-2` nowhere in the attribute source, so `classText` saw a
+ * tabless rail and the strip was skipped entirely (@copilot and @codex on
+ * #860). Two real strips hid behind it.
+ */
+/**
+ * Every name bound by the TEMPLATE — `{#each … as name, i}`, `{#await … then
+ * name}`, `{#snippet name(param)}`, `{:catch e}`.
+ *
+ * Collected so `classConstants` can refuse to resolve a name the template
+ * rebinds. `{#each tabs as tabBase}` makes `{tabBase}` inside that block the
+ * loop item, NOT the module constant, and inlining the constant's classes there
+ * would describe an element by markup it does not have (@copilot on #865).
+ *
+ * The response is to DROP such a name rather than to resolve it scope-aware.
+ * That is deliberate: the result is a rail this gate cannot resolve, and an
+ * unresolvable rail is not silent — it lands in `railsSeen - stripsSeen`, where
+ * the `RAILS_WITH_NO_TABS` pin fails on it by name. A wrong inlining would be
+ * silent; a dropped one is loud. No instance exists in the repo today.
+ */
+function templateBoundNames(ast) {
+  const names = new Set();
+  const addPattern = (pattern) => {
+    if (!pattern || typeof pattern !== 'object') return;
+    if (pattern.type === 'Identifier') names.add(pattern.name);
+    for (const value of Object.values(pattern)) {
+      if (Array.isArray(value)) value.forEach(addPattern);
+      else if (value && typeof value === 'object' && 'type' in value) addPattern(value);
+    }
+  };
+  const seen = new Set();
+  const walk = (node) => {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    if (node.type === 'EachBlock') {
+      addPattern(node.context);
+      if (node.index) names.add(node.index);
+    }
+    if (node.type === 'AwaitBlock') {
+      addPattern(node.value);
+      addPattern(node.error);
+    }
+    // `{@const name = …}` — a template-local binding, and the one most likely
+    // to shadow a class constant deliberately, since it exists to name a value
+    // computed per iteration (@copilot on #865).
+    if (node.type === 'ConstTag') {
+      for (const d of node.declaration?.declarations ?? []) addPattern(d.id);
+    }
+    if (node.type === 'SnippetBlock') {
+      if (node.expression?.type === 'Identifier') names.add(node.expression.name);
+      (node.parameters ?? []).forEach(addPattern);
+    }
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) value.forEach(walk);
+      else if (value && typeof value === 'object' && 'type' in value) walk(value);
+    }
+  };
+  walk(ast.fragment);
+  return names;
+}
+
+function classConstants(ast) {
+  const found = new Map();
+  const shadowed = templateBoundNames(ast);
+  const body = ast.instance?.content?.body ?? [];
+  for (const node of body) {
+    if (node.type !== 'VariableDeclaration' || node.kind !== 'const') continue;
+    for (const d of node.declarations ?? []) {
+      if (d.id?.type !== 'Identifier' || !d.init) continue;
+      // A name the template rebinds is not this constant wherever it appears,
+      // so it is not resolved at all. See `templateBoundNames`.
+      if (shadowed.has(d.id.name)) continue;
+      if (d.init.type === 'Literal' && typeof d.init.value === 'string') {
+        found.set(d.id.name, d.init.value);
+      } else if (d.init.type === 'TemplateLiteral' && d.init.expressions?.length === 0) {
+        found.set(d.id.name, d.init.quasis.map((q) => q.value.cooked ?? '').join(''));
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Inline `{name}` interpolations that resolve to a known string constant.
+ *
+ * ONLY a bare identifier is inlined, and that restriction is the whole safety
+ * of it: `{tabBase}` always applies, so its tokens are genuinely unconditional
+ * and belong in the static text. `{active ? a : b}` does NOT always apply, so
+ * it is left as an interpolation for `staticPart` to strip — resolving it would
+ * re-open the one-armed-ternary hole closed in 2d0266f.
+ */
+function inlineConstants(cls, constants) {
+  if (constants.size === 0) return cls;
+  return cls.replace(/\{\s*([A-Za-z_$][\w$]*)\s*\}/g, (whole, name) =>
+    constants.has(name) ? constants.get(name) : whole,
+  );
+}
+
+function classText(el, source, constants = new Map()) {
   const attr = (el.attributes ?? []).find((a) => a.type === 'Attribute' && a.name === 'class');
   if (!attr) return '';
   if (attr.value === true) return '';
@@ -228,7 +392,9 @@ function classText(el, source) {
   if (parts.length === 0) return '';
   const start = parts[0].start;
   const end = parts[parts.length - 1].end;
-  return typeof start === 'number' && typeof end === 'number' ? source.slice(start, end) : '';
+  const raw =
+    typeof start === 'number' && typeof end === 'number' ? source.slice(start, end) : '';
+  return inlineConstants(raw, constants);
 }
 
 /**
@@ -251,7 +417,41 @@ function classText(el, source) {
  * renders when the collection is empty, so an element there is rendered at most
  * once and is not repeated.
  */
+/**
+ * Does this fragment render text that belongs to the ENCLOSING element?
+ *
+ * Descends through control-flow blocks (`{#if}`, `{#each}`, `{#await}`,
+ * `{#key}`) because text inside them is rendered by the enclosing element, and
+ * STOPS at a child element, whose text is that child's own.
+ */
+function ownTextIn(fragment) {
+  let found = false;
+  const seen = new Set();
+  const walk = (n) => {
+    if (found || !n || typeof n !== 'object' || seen.has(n)) return;
+    seen.add(n);
+    // A child element owns its text; it is handled separately by `childrenOf`.
+    if (n.type === 'RegularElement' || n.type === 'Component' || n.type === 'SvelteElement') return;
+    if (
+      (n.type === 'Text' && (n.data ?? n.raw ?? '').trim() !== '') ||
+      n.type === 'ExpressionTag' ||
+      n.type === 'HtmlTag'
+    ) {
+      found = true;
+      return;
+    }
+    for (const value of Object.values(n)) {
+      if (Array.isArray(value)) value.forEach(walk);
+      else if (value && typeof value === 'object' && 'type' in value) walk(value);
+    }
+  };
+  (fragment?.nodes ?? []).forEach(walk);
+  return found;
+}
+
 export function elementsWithAncestry(ast, source) {
+  // Resolved once per file, not per element: the map is module-scoped.
+  const constants = classConstants(ast);
   const found = [];
   const seen = new Set();
   const visit = (node, ancestors, repeats) => {
@@ -259,9 +459,21 @@ export function elementsWithAncestry(ast, source) {
     seen.add(node);
     let nextAncestors = ancestors;
     if (node.type === 'RegularElement') {
-      const cls = classText(node, source);
+      const cls = classText(node, source, constants);
+      // Text belonging to THIS element rather than to a child — a plain text
+      // node, an expression tag like `{tab.label}`, or an `{@html}` tag, all of
+      // which wrap the same way. Used by `cannotWrap`: an element with its own
+      // text cannot delegate the no-wrap requirement to its children.
+      //
+      // The walk descends THROUGH control flow and stops at child ELEMENTS,
+      // which is the whole subtlety (@copilot on #865). Reading only immediate
+      // fragment nodes missed `{#if compact}{tab.label}{:else}{tab.label}{/if}`
+      // — text rendered directly in the tab, via a block — so the tab looked
+      // text-free and delegated the requirement to a truncating span beside it.
+      const hasOwnText = ownTextIn(node.fragment);
       const el = {
         name: node.name,
+        hasOwnText,
         // `cls` is the raw class text and is what DETECTION reads — whether a
         // thing is a rail or a tab. Permissive on purpose: a strip whose
         // `border-b` is variant-prefixed is still a strip worth checking, and
@@ -405,6 +617,34 @@ export function analyse(source) {
      * node repeats deeper than the element does, the element holds the whole
      * loop, so many rendered tabs share it as a single flex item.
      */
+    /**
+     * Can NO text inside this element wrap?
+     *
+     * `white-space` is inherited, so the class may sit on the element or on
+     * everything below it — but "somewhere below it" is NOT enough, which is
+     * the correction here. A `some()` over descendants accepted
+     * `{#if compact}<span class="truncate">…{:else}<span>…{/if}`, where one
+     * possible label still wraps, and accepted an unrelated nested control
+     * carrying `truncate` beside a plain label (@codex and @copilot on #865).
+     *
+     * So: the element itself carries it, OR it has no text of its own and
+     * EVERY element child is covered in the same way. `ViewTabs`'s tab is a
+     * <button> whose sole child is `<span class="truncate">{v.name}</span>` —
+     * no own text, one covered child — which is why that real case passes
+     * while both counter-examples do not.
+     *
+     * `hasOwnText` counts an expression tag too: `{tab.label}` sitting directly
+     * in the tab is text that wraps like any other.
+     */
+    const childrenOf = (el) =>
+      all.filter((e) => e.ancestors.length > 0 && e.ancestors[e.ancestors.length - 1] === el);
+    const cannotWrap = (el) => {
+      if (NO_WRAP.test(el.active)) return true;
+      if (el.hasOwnText) return false;
+      const kids = childrenOf(el);
+      return kids.length > 0 && kids.every(cannotWrap);
+    };
+
     const tabsUnder = (el) => tabs.filter((t) => t === el || t.ancestors.includes(el));
     const holdsOneRenderedTab = (el) => {
       const under = tabsUnder(el);
@@ -487,7 +727,7 @@ export function analyse(source) {
         }
       } else {
         if (!NO_SHRINK.test(tab.active)) out.push({ kind: 'tab-can-shrink', start: tab.start });
-        if (!NO_WRAP.test(tab.active)) out.push({ kind: 'tab-can-wrap', start: tab.start });
+        if (!cannotWrap(tab)) out.push({ kind: 'tab-can-wrap', start: tab.start });
       }
     }
   }
@@ -544,9 +784,11 @@ function main() {
   const files = svelteFilesUnder('src');
   let failed = 0;
   let stripsSeen = 0;
+  let railsSeen = 0;
   for (const file of files) {
     const source = readFileSync(file, 'utf8');
-    const { stripsSeen: seen, offences: found } = analyse(source);
+    const { railsSeen: rails, stripsSeen: seen, offences: found } = analyse(source);
+    railsSeen += rails;
     stripsSeen += seen;
     for (const o of found) {
       failed += 1;
@@ -569,7 +811,7 @@ function main() {
     `OK — the ${stripsSeen} tab strip(s) this gate can parse do not overflow a phone screen (${files.length} .svelte files).`,
   );
   console.log(
-    'COVERAGE IS PARTIAL: a strip whose tab classes come from a shared script constant is still invisible to this predicate. See #858.',
+    `The other ${railsSeen - stripsSeen} rail(s) matching flex+border-b resolved to no border-b-2 children. Today all seven are genuinely not tab strips, and the suite pins them BY NAME — but this line reports what the predicate resolved, not that the rest are safe: a strip whose classes come from an imported or runtime-built constant would land here too. See #858.`,
   );
 }
 

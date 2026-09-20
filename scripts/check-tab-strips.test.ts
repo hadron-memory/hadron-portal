@@ -455,6 +455,242 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
     ).toEqual([]);
   });
 
+  it('a tab whose border-b-2 comes from a script CONSTANT is seen', () => {
+    // #858's last blind spot. `classText` reads the attribute source, so a
+    // token held in a const never appeared there and the rail reported zero
+    // tabs — the strip was skipped entirely, not examined and cleared. Two real
+    // strips hid behind this (@copilot and @codex on #860).
+    expect(
+      kinds(`
+      <script>
+        const subTabBase = 'border-b-2 px-3 py-1.5 text-sm font-medium';
+        const on = 'border-indigo-500';
+        const off = 'border-transparent';
+      </script>
+      <div class="flex gap-1 border-b border-zinc-200">
+        <button class="{subTabBase} {sub === 'a' ? on : off}">One</button>
+        <button class="{subTabBase} {sub === 'b' ? on : off}">Two</button>
+      </div>`),
+    ).toContain('strip-does-not-scroll');
+  });
+
+  it('a resolved constant satisfies a REQUIREMENT, because it always applies', () => {
+    // The other direction: `{tabBase}` is a bare identifier, so it is applied
+    // unconditionally and its tokens are genuinely static. Resolving it must
+    // therefore satisfy the requirements, not merely trip detection.
+    expect(
+      offences(`
+      <script>
+        const tabBase = 'shrink-0 whitespace-nowrap border-b-2 px-3 py-2';
+      </script>
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        <button class="{tabBase}">One</button>
+        <button class="{tabBase}">Two</button>
+      </div>`),
+    ).toEqual([]);
+  });
+
+  it('a TERNARY is not resolved, even when its branches are constants', () => {
+    // The restriction that keeps this safe. Only a BARE identifier is inlined;
+    // `{a ? x : y}` does not always apply, so it stays an interpolation for
+    // `staticPart` to strip. Resolving it would re-open the one-armed-ternary
+    // hole closed in 2d0266f.
+    //
+    // The mutation that proves this is specific, and the first one I tried was
+    // NOT it: resolving the branch identifiers while LEAVING the braces changes
+    // nothing, because `staticPart` strips the braces either way, so this test
+    // passed and looked proven. The mutation that fails it resolves the
+    // branches AND drops the braces — which is what "resolving a ternary" would
+    // actually mean. A weaker mutation reporting a pass is the instrument
+    // measuring nothing again.
+    const k = kinds(`
+      <script>
+        const pinned = 'shrink-0 whitespace-nowrap';
+        const loose = '';
+      </script>
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        <button class="border-b-2 {compact ? pinned : loose}">One</button>
+        <button class="border-b-2 {compact ? pinned : loose}">Two</button>
+      </div>`);
+    expect(k).toContain('tab-can-shrink');
+    expect(k).toContain('tab-can-wrap');
+  });
+
+  it('a constant SHADOWED by an each-binding is not resolved', () => {
+    // @copilot on #865. `{#each tabs as tabBase}` rebinds the name, so
+    // `{tabBase}` inside that block is the loop item, not the module constant.
+    // Inlining the constant's classes there would describe the element by
+    // markup it does not have — a SILENT false pass.
+    //
+    // The response is to drop the name rather than resolve it scope-aware, and
+    // the trade is deliberate: the rail becomes unresolvable, which is loud
+    // (`RAILS_WITH_NO_TABS` fails on it by name) where a wrong inlining is not.
+    // Here that means no strip is detected at all, so no offence is reported —
+    // and the repository pin is what would catch it in a real file.
+    expect(
+      offences(`
+      <script>
+        const tabBase = 'shrink-0 whitespace-nowrap border-b-2 px-3 py-2';
+      </script>
+      <div class="flex gap-0 border-b border-zinc-200">
+        {#each views as tabBase (tabBase.id)}
+          <button class="{tabBase}">One</button>
+        {/each}
+      </div>`),
+    ).toEqual([]);
+  });
+
+  it('a constant shadowed by {@const} is not resolved either', () => {
+    // @copilot on #865, second binding form. `{@const}` is the likeliest
+    // deliberate shadow of the three, since it exists to name a value computed
+    // per iteration.
+    expect(
+      offences(`
+      <script>
+        const tabBase = 'shrink-0 whitespace-nowrap border-b-2 px-3 py-2';
+      </script>
+      <div class="flex gap-0 border-b border-zinc-200">
+        {#each views as v (v.id)}
+          {@const tabBase = v.klass}
+          <button class="{tabBase}">One</button>
+        {/each}
+      </div>`),
+    ).toEqual([]);
+  });
+
+  it('a constant built at runtime is NOT resolved', () => {
+    // Only string literals and interpolation-free templates count. Guessing at
+    // a value assembled at runtime would be worse than not seeing it — so the
+    // rail is simply not resolved, which the coverage pins below record.
+    expect(
+      offences(`
+      <script>
+        const tabBase = ['border-b-2', size].join(' ');
+      </script>
+      <div class="flex gap-0 border-b border-zinc-200">
+        <button class="{tabBase}">One</button>
+        <button class="{tabBase}">Two</button>
+      </div>`),
+    ).toEqual([]);
+  });
+
+  it('`truncate` on the LABEL satisfies the no-wrap requirement', () => {
+    // Tailwind's `truncate` IS `white-space: nowrap` (plus ellipsis), and
+    // `ViewTabs` — the saved-view strip on every list page — writes it that way
+    // on an inner span. Measured with its real class strings at 390px, a
+    // 43-char label: with `truncate` the tab is 38px tall (one line), without
+    // it 58px (two). Demanding `whitespace-nowrap` on the tab would have
+    // reported correct markup rendering in every list in the portal.
+    expect(
+      offences(`
+      <script>
+        const tabBase = 'flex shrink-0 max-w-[14rem] items-center gap-1 border-b-2 px-3 py-2';
+      </script>
+      <div class="flex items-center gap-2 border-b border-zinc-200">
+        <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          <button class="{tabBase}"><span class="truncate">One</span></button>
+          <button class="{tabBase}"><span class="truncate">Two</span></button>
+        </div>
+      </div>`),
+    ).toEqual([]);
+  });
+
+  it('a CONDITIONAL label where only one branch truncates is reported', () => {
+    // @codex and @copilot on #865. A `some()` over descendants accepted this:
+    // the `{:else}` span can still wrap, so one possible label overflows. The
+    // rule is now "every element child is covered", not "some descendant is".
+    expect(
+      kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}
+          <a class="shrink-0 border-b-2 px-4">
+            {#if compact}<span class="truncate">{tab.label}</span>{:else}<span>{tab.label}</span>{/if}
+          </a>
+        {/each}
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
+  it('an unrelated nested control with truncate does not cover a plain label', () => {
+    // The other half of the same finding: `truncate` on something that is not
+    // the label. The label span has no covering class, so the tab is reported.
+    expect(
+      kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}
+          <a class="shrink-0 border-b-2 px-4">
+            <span>{tab.label}</span>
+            <span class="truncate text-xs">x</span>
+          </a>
+        {/each}
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
+  it('a tab with its OWN text cannot delegate no-wrap to a child', () => {
+    // `hasOwnText`: `{tab.label}` sitting directly in the tab is text that
+    // wraps like any other, so a covered child does not rescue it.
+    expect(
+      kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}
+          <a class="shrink-0 border-b-2 px-4">{tab.label}<span class="truncate">•</span></a>
+        {/each}
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
+  it('a NON-INTERACTIVE tab element is still a tab', () => {
+    // @copilot on #865. `ViewTabs` renders its ACTIVE tab as a <div>, because
+    // that tab contains a caret <button> and a button cannot nest in a button.
+    // With `a`/`button` only, the active branch of a strip on every list page
+    // was never checked, so a regression limited to it passed the gate.
+    //
+    // Widening was measured first: coverage is identical either way — 20 rails,
+    // 13 strips, the same twelve files. `border-b-2` does the discriminating,
+    // not the tag name.
+    expect(
+      kinds(`
+      <div class="flex items-center gap-2 border-b border-zinc-200">
+        <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          <div class="flex shrink-0 border-b-2 px-3 py-2"><span>Active</span></div>
+          <button class="flex shrink-0 border-b-2 px-3 py-2"><span class="truncate">Other</span></button>
+        </div>
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
+  it('text rendered through {#if} directly in the tab counts as its own text', () => {
+    // @copilot on #865. `hasOwnText` read only immediate fragment nodes, so
+    // `{#if}{tab.label}{:else}{tab.label}{/if}` looked text-free — and the tab
+    // then delegated the no-wrap requirement to a truncating span beside it,
+    // while the block renders unwrapped text directly in the tab.
+    //
+    // The walk descends through control flow and stops at child ELEMENTS.
+    expect(
+      kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}
+          <a class="shrink-0 border-b-2 px-4">
+            {#if compact}{tab.short}{:else}{tab.label}{/if}
+            <span class="truncate">•</span>
+          </a>
+        {/each}
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
+  it('a tab with NEITHER whitespace-nowrap nor truncate is still reported', () => {
+    // The spare above must not become a blanket pass: `truncate` has to be
+    // present somewhere on the tab, not merely possible.
+    expect(
+      kinds(`
+      <div class="flex gap-0 overflow-x-auto border-b border-zinc-200">
+        {#each tabs as tab (tab.id)}<a class="shrink-0 border-b-2 px-4"><span>{tab.label}</span></a>{/each}
+      </div>`),
+    ).toContain('tab-can-wrap');
+  });
+
   it('reports an unparseable file rather than passing it', () => {
     // A gate that silently skips what it cannot read can be switched off by a
     // toolchain change nobody notices.
@@ -469,9 +705,9 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
  * the repository walk, so none of them measures how much of the portal this
  * gate actually covers — and when this block was written the answer was 3 of
  * 20 rails, which is how a blind gate passed its own twelve tests and reported
- * `OK` across 153 files (@copilot on #860). It is 11 of 20 today; the count is
- * asserted below rather than described here, so this paragraph cannot drift
- * again.
+ * `OK` across 153 files (@copilot on #860). The counts live in the assertions
+ * below rather than in this paragraph, which is the only way a coverage note
+ * stops going stale — it went stale twice while #858 was being closed.
  *
  * `check-grid-filters.test.ts` and `check-hook-teardown.test.ts` assert against
  * the real tree; this file did not. These are that assertion, and the
@@ -486,21 +722,21 @@ describe('the repository as it stands', () => {
   /**
    * The strips this predicate can currently SEE, by path.
    *
-   * This list is deliberately exact rather than a count, and it is still SHORT
-   * of the whole repository: ELEVEN strips across ten files, out of twenty
-   * rails. The nine that remain invisible all have ONE cause — a class token
-   * held in a script constant never appears in the attribute source, so
-   * `classText` cannot see it and the rail reports zero tabs. That is the last
-   * item on #858.
+   * Exact rather than a count, so the coverage set cannot change silently.
    *
-   * The `{#each}` cause is FIXED, and this list grew by seven files when it
-   * was — which is the mechanism working. When #858 closes the last gap this
-   * assertion WILL fail again, and closing it should be a visible edit here
-   * rather than a number that quietly drifts. If you are here because you added
-   * a tab strip, add it — and check the gate really sees it rather than only
-   * appending the path.
+   * Every strip the portal has is now here — #858's three predicate fixes
+   * ({#each}, Tailwind variants, class constants) closed the last of the blind
+   * spots, and this list grew from three files to twelve across them. The
+   * rails NOT here are pinned separately as `RAILS_WITH_NO_TABS`, so "the rest
+   * are not strips" is an assertion rather than an assumption.
+   *
+   * If you are here because you added a tab strip, add it — and check the gate
+   * really SEES it rather than only appending the path. If you are here because
+   * this failed unexpectedly, a rail has changed shape and that is the question
+   * to answer before editing the list.
    */
   const SEEN_AS_STRIPS = [
+    'src/lib/components/table/ViewTabs.svelte',
     'src/routes/app/account/+layout.svelte',
     'src/routes/app/agents/[id]/+page.svelte',
     'src/routes/app/apps/[appId]/+page.svelte',
@@ -510,11 +746,41 @@ describe('the repository as it stands', () => {
     'src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte',
     'src/routes/app/orgs/[id]/+layout.svelte',
     'src/routes/app/orgs/[id]/agents/+page.svelte',
+    'src/routes/app/orgs/[id]/memories/+page.svelte',
     'src/routes/app/workers/[id]/+page.svelte',
   ];
 
-  /** Eleven strips across ten files — the agent detail page carries two. */
-  const STRIPS_TOTAL = 11;
+  /** Thirteen strips across twelve files — the agent detail page carries two. */
+  const STRIPS_TOTAL = 13;
+
+  /**
+   * The rails that resolve to NO tabs — pinned by name, because the CI line
+   * says they are not tab strips and that is an inference the predicate does
+   * not make (@codex on #865).
+   *
+   * Each was read and is genuinely not a strip: a chat header, a banner, a
+   * browser header, a form row, two editor toolbars, a marketing panel. What
+   * makes the claim safe is that this list is EXACT — a new rail landing here
+   * because its classes come from an imported or runtime-built constant fails
+   * this test rather than being quietly described as a non-strip.
+   */
+  const RAILS_WITH_NO_TABS = [
+    'src/lib/components/AgentChat.svelte',
+    'src/lib/components/ImpersonationBanner.svelte',
+    'src/lib/components/MemoryBrowser.svelte',
+    'src/lib/components/SelectUser.svelte',
+    'src/lib/dashboard/DashboardEditor.svelte',
+    'src/lib/dashboard/DashboardEditor.svelte',
+    'src/routes/+page.svelte',
+  ];
+
+  it('the rails resolving to NO tabs are exactly the known non-strips', () => {
+    const noTabRails: string[] = [];
+    for (const { file, railsSeen, stripsSeen } of scan()) {
+      for (let i = 0; i < railsSeen - stripsSeen; i += 1) noTabRails.push(file);
+    }
+    expect(noTabRails.sort()).toEqual([...RAILS_WITH_NO_TABS].sort());
+  });
 
   it('walks a plausible number of real .svelte files', () => {
     // The mirror of every "no offences" assertion in this file: an empty file

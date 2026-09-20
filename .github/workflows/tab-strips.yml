@@ -28,8 +28,10 @@ jobs:
       # Named for what it CHECKS, not for what a green run would like to mean,
       # and the name has been wrong twice for two different reasons:
       #   - "Every tab strip scrolls" overstated COVERAGE. This predicate
-      #     recognises 11 of the 20 rails in src/; a strip whose tab classes
-      #     come from a shared script constant is still invisible to it (#858).
+      #     recognises 13 of the 20 rails in src/. The other seven are not
+      #     strips at all — no `border-b-2` children — but the job cannot say
+      #     so about a file it has not been taught to parse, and it has been
+      #     taught three times now (#858).
       #   - "…all scroll" overstated the REMEDY. A `flex flex-wrap` strip passes
       #     without scrolling, so the agent sub-tab bar is a green strip that
       #     does not scroll at all.

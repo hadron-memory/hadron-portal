@@ -369,7 +369,13 @@
     },
   });
 
-  const subTabBase = 'border-b-2 px-3 py-1.5 text-sm font-medium transition';
+  // #858 — `shrink-0 whitespace-nowrap` is what makes the strip SCROLL rather
+  // than squash. Measured at 390px before the fix: the three tabs were forced
+  // to 96/89/115px in a 308px row and every label wrapped, so each tab stood
+  // 74px tall — two lines of compressed text. The page did not overflow because
+  // the labels were being crushed instead, which is the failure this looks like
+  // when the rail cannot scroll.
+  const subTabBase = 'shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium transition';
   const subTabActive = 'border-indigo-500 text-indigo-600 dark:text-indigo-400';
   const subTabInactive = 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200';
 </script>
@@ -384,7 +390,11 @@
   </div>
 
   <!-- #342/#555: secondary tab row (Personal Memories / Org Memories / Subscriptions) -->
-  <div class="flex gap-1 border-b border-zinc-200 dark:border-zinc-800">
+  <!-- #858: `overflow-x-auto` on the rail itself — it is the direct parent of
+       the tabs, so there is no inner scroller here and no `min-w-0` to add (a
+       flex item that is a scroll container already has an automatic minimum
+       size of zero). -->
+  <div class="flex gap-1 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
     <button type="button" onclick={() => (subTab = 'personal')} class="{subTabBase} {subTab === 'personal' ? subTabActive : subTabInactive}">
       {t('org-memories.subtab.personal', 'Personal Memories')}
       <span class="ml-1 text-xs font-normal text-zinc-400">({personalRows.length})</span>

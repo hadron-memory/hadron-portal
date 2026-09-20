@@ -114,8 +114,12 @@
 
   const menuItem =
     'block w-full rounded px-2 py-1.5 text-left text-xs text-zinc-700 hover:bg-zinc-100 disabled:opacity-40 dark:text-zinc-300 dark:hover:bg-zinc-800';
+  // #858 — `whitespace-nowrap` on the tab itself, not only `truncate` on the
+  // label span. The ACTIVE tab also holds a modified dot and a caret button, and
+  // those are the children that could drop onto a second line; the label is
+  // already capped by `truncate` inside `max-w-[14rem]`, so this adds no width.
   const tabBase =
-    'flex shrink-0 max-w-[14rem] items-center gap-1 border-b-2 px-3 py-2 text-sm font-medium transition';
+    'flex shrink-0 max-w-[14rem] items-center gap-1 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition';
   const activeTab = 'border-indigo-500 text-indigo-600 dark:text-indigo-400';
   const inactiveTab =
     'border-transparent text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200';
