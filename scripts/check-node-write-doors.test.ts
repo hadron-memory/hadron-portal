@@ -368,6 +368,23 @@ describe('doorVariablesAgree', () => {
    * hypothetical, a stray backtick inside a `#` comment truncates every
    * document after it, which happened while writing this PR.
    */
+  /**
+   * @codex, one round after the parse guard went in: `resolveInterpolations`
+   * throws too — on a circular interpolation, or a `${X}` naming a constant
+   * that is not a GraphQL document — and that call sat one line ABOVE the try.
+   * Fixing the parse half and leaving the resolve half was the same bug a line
+   * earlier, and it reproduced the whole-run abort the guard exists to prevent.
+   */
+  it('reports a resolution failure instead of throwing', () => {
+    const boom = () => {
+      throw new Error('circular fragment interpolation through A -> B -> A');
+    };
+    expect(() => doorVariablesAgree(boom)).not.toThrow();
+    const errors = doorVariablesAgree(boom);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('circular fragment interpolation');
+  });
+
   it('reports a malformed document instead of throwing', () => {
     expect(() =>
       doorVariablesAgree((name) =>
@@ -382,7 +399,7 @@ describe('doorVariablesAgree', () => {
         : 'mutation X($input: UpdateNodeInput!) { x(input: $input) { id } }',
     );
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('does not parse');
+    expect(errors[0]).toContain('could not be read as a GraphQL document');
   });
 
   // @copilot: name alone is not a signature. Two doors both taking `$input`

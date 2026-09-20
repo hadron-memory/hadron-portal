@@ -311,22 +311,32 @@ function printTypeNode(type) {
 export function doorVariablesAgree(resolve) {
   const signatures = new Map();
   for (const name of DOOR_DOCUMENTS) {
-    const text = resolve(name);
-    if (text === undefined) {
-      return [`${name} is not defined in src/lib/server/queries.ts`];
-    }
-    // A malformed document is validate-graphql's own finding, reported with a
-    // file and a line. Letting `parse` throw here aborted the WHOLE run with an
-    // uncaught GraphQLError before any of that could print (@copilot) — and it
-    // is not hypothetical: a stray backtick inside a `#` comment truncates
-    // every document after it, which happened while writing this PR.
+    // A document that cannot be READ is validate-graphql's own finding,
+    // reported with a file and a line. Anything thrown here aborts the WHOLE
+    // run — no findings, no summary, no `--json` — which is the failure this
+    // check exists beside, not one it should cause.
+    //
+    // RESOLUTION is inside the guard as well as parsing, and that boundary was
+    // wrong for one round: `resolveInterpolations` throws on a circular
+    // interpolation or a `${X}` naming something that is not a GraphQL
+    // document, and that call sat one line above the try (@codex). Fixing the
+    // parse half and leaving the resolve half was the same bug a line earlier.
+    //
+    // Neither is hypothetical: a stray backtick inside a `#` comment truncates
+    // every document after it, which happened while writing this PR and is how
+    // the first defect in it was found.
     let ast;
     try {
+      const text = resolve(name);
+      if (text === undefined) {
+        return [`${name} is not defined in src/lib/server/queries.ts`];
+      }
       ast = parse(text);
-    } catch {
+    } catch (e) {
       return [
-        `${name} does not parse, so the doors cannot be compared — fix the ` +
-          'document; validate-graphql reports it with a line.',
+        `${name} could not be read as a GraphQL document, so the doors cannot ` +
+          `be compared (${e instanceof Error ? e.message : String(e)}) — fix ` +
+          'the document; validate-graphql reports it with a file and a line.',
       ];
     }
     const op = ast.definitions.find((d) => d.kind === 'OperationDefinition');
