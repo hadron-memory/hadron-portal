@@ -78,6 +78,37 @@ describe('scanSource — the drift shape', () => {
     expect(failures[0]).toContain('UPDATE_NODE_MUTATION');
   });
 
+  /**
+   * The evasion one level further out, and @codex found it on PR #869 while
+   * the two above were still fresh: a caller need not go near DOOR_DOCUMENTS
+   * at all, because it can declare its own document.
+   *
+   * `app/agents/[id]/conversations/+page.server.ts` has done exactly this for
+   * seven writes (portal#870). It carries no `/* GraphQL *\/` marker, so it is
+   * invisible to validate-graphql and to check-graphql-callers as well —
+   * gating the CONSTANT was the same mistake as gating the CALL SITE.
+   */
+  it('fails a locally declared node-update document', () => {
+    const { failures } = scanSource(
+      ORDINARY,
+      'const UPDATE = `mutation U($input: UpdateNodeInput!) { updateNode(input: $input) { id } }`;\n' +
+        'await client.request(UPDATE, { input });\n',
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('declares its own node-update document');
+  });
+
+  it.each(['updateTaskNode', 'updateReviewNode', 'updateSpecNode'])(
+    'fails a locally declared %s document too — a hand-picked door is still hand-picked',
+    (operation) => {
+      const { failures } = scanSource(
+        ORDINARY,
+        `const D = \`mutation U($input: UpdateNodeInput!) { ${operation}(input: $input) { id } }\`;\n`,
+      );
+      expect(failures).toHaveLength(1);
+    },
+  );
+
   // The portal annotates the response type inline on most of these, and a
   // literal `.request(` match skipped every one of those files wholesale once
   // already (portal#696). Both spellings, or the gate is blind to the majority.
@@ -140,7 +171,7 @@ describe('scanSource — the routed shape', () => {
       'await client.request(nodeUpdateDocument(n, i), { input });\n',
     );
     expect(failures).toHaveLength(1);
-    expect(failures[0]).toContain('no longer imports');
+    expect(failures[0]).toContain('no longer holds');
   });
 
   /**
@@ -154,7 +185,50 @@ describe('scanSource — the routed shape', () => {
     const { failures, looked } = scanSource(EXEMPT, 'await client.request(MEMORIES_QUERY, {});\n');
     expect(looked).toBe(true);
     expect(failures).toHaveLength(1);
-    expect(failures[0]).toContain('no longer imports');
+    expect(failures[0]).toContain('no longer holds');
+  });
+});
+
+describe('the document registry', () => {
+  // A gate that flagged every door operation everywhere would flag the file
+  // that DEFINES the four documents. Rather than skip it, the registry gets its
+  // own rule: a door operation there must land on one of the four names, since
+  // that list is the only thing the import check knows to guard.
+  it('stays silent on the four documents it is meant to hold', () => {
+    const { failures } = scanSource(
+      'src/lib/server/queries.ts',
+      'export const UPDATE_TASK_NODE_MUTATION = /* GraphQL */ `\n' +
+        '  mutation UpdateTaskNode($input: UpdateNodeInput!) { updateTaskNode(input: $input) { id } }\n`;\n',
+    );
+    expect(failures).toEqual([]);
+  });
+
+  it('fails a FIFTH node-write document smuggled in under another name', () => {
+    const { failures } = scanSource(
+      'src/lib/server/queries.ts',
+      'export const QUICK_SEQ_MUTATION = /* GraphQL */ `\n' +
+        '  mutation QuickSeq($input: UpdateNodeInput!) { updateNode(input: $input) { id } }\n`;\n',
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('QUICK_SEQ_MUTATION');
+  });
+});
+
+describe('prose is not code', () => {
+  /**
+   * A gate that greps raw text flags a comment EXPLAINING the rule, which
+   * teaches people to stop writing the explanation — hadron-server's
+   * `no-agent-specific-code` check failed a docs-only PR for exactly this.
+   * Matched on the AST's literals instead, so a comment is just a comment.
+   */
+  it('does not flag a comment that mentions a door operation', () => {
+    const { failures } = scanSource(
+      ORDINARY,
+      '// This used to call updateNode(input) directly; it goes through the\n' +
+        '// chooser now. See nodeUpdateDocument.\n' +
+        'await client.request(nodeUpdateDocument(node, input), { input });\n',
+    );
+    expect(failures).toEqual([]);
   });
 });
 

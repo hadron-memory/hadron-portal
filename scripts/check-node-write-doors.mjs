@@ -37,8 +37,41 @@ export const DOOR_DOCUMENTS = [
   'UPDATE_SPEC_NODE_MUTATION',
 ];
 
+/**
+ * The GraphQL OPERATIONS those documents call. Checked separately, because a
+ * caller does not have to go anywhere near `DOOR_DOCUMENTS` to write a node —
+ * it can declare its own document inline:
+ *
+ *   const UPDATE = `mutation U($input: UpdateNodeInput!) { updateNode(input: $input) { id } }`;
+ *
+ * That is not hypothetical either: `app/agents/[id]/conversations/+page.server.ts`
+ * has done exactly this for seven writes, and the first version of this gate
+ * declared the repository clean while they sat on the generic door (@codex on
+ * PR #869). It has no `/* GraphQL *\/` marker, so `validate-graphql` does not
+ * extract it and `check-graphql-callers` cannot resolve it either — it is
+ * invisible to every other check in this file's family.
+ *
+ * Gating the CONSTANT was the same mistake as gating the CALL SITE, one level
+ * out: both ask what something is named rather than what it does.
+ */
+export const DOOR_OPERATIONS = [
+  'updateNode',
+  'updateTaskNode',
+  'updateReviewNode',
+  'updateSpecNode',
+];
+
 /** The chooser itself — the one place allowed to hold the documents. */
 export const DOOR_MODULE = 'src/lib/server/nodeKindDoor.ts';
+
+/**
+ * Where the documents are DEFINED. Every door operation written here must
+ * belong to one of the four `DOOR_DOCUMENTS` consts — a fifth node-write
+ * document added to the registry under some other name would otherwise be
+ * importable without tripping the import check, since that check knows only
+ * these four names.
+ */
+export const DOCUMENT_REGISTRY = 'src/lib/server/queries.ts';
 
 /**
  * EXACT call sites exempted, each with the reason it is not routed.
@@ -59,6 +92,19 @@ export const ALLOWED = new Map([
       'it would cost a node fetch per write to learn a constant. Residual, ' +
       'accepted: a fixture node governed by some OTHER tool would make this ' +
       'endpoint fail loudly rather than corrupt anything.',
+  ],
+  [
+    'src/routes/app/agents/[id]/conversations/+page.server.ts',
+    'TRACKED, NOT ARGUED AWAY — portal#870. Seven writes through a locally ' +
+      'declared updateNode document, found by @codex on PR #869 when the gate ' +
+      'still keyed on the four constant names. Four of the seven already fetch ' +
+      'the node and route almost for free; the other two are the update-first, ' +
+      'create-on-miss flow that exists BECAUSE a stage promptRef can dangle, so ' +
+      'pre-fetching to learn the kind changes its race semantics. Routing four ' +
+      'of seven leaves the file half-fixed, and this is the chatbot wizard — a ' +
+      'surface #869 did not drive. Reachable today only by pointing "Convert to ' +
+      'task" at a conversation, stage or prompt node. Remove this entry with ' +
+      'the fix; the stale-exemption check makes that impossible to forget.',
   ],
   [
     'src/routes/api/agent-chat/fixtures/run/+server.ts',
@@ -118,6 +164,51 @@ function doorImports(source) {
       });
     }
   }
+  return found;
+}
+
+/** Does this literal's text call one of the door operations? */
+function namesDoorOperation(text) {
+  return DOOR_OPERATIONS.some((op) => new RegExp(`\\b${op}\\s*\\(`).test(text));
+}
+
+/**
+ * Every GraphQL document written INLINE in this file that calls a door
+ * operation, with the `const` name it was bound to (null when it is not bound
+ * to one).
+ *
+ * Matched on the AST's string and template literals, never on the raw file
+ * text: a comment explaining "this used to call updateNode()" is prose, and a
+ * gate that cannot tell prose from code teaches people to stop writing the
+ * prose (`no-agent-specific-check-hits-comments` in hadron-server, same shape).
+ */
+function inlineDoorDocuments(source) {
+  const found = [];
+  const visit = (node) => {
+    const text = ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
+      ? node.text
+      : ts.isTemplateExpression(node)
+        ? node.head.text + node.templateSpans.map((s) => s.literal.text).join('')
+        : null;
+    if (text !== null && namesDoorOperation(text)) {
+      // The nearest enclosing `const NAME = …`, so the registry check can ask
+      // which binding a door document landed on.
+      let binding = null;
+      for (let p = node.parent; p; p = p.parent) {
+        if (ts.isVariableDeclaration(p) && ts.isIdentifier(p.name)) {
+          binding = p.name.text;
+          break;
+        }
+      }
+      found.push({
+        binding,
+        line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+      });
+      return; // no need to descend into a literal
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
   return found;
 }
 
@@ -205,9 +296,10 @@ export function scanSource(rel, text) {
   const exempt = ALLOWED.has(rel);
 
   // No pre-filter on `.request(`: skipping files by substring is how the caller
-  // gate went blind to 46 of them. The only skip is "this file names none of
-  // the identifiers we care about at all" — which cannot hide a violation,
-  // because a violation has to name a door document to be one.
+  // gate went blind to 46 of them. The only skip is "this file mentions nothing
+  // this gate is about" — and that now includes the OPERATION names, not just
+  // the four constants, because a file can write a node without going near
+  // them (see DOOR_OPERATIONS).
   //
   // An EXEMPTED file is never skipped, whatever it contains. Its grant is the
   // thing being checked, and a file that has stopped naming a door is precisely
@@ -216,6 +308,7 @@ export function scanSource(rel, text) {
   if (
     !exempt &&
     !DOOR_DOCUMENTS.some((d) => text.includes(d)) &&
+    !DOOR_OPERATIONS.some((op) => text.includes(op)) &&
     !text.includes('nodeUpdateDocument')
   ) {
     return { failures: [], routed: 0, looked: false };
@@ -223,10 +316,39 @@ export function scanSource(rel, text) {
 
   const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
   const imports = doorImports(source);
+  const inline = inlineDoorDocuments(source);
   const { direct, routed } = doorCallSites(source);
   const failures = [];
 
+  // The registry is where the four documents live, so an inline door operation
+  // is expected there — but only under one of the four names the import check
+  // knows. A fifth would be importable with the gate none the wiser.
+  if (rel === DOCUMENT_REGISTRY) {
+    for (const doc of inline) {
+      if (doc.binding !== null && DOOR_DOCUMENTS.includes(doc.binding)) continue;
+      failures.push(
+        `${rel}:${doc.line}  declares a node-update document as ` +
+          `${doc.binding ?? '(an unbound literal)'} — every one must be one of ` +
+          `${DOOR_DOCUMENTS.join(', ')}, because that is the list the import ` +
+          'check knows to guard. Add it to DOOR_DOCUMENTS in the same commit.',
+      );
+    }
+    return { failures, routed, looked: true };
+  }
+
   if (!exempt) {
+    // A document written INLINE reaches the generic door without ever naming a
+    // constant to import — invisible to both checks below, and to every other
+    // GraphQL gate in this repo.
+    for (const doc of inline) {
+      failures.push(
+        `${rel}:${doc.line}  declares its own node-update document — a write ` +
+          'through it goes to whichever door the document names, regardless of ' +
+          "the node's kind. Use nodeUpdateDocument(node, input) from " +
+          '$lib/server/nodeKindDoor, or add this file to ALLOWED in ' +
+          'scripts/check-node-write-doors.mjs with the reason it cannot.',
+      );
+    }
     // The IMPORT is the check that cannot be evaded — see doorImports.
     for (const site of imports) {
       failures.push(
@@ -249,12 +371,12 @@ export function scanSource(rel, text) {
     }
   }
   // An exemption that stops being used is an exemption nobody is reading any
-  // more — a standing grant for whoever edits the file next. Keyed on the
-  // IMPORT, so a file that routes its write but still holds the document is
-  // still covered by its reason rather than silently clean.
-  if (exempt && imports.length === 0) {
+  // more — a standing grant for whoever edits the file next. Keyed on the two
+  // ways a file can hold a door at all, so one that routes its write but still
+  // holds the document stays covered by its reason rather than reading clean.
+  if (exempt && imports.length === 0 && inline.length === 0) {
     failures.push(
-      `${rel} is exempted in ALLOWED but no longer imports a node-update ` +
+      `${rel} is exempted in ALLOWED but no longer holds a node-update ` +
         'mutation — remove the entry.',
     );
   }
