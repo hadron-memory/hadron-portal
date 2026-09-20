@@ -187,3 +187,36 @@ describe('the host key', () => {
     expect(CLAUDE_SKILL_HOST).toBe('claudeSkill');
   });
 });
+
+/**
+ * @copilot on #867 — the SEEDING hazard, which is data loss rather than a
+ * wrong render.
+ *
+ * The edit page seeds its raw-properties editor with `writeDeclaration(props,
+ * null)` — "the bag minus the part I own". Before the guard, that call deleted
+ * an `exports` the editor cannot represent and the user never touched, so
+ * opening such a node and pressing Save destroyed it with no error.
+ */
+describe('removing what is not there is a NO-OP', () => {
+  it.each([
+    ['a malformed exports (a string)', { other: 1, exports: 'oops' }],
+    ['a host entry that is not an object', { other: 1, exports: { claudeSkill: 'yes' } }],
+    ['an exports holding only OTHER hosts', { other: 1, exports: { codexSkill: { name: 'b' } } }],
+    ['an exports that is an array', { other: 1, exports: [1, 2] }],
+    ['no exports key at all', { other: 1 }],
+  ])('leaves %s exactly as found', (_what, props) => {
+    expect(writeDeclaration(props, null)).toEqual(props);
+  });
+
+  it('still removes a host that IS present and readable', () => {
+    // The guard must not disable the real removal.
+    expect('exports' in writeDeclaration(REAL, null)).toBe(false);
+  });
+
+  it('declaring ONTO an unreadable exports replaces it — the one discarding case', () => {
+    // Stated as a test because it is the exception: there is no way to merge
+    // into a string, and it takes an explicit "Declare for export" to reach.
+    const after = writeDeclaration({ exports: 'oops' }, decl());
+    expect(after.exports).toEqual({ claudeSkill: { name: 'hadron-x', description: 'does a thing', enable: true } });
+  });
+});

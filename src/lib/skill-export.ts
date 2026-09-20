@@ -117,7 +117,31 @@ export function writeDeclaration(
   host: string = CLAUDE_SKILL_HOST,
 ): Record<string, unknown> {
   const base = isObject(properties) ? { ...properties } : {};
-  const exports = { ...readExports(properties) };
+  const raw = isObject(properties) ? properties.exports : undefined;
+  const readable = isObject(raw);
+
+  // REMOVING WHAT IS NOT THERE MUST BE A NO-OP, and that is not a nicety.
+  //
+  // The edit page seeds its raw-properties editor with `writeDeclaration(props,
+  // null)` — "the bag minus the part I own". Without this guard that call
+  // DELETED an `exports` the editor cannot represent and the user never
+  // touched: a malformed value (`exports: "oops"`), or a host entry that is not
+  // an object. Opening such a node and pressing Save destroyed it silently
+  // (@copilot on #867).
+  //
+  // So a removal only acts on what the editor could DISPLAY — the host present
+  // AND its entry an object. An unreadable entry renders as "absent", so
+  // removing it would delete something the user was never shown and never
+  // asked about. The invariant is: this function removes only what
+  // `readDeclaration` can return.
+  const removable = readable && isObject((raw as Record<string, unknown>)[host]);
+  if (decl === null && !removable) return base;
+
+  // A non-null declaration on an unreadable `exports` REPLACES it — there is no
+  // way to merge into a string, and the user explicitly asked for a
+  // declaration. That is the one case where this function discards something,
+  // and it takes a deliberate act to reach.
+  const exports = { ...(readable ? (raw as Record<string, unknown>) : {}) };
 
   if (decl === null) delete exports[host];
   else exports[host] = { name: decl.name, description: decl.description, enable: decl.enable };

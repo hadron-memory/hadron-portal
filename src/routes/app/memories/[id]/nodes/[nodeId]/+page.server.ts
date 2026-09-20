@@ -7,7 +7,7 @@ import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, UPDATE_NODE_MUTATION, UPDATE_TASK_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
@@ -905,7 +905,17 @@ export const actions: Actions = {
     const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
     if (!node) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
     try {
-      await client.request(UPDATE_NODE_MUTATION, {
+      // The TASK KIND DOOR (server #1201). This action's whole purpose is to
+      // produce a runnable node, which the generic surface refuses outright —
+      // so "Convert to task" could never have worked since the doors landed.
+      // Measured: every call returned "This write would produce a RUNNABLE
+      // node, which only updateTaskNode may update."
+      //
+      // The other generic-mutation call sites on this page are refused for the
+      // same reason whenever the node is already runnable; they are NOT fixed
+      // here because each needs its own answer for what the resulting kind is.
+      // Filed as #868 rather than guessed at.
+      await client.request(UPDATE_TASK_NODE_MUTATION, {
         input: {
           memoryId: node.memoryId,
           loc: node.loc,
