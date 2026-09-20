@@ -505,3 +505,93 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     expect(fieldError(result, 'propertiesJson')).toBe('properties.name: required field missing');
   });
 });
+
+/**
+ * #864 / server #1201 — the TASK KIND DOOR.
+ *
+ * A runnable node is a governed kind and the generic `updateNode` refuses to
+ * produce one. The server decides by the RESULTING state, so editing a node
+ * that ALREADY carries the kind is refused too, "even when the edit touches
+ * neither signal".
+ *
+ * Measured in the running app before this landed: the edit page's Runnable
+ * checkbox never persisted, and saving any existing task node failed with
+ *
+ *   "This write would produce a RUNNABLE node, which only updateTaskNode may
+ *    update."
+ *
+ * surfaced as a generic error on the properties field. So the portal could not
+ * edit a task node at all — which also made #864's export UI unreachable, since
+ * every node it targets is one.
+ *
+ * These pin the ROUTING, which is the whole of the fix: same input, different
+ * door, chosen from the submitted value.
+ */
+describe('edit-node action — the task kind door (#864, server #1201)', () => {
+  function nodeRow(over: Record<string, unknown> = {}) {
+    return {
+      node: {
+        id: 'pk', memoryId: 'mem-A', loc: 'a', name: 'a',
+        nodeType: 'info', alias: null, description: null, content: 'old',
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [], ...over,
+      },
+    };
+  }
+
+  async function runSave(form: Record<string, string>, row = nodeRow()) {
+    mockRequest.mockResolvedValueOnce(row);
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
+    const actions = await importActions();
+    try {
+      await actions.default(actionEvent({ gid: 'mem-A', nodeId: 'pk', form }));
+    } catch {
+      /* the action redirects on success */
+    }
+    const [doc] = mockRequest.mock.calls[1]! as [string, unknown];
+    return doc;
+  }
+
+  it('routes a RUNNABLE write through updateTaskNode', async () => {
+    const doc = await runSave({ name: 'n', isRunnable: 'true' });
+    expect(doc).toContain('updateTaskNode');
+    expect(doc).not.toContain('updateNode(');
+  });
+
+  it('routes a NON-runnable write through the generic updateNode', async () => {
+    // The door is not a free upgrade: sending a task write for ordinary prose
+    // would claim a governed kind the node does not have.
+    const doc = await runSave({ name: 'n' });
+    expect(doc).toContain('updateNode(');
+    expect(doc).not.toContain('updateTaskNode');
+  });
+
+  it('chooses by the SUBMITTED value, not the stored one', async () => {
+    // The server reads the RESULTING state. A node that is runnable today but
+    // is being switched off must go through the generic door, or the write
+    // claims a kind it is giving up.
+    const doc = await runSave({ name: 'n' }, nodeRow({ isRunnable: true }));
+    expect(doc).toContain('updateNode(');
+    expect(doc).not.toContain('updateTaskNode');
+  });
+
+  it('carries the SAME input through either door', async () => {
+    // updateTaskNode takes UpdateNodeInput too — routing must not quietly drop
+    // a field, which is how a "small" door change loses an edit.
+    mockRequest.mockResolvedValueOnce(nodeRow());
+    mockRequest.mockResolvedValueOnce({ updateTaskNode: { id: 'pk' } });
+    const actions = await importActions();
+    try {
+      await actions.default(actionEvent({
+        gid: 'mem-A', nodeId: 'pk',
+        form: { name: 'n', isRunnable: 'true', propertiesJson: '{"exports":{"claudeSkill":{"name":"x","description":"d","enable":true}}}' },
+      }));
+    } catch { /* redirect */ }
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
+    expect(vars.input.isRunnable).toBe(true);
+    expect(vars.input.properties).toEqual({
+      exports: { claudeSkill: { name: 'x', description: 'd', enable: true } },
+    });
+  });
+});

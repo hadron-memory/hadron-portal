@@ -4328,6 +4328,20 @@ type Mutation {
   updateTeamCollections(appRef: ID!): TeamCollectionsPayload!
 
   """
+  #1201 — the UPDATE door for the task kind, and the counterpart of
+  createTaskNode. Same posture: pure routing, exempt from its own kind only,
+  not an MCP tool.
+
+  It is needed because the gate reads the RESULTING state: editing a node that
+  already carries this kind still produces one, so the generic updateNode
+  refuses it even when the edit touches neither signal. That is the point — a
+  task node must not be rewritable through the generic surface.
+
+  Identical to updateNode otherwise, selectors included ('id' XOR 'memoryId' +
+  'loc'); it never creates and never moves.
+  """
+  updateTaskNode(input: UpdateNodeInput!): Node!
+  """
   #960 — edit a roles:<role> definition. Omitted fields preserve. Unknown
   role: WORKER_ROLE_NOT_FOUND. Same authorization as createTeamRole.
   

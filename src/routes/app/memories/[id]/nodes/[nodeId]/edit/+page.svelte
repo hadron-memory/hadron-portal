@@ -3,6 +3,8 @@
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import PropertiesEditor from '$lib/components/PropertiesEditor.svelte';
+  import SkillExportEditor from '$lib/components/SkillExportEditor.svelte';
+  import { readDeclaration, writeDeclaration, type SkillDeclaration } from '$lib/skill-export';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { PageData, ActionData } from './$types';
@@ -48,6 +50,66 @@
   );
   const propertiesError = $derived($errors.propertiesJson?.[0] ?? null);
   let propertiesInvalid = $state(false);
+
+  // portal#864 Part A — the skill-export declaration.
+  //
+  // THE SPLIT. `propertiesJson` is one serialized string for the whole bag, and
+  // two editors bound to it would clobber each other: PropertiesEditor seeds its
+  // field state once and re-seeds only on remount, so whichever wrote last would
+  // win and the other's edit would silently vanish. So this page owns the split
+  // — SkillExportEditor gets `exports`, PropertiesEditor gets everything else,
+  // and the two are recombined into the submitted string below.
+  //
+  // Recombining the WHOLE bag is also what makes hadron-server#1227 unreachable
+  // here: the form already round-trips every property key and writes them back
+  // together, so a sibling host declaration is never separated from the object
+  // it lives in. Read-modify-write is inherited from the form rather than
+  // re-implemented — see `skill-export.ts`.
+  const initialProperties = untrack(() => {
+    const raw = ($formData.propertiesJson ?? '').trim();
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      // Unparseable JSON is the raw editor's problem to report, not this one's.
+      // Returning null leaves the export section in its "absent" state rather
+      // than throwing the page away.
+      return null;
+    }
+  });
+  let declaration = $state<SkillDeclaration | null>(untrack(() => readDeclaration(initialProperties)));
+  // Seeded from the same parse, with `exports` removed so the raw/typed editor
+  // below never shows a key this section owns.
+  let restJson = $state(
+    untrack(() => {
+      const rest = writeDeclaration(initialProperties, null);
+      return Object.keys(rest).length > 0 ? JSON.stringify(rest, null, 2) : '';
+    }),
+  );
+
+  // The single submitted value, rebuilt from both halves.
+  $effect(() => {
+    const rawRest = restJson.trim();
+    let rest: Record<string, unknown> | null = null;
+    if (rawRest) {
+      try {
+        rest = JSON.parse(rawRest) as Record<string, unknown>;
+      } catch {
+        // Mid-typing invalid JSON: leave the submitted value alone rather than
+        // discarding the user's export declaration on every keystroke. The raw
+        // editor sets `invalid`, which already disables submit.
+        return;
+      }
+    }
+    const merged = writeDeclaration(rest, declaration);
+    $formData.propertiesJson = Object.keys(merged).length > 0 ? JSON.stringify(merged, null, 2) : '';
+  });
+
+  // Shown for a task node, and ALSO whenever a declaration already exists — a
+  // declaration on a node whose Runnable flag was later cleared must stay
+  // reachable, or it becomes unreachable except through the raw JSON this
+  // section exists to replace.
+  const showSkillExport = $derived($formData.isRunnable || declaration !== null);
 
   const ABSTRACT_MAX = 2000;
 
@@ -211,7 +273,7 @@
         {#key $formData.objectType}
           <PropertiesEditor
             declared={declaredCollection}
-            bind:value={$formData.propertiesJson}
+            bind:value={restJson}
             bind:invalid={propertiesInvalid}
           />
         {/key}
@@ -220,6 +282,17 @@
         {/if}
       </div>
     </section>
+
+    <!-- portal#864 Part A: the skill-export declaration, which lives at
+         properties.exports.claudeSkill and was hand-typed JSON until now. -->
+    {#if showSkillExport}
+      <section class="space-y-4">
+        <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">
+          Skill export
+        </h2>
+        <SkillExportEditor bind:declaration />
+      </section>
+    {/if}
 
     <!-- Edges (was “References” — #490) -->
     <section class="space-y-3">
