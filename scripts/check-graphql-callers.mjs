@@ -26,18 +26,65 @@ const PAGER_INJECTED = ['limit', 'offset'];
 
 /**
  * #868 — the helper that picks a node-update mutation at runtime, and the
- * operation its result is checked against. See `isDocumentChooser` below.
+ * operation its result is checked against. Resolved through `isChooserCall`
+ * and `chooserLocals` below, which cover the aliased and hoisted spellings.
  */
 const DOCUMENT_CHOOSER = 'nodeUpdateDocument';
 const CHOOSER_REPRESENTATIVE = 'UPDATE_NODE_MUTATION';
 
-/** `nodeUpdateDocument(…)` in the document position of a `.request(…)` call. */
-function isDocumentChooser(node) {
+/**
+ * The local names `nodeUpdateDocument` is bound to in this file — it may be
+ * imported under an alias, which routes perfectly well but would leave this
+ * gate skipping the call's variables (@copilot on PR #869).
+ */
+function chooserBindings(source) {
+  const names = new Set([DOCUMENT_CHOOSER]);
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      if ((element.propertyName ?? element.name).text === DOCUMENT_CHOOSER) {
+        names.add(element.name.text);
+      }
+    }
+  }
+  return names;
+}
+
+/** A call to the chooser, under any local name or through a namespace. */
+function isChooserCall(node, names) {
+  if (!ts.isCallExpression(node)) return false;
+  const callee = node.expression;
   return (
-    ts.isCallExpression(node) &&
-    ts.isIdentifier(node.expression) &&
-    node.expression.text === DOCUMENT_CHOOSER
+    (ts.isIdentifier(callee) && names.has(callee.text)) ||
+    (ts.isPropertyAccessExpression(callee) && callee.name.text === DOCUMENT_CHOOSER)
   );
+}
+
+/**
+ * Locals holding a chooser result — `const mutation = nodeUpdateDocument(…)`.
+ *
+ * Passing that local to `.request()` counts as routed for the door gate while
+ * reading as an unknown document here, so the call's variables were silently
+ * skipped (@copilot). Measured on this PR in the other direction: hoisting the
+ * chooser into a local dropped the checked call-site count 290 → 288.
+ */
+function chooserLocals(source, names) {
+  const locals = new Set();
+  const visit = (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      isChooserCall(node.initializer, names)
+    ) {
+      locals.add(node.name.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return locals;
 }
 
 /**
@@ -227,6 +274,8 @@ function readVariablesArg(node, locals, callPos) {
  */
 function callSites(source) {
   const locals = collectLocalObjects(source);
+  const chooserNames = chooserBindings(source);
+  const chooserHeld = chooserLocals(source, chooserNames);
   const found = [];
   const visit = (node) => {
     if (ts.isCallExpression(node)) {
@@ -251,7 +300,10 @@ function callSites(source) {
 
       if (docArg) {
         const line = source.getLineAndCharacterOfPosition(docArg.getStart(source)).line + 1;
-        if (isDocumentChooser(docArg)) {
+        const viaChooser =
+          isChooserCall(docArg, chooserNames) ||
+          (ts.isIdentifier(docArg) && chooserHeld.has(docArg.text));
+        if (viaChooser) {
           // #868: `client.request(nodeUpdateDocument(node, input), { input })`.
           // The document is chosen at RUNTIME from the node's governed kind, so
           // there is no identifier here to look up — and without this branch

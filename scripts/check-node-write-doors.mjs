@@ -73,6 +73,9 @@ export const DOOR_OPERATIONS = [
 /** The chooser itself — the one place allowed to hold the documents. */
 export const DOOR_MODULE = 'src/lib/server/nodeKindDoor.ts';
 
+/** The helper every node write must go through. */
+export const CHOOSER = 'nodeUpdateDocument';
+
 /**
  * Where the documents are DEFINED. Every door operation written here must
  * belong to one of the four `DOOR_DOCUMENTS` consts — a fifth node-write
@@ -144,66 +147,73 @@ export function isTestFile(rel) {
 }
 
 /**
- * Every REFERENCE to a door document in one file — named import, aliased
- * import, or a property access on a namespace.
+ * Every REFERENCE to a door document in one file, by any spelling.
  *
- * This is broader than the call site because matching a bare identifier in the
- * document position is defeated by one level of indirection: `const mutation =
- * cond ? A : B; request(mutation, …)` reads as opaque and passes. That is not
- * hypothetical — it is EXACTLY what `edit/+page.server.ts` looked like before
- * this PR, so a gate built on call sites alone would not have caught #868's
- * own predecessor.
+ * ## Why this is a walk and not a list of forms
  *
- * NOTE, because an earlier version of this comment said otherwise and was
- * wrong twice within the hour: naming the document is NOT the only way to
- * write a node. A caller can declare its own GraphQL document and never
- * reference a constant at all (@codex), which is what `inlineDoorDocuments`
- * below is for. There is no single chokepoint — the checks are a set, and each
- * one covers a spelling the others do not see.
+ * Five rounds of review on PR #869 produced five ways to reach a door document
+ * without matching the check in front of it: the bare identifier at the call
+ * site, a local variable holding it, an aliased import, a namespace property,
+ * and — @copilot's fifth round — element access, a destructured namespace
+ * binding, and a barrel re-export. Each fix was a new form added to a list, and
+ * each time the list was one form short. An enumerated list of spellings is a
+ * losing shape, and a comment here claiming the list was complete was wrong
+ * three separate times.
+ *
+ * So the rule is closed instead: **any Identifier or StringLiteral in the file
+ * whose text is a door document name is a reference.** That covers every form
+ * above and every form nobody has thought of, because a file cannot reach one
+ * of these documents without writing its name somewhere the parser can see.
+ *
+ * Comments are not AST nodes, so prose about the rule is not a violation — the
+ * check would otherwise teach people to stop explaining it (hadron-server's
+ * `no-agent-specific-code` failed a docs-only PR for exactly that). Verified
+ * against the tree before adopting it: one file mentions a door name in a
+ * comment and nowhere else, and it is correctly silent.
+ *
+ * The cost is bluntness. A file that merely NAMES a door document, without
+ * calling anything, is now reported — and that is the trade taken on purpose:
+ * a loud false positive is answered by the exemption list in one line, and a
+ * silent false negative is what #868 was.
  */
-function doorImports(source) {
+function doorReferences(source) {
   const found = [];
-  const at = (node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1;
-
-  for (const statement of source.statements) {
-    if (!ts.isImportDeclaration(statement)) continue;
-    const bindings = statement.importClause?.namedBindings;
-    if (!bindings) continue;
-
-    if (ts.isNamedImports(bindings)) {
-      for (const element of bindings.elements) {
-        // `import { UPDATE_NODE_MUTATION as X }` — the PROPERTY name is the
-        // document; the local alias is whatever the file chose to call it.
-        const imported = (element.propertyName ?? element.name).text;
-        if (DOOR_DOCUMENTS.includes(imported)) found.push({ name: imported, line: at(element) });
-      }
-    }
-  }
-
-  // `import * as queries from '…'; request(queries.UPDATE_NODE_MUTATION, …)`.
-  // A NAMESPACE import names nothing this gate would recognise at the import,
-  // and the call site sees a property access rather than an identifier — so the
-  // FOURTH spelling of the same evasion, found by @copilot on PR #869 an hour
-  // after the third. Matched on the property access rather than on the import,
-  // because that is where the door is actually named; a namespace import on its
-  // own reaches every document in the module and is not by itself a violation.
-  //
-  // Any receiver, not just a known namespace binding: there is no legitimate
-  // reason for these four names to appear as a property anywhere but the
-  // registry, and requiring the receiver to be resolvable is one more shape to
-  // get wrong. Verified zero occurrences in non-test src before widening it.
   const visit = (node) => {
     if (
-      ts.isPropertyAccessExpression(node) &&
-      DOOR_DOCUMENTS.includes(node.name.text)
+      (ts.isIdentifier(node) || ts.isStringLiteral(node)) &&
+      DOOR_DOCUMENTS.includes(node.text)
     ) {
-      found.push({ name: node.name.text, line: at(node) });
+      found.push({
+        name: node.text,
+        line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+      });
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
-
   return found;
+}
+
+/**
+ * The local names `nodeUpdateDocument` is bound to in this file.
+ *
+ * An aliased import (`import { nodeUpdateDocument as choose }`) routes
+ * perfectly well but would not be COUNTED as routed, which erodes the floor
+ * silently and makes `check-graphql-callers` skip the call's variables
+ * (@copilot). The bare name is always included so a file that never imports it
+ * — a test fixture string, say — still reads naturally.
+ */
+function chooserBindings(source) {
+  const names = new Set([CHOOSER]);
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      if ((element.propertyName ?? element.name).text === CHOOSER) names.add(element.name.text);
+    }
+  }
+  return names;
 }
 
 /** Does this literal's text call one of the door operations? */
@@ -252,39 +262,32 @@ function inlineDoorDocuments(source) {
 }
 
 /**
- * Every `<x>.request(DOC, …)` naming a door document, and every
- * `nodeUpdateDocument(…)` call, in one file.
+ * How many ROUTED node writes this file performs — calls to the chooser, under
+ * whatever local name it was imported as, or through a namespace.
+ *
+ * There is deliberately no matching "direct `.request(DOC, …)`" collection any
+ * more. `doorReferences` sees the identifier in the document position as one of
+ * its own hits, so a separate call-site check only produced a second line of
+ * red for the same mistake — and a version of it carried a comment claiming it
+ * additionally caught barrel re-exports, which it never did (@copilot).
  */
-function doorCallSites(source) {
-  const direct = [];
+function routedWrites(source) {
+  const chooserNames = chooserBindings(source);
   let routed = 0;
-
   const visit = (node) => {
     if (ts.isCallExpression(node)) {
-      // `nodeUpdateDocument(prior, input)` — a routed write.
-      if (ts.isIdentifier(node.expression) && node.expression.text === 'nodeUpdateDocument') {
-        routed += 1;
-      }
-      // `<anything>.request(DOC, …)` / `.request<T>(DOC, …)` — matched the same
-      // way check-graphql-callers matches it, since the portal annotates the
-      // response type inline on most of these.
+      const callee = node.expression;
       if (
-        ts.isPropertyAccessExpression(node.expression) &&
-        node.expression.name.text === 'request'
+        (ts.isIdentifier(callee) && chooserNames.has(callee.text)) ||
+        (ts.isPropertyAccessExpression(callee) && callee.name.text === CHOOSER)
       ) {
-        const docArg = node.arguments[0];
-        if (docArg && ts.isIdentifier(docArg) && DOOR_DOCUMENTS.includes(docArg.text)) {
-          direct.push({
-            name: docArg.text,
-            line: source.getLineAndCharacterOfPosition(docArg.getStart(source)).line + 1,
-          });
-        }
+        routed += 1;
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return { direct, routed };
+  return routed;
 }
 
 /**
@@ -312,7 +315,21 @@ export function doorVariablesAgree(resolve) {
     if (text === undefined) {
       return [`${name} is not defined in src/lib/server/queries.ts`];
     }
-    const op = parse(text).definitions.find((d) => d.kind === 'OperationDefinition');
+    // A malformed document is validate-graphql's own finding, reported with a
+    // file and a line. Letting `parse` throw here aborted the WHOLE run with an
+    // uncaught GraphQLError before any of that could print (@copilot) — and it
+    // is not hypothetical: a stray backtick inside a `#` comment truncates
+    // every document after it, which happened while writing this PR.
+    let ast;
+    try {
+      ast = parse(text);
+    } catch {
+      return [
+        `${name} does not parse, so the doors cannot be compared — fix the ` +
+          'document; validate-graphql reports it with a line.',
+      ];
+    }
+    const op = ast.definitions.find((d) => d.kind === 'OperationDefinition');
     if (!op) return [`${name} declares no operation`];
     // NAME AND TYPE, not the name alone (@copilot on PR #869). Two doors both
     // taking `$input` agree on nothing useful if one takes UpdateNodeInput and
@@ -366,9 +383,9 @@ export function scanSource(rel, text) {
   }
 
   const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
-  const imports = doorImports(source);
+  const references = doorReferences(source);
   const inline = inlineDoorDocuments(source);
-  const { direct, routed } = doorCallSites(source);
+  const routed = routedWrites(source);
   const failures = [];
 
   // The registry is where the four documents live, so an inline door operation
@@ -389,8 +406,8 @@ export function scanSource(rel, text) {
 
   if (!exempt) {
     // A document written INLINE reaches the generic door without ever naming a
-    // constant to import — invisible to both checks below, and to every other
-    // GraphQL gate in this repo.
+    // constant — invisible to the reference walk, and to every other GraphQL
+    // gate in this repo.
     for (const doc of inline) {
       failures.push(
         `${rel}:${doc.line}  declares its own node-update document — a write ` +
@@ -400,26 +417,26 @@ export function scanSource(rel, text) {
           'scripts/check-node-write-doors.mjs with the reason it cannot.',
       );
     }
-    // NAMING a door document — by named import, by alias, or through a
-    // namespace's property — is the check indirection cannot get around, since
-    // a file has to name it somehow to use it. See doorImports.
-    for (const site of imports) {
-      failures.push(
-        `${rel}:${site.line}  names ${site.name} — a node-update mutation is ` +
-          'referenced only by $lib/server/nodeKindDoor. Call nodeUpdateDocument(' +
-          "node, input) so the door follows the node's kind, or add this file to " +
-          'ALLOWED in scripts/check-node-write-doors.mjs with the reason it cannot.',
-      );
+    // NAMING a door document, by any spelling at all. See doorReferences.
+    //
+    // ONE failure per LINE, not per occurrence. The walk sees the import
+    // specifier and the use as two separate nodes, and a `.request(DOC, …)`
+    // check used to report a third — three lines of red for one mistake, which
+    // trains a reader to skim the gate's output. Grouping names every line the
+    // author must edit, and names each of them once.
+    const byLine = new Map();
+    for (const site of references) {
+      const names = byLine.get(site.line) ?? new Set();
+      names.add(site.name);
+      byLine.set(site.line, names);
     }
-    // Reported separately from the import so the message points at the line the
-    // author actually has to change, and so a call site reached some other way
-    // (a re-export, a future barrel file) is still caught.
-    for (const site of direct) {
+    for (const [line, names] of [...byLine].sort((a, b) => a[0] - b[0])) {
       failures.push(
-        `${rel}:${site.line}  writes a node through ${site.name} directly — ` +
-          'call nodeUpdateDocument(node, input) from $lib/server/nodeKindDoor ' +
-          'so the door follows the node\'s kind, or add this file to ALLOWED in ' +
-          'scripts/check-node-write-doors.mjs with the reason it cannot.',
+        `${rel}:${line}  names ${[...names].join(', ')} — a node-update ` +
+          'mutation is referenced only by $lib/server/nodeKindDoor. Call ' +
+          "nodeUpdateDocument(node, input) so the door follows the node's kind, " +
+          'or add this file to ALLOWED in scripts/check-node-write-doors.mjs ' +
+          'with the reason it cannot.',
       );
     }
   }
@@ -427,7 +444,7 @@ export function scanSource(rel, text) {
   // more — a standing grant for whoever edits the file next. Keyed on the two
   // ways a file can hold a door at all, so one that routes its write but still
   // holds the document stays covered by its reason rather than reading clean.
-  if (exempt && imports.length === 0 && inline.length === 0) {
+  if (exempt && references.length === 0 && inline.length === 0) {
     failures.push(
       `${rel} is exempted in ALLOWED but no longer holds a node-update ` +
         'mutation — remove the entry.',

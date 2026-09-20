@@ -39,6 +39,18 @@ describe('scanSource — the drift shape', () => {
     expect(routed).toBe(0);
   });
 
+  // One failure per LINE, not per occurrence: the walk sees the import
+  // specifier and the use as two nodes, and a reader who gets two lines of red
+  // for one mistake learns to skim.
+  it('reports each offending line once, however many names are on it', () => {
+    const { failures } = scanSource(
+      ORDINARY,
+      "import { UPDATE_NODE_MUTATION, UPDATE_TASK_NODE_MUTATION } from '$lib/server/queries';\n",
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('UPDATE_NODE_MUTATION, UPDATE_TASK_NODE_MUTATION');
+  });
+
   /**
    * THE evasion, and the reason the import is the load-bearing check.
    *
@@ -61,10 +73,10 @@ describe('scanSource — the drift shape', () => {
         'await client.request(mutation, { input });',
       ].join('\n'),
     );
-    // Two imports, and the CALL SITE is invisible to the gate — `mutation` is
-    // not a door identifier. Asserting the import is what caught it keeps this
-    // test honest about which half of the gate is load-bearing here.
-    expect(failures).toHaveLength(2);
+    // The CALL SITE is invisible — `mutation` is not a door name. What catches
+    // it is the reference walk over the import and the ternary, which is the
+    // half this test is about.
+    expect(failures.length).toBeGreaterThan(0);
     for (const failure of failures) expect(failure).toContain('names');
   });
 
@@ -85,23 +97,35 @@ describe('scanSource — the drift shape', () => {
     expect(failures[0]).toContain('UPDATE_NODE_MUTATION');
   });
 
-  it('fails a door reached as a property of anything at all', () => {
-    // Any receiver, not just a resolvable namespace binding: requiring the
-    // receiver to be traced is one more shape to get wrong, and these four
-    // names have no legitimate use as a property outside the registry
-    // (verified across non-test src before widening the rule).
-    const { failures } = scanSource(ORDINARY, 'const d = docs.UPDATE_SPEC_NODE_MUTATION;\n');
-    expect(failures).toHaveLength(1);
-  });
-
-  it('fails an aliased import, which hides the name from every text search', () => {
+  // `import { X as Y }` and `const { X: y } = ns` both put the door name in the
+  // PROPERTY position — the local binding is whatever the author chose, and a
+  // text search for the door name at the call site finds nothing.
+  it('fails an aliased import even though the call site never names a door', () => {
     const { failures } = scanSource(
       ORDINARY,
       "import { UPDATE_NODE_MUTATION as DOC } from '$lib/server/queries';\n" +
         'await client.request(DOC, { input });\n',
     );
-    expect(failures.length).toBeGreaterThan(0);
+    expect(failures).toHaveLength(1);
     expect(failures[0]).toContain('UPDATE_NODE_MUTATION');
+  });
+
+  /**
+   * @copilot's fifth round produced three more spellings at once — element
+   * access, a destructured namespace binding, and a barrel re-export — which
+   * is what settled the shape: an enumerated list of forms is always one form
+   * short, so the rule is now "any Identifier or StringLiteral naming a door
+   * document". These cases exist to keep that closed rule honest, not because
+   * each one needed its own branch.
+   */
+  it.each([
+    ['a property of anything at all', 'const d = docs.UPDATE_SPEC_NODE_MUTATION;'],
+    ['element access', "await client.request(queries['UPDATE_NODE_MUTATION'], { input });"],
+    ['a destructured namespace binding', 'const { UPDATE_NODE_MUTATION: doc } = queries;'],
+    ['a barrel re-export', "export { UPDATE_NODE_MUTATION as DOC } from '$lib/server/queries';"],
+    ['a bare reference nobody imported', 'const all = [UPDATE_REVIEW_NODE_MUTATION];'],
+  ])('fails a door reached by %s', (_what, code) => {
+    expect(scanSource(ORDINARY, `${code}\n`).failures.length).toBeGreaterThan(0);
   });
 
   /**
@@ -215,6 +239,30 @@ describe('scanSource — the routed shape', () => {
   });
 });
 
+describe('the chooser under another name', () => {
+  // @copilot: an aliased chooser import routes perfectly well but was not
+  // COUNTED as routed, which erodes the floor silently and makes
+  // check-graphql-callers skip the call's variables.
+  it('counts an aliased chooser call as routed', () => {
+    const { failures, routed } = scanSource(
+      ORDINARY,
+      "import { nodeUpdateDocument as choose } from '$lib/server/nodeKindDoor';\n" +
+        'await client.request(choose(node, input), { input });\n',
+    );
+    expect(failures).toEqual([]);
+    expect(routed).toBe(1);
+  });
+
+  it('counts a namespaced chooser call as routed', () => {
+    const { routed } = scanSource(
+      ORDINARY,
+      "import * as door from '$lib/server/nodeKindDoor';\n" +
+        'await client.request(door.nodeUpdateDocument(node, input), { input });\n',
+    );
+    expect(routed).toBe(1);
+  });
+});
+
 describe('the document registry', () => {
   // A gate that flagged every door operation everywhere would flag the file
   // that DEFINES the four documents. Rather than skip it, the registry gets its
@@ -308,6 +356,44 @@ describe('doorVariablesAgree', () => {
       name === 'UPDATE_SPEC_NODE_MUTATION'
         ? 'mutation UpdateSpecNode($input: UpdateNodeInput!, $dryRun: Boolean) { updateSpecNode(input: $input) { id } }'
         : `mutation X($input: UpdateNodeInput!) { x(input: $input) { id } }`,
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('no longer declare the same variables');
+  });
+
+  /**
+   * @copilot: this check called `parse()` bare. A malformed door document
+   * aborted the WHOLE `pnpm gql:validate` run with an uncaught GraphQLError
+   * before any of validate-graphql's own findings could print — and it is not
+   * hypothetical, a stray backtick inside a `#` comment truncates every
+   * document after it, which happened while writing this PR.
+   */
+  it('reports a malformed document instead of throwing', () => {
+    expect(() =>
+      doorVariablesAgree((name) =>
+        name === 'UPDATE_NODE_MUTATION'
+          ? 'mutation Broken($input: {{{'
+          : 'mutation X($input: UpdateNodeInput!) { x(input: $input) { id } }',
+      ),
+    ).not.toThrow();
+    const errors = doorVariablesAgree((name) =>
+      name === 'UPDATE_NODE_MUTATION'
+        ? 'mutation Broken($input: {{{'
+        : 'mutation X($input: UpdateNodeInput!) { x(input: $input) { id } }',
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('does not parse');
+  });
+
+  // @copilot: name alone is not a signature. Two doors both taking `$input`
+  // agree on nothing useful if the types differ — and a differing type is
+  // exactly what would make the caller gate's one-representative shortcut
+  // meaningless rather than loud.
+  it('fails when two doors agree on a variable NAME but not its type', () => {
+    const errors = doorVariablesAgree((name) =>
+      name === 'UPDATE_SPEC_NODE_MUTATION'
+        ? 'mutation S($input: SomethingElse!) { updateSpecNode(input: $input) { id } }'
+        : 'mutation X($input: UpdateNodeInput!) { x(input: $input) { id } }',
     );
     expect(errors).toHaveLength(1);
     expect(errors[0]).toContain('no longer declare the same variables');
