@@ -1037,6 +1037,17 @@ export const actions: Actions = {
     );
     if (!anchorNode) return fail(404, { error: 'Anchor node not found' });
     try {
+      // #868: the door is chosen PER SIBLING, from the node being written —
+      // never from `anchorNode`, which is not one of them. A reorder mixes
+      // kinds routinely: one task node among ordinary siblings is the common
+      // case, and it is the whole reason a reorder failed at all.
+      //
+      // TWO PASSES (@copilot on PR #869): every door is settled before the
+      // first write, because the chooser can REFUSE and refusing on a later
+      // sibling would leave the earlier ones reordered under a 500 that says
+      // nothing about it. See /api/nodes/reorder for the full note, including
+      // what this deliberately does NOT fix.
+      const planned: { node: MemoryNode; input: Record<string, unknown> }[] = [];
       for (const u of updates) {
         // #335 (closes the #234 follow-up): scope the read to the anchor's
         // memory. Previously NODE_QUERY(loc:) was memory-blind, so a foreign
@@ -1044,10 +1055,6 @@ export const actions: Actions = {
         // a wrong `name` into anchorNode.memoryId's row. Now it's pinned.
         const { node } = await client.request<{ node: MemoryNode | null }>(NODE_QUERY, { ref: u.loc, memoryRef: anchorNode.memoryId });
         if (!node) continue;
-        // #868: the door is chosen PER SIBLING, from the node being written —
-        // never from `anchorNode`, which is not one of them. A reorder mixes
-        // kinds routinely: one task node among ordinary siblings is the common
-        // case, and it is the whole reason a reorder failed at all.
         const input = {
           memoryId: anchorNode.memoryId,
           loc: u.loc,
@@ -1056,6 +1063,14 @@ export const actions: Actions = {
           tags: node.tags ?? [],
           seq: u.seq,
         };
+        assertNodeUpdateDoor(node, input);
+        planned.push({ node, input });
+      }
+      for (const { node, input } of planned) {
+        // Chooser INLINE, preflight via assertNodeUpdateDoor above — hoisting
+        // the document into `planned` makes this call opaque to
+        // check-graphql-callers and its variables stop being checked. Measured
+        // twice on this PR: the checked count drops by one per hoisted site.
         await client.request(nodeUpdateDocument(node, input), { input });
       }
     } catch (e: unknown) {

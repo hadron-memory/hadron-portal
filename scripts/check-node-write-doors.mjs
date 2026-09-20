@@ -179,8 +179,13 @@ export function isTestFile(rel) {
 function doorReferences(source) {
   const found = [];
   const visit = (node) => {
+    // Identifier, string literal, OR a no-substitution template literal —
+    // `queries[`UPDATE_NODE_MUTATION`]` is a third node kind, and a rule
+    // advertised as CLOSED that misses one is just a shorter list (@copilot).
     if (
-      (ts.isIdentifier(node) || ts.isStringLiteral(node)) &&
+      (ts.isIdentifier(node) ||
+        ts.isStringLiteral(node) ||
+        ts.isNoSubstitutionTemplateLiteral(node)) &&
       DOOR_DOCUMENTS.includes(node.text)
     ) {
       found.push({
@@ -216,9 +221,17 @@ function chooserBindings(source) {
   return names;
 }
 
-/** Does this literal's text call one of the door operations? */
+/**
+ * Does this literal's text call one of the door operations?
+ *
+ * GraphQL comments are stripped first. A comment is whitespace between tokens,
+ * so `updateNode # why\n(input: $input)` is a legal call that `\bop\s*\(` does
+ * not match (@codex) — the field name and its argument list need not be
+ * adjacent in the source at all.
+ */
 function namesDoorOperation(text) {
-  return DOOR_OPERATIONS.some((op) => new RegExp(`\\b${op}\\s*\\(`).test(text));
+  const withoutComments = text.replace(/#[^\n]*/g, ' ');
+  return DOOR_OPERATIONS.some((op) => new RegExp(`\\b${op}\\s*\\(`).test(withoutComments));
 }
 
 /**

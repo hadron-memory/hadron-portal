@@ -124,6 +124,9 @@ describe('scanSource — the drift shape', () => {
     ['a destructured namespace binding', 'const { UPDATE_NODE_MUTATION: doc } = queries;'],
     ['a barrel re-export', "export { UPDATE_NODE_MUTATION as DOC } from '$lib/server/queries';"],
     ['a bare reference nobody imported', 'const all = [UPDATE_REVIEW_NODE_MUTATION];'],
+    // @copilot: a no-substitution template literal is a THIRD node kind, and a
+    // rule advertised as closed that misses one is just a shorter list.
+    ['a template-literal key', 'await client.request(queries[`UPDATE_NODE_MUTATION`], { input });'],
   ])('fails a door reached by %s', (_what, code) => {
     expect(scanSource(ORDINARY, `${code}\n`).failures.length).toBeGreaterThan(0);
   });
@@ -146,6 +149,21 @@ describe('scanSource — the drift shape', () => {
     );
     expect(failures).toHaveLength(1);
     expect(failures[0]).toContain('declares its own node-update document');
+  });
+
+  /**
+   * @codex: a GraphQL comment is whitespace between tokens, so the field name
+   * and its argument list need not be adjacent in the source —
+   * `updateNode # why\n(input: $input)` is a legal call that `\bop\s*\(`
+   * does not match. Comments are stripped before the match now.
+   */
+  it('fails a locally declared document whose call is split by a GraphQL comment', () => {
+    const { failures } = scanSource(
+      ORDINARY,
+      'const D = `mutation U($input: UpdateNodeInput!) { updateNode # why not\n' +
+        '(input: $input) { id } }`;\n',
+    );
+    expect(failures).toHaveLength(1);
   });
 
   it.each(['updateTaskNode', 'updateReviewNode', 'updateSpecNode'])(

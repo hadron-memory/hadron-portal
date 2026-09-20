@@ -204,6 +204,73 @@ describe('updateMeta — the move happens AFTER the door is settled', () => {
   });
 });
 
+describe('reorder — nothing is written until every door is settled', () => {
+  /**
+   * @copilot on PR #869. The loop used to fetch-and-write each sibling in turn,
+   * so a later sibling the chooser REFUSES threw after earlier ones had already
+   * had their `seq` changed: the tree ends up in an order the user never asked
+   * for, under a 500 that says nothing about it.
+   *
+   * Both doors are resolved before the first write now. This does not make the
+   * batch atomic — a SERVER refusal mid-loop still half-applies, and that wants
+   * a batch mutation rather than a reordering here — but it removes the
+   * half-apply this PR would otherwise have added.
+   */
+  it('writes nothing when a LATER sibling has no door', async () => {
+    const siblings: Record<string, Record<string, unknown>> = {
+      'a-plain': { ...base, loc: 'a-plain', role: null, isRunnable: null },
+      'b-plain': { ...base, loc: 'b-plain', role: null, isRunnable: null },
+      // No door exists for a runnable review: each door is exempt from its own
+      // kind only, so both refuse it.
+      'c-unwritable': { ...base, loc: 'c-unwritable', role: 'review', isRunnable: true },
+    };
+    mockRequest.mockImplementation(async (query: unknown, vars: { ref?: string }) => {
+      if (query === NODE_BY_ID_QUERY) return { node: { ...base, role: null, isRunnable: null } };
+      if (query === NODE_QUERY) return { node: siblings[vars.ref as string] ?? null };
+      return { updateNode: { id: 'pk' } };
+    });
+
+    const result = (await run('reorder', {
+      updates: JSON.stringify([
+        { loc: 'a-plain', seq: 1 },
+        { loc: 'b-plain', seq: 2 },
+        { loc: 'c-unwritable', seq: 3 },
+      ]),
+    })) as { status?: number };
+
+    expect(result.status).toBe(500);
+    // The two writable siblings must NOT have been reordered. Asserting the
+    // absence of every mutation, not just of the unwritable one's — a check on
+    // the refused node alone passes on the write-as-you-go version too.
+    expect(doorsUsed()).toEqual([]);
+  });
+
+  it('still writes all three when every door resolves', async () => {
+    const siblings: Record<string, Record<string, unknown>> = {
+      'a-plain': { ...base, loc: 'a-plain', role: null, isRunnable: null },
+      'b-task': { ...base, loc: 'b-task', role: null, isRunnable: true },
+      'c-review': { ...base, loc: 'c-review', role: 'review', isRunnable: null },
+    };
+    mockRequest.mockImplementation(async (query: unknown, vars: { ref?: string }) => {
+      if (query === NODE_BY_ID_QUERY) return { node: { ...base, role: null, isRunnable: null } };
+      if (query === NODE_QUERY) return { node: siblings[vars.ref as string] ?? null };
+      return { updateNode: { id: 'pk' } };
+    });
+    await run('reorder', {
+      updates: JSON.stringify([
+        { loc: 'a-plain', seq: 1 },
+        { loc: 'b-task', seq: 2 },
+        { loc: 'c-review', seq: 3 },
+      ]),
+    });
+    expect(doorsUsed()).toEqual([
+      UPDATE_NODE_MUTATION,
+      UPDATE_TASK_NODE_MUTATION,
+      UPDATE_REVIEW_NODE_MUTATION,
+    ]);
+  });
+});
+
 describe('convertToTask', () => {
   it('goes through the task door', async () => {
     stubNode({ role: null, isRunnable: null });

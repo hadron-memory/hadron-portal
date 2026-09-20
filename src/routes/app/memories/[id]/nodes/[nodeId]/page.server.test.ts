@@ -647,39 +647,43 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
   });
 
   it("reorder: each per-loc update preserves the matching node's tags", async () => {
-    // reorder iterates updates and updates each one. Each updateNode must
-    // carry its own node's tags (NOT a shared blob, NOT empty).
-    // First mocked call is the #237 anchor-node fetch; per-loc reads
-    // start at index 1.
-    mockRequest.mockResolvedValueOnce({
-      node: {
+    // reorder resolves every sibling, then writes them. Each write must carry
+    // its OWN node's tags (not a shared blob, not empty).
+    //
+    // Dispatched on the query rather than sequenced with
+    // `mockResolvedValueOnce`. The chain encoded the CALL ORDER — anchor, read
+    // a, write a, read b, write b — and #868/#869 split the loop into two
+    // passes so every read now precedes every write (a door refused on a later
+    // sibling must not leave the earlier ones reordered). A sequencing mock
+    // fails that as though the tags pass-through broke, which is not what this
+    // test is about.
+    const rows: Record<string, Record<string, unknown>> = {
+      'pk-anchor': {
         id: 'pk-anchor', memoryId: 'mem-A', loc: 'a', name: 'anchor',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
+        isRunnable: null, role: null, createdAt: '', updatedAt: '',
         outgoingEdges: [], incomingEdges: [],
       },
-    });
-    mockRequest.mockResolvedValueOnce({
-      node: {
+      a: {
         id: 'pk-a', memoryId: 'mem-A', loc: 'a', name: 'a',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: ['a-tag'], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
+        isRunnable: null, role: null, createdAt: '', updatedAt: '',
         outgoingEdges: [], incomingEdges: [],
       },
-    });
-    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-a' } });
-    mockRequest.mockResolvedValueOnce({
-      node: {
+      b: {
         id: 'pk-b', memoryId: 'mem-A', loc: 'b', name: 'b',
         nodeType: 'info', alias: null, description: null, content: null,
         tokens: null, tags: ['b-tag1', 'b-tag2'], seq: null, data: null,
-        ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '',
+        ownerRepo: null, isRunnable: null, role: null, createdAt: '', updatedAt: '',
         outgoingEdges: [], incomingEdges: [],
       },
+    };
+    mockRequest.mockImplementation(async (_query: unknown, vars: { ref?: string }) => {
+      const row = vars?.ref === undefined ? undefined : rows[vars.ref];
+      return row ? { node: row } : { updateNode: { id: 'pk' } };
     });
-    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-b' } });
 
     const actions = await importActions();
     await actions.reorder(actionEvent({
@@ -693,12 +697,12 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
       },
     }));
 
-    // Call index map: [0] anchor fetch, [1] NODE_QUERY for 'a', [2]
-    // update 'a', [3] NODE_QUERY for 'b', [4] update 'b'.
-    const [, varsA] = mockRequest.mock.calls[2]! as [unknown, { input: { tags?: unknown } }];
-    const [, varsB] = mockRequest.mock.calls[4]! as [unknown, { input: { tags?: unknown } }];
-    expect(varsA.input.tags).toEqual(['a-tag']);
-    expect(varsB.input.tags).toEqual(['b-tag1', 'b-tag2']);
+    // The writes are the calls that carry no `ref` — the reads all do.
+    const [inputA, inputB] = mockRequest.mock.calls
+      .filter(([, vars]) => (vars as { ref?: string } | undefined)?.ref === undefined)
+      .map(([, vars]) => (vars as { input: { tags?: unknown } }).input);
+    expect(inputA.tags).toEqual(['a-tag']);
+    expect(inputB.tags).toEqual(['b-tag1', 'b-tag2']);
   });
 
   it('updateMeta: a checked isRunnable box sends isRunnable: true (#322)', async () => {

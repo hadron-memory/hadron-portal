@@ -330,6 +330,19 @@ function callSites(source) {
             injected,
             line,
           });
+        } else if (ts.isCallExpression(docArg)) {
+          // A call in the document position that did NOT resolve to the
+          // chooser — a wrapper, a factory, anything (@copilot on PR #869).
+          //
+          // Reported as SKIPPED rather than resolved. Chasing a wrapper's
+          // return value transitively is dataflow analysis, and a gate that
+          // does it badly is worse than one that says it does not: it would
+          // report a confident result on a document it guessed at. This module
+          // already promises in its own header that an unreadable call is
+          // "counted as SKIPPED and reported, never silently treated as
+          // passing" — the variables argument delivered that and the DOCUMENT
+          // argument did not, which is the actual defect here.
+          found.push({ unresolved: true, line, text: docArg.getText(source).slice(0, 60) });
         } else if (isInlineDocument(docArg)) {
           // An operation written inline never reaches the `/* GraphQL */`
           // extractor, so it is validated by NOTHING — not the schema check,
@@ -370,6 +383,14 @@ export function findCallerMismatches(files, declared, root) {
     const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
 
     for (const site of callSites(source)) {
+      if (site.unresolved) {
+        skipped.push(
+          `${rel}:${site.line}  ${site.text} (document expression not statically ` +
+            'resolvable — if it wraps nodeUpdateDocument, call it inline so the ' +
+            "call's variables stay checked)",
+        );
+        continue;
+      }
       if (site.inline) {
         failures.push({
           file: rel,

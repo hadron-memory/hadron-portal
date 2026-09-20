@@ -31,28 +31,47 @@ function postEvent(body: unknown, opts: { authed?: boolean } = { authed: true })
   } as unknown as Parameters<Awaited<ReturnType<typeof importPOST>>>[0];
 }
 
+/** A node row shaped like NODE_FIELDS, with only the parts these tests vary. */
+function nodeRow(over: Record<string, unknown>) {
+  return {
+    id: 'pk', memoryId: 'mem-A', loc: 'x', name: 'x',
+    nodeType: 'info', alias: null, description: null, content: null,
+    tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+    isRunnable: null, role: null, createdAt: '', updatedAt: '',
+    outgoingEdges: [], incomingEdges: [], ...over,
+  };
+}
+
+/**
+ * Answer each NODE_QUERY by loc and record the writes.
+ *
+ * Deliberately NOT a `mockResolvedValueOnce` chain. That encoded the CALL
+ * ORDER — read, write, read, write — and #868/#869 split the loop into two
+ * passes (resolve every door, then write), so the reads now all precede the
+ * writes. A sequencing mock fails that as though the tags pass-through broke,
+ * which is not what these tests are about; dispatching on the query says what
+ * the fixture means instead of when it is consumed.
+ */
+function serveNodes(byLoc: Record<string, Record<string, unknown>>) {
+  mockRequest.mockImplementation(async (_query: unknown, vars: { ref?: string }) => {
+    const row = vars?.ref === undefined ? undefined : byLoc[vars.ref];
+    return row ? { node: row } : { updateNode: { id: 'pk' } };
+  });
+}
+
+/** Every write call's input, in order — the reads are the ones carrying `ref`. */
+function writeInputs() {
+  return mockRequest.mock.calls
+    .filter(([, vars]) => (vars as { ref?: string } | undefined)?.ref === undefined)
+    .map(([, vars]) => (vars as { input: { tags?: unknown } }).input);
+}
+
 describe('POST /api/nodes/reorder — preserve tags per update (#235)', () => {
   it('carries each node`s tags into the matching UPDATE_NODE_MUTATION input', async () => {
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'pk-a', memoryId: 'mem-A', loc: 'a', name: 'a',
-        nodeType: 'info', alias: null, description: null, content: null,
-        tokens: null, tags: ['a-tag'], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
+    serveNodes({
+      a: nodeRow({ id: 'pk-a', loc: 'a', name: 'a', tags: ['a-tag'] }),
+      b: nodeRow({ id: 'pk-b', loc: 'b', name: 'b', tags: ['b-tag1', 'b-tag2'] }),
     });
-    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-a' } });
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'pk-b', memoryId: 'mem-A', loc: 'b', name: 'b',
-        nodeType: 'info', alias: null, description: null, content: null,
-        tokens: null, tags: ['b-tag1', 'b-tag2'], seq: null, data: null,
-        ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
-    });
-    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk-b' } });
 
     const POST = await importPOST();
     await POST(postEvent({
@@ -63,11 +82,9 @@ describe('POST /api/nodes/reorder — preserve tags per update (#235)', () => {
       ],
     }));
 
-    // Calls 0 + 2 are NODE_QUERY reads; calls 1 + 3 are the updates.
-    const [, varsA] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown } }];
-    const [, varsB] = mockRequest.mock.calls[3]! as [unknown, { input: { tags?: unknown } }];
-    expect(varsA.input.tags).toEqual(['a-tag']);
-    expect(varsB.input.tags).toEqual(['b-tag1', 'b-tag2']);
+    const [inputA, inputB] = writeInputs();
+    expect(inputA.tags).toEqual(['a-tag']);
+    expect(inputB.tags).toEqual(['b-tag1', 'b-tag2']);
   });
 
   it('preserves empty tags ([]) explicitly so a future refactor can`t silently drop the pass-through', async () => {
