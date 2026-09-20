@@ -122,16 +122,18 @@ export const ALLOWED = new Map([
   ],
   [
     'src/routes/app/agents/[id]/conversations/+page.server.ts',
-    'TRACKED, NOT ARGUED AWAY — portal#870. Seven writes through a locally ' +
-      'declared updateNode document, found by @codex on PR #869 when the gate ' +
-      'still keyed on the four constant names. Four of the seven already fetch ' +
-      'the node and route almost for free; the other two are the update-first, ' +
-      'create-on-miss flow that exists BECAUSE a stage promptRef can dangle, so ' +
-      'pre-fetching to learn the kind changes its race semantics. Routing four ' +
-      'of seven leaves the file half-fixed, and this is the chatbot wizard — a ' +
-      'surface #869 did not drive. Reachable today only by pointing "Convert to ' +
-      'task" at a conversation, stage or prompt node. Remove this entry with ' +
-      'the fix; the stale-exemption check makes that impossible to forget.',
+    'RULED, not merely deferred — @Holger on portal#870. Seven writes through ' +
+      'a locally declared updateNode document, found by @codex on PR #869. ' +
+      'These are the chatbot wizard writing its OWN nodes: conversation, stage ' +
+      'and prompt nodes it mints itself at known locs in a system memory, from ' +
+      'a client purpose-built for exactly those kinds. Governed kinds are not a ' +
+      'concern on this surface, so the writes stay on the generic door by ' +
+      'decision rather than by omission. ' +
+      'Residual, accepted: converting one of these nodes to a task from the ' +
+      'node detail page would make the wizard refuse. Loud, narrow, and not ' +
+      'worth a node fetch per save on a path that deliberately avoids one — ' +
+      'the prompt save writes optimistically BECAUSE a stage promptRef can ' +
+      'dangle. This entry is expected to STAY; it is not a deferred fix.',
   ],
   [
     'src/routes/api/agent-chat/fixtures/run/+server.ts',

@@ -149,7 +149,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       // findNodes hides class:'system' memories on a broad call, so we scope to
       // the system memory (which also overrides the exclusion) and use
       // filter.locPrefix for the `revisions:` prefix. Results are hits[].node.
-      const REVISIONS_QUERY = `
+      const REVISIONS_QUERY = /* GraphQL */ `
         query Revisions($limit: Int, $memoryIds: [ID!]) {
           findNodes(filter: { memoryIds: $memoryIds, locPrefix: "revisions:" }, limit: $limit) {
             hits { node { id loc name description data } }

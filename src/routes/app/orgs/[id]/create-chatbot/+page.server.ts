@@ -124,7 +124,7 @@ export const actions: Actions = {
       // 6. Create initial conversation scaffold in system memory.
       // hadron-server#460: pure creates — the system memory was created
       // fresh in this same action, so no loc can already exist.
-      const CREATE = `mutation C($input: CreateNodeInput!) { createNode(input: $input) { id } }`;
+      const CREATE = /* GraphQL */ `mutation C($input: CreateNodeInput!) { createNode(input: $input) { id } }`;
 
       // conversations parent
       await client.request(CREATE, { input: {

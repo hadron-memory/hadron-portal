@@ -65,7 +65,7 @@ const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionS
 // overrides the exclusion). Results are under `hits[].node`.
 // Edge condition/priority/data feed the canvas rule annotations and the
 // routing-rule side panel.
-const GRAPH_NODES_QUERY = `
+const GRAPH_NODES_QUERY = /* GraphQL */ `
   query Nodes($limit: Int, $memoryIds: [ID!]) {
     findNodes(filter: { memoryIds: $memoryIds }, limit: $limit) {
       hits {
@@ -82,14 +82,14 @@ const GRAPH_NODES_QUERY = `
 // so an unscoped call can't compile/run — node(loc:) without a scope now
 // errors on a cross-memory loc collision (AMBIGUOUS_NODE_LOC). Shared by the
 // stageOrder reads in addStage / updateExtractionSpec / updateGoals.
-const NODE_DATA_BY_LOC_QUERY = `query N($loc: ID!, $memory: ID!) { node(ref: $loc, memoryRef: $memory) { data } }`;
+const NODE_DATA_BY_LOC_QUERY = /* GraphQL */ `query NodeDataByLoc($ref: ID!, $memoryRef: ID!) { node(ref: $ref, memoryRef: $memoryRef) { data } }`;
 
 // hadron-server#460: upsertNode is split into createNode (create-only,
 // NodeLocConflictError on a live (memoryId, loc)) and updateNode (never
 // creates — NODE_NOT_FOUND on miss; omitted fields are preserved, so the
 // data-merge writes below no longer need to re-assert name/nodeType).
-const CREATE = `mutation C($input: CreateNodeInput!) { createNode(input: $input) { id } }`;
-const UPDATE = `mutation U($input: UpdateNodeInput!) { updateNode(input: $input) { id } }`;
+const CREATE = /* GraphQL */ `mutation C($input: CreateNodeInput!) { createNode(input: $input) { id } }`;
+const UPDATE = /* GraphQL */ `mutation U($input: UpdateNodeInput!) { updateNode(input: $input) { id } }`;
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
@@ -337,7 +337,7 @@ export const actions: Actions = {
       // Update conversation's stageOrder
       const convNode = await client.request<{ node: { data: unknown } | null }>(
         NODE_DATA_BY_LOC_QUERY,
-        { loc: conversationLoc, memory: systemMemoryId },
+        { ref: conversationLoc, memoryRef: systemMemoryId },
       );
       const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
       // Append idempotently — a stale stageOrder that already lists the slug
@@ -436,7 +436,7 @@ export const actions: Actions = {
     try {
       const stageNode = await client.request<{ node: { data: unknown } | null }>(
         NODE_DATA_BY_LOC_QUERY,
-        { loc: stageLoc, memory: systemMemoryId },
+        { ref: stageLoc, memoryRef: systemMemoryId },
       );
       const stageData = (stageNode.node?.data as Record<string, unknown>) ?? {};
       await client.request(UPDATE, { input: {
@@ -471,7 +471,7 @@ export const actions: Actions = {
     try {
       const convNode = await client.request<{ node: { data: unknown } | null }>(
         NODE_DATA_BY_LOC_QUERY,
-        { loc: convLoc, memory: systemMemoryId },
+        { ref: convLoc, memoryRef: systemMemoryId },
       );
       const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
       await client.request(UPDATE, { input: {
@@ -592,7 +592,7 @@ export const actions: Actions = {
     try {
       const node = await client.request<{ node: { data: unknown } | null }>(
         NODE_DATA_BY_LOC_QUERY,
-        { loc, memory: systemMemoryId },
+        { ref: loc, memoryRef: systemMemoryId },
       );
       const nodeData = (node.node?.data as Record<string, unknown>) ?? {};
       await client.request(UPDATE, { input: {

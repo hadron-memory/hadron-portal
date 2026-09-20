@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { buildSchema } from 'graphql';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error — plain .mjs helper, no type declarations by design.
-import { ROOT, collectCommentTerminated, collectPortalDocuments, extractDocuments, findArgVariableMismatches, findCommentTerminatedDocuments, findInvalid, resolveInterpolations } from './validate-graphql.mjs';
+import { MIN_MARKED_DOCUMENTS, ROOT, collectCommentTerminated, collectPortalDocuments, collectUnmarkedDocuments, extractDocuments, findArgVariableMismatches, findCommentTerminatedDocuments, findInvalid, findUnmarkedDocuments, resolveInterpolations } from './validate-graphql.mjs';
 
 const schema = buildSchema(readFileSync(join(ROOT, 'schema', 'schema.graphql'), 'utf8'));
 
@@ -494,5 +494,79 @@ describe('the portal itself has no comment-terminated documents', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * #872 — the unmarked-document check.
+ *
+ * `extractDocuments` finds documents by their `/* GraphQL *\/` marker, so one
+ * without it is validated by NOTHING: not the schema check, not the caller
+ * check, not the naming rule. Eight existed while `gql:validate` reported
+ * "200 documents, 0 invalid" — a count that reads as complete and was eight
+ * short. Marking them raised it to 208 and brought 36 more call sites under
+ * variable checking.
+ *
+ * Both directions, always: what it FAILS on, and what it stays silent on and
+ * why. A check that only ever reports "nothing unmarked" cannot be told apart
+ * from one that has stopped looking.
+ */
+const unmarked = (source: string) => findUnmarkedDocuments('test.ts', source);
+
+describe('findUnmarkedDocuments', () => {
+  it.each([
+    ['a query', 'const Q = `query Thing($ref: ID!) { thing(ref: $ref) { id } }`;'],
+    ['a mutation', 'const M = `mutation Do($input: DoInput!) { do(input: $input) { id } }`;'],
+    ['a fragment', 'const F = `fragment ThingFields on Thing { id name }`;'],
+    [
+      'an operation with a fragment interpolated in front of it',
+      'const Q = `${FIELDS}\n  query Thing { thing { ...ThingFields } }`;',
+    ],
+  ])('fails %s declared without the marker', (_what, code) => {
+    expect(unmarked(code)).toHaveLength(1);
+  });
+
+  it('stays silent on the same document WITH the marker', () => {
+    expect(
+      unmarked('const Q = /* GraphQL */ `query Thing($ref: ID!) { thing(ref: $ref) { id } }`;'),
+    ).toEqual([]);
+  });
+
+  // The predicate PARSES rather than pattern-matches, so prose that happens to
+  // use the words is not a document. A check that guessed from keywords would
+  // fire on ordinary strings and teach people to avoid the vocabulary.
+  it.each([
+    ['prose mentioning a query', 'const msg = `Your query returned no results.`;'],
+    ['a SQL statement', 'const sql = `select id from nodes where loc = $1`;'],
+    ['an empty literal', 'const empty = ``;'],
+    ['GraphQL type defs with no operation', 'const sdl = `type Thing { id: ID! }`;'],
+  ])('stays silent on %s', (_what, code) => {
+    expect(unmarked(code)).toEqual([]);
+  });
+
+  // Matched on the AST, so a comment ABOUT a document is not a document —
+  // otherwise the gate makes explaining the rule a violation of it.
+  it('stays silent on a comment describing an unmarked document', () => {
+    expect(
+      unmarked('// A `query Thing { id }` used to live here, unmarked.\nconst x = 1;'),
+    ).toEqual([]);
+  });
+});
+
+describe('collectUnmarkedDocuments — the repository as it stands', () => {
+  const { unmarked: found, marked } = collectUnmarkedDocuments();
+
+  it('has no unmarked documents', () => {
+    expect(found).toEqual([]);
+  });
+
+  /**
+   * The anti-vacuity floor. Without it, breaking the walk — or the marker
+   * regex — leaves this check reporting "nothing unmarked" forever, which is
+   * indistinguishable from a clean tree. Asserted as a COUNT, not merely as an
+   * absence of failures.
+   */
+  it('sees the corpus it claims to', () => {
+    expect(marked).toBeGreaterThanOrEqual(MIN_MARKED_DOCUMENTS);
   });
 });

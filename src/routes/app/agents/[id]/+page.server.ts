@@ -306,16 +306,16 @@ export const actions: Actions = {
         // so on a partially-scaffolded memory a NodeLocConflictError just
         // means "already there" and the existing node is left intact
         // (the old upsert would have overwritten it with scaffold defaults).
-        const CREATE = `mutation C($input: CreateNodeInput!) { createNode(input: $input) { id } }`;
+        const CREATE = /* GraphQL */ `mutation C($input: CreateNodeInput!) { createNode(input: $input) { id } }`;
         // #335: scope by the agent's system memory. `conversations` exists in
         // every agent's system memory, so an unscoped node(loc:) now errors
         // (AMBIGUOUS_NODE_LOC) instead of silently resolving the wrong one.
-        const NODE_Q = `query N($loc: ID!, $memory: ID!) { node(ref: $loc, memoryRef: $memory) { id } }`;
+        const NODE_Q = /* GraphQL */ `query NodeExists($ref: ID!, $memoryRef: ID!) { node(ref: $ref, memoryRef: $memoryRef) { id } }`;
         const client = gqlClient(locals.token);
         const agentDisplayName = name ?? 'Agent';
 
         // Check if conversations parent exists; create scaffold if missing
-        const hasConversations = await client.request<{ node: { id: string } | null }>(NODE_Q, { loc: 'conversations', memory: systemMemoryId }).catch(() => ({ node: null }));
+        const hasConversations = await client.request<{ node: { id: string } | null }>(NODE_Q, { ref: 'conversations', memoryRef: systemMemoryId }).catch(() => ({ node: null }));
 
         if (!hasConversations.node) {
           // conversations parent

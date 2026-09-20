@@ -23,6 +23,7 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { buildSchema, parse, validate, visit, specifiedRules, GraphQLError } from 'graphql';
 import { declaredVariables, findCallerMismatches } from './check-graphql-callers.mjs';
 import { findDoorViolations } from './check-node-write-doors.mjs';
@@ -225,6 +226,112 @@ export function collectCommentTerminated(srcDir = SRC_DIR) {
 }
 
 /**
+ * Every GraphQL document declared WITHOUT the `/* GraphQL *\/` marker (#872).
+ *
+ * ## Why an unmarked document is invisible to everything
+ *
+ * `extractDocuments` finds documents by that marker. A `const` bound to a
+ * template literal without one is therefore not extracted — so it is not
+ * validated against the schema, its `$variables` are never cross-checked
+ * against its callers (`check-graphql-callers` cannot resolve a document it
+ * does not know), and the arg-naming rule never sees it.
+ *
+ * Nothing about that is loud. `gql:validate` reported "200 documents, 0
+ * invalid" while EIGHT sat outside it — a count that reads as complete and was
+ * eight short. Marking them raised it to 208 and brought **36 more call sites**
+ * under variable checking, which had never been checked by anything.
+ *
+ * This gate exists because #681 exists: a server-side rename of an unmarked
+ * document's field fails at RUNTIME, on the one flow that uses it. That is how
+ * `runTask(urn:)` and `addToMyMemories` stayed broken in production for months,
+ * and marking the eight by hand would leave a ninth free to appear next quarter.
+ *
+ * ## The predicate
+ *
+ * A `const` initialised to a template literal whose text PARSES as GraphQL and
+ * declares an operation or a fragment. Parsing rather than pattern-matching,
+ * so a string that merely mentions the word `query` is not a document — and
+ * matched on the AST, so a comment ABOUT a document is not one either.
+ *
+ * Interpolations are dropped before parsing rather than resolved: this repo's
+ * idiom is `${FRAGMENT}` prepended to an operation, and removing it leaves the
+ * operation parseable. Resolving them is `resolveInterpolations`' job, and it
+ * needs the extraction this check is about to have already happened.
+ */
+export function findUnmarkedDocuments(file, text) {
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const found = [];
+
+  const visit = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const init = node.initializer;
+      let body = null;
+      if (ts.isNoSubstitutionTemplateLiteral(init)) body = init.text;
+      else if (ts.isTemplateExpression(init)) {
+        body = init.head.text + init.templateSpans.map((span) => span.literal.text).join('');
+      }
+      if (body !== null && body.trim() !== '') {
+        // The marker lives in the trivia between `=` and the backtick.
+        const trivia = text.slice(init.getFullStart(), init.getStart(source));
+        if (!/\/\*\s*GraphQL\s*\*\//.test(trivia) && isGraphQLDocument(body)) {
+          found.push({
+            name: node.name.text,
+            file,
+            line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+          });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return found;
+}
+
+/** Does this text parse as GraphQL AND declare an operation or fragment? */
+function isGraphQLDocument(body) {
+  let ast;
+  try {
+    ast = parse(body);
+  } catch {
+    return false;
+  }
+  return ast.definitions.some(
+    (d) => d.kind === 'OperationDefinition' || d.kind === 'FragmentDefinition',
+  );
+}
+
+/**
+ * Every unmarked document across `src/`, plus the count of MARKED ones.
+ *
+ * The marked count is the anti-vacuity floor. Without it, breaking the walk —
+ * or the marker regex — leaves this check reporting "nothing unmarked" forever,
+ * which is indistinguishable from a clean tree. TEST files are excluded from
+ * the floor: a gate's own fixtures use the construct densely, and a floor its
+ * test suite can satisfy is not a floor
+ * (hrn:node:hadronmemory.com:hadron-portal:review:a-floor-must-not-count-the-gates-own-tests).
+ */
+export function collectUnmarkedDocuments(srcDir = SRC_DIR) {
+  const unmarked = [];
+  let marked = 0;
+  for (const file of sourceFiles(srcDir)) {
+    const rel = relative(ROOT, file);
+    if (/\.(client\.)?test\.[cm]?[jt]sx?$/.test(rel)) continue;
+    const text = readFileSync(file, 'utf8');
+    marked += extractDocuments(rel, text).length;
+    unmarked.push(...findUnmarkedDocuments(rel, text));
+  }
+  return { unmarked, marked };
+}
+
+/**
+ * The floor. The repository sits at 208 marked documents; below this the walk
+ * is not seeing the corpus it claims to. A FLOOR, not an exact count — adding a
+ * document must not require editing a number to permit it.
+ */
+export const MIN_MARKED_DOCUMENTS = 200;
+
+/**
  * Splice `${FRAGMENT}` references in, recursively, so an operation is validated
  * together with the fragments it actually spreads. Interpolations that name
  * something we did not extract, or that form a cycle, are reported rather than
@@ -355,6 +462,18 @@ function main(argv) {
   // document truncates everything after it, so the other checks are reasoning
   // about a document the author never wrote.
   const terminated = collectCommentTerminated();
+  // #872: a document with no `/* GraphQL */` marker is extracted by nothing, so
+  // every check above is silently blind to it — including the document COUNT,
+  // which is what makes the blindness look like health.
+  const { unmarked, marked } = collectUnmarkedDocuments();
+  const markedShortfall =
+    marked < MIN_MARKED_DOCUMENTS
+      ? [
+          `the walk found ${marked} marked documents, expected at least ` +
+            `${MIN_MARKED_DOCUMENTS} — it is not seeing the corpus, which is not ` +
+            'the same as the corpus being clean.',
+        ]
+      : [];
   // #868: every node-update write must go through the kind's door. Checked here
   // rather than as its own workflow because it needs the same document map, and
   // because a governed refusal IS a schema-contract failure — it is the server
@@ -382,6 +501,9 @@ function main(argv) {
           namingFailures: naming.map(({ name, file, line, errors }) => ({ name, file, line, errors })),
           // #868. `routedNodeWrites` is reported even when it is healthy: the
           // count is what distinguishes "no violations" from "nothing looked at".
+          markedDocuments: marked,
+          unmarkedDocuments: unmarked.length,
+          unmarkedFailures: unmarked.map(({ name, file, line }) => ({ name, file, line })),
           routedNodeWrites: doors.routed,
           doorViolations: doors.failures.length,
           doorFailures: doors.failures,
@@ -395,11 +517,19 @@ function main(argv) {
       console.error(`✗ ${failure.file}:${failure.line}  ${failure.name}`);
       for (const message of failure.errors) console.error(`    ${message}`);
     }
-    for (const violation of doors.failures) console.error(`✗ ${violation}`);
+    for (const doc of unmarked) {
+      console.error(`✗ ${doc.file}:${doc.line}  ${doc.name}`);
+      console.error(
+        '    a GraphQL document with no /* GraphQL */ marker is extracted by ' +
+          'nothing — not the schema check, not the caller check, not the naming ' +
+          'rule. Add the marker (#872).',
+      );
+    }
+    for (const violation of [...markedShortfall, ...doors.failures]) console.error(`✗ ${violation}`);
     // Never let a skipped call site read as a passing one.
     for (const skip of callers.skipped) console.warn(`… skipped ${skip}`);
 
-    const docSummary = `${documents.length} documents, ${failures.length} invalid, ${naming.length} misnamed`;
+    const docSummary = `${documents.length} documents, ${failures.length} invalid, ${naming.length} misnamed, ${unmarked.length} unmarked`;
     const callSummary = `${callers.checked} call sites, ${callers.failures.length} mismatched`;
     // The routed count is printed on the PASSING line too — a gate that only
     // ever says "clean" cannot be told apart from one that stopped looking.
@@ -410,7 +540,9 @@ function main(argv) {
       failures.length > 0 ||
       naming.length > 0 ||
       callers.failures.length > 0 ||
-      doors.failures.length > 0
+      doors.failures.length > 0 ||
+      unmarked.length > 0 ||
+      markedShortfall.length > 0
     ) {
       console.error(`\n✗ ${summary}`);
       if (terminated.length > 0) {
@@ -425,6 +557,12 @@ function main(argv) {
       }
       if (callers.failures.length > 0) {
         console.error("  A caller's variable keys must match the operation's $variables.");
+      }
+      if (unmarked.length > 0) {
+        console.error(
+          '  Mark it with /* GraphQL */ so the schema, caller and naming checks ' +
+            'can see it — an unmarked document is validated by nothing.',
+        );
       }
       if (doors.failures.length > 0) {
         console.error(
@@ -441,7 +579,9 @@ function main(argv) {
     failures.length > 0 ||
     naming.length > 0 ||
     callers.failures.length > 0 ||
-    doors.failures.length > 0
+    doors.failures.length > 0 ||
+    unmarked.length > 0 ||
+    markedShortfall.length > 0
     ? 1
     : 0;
 }
