@@ -174,10 +174,13 @@ export class NoNodeDoorError extends Error {
 /**
  * Choose the mutation document for a node update.
  *
- * `prior` is the node as it is NOW — fetch it, do not infer it. Six of the nine
- * call sites never touch a governance signal, so their resulting kind IS the
- * node's current one, and a chooser given only the input would route every one
- * of them through the generic door and be refused exactly as before.
+ * `prior` is the node as it is NOW — fetch it, do not infer it. SEVEN of the
+ * ten routed call sites never touch a governance signal, so their resulting
+ * kind IS the node's current one, and a chooser given only the input would
+ * route every one of them through the generic door and be refused exactly as
+ * before. (Only the edit page's save, `updateMeta` and `convertToTask` mention
+ * a signal at all. The count is the one `scripts/check-node-write-doors.mjs`
+ * prints on every run — read it there rather than trusting this sentence.)
  *
  * `input` is the object being sent, not a summary of it. Passing the real input
  * means the signals cannot drift from what the write actually carries.

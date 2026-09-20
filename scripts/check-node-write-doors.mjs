@@ -88,6 +88,39 @@ export function isTestFile(rel) {
 }
 
 /**
+ * Every IMPORT of a door document in one file.
+ *
+ * The import is the load-bearing check, and the call site is the friendly one.
+ * Matching a bare identifier in the document position is trivially evaded by
+ * one level of indirection — `const mutation = cond ? A : B; request(mutation,
+ * …)` reads as opaque and passes. That is not a hypothetical shape: it is
+ * EXACTLY what `edit/+page.server.ts` looked like before this PR, so a gate
+ * built on call sites alone would not have caught #868's own predecessor.
+ *
+ * A file cannot name a door document without importing it, so the import is
+ * the chokepoint no amount of indirection gets around.
+ */
+function doorImports(source) {
+  const found = [];
+  for (const statement of source.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      // `import { UPDATE_NODE_MUTATION as X }` — the PROPERTY name is the
+      // document; the local alias is whatever the file chose to call it.
+      const imported = (element.propertyName ?? element.name).text;
+      if (!DOOR_DOCUMENTS.includes(imported)) continue;
+      found.push({
+        name: imported,
+        line: source.getLineAndCharacterOfPosition(element.getStart(source)).line + 1,
+      });
+    }
+  }
+  return found;
+}
+
+/**
  * Every `<x>.request(DOC, …)` naming a door document, and every
  * `nodeUpdateDocument(…)` call, in one file.
  */
@@ -167,11 +200,19 @@ export function doorVariablesAgree(resolve) {
  * test can name (review:ci-gate-prefilter-must-be-proven).
  */
 export function scanSource(rel, text) {
+  const exempt = ALLOWED.has(rel);
+
   // No pre-filter on `.request(`: skipping files by substring is how the caller
   // gate went blind to 46 of them. The only skip is "this file names none of
   // the identifiers we care about at all" — which cannot hide a violation,
   // because a violation has to name a door document to be one.
+  //
+  // An EXEMPTED file is never skipped, whatever it contains. Its grant is the
+  // thing being checked, and a file that has stopped naming a door is precisely
+  // the case where the grant has gone stale — skipping it here is how the stale
+  // check would have been unreachable in the one situation it exists for.
   if (
+    !exempt &&
     !DOOR_DOCUMENTS.some((d) => text.includes(d)) &&
     !text.includes('nodeUpdateDocument')
   ) {
@@ -179,25 +220,40 @@ export function scanSource(rel, text) {
   }
 
   const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
+  const imports = doorImports(source);
   const { direct, routed } = doorCallSites(source);
   const failures = [];
-  const reason = ALLOWED.get(rel);
 
-  for (const site of direct) {
-    if (reason) continue;
-    failures.push(
-      `${rel}:${site.line}  writes a node through ${site.name} directly — ` +
-        'call nodeUpdateDocument(node, input) from $lib/server/nodeKindDoor ' +
-        'so the door follows the node\'s kind, or add this file to ALLOWED in ' +
-        'scripts/check-node-write-doors.mjs with the reason it cannot.',
-    );
+  if (!exempt) {
+    // The IMPORT is the check that cannot be evaded — see doorImports.
+    for (const site of imports) {
+      failures.push(
+        `${rel}:${site.line}  imports ${site.name} — a node-update mutation is ` +
+          'named only by $lib/server/nodeKindDoor. Call nodeUpdateDocument(node, ' +
+          "input) so the door follows the node's kind, or add this file to " +
+          'ALLOWED in scripts/check-node-write-doors.mjs with the reason it cannot.',
+      );
+    }
+    // Reported separately from the import so the message points at the line the
+    // author actually has to change, and so a call site reached some other way
+    // (a re-export, a future barrel file) is still caught.
+    for (const site of direct) {
+      failures.push(
+        `${rel}:${site.line}  writes a node through ${site.name} directly — ` +
+          'call nodeUpdateDocument(node, input) from $lib/server/nodeKindDoor ' +
+          'so the door follows the node\'s kind, or add this file to ALLOWED in ' +
+          'scripts/check-node-write-doors.mjs with the reason it cannot.',
+      );
+    }
   }
   // An exemption that stops being used is an exemption nobody is reading any
-  // more — report it rather than leave a stale grant standing.
-  if (reason && direct.length === 0) {
+  // more — a standing grant for whoever edits the file next. Keyed on the
+  // IMPORT, so a file that routes its write but still holds the document is
+  // still covered by its reason rather than silently clean.
+  if (exempt && imports.length === 0) {
     failures.push(
-      `${rel} is exempted in ALLOWED but no longer writes a node directly — ` +
-        'remove the entry.',
+      `${rel} is exempted in ALLOWED but no longer imports a node-update ` +
+        'mutation — remove the entry.',
     );
   }
 

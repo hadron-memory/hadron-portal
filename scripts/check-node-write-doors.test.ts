@@ -39,6 +39,45 @@ describe('scanSource — the drift shape', () => {
     expect(routed).toBe(0);
   });
 
+  /**
+   * THE evasion, and the reason the import is the load-bearing check.
+   *
+   * A call-site-only gate matches a bare identifier in the document position,
+   * so one level of indirection reads as opaque and passes. This is not a
+   * hypothetical shape — it is verbatim what `edit/+page.server.ts` contained
+   * before this PR, which means a gate built on call sites alone would not have
+   * caught #868's own predecessor. Found by probing the gate rather than by
+   * reading it.
+   */
+  it('fails a door document held in a local variable', () => {
+    const { failures } = scanSource(
+      ORDINARY,
+      [
+        // The import is not decoration in this fixture — it is the whole test.
+        // A file cannot name a door document without it, which is what makes
+        // the import the chokepoint indirection cannot get around.
+        "import { UPDATE_NODE_MUTATION, UPDATE_TASK_NODE_MUTATION } from '$lib/server/queries';",
+        'const mutation = cond ? UPDATE_TASK_NODE_MUTATION : UPDATE_NODE_MUTATION;',
+        'await client.request(mutation, { input });',
+      ].join('\n'),
+    );
+    // Two imports, and the CALL SITE is invisible to the gate — `mutation` is
+    // not a door identifier. Asserting the import is what caught it keeps this
+    // test honest about which half of the gate is load-bearing here.
+    expect(failures).toHaveLength(2);
+    for (const failure of failures) expect(failure).toContain('imports');
+  });
+
+  it('fails an aliased import, which hides the name from every text search', () => {
+    const { failures } = scanSource(
+      ORDINARY,
+      "import { UPDATE_NODE_MUTATION as DOC } from '$lib/server/queries';\n" +
+        'await client.request(DOC, { input });\n',
+    );
+    expect(failures.length).toBeGreaterThan(0);
+    expect(failures[0]).toContain('UPDATE_NODE_MUTATION');
+  });
+
   // The portal annotates the response type inline on most of these, and a
   // literal `.request(` match skipped every one of those files wholesale once
   // already (portal#696). Both spellings, or the gate is blind to the majority.
@@ -86,17 +125,36 @@ describe('scanSource — the routed shape', () => {
   });
 
   it('stays silent on an exempted file, and only there', () => {
-    const direct = 'await client.request(UPDATE_NODE_MUTATION, { input });\n';
+    const direct =
+      "import { UPDATE_NODE_MUTATION } from '$lib/server/queries';\n" +
+      'await client.request(UPDATE_NODE_MUTATION, { input });\n';
     expect(scanSource(EXEMPT, direct).failures).toEqual([]);
-    expect(scanSource(ORDINARY, direct).failures).toHaveLength(1);
+    expect(scanSource(ORDINARY, direct).failures.length).toBeGreaterThan(0);
   });
 
   // An exemption nobody uses is a grant sitting open for whoever edits that
   // file next — the gate reports it rather than letting it stand.
   it('fails a stale exemption', () => {
-    const { failures } = scanSource(EXEMPT, 'await client.request(nodeUpdateDocument(n, i), { input });\n');
+    const { failures } = scanSource(
+      EXEMPT,
+      'await client.request(nodeUpdateDocument(n, i), { input });\n',
+    );
     expect(failures).toHaveLength(1);
-    expect(failures[0]).toContain('no longer writes a node directly');
+    expect(failures[0]).toContain('no longer imports');
+  });
+
+  /**
+   * The stale check used to be UNREACHABLE in the one case it exists for.
+   * It sat behind the "this file names no door identifier" early return, so a
+   * file that dropped its write entirely — the most complete way for a grant to
+   * go stale — returned `looked: false` and the exemption stood unreported.
+   * Found by probing, not by reading.
+   */
+  it('still reports a stale exemption when the file names no door at all', () => {
+    const { failures, looked } = scanSource(EXEMPT, 'await client.request(MEMORIES_QUERY, {});\n');
+    expect(looked).toBe(true);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('no longer imports');
   });
 });
 

@@ -256,8 +256,10 @@ function callSites(source) {
           // The document is chosen at RUNTIME from the node's governed kind, so
           // there is no identifier here to look up — and without this branch
           // every routed node write would fall through to the opaque path and
-          // stop being variable-checked. Nine call sites going quietly
-          // unchecked is worse than the rename this gate was built to catch.
+          // stop being variable-checked. Every routed node write going quietly
+          // unchecked is worse than the rename this gate was built to catch —
+          // measured while writing this: the checked count drops from 290 to
+          // 280 with this branch removed.
           //
           // Resolving to one representative operation is sound only because the
           // four doors declare identical variables, which is NOT assumed here:
