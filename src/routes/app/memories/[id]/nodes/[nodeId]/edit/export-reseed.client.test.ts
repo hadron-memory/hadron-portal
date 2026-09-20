@@ -124,3 +124,28 @@ describe('the export section re-seeds when the node changes', () => {
     }
   });
 });
+
+describe('a properties value this form cannot split is preserved', () => {
+  it.each([
+    ['an array', '[1, 2]'],
+    ['a scalar', '42'],
+    ['a JSON null', 'null'],
+    ['unparseable text', '{not json'],
+  ])('keeps %s in the form rather than dropping it', async (_what, raw) => {
+    // `JSON.parse` succeeds for the first three, and treating one as a bag
+    // turned it into {} — the recombination effect then wrote an empty string,
+    // so merely OPENING the node discarded a value the server may accept
+    // (@copilot on #867).
+    const d = await dataFor(node('a', null));
+    (d.form.data as Record<string, unknown>).propertiesJson = raw;
+    const props = reactiveProps({ data: d });
+    const mounted = mountComponent(Page as never, props as never);
+    try {
+      flushSync();
+      const submitted = (mounted.target.querySelector('input[name=propertiesJson]') as HTMLInputElement)?.value;
+      expect(submitted).toBe(raw);
+    } finally {
+      mounted.unmount();
+    }
+  });
+});

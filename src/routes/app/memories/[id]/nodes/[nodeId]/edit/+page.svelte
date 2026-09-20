@@ -78,10 +78,18 @@
   function splitProperties(serialized: string): { declaration: SkillDeclaration | null; rest: string } {
     const raw = (serialized ?? '').trim();
     if (!raw) return { declaration: null, rest: '' };
-    let parsed: Record<string, unknown>;
+    let parsed: unknown;
     try {
-      parsed = JSON.parse(raw) as Record<string, unknown>;
+      parsed = JSON.parse(raw);
     } catch {
+      return { declaration: null, rest: raw };
+    }
+    // `JSON.parse` succeeds for an array, a scalar and null, none of which is a
+    // properties object. Treating one as a bag turned it into `{}` and the
+    // recombination effect then wrote an empty string, dropping a value the
+    // server may well accept (@copilot on #867). Same answer as a parse
+    // failure: keep the raw text and let the raw editor own it.
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       return { declaration: null, rest: raw };
     }
     const rest = writeDeclaration(parsed, null);
@@ -128,14 +136,22 @@
     const rawRest = restJson.trim();
     let rest: Record<string, unknown> | null = null;
     if (rawRest) {
+      let parsed: unknown;
       try {
-        rest = JSON.parse(rawRest) as Record<string, unknown>;
+        parsed = JSON.parse(rawRest);
       } catch {
         // Mid-typing invalid JSON, or an invalid bag carried in from a failed
         // POST: leave the submitted value alone rather than discarding it. The
         // raw editor sets `invalid`, which already disables submit.
         return;
       }
+      // Valid JSON that is not an OBJECT is the same situation: an array, a
+      // scalar or null is not a properties bag, and folding one through
+      // `writeDeclaration` turned it into {} or spread it into numeric keys —
+      // so merely opening the node rewrote it (@copilot on #867). Splitting it
+      // is not possible, so the form carries it through untouched.
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return;
+      rest = parsed as Record<string, unknown>;
     }
     const merged = writeDeclaration(rest, declaration);
     $formData.propertiesJson = Object.keys(merged).length > 0 ? JSON.stringify(merged, null, 2) : '';
@@ -305,8 +321,12 @@
       <div>
         <span class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">{createNodeStrings.fieldProperties()}</span>
         <input type="hidden" name="propertiesJson" value={$formData.propertiesJson} />
-        <!-- Re-mount on objectType change so typed field state re-seeds. -->
-        {#key $formData.objectType}
+        <!-- Re-mount on objectType change so typed field state re-seeds — and
+             on NODE change too. Keyed on objectType alone, two nodes sharing an
+             object type kept node A's typed values through a navigation, which
+             is the same reuse trap as the export section above (@copilot on
+             #867). -->
+        {#key `${node.id}:${$formData.objectType}`}
           <PropertiesEditor
             declared={declaredCollection}
             bind:value={restJson}

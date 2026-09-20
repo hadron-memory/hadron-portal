@@ -83,6 +83,11 @@ export function readDeclaration(
 ): SkillDeclaration | null {
   const decl = readExports(properties)[host];
   if (!isObject(decl)) return null;
+  // A field of the WRONG TYPE is not something this form can edit, and
+  // coercing it to '' would silently overwrite the stored value on the next
+  // save (@copilot on #867). `readableDeclaration` is the gate: anything this
+  // cannot represent faithfully is left to the raw editor.
+  if (!isReadableDeclaration(decl)) return null;
   return {
     name: typeof decl.name === 'string' ? decl.name : '',
     description: typeof decl.description === 'string' ? decl.description : '',
@@ -90,6 +95,24 @@ export function readDeclaration(
     // declaration is not published because someone forgot the key.
     enable: decl.enable === true,
   };
+}
+
+/**
+ * Can this entry be shown in the typed form WITHOUT losing anything?
+ *
+ * Absent fields are fine — a hand-typed declaration legitimately omits
+ * `enable`, and filling that in is the point. A field of the wrong TYPE is not:
+ * `{ name: 42 }` would render as an empty name and write `''` back over the 42
+ * on the next save, destroying a value the user was never shown.
+ *
+ * So the rule matches the one on `writeDeclaration`: this editor handles only
+ * what it can represent faithfully, and leaves everything else to the raw JSON
+ * editor, which shows it verbatim.
+ */
+function isReadableDeclaration(decl: Record<string, unknown>): boolean {
+  const okString = (v: unknown) => v === undefined || typeof v === 'string';
+  const okBool = (v: unknown) => v === undefined || typeof v === 'boolean';
+  return okString(decl.name) && okString(decl.description) && okBool(decl.enable);
 }
 
 /** Absent / declared-but-off / declared-and-on — the distinction the UI must show. */
@@ -134,7 +157,8 @@ export function writeDeclaration(
   // removing it would delete something the user was never shown and never
   // asked about. The invariant is: this function removes only what
   // `readDeclaration` can return.
-  const removable = readable && isObject((raw as Record<string, unknown>)[host]);
+  const entry = readable ? (raw as Record<string, unknown>)[host] : undefined;
+  const removable = isObject(entry) && isReadableDeclaration(entry);
   if (decl === null && !removable) return base;
 
   // A non-null declaration on an unreadable `exports` REPLACES it — there is no

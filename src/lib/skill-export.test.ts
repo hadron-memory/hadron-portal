@@ -220,3 +220,38 @@ describe('removing what is not there is a NO-OP', () => {
     expect(after.exports).toEqual({ claudeSkill: { name: 'hadron-x', description: 'does a thing', enable: true } });
   });
 });
+
+/**
+ * @copilot on #867 — a field of the WRONG TYPE is not an editable declaration.
+ *
+ * Coercing it to '' would render an empty name and write that back over the
+ * stored value on the next save, destroying something the user was never
+ * shown. Absent fields are different and stay fillable.
+ */
+describe('a declaration this form cannot represent is left alone', () => {
+  it.each([
+    ['a numeric name', { name: 42, description: 'd', enable: true }],
+    ['a numeric description', { name: 'n', description: 7 }],
+    ['a string enable', { name: 'n', enable: 'yes' }],
+    ['a nested object name', { name: { a: 1 } }],
+  ])('reads %s as absent rather than coercing it', (_what, entry) => {
+    expect(readDeclaration({ exports: { claudeSkill: entry } })).toBeNull();
+  });
+
+  it.each([
+    ['a numeric name', { name: 42, description: 'd', enable: true }],
+    ['a string enable', { name: 'n', enable: 'yes' }],
+  ])('and does not DELETE %s on a removal', (_what, entry) => {
+    // The two rules have to agree: an entry reported as absent must not then be
+    // removed by the seeding path, or the UI deletes what it refused to show.
+    const props = { exports: { claudeSkill: entry } };
+    expect(writeDeclaration(props, null)).toEqual(props);
+  });
+
+  it('still accepts a declaration with fields merely MISSING', () => {
+    // Absent is editable; wrongly-typed is not. Filling in a missing `enable`
+    // is the whole job.
+    expect(readDeclaration({ exports: { claudeSkill: { name: 'x' } } }))
+      .toEqual({ name: 'x', description: '', enable: false });
+  });
+});
