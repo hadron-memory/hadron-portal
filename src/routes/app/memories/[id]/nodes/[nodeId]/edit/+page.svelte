@@ -65,27 +65,63 @@
   // together, so a sibling host declaration is never separated from the object
   // it lives in. Read-modify-write is inherited from the form rather than
   // re-implemented — see `skill-export.ts`.
-  const initialProperties = untrack(() => {
-    const raw = ($formData.propertiesJson ?? '').trim();
-    if (!raw) return null;
+  /**
+   * Split the serialized bag into the part this section owns and the rest.
+   *
+   * A parse failure keeps the RAW TEXT as the rest rather than discarding it.
+   * The page can be initialized from an action response carrying invalid
+   * `propertiesJson` — a no-JS POST, or a server-side validation failure — and
+   * returning '' there would silently drop the user's text along with their one
+   * chance to fix it (@copilot on #867). The raw editor reports the problem and
+   * sets `invalid`, which is its job, not this one's.
+   */
+  function splitProperties(serialized: string): { declaration: SkillDeclaration | null; rest: string } {
+    const raw = (serialized ?? '').trim();
+    if (!raw) return { declaration: null, rest: '' };
+    let parsed: Record<string, unknown>;
     try {
-      return JSON.parse(raw) as Record<string, unknown>;
+      parsed = JSON.parse(raw) as Record<string, unknown>;
     } catch {
-      // Unparseable JSON is the raw editor's problem to report, not this one's.
-      // Returning null leaves the export section in its "absent" state rather
-      // than throwing the page away.
-      return null;
+      return { declaration: null, rest: raw };
     }
+    const rest = writeDeclaration(parsed, null);
+    return {
+      declaration: readDeclaration(parsed),
+      rest: Object.keys(rest).length > 0 ? JSON.stringify(rest, null, 2) : '',
+    };
+  }
+
+  const initialSplit = untrack(() => splitProperties($formData.propertiesJson));
+  let declaration = $state<SkillDeclaration | null>(initialSplit.declaration);
+  let restJson = $state(initialSplit.rest);
+
+  /**
+   * RE-SEED WHEN THE NODE CHANGES.
+   *
+   * SvelteKit reuses this page across `/nodes/A/edit -> /nodes/B/edit`, so
+   * state seeded once with `untrack` survives the navigation. Measured before
+   * this: declaring an export on node A and navigating to node B left A's
+   * declaration in B's form, ready to be saved onto B (@copilot on #867).
+   *
+   * That is `hrn:node:hadronmemory.com:hadron-portal:review:a-reused-component-must-reseed-its-form`
+   * — the check written after #857, where the same trap wrote one worker's
+   * prompt override onto another. Third time in this repo.
+   *
+   * Seeded from `node.properties`, the loader's value for the node now shown,
+   * NOT from the form: an in-flight failed POST belongs to the node it was
+   * submitted for, and re-reading the form would carry it across too.
+   */
+  let seededFor = $state(untrack(() => node.id));
+  $effect(() => {
+    const id = node.id;
+    if (untrack(() => seededFor) === id) return;
+    const next = splitProperties(
+      node.properties != null ? JSON.stringify(node.properties, null, 2) : '',
+    );
+    declaration = next.declaration;
+    restJson = next.rest;
+    seededFor = id;
   });
-  let declaration = $state<SkillDeclaration | null>(untrack(() => readDeclaration(initialProperties)));
-  // Seeded from the same parse, with `exports` removed so the raw/typed editor
-  // below never shows a key this section owns.
-  let restJson = $state(
-    untrack(() => {
-      const rest = writeDeclaration(initialProperties, null);
-      return Object.keys(rest).length > 0 ? JSON.stringify(rest, null, 2) : '';
-    }),
-  );
 
   // The single submitted value, rebuilt from both halves.
   $effect(() => {
@@ -95,9 +131,9 @@
       try {
         rest = JSON.parse(rawRest) as Record<string, unknown>;
       } catch {
-        // Mid-typing invalid JSON: leave the submitted value alone rather than
-        // discarding the user's export declaration on every keystroke. The raw
-        // editor sets `invalid`, which already disables submit.
+        // Mid-typing invalid JSON, or an invalid bag carried in from a failed
+        // POST: leave the submitted value alone rather than discarding it. The
+        // raw editor sets `invalid`, which already disables submit.
         return;
       }
     }
