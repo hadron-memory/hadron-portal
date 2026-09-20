@@ -9,6 +9,7 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
+  import { memoryClassLabel as classLabel } from '$lib/memory-class-label';
   import type { PageData, ActionData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -69,10 +70,6 @@
     role === 'writer'
       ? t('my-memories.shared.role.writer', 'Can edit')
       : t('my-memories.shared.role.reader', 'Read only');
-  const classLabel = (cls: string): string =>
-    cls === 'private'
-      ? t('my-memories.badge.private', 'Private')
-      : t('my-memories.badge.personal', 'Personal');
   const grantorLabel = (grantor: { handle: string | null; name: string | null }): string =>
     grantor.handle
       ? `@${grantor.handle}`
