@@ -90,10 +90,20 @@ describe('the owned-memories slice is ASKED FOR, not computed', () => {
     expect(q).not.toMatch(/memoryClasses/);
   });
 
-  it('the dashboard COUNT and the list ask for the same slice', () => {
-    // They are the same claim on two pages. Under the class filter the stat
-    // under-reported by exactly the rows the list was missing, and nothing
-    // connected the two.
+  it('the dashboard fallback COUNT asks the same slice as the list', () => {
+    // Scoped to what this assertion actually keeps true, which is narrower than
+    // it first looks: DASHBOARD_QUERY's count is only the loader's FALLBACK,
+    // used when the server's dashboardWidgetData has no memory-stats entry. On
+    // a normal account it does, so the number a user SEES is not this one.
+    //
+    // Measured when this landed: the widget rendered 87 against a list of 4,
+    // because the server's MEMORY_STATS provider calls memories() unfiltered.
+    // So the stat was not under-reporting by the two rows the list was missing
+    // — it was over-reporting by an order of magnitude, and that is
+    // hadron-server's to fix.
+    //
+    // What this pins is only that the fallback cannot drift from the list it
+    // stands in for.
     expect(asksOwnedByMe(DASHBOARD_QUERY)).toBe(asksOwnedByMe(PERSONAL_MEMORIES_QUERY));
   });
 
