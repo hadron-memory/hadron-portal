@@ -3,6 +3,8 @@
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import PropertiesEditor from '$lib/components/PropertiesEditor.svelte';
+  import SkillExportEditor from '$lib/components/SkillExportEditor.svelte';
+  import { readDeclaration, writeDeclaration, type SkillDeclaration } from '$lib/skill-export';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { PageData, ActionData } from './$types';
@@ -48,6 +50,118 @@
   );
   const propertiesError = $derived($errors.propertiesJson?.[0] ?? null);
   let propertiesInvalid = $state(false);
+
+  // portal#864 Part A — the skill-export declaration.
+  //
+  // THE SPLIT. `propertiesJson` is one serialized string for the whole bag, and
+  // two editors bound to it would clobber each other: PropertiesEditor seeds its
+  // field state once and re-seeds only on remount, so whichever wrote last would
+  // win and the other's edit would silently vanish. So this page owns the split
+  // — SkillExportEditor gets `exports`, PropertiesEditor gets everything else,
+  // and the two are recombined into the submitted string below.
+  //
+  // Recombining the WHOLE bag is also what makes hadron-server#1227 unreachable
+  // here: the form already round-trips every property key and writes them back
+  // together, so a sibling host declaration is never separated from the object
+  // it lives in. Read-modify-write is inherited from the form rather than
+  // re-implemented — see `skill-export.ts`.
+  /**
+   * Split the serialized bag into the part this section owns and the rest.
+   *
+   * A parse failure keeps the RAW TEXT as the rest rather than discarding it.
+   * The page can be initialized from an action response carrying invalid
+   * `propertiesJson` — a no-JS POST, or a server-side validation failure — and
+   * returning '' there would silently drop the user's text along with their one
+   * chance to fix it (@copilot on #867). The raw editor reports the problem and
+   * sets `invalid`, which is its job, not this one's.
+   */
+  function splitProperties(serialized: string): { declaration: SkillDeclaration | null; rest: string } {
+    const raw = (serialized ?? '').trim();
+    if (!raw) return { declaration: null, rest: '' };
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { declaration: null, rest: raw };
+    }
+    // `JSON.parse` succeeds for an array, a scalar and null, none of which is a
+    // properties object. Treating one as a bag turned it into `{}` and the
+    // recombination effect then wrote an empty string, dropping a value the
+    // server may well accept (@copilot on #867). Same answer as a parse
+    // failure: keep the raw text and let the raw editor own it.
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return { declaration: null, rest: raw };
+    }
+    const rest = writeDeclaration(parsed, null);
+    return {
+      declaration: readDeclaration(parsed),
+      rest: Object.keys(rest).length > 0 ? JSON.stringify(rest, null, 2) : '',
+    };
+  }
+
+  const initialSplit = untrack(() => splitProperties($formData.propertiesJson));
+  let declaration = $state<SkillDeclaration | null>(initialSplit.declaration);
+  let restJson = $state(initialSplit.rest);
+
+  /**
+   * RE-SEED WHEN THE NODE CHANGES.
+   *
+   * SvelteKit reuses this page across `/nodes/A/edit -> /nodes/B/edit`, so
+   * state seeded once with `untrack` survives the navigation. Measured before
+   * this: declaring an export on node A and navigating to node B left A's
+   * declaration in B's form, ready to be saved onto B (@copilot on #867).
+   *
+   * That is `hrn:node:hadronmemory.com:hadron-portal:review:a-reused-component-must-reseed-its-form`
+   * — the check written after #857, where the same trap wrote one worker's
+   * prompt override onto another. Third time in this repo.
+   *
+   * Seeded from `node.properties`, the loader's value for the node now shown,
+   * NOT from the form: an in-flight failed POST belongs to the node it was
+   * submitted for, and re-reading the form would carry it across too.
+   */
+  let seededFor = $state(untrack(() => node.id));
+  $effect(() => {
+    const id = node.id;
+    if (untrack(() => seededFor) === id) return;
+    const next = splitProperties(
+      node.properties != null ? JSON.stringify(node.properties, null, 2) : '',
+    );
+    declaration = next.declaration;
+    restJson = next.rest;
+    seededFor = id;
+  });
+
+  // The single submitted value, rebuilt from both halves.
+  $effect(() => {
+    const rawRest = restJson.trim();
+    let rest: Record<string, unknown> | null = null;
+    if (rawRest) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawRest);
+      } catch {
+        // Mid-typing invalid JSON, or an invalid bag carried in from a failed
+        // POST: leave the submitted value alone rather than discarding it. The
+        // raw editor sets `invalid`, which already disables submit.
+        return;
+      }
+      // Valid JSON that is not an OBJECT is the same situation: an array, a
+      // scalar or null is not a properties bag, and folding one through
+      // `writeDeclaration` turned it into {} or spread it into numeric keys —
+      // so merely opening the node rewrote it (@copilot on #867). Splitting it
+      // is not possible, so the form carries it through untouched.
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return;
+      rest = parsed as Record<string, unknown>;
+    }
+    const merged = writeDeclaration(rest, declaration);
+    $formData.propertiesJson = Object.keys(merged).length > 0 ? JSON.stringify(merged, null, 2) : '';
+  });
+
+  // Shown for a task node, and ALSO whenever a declaration already exists — a
+  // declaration on a node whose Runnable flag was later cleared must stay
+  // reachable, or it becomes unreachable except through the raw JSON this
+  // section exists to replace.
+  const showSkillExport = $derived($formData.isRunnable || declaration !== null);
 
   const ABSTRACT_MAX = 2000;
 
@@ -207,11 +321,15 @@
       <div>
         <span class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">{createNodeStrings.fieldProperties()}</span>
         <input type="hidden" name="propertiesJson" value={$formData.propertiesJson} />
-        <!-- Re-mount on objectType change so typed field state re-seeds. -->
-        {#key $formData.objectType}
+        <!-- Re-mount on objectType change so typed field state re-seeds — and
+             on NODE change too. Keyed on objectType alone, two nodes sharing an
+             object type kept node A's typed values through a navigation, which
+             is the same reuse trap as the export section above (@copilot on
+             #867). -->
+        {#key `${node.id}:${$formData.objectType}`}
           <PropertiesEditor
             declared={declaredCollection}
-            bind:value={$formData.propertiesJson}
+            bind:value={restJson}
             bind:invalid={propertiesInvalid}
           />
         {/key}
@@ -220,6 +338,17 @@
         {/if}
       </div>
     </section>
+
+    <!-- portal#864 Part A: the skill-export declaration, which lives at
+         properties.exports.claudeSkill and was hand-typed JSON until now. -->
+    {#if showSkillExport}
+      <section class="space-y-4">
+        <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">
+          Skill export
+        </h2>
+        <SkillExportEditor bind:declaration />
+      </section>
+    {/if}
 
     <!-- Edges (was “References” — #490) -->
     <section class="space-y-3">

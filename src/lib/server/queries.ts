@@ -2664,6 +2664,28 @@ export const UPDATE_NODE_MUTATION = /* GraphQL */ `
   }
 `;
 
+// The TASK KIND DOOR (server #1201/#1203). A runnable node is a governed kind,
+// and the generic surface refuses to produce one:
+//
+//   "This write would produce a RUNNABLE node, which only updateTaskNode may
+//    update. Authoring or retiring something the platform will execute is not
+//    the same act as writing prose; the generic node surface does not reach it."
+//
+// It takes the SAME UpdateNodeInput, so routing is a choice of mutation and
+// nothing else. Measured: without this the portal cannot save a task node AT
+// ALL — the edit page's Runnable checkbox was decorative, and every save on an
+// existing task node was refused with the message above, surfaced as a generic
+// error on the properties field.
+//
+// The server decides by the RESULTING kind, not the current one, so the door is
+// chosen from the value being submitted.
+export const UPDATE_TASK_NODE_MUTATION = /* GraphQL */ `
+  ${NODE_FIELDS}
+  mutation UpdateTaskNode($input: UpdateNodeInput!) {
+    updateTaskNode(input: $input) { ...NodeFields }
+  }
+`;
+
 // hadron-server#542: deleteNode collapsed (loc, memoryId) into a single
 // nodeRef (a node PK or fully-qualified URN).
 // hard: true permanently removes the row (vs. the default soft-delete's
