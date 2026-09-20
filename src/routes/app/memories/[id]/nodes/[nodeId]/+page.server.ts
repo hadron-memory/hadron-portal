@@ -11,7 +11,7 @@ import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATIO
 // #868: every node write on this page goes through the door chooser. The
 // mutation documents are deliberately NOT imported here — naming one directly
 // is what `scripts/check-node-write-doors.mjs` fails.
-import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
+import { assertNodeUpdateDoor, nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
@@ -493,6 +493,26 @@ export const actions: Actions = {
     // urn), so a stale URL can't redirect the move anyway. An occupied
     // destination fails loudly with NODE_ALREADY_EXISTS (#501).
     const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
+
+    // #868: updateMeta is the ONE action here that can change a governance
+    // signal, so its resulting kind is the SUBMITTED `isRunnable` merged over
+    // the node. Un-ticking Runnable on a task node is still a TASK-door write
+    // (before ∪ after), a direction #867's submitted-value-only routing got
+    // wrong.
+    //
+    // Chosen BEFORE the move, not after (@copilot on PR #869). The chooser can
+    // refuse — a node matching two governed kinds has no door — and a refusal
+    // raised after `moveNode` has committed leaves the node relocated with none
+    // of the edit applied, reported as a 500. Nothing below needs the move to
+    // have happened first, so the refusal costs nothing when it comes first and
+    // costs a half-applied edit when it comes second.
+    const input = { memoryId: currentNode.memoryId, loc, name, nodeType, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable };
+    try {
+      assertNodeUpdateDoor(currentNode, input);
+    } catch (e: unknown) {
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
+    }
+
     if (loc !== currentNode.loc) {
       if (!currentNode.memory?.urn) {
         return message(form, { type: 'error', text: 'Node has no memory URN to move by.' }, { status: 500 });
@@ -513,12 +533,6 @@ export const actions: Actions = {
     }
 
     try {
-      // #868: updateMeta is the ONE action here that can change a governance
-      // signal, so its resulting kind is the SUBMITTED `isRunnable` merged over
-      // the node — which is what nodeUpdateDocument does. Un-ticking Runnable
-      // on a task node is still a TASK-door write (before ∪ after), a direction
-      // #867's submitted-value-only routing got wrong.
-      const input = { memoryId: currentNode.memoryId, loc, name, nodeType, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable };
       await client.request(nodeUpdateDocument(currentNode, input), { input });
       return message(form, { type: 'success', text: t('node.meta.saved', 'Node settings saved.') });
     } catch (e: unknown) {

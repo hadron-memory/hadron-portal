@@ -194,6 +194,29 @@ export class NoNodeDoorError extends Error {
  * though the result is an ordinary node — #867 routed on the submitted value
  * alone and left that direction broken; it is fixed here and pinned by a test.
  */
+/**
+ * Raise `NoNodeDoorError` NOW if this write has no door.
+ *
+ * For a call site that performs a side effect before the write — the two edit
+ * actions move the node when its loc changed — a refusal raised at the write
+ * leaves the node relocated with none of the edit applied (@copilot, PR #869).
+ * The door depends on the node's kind and not on its loc, so the question can
+ * be asked before the move at no cost.
+ *
+ * It exists as its own name rather than as a discarded `nodeUpdateDocument()`
+ * call because the check gate reads the document argument at each
+ * `.request(…)`: hoisting the chooser into a local variable and passing that
+ * made two call sites opaque to `check-graphql-callers`, which silently stopped
+ * cross-checking their variables — 290 checked call sites down to 288, measured.
+ * So the write keeps calling the chooser inline, and this is the precondition.
+ */
+export function assertNodeUpdateDoor(
+  prior: GovernedState | null | undefined,
+  input: NodeUpdateInput,
+): void {
+  nodeUpdateDocument(prior, input);
+}
+
 export function nodeUpdateDocument(
   prior: GovernedState | null | undefined,
   input: NodeUpdateInput,

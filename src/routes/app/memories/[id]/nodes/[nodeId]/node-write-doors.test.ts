@@ -13,9 +13,14 @@
  * pinned the payload shape: the action sent exactly the right input to exactly
  * the wrong operation, and a shape assertion cannot tell those apart.
  *
- * Each action is exercised against THREE nodes — ordinary, task, review — so
+ * Each action is exercised against all FOUR node kinds — ordinary, task,
+ * review, spec — so
  * the test fails both on "did not route" and on "routes everything through the
  * task door". A one-node case passes on a chooser that ignores the node.
+ *
+ * It covered three until @copilot pointed out that the register has four and
+ * the missing one was `spec` — the weakest gate of the three governed kinds,
+ * which is exactly the one nobody notices.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -23,6 +28,7 @@ import {
   NODE_QUERY,
   UPDATE_NODE_MUTATION,
   UPDATE_REVIEW_NODE_MUTATION,
+  UPDATE_SPEC_NODE_MUTATION,
   UPDATE_TASK_NODE_MUTATION,
 } from '$lib/server/queries';
 
@@ -53,6 +59,10 @@ const KINDS = [
   ['an ordinary node', { role: null, isRunnable: null }, UPDATE_NODE_MUTATION],
   ['a task node', { role: null, isRunnable: true }, UPDATE_TASK_NODE_MUTATION],
   ['a review node', { role: 'review', isRunnable: null }, UPDATE_REVIEW_NODE_MUTATION],
+  // @copilot on PR #869: the register has three governed kinds and this table
+  // covered two. `spec` is the weakest gate of the three (diligence, not
+  // security), which is exactly why it is the one nobody would notice missing.
+  ['a spec node', { role: 'spec', isRunnable: null }, UPDATE_SPEC_NODE_MUTATION],
 ] as const;
 
 /**
@@ -147,6 +157,50 @@ describe('updateMeta', () => {
     expect(doorsUsed()).toEqual([UPDATE_TASK_NODE_MUTATION]);
     expect(mockRequest.mock.calls.find(([q]) => q === UPDATE_TASK_NODE_MUTATION)![1].input)
       .toMatchObject({ isRunnable: false });
+  });
+});
+
+describe('updateMeta — the move happens AFTER the door is settled', () => {
+  /**
+   * @copilot on PR #869. `updateMeta` moves the node first when its loc
+   * changed, and the chooser can REFUSE — a node matching two governed kinds
+   * has no door. A refusal raised after `moveNode` committed leaves the node
+   * relocated with none of the edit applied, reported to the user as a 500:
+   * the rename silently sticks and everything else silently does not.
+   *
+   * The door depends on the node's kind and not on its loc, so asking first
+   * costs nothing. Pinned by asserting NO mutation of any sort was sent — a
+   * test that only checked the door would pass on the broken ordering too,
+   * since the door is equally absent either way.
+   */
+  it('does not move a node it is about to refuse to update', async () => {
+    stubNode({ role: 'review', isRunnable: null });
+    const result = (await run('updateMeta', {
+      name: 'Classify',
+      nodeType: 'info',
+      description: '',
+      alias: '',
+      seq: '1',
+      tags: 'keep',
+      loc: 'somewhere:else',   // a MOVE, and
+      isRunnable: 'on',        // a write with no door (review + task)
+    })) as { status?: number };
+
+    expect(result.status).toBe(500);
+    // Neither the move nor the update — the only calls are the node reads.
+    expect(doorsUsed()).toEqual([]);
+    expect(mockRequest.mock.calls.every(([q]) => q === NODE_BY_ID_QUERY || q === NODE_QUERY)).toBe(true);
+  });
+
+  it('still moves when the write DOES have a door', async () => {
+    stubNode({ role: null, isRunnable: null });
+    await run('updateMeta', {
+      name: 'Classify', nodeType: 'info', description: '', alias: '',
+      seq: '1', tags: 'keep', loc: 'somewhere:else',
+    });
+    // The move is a non-read call ahead of the update, so both are present.
+    expect(doorsUsed()).toHaveLength(2);
+    expect(doorsUsed()[1]).toBe(UPDATE_NODE_MUTATION);
   });
 });
 

@@ -65,7 +65,33 @@ describe('scanSource — the drift shape', () => {
     // not a door identifier. Asserting the import is what caught it keeps this
     // test honest about which half of the gate is load-bearing here.
     expect(failures).toHaveLength(2);
-    for (const failure of failures) expect(failure).toContain('imports');
+    for (const failure of failures) expect(failure).toContain('names');
+  });
+
+  /**
+   * The FOURTH spelling, found by @copilot on PR #869 an hour after a commit
+   * message here claimed the import was "the chokepoint no amount of
+   * indirection gets around". A namespace import names nothing the gate would
+   * recognise at the import, and the call site sees a property access rather
+   * than an identifier — so both halves miss it.
+   */
+  it('fails a door reached through a namespace import', () => {
+    const { failures } = scanSource(
+      ORDINARY,
+      "import * as queries from '$lib/server/queries';\n" +
+        'await client.request(queries.UPDATE_NODE_MUTATION, { input });\n',
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toContain('UPDATE_NODE_MUTATION');
+  });
+
+  it('fails a door reached as a property of anything at all', () => {
+    // Any receiver, not just a resolvable namespace binding: requiring the
+    // receiver to be traced is one more shape to get wrong, and these four
+    // names have no legitimate use as a property outside the registry
+    // (verified across non-test src before widening the rule).
+    const { failures } = scanSource(ORDINARY, 'const d = docs.UPDATE_SPEC_NODE_MUTATION;\n');
+    expect(failures).toHaveLength(1);
   });
 
   it('fails an aliased import, which hides the name from every text search', () => {

@@ -8,7 +8,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY, MOVE_NODE_MUTATION } from '$lib/server/queries';
 // #868: the write goes through the door chooser; naming a mutation document
 // here directly is what `scripts/check-node-write-doors.mjs` fails.
-import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
+import { assertNodeUpdateDoor, nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -159,6 +159,47 @@ export const actions: Actions = {
     // Empty loc means "keep the current loc"; the page seeds loc in load, so
     // empty only appears on malformed/manual POSTs and should not move a node.
     const loc = form.data.loc && form.data.loc !== currentNode.loc ? form.data.loc : currentNode.loc;
+
+    // Route through the kind's door. The generic surface refuses a governed
+    // node outright (server #1201/#1203), so before #867 the portal could not
+    // save a task node at all — the Runnable checkbox never persisted and
+    // editing an existing task node failed with a refusal surfaced as a
+    // properties error.
+    //
+    // #868 replaced `form.data.isRunnable ? TASK : GENERIC` with the shared
+    // chooser, and that is a FIX, not a refactor. The server gates on BEFORE ∪
+    // AFTER, so un-ticking Runnable on a task node is still a task-door write;
+    // routing on the submitted value alone sent it through the generic door and
+    // the server refused it — "This write would REMOVE the marker…". Converting
+    // a node TO a task worked; converting one BACK did not. It also picks up
+    // the role-governed kinds, which the submitted value cannot see at all.
+    //
+    // Chosen BEFORE the move below, not after (@copilot on PR #869). The
+    // chooser can refuse — a node matching two governed kinds has no door — and
+    // a refusal raised after `moveNode` has committed leaves the node relocated
+    // with none of the edit applied, reported as a 500. The door depends on the
+    // node's kind and not on its loc, so asking first costs nothing.
+    const input = {
+      memoryId: currentNode.memoryId,
+      loc,
+      name: form.data.name,
+      description,
+      alias,
+      abstract,
+      content,
+      seq: form.data.seq,
+      tags,
+      isRunnable: form.data.isRunnable,
+      objectType,
+      properties,
+      edges,
+    };
+    try {
+      assertNodeUpdateDoor(currentNode, input);
+    } catch (e: unknown) {
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
+    }
+
     if (loc !== currentNode.loc) {
       if (!currentNode.memory?.urn) {
         return message(form, { type: 'error', text: 'Node has no memory URN to move by.' }, { status: 500 });
@@ -178,35 +219,6 @@ export const actions: Actions = {
           : message(form, { type: 'error', text: error }, { status });
       }
     }
-
-    // Route through the kind's door. The generic surface refuses a governed
-    // node outright (server #1201/#1203), so before #867 the portal could not
-    // save a task node at all — the Runnable checkbox never persisted and
-    // editing an existing task node failed with a refusal surfaced as a
-    // properties error.
-    //
-    // #868 replaced `form.data.isRunnable ? TASK : GENERIC` with the shared
-    // chooser, and that is a FIX, not a refactor. The server gates on BEFORE ∪
-    // AFTER, so un-ticking Runnable on a task node is still a task-door write;
-    // routing on the submitted value alone sent it through the generic door and
-    // the server refused it — "This write would REMOVE the marker…". Converting
-    // a node TO a task worked; converting one BACK did not. It also picks up
-    // the role-governed kinds, which the submitted value cannot see at all.
-    const input = {
-      memoryId: currentNode.memoryId,
-      loc,
-      name: form.data.name,
-      description,
-      alias,
-      abstract,
-      content,
-      seq: form.data.seq,
-      tags,
-      isRunnable: form.data.isRunnable,
-      objectType,
-      properties,
-      edges,
-    };
 
     try {
       await client.request(nodeUpdateDocument(currentNode, input), { input });
