@@ -1154,8 +1154,8 @@ describe('the kind door, across every routed write', () => {
    * The anti-vacuity floor. If an action stops routing — or is removed from
    * the table — the two blocks above keep passing on whatever is left, which
    * is the shape of a suite that tests less than it did yesterday without
-   * saying so (review:a-floor-must-not-count-the-gates-own-tests, from the
-   * other side: a floor on COVERAGE rather than on corpus size).
+   * saying so (hrn:node:hadronmemory.com:hadron-portal:review:a-floor-must-not-count-the-gates-own-tests,
+   * from the other side: a floor on COVERAGE rather than on corpus size).
    */
   it('covers every nodeUpdateDocument call site in the action file', async () => {
     const { readFileSync } = await import('node:fs');
