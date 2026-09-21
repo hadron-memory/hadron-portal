@@ -244,7 +244,9 @@ describe('addStage', () => {
  * write-first flow cannot — hence read, then create or update through the
  * door. Both races the old shape handled are preserved and they are opposites:
  * the node can APPEAR between read and create, and VANISH between read and
- * update.
+ * update. They also COMPOUND — vanish, then reappear — and the first cut of
+ * #870 dropped that one: the fallback create had no conflict retry, so a path
+ * the pre-#870 upsert recovered from became a 500. Three shapes, not two.
  *
  * The assertions name the mutation DOCUMENT, not just the payload. Pinning the
  * payload alone is how `convertToTask` passed through a total outage on #868:
@@ -371,6 +373,46 @@ describe('updatePrompt', () => {
     expect(result).toMatchObject({ form: { message: { type: 'success', text: 'Prompt saved.' } } });
     expect(writes()).toHaveLength(2);
     expect(writes()[1][1]).toMatchObject({ input: { nodeType: 'system', content: 'Recreated prompt' } });
+  });
+
+  // Race three: the two above COMPOUND. Deleted after the read, so the update
+  // 404s and we fall through to create — and recreated before that create, so
+  // it conflicts. Both halves are individually handled above; before #875 the
+  // combination escaped as a 500, because the fallback create was a second
+  // call site that had never been given the retry. The pre-#870 upsert
+  // recovered here, so this is the regression case, not a new guarantee.
+  it('adopts the winner when the node is deleted and recreated mid-save', async () => {
+    let updateTried = false;
+    let createTried = false;
+    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
+      // The re-read after the conflict sees the winner, which made it runnable.
+      if (vars && 'ref' in vars) {
+        return { node: createTried ? { data: {}, role: null, isRunnable: true } : { data: {}, role: null, isRunnable: null } };
+      }
+      if (!updateTried) {
+        updateTried = true;
+        throw gqlError('NODE_NOT_FOUND');
+      }
+      if (!createTried) {
+        createTried = true;
+        throw gqlError('NodeLocConflictError');
+      }
+      return {};
+    });
+    const result = await runAction('updatePrompt', {
+      systemMemoryId: 'mem-1',
+      loc: PROMPT.ref,
+      content: 'Contested prompt',
+    });
+    expect(result).toMatchObject({ form: { message: { type: 'success', text: 'Prompt saved.' } } });
+    // update (404) → create (conflict) → update through the WINNER's door. The
+    // task door, not the generic one the first read would have chosen: a retry
+    // that reused the original document would be refused by the server.
+    expect(writes()).toHaveLength(3);
+    expect(writes()[2][0]).toBe(UPDATE_TASK_NODE_MUTATION);
+    expect(writes()[2][1]).toEqual({
+      input: { memoryId: 'mem-1', loc: PROMPT.ref, content: 'Contested prompt' },
+    });
   });
 
   it('rejects missing prompt locs before any mutation', async () => {
@@ -1041,5 +1083,90 @@ describe('savePosition', () => {
     })) as { status: number };
     expect(result.status).toBe(400);
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #870's routing, across EVERY action that updates a node — not just the one
+ * the defect was reported on.
+ *
+ * `updatePrompt` was the flow #870 was filed against, and until this block it
+ * was also the only flow whose door was asserted. The other four update
+ * conversation and stage nodes, which are converted to tasks by exactly the
+ * same means — that conversion is what @Holger's ruling was about, and the
+ * server refuses a generic `updateNode` against the result no matter which
+ * form posted it. `check-node-write-doors` is the backstop, but a gate proves
+ * the CALL is routed; only a test proves the routing picks the right door.
+ *
+ * Pinned in both directions per case. A governed node must take its own door,
+ * AND a plain one must still take the generic door — an assertion that only
+ * ever checks the task door also passes on a router that sends everything
+ * there, which would break every ordinary save in the editor.
+ */
+describe('the kind door, across every routed write', () => {
+  /** Reads (the calls carrying `ref`) serve `node`; writes resolve. */
+  function serve(node: Record<string, unknown>) {
+    mockRequest.mockImplementation(async (_query: string, vars: Record<string, unknown>) =>
+      vars && 'ref' in vars ? { node } : {},
+    );
+  }
+  /** The document of the LAST write — the routed one in each of these flows. */
+  function lastWriteDocument() {
+    const writes = mockRequest.mock.calls.filter(([, vars]) => !(vars && 'ref' in vars));
+    return writes[writes.length - 1][0];
+  }
+
+  const PLAIN = { data: {}, role: null, isRunnable: null };
+  const TASK = { data: {}, role: null, isRunnable: true };
+
+  const routed: Array<[string, Parameters<typeof runAction>[0], Record<string, string>]> = [
+    ['addStage', 'addStage', {
+      systemMemoryId: 'mem-1', conversationLoc: 'conversations:demo', stageName: 'Gather Details',
+    }],
+    ['updateExtractionSpec', 'updateExtractionSpec', {
+      systemMemoryId: 'mem-1', stageLoc: 'conversations:demo:start', extractionSpec: '[]',
+    }],
+    ['updateGoals', 'updateGoals', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:demo',
+      goalDescriptionsText: 'Find a mentor', goalSignalsText: 'I need help',
+    }],
+    ['savePosition', 'savePosition', {
+      systemMemoryId: 'mem-1', loc: 'conversations:demo', x: '10', y: '20',
+    }],
+    ['updatePrompt', 'updatePrompt', {
+      systemMemoryId: 'mem-1', loc: 'prompts:demo:start', content: 'x',
+    }],
+  ];
+
+  it.each(routed)('%s sends a governed node through its own door', async (_label, action, fields) => {
+    serve(TASK);
+    await runAction(action, fields);
+    expect(lastWriteDocument()).toBe(UPDATE_TASK_NODE_MUTATION);
+  });
+
+  it.each(routed)('%s still sends a plain node through the generic door', async (_label, action, fields) => {
+    serve(PLAIN);
+    await runAction(action, fields);
+    expect(lastWriteDocument()).toBe(UPDATE_NODE_MUTATION);
+  });
+
+  /**
+   * The anti-vacuity floor. If an action stops routing — or is removed from
+   * the table — the two blocks above keep passing on whatever is left, which
+   * is the shape of a suite that tests less than it did yesterday without
+   * saying so (review:a-floor-must-not-count-the-gates-own-tests, from the
+   * other side: a floor on COVERAGE rather than on corpus size).
+   */
+  it('covers every nodeUpdateDocument call site in the action file', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(
+      new URL('./+page.server.ts', import.meta.url),
+      'utf8',
+    );
+    // Six call sites, five actions: updatePrompt routes from two of them (the
+    // ordinary update and the adopt-the-winner retry).
+    const callSites = src.match(/client\.request\(nodeUpdateDocument\(/g) ?? [];
+    expect(callSites).toHaveLength(6);
+    expect(routed).toHaveLength(5);
   });
 });

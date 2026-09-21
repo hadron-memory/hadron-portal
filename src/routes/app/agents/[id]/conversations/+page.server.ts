@@ -417,10 +417,34 @@ export const actions: Actions = {
       // it), and it can VANISH between the read and the update (someone deleted
       // it). The desired end state is the same either way — "the prompt exists
       // with this content" — so each falls through to the other's operation.
+      //
+      // Those two also COMPOUND: deleted after the read, then recreated before
+      // our fallback create. That lands on the create-conflict path from the
+      // other direction, which is why creating is one function rather than two
+      // call sites that have to be kept in step — the first cut of #870 had
+      // two, and only one of them retried, so the compound race escaped as a
+      // 500 on a path the pre-#870 upsert recovered from.
       const input = { memoryId: systemMemoryId, loc, content };
       const createInput = {
         memoryId: systemMemoryId, loc, name: loc.split(':').pop()!, nodeType: 'system', content,
       };
+
+      // Create, and on losing the create race adopt the winner: re-read rather
+      // than assuming its kind, because the winner decided what this node is
+      // and the door follows from that rather than from what we meant to create.
+      const createOrAdoptWinner = async () => {
+        try {
+          await client.request(CREATE, { input: createInput });
+        } catch (e: unknown) {
+          if (createNodeErrorCode(e) !== 'NodeLocConflictError') throw e;
+          const won = await client.request<{ node: ConversationNodeRow | null }>(
+            NODE_DATA_BY_LOC_QUERY,
+            { ref: loc, memoryRef: systemMemoryId },
+          );
+          await client.request(nodeUpdateDocument(won.node, input), { input });
+        }
+      };
+
       const existing = await client.request<{ node: ConversationNodeRow | null }>(
         NODE_DATA_BY_LOC_QUERY,
         { ref: loc, memoryRef: systemMemoryId },
@@ -432,23 +456,10 @@ export const actions: Actions = {
         } catch (e: unknown) {
           // Deleted between the read and the write.
           if (createNodeErrorCode(e) !== 'NODE_NOT_FOUND') throw e;
-          await client.request(CREATE, { input: createInput });
+          await createOrAdoptWinner();
         }
       } else {
-        try {
-          await client.request(CREATE, { input: createInput });
-        } catch (e: unknown) {
-          // Lost the create race — a concurrent request created the prompt
-          // between our read and this create. Re-read rather than assuming its
-          // kind: the winner decided what this node is, and the door follows
-          // from that rather than from what we expected to create.
-          if (createNodeErrorCode(e) !== 'NodeLocConflictError') throw e;
-          const won = await client.request<{ node: ConversationNodeRow | null }>(
-            NODE_DATA_BY_LOC_QUERY,
-            { ref: loc, memoryRef: systemMemoryId },
-          );
-          await client.request(nodeUpdateDocument(won.node, input), { input });
-        }
+        await createOrAdoptWinner();
       }
       return message(form, {
         type: 'success',

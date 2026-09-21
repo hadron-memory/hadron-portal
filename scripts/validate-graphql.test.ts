@@ -551,6 +551,51 @@ describe('findUnmarkedDocuments', () => {
       unmarked('// A `query Thing { id }` used to live here, unmarked.\nconst x = 1;'),
     ).toEqual([]);
   });
+
+  /**
+   * The gate asks what the literal IS, not how it was declared.
+   *
+   * The first cut matched a `const` initialiser — the shape the eight known
+   * offenders happened to have. Every row below is a document this repo could
+   * plausibly grow, and every one of them walked past that version;
+   * `client.request(`query …`)` written inline is the likeliest ninth and the
+   * furthest from a `const`. None were live in `src/` when this widened, so
+   * the hole was latent rather than open — which is precisely why nothing
+   * would have prompted anyone to look.
+   *
+   * hrn:node:hadronmemory.com:hadron-portal:review:gate-the-import-not-the-call-site
+   * from a third direction: a gate keyed on a thing's NAME or SHAPE is beaten
+   * by writing the same thing another way.
+   */
+  it.each([
+    ['passed inline to request()', 'await client.request(`query A { me { id } }`, vars);'],
+    ['an object-literal property', 'const docs = { a: `query B { me { id } }` };'],
+    ['a class property', 'class X { q = `query C { me { id } }`; }'],
+    ['returned from a function', 'function d() { return `query D { me { id } }`; }'],
+    ['an export default', 'export default `query E { me { id } }`;'],
+    ['an arrow body', 'const mk = () => `query F { me { id } }`;'],
+  ])('fails a document %s, which no const declaration wraps', (_what, code) => {
+    expect(unmarked(code)).toHaveLength(1);
+  });
+
+  // The marker still exempts it in those positions — the rule is the marker,
+  // not the shape, in both directions. A widening that could not be satisfied
+  // by marking would just be a ban on writing documents inline.
+  it.each([
+    ['inline', 'await client.request(/* GraphQL */ `query A { me { id } }`, vars);'],
+    ['as a property', 'const docs = { a: /* GraphQL */ `query B { me { id } }` };'],
+  ])('stays silent on a marked document %s', (_what, code) => {
+    expect(unmarked(code)).toEqual([]);
+  });
+
+  // Named where a name exists, positional where none does. An inline document
+  // has no binding to report, and reporting it as `undefined` would read as a
+  // bug in the gate rather than as the point.
+  it('reports a binding by name and an inline document by position', () => {
+    expect(unmarked('const Q = `query A { me { id } }`;')[0]).toMatchObject({ name: 'Q' });
+    expect(unmarked('await client.request(`query A { me { id } }`);')[0])
+      .toMatchObject({ name: '(inline)', line: 1 });
+  });
 });
 
 describe('collectUnmarkedDocuments — the repository as it stands', () => {

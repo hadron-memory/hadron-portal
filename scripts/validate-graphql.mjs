@@ -248,10 +248,24 @@ export function collectCommentTerminated(srcDir = SRC_DIR) {
  *
  * ## The predicate
  *
- * A `const` initialised to a template literal whose text PARSES as GraphQL and
- * declares an operation or a fragment. Parsing rather than pattern-matching,
- * so a string that merely mentions the word `query` is not a document — and
+ * ANY template literal whose text PARSES as GraphQL and declares an operation
+ * or a fragment, wherever it appears. Parsing rather than pattern-matching, so
+ * a string that merely mentions the word `query` is not a document — and
  * matched on the AST, so a comment ABOUT a document is not one either.
+ *
+ * **It deliberately does not ask how the document is DECLARED.** The first cut
+ * matched a `const` initialiser, which is the shape the eight known offenders
+ * happened to have — and `client.request(`query …`)` written inline, the most
+ * natural way to introduce a ninth, walked straight past it. Six shapes did:
+ * an inline call argument, an object-literal property, a class property, a
+ * function return, an export-default and an arrow body. None were live in
+ * `src/` when this was widened, so nothing had to be marked to make it pass;
+ * the hole was latent, which is the only reason it stayed comfortable.
+ *
+ * That is `hrn:node:hadronmemory.com:hadron-portal:review:gate-the-import-not-the-call-site`
+ * arriving from a third direction: a gate keyed on what a thing is NAMED or
+ * SHAPED LIKE, rather than on what it DOES, is defeated by writing the same
+ * thing another way. A document is a document because it parses as one.
  *
  * Interpolations are dropped before parsing rather than resolved: this repo's
  * idiom is `${FRAGMENT}` prepended to an operation, and removing it leaves the
@@ -263,23 +277,30 @@ export function findUnmarkedDocuments(file, text) {
   const found = [];
 
   const visit = (node) => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-      const init = node.initializer;
-      let body = null;
-      if (ts.isNoSubstitutionTemplateLiteral(init)) body = init.text;
-      else if (ts.isTemplateExpression(init)) {
-        body = init.head.text + init.templateSpans.map((span) => span.literal.text).join('');
-      }
-      if (body !== null && body.trim() !== '') {
-        // The marker lives in the trivia between `=` and the backtick.
-        const trivia = text.slice(init.getFullStart(), init.getStart(source));
-        if (!/\/\*\s*GraphQL\s*\*\//.test(trivia) && isGraphQLDocument(body)) {
-          found.push({
-            name: node.name.text,
-            file,
-            line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
-          });
-        }
+    let body = null;
+    if (ts.isNoSubstitutionTemplateLiteral(node)) body = node.text;
+    else if (ts.isTemplateExpression(node)) {
+      body = node.head.text + node.templateSpans.map((span) => span.literal.text).join('');
+    }
+    if (body !== null && body.trim() !== '') {
+      // The marker sits in the trivia immediately before the backtick — which
+      // is where it lands in every position, not just after a `=`.
+      const trivia = text.slice(node.getFullStart(), node.getStart(source));
+      if (!/\/\*\s*GraphQL\s*\*\//.test(trivia) && isGraphQLDocument(body)) {
+        // A named binding reports its name; an inline document has none, so it
+        // is reported by position. Reporting it namelessly is the point — the
+        // shapes without a name are exactly the ones that used to escape.
+        const parent = node.parent;
+        const name = parent && ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)
+          ? parent.name.text
+          : parent && ts.isPropertyAssignment(parent) && ts.isIdentifier(parent.name)
+            ? parent.name.text
+            : '(inline)';
+        found.push({
+          name,
+          file,
+          line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+        });
       }
     }
     ts.forEachChild(node, visit);
