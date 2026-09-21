@@ -238,8 +238,14 @@ export function collectCommentTerminated(srcDir = SRC_DIR) {
  *
  * Nothing about that is loud. `gql:validate` reported "200 documents, 0
  * invalid" while EIGHT sat outside it — a count that reads as complete and was
- * eight short. Marking them raised it to 208 and brought **36 more call sites**
- * under variable checking, which had never been checked by anything.
+ * eight short. Marking them raised it to 208, and brought call sites that had
+ * never been checked by anything under variable checking.
+ *
+ * The corpus is **207** today, not 208: the same PR deleted the conversation
+ * editor's local `UPDATE` document. Both numbers are real and neither is the
+ * other's correction — which is exactly why a count quoted from mid-stack
+ * reads as a measurement of the finished work. Say which commit a number came
+ * from, or quote the current one.
  *
  * This gate exists because #681 exists: a server-side rename of an unmarked
  * document's field fails at RUNTIME, on the one flow that uses it. That is how
@@ -327,10 +333,26 @@ function isGraphQLDocument(body) {
  *
  * The marked count is the anti-vacuity floor. Without it, breaking the walk —
  * or the marker regex — leaves this check reporting "nothing unmarked" forever,
- * which is indistinguishable from a clean tree. TEST files are excluded from
- * the floor: a gate's own fixtures use the construct densely, and a floor its
- * test suite can satisfy is not a floor
- * (hrn:node:hadronmemory.com:hadron-portal:review:a-floor-must-not-count-the-gates-own-tests).
+ * which is indistinguishable from a clean tree.
+ *
+ * TEST files are skipped, and for TWO separate reasons that this `continue`
+ * happens to serve at once — worth stating, because only one of them was
+ * written down and they could later need to move apart:
+ *
+ * 1. **Out of the floor**, because a gate's own fixtures use the construct
+ *    densely and a floor its test suite can satisfy is not a floor
+ *    (hrn:node:hadronmemory.com:hadron-portal:review:a-floor-must-not-count-the-gates-own-tests).
+ * 2. **Out of the scan**, because a deliberately-unmarked document is a valid
+ *    thing for a test to contain. `layout.server.test.ts` builds one to prove
+ *    a depth check can actually trip on the shape it forbids
+ *    (hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail).
+ *    Marking it to satisfy this gate would enrol a fixture into the real
+ *    corpus and validate it as a shipped document, which is worse than the
+ *    thing being prevented.
+ *
+ * Measured rather than assumed: that fixture is the ONLY unmarked document in
+ * all 233 test files, so this skip is currently hiding exactly one thing, and
+ * it is the one it should hide.
  */
 export function collectUnmarkedDocuments(srcDir = SRC_DIR) {
   const unmarked = [];
@@ -346,9 +368,11 @@ export function collectUnmarkedDocuments(srcDir = SRC_DIR) {
 }
 
 /**
- * The floor. The repository sits at 208 marked documents; below this the walk
- * is not seeing the corpus it claims to. A FLOOR, not an exact count — adding a
- * document must not require editing a number to permit it.
+ * The floor. The repository sits at 207 marked documents (excluding tests, as
+ * the collector above does); below this the walk is not seeing the corpus it
+ * claims to. A FLOOR, not an exact count — adding a document must not require
+ * editing a number to permit it, which is also why the drift between this
+ * prose and the real count is harmless where an exact assertion would not be.
  */
 export const MIN_MARKED_DOCUMENTS = 200;
 
