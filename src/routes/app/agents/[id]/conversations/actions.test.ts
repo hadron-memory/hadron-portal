@@ -5,6 +5,12 @@
  * merges data.position without clobbering the node's other data keys.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  UPDATE_NODE_MUTATION,
+  UPDATE_REVIEW_NODE_MUTATION,
+  UPDATE_SPEC_NODE_MUTATION,
+  UPDATE_TASK_NODE_MUTATION,
+} from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 const mockFetchAllItems = vi.fn();
@@ -229,53 +235,183 @@ describe('addStage', () => {
   });
 });
 
+/**
+ * #870 — updatePrompt reads before it writes, and the door follows the node.
+ *
+ * This flow used to write FIRST and create on NODE_NOT_FOUND, because a
+ * stage's promptRef can dangle. The server refuses a generic `updateNode`
+ * against a governed node, so an update has to know the node's kind and a
+ * write-first flow cannot — hence read, then create or update through the
+ * door. Both races the old shape handled are preserved and they are opposites:
+ * the node can APPEAR between read and create, and VANISH between read and
+ * update. They also COMPOUND — vanish, then reappear — and the first cut of
+ * #870 dropped that one: the fallback create had no conflict retry, so a path
+ * the pre-#870 upsert recovered from became a 500. Three shapes, not two.
+ *
+ * The assertions name the mutation DOCUMENT, not just the payload. Pinning the
+ * payload alone is how `convertToTask` passed through a total outage on #868:
+ * exactly the right input sent to exactly the wrong operation.
+ */
 describe('updatePrompt', () => {
-  it('updates an existing prompt and returns a typed success', async () => {
-    mockRequest.mockResolvedValueOnce({});
+  const PROMPT = { ref: 'prompts:demo:start', memoryRef: 'mem-1' };
+
+  /** Serve the read, and let every write resolve. `node` null = does not exist. */
+  function serve(node: Record<string, unknown> | null, onWrite?: (doc: string) => unknown) {
+    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
+      if (vars && 'ref' in vars) return { node };
+      const thrown = onWrite?.(query);
+      if (thrown instanceof Error) throw thrown;
+      return {};
+    });
+  }
+
+  /** The documents sent, in order — reads are the calls carrying `ref`. */
+  function writes() {
+    return mockRequest.mock.calls.filter(([, vars]) => !(vars && 'ref' in vars));
+  }
+
+  it('reads first, then updates an existing prompt through the generic door', async () => {
+    serve({ data: {}, role: null, isRunnable: null });
     const result = await runAction('updatePrompt', {
       systemMemoryId: 'mem-1',
-      loc: 'prompts:demo:start',
+      loc: PROMPT.ref,
       content: 'Updated prompt',
     });
     expect(result).toMatchObject({
       form: {
         valid: true,
-        data: { _kind: 'updatePrompt', loc: 'prompts:demo:start', content: 'Updated prompt' },
+        data: { _kind: 'updatePrompt', loc: PROMPT.ref, content: 'Updated prompt' },
         message: { type: 'success', text: 'Prompt saved.' },
       },
     });
-    expect(mockRequest.mock.calls[0][1]).toEqual({
-      input: {
-        memoryId: 'mem-1',
-        loc: 'prompts:demo:start',
-        content: 'Updated prompt',
-      },
+    expect(mockRequest.mock.calls[0][1]).toEqual(PROMPT);
+    expect(writes()).toHaveLength(1);
+    expect(writes()[0][0]).toBe(UPDATE_NODE_MUTATION);
+    expect(writes()[0][1]).toEqual({
+      input: { memoryId: 'mem-1', loc: PROMPT.ref, content: 'Updated prompt' },
     });
   });
 
-  it('creates a missing prompt when update reports NODE_NOT_FOUND', async () => {
-    mockRequest
-      .mockRejectedValueOnce(gqlError('NODE_NOT_FOUND'))
-      .mockResolvedValueOnce({});
+  /**
+   * The defect #870 is actually about. A prompt node someone converted to a
+   * task is refused by the generic door, and before this the wizard could not
+   * save it at all. Same input, different operation.
+   */
+  it.each([
+    ['a task node', { data: {}, role: null, isRunnable: true }, UPDATE_TASK_NODE_MUTATION],
+    ['a review node', { data: {}, role: 'review', isRunnable: null }, UPDATE_REVIEW_NODE_MUTATION],
+    ['a spec node', { data: {}, role: 'spec', isRunnable: null }, UPDATE_SPEC_NODE_MUTATION],
+  ])('updates %s through its own door', async (_what, node, door) => {
+    serve(node);
+    await runAction('updatePrompt', { systemMemoryId: 'mem-1', loc: PROMPT.ref, content: 'x' });
+    expect(writes()).toHaveLength(1);
+    expect(writes()[0][0]).toBe(door);
+  });
+
+  it('creates the prompt when the read says it does not exist', async () => {
+    serve(null);
     const result = await runAction('updatePrompt', {
       systemMemoryId: 'mem-1',
-      loc: 'prompts:demo:start',
+      loc: PROMPT.ref,
       content: 'Created prompt',
     });
-    expect(result).toMatchObject({
-      form: {
-        valid: true,
-        message: { type: 'success', text: 'Prompt saved.' },
-      },
-    });
-    expect(mockRequest.mock.calls[1][1]).toEqual({
+    expect(result).toMatchObject({ form: { valid: true, message: { type: 'success', text: 'Prompt saved.' } } });
+    expect(writes()).toHaveLength(1);
+    expect(writes()[0][1]).toEqual({
       input: {
         memoryId: 'mem-1',
-        loc: 'prompts:demo:start',
+        loc: PROMPT.ref,
         name: 'start',
         nodeType: 'system',
         content: 'Created prompt',
       },
+    });
+  });
+
+  // Race one: the node APPEARS between the read and the create. Re-read rather
+  // than assume — the winner decided what this node is, and the door follows
+  // from that rather than from what we expected to create.
+  it('re-reads and routes when it loses the create race', async () => {
+    let created = false;
+    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
+      if (vars && 'ref' in vars) return { node: created ? { data: {}, role: null, isRunnable: true } : null };
+      if (!created) {
+        created = true;
+        throw gqlError('NodeLocConflictError');
+      }
+      return {};
+    });
+    const result = await runAction('updatePrompt', {
+      systemMemoryId: 'mem-1',
+      loc: PROMPT.ref,
+      content: 'Raced prompt',
+    });
+    expect(result).toMatchObject({ form: { message: { type: 'success', text: 'Prompt saved.' } } });
+    // The winner made it runnable, so the retry must use the TASK door — the
+    // case a retry that reused the original document would get wrong.
+    expect(writes()).toHaveLength(2);
+    expect(writes()[1][0]).toBe(UPDATE_TASK_NODE_MUTATION);
+  });
+
+  // Race two, the opposite: the node VANISHES between the read and the update.
+  // The desired end state is still "the prompt exists with this content".
+  it('creates when the node is deleted between the read and the write', async () => {
+    let updateTried = false;
+    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
+      if (vars && 'ref' in vars) return { node: { data: {}, role: null, isRunnable: null } };
+      if (!updateTried) {
+        updateTried = true;
+        throw gqlError('NODE_NOT_FOUND');
+      }
+      return {};
+    });
+    const result = await runAction('updatePrompt', {
+      systemMemoryId: 'mem-1',
+      loc: PROMPT.ref,
+      content: 'Recreated prompt',
+    });
+    expect(result).toMatchObject({ form: { message: { type: 'success', text: 'Prompt saved.' } } });
+    expect(writes()).toHaveLength(2);
+    expect(writes()[1][1]).toMatchObject({ input: { nodeType: 'system', content: 'Recreated prompt' } });
+  });
+
+  // Race three: the two above COMPOUND. Deleted after the read, so the update
+  // 404s and we fall through to create — and recreated before that create, so
+  // it conflicts. Both halves are individually handled above; before #875 the
+  // combination escaped as a 500, because the fallback create was a second
+  // call site that had never been given the retry. The pre-#870 upsert
+  // recovered here, so this is the regression case, not a new guarantee.
+  it('adopts the winner when the node is deleted and recreated mid-save', async () => {
+    let updateTried = false;
+    let createTried = false;
+    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
+      // The re-read after the conflict sees the winner, which made it runnable.
+      if (vars && 'ref' in vars) {
+        return { node: createTried ? { data: {}, role: null, isRunnable: true } : { data: {}, role: null, isRunnable: null } };
+      }
+      if (!updateTried) {
+        updateTried = true;
+        throw gqlError('NODE_NOT_FOUND');
+      }
+      if (!createTried) {
+        createTried = true;
+        throw gqlError('NodeLocConflictError');
+      }
+      return {};
+    });
+    const result = await runAction('updatePrompt', {
+      systemMemoryId: 'mem-1',
+      loc: PROMPT.ref,
+      content: 'Contested prompt',
+    });
+    expect(result).toMatchObject({ form: { message: { type: 'success', text: 'Prompt saved.' } } });
+    // update (404) → create (conflict) → update through the WINNER's door. The
+    // task door, not the generic one the first read would have chosen: a retry
+    // that reused the original document would be refused by the server.
+    expect(writes()).toHaveLength(3);
+    expect(writes()[2][0]).toBe(UPDATE_TASK_NODE_MUTATION);
+    expect(writes()[2][1]).toEqual({
+      input: { memoryId: 'mem-1', loc: PROMPT.ref, content: 'Contested prompt' },
     });
   });
 
@@ -947,5 +1083,90 @@ describe('savePosition', () => {
     })) as { status: number };
     expect(result.status).toBe(400);
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * #870's routing, across EVERY action that updates a node — not just the one
+ * the defect was reported on.
+ *
+ * `updatePrompt` was the flow #870 was filed against, and until this block it
+ * was also the only flow whose door was asserted. The other four update
+ * conversation and stage nodes, which are converted to tasks by exactly the
+ * same means — that conversion is what @Holger's ruling was about, and the
+ * server refuses a generic `updateNode` against the result no matter which
+ * form posted it. `check-node-write-doors` is the backstop, but a gate proves
+ * the CALL is routed; only a test proves the routing picks the right door.
+ *
+ * Pinned in both directions per case. A governed node must take its own door,
+ * AND a plain one must still take the generic door — an assertion that only
+ * ever checks the task door also passes on a router that sends everything
+ * there, which would break every ordinary save in the editor.
+ */
+describe('the kind door, across every routed write', () => {
+  /** Reads (the calls carrying `ref`) serve `node`; writes resolve. */
+  function serve(node: Record<string, unknown>) {
+    mockRequest.mockImplementation(async (_query: string, vars: Record<string, unknown>) =>
+      vars && 'ref' in vars ? { node } : {},
+    );
+  }
+  /** The document of the LAST write — the routed one in each of these flows. */
+  function lastWriteDocument() {
+    const writes = mockRequest.mock.calls.filter(([, vars]) => !(vars && 'ref' in vars));
+    return writes[writes.length - 1][0];
+  }
+
+  const PLAIN = { data: {}, role: null, isRunnable: null };
+  const TASK = { data: {}, role: null, isRunnable: true };
+
+  const routed: Array<[string, Parameters<typeof runAction>[0], Record<string, string>]> = [
+    ['addStage', 'addStage', {
+      systemMemoryId: 'mem-1', conversationLoc: 'conversations:demo', stageName: 'Gather Details',
+    }],
+    ['updateExtractionSpec', 'updateExtractionSpec', {
+      systemMemoryId: 'mem-1', stageLoc: 'conversations:demo:start', extractionSpec: '[]',
+    }],
+    ['updateGoals', 'updateGoals', {
+      systemMemoryId: 'mem-1', convLoc: 'conversations:demo',
+      goalDescriptionsText: 'Find a mentor', goalSignalsText: 'I need help',
+    }],
+    ['savePosition', 'savePosition', {
+      systemMemoryId: 'mem-1', loc: 'conversations:demo', x: '10', y: '20',
+    }],
+    ['updatePrompt', 'updatePrompt', {
+      systemMemoryId: 'mem-1', loc: 'prompts:demo:start', content: 'x',
+    }],
+  ];
+
+  it.each(routed)('%s sends a governed node through its own door', async (_label, action, fields) => {
+    serve(TASK);
+    await runAction(action, fields);
+    expect(lastWriteDocument()).toBe(UPDATE_TASK_NODE_MUTATION);
+  });
+
+  it.each(routed)('%s still sends a plain node through the generic door', async (_label, action, fields) => {
+    serve(PLAIN);
+    await runAction(action, fields);
+    expect(lastWriteDocument()).toBe(UPDATE_NODE_MUTATION);
+  });
+
+  /**
+   * The anti-vacuity floor. If an action stops routing — or is removed from
+   * the table — the two blocks above keep passing on whatever is left, which
+   * is the shape of a suite that tests less than it did yesterday without
+   * saying so (hrn:node:hadronmemory.com:hadron-portal:review:a-floor-must-not-count-the-gates-own-tests,
+   * from the other side: a floor on COVERAGE rather than on corpus size).
+   */
+  it('covers every nodeUpdateDocument call site in the action file', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(
+      new URL('./+page.server.ts', import.meta.url),
+      'utf8',
+    );
+    // Six call sites, five actions: updatePrompt routes from two of them (the
+    // ordinary update and the adopt-the-winner retry).
+    const callSites = src.match(/client\.request\(nodeUpdateDocument\(/g) ?? [];
+    expect(callSites).toHaveLength(6);
+    expect(routed).toHaveLength(5);
   });
 });
