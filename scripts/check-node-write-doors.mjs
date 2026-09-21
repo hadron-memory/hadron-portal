@@ -5,14 +5,14 @@
 // thing impossible, and "remember to call the chooser" written in a comment is
 // enforced by whoever happens to read that file
 // (hrn:node:hadronmemory.com:hadron-portal:review:comment-cannot-enforce-a-per-instance-rule).
-// Ten call sites each remembering to route is the shape that produced #868 in
-// the first place.
+// Sixteen call sites each remembering to route is the shape that produced #868
+// in the first place.
 //
 // So this gate inverts the default: REACHING a node-update mutation at all —
 // by naming its document, or by declaring your own — FAILS unless the file is
-// in ALLOWED below, with a reason. An eleventh call site added next year has to
-// opt out, visibly, in a file a reviewer reads, rather than opt in silently and
-// be refused in production against the first governed node it meets.
+// in ALLOWED below, with a reason. A seventeenth call site added next year has
+// to opt out, visibly, in a file a reviewer reads, rather than opt in silently
+// and be refused in production against the first governed node it meets.
 //
 // It took four rounds to arrive at "reaching", and every round was the same
 // mistake — asking what a thing is NAMED rather than what it DOES. In order:
@@ -53,12 +53,13 @@ export const DOOR_DOCUMENTS = [
  *
  *   const UPDATE = `mutation U($input: UpdateNodeInput!) { updateNode(input: $input) { id } }`;
  *
- * That is not hypothetical either: `app/agents/[id]/conversations/+page.server.ts`
- * has done exactly this for seven writes, and the first version of this gate
+ * That was not hypothetical: `app/agents/[id]/conversations/+page.server.ts`
+ * did exactly this for seven writes, and the first version of this gate
  * declared the repository clean while they sat on the generic door (@codex on
- * PR #869). It has no `/* GraphQL *\/` marker, so `validate-graphql` does not
- * extract it and `check-graphql-callers` cannot resolve it either — it is
- * invisible to every other check in this file's family.
+ * PR #869). Having no `/* GraphQL *\/` marker, it was invisible to
+ * `validate-graphql` and to `check-graphql-callers` as well — every check in
+ * this file's family missed it at once (#872). Those seven are routed now and
+ * the document is deleted; this check is what keeps an eighth from appearing.
  *
  * Gating the CONSTANT was the same mistake as gating the CALL SITE, one level
  * out: both ask what something is named rather than what it does.
@@ -121,21 +122,6 @@ export const ALLOWED = new Map([
       'endpoint fail loudly rather than corrupt anything.',
   ],
   [
-    'src/routes/app/agents/[id]/conversations/+page.server.ts',
-    'RULED, not merely deferred — @Holger on portal#870. Seven writes through ' +
-      'a locally declared updateNode document, found by @codex on PR #869. ' +
-      'These are the chatbot wizard writing its OWN nodes: conversation, stage ' +
-      'and prompt nodes it mints itself at known locs in a system memory, from ' +
-      'a client purpose-built for exactly those kinds. Governed kinds are not a ' +
-      'concern on this surface, so the writes stay on the generic door by ' +
-      'decision rather than by omission. ' +
-      'Residual, accepted: converting one of these nodes to a task from the ' +
-      'node detail page would make the wizard refuse. Loud, narrow, and not ' +
-      'worth a node fetch per save on a path that deliberately avoids one — ' +
-      'the prompt save writes optimistically BECAUSE a stage promptRef can ' +
-      'dangle. This entry is expected to STAY; it is not a deferred fix.',
-  ],
-  [
     'src/routes/api/agent-chat/fixtures/run/+server.ts',
     'persistNewBaseline, writing back the same fixture record the handler above ' +
       'minted. Same reasoning, same residual — and the runner holds a parsed ' +
@@ -153,7 +139,7 @@ export const ALLOWED = new Map([
  * Deliberately a FLOOR, not an exact count — adding a routed call site is the
  * behaviour this gate wants and must not need a number edited to permit it.
  */
-export const MIN_ROUTED_CALL_SITES = 10;
+export const MIN_ROUTED_CALL_SITES = 16;
 
 /** Files the gate must at least have looked at, so an empty scan cannot pass. */
 export const MIN_FILES_SCANNED = 1;

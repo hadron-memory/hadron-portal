@@ -7,6 +7,10 @@ import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
+// #870: the chooser picks each write's mutation from the node's kind. Called
+// INLINE at every `.request()` — hoisting it into a local makes the call
+// opaque to check-graphql-callers, which then stops checking its variables.
+import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 import {
   buildConversationEdgeDetails,
   conversationEdgeInputsFromNodes,
@@ -78,18 +82,34 @@ const GRAPH_NODES_QUERY = /* GraphQL */ `
   }
 `;
 
-// #335: read a node's `data` scoped to a memory. `$memory` is required (ID!)
+// #335: read a node's `data` scoped to a memory. `$memoryRef` is required (ID!)
 // so an unscoped call can't compile/run — node(loc:) without a scope now
 // errors on a cross-memory loc collision (AMBIGUOUS_NODE_LOC). Shared by the
 // stageOrder reads in addStage / updateExtractionSpec / updateGoals.
-const NODE_DATA_BY_LOC_QUERY = /* GraphQL */ `query NodeDataByLoc($ref: ID!, $memoryRef: ID!) { node(ref: $ref, memoryRef: $memoryRef) { data } }`;
+//
+// #870: it also carries `role` and `isRunnable` — the two GOVERNANCE SIGNALS.
+// Every write below picks its mutation from them, because the server refuses a
+// generic `updateNode` against a governed node and these reads are what the
+// door is chosen from. Not rendered; read only by nodeUpdateDocument.
+const NODE_DATA_BY_LOC_QUERY = /* GraphQL */ `query NodeDataByLoc($ref: ID!, $memoryRef: ID!) { node(ref: $ref, memoryRef: $memoryRef) { data role isRunnable } }`;
+
+/**
+ * What the read above returns: the node's `data` plus the signals the door is
+ * chosen from. A missing node is `null` and routes as "no prior kind".
+ */
+type ConversationNodeRow = { data: unknown; role: string | null; isRunnable: boolean | null };
 
 // hadron-server#460: upsertNode is split into createNode (create-only,
 // NodeLocConflictError on a live (memoryId, loc)) and updateNode (never
 // creates — NODE_NOT_FOUND on miss; omitted fields are preserved, so the
 // data-merge writes below no longer need to re-assert name/nodeType).
-const CREATE = /* GraphQL */ `mutation C($input: CreateNodeInput!) { createNode(input: $input) { id } }`;
-const UPDATE = /* GraphQL */ `mutation U($input: UpdateNodeInput!) { updateNode(input: $input) { id } }`;
+const CREATE = /* GraphQL */ `mutation CreateConversationNode($input: CreateNodeInput!) { createNode(input: $input) { id } }`;
+// #870: there is no local UPDATE document any more. Every write in this file
+// goes through nodeUpdateDocument, which picks the mutation from the node's
+// kind — the generic one this file used to declare was refused by the server
+// against any governed node, and being locally declared it was invisible to
+// every GraphQL gate in the repo (#872). Do not reintroduce it: the door gate
+// fails a node-update document declared here.
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
@@ -335,7 +355,7 @@ export const actions: Actions = {
       }
 
       // Update conversation's stageOrder
-      const convNode = await client.request<{ node: { data: unknown } | null }>(
+      const convNode = await client.request<{ node: ConversationNodeRow | null }>(
         NODE_DATA_BY_LOC_QUERY,
         { ref: conversationLoc, memoryRef: systemMemoryId },
       );
@@ -344,9 +364,13 @@ export const actions: Actions = {
       // (e.g. a leftover from a deleted stage) must not gain a duplicate.
       const existingOrder = (convData.stageOrder as string[]) ?? [];
       const stageOrder = existingOrder.includes(slug) ? existingOrder : [...existingOrder, slug];
-      await client.request(UPDATE, { input: {
+      // #870: the door follows the node's kind. This edit touches neither
+      // signal, so the resulting kind is the node's current one — which is why
+      // the read above, not the input, decides it.
+      const input = {
         memoryId: systemMemoryId, loc: conversationLoc, data: { ...convData, stageOrder },
-      }});
+      };
+      await client.request(nodeUpdateDocument(convNode.node, input), { input });
       return message(form, {
         type: 'success',
         text: t('conversation.infoPanel.addStage.saved', 'Stage added.'),
@@ -379,27 +403,51 @@ export const actions: Actions = {
     const content = form.data.content;
 
     try {
-      // A stage's promptRef can dangle (the editor opens with empty content
-      // for a prompt node that doesn't exist yet), so this flow relied on
+      // A stage's promptRef can dangle — the editor opens with empty content
+      // for a prompt node that doesn't exist yet — so this flow used to rely on
       // upsert's create-on-miss: update first, create on NODE_NOT_FOUND.
-      try {
-        await client.request(UPDATE, { input: {
-          memoryId: systemMemoryId, loc, content,
-        }});
-      } catch (e: unknown) {
-        if (createNodeErrorCode(e) !== 'NODE_NOT_FOUND') throw e;
+      //
+      // #870 turns that around: READ first, then create or update. The server
+      // refuses a generic `updateNode` against a governed node, so an update
+      // has to know the node's kind, and a write-first flow cannot. It costs
+      // one read on a save that used to take none.
+      //
+      // Both races the old shape handled are preserved, and they are opposites:
+      // the node can APPEAR between the read and the create (someone else made
+      // it), and it can VANISH between the read and the update (someone deleted
+      // it). The desired end state is the same either way — "the prompt exists
+      // with this content" — so each falls through to the other's operation.
+      const input = { memoryId: systemMemoryId, loc, content };
+      const createInput = {
+        memoryId: systemMemoryId, loc, name: loc.split(':').pop()!, nodeType: 'system', content,
+      };
+      const existing = await client.request<{ node: ConversationNodeRow | null }>(
+        NODE_DATA_BY_LOC_QUERY,
+        { ref: loc, memoryRef: systemMemoryId },
+      );
+
+      if (existing.node) {
         try {
-          await client.request(CREATE, { input: {
-            memoryId: systemMemoryId, loc, name: loc.split(':').pop()!, nodeType: 'system', content,
-          }});
-        } catch (e2: unknown) {
+          await client.request(nodeUpdateDocument(existing.node, input), { input });
+        } catch (e: unknown) {
+          // Deleted between the read and the write.
+          if (createNodeErrorCode(e) !== 'NODE_NOT_FOUND') throw e;
+          await client.request(CREATE, { input: createInput });
+        }
+      } else {
+        try {
+          await client.request(CREATE, { input: createInput });
+        } catch (e: unknown) {
           // Lost the create race — a concurrent request created the prompt
-          // between our failed update and this create. The desired end state
-          // is "prompt exists with this content", so retry the update once.
-          if (createNodeErrorCode(e2) !== 'NodeLocConflictError') throw e2;
-          await client.request(UPDATE, { input: {
-            memoryId: systemMemoryId, loc, content,
-          }});
+          // between our read and this create. Re-read rather than assuming its
+          // kind: the winner decided what this node is, and the door follows
+          // from that rather than from what we expected to create.
+          if (createNodeErrorCode(e) !== 'NodeLocConflictError') throw e;
+          const won = await client.request<{ node: ConversationNodeRow | null }>(
+            NODE_DATA_BY_LOC_QUERY,
+            { ref: loc, memoryRef: systemMemoryId },
+          );
+          await client.request(nodeUpdateDocument(won.node, input), { input });
         }
       }
       return message(form, {
@@ -434,14 +482,16 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
 
     try {
-      const stageNode = await client.request<{ node: { data: unknown } | null }>(
+      const stageNode = await client.request<{ node: ConversationNodeRow | null }>(
         NODE_DATA_BY_LOC_QUERY,
         { ref: stageLoc, memoryRef: systemMemoryId },
       );
       const stageData = (stageNode.node?.data as Record<string, unknown>) ?? {};
-      await client.request(UPDATE, { input: {
+      // #870: neither signal is touched — the door follows the current kind.
+      const input = {
         memoryId: systemMemoryId, loc: stageLoc, data: { ...stageData, extractionSpec: spec },
-      }});
+      };
+      await client.request(nodeUpdateDocument(stageNode.node, input), { input });
       return message(form, {
         type: 'success',
         text: t('conversation.stagePanel.extraction.saved', 'Extraction saved.'),
@@ -469,14 +519,16 @@ export const actions: Actions = {
     const goalSignals = linesToGoalList(form.data.goalSignalsText);
 
     try {
-      const convNode = await client.request<{ node: { data: unknown } | null }>(
+      const convNode = await client.request<{ node: ConversationNodeRow | null }>(
         NODE_DATA_BY_LOC_QUERY,
         { ref: convLoc, memoryRef: systemMemoryId },
       );
       const convData = (convNode.node?.data as Record<string, unknown>) ?? {};
-      await client.request(UPDATE, { input: {
+      // #870: neither signal is touched — the door follows the current kind.
+      const input = {
         memoryId: systemMemoryId, loc: convLoc, data: { ...convData, goalDescriptions, goalSignals },
-      }});
+      };
+      await client.request(nodeUpdateDocument(convNode.node, input), { input });
       return message(form, {
         type: 'success',
         text: t('conversation.infoPanel.goals.saved', 'Goals saved.'),
@@ -590,14 +642,16 @@ export const actions: Actions = {
     }
 
     try {
-      const node = await client.request<{ node: { data: unknown } | null }>(
+      const node = await client.request<{ node: ConversationNodeRow | null }>(
         NODE_DATA_BY_LOC_QUERY,
         { ref: loc, memoryRef: systemMemoryId },
       );
       const nodeData = (node.node?.data as Record<string, unknown>) ?? {};
-      await client.request(UPDATE, { input: {
+      // #870: neither signal is touched — the door follows the current kind.
+      const input = {
         memoryId: systemMemoryId, loc, data: { ...nodeData, position: { x, y } },
-      }});
+      };
+      await client.request(nodeUpdateDocument(node.node, input), { input });
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Failed to save position' });
     }
