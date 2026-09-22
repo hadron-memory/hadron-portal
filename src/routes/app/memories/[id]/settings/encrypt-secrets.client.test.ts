@@ -134,7 +134,7 @@ function loaderData(forms: Record<string, unknown>) {
   };
 }
 
-async function mountSettings() {
+async function mountSettings(mode: 'passphrase' | 'dataKey' = 'passphrase') {
   const [form, vectorForm, schemaForm, deleteForm, retryEmbedsForm, encryptForm] = await Promise.all([
     superValidate({}, zod4(memorySettingsSchema), { errors: false }),
     superValidate(
@@ -152,7 +152,7 @@ async function mountSettings() {
     superValidate({ schemaJson: '' }, zod4(memorySchemaSettingsSchema), { errors: false }),
     superValidate({ organizationId: 'org-1' }, zod4(deleteMemorySchema), { errors: false }),
     superValidate({}, zod4(retryFailedEmbeddingsSchema), { errors: false }),
-    superValidate({}, zod4(encryptMemorySchema), { errors: false }),
+    superValidate({ mode }, zod4(encryptMemorySchema), { errors: false }),
   ]);
 
   const mounted = mountComponent(Page as never, {
@@ -173,12 +173,21 @@ async function mountSettings() {
   return { mounted, options };
 }
 
-/** The three inputs, read from the real DOM the component mounted into. */
-function secretInputs(target: HTMLElement) {
-  return {
-    passphrase: target.querySelector<HTMLInputElement>('input[name="passphrase"]'),
-    passphraseConfirm: target.querySelector<HTMLInputElement>('input[name="passphraseConfirm"]'),
-  };
+/** Re-read from the DOM rather than trusting a reference across a re-render. */
+function fieldValue(target: HTMLElement, name: string) {
+  return target.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.value;
+}
+
+/** Type into a field the way a user would, and prove the value landed. */
+function fill(target: HTMLElement, name: string, value: string) {
+  const el = target.querySelector<HTMLInputElement>(`input[name="${name}"]`);
+  expect(el, `${name} input should render`).not.toBeNull();
+  el!.value = value;
+  el!.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync();
+  // The control. Without it, "empty afterwards" is satisfied by a field that
+  // was never populated — which is how a clearing test passes vacuously.
+  expect(fieldValue(target, name)).toBe(value);
 }
 
 describe('#884 — the encrypt form clears its secrets on both callbacks', () => {
@@ -197,30 +206,63 @@ describe('#884 — the encrypt form clears its secrets on both callbacks', () =>
   it.each(['onResult', 'onError'] as const)('clears the passphrase fields from %s', async (hook) => {
     const { mounted, options } = await mountSettings();
     try {
-      const fields = secretInputs(mounted.target);
-      expect(fields.passphrase, 'the passphrase input should render').not.toBeNull();
-
-      // Put a value in through the DOM, as a user would, and prove it landed —
-      // otherwise "it is empty afterwards" says nothing.
-      fields.passphrase!.value = SECRET;
-      fields.passphrase!.dispatchEvent(new Event('input', { bubbles: true }));
-      fields.passphraseConfirm!.value = SECRET;
-      fields.passphraseConfirm!.dispatchEvent(new Event('input', { bubbles: true }));
-      flushSync();
-      expect(fields.passphrase!.value).toBe(SECRET);
+      fill(mounted.target, 'passphrase', SECRET);
+      fill(mounted.target, 'passphraseConfirm', SECRET);
 
       (options![hook] as (arg: unknown) => void)({ result: { type: 'failure', status: 500 } });
       flushSync();
 
-      expect(mountedValue(mounted.target, 'passphrase')).toBe('');
-      expect(mountedValue(mounted.target, 'passphraseConfirm')).toBe('');
+      expect(fieldValue(mounted.target, 'passphrase')).toBe('');
+      expect(fieldValue(mounted.target, 'passphraseConfirm')).toBe('');
+    } finally {
+      mounted.unmount();
+    }
+  });
+
+  /**
+   * The DATA KEY, which the passphrase cases above cannot reach: it only
+   * renders in `dataKey` mode, so a test mounted in the default mode asserts
+   * on a field that is not there. My commit message claimed all three fields
+   * were covered and two were (@copilot).
+   */
+  it.each(['onResult', 'onError'] as const)('clears the data key from %s', async (hook) => {
+    const { mounted, options } = await mountSettings('dataKey');
+    try {
+      fill(mounted.target, 'dataKey', 'QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU=');
+
+      (options![hook] as (arg: unknown) => void)({ result: { type: 'failure', status: 500 } });
+      flushSync();
+
+      expect(fieldValue(mounted.target, 'dataKey')).toBe('');
+    } finally {
+      mounted.unmount();
+    }
+  });
+
+  /**
+   * A custom `onError` REPLACES superforms' default error handling, so the
+   * first version emptied the form and said nothing (@codex). On an operation
+   * that cannot be undone — and whose request may have SUCCEEDED before the
+   * connection dropped — silence is the worst available answer.
+   */
+  it('says something on a transport failure rather than silently emptying the form', async () => {
+    const { mounted, options } = await mountSettings();
+    try {
+      fill(mounted.target, 'passphrase', SECRET);
+      // Before: no alert. The control that makes the assertion below about the
+      // handler rather than about markup that is always present.
+      expect(mounted.target.textContent).not.toContain('we cannot tell you');
+
+      (options!.onError as (arg: unknown) => void)({ result: { type: 'error', status: 500 } });
+      flushSync();
+
+      expect(mounted.target.textContent).toContain('we cannot tell you whether the encryption completed');
+      // It tells the user how to find out, because we genuinely do not know.
+      expect(mounted.target.textContent).toContain('Reload this page');
+      // And the secret is still gone.
+      expect(fieldValue(mounted.target, 'passphrase')).toBe('');
     } finally {
       mounted.unmount();
     }
   });
 });
-
-/** Re-read from the DOM rather than trusting a reference across a re-render. */
-function mountedValue(target: HTMLElement, name: string) {
-  return target.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.value;
-}

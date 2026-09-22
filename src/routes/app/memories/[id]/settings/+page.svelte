@@ -302,9 +302,34 @@
     // earlier version of this comment claimed network failures were covered
     // while only registering `onResult` (@copilot on #884). One helper, two
     // registrations, so they cannot drift again.
-    onResult: () => clearSecretFields(),
-    onError: () => clearSecretFields(),
+    onSubmit: () => {
+      encryptTransportError = null;
+    },
+    onResult: () => {
+      clearSecretFields();
+      encryptTransportError = null;
+    },
+    onError: () => {
+      // A custom `onError` REPLACES superforms' default error handling, so a
+      // handler that only cleared left the user with a silently emptied form
+      // and no message at all (@codex on #884) — on the one operation in this
+      // repo that cannot be undone or retried into the same state.
+      //
+      // It cannot go through `scopedActionError`: that returns null unless
+      // ACTION DATA came back with a matching `_kind`, and a transport failure
+      // has none. Hence a separate piece of state rather than the message
+      // store.
+      clearSecretFields();
+      encryptTransportError = t(
+        'memory.encrypt.transport-failed',
+        'The connection failed before we heard back, so we cannot tell you whether the encryption completed. Reload this page: if it now says this memory is encrypted, it worked and the key you entered is the key. If it does not, nothing changed.',
+      );
+    },
   });
+
+  // Set by `onError` only. Separate from `encryptError`, which is derived from
+  // action data that a transport failure never produces.
+  let encryptTransportError = $state<string | null>(null);
 
   function clearSecretFields() {
     $encryptForm.passphrase = '';
@@ -1212,6 +1237,12 @@
             </button>
           </div>
         </form>
+      {/if}
+
+      {#if encryptTransportError}
+        <p role="alert" class="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          {encryptTransportError}
+        </p>
       {/if}
 
       {#if encryptError}

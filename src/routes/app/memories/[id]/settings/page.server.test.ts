@@ -1055,6 +1055,14 @@ describe('memory-settings `encrypt` action (#873)', () => {
       () => undefined,
       { mode: 'dataKey', dataKey: 'not-base64!!', confirmIrreversible: 'true' },
     ],
+    // dataKey mode on the SUCCESS path — the passphrase cases above leave the
+    // data key empty from the start, so they would pass against a scrub that
+    // never touched it (@copilot on #884).
+    [
+      'success in dataKey mode',
+      () => mockRequest.mockResolvedValueOnce({ encryptMemory: { id: 'm', isEncrypted: true } }),
+      { mode: 'dataKey', dataKey: VALID_DATA_KEY, confirmIrreversible: 'true' },
+    ],
   ])('returns no secret to the client on %s', async (_what, arrange, fields) => {
     arrange();
     const actions = await importActions();
@@ -1068,9 +1076,10 @@ describe('memory-settings `encrypt` action (#873)', () => {
     expect(data.passphrase).toBe('');
     expect(data.passphraseConfirm).toBe('');
     expect(data.dataKey).toBe('');
-    // And nothing anywhere in the serialised result carries the secret —
-    // catches a copy of it surviving somewhere other than form.data.
+    // And nothing anywhere in the serialised result carries either secret —
+    // catches a copy surviving somewhere other than form.data.
     expect(JSON.stringify(result)).not.toContain(VALID_PASSPHRASE);
+    expect(JSON.stringify(result)).not.toContain(VALID_DATA_KEY);
   });
 
   it('does not call the server at all when validation fails', async () => {
