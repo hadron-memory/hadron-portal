@@ -192,11 +192,16 @@ describe('#873 encryption section — which state is rendered', () => {
   // Every class the server refuses, not just the one a reader would try — the
   // rule is "private only", so each of these must land in the same branch.
   it.each(['knowledge', 'personal', 'app', 'system', 'group'] as const)(
-    'withholds the form on a %s memory',
+    'withholds the form on a %s memory, and names that class',
     async (memoryClass) => {
       const html = await renderSettings({ memoryClass });
       expect(html).not.toContain(SUBMIT);
       expect(html).toContain(NOT_ELIGIBLE);
+      // The sentence says which kind this is, so it cannot drift back into a
+      // per-class claim that is false for one of them. `personal` is the one
+      // that caught two earlier wordings: it is owner-only, like private, so
+      // any explanation in terms of SHARING is wrong for it.
+      expect(html).toContain(`This is a ${memoryClass} memory.`);
     },
   );
 
@@ -314,10 +319,17 @@ describe('#884 — review fixes', () => {
 
   // The disclosure changes which secret input exists; without these a screen
   // reader user cannot tell what the button did (@copilot).
-  it('marks the data-key disclosure as an expandable control', async () => {
-    const html = await renderSettings({ memoryClass: 'private' });
-    expect(html).toMatch(/aria-expanded="false"/);
-    expect(html).toContain('aria-controls="encrypt-key-fields"');
+  // Both states, from the FORM's mode — the disclosure flag is derived from it
+  // rather than tracked separately, so a form returned in data-key mode cannot
+  // render an expanded disclosure that reports itself collapsed.
+  it.each([
+    ['passphrase', 'passphrase' as const, 'false'],
+    ['dataKey', 'dataKey' as const, 'true'],
+  ])('reports the disclosure state that matches %s mode', async (_label, mode, expected) => {
+    const html = await renderSettings({ memoryClass: 'private', mode });
+    const button = html.match(/<button[^>]*aria-controls="encrypt-key-fields"[^>]*>/)?.[0];
+    expect(button, 'the disclosure button should render').toBeDefined();
+    expect(button).toContain(`aria-expanded="${expected}"`);
     expect(html).toContain('id="encrypt-key-fields"');
   });
 });

@@ -312,7 +312,13 @@
     $encryptForm.dataKey = '';
   }
 
-  let showDataKeyPath = $state(false);
+  // DERIVED from the form, not a second source of truth (@copilot's overview
+  // on #884: "can expose inconsistent disclosure state when initialized in
+  // data-key mode"). As separate `$state` it started false while a form
+  // returned with `mode: 'dataKey'` rendered the data-key input — so
+  // `aria-expanded` said collapsed over an expanded disclosure, and only for
+  // the user who had just submitted that path.
+  const showDataKeyPath = $derived($encryptForm.mode === 'dataKey');
 
   const encryptError = $derived(scopedActionError<EncryptMemoryForm>(form, 'encryptMemory', $encryptMessage));
   const encryptSuccess = $derived(scopedActionSuccess<EncryptMemoryForm>(form, 'encryptMemory', $encryptMessage));
@@ -1007,13 +1013,26 @@
         )}
       </p>
     {:else if g.class !== 'private'}
-      <!-- Said plainly rather than hidden: a user looking for encryption on a
-           shared memory should learn WHY it is not offered, not find a gap.
-           class='private' is the server's only encryptable class. -->
+      <!-- Said plainly rather than hidden: a user looking for encryption here
+           should learn that it is not on offer and what decides that, not find
+           a gap.
+
+           CLASS-NEUTRAL on purpose, and it took two goes. The first version
+           said a non-private memory "is shared"; the second said every other
+           kind "can be reached by someone other than you". Both are false for
+           a PERSONAL memory, which `types.ts` documents as owner-only
+           alongside private (spec 034-memory-class-access) — twice caught by
+           @copilot on #884.
+
+           The mistake underneath both was inventing a RATIONALE the server
+           does not state. Its rule is `class='private'` and nothing else
+           (D-2026-07-06-B); it offers no theory about sharing, and neither
+           should this sentence. Name the rule and name this memory's kind. -->
       <p class="text-sm text-zinc-600 dark:text-zinc-400">
         {t(
           'memory.encrypt.class-not-eligible',
-          'Only private memories can be encrypted. Every other kind can be reached by someone other than you — a teammate, an app, an agent — so its content has to stay readable to whoever it is shared with.',
+          'Only private memories can be encrypted — the server accepts no other kind. This is a {kind} memory.',
+          { kind: g.class ?? 'shared' },
         )}
       </p>
     {:else if !ownerIsViewer}
@@ -1176,8 +1195,8 @@
             <button
               type="button"
               onclick={() => {
-                showDataKeyPath = !showDataKeyPath;
-                $encryptForm.mode = showDataKeyPath ? 'dataKey' : 'passphrase';
+                // Set the one source of truth; `showDataKeyPath` follows.
+                $encryptForm.mode = showDataKeyPath ? 'passphrase' : 'dataKey';
                 // Switching paths discards whatever was typed into the other
                 // one, so a secret cannot ride along in a field the submit no
                 // longer names.
