@@ -77,6 +77,10 @@ export function extractDocuments(file, text) {
       file,
       // 1-indexed line of the `const` keyword, so the report is clickable.
       line: text.slice(0, match.index).split('\n').length,
+      // Character offset of the body's first character — just past the opening
+      // backtick. It identifies this OCCURRENCE, which the body text cannot:
+      // two documents may be character-identical (@copilot on #881).
+      bodyStart,
     });
     declaration.lastIndex = i + 1;
   }
@@ -273,6 +277,27 @@ export function collectCommentTerminated(srcDir = SRC_DIR) {
  * SHAPED LIKE, rather than on what it DOES, is defeated by writing the same
  * thing another way. A document is a document because it parses as one.
  *
+ * ## The marker is not the test — COLLECTION is (#880)
+ *
+ * Widening the violation half without widening the exemption half built a trap.
+ * `extractDocuments` reads `const NAME = /* GraphQL *\/ `…`` and nothing else,
+ * so a marker on an inline document made the warning disappear while the
+ * document stayed invisible to the schema check, the caller cross-check and the
+ * naming rule. The gate pointed at a real problem and then blessed a fix that
+ * fixed nothing — worse than the silence it replaced, because silence at least
+ * did not mislead.
+ *
+ * So the question this asks is **"did the extractor collect it?"**, not "is
+ * there a marker?" — and it asks by RUNNING the extractor rather than by
+ * re-deriving its rule here. Two implementations of one rule is the defect this
+ * gate's own sibling check was written about, and a second copy would drift the
+ * moment either moved. Widen `extractDocuments` and this accepts the new
+ * positions with no edit.
+ *
+ * A document the extractor cannot read is reported either way; `marked` says
+ * which remedy applies, because "add the marker" is wrong advice for a shape no
+ * marker can rescue.
+ *
  * Interpolations are dropped before parsing rather than resolved: this repo's
  * idiom is `${FRAGMENT}` prepended to an operation, and removing it leaves the
  * operation parseable. Resolving them is `resolveInterpolations`' job, and it
@@ -281,6 +306,18 @@ export function collectCommentTerminated(srcDir = SRC_DIR) {
 export function findUnmarkedDocuments(file, text) {
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const found = [];
+  // The extractor defines the corpus, so it is the authority on whether a
+  // document is in it — asked by OCCURRENCE, not by text.
+  //
+  // Body text is not an identity. Two documents can be character-identical, and
+  // the obvious way to produce that pair is the very mistake this gate is for:
+  // copy a `const` document into an inline call and leave both. Matching on
+  // bodies would find the collected one and clear the uncollected one — the
+  // same false exemption #880 is about, one level down (@copilot on #881).
+  //
+  // `bodyStart` is the offset just past the opening backtick; a template
+  // literal node's start + 1 is the same position. Two parsers, one offset.
+  const collected = new Set(extractDocuments(file, text).map((doc) => doc.bodyStart));
 
   const visit = (node) => {
     let body = null;
@@ -288,11 +325,11 @@ export function findUnmarkedDocuments(file, text) {
     else if (ts.isTemplateExpression(node)) {
       body = node.head.text + node.templateSpans.map((span) => span.literal.text).join('');
     }
-    if (body !== null && body.trim() !== '') {
-      // The marker sits in the trivia immediately before the backtick — which
-      // is where it lands in every position, not just after a `=`.
-      const trivia = text.slice(node.getFullStart(), node.getStart(source));
-      if (!/\/\*\s*GraphQL\s*\*\//.test(trivia) && isGraphQLDocument(body)) {
+    if (body !== null && body.trim() !== '' && isGraphQLDocument(body)) {
+      if (!collected.has(node.getStart(source) + 1)) {
+        // The marker sits in the trivia immediately before the backtick — which
+        // is where it lands in every position, not just after a `=`.
+        const trivia = text.slice(node.getFullStart(), node.getStart(source));
         // A named binding reports its name; an inline document has none, so it
         // is reported by position. Reporting it namelessly is the point — the
         // shapes without a name are exactly the ones that used to escape.
@@ -306,6 +343,17 @@ export function findUnmarkedDocuments(file, text) {
           name,
           file,
           line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+          marked: /\/\*\s*GraphQL\s*\*\//.test(trivia),
+          // Would adding the marker actually get this collected? Asked the same
+          // way as everything else here — by running the extractor on the text
+          // that change would produce, rather than by re-deriving its rule.
+          //
+          // It matters because "add the marker" is the advice for the unmarked
+          // case, and on an unmarked INLINE document that advice is wrong: the
+          // author follows it and the document is still uncollected. That is
+          // #880 again, in the diagnostic rather than in the logic — a gate
+          // that prints a remedy which does not remedy (@copilot on #881).
+          markerWouldSuffice: markerWouldCollect(file, text, node.getStart(source)),
         });
       }
     }
@@ -313,6 +361,28 @@ export function findUnmarkedDocuments(file, text) {
   };
   visit(source);
   return found;
+}
+
+/**
+ * Would inserting the marker here get this literal COLLECTED?
+ *
+ * Answered by asking the extractor about the text that edit would produce, so
+ * the extractor stays the single authority on its own rule. Re-deriving "a
+ * `const` binding is the supported shape" as a second predicate is how the two
+ * drift apart, which is the defect this whole check is about.
+ */
+function markerWouldCollect(file, text, backtick) {
+  const MARKER = '/* GraphQL */ ';
+  const patched = text.slice(0, backtick) + MARKER + text.slice(backtick);
+  try {
+    return extractDocuments(file, patched).some(
+      (doc) => doc.bodyStart === backtick + MARKER.length + 1,
+    );
+  } catch {
+    // An unterminated literal elsewhere in the file — the extractor's own
+    // error, which the caller surfaces. Say nothing rather than guess.
+    return false;
+  }
 }
 
 /** Does this text parse as GraphQL AND declare an operation or fragment? */
@@ -548,7 +618,8 @@ function main(argv) {
           // count is what distinguishes "no violations" from "nothing looked at".
           markedDocuments: marked,
           unmarkedDocuments: unmarked.length,
-          unmarkedFailures: unmarked.map(({ name, file, line }) => ({ name, file, line })),
+          unmarkedFailures: unmarked.map(({ name, file, line, marked, markerWouldSuffice }) =>
+            ({ name, file, line, marked, markerWouldSuffice })),
           routedNodeWrites: doors.routed,
           doorViolations: doors.failures.length,
           doorFailures: doors.failures,
@@ -564,10 +635,19 @@ function main(argv) {
     }
     for (const doc of unmarked) {
       console.error(`✗ ${doc.file}:${doc.line}  ${doc.name}`);
+      // The remedy is chosen by what would actually COLLECT the document, not
+      // by whether a marker happens to be present. On an unmarked document in
+      // an unsupported position both are wrong-if-swapped: "add the marker"
+      // leaves it uncollected (#880's own lesson, in the diagnostic).
       console.error(
-        '    a GraphQL document with no /* GraphQL */ marker is extracted by ' +
-          'nothing — not the schema check, not the caller check, not the naming ' +
-          'rule. Add the marker (#872).',
+        doc.markerWouldSuffice
+          ? '    a GraphQL document with no /* GraphQL */ marker is extracted by ' +
+              'nothing — not the schema check, not the caller check, not the naming ' +
+              'rule. Add the marker (#872).'
+          : '    extractDocuments cannot read a document here' +
+              (doc.marked ? ', marker or not' : '') +
+              ', so the schema check, the caller check and the naming rule never ' +
+              'see it. Bind it to a `const NAME = /* GraphQL */ `…`` (#880).',
       );
     }
     for (const violation of [...markedShortfall, ...doors.failures]) console.error(`✗ ${violation}`);
@@ -605,8 +685,9 @@ function main(argv) {
       }
       if (unmarked.length > 0) {
         console.error(
-          '  Mark it with /* GraphQL */ so the schema, caller and naming checks ' +
-            'can see it — an unmarked document is validated by nothing.',
+          '  A document the extractor cannot collect is validated by nothing. ' +
+            'The marker is necessary and not sufficient: it must sit on a ' +
+            '`const` binding, which is the only shape extractDocuments reads.',
         );
       }
       if (doors.failures.length > 0) {

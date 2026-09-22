@@ -578,14 +578,99 @@ describe('findUnmarkedDocuments', () => {
     expect(unmarked(code)).toHaveLength(1);
   });
 
-  // The marker still exempts it in those positions — the rule is the marker,
-  // not the shape, in both directions. A widening that could not be satisfied
-  // by marking would just be a ban on writing documents inline.
+  /**
+   * #880 — these two cases asserted the OPPOSITE until Codex caught it, and the
+   * reasoning that produced them sounded right: *"the rule is the marker, not
+   * the shape, in both directions."* True of the violation half. False of the
+   * exemption half, because `extractDocuments` reads `const NAME = …` and
+   * nothing else — so a marker here silenced the gate without collecting the
+   * document, and the gate's advice ("add the marker") led the author in a
+   * circle. **A gate that blesses a non-fix is worse than the silence it
+   * replaced.**
+   *
+   * The test is now COLLECTION, not marking: `marked` only chooses which
+   * remedy is printed.
+   */
   it.each([
     ['inline', 'await client.request(/* GraphQL */ `query A { me { id } }`, vars);'],
     ['as a property', 'const docs = { a: /* GraphQL */ `query B { me { id } }` };'],
-  ])('stays silent on a marked document %s', (_what, code) => {
-    expect(unmarked(code)).toEqual([]);
+    ['as a class property', 'class X { q = /* GraphQL */ `query C { me { id } }`; }'],
+  ])('fails a MARKED document %s, which the extractor still cannot read', (_what, code) => {
+    expect(unmarked(code)).toHaveLength(1);
+    expect(unmarked(code)[0]).toMatchObject({ marked: true });
+  });
+
+  // The invariant the two halves now share, stated directly: a document is
+  // acceptable exactly when extractDocuments collected it. No third state —
+  // which is what "marked but invisible" was.
+  it.each([
+    ['a marked const', 'const Q = /* GraphQL */ `query A { me { id } }`;'],
+    ['a marked export const', 'export const Q = /* GraphQL */ `query A { me { id } }`;'],
+    ['an unmarked const', 'const Q = `query A { me { id } }`;'],
+    ['a marked inline document', 'await client.request(/* GraphQL */ `query A { me { id } }`);'],
+    ['an unmarked inline document', 'await client.request(`query A { me { id } }`);'],
+  ])('accepts %s exactly when the extractor collects it', (_what, code) => {
+    const collected = extractDocuments('test.ts', code).length > 0;
+    expect(unmarked(code).length === 0).toBe(collected);
+  });
+
+  /**
+   * Collection is an OCCURRENCE, not a body (@copilot on #881).
+   *
+   * The first cut of #880 compared body TEXT against the extracted set, which
+   * makes two character-identical documents indistinguishable — and the
+   * obvious way to produce that pair is the exact mistake this gate exists to
+   * catch: copy a working `const` document into an inline call and leave both.
+   * The collected copy would then clear the uncollected one, reinstating the
+   * false exemption #880 removed, one level down.
+   */
+  it('fails an inline document whose text is identical to a collected const', () => {
+    const code = [
+      'const Q = /* GraphQL */ `query A { me { id } }`;',
+      'await client.request(`query A { me { id } }`, vars);',
+    ].join('\n');
+    // The const IS collected, so a body-keyed check would find the text and
+    // clear the inline copy — the control that makes this test discriminating.
+    expect(extractDocuments('test.ts', code)).toHaveLength(1);
+    const hits = unmarked(code);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({ name: '(inline)', line: 2 });
+  });
+
+  // Same shape, marked — so neither half of the identity can be rescued by the
+  // marker either.
+  it('fails a MARKED inline document identical to a collected const', () => {
+    const code = [
+      'const Q = /* GraphQL */ `query A { me { id } }`;',
+      'await client.request(/* GraphQL */ `query A { me { id } }`, vars);',
+    ].join('\n');
+    expect(unmarked(code)).toHaveLength(1);
+    expect(unmarked(code)[0]).toMatchObject({ line: 2, marked: true });
+  });
+
+  /**
+   * The REMEDY has to lead to collection (@copilot on #881).
+   *
+   * "Add the marker" is right for an unmarked `const` and wrong for an
+   * unmarked inline document — follow it there and the document is still
+   * uncollected. Keying the advice on `marked` would print exactly that, which
+   * is this PR's own subject reappearing in the diagnostic: a gate naming a
+   * remedy that does not remedy.
+   *
+   * `markerWouldSuffice` answers it by running the extractor over the text the
+   * edit would produce, so no second copy of "a `const` is the supported
+   * shape" exists to drift.
+   */
+  it.each([
+    ['an unmarked const', 'const Q = `query A { me { id } }`;', true],
+    ['an unmarked inline document', 'await client.request(`query A { me { id } }`);', false],
+    ['a marked inline document', 'await client.request(/* GraphQL */ `query A { me { id } }`);', false],
+    ['an unmarked object property', 'const d = { a: `query A { me { id } }` };', false],
+    // `extractDocuments` matches `const` only, so `let` is not marker-fixable
+    // either — the kind of edge a hand-written predicate gets wrong.
+    ['an unmarked let binding', 'let Q = `query A { me { id } }`;', false],
+  ])('says whether marking alone would collect %s', (_what, code, expected) => {
+    expect(unmarked(code)[0]).toMatchObject({ markerWouldSuffice: expected });
   });
 
   // Named where a name exists, positional where none does. An inline document
