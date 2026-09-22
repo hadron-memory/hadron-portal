@@ -77,6 +77,10 @@ export function extractDocuments(file, text) {
       file,
       // 1-indexed line of the `const` keyword, so the report is clickable.
       line: text.slice(0, match.index).split('\n').length,
+      // Character offset of the body's first character — just past the opening
+      // backtick. It identifies this OCCURRENCE, which the body text cannot:
+      // two documents may be character-identical (@copilot on #881).
+      bodyStart,
     });
     declaration.lastIndex = i + 1;
   }
@@ -303,10 +307,17 @@ export function findUnmarkedDocuments(file, text) {
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const found = [];
   // The extractor defines the corpus, so it is the authority on whether a
-  // document is in it. Compared on the RAW slice between the backticks, which
-  // is exactly what extractDocuments captures — `node.text` is the cooked
-  // value and would disagree wherever an escape appears.
-  const collected = new Set(extractDocuments(file, text).map((doc) => doc.body));
+  // document is in it — asked by OCCURRENCE, not by text.
+  //
+  // Body text is not an identity. Two documents can be character-identical, and
+  // the obvious way to produce that pair is the very mistake this gate is for:
+  // copy a `const` document into an inline call and leave both. Matching on
+  // bodies would find the collected one and clear the uncollected one — the
+  // same false exemption #880 is about, one level down (@copilot on #881).
+  //
+  // `bodyStart` is the offset just past the opening backtick; a template
+  // literal node's start + 1 is the same position. Two parsers, one offset.
+  const collected = new Set(extractDocuments(file, text).map((doc) => doc.bodyStart));
 
   const visit = (node) => {
     let body = null;
@@ -315,8 +326,7 @@ export function findUnmarkedDocuments(file, text) {
       body = node.head.text + node.templateSpans.map((span) => span.literal.text).join('');
     }
     if (body !== null && body.trim() !== '' && isGraphQLDocument(body)) {
-      const raw = text.slice(node.getStart(source) + 1, node.getEnd() - 1);
-      if (!collected.has(raw)) {
+      if (!collected.has(node.getStart(source) + 1)) {
         // The marker sits in the trivia immediately before the backtick — which
         // is where it lands in every position, not just after a `=`.
         const trivia = text.slice(node.getFullStart(), node.getStart(source));

@@ -614,6 +614,40 @@ describe('findUnmarkedDocuments', () => {
     expect(unmarked(code).length === 0).toBe(collected);
   });
 
+  /**
+   * Collection is an OCCURRENCE, not a body (@copilot on #881).
+   *
+   * The first cut of #880 compared body TEXT against the extracted set, which
+   * makes two character-identical documents indistinguishable — and the
+   * obvious way to produce that pair is the exact mistake this gate exists to
+   * catch: copy a working `const` document into an inline call and leave both.
+   * The collected copy would then clear the uncollected one, reinstating the
+   * false exemption #880 removed, one level down.
+   */
+  it('fails an inline document whose text is identical to a collected const', () => {
+    const code = [
+      'const Q = /* GraphQL */ `query A { me { id } }`;',
+      'await client.request(`query A { me { id } }`, vars);',
+    ].join('\n');
+    // The const IS collected, so a body-keyed check would find the text and
+    // clear the inline copy — the control that makes this test discriminating.
+    expect(extractDocuments('test.ts', code)).toHaveLength(1);
+    const hits = unmarked(code);
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatchObject({ name: '(inline)', line: 2 });
+  });
+
+  // Same shape, marked — so neither half of the identity can be rescued by the
+  // marker either.
+  it('fails a MARKED inline document identical to a collected const', () => {
+    const code = [
+      'const Q = /* GraphQL */ `query A { me { id } }`;',
+      'await client.request(/* GraphQL */ `query A { me { id } }`, vars);',
+    ].join('\n');
+    expect(unmarked(code)).toHaveLength(1);
+    expect(unmarked(code)[0]).toMatchObject({ line: 2, marked: true });
+  });
+
   // Named where a name exists, positional where none does. An inline document
   // has no binding to report, and reporting it as `undefined` would read as a
   // bug in the gate rather than as the point.
