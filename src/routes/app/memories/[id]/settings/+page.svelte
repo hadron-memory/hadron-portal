@@ -296,17 +296,21 @@
     // been rewritten as ciphertext, so anything this page or its siblings hold
     // is stale in the most literal way. Once per memory, forever.
     invalidateAll: true,
-    onResult: () => {
-      // The client half of the server's scrub. The action returns blanked
-      // fields, so the store is overwritten anyway on a normal response — this
-      // covers the paths where it is not (a network failure, a redirect) and
-      // costs nothing. The passphrase should not outlive the request either
-      // side of the wire.
-      $encryptForm.passphrase = '';
-      $encryptForm.passphraseConfirm = '';
-      $encryptForm.dataKey = '';
-    },
+    // The client half of the server's scrub, from BOTH callbacks. `onResult`
+    // fires only once SvelteKit has an action result to deserialize, so a
+    // transport failure never reaches it — that path is `onError`, and an
+    // earlier version of this comment claimed network failures were covered
+    // while only registering `onResult` (@copilot on #884). One helper, two
+    // registrations, so they cannot drift again.
+    onResult: () => clearSecretFields(),
+    onError: () => clearSecretFields(),
   });
+
+  function clearSecretFields() {
+    $encryptForm.passphrase = '';
+    $encryptForm.passphraseConfirm = '';
+    $encryptForm.dataKey = '';
+  }
 
   let showDataKeyPath = $state(false);
 
@@ -315,7 +319,12 @@
 
   // class='private' is the ONLY encryptable class (server D-2026-07-06-B), and
   // encryption is one-way, so a memory offers this exactly once.
-  const encryptable = $derived(g.class === 'private' && !g.isEncrypted);
+  // `encryptMemory` is OWNER-only, and this page is reachable by org admins
+  // (see `canDelete` above), so without `ownerIsViewer` the form would be
+  // offered to someone whose submit can only be refused (@codex on #884).
+  // Presentation only — the server is the trust boundary — but an invitation
+  // that cannot be accepted is worse than no invitation.
+  const encryptable = $derived(g.class === 'private' && !g.isEncrypted && ownerIsViewer);
 
   // The server refuses to encrypt while the vector index is enabled without the
   // FR-026 ack — and that ack CANNOT be set on a plaintext memory: updateMemory
@@ -1007,6 +1016,17 @@
           'Only private memories can be encrypted. This one is shared, so its content has to stay readable to the people and apps it is shared with.',
         )}
       </p>
+    {:else if !ownerIsViewer}
+      <!-- Owner-only on the server, and this page is reachable by org admins,
+           so the form would otherwise invite a submit that can only be
+           refused (@codex on #884). Said rather than hidden, for the same
+           reason as the class case above. -->
+      <p class="text-sm text-zinc-600 dark:text-zinc-400">
+        {t(
+          'memory.encrypt.owner-only',
+          'Only this memory’s owner can encrypt it, because only they can hold the key.',
+        )}
+      </p>
     {:else}
       <p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
         {t(
@@ -1042,6 +1062,7 @@
           <input type="hidden" name="_kind" value="encryptMemory" />
           <input type="hidden" name="mode" value={$encryptForm.mode} />
 
+          <div id="encrypt-key-fields" class="space-y-4">
           {#if $encryptForm.mode === 'passphrase'}
             <div>
               <label for="encrypt-passphrase" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -1058,14 +1079,16 @@
                 spellcheck="false"
                 bind:value={$encryptForm.passphrase}
                 aria-invalid={$encryptErrors.passphrase ? 'true' : undefined}
-                aria-describedby="encrypt-passphrase-hint"
+                aria-describedby={$encryptErrors.passphrase
+                  ? 'encrypt-passphrase-error encrypt-passphrase-hint'
+                  : 'encrypt-passphrase-hint'}
                 class={inputClass}
               />
               <p id="encrypt-passphrase-hint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                 {t('memory.encrypt.passphrase-hint', 'At least {min} characters. Store it somewhere you will still have it next year.', { min: PASSPHRASE_MIN })}
               </p>
               {#if $encryptErrors.passphrase}
-                <p class="mt-1 text-xs text-red-600 dark:text-red-400">{$encryptErrors.passphrase}</p>
+                <p id="encrypt-passphrase-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{$encryptErrors.passphrase}</p>
               {/if}
             </div>
 
@@ -1081,10 +1104,11 @@
                 spellcheck="false"
                 bind:value={$encryptForm.passphraseConfirm}
                 aria-invalid={$encryptErrors.passphraseConfirm ? 'true' : undefined}
+                aria-describedby={$encryptErrors.passphraseConfirm ? 'encrypt-passphrase-confirm-error' : undefined}
                 class={inputClass}
               />
               {#if $encryptErrors.passphraseConfirm}
-                <p class="mt-1 text-xs text-red-600 dark:text-red-400">{$encryptErrors.passphraseConfirm}</p>
+                <p id="encrypt-passphrase-confirm-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{$encryptErrors.passphraseConfirm}</p>
               {/if}
             </div>
           {:else}
@@ -1096,21 +1120,24 @@
                 id="encrypt-data-key"
                 name="dataKey"
                 type="password"
-                autocomplete="off"
+                autocomplete="new-password"
                 spellcheck="false"
                 bind:value={$encryptForm.dataKey}
                 aria-invalid={$encryptErrors.dataKey ? 'true' : undefined}
-                aria-describedby="encrypt-data-key-hint"
+                aria-describedby={$encryptErrors.dataKey
+                  ? 'encrypt-data-key-error encrypt-data-key-hint'
+                  : 'encrypt-data-key-hint'}
                 class={inputClass}
               />
               <p id="encrypt-data-key-hint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                 {t('memory.encrypt.data-key-hint', 'Base64, decoding to exactly 32 bytes — the same key `hadron memory encrypt --data-key` takes.')}
               </p>
               {#if $encryptErrors.dataKey}
-                <p class="mt-1 text-xs text-red-600 dark:text-red-400">{$encryptErrors.dataKey}</p>
+                <p id="encrypt-data-key-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{$encryptErrors.dataKey}</p>
               {/if}
             </div>
           {/if}
+          </div>
 
           <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
             <input
@@ -1119,6 +1146,7 @@
               value="true"
               bind:checked={$encryptForm.confirmIrreversible}
               aria-invalid={$encryptErrors.confirmIrreversible ? 'true' : undefined}
+              aria-describedby={$encryptErrors.confirmIrreversible ? 'encrypt-confirm-error' : undefined}
               class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900"
             />
             <span>
@@ -1129,7 +1157,7 @@
             </span>
           </label>
           {#if $encryptErrors.confirmIrreversible}
-            <p class="text-xs text-red-600 dark:text-red-400">{$encryptErrors.confirmIrreversible}</p>
+            <p id="encrypt-confirm-error" class="text-xs text-red-600 dark:text-red-400">{$encryptErrors.confirmIrreversible}</p>
           {/if}
 
           <div class="flex flex-wrap items-center gap-3">
@@ -1150,7 +1178,13 @@
               onclick={() => {
                 showDataKeyPath = !showDataKeyPath;
                 $encryptForm.mode = showDataKeyPath ? 'dataKey' : 'passphrase';
+                // Switching paths discards whatever was typed into the other
+                // one, so a secret cannot ride along in a field the submit no
+                // longer names.
+                clearSecretFields();
               }}
+              aria-expanded={showDataKeyPath}
+              aria-controls="encrypt-key-fields"
               class="text-xs text-indigo-600 underline hover:text-indigo-500 dark:text-indigo-400"
             >
               {showDataKeyPath
@@ -1162,14 +1196,17 @@
       {/if}
 
       {#if encryptError}
-        <p class="mt-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
+        <!-- Inserted after a submit, so it needs announcing: role="alert" for
+             the refusal, role="status" for the success, matching the nine
+             live regions already on this page (@copilot on #884). -->
+        <p role="alert" class="mt-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
           {encryptError}
         </p>
       {/if}
     {/if}
 
     {#if encryptSuccess}
-      <p class="mt-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+      <p role="status" class="mt-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
         {encryptSuccess}
       </p>
     {/if}

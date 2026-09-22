@@ -1115,3 +1115,68 @@ describe('memory-settings `encrypt` action (#873)', () => {
     expect(message?.text).toContain('Disable the vector index');
   });
 });
+
+/**
+ * @copilot on #884 — the scrub covered `form.data` and the error MESSAGE
+ * bypassed it entirely.
+ *
+ * `extractGqlError` falls back to `Error.message` on a transport failure, and
+ * graphql-request packs the request — variables included — into that message.
+ * So a 502 put the submitted passphrase into `form.message.text`, a different
+ * field on the same response that `scrubSecrets` never touched.
+ *
+ * `extractGqlErrorNoEcho` returns the server's own GraphQL message when there
+ * is one and the caller's generic fallback otherwise — never `Error.message`.
+ */
+describe('#884 — the error message must not echo the secret either', () => {
+  it('drops a transport error’s message rather than returning the variables in it', async () => {
+    // The real shape: graphql-request stringifies { query, variables } into
+    // the Error message when there is no GraphQL response payload.
+    mockRequest.mockRejectedValueOnce(
+      new Error(
+        'GraphQL Error (Code: 502): {"response":{"status":502},"request":{"query":"mutation EncryptMemory","variables":{"passphrase":"' +
+          VALID_PASSPHRASE +
+          '"}}}',
+      ),
+    );
+    const actions = await importActions();
+
+    const result = await actions.encrypt(
+      encryptEv({
+        _kind: 'encryptMemory',
+        mode: 'passphrase',
+        passphrase: VALID_PASSPHRASE,
+        passphraseConfirm: VALID_PASSPHRASE,
+        confirmIrreversible: 'true',
+      }),
+    );
+
+    const serialised = JSON.stringify(result);
+    expect(serialised).not.toContain(VALID_PASSPHRASE);
+    // The control: an error WAS reported, so the assertion above is about a
+    // suppressed secret rather than about an absent message.
+    const r = result as { data?: { form?: { message?: { text?: string } } } };
+    expect(r.data?.form?.message?.text).toBe('Failed to encrypt this memory');
+  });
+
+  // The other half: a real server refusal still reaches the user verbatim.
+  // A fix that blanked every message would "pass" the test above.
+  it('still surfaces a GraphQL error message, which is written by us', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: "Only class='private' memories support encryption (D-2026-07-06-B)." }] },
+    });
+    const actions = await importActions();
+
+    const result = await actions.encrypt(
+      encryptEv({
+        _kind: 'encryptMemory',
+        mode: 'passphrase',
+        passphrase: VALID_PASSPHRASE,
+        passphraseConfirm: VALID_PASSPHRASE,
+        confirmIrreversible: 'true',
+      }),
+    );
+    const r = result as { data?: { form?: { message?: { text?: string } } } };
+    expect(r.data?.form?.message?.text).toContain("class='private'");
+  });
+});

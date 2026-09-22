@@ -77,6 +77,8 @@ async function renderSettings(opts: {
   memoryClass?: Memory['class'];
   isEncrypted?: boolean;
   vectorIndexEnabled?: boolean;
+  /** Who is looking. Defaults to the memory's owner. */
+  viewer?: typeof OWNER;
 }) {
   const graph: Memory = {
     id: 'mem-1',
@@ -143,7 +145,7 @@ async function renderSettings(opts: {
     props: {
       data: {
         graph,
-        user: OWNER,
+        user: opts.viewer ?? OWNER,
         ownerUserId: OWNER_ID,
         owner: { id: OWNER_ID, handle: 'holger', name: 'Holger' },
         org: null,
@@ -241,5 +243,58 @@ describe('#873 encryption section — which state is rendered', () => {
       expect(field).toContain('type="password"');
       expect(field).toContain('autocomplete="new-password"');
     }
+  });
+});
+
+describe('#884 — review fixes', () => {
+  const STRANGER = { ...OWNER, id: 'not-the-owner' };
+
+  /**
+   * `encryptMemory` is owner-only, and this page is reachable by org admins,
+   * so the form was being offered to someone whose submit could only be
+   * refused (@codex). The server was always the boundary; the defect was
+   * inviting an action that could not succeed.
+   */
+  it('withholds the form from a viewer who is not the owner, and says why', async () => {
+    const html = await renderSettings({ memoryClass: 'private', viewer: STRANGER });
+    expect(html).not.toContain(SUBMIT);
+    expect(html).toContain('Only this memory’s owner can encrypt it');
+    // Not the class sentence: the memory IS eligible, this viewer is not.
+    expect(html).not.toContain(NOT_ELIGIBLE);
+  });
+
+  // The pair, so the assertion above cannot pass on a page that withholds the
+  // form from everyone.
+  it('offers the form to the owner on the same memory', async () => {
+    const asOwner = await renderSettings({ memoryClass: 'private' });
+    const asStranger = await renderSettings({ memoryClass: 'private', viewer: STRANGER });
+    expect(asOwner).toContain(SUBMIT);
+    expect(asStranger).not.toContain(SUBMIT);
+  });
+
+  /**
+   * The data key is a secret too, and was the one field left on
+   * `autocomplete="off"` — which password managers may ignore for a password
+   * input, filing a raw key as a site credential (@copilot).
+   */
+  it('gives every secret input new-password autocomplete, the data key included', async () => {
+    const html = await renderSettings({ memoryClass: 'private' });
+    const fields = html.match(/<input[^>]*name="(?:passphrase|passphraseConfirm|dataKey)"[^>]*>/g) ?? [];
+    // Only the passphrase pair renders in the default mode, so assert on what
+    // is present rather than on a count that depends on the mode.
+    expect(fields.length).toBeGreaterThanOrEqual(2);
+    for (const field of fields) {
+      expect(field).toContain('autocomplete="new-password"');
+    }
+    expect(html).not.toContain('autocomplete="off"');
+  });
+
+  // The disclosure changes which secret input exists; without these a screen
+  // reader user cannot tell what the button did (@copilot).
+  it('marks the data-key disclosure as an expandable control', async () => {
+    const html = await renderSettings({ memoryClass: 'private' });
+    expect(html).toMatch(/aria-expanded="false"/);
+    expect(html).toContain('aria-controls="encrypt-key-fields"');
+    expect(html).toContain('id="encrypt-key-fields"');
   });
 });

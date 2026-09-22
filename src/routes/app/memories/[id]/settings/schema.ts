@@ -129,6 +129,26 @@ export const memorySchemaSettingsSchema = z
     }
   });
 
+/** Shortest passphrase accepted. Deliberately a floor, not a strength meter. */
+export const PASSPHRASE_MIN = 12;
+
+/**
+ * Longest string we will attempt to decode as a data key.
+ *
+ * A 32-byte key is exactly 44 base64 characters. The cap is well above that so
+ * a near-miss still gets the size message rather than this one, and far below
+ * anything worth allocating.
+ */
+export const DATA_KEY_MAX = 128;
+
+/**
+ * Longest passphrase accepted. scrypt cost is fixed by the server's KDF
+ * params rather than by input length, so this is not a DoS bound — it is a
+ * sanity bound, and it also keeps a pasted FILE from being submitted as a
+ * passphrase the user can never retype.
+ */
+export const PASSPHRASE_MAX = 1024;
+
 /**
  * #873 — encrypt a plaintext PRIVATE memory (spec 041).
  *
@@ -157,9 +177,9 @@ export const encryptMemorySchema = z
     // defined discriminator from the wrong action.
     _kind: z.literal('encryptMemory').default('encryptMemory'),
     mode: z.enum(['passphrase', 'dataKey']).default('passphrase'),
-    passphrase: z.string().default(''),
-    passphraseConfirm: z.string().default(''),
-    dataKey: z.string().trim().default(''),
+    passphrase: z.string().max(PASSPHRASE_MAX).default(''),
+    passphraseConfirm: z.string().max(PASSPHRASE_MAX).default(''),
+    dataKey: z.string().trim().max(DATA_KEY_MAX).default(''),
     // A one-way act with no recovery path deserves an explicit human moment.
     // Not a dark pattern to satisfy — it is the only thing standing between a
     // mistyped passphrase and permanently unreadable content.
@@ -207,9 +227,6 @@ export const encryptMemorySchema = z
     }
   });
 
-/** Shortest passphrase accepted. Deliberately a floor, not a strength meter. */
-export const PASSPHRASE_MIN = 12;
-
 /**
  * Why a base64 data key is unusable, or null if it is fine.
  *
@@ -220,6 +237,12 @@ export const PASSPHRASE_MIN = 12;
 export function dataKeyProblem(raw: string): string | null {
   const value = raw.trim();
   if (!value) return 'Paste a base64-encoded 32-byte key, or use a passphrase instead.';
+  // Length FIRST, before decoding. A valid key is 44 base64 characters, so
+  // anything past the cap cannot become one — and `atob` on an unbounded
+  // authenticated POST is work the server does on the caller's say-so
+  // (@copilot on #884). The cap is generous rather than exact so the message
+  // stays about the key's size rather than about our parser.
+  if (value.length > DATA_KEY_MAX) return 'Too long to be a 32-byte key.';
   if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return 'Not valid base64.';
   let decoded: Uint8Array;
   try {

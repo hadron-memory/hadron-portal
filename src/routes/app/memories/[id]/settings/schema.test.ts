@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PASSPHRASE_MIN, SCHEMA_JSON_MAX, dataKeyProblem, encryptMemorySchema, memorySchemaSettingsSchema } from './schema';
+import { DATA_KEY_MAX, PASSPHRASE_MAX, PASSPHRASE_MIN, SCHEMA_JSON_MAX, dataKeyProblem, encryptMemorySchema, memorySchemaSettingsSchema } from './schema';
 
 function schemaJsonError(input: { schemaJson: string }): string | undefined {
   const result = memorySchemaSettingsSchema.safeParse(input);
@@ -159,5 +159,34 @@ describe('encryptMemorySchema (#873)', () => {
   it('rejects a bad data key in dataKey mode', () => {
     expect(errorsFor({ mode: 'dataKey', dataKey: 'nope', confirmIrreversible: 'true' }).dataKey)
       .toBeDefined();
+  });
+});
+
+// @copilot on #884 — `dataKeyProblem` called `atob` before any size check, so
+// an authenticated POST could hand the portal arbitrary input to allocate and
+// decode. A valid key is 44 characters, so the cap costs nothing real.
+describe('dataKeyProblem — size before decode (#884)', () => {
+  it('rejects an oversized value without attempting to decode it', () => {
+    expect(dataKeyProblem('A'.repeat(DATA_KEY_MAX + 1))).toBe('Too long to be a 32-byte key.');
+  });
+
+  it('still reaches the 32-byte message for a value inside the cap', () => {
+    // The control that keeps the cap from swallowing the useful error: a
+    // near-miss must still be told what it actually is.
+    const inside = 'A'.repeat(48);
+    expect(inside.length).toBeLessThan(DATA_KEY_MAX);
+    expect(dataKeyProblem(inside)).toMatch(/32 bytes|base64/);
+  });
+
+  it('caps the raw fields in the schema too, so the action never sees a huge body', () => {
+    const tooLong = { mode: 'dataKey' as const, dataKey: 'A'.repeat(DATA_KEY_MAX + 10), confirmIrreversible: 'true' };
+    expect(encryptMemorySchema.safeParse(tooLong).success).toBe(false);
+    const hugePassphrase = {
+      mode: 'passphrase' as const,
+      passphrase: 'x'.repeat(PASSPHRASE_MAX + 1),
+      passphraseConfirm: 'x'.repeat(PASSPHRASE_MAX + 1),
+      confirmIrreversible: 'true',
+    };
+    expect(encryptMemorySchema.safeParse(hugePassphrase).success).toBe(false);
   });
 });

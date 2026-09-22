@@ -4,7 +4,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, extractGqlErrorNoEcho } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
 import {
@@ -464,7 +464,11 @@ export const actions: Actions = {
         scrubSecrets(form),
         {
           type: 'error',
-          text: extractGqlError(
+          // NOT extractGqlError: its transport fallback returns
+          // `Error.message`, and graphql-request packs the VARIABLES into that
+          // — so a 502 would put the passphrase in `form.message.text`, which
+          // scrubbing `form.data` does nothing about (@copilot on #884).
+          text: extractGqlErrorNoEcho(
             e,
             t('memory.encrypt.failed', 'Failed to encrypt this memory'),
           ),
