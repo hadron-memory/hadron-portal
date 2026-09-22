@@ -1091,6 +1091,40 @@ describe('memory-settings `encrypt` action (#873)', () => {
     expect((result as { status?: number }).status).toBe(400);
   });
 
+  /**
+   * A refusal and a LOST RESPONSE are different events (@codex on #884).
+   *
+   * If the mutation committed and its response died on the way back, "Failed
+   * to encrypt this memory" is a confident claim we have not established — on
+   * an operation with no undo, whose key the client clears immediately after.
+   * The same ambiguity the component's `onError` handles on the browser hop,
+   * one hop further in, and it gets the same sentence.
+   */
+  it('reports UNCERTAINTY when the GraphQL response is lost, not a failure', async () => {
+    // A transport error: `response` exists but carries no errors array, which
+    // is what a lost/aborted response looks like to graphql-request.
+    mockRequest.mockRejectedValueOnce(Object.assign(new Error('socket hang up'), { response: undefined }));
+    const actions = await importActions();
+
+    const result = await actions.encrypt(
+      encryptEv({
+        _kind: 'encryptMemory',
+        mode: 'passphrase',
+        passphrase: VALID_PASSPHRASE,
+        passphraseConfirm: VALID_PASSPHRASE,
+        confirmIrreversible: 'true',
+      }),
+    );
+
+    const text = (result as { data?: { form?: { message?: { text?: string } } } }).data?.form?.message?.text ?? '';
+    expect(text).toContain('we cannot tell you whether the encryption completed');
+    expect(text).toContain('Reload this page');
+    // It must NOT claim a failure it has not established.
+    expect(text).not.toBe('Failed to encrypt this memory');
+    // And still no secret in it.
+    expect(JSON.stringify(result)).not.toContain(VALID_PASSPHRASE);
+  });
+
   // The server's verdict is surfaced, not paraphrased: each refusal names the
   // thing to change (the class, the index, the key), and a portal-authored
   // sentence would drift from whichever rule actually fired.
@@ -1162,10 +1196,16 @@ describe('#884 — the error message must not echo the secret either', () => {
 
     const serialised = JSON.stringify(result);
     expect(serialised).not.toContain(VALID_PASSPHRASE);
-    // The control: an error WAS reported, so the assertion above is about a
+    // The control: a message WAS reported, so the assertion above is about a
     // suppressed secret rather than about an absent message.
+    //
+    // It is the UNCERTAINTY text rather than a failure claim, because this
+    // shape — an error with no GraphQL `errors` array — is exactly a lost
+    // response, and the mutation may have committed (@codex on #884). This
+    // assertion used to pin "Failed to encrypt this memory", which is the
+    // claim that finding was about.
     const r = result as { data?: { form?: { message?: { text?: string } } } };
-    expect(r.data?.form?.message?.text).toBe('Failed to encrypt this memory');
+    expect(r.data?.form?.message?.text).toContain('we cannot tell you whether the encryption completed');
   });
 
   // The other half: a real server refusal still reaches the user verbatim.

@@ -177,9 +177,14 @@ export const encryptMemorySchema = z
     // defined discriminator from the wrong action.
     _kind: z.literal('encryptMemory').default('encryptMemory'),
     mode: z.enum(['passphrase', 'dataKey']).default('passphrase'),
-    passphrase: z.string().max(PASSPHRASE_MAX).default(''),
-    passphraseConfirm: z.string().max(PASSPHRASE_MAX).default(''),
-    dataKey: z.string().trim().max(DATA_KEY_MAX).default(''),
+    // Unbounded HERE; the caps are applied per-mode below. A field-level
+    // `.max()` gates the submit regardless of `mode`, so a long value left in
+    // the field the user is NOT using would reject an otherwise valid
+    // submission (@copilot on #884) — and reject it with an error pointing at
+    // a field that is not on screen.
+    passphrase: z.string().default(''),
+    passphraseConfirm: z.string().default(''),
+    dataKey: z.string().trim().default(''),
     // A one-way act with no recovery path deserves an explicit human moment.
     // Not a dark pattern to satisfy — it is the only thing standing between a
     // mistyped passphrase and permanently unreadable content.
@@ -196,6 +201,18 @@ export const encryptMemorySchema = z
     }
 
     if (data.mode === 'passphrase') {
+      // The cap still exists, it just belongs to the mode that reads the
+      // field. A sanity bound rather than a DoS one — scrypt's cost is fixed
+      // by the server's KDF params, not by input length — and it stops a
+      // pasted FILE from becoming a passphrase nobody can retype.
+      if (data.passphrase.length > PASSPHRASE_MAX) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['passphrase'],
+          message: `Use at most ${PASSPHRASE_MAX} characters.`,
+        });
+        return;
+      }
       if (data.passphrase.length < PASSPHRASE_MIN) {
         ctx.addIssue({
           code: 'custom',

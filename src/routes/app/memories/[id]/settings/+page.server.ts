@@ -7,6 +7,7 @@ import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError, extractGqlErrorCode, extractGqlErrorNoEcho } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
+import { encryptMemoryStrings } from '$lib/i18n/encrypt-memory-strings';
 import {
   UPDATE_MEMORY_MUTATION,
   DELETE_MEMORY_MUTATION,
@@ -457,9 +458,21 @@ export const actions: Actions = {
     } catch (e: unknown) {
       // Every precondition is the server's — owner, class='private',
       // not-already-encrypted, and the FR-026 vector-index acknowledgement.
-      // Surfaced verbatim rather than re-worded: each message names the thing
-      // to change, and a paraphrase here would drift from the rule it is
-      // paraphrasing (the portal has no way to know which one fired).
+      // A refusal is surfaced verbatim rather than re-worded: each message
+      // names the thing to change, and a paraphrase here would drift from the
+      // rule it is paraphrasing (the portal has no way to know which fired).
+      //
+      // But a refusal and a LOST RESPONSE are not the same event, and until
+      // #884 both produced "Failed to encrypt this memory" (@codex). If the
+      // mutation committed and its response died on the way back, that
+      // sentence is a confident claim we have not established — on an
+      // operation with no undo, whose key the client is about to clear. The
+      // same ambiguity as the browser→portal hop, one hop further in, and it
+      // needs the same answer.
+      //
+      // `errors[0].message` present ⇒ the server answered ⇒ definite.
+      // Absent ⇒ we never heard ⇒ say so.
+      const refusal = extractGqlErrorNoEcho(e, '');
       return message(
         scrubSecrets(form),
         {
@@ -468,10 +481,7 @@ export const actions: Actions = {
           // `Error.message`, and graphql-request packs the VARIABLES into that
           // — so a 502 would put the passphrase in `form.message.text`, which
           // scrubbing `form.data` does nothing about (@copilot on #884).
-          text: extractGqlErrorNoEcho(
-            e,
-            t('memory.encrypt.failed', 'Failed to encrypt this memory'),
-          ),
+          text: refusal || encryptMemoryStrings.outcomeUnknown(),
         },
         { status: 500 },
       );

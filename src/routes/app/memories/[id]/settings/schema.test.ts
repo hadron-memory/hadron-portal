@@ -178,7 +178,7 @@ describe('dataKeyProblem — size before decode (#884)', () => {
     expect(dataKeyProblem(inside)).toMatch(/32 bytes|base64/);
   });
 
-  it('caps the raw fields in the schema too, so the action never sees a huge body', () => {
+  it('caps each key field in the mode that reads it', () => {
     const tooLong = { mode: 'dataKey' as const, dataKey: 'A'.repeat(DATA_KEY_MAX + 10), confirmIrreversible: 'true' };
     expect(encryptMemorySchema.safeParse(tooLong).success).toBe(false);
     const hugePassphrase = {
@@ -188,5 +188,24 @@ describe('dataKeyProblem — size before decode (#884)', () => {
       confirmIrreversible: 'true',
     };
     expect(encryptMemorySchema.safeParse(hugePassphrase).success).toBe(false);
+  });
+
+  /**
+   * The caps are per-MODE, not per-field (@copilot on #884). As field-level
+   * `.max()` they gated the submit regardless of mode, so an oversized value
+   * left in the field the user is not using rejected an otherwise valid
+   * submission — and pointed the error at an input that is not on screen.
+   */
+  it.each([
+    [
+      'a valid data key alongside an oversized stale passphrase',
+      { mode: 'dataKey' as const, dataKey: btoa('A'.repeat(32)), passphrase: 'x'.repeat(PASSPHRASE_MAX + 50), passphraseConfirm: '', confirmIrreversible: 'true' },
+    ],
+    [
+      'a valid passphrase alongside an oversized stale data key',
+      { mode: 'passphrase' as const, passphrase: 'correct horse battery staple', passphraseConfirm: 'correct horse battery staple', dataKey: 'A'.repeat(DATA_KEY_MAX + 50), confirmIrreversible: 'true' },
+    ],
+  ])('accepts %s', (_what, input) => {
+    expect(encryptMemorySchema.safeParse(input).success).toBe(true);
   });
 });

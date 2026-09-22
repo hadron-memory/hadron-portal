@@ -8,6 +8,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
+  import { encryptMemoryStrings } from '$lib/i18n/encrypt-memory-strings';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
@@ -320,10 +321,9 @@
       // has none. Hence a separate piece of state rather than the message
       // store.
       clearSecretFields();
-      encryptTransportError = t(
-        'memory.encrypt.transport-failed',
-        'The connection failed before we heard back, so we cannot tell you whether the encryption completed. Reload this page: if it now says this memory is encrypted, it worked and the key you entered is the key. If it does not, nothing changed.',
-      );
+      // Shared with the server action, which reaches the identical ambiguity
+      // on the portal→GraphQL hop. One sentence, one place.
+      encryptTransportError = encryptMemoryStrings.outcomeUnknown();
     },
   });
 
