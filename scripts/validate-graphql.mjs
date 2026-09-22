@@ -273,6 +273,27 @@ export function collectCommentTerminated(srcDir = SRC_DIR) {
  * SHAPED LIKE, rather than on what it DOES, is defeated by writing the same
  * thing another way. A document is a document because it parses as one.
  *
+ * ## The marker is not the test — COLLECTION is (#880)
+ *
+ * Widening the violation half without widening the exemption half built a trap.
+ * `extractDocuments` reads `const NAME = /* GraphQL *\/ `…`` and nothing else,
+ * so a marker on an inline document made the warning disappear while the
+ * document stayed invisible to the schema check, the caller cross-check and the
+ * naming rule. The gate pointed at a real problem and then blessed a fix that
+ * fixed nothing — worse than the silence it replaced, because silence at least
+ * did not mislead.
+ *
+ * So the question this asks is **"did the extractor collect it?"**, not "is
+ * there a marker?" — and it asks by RUNNING the extractor rather than by
+ * re-deriving its rule here. Two implementations of one rule is the defect this
+ * gate's own sibling check was written about, and a second copy would drift the
+ * moment either moved. Widen `extractDocuments` and this accepts the new
+ * positions with no edit.
+ *
+ * A document the extractor cannot read is reported either way; `marked` says
+ * which remedy applies, because "add the marker" is wrong advice for a shape no
+ * marker can rescue.
+ *
  * Interpolations are dropped before parsing rather than resolved: this repo's
  * idiom is `${FRAGMENT}` prepended to an operation, and removing it leaves the
  * operation parseable. Resolving them is `resolveInterpolations`' job, and it
@@ -281,6 +302,11 @@ export function collectCommentTerminated(srcDir = SRC_DIR) {
 export function findUnmarkedDocuments(file, text) {
   const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
   const found = [];
+  // The extractor defines the corpus, so it is the authority on whether a
+  // document is in it. Compared on the RAW slice between the backticks, which
+  // is exactly what extractDocuments captures — `node.text` is the cooked
+  // value and would disagree wherever an escape appears.
+  const collected = new Set(extractDocuments(file, text).map((doc) => doc.body));
 
   const visit = (node) => {
     let body = null;
@@ -288,11 +314,12 @@ export function findUnmarkedDocuments(file, text) {
     else if (ts.isTemplateExpression(node)) {
       body = node.head.text + node.templateSpans.map((span) => span.literal.text).join('');
     }
-    if (body !== null && body.trim() !== '') {
-      // The marker sits in the trivia immediately before the backtick — which
-      // is where it lands in every position, not just after a `=`.
-      const trivia = text.slice(node.getFullStart(), node.getStart(source));
-      if (!/\/\*\s*GraphQL\s*\*\//.test(trivia) && isGraphQLDocument(body)) {
+    if (body !== null && body.trim() !== '' && isGraphQLDocument(body)) {
+      const raw = text.slice(node.getStart(source) + 1, node.getEnd() - 1);
+      if (!collected.has(raw)) {
+        // The marker sits in the trivia immediately before the backtick — which
+        // is where it lands in every position, not just after a `=`.
+        const trivia = text.slice(node.getFullStart(), node.getStart(source));
         // A named binding reports its name; an inline document has none, so it
         // is reported by position. Reporting it namelessly is the point — the
         // shapes without a name are exactly the ones that used to escape.
@@ -306,6 +333,7 @@ export function findUnmarkedDocuments(file, text) {
           name,
           file,
           line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+          marked: /\/\*\s*GraphQL\s*\*\//.test(trivia),
         });
       }
     }
@@ -548,7 +576,7 @@ function main(argv) {
           // count is what distinguishes "no violations" from "nothing looked at".
           markedDocuments: marked,
           unmarkedDocuments: unmarked.length,
-          unmarkedFailures: unmarked.map(({ name, file, line }) => ({ name, file, line })),
+          unmarkedFailures: unmarked.map(({ name, file, line, marked }) => ({ name, file, line, marked })),
           routedNodeWrites: doors.routed,
           doorViolations: doors.failures.length,
           doorFailures: doors.failures,
@@ -565,9 +593,16 @@ function main(argv) {
     for (const doc of unmarked) {
       console.error(`✗ ${doc.file}:${doc.line}  ${doc.name}`);
       console.error(
-        '    a GraphQL document with no /* GraphQL */ marker is extracted by ' +
-          'nothing — not the schema check, not the caller check, not the naming ' +
-          'rule. Add the marker (#872).',
+        doc.marked
+          ? // #880: the marker is there and buys nothing, so "add the marker" —
+            // the advice for the other case — would send the author in a circle.
+            '    this GraphQL document carries the marker but sits where ' +
+              'extractDocuments cannot read it, so the schema check, the caller ' +
+              'check and the naming rule still never see it. Bind it to a ' +
+              '`const NAME = /* GraphQL */ `…`` (#880).'
+          : '    a GraphQL document with no /* GraphQL */ marker is extracted by ' +
+              'nothing — not the schema check, not the caller check, not the naming ' +
+              'rule. Add the marker (#872).',
       );
     }
     for (const violation of [...markedShortfall, ...doors.failures]) console.error(`✗ ${violation}`);
@@ -605,8 +640,9 @@ function main(argv) {
       }
       if (unmarked.length > 0) {
         console.error(
-          '  Mark it with /* GraphQL */ so the schema, caller and naming checks ' +
-            'can see it — an unmarked document is validated by nothing.',
+          '  A document the extractor cannot collect is validated by nothing. ' +
+            'The marker is necessary and not sufficient: it must sit on a ' +
+            '`const` binding, which is the only shape extractDocuments reads.',
         );
       }
       if (doors.failures.length > 0) {

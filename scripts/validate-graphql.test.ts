@@ -578,14 +578,40 @@ describe('findUnmarkedDocuments', () => {
     expect(unmarked(code)).toHaveLength(1);
   });
 
-  // The marker still exempts it in those positions — the rule is the marker,
-  // not the shape, in both directions. A widening that could not be satisfied
-  // by marking would just be a ban on writing documents inline.
+  /**
+   * #880 — these two cases asserted the OPPOSITE until Codex caught it, and the
+   * reasoning that produced them sounded right: *"the rule is the marker, not
+   * the shape, in both directions."* True of the violation half. False of the
+   * exemption half, because `extractDocuments` reads `const NAME = …` and
+   * nothing else — so a marker here silenced the gate without collecting the
+   * document, and the gate's advice ("add the marker") led the author in a
+   * circle. **A gate that blesses a non-fix is worse than the silence it
+   * replaced.**
+   *
+   * The test is now COLLECTION, not marking: `marked` only chooses which
+   * remedy is printed.
+   */
   it.each([
     ['inline', 'await client.request(/* GraphQL */ `query A { me { id } }`, vars);'],
     ['as a property', 'const docs = { a: /* GraphQL */ `query B { me { id } }` };'],
-  ])('stays silent on a marked document %s', (_what, code) => {
-    expect(unmarked(code)).toEqual([]);
+    ['as a class property', 'class X { q = /* GraphQL */ `query C { me { id } }`; }'],
+  ])('fails a MARKED document %s, which the extractor still cannot read', (_what, code) => {
+    expect(unmarked(code)).toHaveLength(1);
+    expect(unmarked(code)[0]).toMatchObject({ marked: true });
+  });
+
+  // The invariant the two halves now share, stated directly: a document is
+  // acceptable exactly when extractDocuments collected it. No third state —
+  // which is what "marked but invisible" was.
+  it.each([
+    ['a marked const', 'const Q = /* GraphQL */ `query A { me { id } }`;'],
+    ['a marked export const', 'export const Q = /* GraphQL */ `query A { me { id } }`;'],
+    ['an unmarked const', 'const Q = `query A { me { id } }`;'],
+    ['a marked inline document', 'await client.request(/* GraphQL */ `query A { me { id } }`);'],
+    ['an unmarked inline document', 'await client.request(`query A { me { id } }`);'],
+  ])('accepts %s exactly when the extractor collects it', (_what, code) => {
+    const collected = extractDocuments('test.ts', code).length > 0;
+    expect(unmarked(code).length === 0).toBe(collected);
   });
 
   // Named where a name exists, positional where none does. An inline document
