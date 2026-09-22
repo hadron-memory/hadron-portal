@@ -1121,6 +1121,12 @@ describe('memory-settings `encrypt` action (#873)', () => {
     expect(text).toContain('Reload this page');
     // It must NOT claim a failure it has not established.
     expect(text).not.toBe('Failed to encrypt this memory');
+    // Nor assert the negative (@codex P1): the connection can fail while the
+    // mutation is still running, so a plaintext reading may simply be early.
+    // Saying "nothing changed" there invites discarding the only key to a
+    // memory that is about to be encrypted with it.
+    expect(text).not.toContain('nothing changed');
+    expect(text).toContain('do not discard the key');
     // And still no secret in it.
     expect(JSON.stringify(result)).not.toContain(VALID_PASSPHRASE);
   });

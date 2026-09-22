@@ -275,6 +275,11 @@ describe('#884 — review fixes', () => {
     const html = await renderSettings({ memoryClass: 'private', viewer: STRANGER });
     expect(html).not.toContain(SUBMIT);
     expect(html).toContain('Only this memory’s owner can encrypt it');
+    // No invented rationale. The clause "because only they can hold the key"
+    // was wrong twice over — the server accepts an org App key too, and
+    // anyone can hold a key — and it is the third fabricated reason this
+    // section has had to shed.
+    expect(html).not.toContain('only they can hold the key');
     // Not the class sentence: the memory IS eligible, this viewer is not.
     expect(html).not.toContain(NOT_ELIGIBLE);
   });

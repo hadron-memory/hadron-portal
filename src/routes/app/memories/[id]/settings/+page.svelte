@@ -1064,11 +1064,18 @@
       <!-- Owner-only on the server, and this page is reachable by org admins,
            so the form would otherwise invite a submit that can only be
            refused (@codex on #884). Said rather than hidden, for the same
-           reason as the class case above. -->
+           reason as the class case above.
+
+           No rationale attached, deliberately — and this is the THIRD time in
+           this section that an invented reason had to be removed. It read
+           "because only they can hold the key", which is not the server's
+           rule (it accepts the owner OR an org App key) and not true of keys
+           (anyone can hold one). State what is refused; the server does not
+           explain itself and neither should this. -->
       <p class="text-sm text-zinc-600 dark:text-zinc-400">
         {t(
           'memory.encrypt.owner-only',
-          'Only this memory’s owner can encrypt it, because only they can hold the key.',
+          'Only this memory’s owner can encrypt it.',
         )}
       </p>
     {:else}
