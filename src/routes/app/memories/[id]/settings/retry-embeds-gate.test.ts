@@ -19,6 +19,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import type { Memory } from '$lib/types';
 import {
   deleteMemorySchema,
+  encryptMemorySchema,
   memorySchemaSettingsSchema,
   memorySettingsSchema,
   retryFailedEmbeddingsSchema,
@@ -108,7 +109,7 @@ async function renderSettings(opts: {
     updatedAt: '1789430400000',
   };
 
-  const [form, vectorForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
+  const [form, vectorForm, schemaForm, deleteForm, retryEmbedsForm, encryptForm] = await Promise.all([
     superValidate({}, zod4(memorySettingsSchema), { errors: false }),
     superValidate(
       {
@@ -125,6 +126,10 @@ async function renderSettings(opts: {
     superValidate({ schemaJson: '' }, zod4(memorySchemaSettingsSchema), { errors: false }),
     superValidate({ organizationId: 'org-1' }, zod4(deleteMemorySchema), { errors: false }),
     superValidate({}, zod4(retryFailedEmbeddingsSchema), { errors: false }),
+    // #873 — the page constructs a superForm per loader form, and superForm
+    // throws on undefined rather than degrading, so a fixture missing one
+    // fails every render in the file rather than the assertion about it.
+    superValidate({}, zod4(encryptMemorySchema), { errors: false }),
   ]);
 
   // `graph` above is typed as a full `Memory` deliberately — it is what this
@@ -156,6 +161,7 @@ async function renderSettings(opts: {
         schemaForm,
         deleteForm,
         retryEmbedsForm,
+        encryptForm,
       } as never,
       form: (opts.actionData ?? null) as never,
     },

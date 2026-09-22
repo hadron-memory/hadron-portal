@@ -129,6 +129,110 @@ export const memorySchemaSettingsSchema = z
     }
   });
 
+/**
+ * #873 — encrypt a plaintext PRIVATE memory (spec 041).
+ *
+ * Two key paths, because the server takes exactly one of them:
+ *
+ * - **passphrase** (the default, and the only one most users see) — the server
+ *   derives the key with scrypt and stores salt + params, never the key.
+ * - **dataKey** — base64, 32 bytes, for parity with
+ *   `hadron memory encrypt --data-key`. Behind a disclosure: it is a raw secret
+ *   and a browser form is the worst place to handle one.
+ *
+ * `mode` decides which field is required, so an unused field left populated by
+ * a browser cannot smuggle a second key into the mutation — the server refuses
+ * both-at-once with BAD_USER_INPUT, and the action sends only the one `mode`
+ * names.
+ *
+ * **Neither secret may be echoed back.** superforms returns `form.data` to the
+ * client on every path including `fail(400)`, so the action scrubs both fields
+ * before returning. That is not belt-and-braces: without it a validation error
+ * puts the user's passphrase into the page's form store and any error-reporting
+ * path that serialises the form.
+ */
+export const encryptMemorySchema = z
+  .object({
+    // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+    // defined discriminator from the wrong action.
+    _kind: z.literal('encryptMemory').default('encryptMemory'),
+    mode: z.enum(['passphrase', 'dataKey']).default('passphrase'),
+    passphrase: z.string().default(''),
+    passphraseConfirm: z.string().default(''),
+    dataKey: z.string().trim().default(''),
+    // A one-way act with no recovery path deserves an explicit human moment.
+    // Not a dark pattern to satisfy — it is the only thing standing between a
+    // mistyped passphrase and permanently unreadable content.
+    confirmIrreversible: booleanString.default(false),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.confirmIrreversible) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['confirmIrreversible'],
+        message:
+          'Confirm you understand that encryption cannot be undone and the content cannot be recovered without the key.',
+      });
+    }
+
+    if (data.mode === 'passphrase') {
+      if (data.passphrase.length < PASSPHRASE_MIN) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['passphrase'],
+          message: `Use at least ${PASSPHRASE_MIN} characters.`,
+        });
+        return;
+      }
+      // Checked here rather than only in the browser: a mismatch is the most
+      // likely way to lose a memory's content permanently, and it is the one
+      // error the server cannot detect for us — both halves look like a valid
+      // passphrase to it.
+      if (data.passphrase !== data.passphraseConfirm) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['passphraseConfirm'],
+          message: 'The two passphrases do not match.',
+        });
+      }
+      return;
+    }
+
+    // dataKey mode. The server validates the key too and its verdict is
+    // authoritative; this exists so a typo is a field error rather than a
+    // round trip that reports "failed to encrypt".
+    const error = dataKeyProblem(data.dataKey);
+    if (error) {
+      ctx.addIssue({ code: 'custom', path: ['dataKey'], message: error });
+    }
+  });
+
+/** Shortest passphrase accepted. Deliberately a floor, not a strength meter. */
+export const PASSPHRASE_MIN = 12;
+
+/**
+ * Why a base64 data key is unusable, or null if it is fine.
+ *
+ * The server requires 32 decoded bytes. Checked by DECODING rather than by
+ * counting characters: `'a'.repeat(44)` is 44 characters and decodes to 33
+ * bytes, so a length rule alone accepts keys the server rejects.
+ */
+export function dataKeyProblem(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return 'Paste a base64-encoded 32-byte key, or use a passphrase instead.';
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value)) return 'Not valid base64.';
+  let decoded: Uint8Array;
+  try {
+    decoded = Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
+  } catch {
+    return 'Not valid base64.';
+  }
+  if (decoded.length !== 32) {
+    return `A data key must decode to exactly 32 bytes; this one is ${decoded.length}.`;
+  }
+  return null;
+}
+
 export const deleteMemorySchema = z.object({
   // Defaulted _kind accepts omitted hidden inputs while still rejecting a
   // defined discriminator from the wrong action.
@@ -136,6 +240,7 @@ export const deleteMemorySchema = z.object({
   organizationId: z.string().trim().default(''),
 });
 
+export type EncryptMemorySchema = typeof encryptMemorySchema;
 export type MemorySettingsSchema = typeof memorySettingsSchema;
 export type VectorIndexSettingsSchema = typeof vectorIndexSettingsSchema;
 export type MemorySchemaSettingsSchema = typeof memorySchemaSettingsSchema;
