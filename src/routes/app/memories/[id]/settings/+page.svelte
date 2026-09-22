@@ -1013,7 +1013,7 @@
       <p class="text-sm text-zinc-600 dark:text-zinc-400">
         {t(
           'memory.encrypt.class-not-eligible',
-          'Only private memories can be encrypted. This one is shared, so its content has to stay readable to the people and apps it is shared with.',
+          'Only private memories can be encrypted. Every other kind can be reached by someone other than you — a teammate, an app, an agent — so its content has to stay readable to whoever it is shared with.',
         )}
       </p>
     {:else if !ownerIsViewer}

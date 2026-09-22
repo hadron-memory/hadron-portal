@@ -69,6 +69,10 @@ const SUBMIT = 'Encrypt this memory';
 /** The sentence that names the only workable order. */
 const DISABLE_FIRST = 'Turn off the vector index above before encrypting';
 /** The sentence that explains a refusal rather than hiding it. */
+// The durable half of the sentence. The explanatory clause after it changed
+// once already (it called a PERSONAL memory "shared", which it is not), and a
+// test pinned to the whole paragraph makes honest copy edits look like
+// regressions.
 const NOT_ELIGIBLE = 'Only private memories can be encrypted';
 const ALREADY = 'This memory is encrypted';
 const ONE_WAY = 'This cannot be undone, and it cannot be recovered';
@@ -79,6 +83,13 @@ async function renderSettings(opts: {
   vectorIndexEnabled?: boolean;
   /** Who is looking. Defaults to the memory's owner. */
   viewer?: typeof OWNER;
+  /**
+   * Which key path the form starts on. The default is the schema's
+   * `passphrase`, so a test that wants the DATA KEY input to exist has to say
+   * so — asserting on it without this renders neither the field nor a failure
+   * (@copilot on #884, on a test of mine that claimed to cover it).
+   */
+  mode?: 'passphrase' | 'dataKey';
 }) {
   const graph: Memory = {
     id: 'mem-1',
@@ -134,7 +145,7 @@ async function renderSettings(opts: {
     superValidate({ schemaJson: '' }, zod4(memorySchemaSettingsSchema), { errors: false }),
     superValidate({ organizationId: 'org-1' }, zod4(deleteMemorySchema), { errors: false }),
     superValidate({}, zod4(retryFailedEmbeddingsSchema), { errors: false }),
-    superValidate({}, zod4(encryptMemorySchema), { errors: false }),
+    superValidate({ mode: opts.mode ?? ('passphrase' as const) }, zod4(encryptMemorySchema), { errors: false }),
   ]);
 
   // Envelope cast per the convention in this route's sibling SSR tests: the
@@ -277,13 +288,25 @@ describe('#884 — review fixes', () => {
    * `autocomplete="off"` — which password managers may ignore for a password
    * input, filing a raw key as a site credential (@copilot).
    */
-  it('gives every secret input new-password autocomplete, the data key included', async () => {
-    const html = await renderSettings({ memoryClass: 'private' });
+  /**
+   * My first attempt at this asserted `fields.length >= 2` against the default
+   * (passphrase) mode — where the data-key input does not render at all. It
+   * passed, said "the data key included" in its own name, and a regression to
+   * `autocomplete="off"` on that field would have sailed through it
+   * (@copilot). The fixture now renders each mode explicitly and the count is
+   * exact, so an absent field fails instead of being counted as compliant.
+   */
+  it.each([
+    ['passphrase', 'passphrase' as const, ['passphrase', 'passphraseConfirm']],
+    ['dataKey', 'dataKey' as const, ['dataKey']],
+  ])('gives every secret input in %s mode new-password autocomplete', async (_label, mode, expected) => {
+    const html = await renderSettings({ memoryClass: 'private', mode });
     const fields = html.match(/<input[^>]*name="(?:passphrase|passphraseConfirm|dataKey)"[^>]*>/g) ?? [];
-    // Only the passphrase pair renders in the default mode, so assert on what
-    // is present rather than on a count that depends on the mode.
-    expect(fields.length).toBeGreaterThanOrEqual(2);
-    for (const field of fields) {
+    expect(fields).toHaveLength(expected.length);
+    for (const name of expected) {
+      const field = fields.find((f) => f.includes(`name="${name}"`));
+      expect(field, `${name} input should render in ${mode} mode`).toBeDefined();
+      expect(field).toContain('type="password"');
       expect(field).toContain('autocomplete="new-password"');
     }
     expect(html).not.toContain('autocomplete="off"');
