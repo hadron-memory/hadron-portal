@@ -344,6 +344,16 @@ export function findUnmarkedDocuments(file, text) {
           file,
           line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
           marked: /\/\*\s*GraphQL\s*\*\//.test(trivia),
+          // Would adding the marker actually get this collected? Asked the same
+          // way as everything else here — by running the extractor on the text
+          // that change would produce, rather than by re-deriving its rule.
+          //
+          // It matters because "add the marker" is the advice for the unmarked
+          // case, and on an unmarked INLINE document that advice is wrong: the
+          // author follows it and the document is still uncollected. That is
+          // #880 again, in the diagnostic rather than in the logic — a gate
+          // that prints a remedy which does not remedy (@copilot on #881).
+          markerWouldSuffice: markerWouldCollect(file, text, node.getStart(source)),
         });
       }
     }
@@ -351,6 +361,28 @@ export function findUnmarkedDocuments(file, text) {
   };
   visit(source);
   return found;
+}
+
+/**
+ * Would inserting the marker here get this literal COLLECTED?
+ *
+ * Answered by asking the extractor about the text that edit would produce, so
+ * the extractor stays the single authority on its own rule. Re-deriving "a
+ * `const` binding is the supported shape" as a second predicate is how the two
+ * drift apart, which is the defect this whole check is about.
+ */
+function markerWouldCollect(file, text, backtick) {
+  const MARKER = '/* GraphQL */ ';
+  const patched = text.slice(0, backtick) + MARKER + text.slice(backtick);
+  try {
+    return extractDocuments(file, patched).some(
+      (doc) => doc.bodyStart === backtick + MARKER.length + 1,
+    );
+  } catch {
+    // An unterminated literal elsewhere in the file — the extractor's own
+    // error, which the caller surfaces. Say nothing rather than guess.
+    return false;
+  }
 }
 
 /** Does this text parse as GraphQL AND declare an operation or fragment? */
@@ -586,7 +618,8 @@ function main(argv) {
           // count is what distinguishes "no violations" from "nothing looked at".
           markedDocuments: marked,
           unmarkedDocuments: unmarked.length,
-          unmarkedFailures: unmarked.map(({ name, file, line, marked }) => ({ name, file, line, marked })),
+          unmarkedFailures: unmarked.map(({ name, file, line, marked, markerWouldSuffice }) =>
+            ({ name, file, line, marked, markerWouldSuffice })),
           routedNodeWrites: doors.routed,
           doorViolations: doors.failures.length,
           doorFailures: doors.failures,
@@ -602,17 +635,19 @@ function main(argv) {
     }
     for (const doc of unmarked) {
       console.error(`✗ ${doc.file}:${doc.line}  ${doc.name}`);
+      // The remedy is chosen by what would actually COLLECT the document, not
+      // by whether a marker happens to be present. On an unmarked document in
+      // an unsupported position both are wrong-if-swapped: "add the marker"
+      // leaves it uncollected (#880's own lesson, in the diagnostic).
       console.error(
-        doc.marked
-          ? // #880: the marker is there and buys nothing, so "add the marker" —
-            // the advice for the other case — would send the author in a circle.
-            '    this GraphQL document carries the marker but sits where ' +
-              'extractDocuments cannot read it, so the schema check, the caller ' +
-              'check and the naming rule still never see it. Bind it to a ' +
-              '`const NAME = /* GraphQL */ `…`` (#880).'
-          : '    a GraphQL document with no /* GraphQL */ marker is extracted by ' +
+        doc.markerWouldSuffice
+          ? '    a GraphQL document with no /* GraphQL */ marker is extracted by ' +
               'nothing — not the schema check, not the caller check, not the naming ' +
-              'rule. Add the marker (#872).',
+              'rule. Add the marker (#872).'
+          : '    extractDocuments cannot read a document here' +
+              (doc.marked ? ', marker or not' : '') +
+              ', so the schema check, the caller check and the naming rule never ' +
+              'see it. Bind it to a `const NAME = /* GraphQL */ `…`` (#880).',
       );
     }
     for (const violation of [...markedShortfall, ...doors.failures]) console.error(`✗ ${violation}`);

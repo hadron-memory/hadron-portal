@@ -648,6 +648,31 @@ describe('findUnmarkedDocuments', () => {
     expect(unmarked(code)[0]).toMatchObject({ line: 2, marked: true });
   });
 
+  /**
+   * The REMEDY has to lead to collection (@copilot on #881).
+   *
+   * "Add the marker" is right for an unmarked `const` and wrong for an
+   * unmarked inline document — follow it there and the document is still
+   * uncollected. Keying the advice on `marked` would print exactly that, which
+   * is this PR's own subject reappearing in the diagnostic: a gate naming a
+   * remedy that does not remedy.
+   *
+   * `markerWouldSuffice` answers it by running the extractor over the text the
+   * edit would produce, so no second copy of "a `const` is the supported
+   * shape" exists to drift.
+   */
+  it.each([
+    ['an unmarked const', 'const Q = `query A { me { id } }`;', true],
+    ['an unmarked inline document', 'await client.request(`query A { me { id } }`);', false],
+    ['a marked inline document', 'await client.request(/* GraphQL */ `query A { me { id } }`);', false],
+    ['an unmarked object property', 'const d = { a: `query A { me { id } }` };', false],
+    // `extractDocuments` matches `const` only, so `let` is not marker-fixable
+    // either — the kind of edge a hand-written predicate gets wrong.
+    ['an unmarked let binding', 'let Q = `query A { me { id } }`;', false],
+  ])('says whether marking alone would collect %s', (_what, code, expected) => {
+    expect(unmarked(code)[0]).toMatchObject({ markerWouldSuffice: expected });
+  });
+
   // Named where a name exists, positional where none does. An inline document
   // has no binding to report, and reporting it as `undefined` would read as a
   // bug in the gate rather than as the point.
