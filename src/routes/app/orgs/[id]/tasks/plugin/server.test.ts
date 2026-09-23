@@ -17,7 +17,7 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
-async function post(body: unknown) {
+async function post(body: unknown, token: string | null = 'tok') {
   const { POST } = await import('./+server');
   const res = await POST({
     request: new Request('http://x/app/orgs/org-1/tasks/plugin', {
@@ -25,7 +25,7 @@ async function post(body: unknown) {
       body: typeof body === 'string' ? body : JSON.stringify(body),
     }),
     params: { id: 'org-1' },
-    locals: { token: 'tok' },
+    locals: { token },
   } as never);
   return { status: res.status, body: await res.json() };
 }
@@ -56,6 +56,13 @@ const entry = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('POST /app/orgs/[id]/tasks/plugin', () => {
+  it('refuses an anonymous request before any API call (@copilot on #890)', async () => {
+    route({});
+    const r = await post({ host: 'claudeSkill' }, null);
+    expect(r.status).toBe(401);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('refuses any host but the two declaration keys — including `codex` (#888)', async () => {
     route({});
     for (const host of ['codex', undefined, 'claude']) {

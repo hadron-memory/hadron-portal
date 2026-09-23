@@ -2,7 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
-import { NODE_BY_ID_QUERY, RUNNABLE_NODES_QUERY, ORG_TASK_MEMORY_IDS_QUERY } from '$lib/server/queries';
+import { NODE_EXPORT_READ_QUERY, RUNNABLE_NODES_QUERY, ORG_TASK_MEMORY_IDS_QUERY } from '$lib/server/queries';
 // #868: the write goes through the door chooser; naming a mutation document
 // here directly is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
@@ -83,7 +83,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
  * not localize, so the page maps each code through `t()`. `detail` carries the
  * server's own words where it gave some.
  */
-export type ExportFailure = 'invalid' | 'not-found' | 'not-runnable' | 'divergent' | 'no-door' | 'rejected' | 'failed';
+export type ExportFailure = 'unauthenticated' | 'invalid' | 'not-found' | 'not-runnable' | 'divergent' | 'no-door' | 'rejected' | 'failed';
 
 function exportFail(status: number, nodeId: string, code: ExportFailure, detail?: string) {
   return fail(status, { exportFailed: { nodeId, code, detail: detail ?? null } });
@@ -93,14 +93,24 @@ export const actions: Actions = {
   /**
    * #879 — one row's checkbox. The form carries the node id and the state the
    * user asked for, both LITERALS rendered into the row's own form, so nothing
-   * is written on click (`review:submitted-value-must-not-be-written-on-click`).
+   * is written on click (`hrn:node:hadronmemory.com:hadron-portal:review:submitted-value-must-not-be-written-on-click`).
    *
    * The new properties are computed from a FRESH read, never from the page:
-   * `updateNode` replaces `properties` whole, so writing back the page's copy
-   * would undo any edit made since the list loaded — in another tab, the CLI,
-   * or the node's own edit page.
+   * `updateTaskNode` replaces `properties` whole, so writing back the page's
+   * copy would undo any edit made since the list loaded — in another tab, the
+   * CLI, or the node's own edit page.
+   *
+   * KNOWN GAP (portal#890): a write landing BETWEEN this read and the update is
+   * still lost. The atomic per-host merge exists (`updateNodeProperties`,
+   * server#1227) but is refused on every node this page lists — they are all
+   * runnable, hence governed tasks, and that mutation is the generic door
+   * (measured on server main: ROLE_GOVERNED). Closing it needs a task-door
+   * merge on the server; reported, not worked around here.
    */
   setExport: async ({ request, params, locals }) => {
+    // Actions do not run the /app layout's sign-in redirect, so an anonymous
+    // POST would reach the API with no token. Refused here, explicitly.
+    if (!locals.token) return fail(401, { exportFailed: { nodeId: '', code: 'unauthenticated', detail: null } });
     const form = await request.formData();
     const nodeId = String(form.get('nodeId') ?? '');
     const enableRaw = form.get('enable');
@@ -112,7 +122,7 @@ export const actions: Actions = {
 
     let node: MemoryNode | null;
     try {
-      ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: nodeId }));
+      ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_EXPORT_READ_QUERY, { ref: nodeId }));
     } catch (e: unknown) {
       return exportFail(500, nodeId, 'failed', extractGqlError(e, 'Failed to read the node'));
     }

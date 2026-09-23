@@ -4,7 +4,7 @@
   // ONE FORM PER ROW, and both values it submits are LITERALS rendered from the
   // loader's data: the node id, and the state the click asks for (the opposite
   // of what is stored). Nothing is written on click, so the FormData cannot
-  // carry a stale value (`review:submitted-value-must-not-be-written-on-click`,
+  // carry a stale value (`hrn:node:hadronmemory.com:hadron-portal:review:submitted-value-must-not-be-written-on-click`,
   // #840). The checkbox only submits its own form.
   //
   // The action re-reads the node and computes the write from the STORED
@@ -12,6 +12,7 @@
   import { enhance } from '$app/forms';
   import { SKILL_HOSTS, hostLabel, taskExportNote, type TaskExport } from '$lib/skill-export';
   import { t } from '$lib/i18n/t';
+  import { saveSettled, saveStarted } from '$lib/skill-export-saves.svelte';
 
   interface Props {
     nodeId: string;
@@ -44,6 +45,8 @@
         return t('tasks.export.error.divergent', 'Its hosts are set differently — change them on the node.');
       case 'not-runnable':
         return t('tasks.export.error.not-runnable', 'It is no longer runnable, so it cannot be exported.');
+      case 'unauthenticated':
+        return t('tasks.export.error.unauthenticated', 'Your session has ended — sign in again.');
       case 'not-found':
         return t('tasks.export.error.not-found', 'The task could not be found — reload the page.');
       default:
@@ -70,6 +73,7 @@
     use:enhance={({ formElement }) => {
       pending = true;
       failure = null;
+      saveStarted();
       return async ({ result, update }) => {
         pending = false;
         if (result.type === 'failure') {
@@ -85,7 +89,12 @@
           const box = formElement.querySelector<HTMLInputElement>('input[type="checkbox"]');
           if (box) box.checked = on;
         }
-        await update({ reset: false });
+        try {
+          await update({ reset: false });
+        } finally {
+          // After the reload, not before: the download must see the new state.
+          saveSettled();
+        }
       };
     }}
   >

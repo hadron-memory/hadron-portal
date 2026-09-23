@@ -105,3 +105,43 @@ describe('isBundleHost', () => {
     expect(isBundleHost(undefined)).toBe(false);
   });
 });
+
+describe('planBundle — the server\'s export plan (@copilot on #890)', () => {
+  it('reports a skip with NO error finding in the plan\'s own words', () => {
+    const b = planBundle(
+      [entry({
+        renderedBody: null,
+        class: 'unavailable',
+        exportPlan: { action: 'SKIP', reasons: [{ code: 'unavailable', message: 'Its memory is locked.' }] },
+      })],
+      'claudeSkill',
+      'Acme',
+    );
+    expect(b.skipped).toEqual([{ name: 'drive-pr-home', urn: entry().urn, reasons: ['Its memory is locked.'] }]);
+  });
+
+  it('does not repeat a reason that is both a finding and a plan reason', () => {
+    const b = planBundle(
+      [entry({
+        renderedBody: null,
+        findings: [{ rule: 'x', severity: 'error', message: 'same words' }],
+        exportPlan: { action: 'FAIL', reasons: [{ code: 'x', message: 'same words' }] },
+      })],
+      'codexSkill',
+      'Acme',
+    );
+    expect(b.skipped[0].reasons).toEqual(['same words']);
+  });
+
+  it('ships a body only when the plan says WRITE', () => {
+    const b = planBundle(
+      [entry({ exportPlan: { action: 'REFUSE', reasons: [{ code: 'r', message: 'refused' }] } })],
+      'codexSkill',
+      'Acme',
+    );
+    expect(b.files).toEqual({});
+    expect(b.skipped[0].reasons).toEqual(['refused']);
+    const ok = planBundle([entry({ exportPlan: { action: 'WRITE', reasons: [] } })], 'codexSkill', 'Acme');
+    expect(Object.keys(ok.files)).toEqual(['drive-pr-home/SKILL.md']);
+  });
+});

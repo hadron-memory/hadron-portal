@@ -12,20 +12,22 @@
  *
  * ## Why every function here takes and returns the WHOLE properties bag
  *
- * hadron-server#1227: `updateNodeProperties` merges exactly ONE level
- * (`{ ...existing, ...patch }`), and D12 made `exports` two. A client that
- * patches one host writes `{ exports: { claudeSkill: … } }`, the shallow merge
- * replaces the whole `exports` value, and **every sibling host declaration is
- * destroyed** — silently, because nothing errors and the only symptom is a
- * skill that stops exporting for a host nobody touched.
- *
- * Since #878 the portal writes TWO hosts itself (`claudeSkill` and `codex`),
- * so a sibling is no longer hypothetical: it is the other half of every
- * declaration this editor makes.
+ * hadron-server#1227 was FIXED on the server: `updateNodeProperties` now
+ * applies `exports` as a JSON Merge Patch under a per-node lock, so two
+ * clients toggling different hosts both land. The portal CANNOT use it for
+ * skills, though, and the reason is structural: a skill exports only from a
+ * RUNNABLE node, a runnable node is a governed `task`, and
+ * `updateNodeProperties` writes through the generic door, which refuses any
+ * edit to a governed node (`assertGovernedWrite`, "edits"). The atomic merge
+ * is unreachable for exactly the nodes whose `exports` matter. Reported for
+ * the server (portal#890); until a task-door equivalent exists, the only write
+ * available is `updateTaskNode` with the WHOLE bag.
  *
  * So these helpers never produce a patch. They read the whole bag and return
- * the whole bag, and the edit page submits it entire. Read-modify-write is not
- * a precaution here; it is the only shape that cannot lose a sibling.
+ * the whole bag, computed from the freshest read the caller can make.
+ * Read-modify-write is not a preference here: it is the only write the door
+ * allows, and it keeps every sibling host and property the read saw. What it
+ * cannot do is protect a concurrent writer between the read and the write.
  */
 
 import { t } from '$lib/i18n/t';
@@ -477,7 +479,7 @@ export function hostLabel(host: string): string {
 /**
  * The note a Task Nodes row renders beside (or instead of) its checkbox — and
  * therefore also what the grid's search must match for that row
- * (`review:everything-the-cell-renders-must-be-searchable`). ONE function for
+ * (`hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable`). ONE function for
  * both, so the cell and the filter cannot say different things. Empty for the
  * ordinary rows, which render a bare checkbox.
  */

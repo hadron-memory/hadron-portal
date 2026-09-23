@@ -3,9 +3,10 @@
  *
  * CLIENT lane because what matters is the FormData a real submission carries,
  * and a server render never builds one
- * (`review:submitted-value-must-not-be-written-on-click`). Each row is its own
- * form whose two values are literals from the loader — so the assertions read
- * `new FormData(form)` after a microtask, never an input's `.value`.
+ * (`hrn:node:hadronmemory.com:hadron-portal:review:submitted-value-must-not-be-written-on-click`).
+ * Each row is its own form whose two values are literals from the loader — so
+ * the assertions read `new FormData(form)` after a microtask, never an input's
+ * `.value`.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';

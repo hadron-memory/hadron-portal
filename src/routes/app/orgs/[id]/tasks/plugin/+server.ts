@@ -23,6 +23,9 @@ import type { RequestHandler } from './$types';
  * layout (`planBundle`).
  */
 export const POST: RequestHandler = async ({ request, params, locals }) => {
+  // A +server.ts does not run the /app layout's sign-in redirect; refuse an
+  // anonymous request here rather than let it reach the API tokenless.
+  if (!locals.token) return json({ code: 'UNAUTHENTICATED', message: 'sign in required' }, { status: 401 });
   const body = (await request.json().catch(() => null)) as { host?: unknown } | null;
   const host = body?.host;
   if (!isBundleHost(host)) return json({ code: 'invalid-host' }, { status: 400 });

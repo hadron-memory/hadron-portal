@@ -44,6 +44,13 @@ export interface PlanEntry {
   name: string;
   class: string | null;
   renderedBody: string | null;
+  /**
+   * The server's planned action and its display-ready reasons. The reasons
+   * are what explain a SKIP or FAIL that carries no error finding — a locked
+   * memory, a name collision — so the report can say why without the portal
+   * recreating server policy.
+   */
+  exportPlan?: { action: string; reasons: Array<{ code: string; message: string }> } | null;
   findings: Array<{ rule: string; severity: string; message: string }>;
 }
 
@@ -114,7 +121,14 @@ export function planBundle(
   for (const e of wanted) nameCount.set(e.name, (nameCount.get(e.name) ?? 0) + 1);
 
   for (const e of wanted) {
-    const errors = e.findings.filter((f) => f.severity === 'error').map((f) => f.message);
+    // The server's own words first: error findings, then the export plan's
+    // reasons (deduplicated — a finding can also be the plan's reason).
+    const errors = [
+      ...new Set([
+        ...e.findings.filter((f) => f.severity === 'error').map((f) => f.message),
+        ...(e.exportPlan?.action && e.exportPlan.action !== 'WRITE' ? e.exportPlan.reasons.map((r) => r.message) : []),
+      ]),
+    ];
     if (!validSkillName(e.name)) {
       skipped.push({ name: e.name, urn: e.urn, reasons: [...errors, t('skill-bundle.skip.invalid-name', '"{name}" is not a valid skill name.', { name: e.name })] });
       continue;
@@ -123,7 +137,9 @@ export function planBundle(
       skipped.push({ name: e.name, urn: e.urn, reasons: [...errors, t('skill-bundle.skip.duplicate-name', 'Another task is also named "{name}".', { name: e.name })] });
       continue;
     }
-    if (!e.renderedBody) {
+    // A body is written only when the server both rendered one AND planned a
+    // WRITE; a body beside any other planned action is not ours to ship.
+    if (!e.renderedBody || (e.exportPlan && e.exportPlan.action !== 'WRITE')) {
       skipped.push({
         name: e.name,
         urn: e.urn,

@@ -13,7 +13,7 @@
  * happened to return nothing for this fixture.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NODE_BY_ID_QUERY, ORG_TASK_MEMORY_IDS_QUERY, RUNNABLE_NODES_QUERY } from '$lib/server/queries';
+import { NODE_EXPORT_READ_QUERY, ORG_TASK_MEMORY_IDS_QUERY, RUNNABLE_NODES_QUERY } from '$lib/server/queries';
 import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 
 const mockRequest = vi.fn();
@@ -133,13 +133,13 @@ async function importActions() {
   return (await import('./+page.server')).actions;
 }
 
-function actionEv(fields: Record<string, string>, orgId = 'org-1') {
+function actionEv(fields: Record<string, string>, orgId = 'org-1', token: string | null = 'tok') {
   const body = new FormData();
   for (const [k, v] of Object.entries(fields)) body.set(k, v);
   return {
     request: new Request('http://x/app/orgs/org-1/tasks?/setExport', { method: 'POST', body }),
     params: { id: orgId },
-    locals: { token: 'tok' },
+    locals: { token },
   } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['setExport']>[0];
 }
 
@@ -159,7 +159,7 @@ const storedTask = (over: Record<string, unknown> = {}) => ({
 function routeAction(opts: { node?: unknown; memories?: Array<{ id: string }>; writeError?: unknown }) {
   const writes: Array<[string, unknown]> = [];
   mockRequest.mockImplementation(async (query: string, vars: unknown) => {
-    if (query === NODE_BY_ID_QUERY) return { node: opts.node ?? null };
+    if (query === NODE_EXPORT_READ_QUERY) return { node: opts.node ?? null };
     if (query === ORG_TASK_MEMORY_IDS_QUERY) {
       return { organization: { id: 'org-1', memories: opts.memories ?? [{ id: 'mem-1' }] } };
     }
@@ -171,6 +171,14 @@ function routeAction(opts: { node?: unknown; memories?: Array<{ id: string }>; w
 }
 
 describe('setExport action — #879', () => {
+  it('refuses an anonymous POST before any API call (@copilot on #890)', async () => {
+    routeAction({ node: storedTask() });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }, 'org-1', null));
+    expect(out).toMatchObject({ status: 401, data: { exportFailed: { code: 'unauthenticated' } } });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
   it('checking writes BOTH hosts, from the FRESH read, through the node-kind door', async () => {
     const node = storedTask();
     const writes = routeAction({ node });

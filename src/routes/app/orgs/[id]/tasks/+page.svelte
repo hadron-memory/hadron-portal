@@ -41,7 +41,9 @@
     })),
   );
 
-  const checkedCount = $derived(rows.filter((r) => r.export.kind === 'on').length);
+  const checked = $derived(
+    rows.flatMap((r) => (r.export.kind === 'on' ? [{ name: r.name, urn: r.urn, hosts: r.export.hosts }] : [])),
+  );
 
   // Checked rows first when sorted ascending; the rest in a stable order.
   const EXPORT_RANK: Record<TaskExport['kind'], number> = { on: 0, divergent: 1, off: 2, none: 3 };
@@ -52,8 +54,8 @@
     {
       // #879. The accessor is the NOTE the cell renders ("Differs per host",
       // "Claude only") — the only text in that cell, so it is exactly what the
-      // search box can find (`review:everything-the-cell-renders-must-be-
-      // searchable`). A bare checkbox renders no text and matches nothing.
+      // search box can find
+      // (`hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable`). A bare checkbox renders no text and matches nothing.
       // Sorting is by state, not by that text.
       id: 'export',
       accessorFn: (row) => taskExportNote(row.export),
@@ -111,7 +113,7 @@
       </p>
     {/if}
 
-    <SkillBundleDownload orgId={org?.id ?? ''} {checkedCount} />
+    <SkillBundleDownload orgId={org?.id ?? ''} {checked} truncated={data.truncated} shown={rows.length} />
 
     <DataTable
       {table}
