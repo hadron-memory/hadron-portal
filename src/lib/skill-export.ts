@@ -34,15 +34,16 @@ import { t } from '$lib/i18n/t';
 export const CLAUDE_SKILL_HOST = 'claudeSkill';
 
 /**
- * #878 — the Codex host key.
+ * #878 / #888 — the Codex host key: `codexSkill`, the pair of `claudeSkill`.
  *
- * The server shape-checks every key under `exports` but only JUDGES
- * `claudeSkill`, so a `codex` entry is carried rather than validated until a
- * Codex renderer exists. The portal writes it so that one checkbox means
- * "export this skill", not "export it for one host" — a declaration is
- * per-host (D12), so exporting everywhere means declaring everywhere.
+ * #887 shipped `codex`, which no host recognizes: server#1254/#1280 and
+ * cli#622 all declare `exports.codexSkill`, so the checkbox showed "for Claude
+ * and Codex" while Codex silently never got the skill (Eli's measurement on
+ * #888). A declaration is per-host (D12), so one checkbox that exports
+ * everywhere declares under EVERY host key — and the key is the contract, so
+ * the literal payload is pinned in `skill-export.test.ts` against #888.
  */
-export const CODEX_HOST = 'codex';
+export const CODEX_HOST = 'codexSkill';
 
 /** Every host one checkbox declares, in display order. */
 export const SKILL_HOSTS: readonly string[] = [CLAUDE_SKILL_HOST, CODEX_HOST];

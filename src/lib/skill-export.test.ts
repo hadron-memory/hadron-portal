@@ -275,14 +275,26 @@ describe('a declaration this form cannot represent is left alone', () => {
  * entries that disagree into one the user was never shown.
  */
 describe('the host keys', () => {
+  it('writes EXACTLY the #888 cross-repo payload (portal, server#1254, cli#621 pin the same literal)', () => {
+    // The literal, not the constant: a rename on either side must break a
+    // test here, which asserting CODEX_HOST === CODEX_HOST never would.
+    const value = enableSkillExport(null, { name: 'hadron-demo', description: 'Use when demoing.' });
+    expect(writeSkillExport({}, value)).toEqual({
+      exports: {
+        claudeSkill: { name: 'hadron-demo', description: 'Use when demoing.', enable: true },
+        codexSkill: { name: 'hadron-demo', description: 'Use when demoing.', enable: true },
+      },
+    });
+  });
+
   it('declares both hosts, Claude first', () => {
-    expect(CODEX_HOST).toBe('codex');
-    expect(SKILL_HOSTS).toEqual(['claudeSkill', 'codex']);
+    expect(CODEX_HOST).toBe('codexSkill');
+    expect(SKILL_HOSTS).toEqual(['claudeSkill', 'codexSkill']);
   });
 });
 
 const both = (d: { name: string; description: string; enable: boolean }) => ({
-  exports: { claudeSkill: { ...d }, codex: { ...d } },
+  exports: { claudeSkill: { ...d }, codexSkill: { ...d } },
 });
 
 describe('readSkillExport', () => {
@@ -300,15 +312,15 @@ describe('readSkillExport', () => {
 
   it('reads two agreeing hosts as one declaration on both', () => {
     const r = readSkillExport(both(decl()));
-    expect(r.value).toEqual({ declaration: decl(), hosts: ['claudeSkill', 'codex'] });
+    expect(r.value).toEqual({ declaration: decl(), hosts: ['claudeSkill', 'codexSkill'] });
   });
 
   it.each([
-    ['names differ', { exports: { claudeSkill: decl(), codex: decl({ name: 'other' }) } }],
-    ['descriptions differ', { exports: { claudeSkill: decl(), codex: decl({ description: 'x' }) } }],
-    ['one is off', { exports: { claudeSkill: decl(), codex: decl({ enable: false }) } }],
-    ['codex is malformed', { exports: { claudeSkill: decl(), codex: 'yes' } }],
-    ['codex has a wrongly-typed field', { exports: { claudeSkill: decl(), codex: { name: 42 } } }],
+    ['names differ', { exports: { claudeSkill: decl(), codexSkill: decl({ name: 'other' }) } }],
+    ['descriptions differ', { exports: { claudeSkill: decl(), codexSkill: decl({ description: 'x' }) } }],
+    ['one is off', { exports: { claudeSkill: decl(), codexSkill: decl({ enable: false }) } }],
+    ['codex is malformed', { exports: { claudeSkill: decl(), codexSkill: 'yes' } }],
+    ['codex has a wrongly-typed field', { exports: { claudeSkill: decl(), codexSkill: { name: 42 } } }],
     ['an entry carries a key this form does not edit', { exports: { claudeSkill: { ...decl(), arguments: ['x'] } } }],
   ])('reports DIVERGENT when %s', (_what, props) => {
     expect(readSkillExport(props)).toEqual({ value: null, divergent: true });
@@ -332,7 +344,7 @@ describe('withoutSkillExport / writeSkillExport', () => {
   });
 
   it('leaves a DIVERGENT bag whole — the raw editor owns it', () => {
-    const props = { exports: { claudeSkill: decl(), codex: decl({ name: 'other' }) } };
+    const props = { exports: { claudeSkill: decl(), codexSkill: decl({ name: 'other' }) } };
     expect(withoutSkillExport(props)).toEqual(props);
   });
 
@@ -357,7 +369,7 @@ describe('enableSkillExport — what checking the box does', () => {
   it('starts an absent export ON, for every host, with the defaults', () => {
     expect(enableSkillExport(null, defaults)).toEqual({
       declaration: { name: 'from-loc', description: 'From the node. Use when X.', enable: true },
-      hosts: ['claudeSkill', 'codex'],
+      hosts: ['claudeSkill', 'codexSkill'],
     });
   });
 
@@ -381,7 +393,7 @@ describe('enableSkillExport — what checking the box does', () => {
 
   it('widens a Claude-only declaration to every host — checking is the explicit act', () => {
     const off = { declaration: decl({ enable: false }), hosts: ['claudeSkill'] };
-    expect(enableSkillExport(off, defaults).hosts).toEqual(['claudeSkill', 'codex']);
+    expect(enableSkillExport(off, defaults).hosts).toEqual(['claudeSkill', 'codexSkill']);
   });
 });
 
