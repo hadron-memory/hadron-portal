@@ -144,6 +144,22 @@
     // re-open a section for B's OWN errors (@copilot on #887).
     storageOpen = false;
     skillOpen = false;
+    // The superForm store is seeded ONCE from node A's loader data too, and
+    // its other two fields ride the same POST: A's `objectType` would render
+    // on B and be saved onto it, and A's `isRunnable: true` would post through
+    // the hidden input and silently make B runnable (@codex on #887). Reseeded
+    // here explicitly, as the detail page's metadata form does, rather than
+    // relying on superForm to resync on a navigation — the harness cannot
+    // show that it does, and this write costs nothing if it does.
+    // `propertiesJson` is rebuilt by the recombination effect below.
+    formData.update(
+      (current) => ({
+        ...current,
+        objectType: node.objectType ?? '',
+        isRunnable: node.isRunnable ?? false,
+      }),
+      { taint: false },
+    );
     seededFor = id;
   });
 

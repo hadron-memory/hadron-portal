@@ -483,3 +483,24 @@ describe('the editor’s own panel on a node-to-node navigation (@copilot on #88
     }
   });
 });
+
+describe('the superForm fields on a node-to-node navigation (@codex on #887)', () => {
+  it('node B gets its OWN objectType and isRunnable, not node A’s', async () => {
+    // A is a runnable `thing`; B is an ordinary untyped node. Before the fix
+    // B rendered A's object type and posted A's isRunnable: true.
+    const m = await mountPage({ id: 'a', objectType: 'thing', isRunnable: true });
+    try {
+      const objectType = () => (m.target.querySelector('#objectType') as HTMLInputElement).value;
+      expect(objectType()).toBe('thing');
+      expect(submittedRunnable(m.target)).toBe('true');
+
+      (m.props as { data: unknown }).data = await dataFor({ id: 'b', isRunnable: false });
+      flushSync();
+
+      expect(objectType()).toBe('');
+      expect(submittedRunnable(m.target)).toBe('false');
+    } finally {
+      m.unmount();
+    }
+  });
+});
