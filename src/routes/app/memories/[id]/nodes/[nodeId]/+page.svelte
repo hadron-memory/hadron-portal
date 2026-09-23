@@ -1088,10 +1088,14 @@
   }
 
   let copiedProperties = $state(false);
+  // Copies WHAT IS SHOWN (@codex on #893): the persisted bag in Rendered, the
+  // draft in Source — the stale-save refusal tells the user to copy their
+  // edit, and copying the stored value instead would lose it on reload.
   async function copyProperties() {
-    if (!hasProperties) return;
+    const text = showPropertiesSource ? propertiesDraft.text : propertiesString;
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(propertiesString);
+      await navigator.clipboard.writeText(text);
       copiedProperties = true;
       setTimeout(() => (copiedProperties = false), 2000);
     } catch {
@@ -2313,7 +2317,11 @@
     <!-- ═══ PROPERTIES TAB (#518, typed table #588) — read-only structured metadata ═══ -->
     {#if activeTab === 'properties'}
       <div class="flex items-center justify-between">
-        <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+        <div
+          role="group"
+          aria-label={t('node.properties.view-toggle', 'Properties view')}
+          class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
+        >
           <button
             type="button"
             aria-pressed={!showPropertiesSource}
@@ -2327,8 +2335,13 @@
             onclick={() => (showPropertiesSource = true)}
           >{t('node.properties.source', 'Source')}</button>
         </div>
-        {#if hasProperties}
-          <button onclick={copyProperties} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('node.properties.copy', 'Copy properties')} aria-label={t('node.properties.copy', 'Copy properties')}>
+        {#if hasProperties || showPropertiesSource}
+          <button
+            onclick={copyProperties}
+            class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            title={showPropertiesSource ? t('node.properties.copy-draft', 'Copy this JSON') : t('node.properties.copy', 'Copy properties')}
+            aria-label={showPropertiesSource ? t('node.properties.copy-draft', 'Copy this JSON') : t('node.properties.copy', 'Copy properties')}
+          >
             {#if copiedProperties}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
             {:else}
