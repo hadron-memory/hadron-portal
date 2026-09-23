@@ -47,8 +47,17 @@ function stubEndpoint(body: Record<string, unknown>) {
 
 const buttons = (t: HTMLElement) => [...t.querySelectorAll<HTMLButtonElement>('button')];
 
-async function settle() {
-  for (let i = 0; i < 5; i++) await tick();
+/**
+ * Wait for the REPORT, not for a number of ticks. The stubbed fetch → json()
+ * chain takes a different number of microtasks on a slower runner, and a fixed
+ * count passed locally while CI still read "Preparing…" (#890). Waiting on the
+ * report also keeps the NEGATIVE assertion below honest: without it, "not
+ * listed" passes on a report that never rendered.
+ */
+async function reportRendered(target: HTMLElement) {
+  await vi.waitFor(() => {
+    if (!target.querySelector('[role="status"]')) throw new Error('report not rendered yet');
+  });
 }
 
 describe('SkillBundleDownload — a checked task the host never judges (@codex on #890)', () => {
@@ -62,7 +71,7 @@ describe('SkillBundleDownload — a checked task the host never judges (@codex o
     });
     const { target } = panel({ orgId: 'org-1', checked: [both, claudeOnly] });
     buttons(target).find((b) => b.textContent?.includes('Codex'))!.click();
-    await settle();
+    await reportRendered(target);
     const text = target.textContent ?? '';
     expect(text).toContain('Checked, but not exported for Codex (1)');
     expect(text).toContain('Solo task');
@@ -81,7 +90,9 @@ describe('SkillBundleDownload — a checked task the host never judges (@codex o
     });
     const { target } = panel({ orgId: 'org-1', checked: [both, claudeOnly] });
     buttons(target).find((b) => b.textContent?.includes('Claude'))!.click();
-    await settle();
+    await reportRendered(target);
+    // Reached the matcher: the report IS there, and it names the included skills.
+    expect(target.textContent).toContain('Skills in it: 2');
     expect(target.textContent).not.toContain('not exported for');
   });
 });
