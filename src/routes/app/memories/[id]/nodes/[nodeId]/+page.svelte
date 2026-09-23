@@ -1,5 +1,7 @@
 <script lang="ts">
   import { invalidateAll, goto } from '$app/navigation';
+  import { parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
+  import { PropertiesDraft, submitPropertiesDraft, syncDraftWith } from '$lib/properties-draft.svelte';
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -958,8 +960,9 @@
   // ── Properties (#518, typed table #588) ─────────────────────────────────
   // Node.properties is structured key-value metadata — server-set provenance
   // (properties.url / .title from the write seam) or, with a memory schema
-  // (#725), the node's typed record. Read-only here; authoring lives on the
-  // edit page's Structured storage section.
+  // (#725), the node's typed record. The Source view below (#886) edits the
+  // whole bag as JSON; the edit page's Structured storage section keeps the
+  // typed-field editor, the object type and the skill-export checkbox.
   const hasProperties = $derived(node.properties != null);
   const propertiesString = $derived(hasProperties ? JSON.stringify(node.properties, null, 2) : '');
   const highlightedProperties = $derived(hasProperties ? highlightJson(propertiesString) : []);
@@ -992,11 +995,121 @@
       .map((name) => ({ name, type: '', required: false, declared: false, value: props[name], present: true }));
     return [...declared, ...extras];
   });
-  let copiedProperties = $state(false);
-  async function copyProperties() {
-    if (!hasProperties) return;
+  // ── #886: Properties — Rendered | Source, like Content / Abstract / Data ──
+  // Source edits the WHOLE bag as JSON on any node. On a typed node that is
+  // the only way to edit a key the collection does not declare (`exports`
+  // among them): the edit page's typed editor can only delete one.
+  let showPropertiesSource = $state(false);
+  let savingProperties = $state(false);
+  let propertiesSaveError = $state<string | null>(null);
+
+  // The draft and WHEN it re-seeds (see properties-draft.svelte.ts): a new
+  // node always, an unrelated reload never — saving Content/Abstract/Data
+  // calls invalidateAll(), and that must not discard an unsaved Source edit
+  // (@codex on #893).
+  const propertiesDraft = new PropertiesDraft();
+  syncDraftWith(propertiesDraft, () => node);
+  // Seed (pretty-print + canonicalize) only when Source is actually opened —
+  // never on page load (@codex on #893).
+  $effect(() => {
+    if (showPropertiesSource) untrack(() => propertiesDraft.ensureSeeded());
+  });
+
+  const propertiesParse = $derived(parsePropertiesSource(propertiesDraft.text));
+  const propertiesDirty = $derived(
+    propertiesParse.ok ? !sameProperties(propertiesParse.value, node.properties) : true,
+  );
+
+  function propertiesSourceErrorText(code: string, detail?: string | null): string {
+    switch (code) {
+      case 'empty':
+        return t('node.properties.source.empty', 'Enter a JSON object — {} removes every property.');
+      case 'too-large':
+        return t('node.properties.source.too-large', 'Too large to save here ({kb} KB max).', { kb: PROPERTIES_MAX / 1024 });
+      case 'unsafe-number':
+        return t(
+          'node.properties.source.unsafe-number',
+          'The number {number} cannot be stored exactly — JSON numbers are 64-bit floats, so it would be saved rounded. Quote it as a string to keep it as written.',
+          { number: detail ?? '' },
+        );
+      case 'duplicate-key':
+        return t(
+          'node.properties.source.duplicate-key',
+          'The key "{key}" appears twice in one object — only the last would be kept.',
+          { key: detail ?? '' },
+        );
+      case 'too-deep':
+        return t('node.properties.source.too-deep', 'Nested more than {max} levels deep — too deep to store here.', { max: PROPERTIES_MAX_DEPTH });
+      case 'not-object':
+        return t('node.properties.source.not-object', 'Properties must be a JSON object: {"key": "value"}.');
+      case 'invalid-json':
+        return detail ?? t('node.properties.source.invalid', 'Invalid JSON.');
+      case 'changed':
+        return t(
+          'node.properties.source.changed',
+          'These properties were changed since you opened the editor. Copy your edit, reload, and apply it again — saving now would undo that change.',
+        );
+      case 'not-found':
+        return t('node.properties.source.not-found', 'This node no longer exists.');
+      case 'unauthenticated':
+        return t('node.properties.source.unauthenticated', 'Your session has ended — sign in again.');
+      default:
+        // `rejected` (a memory-schema verdict), `no-door`, `failed`: the
+        // server's own words say more than a paraphrase.
+        return detail ?? t('node.properties.source.failed', 'The properties could not be saved.');
+    }
+  }
+
+  // Each save is tagged; the per-node reset (#251 block) bumps the counter, so
+  // a save still in flight when the page moves to another node — or when a
+  // newer save starts — cannot touch the editor it no longer belongs to.
+  let propertiesSaveSeq = 0;
+
+  async function saveProperties() {
+    if (!propertiesParse.ok || !propertiesDirty || savingProperties) return;
+    // Everything the save depends on is captured HERE, before the first await
+    // (@codex on #893): the node, its ABSOLUTE action URL, the text and the
+    // baseline. A relative URL resolved after navigation would write node A's
+    // draft to node B.
+    const originId = node.id;
+    const seq = ++propertiesSaveSeq;
+    const url = `${basePath}/nodes/${originId}?/updateProperties`;
+    const text = propertiesDraft.text;
+    const baseline = propertiesDraft.baseline;
+    const stillOurs = () => seq === propertiesSaveSeq && node.id === originId;
+
+    savingProperties = true;
+    propertiesSaveError = null;
     try {
-      await navigator.clipboard.writeText(propertiesString);
+      const result = await submitPropertiesDraft({ url, text, baseline });
+      if (!stillOurs()) return;
+      if (result.ok) {
+        await invalidateAll();
+        if (!stillOurs()) return;
+        // Our own save: start over from what is stored now. The draft's sync
+        // would KEEP a dirty buffer over a changed bag — right for someone
+        // else's change, wrong for this one.
+        propertiesDraft.reseed(node);
+        showPropertiesSource = false;
+      } else {
+        propertiesSaveError = propertiesSourceErrorText(result.code, result.detail);
+      }
+    } catch {
+      if (stillOurs()) propertiesSaveError = propertiesSourceErrorText('failed');
+    } finally {
+      if (seq === propertiesSaveSeq) savingProperties = false;
+    }
+  }
+
+  let copiedProperties = $state(false);
+  // Copies WHAT IS SHOWN (@codex on #893): the persisted bag in Rendered, the
+  // draft in Source — the stale-save refusal tells the user to copy their
+  // edit, and copying the stored value instead would lose it on reload.
+  async function copyProperties() {
+    const text = showPropertiesSource ? propertiesDraft.text : propertiesString;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
       copiedProperties = true;
       setTimeout(() => (copiedProperties = false), 2000);
     } catch {
@@ -1446,6 +1559,14 @@
       showSource = false;
       showAbstractSource = false;
       showDataSource = false;
+      // #886 (@copilot on #893): the Properties Source view is one of these
+      // and was missed — left open, node B opened straight into its editor.
+      showPropertiesSource = false;
+      propertiesSaveError = null;
+      // A save still in flight for the previous node no longer owns this
+      // editor: invalidate it, and do not leave the new node's editor locked.
+      propertiesSaveSeq++;
+      savingProperties = false;
       confirmDelete = false;
       editingEdges = false;
       isEditing = false;
@@ -2213,69 +2334,162 @@
 
     <!-- ═══ PROPERTIES TAB (#518, typed table #588) — read-only structured metadata ═══ -->
     {#if activeTab === 'properties'}
-      <!-- #588: typed view when the node's objectType names a declared
-           collection — declared fields (with type + required markers) first,
-           then any extra keys. The raw JSON view below stays authoritative. -->
-      {#if typedPropertyRows.length > 0}
-        <div class="mt-3 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-zinc-200 bg-zinc-50 text-left text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-                <th class="px-3 py-2 font-medium">{t('node.properties.col-field', 'Field')}</th>
-                <th class="px-3 py-2 font-medium">{t('node.properties.col-type', 'Type')}</th>
-                <th class="px-3 py-2 font-medium">{t('node.properties.col-value', 'Value')}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each typedPropertyRows as row (row.name)}
-                <tr class="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
-                  <td class="px-3 py-2 font-mono text-xs text-zinc-700 dark:text-zinc-300">
-                    {row.name}{#if row.required}<span class="text-red-500" title={t('node.properties.required', 'Required')}>*</span>{/if}
-                  </td>
-                  <td class="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
-                    {#if row.declared}{row.type}{:else}<span class="italic">{t('node.properties.undeclared', 'not declared')}</span>{/if}
-                  </td>
-                  <td class="px-3 py-2 font-mono text-xs text-zinc-900 dark:text-white">
-                    {#if !row.present}
-                      <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{row.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—')}</span>
-                    {:else if typeof row.value === 'object'}
-                      {JSON.stringify(row.value)}
-                    {:else}
-                      {String(row.value)}
-                    {/if}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
+      <div class="flex items-center justify-between">
+        <div
+          role="group"
+          aria-label={t('node.properties.view-toggle', 'Properties view')}
+          class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
+        >
+          <button
+            type="button"
+            aria-pressed={!showPropertiesSource}
+            class="px-2 py-1 text-xs {!showPropertiesSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+            onclick={() => (showPropertiesSource = false)}
+          >{t('node.properties.rendered', 'Rendered')}</button>
+          <button
+            type="button"
+            aria-pressed={showPropertiesSource}
+            class="px-2 py-1 text-xs {showPropertiesSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
+            onclick={() => (showPropertiesSource = true)}
+          >{t('node.properties.source', 'Source')}</button>
         </div>
-      {/if}
-      {#if hasProperties}
-        <div class="flex items-center justify-end">
-          <button onclick={copyProperties} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={t('node.properties.copy', 'Copy properties')}>
+        {#if hasProperties || showPropertiesSource}
+          <button
+            onclick={copyProperties}
+            class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            title={showPropertiesSource ? t('node.properties.copy-draft', 'Copy this JSON') : t('node.properties.copy', 'Copy properties')}
+            aria-label={showPropertiesSource ? t('node.properties.copy-draft', 'Copy this JSON') : t('node.properties.copy', 'Copy properties')}
+          >
             {#if copiedProperties}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
             {:else}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
             {/if}
           </button>
+        {/if}
+      </div>
+      {#if showPropertiesSource}
+        <!-- #886: the whole bag as JSON — typed fields, undeclared keys and the
+             skill export alike. Saving replaces the bag with exactly this. -->
+        {#if propertiesDraft.unavailable}
+          <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+            {t(
+              'node.properties.source.unavailable',
+              'This node’s properties are nested too deeply to show or edit as text here.',
+            )}
+          </p>
+        {:else}
+        <div class="mt-3">
+          <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+            {t(
+              'node.properties.source.hint',
+              'Saving replaces all of this node’s properties with exactly this JSON — typed fields and the skill export included.',
+            )}
+          </p>
+          <!-- Read-only while a save is in flight (@codex on #893): the save
+               re-seeds from what was stored, so text typed after the click
+               would be discarded without a word. -->
+          <textarea
+            use:autosize={propertiesDraft.text}
+            aria-label={t('node.properties.source.aria', 'Properties as JSON')}
+            aria-invalid={!propertiesParse.ok}
+            aria-describedby="properties-source-status"
+            class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {propertiesParse.ok ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
+            spellcheck="false"
+            readonly={savingProperties}
+            aria-busy={savingProperties}
+            bind:value={propertiesDraft.text}
+          ></textarea>
+          <div class="mt-2 flex items-center justify-between gap-3">
+            <div id="properties-source-status" class="text-xs">
+              {#if !propertiesParse.ok}
+                <span class="text-red-500">{propertiesSourceErrorText(propertiesParse.code, propertiesParse.detail)}</span>
+              {:else}
+                <span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  {t('node.properties.source.valid', 'Valid JSON object')}
+                </span>
+              {/if}
+            </div>
+            <button
+              type="button"
+              onclick={saveProperties}
+              disabled={savingProperties || !propertiesParse.ok || !propertiesDirty}
+              class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            >{savingProperties ? t('node.properties.source.saving', 'Saving…') : t('node.properties.source.save', 'Save')}</button>
+          </div>
+          {#if propertiesSaveError}
+            <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{propertiesSaveError}</p>
+          {/if}
         </div>
-        <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedProperties as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
-      {:else if typedPropertyRows.length === 0}
-        <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-          <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.properties.empty', 'No properties. Node.properties holds structured key-value metadata (often server-set, e.g. source URL or title).')}</p>
+        {/if}
+      {:else}
+        <!-- #588: typed view when the node's objectType names a declared
+             collection — declared fields (with type + required markers) first,
+             then any extra keys. The raw JSON view below stays authoritative. -->
+        {#if typedPropertyRows.length > 0}
+          <div class="mt-3 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-zinc-200 bg-zinc-50 text-left text-xs text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+                  <th class="px-3 py-2 font-medium">{t('node.properties.col-field', 'Field')}</th>
+                  <th class="px-3 py-2 font-medium">{t('node.properties.col-type', 'Type')}</th>
+                  <th class="px-3 py-2 font-medium">{t('node.properties.col-value', 'Value')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each typedPropertyRows as row (row.name)}
+                  <tr class="border-b border-zinc-100 last:border-0 dark:border-zinc-800/60">
+                    <td class="px-3 py-2 font-mono text-xs text-zinc-700 dark:text-zinc-300">
+                      {row.name}{#if row.required}<span class="text-red-500" title={t('node.properties.required', 'Required')}>*</span>{/if}
+                    </td>
+                    <td class="px-3 py-2 text-xs text-zinc-500 dark:text-zinc-400">
+                      {#if row.declared}{row.type}{:else}<span class="italic">{t('node.properties.undeclared', 'not declared')}</span>{/if}
+                    </td>
+                    <td class="px-3 py-2 font-mono text-xs text-zinc-900 dark:text-white">
+                      {#if !row.present}
+                        <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{row.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—')}</span>
+                      {:else if typeof row.value === 'object'}
+                        {JSON.stringify(row.value)}
+                      {:else}
+                        {String(row.value)}
+                      {/if}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+        {#if hasProperties}
+          <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedProperties as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
+        {:else}
+          <!-- Gated on the FACT (no properties), not on the typed table being
+               empty: an empty TYPED node still renders the schema's rows, and
+               gating on those hid the way in (@copilot on #893). -->
+          <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
+            {#if typedPropertyRows.length === 0}
+              <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.properties.empty', 'No properties. Node.properties holds structured key-value metadata (often server-set, e.g. source URL or title).')}</p>
+            {/if}
+            <button
+              type="button"
+              onclick={() => (showPropertiesSource = true)}
+              class="{typedPropertyRows.length === 0 ? 'mt-3 ' : ''}rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+            >{t('node.properties.empty-cta', 'Add properties')}</button>
+          </div>
+        {/if}
+        <!-- #588: the edit page holds the typed-field editor, the object type
+             and the skill-export checkbox; raw JSON is the Source view above
+             (#886). #878: a button labelled "Edit" rather than a link.
+             It stays an <a> because it navigates; the label names the action
+             and the tab it sits on names the object. -->
+        <div class="mt-3">
+          <a
+            href="{basePath}/nodes/{node.id}/edit"
+            class="inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >{t('node.properties.edit', 'Edit')}</a>
         </div>
       {/if}
-      <!-- #588: authoring lives on the edit page (object type, properties and
-           skill export). #878: a button labelled "Edit" rather than a link.
-           It stays an <a> because it navigates; the label names the action
-           and the tab it sits on names the object. -->
-      <div class="mt-3">
-        <a
-          href="{basePath}/nodes/{node.id}/edit"
-          class="inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >{t('node.properties.edit', 'Edit')}</a>
-      </div>
     {/if}
 
     <!-- ═══ FLOW TAB (#478) ═══ -->

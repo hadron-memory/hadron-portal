@@ -8,14 +8,14 @@
   // click to change the defaults, but that's optional."
   //
   // So checking the box does everything: it switches the export on for every
-  // host (`claudeSkill` and `codex` — a declaration is per-host, D12), fills an
+  // host (`claudeSkill` and `codexSkill` — a declaration is per-host, D12), fills an
   // empty name and description with defaults, and marks the node Runnable,
   // which the server requires of any skill. The fields are behind a link.
   //
   // ## This component owns the skill hosts under `exports`, nothing else
   //
   // The page splits the properties bag: this editor gets the `claudeSkill` and
-  // `codex` entries (as one `SkillExport`), the PropertiesEditor gets the rest,
+  // `codexSkill` entries (as one `SkillExport`), the PropertiesEditor gets the rest,
   // and the page recombines before submit. Two editors bound to one serialized
   // string would clobber each other. The write path is read-modify-write of the
   // WHOLE bag — see `skill-export.ts` and hadron-server#1227.

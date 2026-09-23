@@ -7,11 +7,12 @@ import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { NODE_BY_ID_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 // #868: every node write on this page goes through the door chooser. The
 // mutation documents are deliberately NOT imported here — naming one directly
 // is what `scripts/check-node-write-doors.mjs` fails.
-import { assertNodeUpdateDoor, nodeUpdateDocument } from '$lib/server/nodeKindDoor';
+import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
+import { isFingerprint, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
@@ -720,6 +721,75 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
     }
+  },
+
+  /**
+   * #886 — the Properties tab's Source view: the WHOLE `properties` bag as
+   * JSON, on any node (typed collections included, where the typed editor can
+   * only delete an undeclared key such as `exports`).
+   *
+   * Replaces the bag whole — `updateTaskNode`/`updateNode` are the only doors a
+   * runnable node has, and #1227's atomic merge is refused on it
+   * (hrn:node:hadronmemory.com:hadron-portal:findings:atomic-exports-merge-refused-on-task-nodes).
+   * So the form also posts a fingerprint of the bag it was OPENED with
+   * (`baseline`), and a save is refused when the stored bag no longer matches: a Source view left open
+   * while someone ticked a skill-export box, or ran the CLI, must not silently
+   * put back what they changed. It narrows the race to the read-to-write
+   * window; closing that is server#1291.
+   *
+   * Failures are CODES (the page localizes them) plus the server's own words
+   * where it gave some — a strict collection's refusal must reach the user
+   * verbatim.
+   */
+  updateProperties: async ({ request, params, locals }) => {
+    // Actions do not run the /app layout's sign-in redirect.
+    if (!locals.token) return fail(401, { propertiesFailed: { code: 'unauthenticated', detail: null } });
+    const fd = await request.formData();
+    const parsed = parsePropertiesSource(String(fd.get('properties') ?? ''));
+    if (!parsed.ok) return fail(400, { propertiesFailed: { code: parsed.code, detail: parsed.detail ?? null } });
+
+    // The FINGERPRINT of the bag the editor opened on, not a second copy of it:
+    // two copies of a bag at the cap overran the body limit (@codex on #893).
+    const baseline = fd.get('baseline');
+    if (!isFingerprint(baseline)) {
+      // Without it the stale check cannot run, and a save that cannot tell
+      // whether it overwrites someone is refused rather than guessed.
+      return fail(400, { propertiesFailed: { code: 'no-baseline', detail: null } });
+    }
+
+    const client = gqlClient(locals.token);
+    let node: MemoryNode | null;
+    try {
+      ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_PROPERTIES_READ_QUERY, { ref: params.nodeId }));
+    } catch (e: unknown) {
+      return fail(500, { propertiesFailed: { code: 'failed', detail: extractGqlError(e, 'Failed to read the node') } });
+    }
+    if (!node) return fail(404, { propertiesFailed: { code: 'not-found', detail: null } });
+
+    if ((await propertiesFingerprint(node.properties)) !== baseline) {
+      return fail(409, { propertiesFailed: { code: 'changed', detail: null } });
+    }
+    if (sameProperties(node.properties, parsed.value)) return { propertiesSaved: true };
+
+    // ONLY properties: an omitted field is preserved, and no governance signal
+    // is touched, so the door is the node's current kind (#868).
+    const input = { memoryId: node.memoryId, loc: node.loc, properties: parsed.value };
+    try {
+      assertNodeUpdateDoor(node, input);
+      await client.request(nodeUpdateDocument(node, input), { input });
+    } catch (e: unknown) {
+      if (e instanceof NoNodeDoorError) {
+        return fail(409, { propertiesFailed: { code: 'no-door', detail: e.message } });
+      }
+      const detail = extractGqlError(e, 'Failed to save');
+      // #588: a memory-schema verdict (strict collection, wrong type, missing
+      // required field) — the server's words, verbatim.
+      if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
+        return fail(400, { propertiesFailed: { code: 'rejected', detail } });
+      }
+      return fail(500, { propertiesFailed: { code: 'failed', detail } });
+    }
+    return { propertiesSaved: true };
   },
 
   // Flow tab (#478 phase 2): structured editors for data.extractionSpec and

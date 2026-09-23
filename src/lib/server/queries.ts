@@ -2608,16 +2608,17 @@ export const RESOLVE_URN_QUERY = /* GraphQL */ `
 // raw: true — #485, see NODE_QUERY above: the node detail page is the
 // content EDITOR; it must round-trip the template source verbatim.
 /**
- * #879 — the fresh read behind the Task Nodes export checkbox: exactly what the
- * action decides on, and nothing it does not. `role` and `isRunnable` are the
+ * #879 / #886 — the fresh read behind a whole-`properties` write (the Task Nodes
+ * export checkbox, the node page's Properties Source editor): exactly what
+ * those actions decide on, and nothing they do not. `role` and `isRunnable` are the
  * two governance signals `nodeUpdateDocument` routes on, so both MUST be
  * selected (a read without them routes a governed node through the generic
  * door and is refused); `properties` is the bag the write replaces whole.
  * NODE_BY_ID_QUERY would also decrypt and ship the node's content, abstract,
  * edges and asset for a write that touches none of them.
  */
-export const NODE_EXPORT_READ_QUERY = /* GraphQL */ `
-  query NodeExportRead($ref: ID!) {
+export const NODE_PROPERTIES_READ_QUERY = /* GraphQL */ `
+  query NodePropertiesRead($ref: ID!) {
     node(ref: $ref, raw: true) {
       id
       memoryId

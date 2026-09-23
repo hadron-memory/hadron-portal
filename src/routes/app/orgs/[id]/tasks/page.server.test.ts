@@ -13,7 +13,7 @@
  * happened to return nothing for this fixture.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NODE_EXPORT_READ_QUERY, ORG_TASK_MEMORY_IDS_QUERY, RUNNABLE_NODES_QUERY } from '$lib/server/queries';
+import { NODE_PROPERTIES_READ_QUERY, ORG_TASK_MEMORY_IDS_QUERY, RUNNABLE_NODES_QUERY } from '$lib/server/queries';
 import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 
 const mockRequest = vi.fn();
@@ -159,7 +159,7 @@ const storedTask = (over: Record<string, unknown> = {}) => ({
 function routeAction(opts: { node?: unknown; memories?: Array<{ id: string }>; writeError?: unknown }) {
   const writes: Array<[string, unknown]> = [];
   mockRequest.mockImplementation(async (query: string, vars: unknown) => {
-    if (query === NODE_EXPORT_READ_QUERY) return { node: opts.node ?? null };
+    if (query === NODE_PROPERTIES_READ_QUERY) return { node: opts.node ?? null };
     if (query === ORG_TASK_MEMORY_IDS_QUERY) {
       return { organization: { id: 'org-1', memories: opts.memories ?? [{ id: 'mem-1' }] } };
     }
