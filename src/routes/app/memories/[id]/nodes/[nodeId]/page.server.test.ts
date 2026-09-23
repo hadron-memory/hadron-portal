@@ -1124,6 +1124,10 @@ describe('node-detail action — updateData', () => {
       data: null, isRunnable: null, role: null, ...over,
     },
   });
+  // Data's fingerprint is STRICT about null (@codex on #896): absent data and
+  // `{}` are different states, so the page posts, and the action checks,
+  // with nullIsEmpty: false.
+  const dataFp = (v: unknown) => jsonFingerprint(v, { nullIsEmpty: false });
   const failed = (r: unknown) => (r as { status: number; data: { dataFailed: { code: string; detail: string | null } } });
 
   it('sends the parsed value through the door (tags + node.memoryId preserved)', async () => {
@@ -1133,7 +1137,7 @@ describe('node-detail action — updateData', () => {
     const actions = await importActions();
     const out = await actions.updateData(actionEvent({
       gid: 'mem-A', nodeId: 'pk',
-      form: { data: '{"version":"0.0.1"}', baseline: await jsonFingerprint(null) },
+      form: { data: '{"version":"0.0.1"}', baseline: await dataFp(null) },
     }));
     expect(out).toEqual({ dataSaved: true });
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
@@ -1147,7 +1151,7 @@ describe('node-detail action — updateData', () => {
       mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
       const actions = await importActions();
       const out = await actions.updateData(actionEvent({
-        gid: 'mem-A', nodeId: 'pk', form: { data, baseline: await jsonFingerprint(null) },
+        gid: 'mem-A', nodeId: 'pk', form: { data, baseline: await dataFp(null) },
       }));
       expect(out).toEqual({ dataSaved: true });
     }
@@ -1161,7 +1165,7 @@ describe('node-detail action — updateData', () => {
     ['a duplicate key', '{"a": 1, "a": 2}', 'duplicate-key'],
   ])('refuses %s with a code, before any GraphQL call', async (_what, data, code) => {
     const actions = await importActions();
-    const out = await actions.updateData(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data, baseline: await jsonFingerprint(null) } }));
+    const out = await actions.updateData(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data, baseline: await dataFp(null) } }));
     expect(failed(out).status).toBe(400);
     expect(failed(out).data.dataFailed.code).toBe(code);
     expect(mockRequest).not.toHaveBeenCalled();
@@ -1171,7 +1175,7 @@ describe('node-detail action — updateData', () => {
     const big = JSON.stringify({ blob: '語'.repeat(100_000) }); // ~100K chars, ~300 KB
     expect(big.length).toBeLessThan(262144);
     const actions = await importActions();
-    const out = await actions.updateData(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data: big, baseline: await jsonFingerprint(null) } }));
+    const out = await actions.updateData(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data: big, baseline: await dataFp(null) } }));
     expect(failed(out).data.dataFailed.code).toBe('too-large');
     expect(mockRequest).not.toHaveBeenCalled();
   });
@@ -1187,7 +1191,7 @@ describe('node-detail action — updateData', () => {
     mockRequest.mockResolvedValueOnce(dataNode({ data: { extractionSpec: { fields: [] } } }));
     const actions = await importActions();
     const out = await actions.updateData(actionEvent({
-      gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":1}', baseline: await jsonFingerprint(null) },
+      gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":1}', baseline: await dataFp(null) },
     }));
     expect(failed(out).status).toBe(409);
     expect(failed(out).data.dataFailed.code).toBe('changed');
@@ -1198,14 +1202,14 @@ describe('node-detail action — updateData', () => {
     mockRequest.mockResolvedValueOnce(dataNode({ data: { b: 1, a: 2 } }));
     const actions = await importActions();
     expect(await actions.updateData(actionEvent({
-      gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":2,"b":1}', baseline: await jsonFingerprint({ b: 1, a: 2 }) },
+      gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":2,"b":1}', baseline: await dataFp({ b: 1, a: 2 }) },
     }))).toEqual({ dataSaved: true });
     expect(mockRequest).toHaveBeenCalledTimes(1);
 
     mockRequest.mockReset();
     mockRequest.mockResolvedValueOnce(dataNode({ data: null }));
     mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
-    await actions.updateData(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data: '{}', baseline: await jsonFingerprint(null) } }));
+    await actions.updateData(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data: '{}', baseline: await dataFp(null) } }));
     expect(mockRequest).toHaveBeenCalledTimes(2);
   });
 
@@ -1213,7 +1217,7 @@ describe('node-detail action — updateData', () => {
     mockRequest.mockResolvedValueOnce({ node: null });
     const actions = await importActions();
     const out = await actions.updateData(actionEvent({
-      gid: 'mem-A', nodeId: 'missing', form: { data: '{"a":1}', baseline: await jsonFingerprint(null) },
+      gid: 'mem-A', nodeId: 'missing', form: { data: '{"a":1}', baseline: await dataFp(null) },
     }));
     expect(failed(out).status).toBe(404);
     expect(failed(out).data.dataFailed.code).toBe('not-found');
@@ -1226,7 +1230,7 @@ describe('node-detail action — updateData', () => {
     }));
     const actions = await importActions();
     const out = await actions.updateData(actionEvent({
-      gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":1}', baseline: await jsonFingerprint(null) },
+      gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":1}', baseline: await dataFp(null) },
     }));
     expect(failed(out).status).toBe(500);
     expect(failed(out).data.dataFailed).toEqual({ code: 'failed', detail: 'Memory is locked' });
@@ -1234,11 +1238,23 @@ describe('node-detail action — updateData', () => {
 
   it('an anonymous POST is refused before any API call', async () => {
     const actions = await importActions();
-    const ev = actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data: '{}', baseline: await jsonFingerprint(null) } });
+    const ev = actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data: '{}', baseline: await dataFp(null) } });
     (ev as unknown as { locals: { token: string | null } }).locals.token = null;
     const out = await actions.updateData(ev);
     expect(failed(out).status).toBe(401);
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('refuses a stale save after another editor wrote `{}` over ABSENT data — null and {} are not one state here', async () => {
+    // Both editors opened on no data; the other one saved {} first.
+    mockRequest.mockResolvedValueOnce(dataNode({ data: {} }));
+    const actions = await importActions();
+    const out = await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'pk', form: { data: '[1]', baseline: await dataFp(null) },
+    }));
+    expect(failed(out).status).toBe(409);
+    expect(failed(out).data.dataFailed.code).toBe('changed');
+    expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 });
 

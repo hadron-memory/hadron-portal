@@ -292,7 +292,8 @@
 
   // An absent value opens on nothing: `Node.data` may be any JSON value, so
   // there is no neutral default to offer the way `{}` is for properties.
-  const dataDraft = new JsonDraft('');
+  // Absent data and `{}` are DIFFERENT states (@codex on #896).
+  const dataDraft = new JsonDraft('', { nullIsEmpty: false });
   syncDraftWith(dataDraft, () => ({ id: node.id, value: node.data }));
   $effect(() => {
     if (showDataSource) untrack(() => dataDraft.ensureSeeded());

@@ -273,8 +273,13 @@ export function sameProperties(a: unknown, b: unknown): boolean {
  * portal is served over HTTPS, and localhost counts) and Node ≥ 19 provide as
  * `globalThis.crypto`, so the page and the action run the SAME code.
  */
-export async function jsonFingerprint(value: unknown): Promise<string> {
-  const canonical = canonicalJson(value == null ? {} : value);
+export async function jsonFingerprint(value: unknown, opts: { nullIsEmpty?: boolean } = {}): Promise<string> {
+  // `nullIsEmpty` (the default) is the PROPERTIES rule: the server stores
+  // either for an empty bag, so they are one state. For DATA they are not —
+  // `{}` over absent data is a real change — and collapsing them let a stale
+  // save pass the guard after another editor had written `{}` (@codex on
+  // #896). Callers for data pass `nullIsEmpty: false`.
+  const canonical = canonicalJson(opts.nullIsEmpty === false ? (value ?? null) : value == null ? {} : value);
   const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }

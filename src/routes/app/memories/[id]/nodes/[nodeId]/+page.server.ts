@@ -710,7 +710,9 @@ export const actions: Actions = {
     }
     if (!node) return fail(404, { dataFailed: { code: 'not-found', detail: null } });
 
-    if ((await jsonFingerprint(node.data)) !== baseline) {
+    // Strict about null (@codex on #896): `{}` written over absent data by
+    // another editor must read as a change here, as it does in the no-op check.
+    if ((await jsonFingerprint(node.data, { nullIsEmpty: false })) !== baseline) {
       return fail(409, { dataFailed: { code: 'changed', detail: null } });
     }
     // A no-op writes nothing. Compared by value, key order aside, and WITHOUT

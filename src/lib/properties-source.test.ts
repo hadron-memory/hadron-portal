@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   canonicalJson,
   isFingerprint,
+  jsonFingerprint,
   parseDataSource,
   parsePropertiesSource,
   propertiesFingerprint,
@@ -214,5 +215,14 @@ describe('parseDataSource — the Data tab (#894)', () => {
     expect(parseDataSource('['.repeat(PROPERTIES_MAX_DEPTH + 1) + ']'.repeat(PROPERTIES_MAX_DEPTH + 1))).toEqual({ ok: false, code: 'too-deep' });
     expect(parseDataSource('[1.234567890123456789]')).toEqual({ ok: false, code: 'unsafe-number', detail: '1.234567890123456789' });
     expect(parseDataSource('{"k": 1, "k": 2}')).toEqual({ ok: false, code: 'duplicate-key', detail: 'k' });
+  });
+});
+
+describe('jsonFingerprint — the null rule per field (@codex on #896)', () => {
+  it('collapses null and {} by default (properties), keeps them apart when strict (data)', async () => {
+    expect(await jsonFingerprint(null)).toBe(await jsonFingerprint({}));
+    expect(await jsonFingerprint(null, { nullIsEmpty: false })).not.toBe(await jsonFingerprint({}, { nullIsEmpty: false }));
+    // Any non-null value fingerprints the same in both modes.
+    expect(await jsonFingerprint([1], { nullIsEmpty: false })).toBe(await jsonFingerprint([1]));
   });
 });

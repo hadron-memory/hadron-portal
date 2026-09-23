@@ -251,4 +251,29 @@ describe('displayJson — the one serializer for STORED values (@copilot on #896
     expect(displayJson(deep(20_000))).toBeNull();
     expect(displayJson(deep(20_000), { compact: true })).toBeNull();
   });
+
+  it('posts the DATA baseline strict about null — absent data is not the fingerprint of {} (@codex on #896)', async () => {
+    const calls: Array<{ body: FormData }> = [];
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      calls.push({ body: init.body as FormData });
+      return new Response(JSON.stringify({ type: 'success', status: 200 }));
+    }) as unknown as typeof fetch;
+    await submitJsonDraft({ url: '/m/nodes/a?/updateData', field: 'data', text: '[1]', baseline: null, fetchImpl });
+    expect(calls[0].body.get('baseline')).toBe(await propertiesFingerprint(null, { nullIsEmpty: false }));
+    expect(calls[0].body.get('baseline')).not.toBe(await propertiesFingerprint({}));
+  });
+});
+
+describe('a data draft keeps absent and {} apart (@codex on #896)', () => {
+  it('a clean data draft over absent data re-seeds when another editor writes {}', async () => {
+    const draft = new JsonDraft('', { nullIsEmpty: false });
+    const m = mountComponent(Harness, reactiveProps<Props>({ draft, node: { id: 'd', value: null } }));
+    mounted.push(m);
+    await tick();
+    draft.ensureSeeded();
+    expect(draft.text).toBe('');
+    draft.sync({ id: 'd', value: {} });
+    expect(draft.text).toBe('{}');
+    expect(draft.baseline).toEqual({});
+  });
 });

@@ -89,8 +89,21 @@ export class JsonDraft {
    */
   #pending = true;
 
-  /** @param emptyText what an absent value opens on — `{}` for properties, '' for data. */
-  constructor(private readonly emptyText: string) {}
+  /**
+   * @param emptyText what an absent value opens on — `{}` for properties, '' for data.
+   * @param nullIsEmpty whether an absent value and `{}` are the SAME state —
+   *   true for properties (the server stores either for an empty bag), false
+   *   for data, where `{}` over no data is a real change (@codex on #896).
+   */
+  constructor(
+    private readonly emptyText: string,
+    private readonly opts: { nullIsEmpty: boolean } = { nullIsEmpty: true },
+  ) {}
+
+  /** The comparable form of a stored value, under this field's null rule. */
+  #canon(value: unknown): string {
+    return canonicalJson(this.opts.nullIsEmpty ? (value ?? {}) : (value ?? null));
+  }
 
   get dirty(): boolean {
     return !this.#pending && this.text !== this.#seededText;
@@ -103,7 +116,7 @@ export class JsonDraft {
       this.reseed(src);
       return;
     }
-    const canon = canonicalJson(src.value ?? {});
+    const canon = this.#canon(src.value);
     if (canon === this.#baselineCanon) return; // an unrelated reload
     if (!this.dirty) {
       // Changed underneath, nothing typed yet: show the new value.
@@ -127,7 +140,7 @@ export class JsonDraft {
   ensureSeeded(): void {
     if (!this.#pending) return;
     this.#pending = false;
-    this.#baselineCanon = canonicalJson(this.baseline ?? {});
+    this.#baselineCanon = this.#canon(this.baseline);
     const text = seedText(this.baseline, this.emptyText);
     this.unavailable = text === null;
     this.text = text ?? '';
@@ -178,7 +191,9 @@ export async function submitJsonDraft(opts: {
 }): Promise<SubmitResult> {
   const fd = new FormData();
   fd.set(opts.field, opts.text);
-  fd.set('baseline', await jsonFingerprint(opts.baseline));
+  // The field's null rule, matching the action's: properties treat absent and
+  // `{}` as one state, data does not (@codex on #896).
+  fd.set('baseline', await jsonFingerprint(opts.baseline, { nullIsEmpty: opts.field === 'properties' }));
   const res = await (opts.fetchImpl ?? fetch)(opts.url, {
     method: 'POST',
     body: fd,
