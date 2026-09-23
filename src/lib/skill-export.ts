@@ -259,8 +259,8 @@ function slugify(source: string): string {
  * #878 — the name a freshly checked export starts with.
  *
  * The loc's LAST segment first, because that is what a node is already called
- * in its tree (`tasks:drive-pr-home` → `drive-pr-home`) and is usually
- * kebab-case already; then the node name. Either is reduced to the server's
+ * in its tree (a loc whose last segment is drive-pr-home gives
+ * `drive-pr-home`) and is usually kebab-case already; then the node name. Either is reduced to the server's
  * grammar, so the default is a name the server accepts — a default the user
  * then has to fix is not a default.
  */
