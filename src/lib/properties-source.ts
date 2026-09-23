@@ -15,7 +15,16 @@
  */
 export const PROPERTIES_MAX = 262144;
 
-export type PropertiesSourceError = 'empty' | 'too-large' | 'invalid-json' | 'not-object' | 'unsafe-number';
+export type PropertiesSourceError = 'empty' | 'too-large' | 'invalid-json' | 'not-object' | 'unsafe-number' | 'too-deep';
+
+/**
+ * Deepest nesting the Source view accepts. Far past any real properties bag
+ * (the deepest in the corpus is `exports.<host>.<field>`, three), and far
+ * short of the depth at which the recursive canonicalization behind the stale
+ * check would overflow the stack (@codex on #893: a few thousand levels fit
+ * under the size cap and crashed the page).
+ */
+export const PROPERTIES_MAX_DEPTH = 64;
 
 /** The byte length the request will actually carry. */
 export function utf8Length(s: string): number {
@@ -41,22 +50,28 @@ function decimalKey(literal: string): string | null {
   return `${sign}${digits}e${e}`;
 }
 
-/**
- * The first number literal in `raw` that JSON cannot carry back EXACTLY — or
- * null. A JSON number becomes a 64-bit float, so `1e400` turns into Infinity
- * (sent as `null`), an integer past 2^53 is rounded, and so is a fraction with
- * more precision than a double holds (`1.234567890123456789`) or one that
- * underflows (`1e-400`). In every case the editor would call the text valid and
- * save a different bag (@codex on #893, twice).
- *
- * Checked per TOKEN of the source, not per parsed value: a parsed value has
- * already lost what it lost, so only the literal can say whether its double
- * represents it exactly. Values are compared, not spellings — `1.0`, `1e2` and
- * `0.10` pass. `raw` must already be valid JSON; strings are skipped whole.
- */
 const NUMBER_AT = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
 
-export function inexactNumber(raw: string): string | null {
+/**
+ * One pass over valid JSON text, outside strings: the first number literal
+ * that JSON cannot carry back EXACTLY (or null), and the deepest nesting.
+ *
+ * Numbers: a JSON number becomes a 64-bit float, so `1e400` turns into
+ * Infinity (sent as `null`), an integer past 2^53 is rounded, and so is a
+ * fraction with more precision than a double holds (`1.234567890123456789`) or
+ * one that underflows (`1e-400`). In every case the editor would call the text
+ * valid and save a different bag (@codex on #893, twice). Checked per TOKEN: a
+ * parsed value has already lost what it lost, so only the literal can say
+ * whether its double represents it exactly. Values are compared, not spellings
+ * — `1.0`, `1e2` and `0.10` pass.
+ *
+ * Depth: counted here, iteratively, so a pathological nesting is refused
+ * BEFORE anything recursive touches it.
+ */
+export function scanSource(raw: string): { inexact: string | null; depth: number } {
+  let inexact: string | null = null;
+  let depth = 0;
+  let max = 0;
   let i = 0;
   while (i < raw.length) {
     const c = raw[i];
@@ -66,21 +81,31 @@ export function inexactNumber(raw: string): string | null {
       i++;
       continue;
     }
-    if (c === '-' || (c >= '0' && c <= '9')) {
+    if (c === '{' || c === '[') {
+      depth++;
+      if (depth > max) max = depth;
+    } else if (c === '}' || c === ']') {
+      depth--;
+    } else if (c === '-' || (c >= '0' && c <= '9')) {
       // Sticky: matches AT i without copying the rest of the text — a slice
       // per number is quadratic on a 256 KB bag of numbers.
       NUMBER_AT.lastIndex = i;
       const m = NUMBER_AT.exec(raw);
       if (m) {
         const literal = m[0];
-        if (decimalKey(literal) !== decimalKey(String(Number(literal)))) return literal;
+        if (inexact === null && decimalKey(literal) !== decimalKey(String(Number(literal)))) inexact = literal;
         i += literal.length;
         continue;
       }
     }
     i++;
   }
-  return null;
+  return { inexact, depth: max };
+}
+
+/** The first number literal JSON cannot carry back exactly, or null. */
+export function inexactNumber(raw: string): string | null {
+  return scanSource(raw).inexact;
 }
 
 export type PropertiesParse =
@@ -98,6 +123,10 @@ export function parsePropertiesSource(raw: string): PropertiesParse {
   const text = raw.trim();
   if (text === '') return { ok: false, code: 'empty' };
   if (utf8Length(raw) > PROPERTIES_MAX) return { ok: false, code: 'too-large' };
+  // Scanned BEFORE parsing: the scan is iterative and safe on any text, and a
+  // pathological depth must be refused before anything recursive sees it.
+  const scan = scanSource(text);
+  if (scan.depth > PROPERTIES_MAX_DEPTH) return { ok: false, code: 'too-deep' };
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -107,8 +136,7 @@ export function parsePropertiesSource(raw: string): PropertiesParse {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     return { ok: false, code: 'not-object' };
   }
-  const inexact = inexactNumber(text);
-  if (inexact) return { ok: false, code: 'unsafe-number', detail: inexact };
+  if (scan.inexact) return { ok: false, code: 'unsafe-number', detail: scan.inexact };
   return { ok: true, value: parsed as Record<string, unknown> };
 }
 

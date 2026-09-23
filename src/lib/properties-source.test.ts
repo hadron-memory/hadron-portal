@@ -9,7 +9,10 @@ import {
   parsePropertiesSource,
   propertiesFingerprint,
   PROPERTIES_MAX,
+  PROPERTIES_MAX_DEPTH,
   sameProperties,
+  scanSource,
+  utf8Length,
   inexactNumber,
 } from './properties-source';
 
@@ -121,5 +124,22 @@ describe('propertiesFingerprint — the posted baseline', () => {
     expect(await propertiesFingerprint({ e: { enable: true } })).not.toBe(await propertiesFingerprint({ e: { enable: false } }));
     expect(isFingerprint(await propertiesFingerprint({ a: 1 }))).toBe(true);
     expect(isFingerprint('{"a":1}')).toBe(false);
+  });
+});
+
+describe('nesting depth (@codex on #893)', () => {
+  it('refuses a pathological nesting BEFORE anything recursive sees it — no stack overflow', () => {
+    const deep = '{"a":'.repeat(5000) + '1' + '}'.repeat(5000);
+    expect(utf8Length(deep)).toBeLessThan(PROPERTIES_MAX);
+    expect(parsePropertiesSource(deep)).toEqual({ ok: false, code: 'too-deep' });
+  });
+
+  it('accepts nesting up to the limit, and counts brackets inside strings as text', () => {
+    const atLimit = '{"a":'.repeat(PROPERTIES_MAX_DEPTH) + '1' + '}'.repeat(PROPERTIES_MAX_DEPTH);
+    expect(parsePropertiesSource(atLimit).ok).toBe(true);
+    const overLimit = '{"a":'.repeat(PROPERTIES_MAX_DEPTH + 1) + '1' + '}'.repeat(PROPERTIES_MAX_DEPTH + 1);
+    expect(parsePropertiesSource(overLimit)).toEqual({ ok: false, code: 'too-deep' });
+    expect(parsePropertiesSource(`{"s": "${'['.repeat(200)}"}`).ok).toBe(true);
+    expect(scanSource('{"a": [[1]]}').depth).toBe(3);
   });
 });

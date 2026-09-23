@@ -1,7 +1,8 @@
 <script lang="ts">
   import { invalidateAll, goto } from '$app/navigation';
   import { deserialize } from '$app/forms';
-  import { parsePropertiesSource, propertiesFingerprint, sameProperties, PROPERTIES_MAX } from '$lib/properties-source';
+  import { parsePropertiesSource, propertiesFingerprint, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
+  import { PropertiesDraft, syncDraftWith } from '$lib/properties-draft.svelte';
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -1000,25 +1001,17 @@
   // the only way to edit a key the collection does not declare (`exports`
   // among them): the edit page's typed editor can only delete one.
   let showPropertiesSource = $state(false);
-  let editProperties = $state('');
-  // The bag this editor was opened on. Its FINGERPRINT is posted with the
-  // save so the action can refuse to overwrite a change made since (see
-  // updateProperties) — a hash, not a second copy of the bag.
-  let propertiesBaseline = $state<unknown>(null);
   let savingProperties = $state(false);
   let propertiesSaveError = $state<string | null>(null);
 
-  // Re-seed from the node on load, navigation, and after a save's
-  // invalidateAll — the Data tab's rule. An empty bag seeds `{}` so the editor
-  // opens on something valid to add to.
-  $effect(() => {
-    const props = node.properties;
-    editProperties = props != null ? JSON.stringify(props, null, 2) : '{}';
-    propertiesBaseline = props ?? null;
-    propertiesSaveError = null;
-  });
+  // The draft and WHEN it re-seeds (see properties-draft.svelte.ts): a new
+  // node always, an unrelated reload never — saving Content/Abstract/Data
+  // calls invalidateAll(), and that must not discard an unsaved Source edit
+  // (@codex on #893).
+  const propertiesDraft = new PropertiesDraft();
+  syncDraftWith(propertiesDraft, () => node);
 
-  const propertiesParse = $derived(parsePropertiesSource(editProperties));
+  const propertiesParse = $derived(parsePropertiesSource(propertiesDraft.text));
   const propertiesDirty = $derived(
     propertiesParse.ok ? !sameProperties(propertiesParse.value, node.properties) : true,
   );
@@ -1035,6 +1028,8 @@
           'The number {number} cannot be stored exactly — JSON numbers are 64-bit floats, so it would be saved rounded. Quote it as a string to keep it as written.',
           { number: detail ?? '' },
         );
+      case 'too-deep':
+        return t('node.properties.source.too-deep', 'Nested more than {max} levels deep — too deep to store here.', { max: PROPERTIES_MAX_DEPTH });
       case 'not-object':
         return t('node.properties.source.not-object', 'Properties must be a JSON object: {"key": "value"}.');
       case 'invalid-json':
@@ -1061,8 +1056,8 @@
     propertiesSaveError = null;
     try {
       const fd = new FormData();
-      fd.set('properties', editProperties);
-      fd.set('baseline', await propertiesFingerprint(propertiesBaseline));
+      fd.set('properties', propertiesDraft.text);
+      fd.set('baseline', await propertiesFingerprint(propertiesDraft.baseline));
       // The action-result protocol, so a refusal comes back as data the page
       // can show — a bare `res.ok` check reports every refusal as nothing.
       const res = await fetch('?/updateProperties', {
@@ -1073,6 +1068,10 @@
       const result = deserialize(await res.text());
       if (result.type === 'success') {
         await invalidateAll();
+        // Our own save: start over from what is stored now. The draft's sync
+        // would KEEP a dirty buffer over a changed bag — right for someone
+        // else's change, wrong for this one.
+        propertiesDraft.reseed(node);
         showPropertiesSource = false;
       } else if (result.type === 'failure') {
         const f = (result.data as { propertiesFailed?: { code: string; detail: string | null } } | undefined)
@@ -2349,13 +2348,13 @@
             )}
           </p>
           <textarea
-            use:autosize={editProperties}
+            use:autosize={propertiesDraft.text}
             aria-label={t('node.properties.source.aria', 'Properties as JSON')}
             aria-invalid={!propertiesParse.ok}
             aria-describedby="properties-source-status"
             class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {propertiesParse.ok ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             spellcheck="false"
-            bind:value={editProperties}
+            bind:value={propertiesDraft.text}
           ></textarea>
           <div class="mt-2 flex items-center justify-between gap-3">
             <div id="properties-source-status" class="text-xs">
