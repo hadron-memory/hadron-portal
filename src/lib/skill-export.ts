@@ -394,3 +394,97 @@ export function enableSkillExport(
     hosts: [...SKILL_HOSTS],
   };
 }
+
+/**
+ * #879 — one task's export as the Task Nodes list shows it.
+ *
+ * `divergent` is its own state rather than a guess at "on" or "off": the hosts
+ * disagree (a per-host setup made in the CLI or raw JSON), and a list checkbox
+ * that picked a side would flatten it on the next click. The row offers the
+ * node's edit page instead, where the raw properties editor shows every host.
+ */
+export type RowExportState =
+  | { kind: 'none' }
+  | { kind: 'off'; hosts: string[] }
+  | { kind: 'on'; hosts: string[]; declaration: SkillDeclaration }
+  | { kind: 'divergent' };
+
+export function rowExportState(properties: unknown): RowExportState {
+  const { value, divergent } = readSkillExport(properties);
+  if (divergent) return { kind: 'divergent' };
+  if (!value) return { kind: 'none' };
+  return value.declaration.enable
+    ? { kind: 'on', hosts: value.hosts, declaration: value.declaration }
+    : { kind: 'off', hosts: value.hosts };
+}
+
+/** What the list's checkbox does to a node's stored properties. */
+export type ToggleResult =
+  | { kind: 'write'; properties: Record<string, unknown> }
+  | { kind: 'unchanged' }
+  | { kind: 'divergent' };
+
+/**
+ * #879 — the whole properties bag after the Task Nodes checkbox, computed from
+ * the STORED bag (the action re-reads the node; the page's copy may be stale).
+ *
+ * Holger's design (#879, 2026-09-21): checked writes the declaration for BOTH
+ * hosts with `enable: true`; unchecked sets `enable: false` "and no other
+ * changes", so the name and description survive and re-checking restores them.
+ * It is the same pair of transitions as the edit page's checkbox — the same
+ * functions, so the two surfaces cannot drift.
+ *
+ * Unchecking does not add a host that is not declared, and asking for the state
+ * the node is already in writes nothing: a double-submit or a stale second tab
+ * must not create a node version for a no-op.
+ */
+export function toggleSkillExport(
+  properties: unknown,
+  enable: boolean,
+  defaults: { name: string; description: string },
+): ToggleResult {
+  const { value, divergent } = readSkillExport(properties);
+  if (divergent) return { kind: 'divergent' };
+  const on = value?.declaration.enable === true;
+  if (enable === on) return { kind: 'unchanged' };
+  const rest = withoutSkillExport(properties);
+  const next: SkillExport = enable
+    ? enableSkillExport(value, defaults)
+    : { ...value!, declaration: { ...value!.declaration, enable: false } };
+  return { kind: 'write', properties: writeSkillExport(rest, next) };
+}
+
+/**
+ * #879 — what the Task Nodes page receives about a row's export. Reduced from
+ * the properties bag on the SERVER, so the page never gets the bag itself.
+ */
+export type TaskExport =
+  | { kind: 'none' | 'off' | 'divergent' }
+  | { kind: 'on'; hosts: string[] };
+
+export function taskExport(properties: unknown): TaskExport {
+  const s = rowExportState(properties);
+  return s.kind === 'on' ? { kind: 'on', hosts: s.hosts } : { kind: s.kind };
+}
+
+const HOST_LABELS: Record<string, string> = { [CLAUDE_SKILL_HOST]: 'Claude', [CODEX_HOST]: 'Codex' };
+
+/** A host key as a reader knows it — "Codex", not `codexSkill`. */
+export function hostLabel(host: string): string {
+  return HOST_LABELS[host] ?? host;
+}
+
+/**
+ * The note a Task Nodes row renders beside (or instead of) its checkbox — and
+ * therefore also what the grid's search must match for that row
+ * (`review:everything-the-cell-renders-must-be-searchable`). ONE function for
+ * both, so the cell and the filter cannot say different things. Empty for the
+ * ordinary rows, which render a bare checkbox.
+ */
+export function taskExportNote(s: TaskExport): string {
+  if (s.kind === 'divergent') return t('tasks.export.divergent', 'Differs per host');
+  if (s.kind === 'on' && SKILL_HOSTS.some((h) => !s.hosts.includes(h))) {
+    return t('tasks.export.only', '{hosts} only', { hosts: s.hosts.map(hostLabel).join(', ') });
+  }
+  return '';
+}

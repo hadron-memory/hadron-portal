@@ -725,6 +725,22 @@ export const ORG_TASK_MEMORY_IDS_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * #879 — what the Task Nodes download needs about its org: the memory ids that
+ * scope `skillPlan` (the same security boundary as ORG_TASK_MEMORY_IDS_QUERY —
+ * an empty set must never reach the server) and the name the plugin is named
+ * after.
+ */
+export const ORG_SKILL_BUNDLE_QUERY = /* GraphQL */ `
+  query OrgSkillBundle($ref: ID!) {
+    organization(ref: $ref) {
+      id
+      name
+      memories { id }
+    }
+  }
+`;
+
 export const ORGANIZATION_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}
@@ -3456,11 +3472,43 @@ export const RUNNABLE_NODES_QUERY = /* GraphQL */ `
           name
           description
           nodeType
+          properties
           memory {
             id
             urn
             name
           }
+        }
+      }
+    }
+  }
+`;
+
+/**
+ * #879 — the server-rendered skill files for one host, for the Task Nodes
+ * download. EXPORT with no `files` classifies every enabled declaration as
+ * never-exported, so each entry the server judged writable carries its whole
+ * SKILL.md in renderedBody (frontmatter, provenance header, body). The portal
+ * writes that verbatim and renders nothing itself.
+ *
+ * memories MUST be non-empty: the server reads an omitted or empty list as
+ * every memory the caller can read.
+ */
+export const SKILL_PLAN_EXPORT_QUERY = /* GraphQL */ `
+  query SkillPlanExport($host: String!, $memories: [String!]!) {
+    skillPlan(input: { intent: EXPORT, host: $host, memories: $memories }) {
+      scanned
+      judged
+      entries {
+        nodeId
+        urn
+        name
+        class
+        renderedBody
+        findings {
+          rule
+          severity
+          message
         }
       }
     }

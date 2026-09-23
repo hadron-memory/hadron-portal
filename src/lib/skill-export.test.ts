@@ -26,6 +26,8 @@ import {
   readDeclaration,
   readExports,
   readSkillExport,
+  rowExportState,
+  toggleSkillExport,
   validSkillName,
   withoutSkillExport,
   writeDeclaration,
@@ -482,5 +484,77 @@ describe('declarationProblems — #878 additions', () => {
     expect(codePoints(atCap)).toBe(DESCRIPTION_MAX);
     expect(declarationProblems(decl({ description: atCap }))).toEqual([]);
     expect(declarationProblems(decl({ description: atCap + 'x' }))).toHaveLength(1);
+  });
+});
+
+describe('rowExportState — #879 list states', () => {
+  it('reads absent, off, on and divergent as four different states', () => {
+    expect(rowExportState({})).toEqual({ kind: 'none' });
+    expect(rowExportState({ exports: { claudeSkill: decl({ enable: false }), codexSkill: decl({ enable: false }) } }))
+      .toEqual({ kind: 'off', hosts: [CLAUDE_SKILL_HOST, CODEX_HOST] });
+    expect(rowExportState(REAL)).toEqual({
+      kind: 'on',
+      hosts: [CLAUDE_SKILL_HOST],
+      declaration: { name: 'hadron-cast-worker', description: 'Cast a new named …', enable: true },
+    });
+    expect(rowExportState({ exports: { claudeSkill: decl(), codexSkill: decl({ enable: false }) } }))
+      .toEqual({ kind: 'divergent' });
+  });
+});
+
+describe('toggleSkillExport — the #879 checkbox', () => {
+  const defaults = { name: 'drive-pr-home', description: 'Take a PR home.' };
+
+  it('checking an undeclared node writes BOTH hosts, enabled, from the defaults', () => {
+    const r = toggleSkillExport({ url: 'kept' }, true, defaults);
+    expect(r).toEqual({
+      kind: 'write',
+      properties: {
+        url: 'kept',
+        exports: {
+          claudeSkill: { name: 'drive-pr-home', description: 'Take a PR home.', enable: true },
+          codexSkill: { name: 'drive-pr-home', description: 'Take a PR home.', enable: true },
+        },
+      },
+    });
+  });
+
+  it('unchecking sets enable:false and changes nothing else — name, description, hosts, siblings', () => {
+    const stored = { url: 'kept', exports: { claudeSkill: decl(), other: { x: 1 } } };
+    const r = toggleSkillExport(stored, false, defaults);
+    expect(r).toEqual({
+      kind: 'write',
+      properties: { url: 'kept', exports: { claudeSkill: decl({ enable: false }), other: { x: 1 } } },
+    });
+  });
+
+  it('unchecking does not ADD the host that was never declared', () => {
+    const r = toggleSkillExport(REAL, false, defaults);
+    expect(r.kind).toBe('write');
+    if (r.kind === 'write') expect(Object.keys(r.properties.exports as object)).toEqual([CLAUDE_SKILL_HOST]);
+  });
+
+  it('re-checking restores the stored name and description rather than the defaults', () => {
+    const stored = { exports: { claudeSkill: decl({ enable: false }), codexSkill: decl({ enable: false }) } };
+    const r = toggleSkillExport(stored, true, defaults);
+    expect(r).toEqual({
+      kind: 'write',
+      properties: { exports: { claudeSkill: decl(), codexSkill: decl() } },
+    });
+  });
+
+  it('asking for the state the node is already in writes nothing', () => {
+    expect(toggleSkillExport({}, false, defaults)).toEqual({ kind: 'unchanged' });
+    expect(toggleSkillExport(REAL, true, defaults)).toEqual({ kind: 'unchanged' });
+    expect(toggleSkillExport({ exports: { claudeSkill: decl({ enable: false }) } }, false, defaults))
+      .toEqual({ kind: 'unchanged' });
+  });
+
+  it('refuses a divergent export in BOTH directions rather than flattening it', () => {
+    const split = { exports: { claudeSkill: decl(), codexSkill: decl({ name: 'other-name' }) } };
+    expect(toggleSkillExport(split, true, defaults)).toEqual({ kind: 'divergent' });
+    expect(toggleSkillExport(split, false, defaults)).toEqual({ kind: 'divergent' });
+    // An unreadable host entry is divergent too — it is not the list's to overwrite.
+    expect(toggleSkillExport({ exports: { codexSkill: 'oops' } }, true, defaults)).toEqual({ kind: 'divergent' });
   });
 });

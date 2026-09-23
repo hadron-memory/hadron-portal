@@ -13,7 +13,8 @@
  * happened to return nothing for this fixture.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ORG_TASK_MEMORY_IDS_QUERY, RUNNABLE_NODES_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, ORG_TASK_MEMORY_IDS_QUERY, RUNNABLE_NODES_QUERY } from '$lib/server/queries';
+import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -104,5 +105,166 @@ describe('org tasks load()', () => {
     const result = (await load(ev())) as { tasks: Array<{ id: string; urn: string }> };
     expect(result.tasks.map((t) => t.id)).toEqual(['n1']);
     expect(result.tasks[0].urn).toContain('hrn:node:');
+  });
+});
+
+// ── #879: the export state on each row, and the row checkbox's action ───────
+
+describe('org tasks load() — #879 export state', () => {
+  it('reduces properties to the export state, and never ships the bag itself', async () => {
+    const withExport = {
+      ...node('n1', 'tasks:one'),
+      properties: {
+        secret: 'not for the page',
+        exports: { claudeSkill: { name: 'one', description: 'd', enable: true } },
+      },
+    };
+    route({ memories: [{ id: 'mem-1' }], nodes: [withExport, node('n2', 'tasks:two')] });
+    const load = await importLoad();
+    const result = (await load(ev())) as { tasks: Array<Record<string, unknown>> };
+    expect(result.tasks[0].export).toEqual({ kind: 'on', hosts: ['claudeSkill'] });
+    expect(result.tasks[1].export).toEqual({ kind: 'none' });
+    expect(JSON.stringify(result.tasks)).not.toContain('not for the page');
+    expect(result.tasks[0]).not.toHaveProperty('properties');
+  });
+});
+
+async function importActions() {
+  return (await import('./+page.server')).actions;
+}
+
+function actionEv(fields: Record<string, string>, orgId = 'org-1') {
+  const body = new FormData();
+  for (const [k, v] of Object.entries(fields)) body.set(k, v);
+  return {
+    request: new Request('http://x/app/orgs/org-1/tasks?/setExport', { method: 'POST', body }),
+    params: { id: orgId },
+    locals: { token: 'tok' },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['setExport']>[0];
+}
+
+const storedTask = (over: Record<string, unknown> = {}) => ({
+  id: 'n1',
+  memoryId: 'mem-1',
+  loc: 'tasks:drive-pr-home',
+  name: 'Drive PR home',
+  description: 'Take a PR home.',
+  isRunnable: true,
+  role: null,
+  properties: { url: 'kept' },
+  ...over,
+});
+
+/** Route the action's reads; record every other call as the write. */
+function routeAction(opts: { node?: unknown; memories?: Array<{ id: string }>; writeError?: unknown }) {
+  const writes: Array<[string, unknown]> = [];
+  mockRequest.mockImplementation(async (query: string, vars: unknown) => {
+    if (query === NODE_BY_ID_QUERY) return { node: opts.node ?? null };
+    if (query === ORG_TASK_MEMORY_IDS_QUERY) {
+      return { organization: { id: 'org-1', memories: opts.memories ?? [{ id: 'mem-1' }] } };
+    }
+    writes.push([query, vars]);
+    if (opts.writeError) throw opts.writeError;
+    return { updateNode: { id: 'n1' } };
+  });
+  return writes;
+}
+
+describe('setExport action — #879', () => {
+  it('checking writes BOTH hosts, from the FRESH read, through the node-kind door', async () => {
+    const node = storedTask();
+    const writes = routeAction({ node });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
+
+    expect(out).toEqual({ exportSaved: { nodeId: 'n1' } });
+    expect(writes).toHaveLength(1);
+    const input = {
+      memoryId: 'mem-1',
+      loc: 'tasks:drive-pr-home',
+      properties: {
+        url: 'kept',
+        exports: {
+          claudeSkill: { name: 'drive-pr-home', description: 'Take a PR home.', enable: true },
+          codexSkill: { name: 'drive-pr-home', description: 'Take a PR home.', enable: true },
+        },
+      },
+    };
+    expect(writes[0]).toEqual([nodeUpdateDocument(node as never, input), { input }]);
+  });
+
+  it('sends ONLY memoryId, loc and properties — never isRunnable, name or content', async () => {
+    const writes = routeAction({ node: storedTask() });
+    const actions = await importActions();
+    await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
+    const { input } = writes[0][1] as { input: Record<string, unknown> };
+    expect(Object.keys(input).sort()).toEqual(['loc', 'memoryId', 'properties']);
+  });
+
+  it('unchecking sets enable:false and keeps name, description and the untouched host set', async () => {
+    const decl = { name: 'custom', description: 'mine', enable: true };
+    const writes = routeAction({ node: storedTask({ properties: { exports: { claudeSkill: decl } } }) });
+    const actions = await importActions();
+    await actions.setExport(actionEv({ nodeId: 'n1', enable: 'false' }));
+    const { input } = writes[0][1] as { input: { properties: unknown } };
+    expect(input.properties).toEqual({ exports: { claudeSkill: { ...decl, enable: false } } });
+  });
+
+  it('asking for the stored state writes NOTHING', async () => {
+    const writes = routeAction({ node: storedTask() });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'false' }));
+    expect(out).toEqual({ exportSaved: { nodeId: 'n1' } });
+    expect(writes).toHaveLength(0);
+  });
+
+  it('refuses a divergent export and writes nothing', async () => {
+    const split = {
+      exports: {
+        claudeSkill: { name: 'a', description: 'd', enable: true },
+        codexSkill: { name: 'a', description: 'd', enable: false },
+      },
+    };
+    const writes = routeAction({ node: storedTask({ properties: split }) });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'false' }));
+    expect(out).toMatchObject({ status: 409, data: { exportFailed: { nodeId: 'n1', code: 'divergent' } } });
+    expect(writes).toHaveLength(0);
+  });
+
+  it('refuses a node outside this org\'s memories as not-found, and writes nothing', async () => {
+    const writes = routeAction({ node: storedTask({ memoryId: 'mem-other' }) });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
+    expect(out).toMatchObject({ status: 404, data: { exportFailed: { code: 'not-found' } } });
+    expect(writes).toHaveLength(0);
+  });
+
+  it('refuses a node that is no longer runnable', async () => {
+    const writes = routeAction({ node: storedTask({ isRunnable: false }) });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
+    expect(out).toMatchObject({ status: 409, data: { exportFailed: { code: 'not-runnable' } } });
+    expect(writes).toHaveLength(0);
+  });
+
+  it('refuses a malformed enable value rather than reading it as off', async () => {
+    const writes = routeAction({ node: storedTask() });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'on' }));
+    expect(out).toMatchObject({ status: 400, data: { exportFailed: { code: 'invalid' } } });
+    expect(writes).toHaveLength(0);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a schema refusal (server#1286) with the server\'s own words', async () => {
+    const err = Object.assign(new Error('x'), {
+      response: { errors: [{ message: 'Unknown property "exports" on strict collection "competitor"', extensions: { code: 'BAD_USER_INPUT' } }] },
+    });
+    routeAction({ node: storedTask(), writeError: err });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
+    expect(out).toMatchObject({ status: 400, data: { exportFailed: { code: 'rejected' } } });
+    expect((out as { data: { exportFailed: { detail: string } } }).data.exportFailed.detail).toContain('strict collection');
   });
 });
