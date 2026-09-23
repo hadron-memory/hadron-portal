@@ -118,7 +118,7 @@ describe('checking the box', () => {
       expect(submitted(m.target)).toBeNull();
       setChecked(exportBox(m.target)!, true);
       const expected = { name: 'drive-pr-home', description: 'Take a PR to merge. Use when asked.', enable: true };
-      expect(submitted(m.target)).toEqual({ exports: { claudeSkill: expected, codex: expected } });
+      expect(submitted(m.target)).toEqual({ exports: { claudeSkill: expected, codexSkill: expected } });
     } finally {
       m.unmount();
     }
@@ -136,7 +136,7 @@ describe('checking the box', () => {
       setChecked(exportBox(m.target)!, true);
       expect(submittedRunnable(m.target)).toBe('true');
       const kept = { name: 'kept', description: 'd', enable: true };
-      expect(submitted(m.target)).toEqual({ exports: { claudeSkill: kept, codex: kept } });
+      expect(submitted(m.target)).toEqual({ exports: { claudeSkill: kept, codexSkill: kept } });
     } finally {
       m.unmount();
     }
@@ -149,7 +149,7 @@ describe('checking the box', () => {
       setChecked(box, true);
       setChecked(box, false);
       const off = { name: 'drive-pr-home', description: 'x', enable: false };
-      expect(submitted(m.target)).toEqual({ exports: { claudeSkill: off, codex: off } });
+      expect(submitted(m.target)).toEqual({ exports: { claudeSkill: off, codexSkill: off } });
     } finally {
       m.unmount();
     }
@@ -191,7 +191,7 @@ describe('a Claude-only declaration written before #878', () => {
       buttonNamed(m.target, 'Also export for Codex')!.click();
       flushSync();
       const d = claudeOnly.exports.claudeSkill;
-      expect(submitted(m.target)).toEqual({ exports: { claudeSkill: d, codex: d } });
+      expect(submitted(m.target)).toEqual({ exports: { claudeSkill: d, codexSkill: d } });
       expect(buttonNamed(m.target, 'Also export for Codex')).toBeNull();
     } finally {
       m.unmount();
@@ -203,7 +203,7 @@ describe('host entries that disagree', () => {
   const divergent = {
     exports: {
       claudeSkill: { name: 'a', description: 'a', enable: true },
-      codex: { name: 'b', description: 'b', enable: false },
+      codexSkill: { name: 'b', description: 'b', enable: false },
     },
   };
 
@@ -225,7 +225,7 @@ describe('where the divergence note sends the user', () => {
   const divergent = {
     exports: {
       claudeSkill: { name: 'a', description: 'a', enable: true },
-      codex: { name: 'b', description: 'b', enable: false },
+      codexSkill: { name: 'b', description: 'b', enable: false },
     },
   };
   const POINTER = 'Structured storage → Properties';
@@ -309,7 +309,7 @@ describe('the Skill export section opens itself when it holds a problem (@codex 
   it.each([
     ['an invalid name', on({ name: 'Not Valid' })],
     ['a missing description', on({ description: '' })],
-    ['host entries that disagree', { exports: { claudeSkill: { name: 'a' }, codex: { name: 'b' } } }],
+    ['host entries that disagree', { exports: { claudeSkill: { name: 'a' }, codexSkill: { name: 'b' } } }],
   ])('opens for %s', async (_what, properties) => {
     const m = await mountPage({ properties });
     try {
