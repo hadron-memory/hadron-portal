@@ -155,6 +155,20 @@
         </ul>
       {/if}
 
+      {#if enabled && !runnable}
+        <!--
+          The Runnable control is on the node's Settings tab, not this page, so
+          the fix is offered here rather than described (@copilot on #887).
+        -->
+        <button
+          type="button"
+          onclick={() => (runnable = true)}
+          class="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          {t('skill-export.make-runnable', 'Mark this node runnable')}
+        </button>
+      {/if}
+
       <details bind:open={detailsOpen}>
         <summary class="cursor-pointer text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">
           {t('skill-export.change-defaults', 'Change the skill’s name and description')}

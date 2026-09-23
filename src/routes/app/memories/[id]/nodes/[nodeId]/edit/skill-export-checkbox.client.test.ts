@@ -326,3 +326,32 @@ describe('the Skill export section opens itself when it holds a problem (@codex 
     }
   });
 });
+
+describe('an enabled export on a node that is not runnable (@copilot on #887)', () => {
+  const on = { exports: { claudeSkill: { name: 'ok-name', description: 'd', enable: true } } };
+
+  it('offers a button that marks the node runnable, instead of naming a control this page lacks', async () => {
+    const m = await mountPage({ isRunnable: false, properties: on });
+    try {
+      expect(m.target.textContent).not.toContain('Is Runnable');
+      const button = buttonNamed(m.target, 'Mark this node runnable');
+      expect(button).not.toBeNull();
+      expect(submittedRunnable(m.target)).toBe('false');
+      button!.click();
+      flushSync();
+      expect(submittedRunnable(m.target)).toBe('true');
+      expect(buttonNamed(m.target, 'Mark this node runnable')).toBeNull();
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('does not offer it on a runnable node', async () => {
+    const m = await mountPage({ isRunnable: true, properties: on });
+    try {
+      expect(buttonNamed(m.target, 'Mark this node runnable')).toBeNull();
+    } finally {
+      m.unmount();
+    }
+  });
+});

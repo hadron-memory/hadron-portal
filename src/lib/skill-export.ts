@@ -221,7 +221,10 @@ export function declarationProblems(
     out.push(`The description is ${used} characters; the limit is ${DESCRIPTION_MAX}.`);
   }
   if (decl.enable && opts.runnable === false) {
-    out.push('Only a runnable node is exported. Turn on “Is Runnable” above.');
+    // Names no control: the edit page has none since #878 (Runnable is on the
+    // Settings tab), and the editor renders its own "Mark it runnable" action
+    // beside this message (@copilot on #887).
+    out.push('Only a runnable node is exported, and this one is not runnable.');
   }
   return out;
 }
