@@ -99,3 +99,27 @@ describe('PropertiesDraft through the page effect', () => {
     expect(JSON.parse(draft.text)).toEqual(bag);
   });
 });
+
+describe('a deeply nested STORED bag (@codex on #893)', () => {
+  // Plain props here, NOT reactiveProps: a $state proxy adds stack frames per
+  // level, and a real page's `node.properties` is a plain object. Built twice
+  // rather than structuredClone'd, which itself overflows at this depth.
+  const deep = (n: number) => {
+    let v: unknown = 1;
+    for (let k = 0; k < n; k++) v = { a: v };
+    return v as Record<string, unknown>;
+  };
+
+  it('mounts and syncs a 3,000-level bag without a stack overflow — the depth limit only guards what is TYPED', async () => {
+    const draft = new PropertiesDraft();
+    const m = mountComponent(Harness, { draft, node: { id: 'deep', properties: deep(3000) } });
+    mounted.push(m as Mounted<Props>);
+    await tick();
+    expect(draft.dirty).toBe(false);
+    expect(draft.text.length).toBeGreaterThan(3000);
+    // The same bag rebuilt — an unrelated reload — is recognised as the same.
+    draft.text = '{"edited": true}';
+    draft.sync({ id: 'deep', properties: deep(3000) });
+    expect(draft.text).toBe('{"edited": true}');
+  });
+});

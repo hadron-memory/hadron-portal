@@ -143,3 +143,58 @@ describe('nesting depth (@codex on #893)', () => {
     expect(scanSource('{"a": [[1]]}').depth).toBe(3);
   });
 });
+
+describe('canonicalJson is iterative (@codex on #893)', () => {
+  const deepValue = (n: number) => {
+    let v: unknown = 1;
+    for (let k = 0; k < n; k++) v = { a: v };
+    return v;
+  };
+
+  it('canonicalizes a bag nested far past any stack limit — a STORED bag is never depth-checked', async () => {
+    const v = deepValue(20_000);
+    expect(() => canonicalJson(v)).not.toThrow();
+    expect(sameProperties(v, deepValue(20_000))).toBe(true);
+    await expect(propertiesFingerprint(v)).resolves.toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('matches JSON.stringify over a key-sorted copy, including its edge cases', () => {
+    const cases: unknown[] = [
+      { b: 1, a: [3, { d: null, c: 'x' }] },
+      [],
+      {},
+      'str',
+      0,
+      null,
+      { u: undefined, f: () => 1, keep: true },
+      [undefined, () => 1, Infinity, NaN],
+      { 'quote"key': 'v', 'ünï': [true, false] },
+    ];
+    const sorted = (x: unknown): unknown =>
+      Array.isArray(x)
+        ? x.map(sorted)
+        : x !== null && typeof x === 'object'
+          ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, sorted((x as Record<string, unknown>)[k])]))
+          : x;
+    for (const c of cases) expect(canonicalJson(c)).toBe(JSON.stringify(sorted(c)));
+  });
+});
+
+describe('duplicate keys (@codex on #893)', () => {
+  it.each([
+    ['at the top level', '{"exports": {"enable": true}, "exports": {"enable": false}}', 'exports'],
+    ['inside a nested object', '{"a": {"x": 1, "y": 2, "x": 3}}', 'x'],
+    ['spelled with an escape', '{"a": 1, "\\u0061": 2}', 'a'],
+  ])('refuses a duplicate %s, naming the key', (_where, raw, key) => {
+    expect(parsePropertiesSource(raw)).toEqual({ ok: false, code: 'duplicate-key', detail: key });
+  });
+
+  it.each([
+    ['the same key in SIBLING objects', '{"a": {"k": 1}, "b": {"k": 2}}'],
+    ['the same key at different depths', '{"k": {"k": 1}}'],
+    ['a key-like string as a VALUE', '{"k": "k", "j": ["k", "k"]}'],
+    ['objects inside an array', '{"xs": [{"k": 1}, {"k": 2}]}'],
+  ])('accepts %s', (_what, raw) => {
+    expect(parsePropertiesSource(raw).ok).toBe(true);
+  });
+});

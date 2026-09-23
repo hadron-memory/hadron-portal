@@ -1028,6 +1028,12 @@
           'The number {number} cannot be stored exactly — JSON numbers are 64-bit floats, so it would be saved rounded. Quote it as a string to keep it as written.',
           { number: detail ?? '' },
         );
+      case 'duplicate-key':
+        return t(
+          'node.properties.source.duplicate-key',
+          'The key "{key}" appears twice in one object — only the last would be kept.',
+          { key: detail ?? '' },
+        );
       case 'too-deep':
         return t('node.properties.source.too-deep', 'Nested more than {max} levels deep — too deep to store here.', { max: PROPERTIES_MAX_DEPTH });
       case 'not-object':
@@ -2360,6 +2366,9 @@
               'Saving replaces all of this node’s properties with exactly this JSON — typed fields and the skill export included.',
             )}
           </p>
+          <!-- Read-only while a save is in flight (@codex on #893): the save
+               re-seeds from what was stored, so text typed after the click
+               would be discarded without a word. -->
           <textarea
             use:autosize={propertiesDraft.text}
             aria-label={t('node.properties.source.aria', 'Properties as JSON')}
@@ -2367,6 +2376,8 @@
             aria-describedby="properties-source-status"
             class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {propertiesParse.ok ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             spellcheck="false"
+            readonly={savingProperties}
+            aria-busy={savingProperties}
             bind:value={propertiesDraft.text}
           ></textarea>
           <div class="mt-2 flex items-center justify-between gap-3">

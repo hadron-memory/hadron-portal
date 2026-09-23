@@ -15,7 +15,14 @@
  */
 export const PROPERTIES_MAX = 262144;
 
-export type PropertiesSourceError = 'empty' | 'too-large' | 'invalid-json' | 'not-object' | 'unsafe-number' | 'too-deep';
+export type PropertiesSourceError =
+  | 'empty'
+  | 'too-large'
+  | 'invalid-json'
+  | 'not-object'
+  | 'unsafe-number'
+  | 'too-deep'
+  | 'duplicate-key';
 
 /**
  * Deepest nesting the Source view accepts. Far past any real properties bag
@@ -68,24 +75,46 @@ const NUMBER_AT = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
  * Depth: counted here, iteratively, so a pathological nesting is refused
  * BEFORE anything recursive touches it.
  */
-export function scanSource(raw: string): { inexact: string | null; depth: number } {
+export function scanSource(raw: string): { inexact: string | null; depth: number; duplicate: string | null } {
   let inexact: string | null = null;
-  let depth = 0;
+  let duplicate: string | null = null;
   let max = 0;
+  // One frame per open container. An object frame carries the keys seen so
+  // far and whether the next string is a KEY (after `{` or `,`) or a value.
+  const frames: Array<{ keys: Set<string>; expectKey: boolean } | null> = [];
   let i = 0;
   while (i < raw.length) {
     const c = raw[i];
     if (c === '"') {
+      const start = i;
       i++;
       while (i < raw.length && raw[i] !== '"') i += raw[i] === '\\' ? 2 : 1;
       i++;
+      // Duplicate keys (@codex on #893): JSON.parse keeps the LAST, silently,
+      // so `{"exports":…,"exports":…}` would save one of two things the user
+      // typed. Keys are compared DECODED — "a" and "\u0061" are one key.
+      const top = frames[frames.length - 1];
+      if (top && top.expectKey && duplicate === null) {
+        let key: string;
+        try {
+          key = JSON.parse(raw.slice(start, i)) as string;
+        } catch {
+          key = raw.slice(start, i);
+        }
+        if (top.keys.has(key)) duplicate = key;
+        top.keys.add(key);
+        top.expectKey = false;
+      }
       continue;
     }
     if (c === '{' || c === '[') {
-      depth++;
-      if (depth > max) max = depth;
+      frames.push(c === '{' ? { keys: new Set(), expectKey: true } : null);
+      if (frames.length > max) max = frames.length;
     } else if (c === '}' || c === ']') {
-      depth--;
+      frames.pop();
+    } else if (c === ',') {
+      const top = frames[frames.length - 1];
+      if (top) top.expectKey = true;
     } else if (c === '-' || (c >= '0' && c <= '9')) {
       // Sticky: matches AT i without copying the rest of the text — a slice
       // per number is quadratic on a 256 KB bag of numbers.
@@ -100,7 +129,7 @@ export function scanSource(raw: string): { inexact: string | null; depth: number
     }
     i++;
   }
-  return { inexact, depth: max };
+  return { inexact, depth: max, duplicate };
 }
 
 /** The first number literal JSON cannot carry back exactly, or null. */
@@ -137,6 +166,7 @@ export function parsePropertiesSource(raw: string): PropertiesParse {
     return { ok: false, code: 'not-object' };
   }
   if (scan.inexact) return { ok: false, code: 'unsafe-number', detail: scan.inexact };
+  if (scan.duplicate !== null) return { ok: false, code: 'duplicate-key', detail: scan.duplicate };
   return { ok: true, value: parsed as Record<string, unknown> };
 }
 
@@ -147,19 +177,49 @@ export function parsePropertiesSource(raw: string): PropertiesParse {
  * report a change nobody made.
  */
 export function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortKeys(value));
-}
-
-function sortKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeys);
-  if (value !== null && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.keys(value as Record<string, unknown>)
-        .sort()
-        .map((k) => [k, sortKeys((value as Record<string, unknown>)[k])]),
-    );
+  // ITERATIVE, with an explicit stack (@codex on #893): the recursive version
+  // overflowed on a deeply nested bag, and the bag a node already STORES was
+  // never checked by the Source view's depth limit — another writer can have
+  // put it there — so it crashed the page as soon as the draft synced on load.
+  // Same output as JSON.stringify over a key-sorted copy: `undefined` and
+  // functions are dropped from objects and written as null in arrays, and a
+  // non-finite number is written as null.
+  type Frame = { lit: string } | { val: unknown };
+  const out: string[] = [];
+  const stack: Frame[] = [{ val: value }];
+  const skip = (v: unknown) => v === undefined || typeof v === 'function' || typeof v === 'symbol';
+  while (stack.length > 0) {
+    const frame = stack.pop()!;
+    if ('lit' in frame) {
+      out.push(frame.lit);
+      continue;
+    }
+    const v = frame.val;
+    if (Array.isArray(v)) {
+      const parts: Frame[] = [{ lit: '[' }];
+      v.forEach((el, i) => {
+        if (i > 0) parts.push({ lit: ',' });
+        parts.push(skip(el) ? { lit: 'null' } : { val: el });
+      });
+      parts.push({ lit: ']' });
+      for (let k = parts.length - 1; k >= 0; k--) stack.push(parts[k]);
+    } else if (v !== null && typeof v === 'object') {
+      const obj = v as Record<string, unknown>;
+      const keys = Object.keys(obj)
+        .filter((k) => !skip(obj[k]))
+        .sort();
+      const parts: Frame[] = [{ lit: '{' }];
+      keys.forEach((k, i) => {
+        parts.push({ lit: `${i > 0 ? ',' : ''}${JSON.stringify(k)}:` });
+        parts.push({ val: obj[k] });
+      });
+      parts.push({ lit: '}' });
+      for (let k = parts.length - 1; k >= 0; k--) stack.push(parts[k]);
+    } else {
+      out.push(JSON.stringify(v) ?? 'null');
+    }
   }
-  return value;
+  return out.join('');
 }
 
 /**
