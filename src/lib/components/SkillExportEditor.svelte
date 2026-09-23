@@ -108,8 +108,15 @@
     detailsOpen = false;
   }
 
+  // The list's grammar is copy too, so it goes through `t()` rather than a
+  // literal ' and ' (@codex on #887). Folded pairwise, which covers any count
+  // of hosts with one translatable template.
   const hostList = (hosts: readonly string[]) =>
-    hosts.map((h) => HOST_LABELS[h] ?? h).join(' and ');
+    hosts
+      .map((h) => HOST_LABELS[h] ?? h)
+      .reduce((acc, label) =>
+        t('skill-export.host-list.and', '{first} and {second}', { first: acc, second: label }),
+      );
 </script>
 
 <div class="space-y-3">

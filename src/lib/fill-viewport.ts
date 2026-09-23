@@ -83,21 +83,25 @@ export function fillViewport(node: HTMLElement, footer?: HTMLElement | null) {
     if (Math.abs(node.offsetHeight - next) > 1) node.style.height = `${next}px`;
   };
 
-  const observer = new ResizeObserver(resize);
-  observer.observe(document.body);
-  if (current) observer.observe(current);
+  // Guarded like `clampProbe`: without ResizeObserver (an older browser or an
+  // embedded webview) the editor still measures once and on window resize —
+  // it just misses layout changes that do not resize the window
+  // (@copilot on #887).
+  const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(resize) : null;
+  observer?.observe(document.body);
+  if (current) observer?.observe(current);
   window.addEventListener('resize', resize);
   resize();
 
   return {
     update(nextFooter?: HTMLElement | null) {
-      if (current) observer.unobserve(current);
+      if (current) observer?.unobserve(current);
       current = nextFooter ?? null;
-      if (current) observer.observe(current);
+      if (current) observer?.observe(current);
       resize();
     },
     destroy() {
-      observer.disconnect();
+      observer?.disconnect();
       window.removeEventListener('resize', resize);
     },
   };

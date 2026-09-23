@@ -84,6 +84,19 @@ describe('fillViewport (action)', () => {
     handle.destroy();
   });
 
+  it('still measures, and follows window resizes, without ResizeObserver (@copilot on #887)', () => {
+    vi.stubGlobal('ResizeObserver', undefined);
+    const { editor, footer } = build({ top: 250, footerHeight: 40, footerMargin: 8, padding: 32 });
+    const handle = fillViewport(editor, footer);
+    expect(editor.style.height).toBe('570px');
+    Object.defineProperty(editor, 'offsetHeight', { value: 570, configurable: true });
+    vi.stubGlobal('innerHeight', 1000);
+    window.dispatchEvent(new Event('resize'));
+    expect(editor.style.height).toBe('670px');
+    expect(() => handle.update(footer)).not.toThrow();
+    expect(() => handle.destroy()).not.toThrow();
+  });
+
   it('recomputes on window resize, and stops after destroy', () => {
     const { editor, footer } = build({ top: 250, footerHeight: 40, footerMargin: 8, padding: 32 });
     const handle = fillViewport(editor, footer);
