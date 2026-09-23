@@ -309,6 +309,7 @@ describe('readSkillExport', () => {
     ['one is off', { exports: { claudeSkill: decl(), codex: decl({ enable: false }) } }],
     ['codex is malformed', { exports: { claudeSkill: decl(), codex: 'yes' } }],
     ['codex has a wrongly-typed field', { exports: { claudeSkill: decl(), codex: { name: 42 } } }],
+    ['an entry carries a key this form does not edit', { exports: { claudeSkill: { ...decl(), arguments: ['x'] } } }],
   ])('reports DIVERGENT when %s', (_what, props) => {
     expect(readSkillExport(props)).toEqual({ value: null, divergent: true });
   });
@@ -323,6 +324,11 @@ describe('withoutSkillExport / writeSkillExport', () => {
   it('removes both owned hosts and keeps a host it does not own', () => {
     const props = { k: 1, exports: { ...both(decl()).exports, other: { name: 'o' } } };
     expect(withoutSkillExport(props)).toEqual({ k: 1, exports: { other: { name: 'o' } } });
+  });
+
+  it('leaves an entry with an unmodelled key whole (@copilot on #887)', () => {
+    const props = { exports: { claudeSkill: { ...decl(), arguments: ['x'] } } };
+    expect(withoutSkillExport(props)).toEqual(props);
   });
 
   it('leaves a DIVERGENT bag whole — the raw editor owns it', () => {

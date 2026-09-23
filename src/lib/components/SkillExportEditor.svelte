@@ -41,7 +41,11 @@
   }: {
     value: SkillExport | null;
     runnable: boolean;
-    /** The stored host entries disagree; the raw properties editor owns them. */
+    /**
+     * The stored host entries cannot be shown as ONE declaration — they
+     * disagree, or one carries a field this form does not edit. The raw
+     * properties editor owns them.
+     */
     divergent?: boolean;
     /**
      * Whether the page offers a raw JSON editor for the rest of the bag. A node
@@ -111,14 +115,15 @@
 <div class="space-y-3">
   {#if divergent}
     <!--
-      The stored Claude and Codex entries cannot be shown as ONE declaration.
-      Writing one back would overwrite the other with values the user never
-      saw, so the raw properties editor keeps them, verbatim.
+      The stored entries cannot be shown as ONE declaration: Claude and Codex
+      disagree, or one carries a field this form does not edit. Writing one
+      back would overwrite or drop something the user never saw, so the raw
+      properties editor keeps them, verbatim.
     -->
     <p class="text-sm text-zinc-600 dark:text-zinc-400">
       {t(
         'skill-export.divergent',
-        'This node’s Claude and Codex export settings differ, so they can’t be edited as one here.',
+        'This node’s export settings can’t be edited with the checkbox here: the Claude and Codex entries differ, or carry fields this form doesn’t edit.',
       )}
       {#if rawPropertiesEditable}
         {t('skill-export.divergent-where', 'Change them under Structured storage → Properties.')}

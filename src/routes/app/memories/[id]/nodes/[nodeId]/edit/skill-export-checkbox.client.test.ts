@@ -211,7 +211,7 @@ describe('host entries that disagree', () => {
     const m = await mountPage({ properties: divergent });
     try {
       expect(exportBox(m.target)).toBeNull();
-      expect(m.target.textContent).toContain('export settings differ');
+      expect(m.target.textContent).toContain('can’t be edited with the checkbox');
       expect(submitted(m.target)).toEqual(divergent);
     } finally {
       m.unmount();
@@ -245,7 +245,7 @@ describe('where the divergence note sends the user', () => {
       schema: { objectTypes: { competitor: { fields: { stage: { type: 'text' } } } } },
     });
     try {
-      expect(m.target.textContent).toContain('export settings differ');
+      expect(m.target.textContent).toContain('can’t be edited with the checkbox');
       expect(m.target.querySelector('textarea#properties')).toBeNull();
       expect(m.target.textContent).not.toContain(POINTER);
     } finally {
@@ -440,6 +440,44 @@ describe('section state on a node-to-node navigation (@copilot on #887)', () => 
       (m.props as { data: unknown }).data = await dataFor({ id: 'b', properties: broken });
       flushSync();
       expect(skillSection(m.target).open).toBe(true);
+    } finally {
+      m.unmount();
+    }
+  });
+});
+
+describe('a host entry carrying a field this form does not edit (@copilot on #887)', () => {
+  it('is left verbatim — an untouched Save must not drop the extra key', async () => {
+    const withExtra = {
+      exports: { claudeSkill: { name: 'n', description: 'd', enable: true, arguments: ['x'] } },
+    };
+    const m = await mountPage({ properties: withExtra });
+    try {
+      expect(exportBox(m.target)).toBeNull();
+      expect(m.target.textContent).toContain('carry fields this form doesn’t edit');
+      expect(submitted(m.target)).toEqual(withExtra);
+    } finally {
+      m.unmount();
+    }
+  });
+});
+
+describe('the editor’s own panel on a node-to-node navigation (@copilot on #887)', () => {
+  it('node B starts with "Change the skill’s name and description" closed', async () => {
+    const decl = (name: string) => ({ exports: { claudeSkill: { name, description: 'd', enable: true } } });
+    const panel = (target: HTMLElement) =>
+      Array.from(target.querySelectorAll('details')).find((d) =>
+        d.querySelector('summary')?.textContent?.includes('name and description'),
+      ) as HTMLDetailsElement;
+    const m = await mountPage({ id: 'a', properties: decl('from-a') });
+    try {
+      panel(m.target).open = true;
+      panel(m.target).dispatchEvent(new Event('toggle'));
+      flushSync();
+      expect(panel(m.target).open).toBe(true);
+      (m.props as { data: unknown }).data = await dataFor({ id: 'b', properties: decl('from-b') });
+      flushSync();
+      expect(panel(m.target).open).toBe(false);
     } finally {
       m.unmount();
     }

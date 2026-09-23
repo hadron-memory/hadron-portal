@@ -130,8 +130,15 @@ export function readDeclaration(
 function isReadableDeclaration(decl: Record<string, unknown>): boolean {
   const okString = (v: unknown) => v === undefined || typeof v === 'string';
   const okBool = (v: unknown) => v === undefined || typeof v === 'boolean';
-  return okString(decl.name) && okString(decl.description) && okBool(decl.enable);
+  // A key this form does not model is not representable either: the form
+  // writes back exactly name/description/enable, so an extra key would be
+  // dropped by a Save that touched nothing (@copilot on #887). Such an entry
+  // is left to the raw editor, verbatim, like a wrongly-typed one.
+  const onlyKnownKeys = Object.keys(decl).every((k) => DECLARATION_KEYS.has(k));
+  return onlyKnownKeys && okString(decl.name) && okString(decl.description) && okBool(decl.enable);
 }
+
+const DECLARATION_KEYS = new Set(['name', 'description', 'enable']);
 
 /** Absent / declared-but-off / declared-and-on — the distinction the UI must show. */
 export function declarationState(
