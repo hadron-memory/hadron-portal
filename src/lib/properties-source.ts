@@ -23,40 +23,65 @@ export function utf8Length(s: string): number {
 }
 
 /**
- * The first number that JSON cannot carry back unchanged, as a path — or null.
- *
- * `JSON.parse('{"a": 1e400}')` yields `Infinity`, which `JSON.stringify` then
- * writes as `null`; an integer past 2^53 is silently rounded. Either way the
- * editor would save a different bag than the one the user typed and read as
- * "valid" (@codex on #893). Refused with the path, so the user can quote it as
- * a string instead.
+ * A number literal's exact decimal VALUE as a comparable key: sign, significant
+ * digits, exponent — so `1.0`, `1e0` and `1` compare equal while
+ * `1.2345678901234567` and `1.234567890123456789` do not. Zero is unsigned.
+ * Null for anything that is not a plain decimal (`Infinity`, `NaN`).
  */
-export function unsafeNumberPath(value: unknown, path = ''): string | null {
-  if (typeof value === 'number') {
-    if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) {
-      return path || '(root)';
+function decimalKey(literal: string): string | null {
+  const m = /^(-?)(\d+)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(literal);
+  if (!m) return null;
+  const [, sign, int, frac = '', exp = '0'] = m;
+  let digits = (int + frac).replace(/^0+/, '');
+  if (digits === '') return '0';
+  let e = Number(exp) - frac.length;
+  const trimmed = digits.replace(/0+$/, '');
+  e += digits.length - trimmed.length;
+  digits = trimmed;
+  return `${sign}${digits}e${e}`;
+}
+
+/**
+ * The first number literal in `raw` that JSON cannot carry back EXACTLY — or
+ * null. A JSON number becomes a 64-bit float, so `1e400` turns into Infinity
+ * (sent as `null`), an integer past 2^53 is rounded, and so is a fraction with
+ * more precision than a double holds (`1.234567890123456789`) or one that
+ * underflows (`1e-400`). In every case the editor would call the text valid and
+ * save a different bag (@codex on #893, twice).
+ *
+ * Checked per TOKEN of the source, not per parsed value: a parsed value has
+ * already lost what it lost, so only the literal can say whether its double
+ * represents it exactly. Values are compared, not spellings — `1.0`, `1e2` and
+ * `0.10` pass. `raw` must already be valid JSON; strings are skipped whole.
+ */
+const NUMBER_AT = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+
+export function inexactNumber(raw: string): string | null {
+  let i = 0;
+  while (i < raw.length) {
+    const c = raw[i];
+    if (c === '"') {
+      i++;
+      while (i < raw.length && raw[i] !== '"') i += raw[i] === '\\' ? 2 : 1;
+      i++;
+      continue;
     }
-    return null;
-  }
-  if (Array.isArray(value)) {
-    for (let i = 0; i < value.length; i++) {
-      const hit = unsafeNumberPath(value[i], `${path}[${i}]`);
-      if (hit) return hit;
+    if (c === '-' || (c >= '0' && c <= '9')) {
+      // Sticky: matches AT i without copying the rest of the text — a slice
+      // per number is quadratic on a 256 KB bag of numbers.
+      NUMBER_AT.lastIndex = i;
+      const m = NUMBER_AT.exec(raw);
+      if (m) {
+        const literal = m[0];
+        if (decimalKey(literal) !== decimalKey(String(Number(literal)))) return literal;
+        i += literal.length;
+        continue;
+      }
     }
-    return null;
-  }
-  if (value !== null && typeof value === 'object') {
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      const hit = unsafeNumberPath(v, path ? `${path}.${k}` : k);
-      if (hit) return hit;
-    }
+    i++;
   }
   return null;
 }
-
-export type PropertiesParse =
-  | { ok: true; value: Record<string, unknown> }
-  | { ok: false; code: PropertiesSourceError; detail?: string };
 
 /**
  * Parse the Source text. `properties` is a JSON OBJECT on the server — an
@@ -78,8 +103,8 @@ export function parsePropertiesSource(raw: string): PropertiesParse {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     return { ok: false, code: 'not-object' };
   }
-  const unsafe = unsafeNumberPath(parsed);
-  if (unsafe) return { ok: false, code: 'unsafe-number', detail: unsafe };
+  const inexact = inexactNumber(text);
+  if (inexact) return { ok: false, code: 'unsafe-number', detail: inexact };
   return { ok: true, value: parsed as Record<string, unknown> };
 }
 

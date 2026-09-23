@@ -1032,8 +1032,8 @@
       case 'unsafe-number':
         return t(
           'node.properties.source.unsafe-number',
-          'The number at {path} cannot be stored exactly — it is too large (or infinite). Quote it as a string.',
-          { path: detail ?? '' },
+          'The number {number} cannot be stored exactly — JSON numbers are 64-bit floats, so it would be saved rounded. Quote it as a string to keep it as written.',
+          { number: detail ?? '' },
         );
       case 'not-object':
         return t('node.properties.source.not-object', 'Properties must be a JSON object: {"key": "value"}.');

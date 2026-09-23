@@ -10,7 +10,7 @@ import {
   propertiesFingerprint,
   PROPERTIES_MAX,
   sameProperties,
-  unsafeNumberPath,
+  inexactNumber,
 } from './properties-source';
 
 describe('parsePropertiesSource', () => {
@@ -73,18 +73,30 @@ describe('sameProperties — the stale-page comparison', () => {
   });
 });
 
-describe('numbers JSON cannot carry back unchanged (@codex on #893)', () => {
-  it('refuses an overflowing number — JSON.parse makes it Infinity, which serializes as null', () => {
-    expect(parsePropertiesSource('{"a": {"huge": 1e400}}')).toEqual({ ok: false, code: 'unsafe-number', detail: 'a.huge' });
+describe('numbers JSON cannot carry back EXACTLY (@codex on #893, twice)', () => {
+  it.each([
+    ['an overflow — parses to Infinity, sent as null', '{"a": {"huge": 1e400}}', '1e400'],
+    ['an integer past 2^53 — rounded', '{"ids": [1, 12345678901234567890]}', '12345678901234567890'],
+    ['a fraction with more precision than a double — rounded', '{"ratio": 1.234567890123456789}', '1.234567890123456789'],
+    ['an underflow — becomes 0', '{"tiny": 1e-400}', '1e-400'],
+  ])('refuses %s, naming the literal', (_what, raw, literal) => {
+    expect(parsePropertiesSource(raw)).toEqual({ ok: false, code: 'unsafe-number', detail: literal });
   });
 
-  it('refuses an integer past 2^53 — it would be silently rounded', () => {
-    expect(parsePropertiesSource('{"ids": [1, 12345678901234567890]}')).toEqual({ ok: false, code: 'unsafe-number', detail: 'ids[1]' });
+  it.each([
+    ['ordinary values', '{"a": 0.1, "b": -3, "c": 1.5e-7, "d": 5e-324}'],
+    ['the largest safe integer', `{"n": ${Number.MAX_SAFE_INTEGER}}`],
+    ['spellings of the same value', '{"a": 1.0, "b": 1e2, "c": 0.10, "d": 1E+21, "e": -0}'],
+    ['digits inside strings', '{"s": "1.234567890123456789 and 1e400", "t": "\\"12345678901234567890\\""}'],
+  ])('accepts %s', (_what, raw) => {
+    expect(parsePropertiesSource(raw).ok).toBe(true);
   });
 
-  it('keeps ordinary numbers, fractions and the largest safe integer', () => {
-    expect(parsePropertiesSource(`{"a": 0.1, "b": -3, "c": ${Number.MAX_SAFE_INTEGER}}`).ok).toBe(true);
-    expect(unsafeNumberPath({ a: [1, { b: 2.5 }] })).toBeNull();
+  it('stays linear on a large bag of numbers', () => {
+    const raw = `{"xs": [${Array.from({ length: 20_000 }, (_, k) => k + 0.5).join(',')}]}`;
+    const start = performance.now();
+    expect(inexactNumber(raw)).toBeNull();
+    expect(performance.now() - start).toBeLessThan(1000);
   });
 });
 
