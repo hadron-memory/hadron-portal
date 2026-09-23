@@ -8,6 +8,9 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import TaskExportToggle from '$lib/components/TaskExportToggle.svelte';
+  import SkillBundleDownload from '$lib/components/SkillBundleDownload.svelte';
+  import { taskExportNote, type TaskExport } from '$lib/skill-export';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
@@ -16,10 +19,12 @@
 
   interface TaskRow {
     id: string;
+    memoryId: string;
     loc: string;
     name: string;
     description: string;
     urn: string;
+    export: TaskExport;
   }
 
   // `nodeType` is intentionally absent — every row is a task, so a type chip
@@ -27,16 +32,35 @@
   const rows = $derived<TaskRow[]>(
     data.tasks.map((task) => ({
       id: task.id,
+      memoryId: task.memoryId,
       loc: task.loc,
       name: task.name,
       description: task.description ?? '',
       urn: task.urn,
+      export: task.export,
     })),
   );
+
+  const checkedCount = $derived(rows.filter((r) => r.export.kind === 'on').length);
+
+  // Checked rows first when sorted ascending; the rest in a stable order.
+  const EXPORT_RANK: Record<TaskExport['kind'], number> = { on: 0, divergent: 1, off: 2, none: 3 };
 
   let globalFilter = $state('');
 
   const columns: PortalColumnDef<TaskRow>[] = [
+    {
+      // #879. The accessor is the NOTE the cell renders ("Differs per host",
+      // "Claude only") — the only text in that cell, so it is exactly what the
+      // search box can find
+      // (`hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable`). A bare checkbox renders no text and matches nothing.
+      // Sorting is by state, not by that text.
+      id: 'export',
+      accessorFn: (row) => taskExportNote(row.export),
+      header: t('tasks.column.export', 'Export'),
+      size: 110,
+      sortFn: (a, b) => EXPORT_RANK[a.original.export.kind] - EXPORT_RANK[b.original.export.kind],
+    },
     { accessorKey: 'name', header: t('tasks.column.name', 'Name'), enableHiding: false, size: 320 }, // identity column
     { accessorKey: 'description', header: t('tasks.column.description', 'Description'), size: 520 },
   ];
@@ -87,6 +111,8 @@
       </p>
     {/if}
 
+    <SkillBundleDownload orgId={org?.id ?? ''} {checkedCount} truncated={data.truncated} shown={rows.length} />
+
     <DataTable
       {table}
       listKey="orgs:tasks"
@@ -96,7 +122,9 @@
       maxHeight="max(200px, calc(100vh - 20rem))"
     >
       {#snippet cell(cell, task)}
-        {#if cell.column.id === 'name'}
+        {#if cell.column.id === 'export'}
+          <TaskExportToggle nodeId={task.id} memoryId={task.memoryId} name={task.name} exportState={task.export} />
+        {:else if cell.column.id === 'name'}
           <div class="min-w-0">
             <a href="/app/u/{task.urn}" class="block truncate font-semibold text-indigo-600 hover:underline dark:text-indigo-300">{task.name}</a>
             <div class="mt-0.5"><Urn value={task.urn} type="node" size={8} /></div>
