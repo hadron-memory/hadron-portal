@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
-import { ORG_SKILL_BUNDLE_QUERY, SKILL_PLAN_EXPORT_QUERY } from '$lib/server/queries';
+import { ORG_SKILL_BUNDLE_QUERY, SKILL_PLAN_EXPORT_QUERY, SKILL_PLAN_STATUS_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -32,8 +32,18 @@ async function post(body: unknown, token: string | null = 'tok') {
 
 const BODY = '---\nname: drive-pr-home\ndescription: x\n---\n\nbody\n';
 
-function route(opts: { memories?: Array<{ id: string }>; entries?: unknown[]; planThrows?: boolean }) {
+function route(opts: {
+  memories?: Array<{ id: string }>;
+  entries?: unknown[];
+  planThrows?: boolean;
+  otherEntries?: unknown[];
+  otherThrows?: boolean;
+}) {
   mockRequest.mockImplementation(async (query: string) => {
+    if (query === SKILL_PLAN_STATUS_QUERY) {
+      if (opts.otherThrows) throw new Error('other host down');
+      return { skillPlan: { entries: opts.otherEntries ?? [] } };
+    }
     if (query === ORG_SKILL_BUNDLE_QUERY) {
       return { organization: { id: 'org-1', name: 'Acme', memories: opts.memories ?? [{ id: 'mem-1' }] } };
     }
@@ -77,6 +87,7 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
     const r = await post({ host: 'claudeSkill' });
     expect(r).toEqual({ status: 409, body: { code: 'no-memories' } });
     expect(mockRequest.mock.calls.filter(([q]) => q === SKILL_PLAN_EXPORT_QUERY)).toHaveLength(0);
+    expect(mockRequest.mock.calls.filter(([q]) => q === SKILL_PLAN_STATUS_QUERY)).toHaveLength(0);
     expect(mockRequest.mock.calls.filter(([q]) => q === ORG_SKILL_BUNDLE_QUERY)).toHaveLength(1);
   });
 
@@ -122,5 +133,35 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
     const r = await post({ host: 'claudeSkill' });
     expect(r.status).toBe(502);
     expect(r.body.code).toBe('plan-failed');
+  });
+
+  it('names a task declared for the OTHER host only — from the server, uncapped (@codex on #890)', async () => {
+    route({
+      memories: [{ id: 'mem-1' }, { id: 'mem-2' }],
+      entries: [entry()],
+      otherEntries: [
+        { nodeId: 'n1', urn: entry().urn, name: 'drive-pr-home', class: 'never-exported' }, // judged by both
+        { nodeId: 'solo', urn: 'hrn:node:acme.com:ops:tasks:solo', name: 'solo', class: 'never-exported' },
+        { nodeId: 'off', urn: 'hrn:node:acme.com:ops:tasks:off', name: 'off', class: 'disabled' }, // switched off
+      ],
+    });
+    const r = await post({ host: 'codexSkill' });
+    expect(r.status).toBe(200);
+    expect(r.body.otherHost).toBe('claudeSkill');
+    expect(r.body.notForHost).toEqual([{ name: 'solo', urn: 'hrn:node:acme.com:ops:tasks:solo' }]);
+    expect(r.body.notForHostUnknown).toBeNull();
+    // The OTHER host, over the same memories, as STATUS (no bodies rendered).
+    const call = mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_STATUS_QUERY);
+    expect(call?.[1]).toEqual({ host: 'claudeSkill', memories: ['mem-1', 'mem-2'] });
+  });
+
+  it('an other-host failure costs the report one section, NOT the download — an export runs to the end', async () => {
+    route({ entries: [entry()], otherThrows: true });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.status).toBe(200);
+    expect(r.body.zipBase64).toEqual(expect.any(String));
+    expect(r.body.included).toHaveLength(1);
+    expect(r.body.notForHost).toEqual([]);
+    expect(r.body.notForHostUnknown).toEqual(expect.any(String));
   });
 });

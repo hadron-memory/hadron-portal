@@ -6,7 +6,7 @@
  * test. The name guards are pinned because a skill name becomes a PATH here.
  */
 import { describe, expect, it } from 'vitest';
-import { isBundleHost, planBundle, pluginName, type PlanEntry } from './skill-bundle';
+import { isBundleHost, otherBundleHost, otherHostOnly, planBundle, pluginName, type PlanEntry } from './skill-bundle';
 
 const entry = (over: Partial<PlanEntry> = {}): PlanEntry => ({
   nodeId: 'n1',
@@ -143,5 +143,20 @@ describe('planBundle — the server\'s export plan (@copilot on #890)', () => {
     expect(b.skipped[0].reasons).toEqual(['refused']);
     const ok = planBundle([entry({ exportPlan: { action: 'WRITE', reasons: [] } })], 'codexSkill', 'Acme');
     expect(Object.keys(ok.files)).toEqual(['drive-pr-home/SKILL.md']);
+  });
+});
+
+describe('otherHostOnly — declared for the other host alone (@codex on #890)', () => {
+  const o = (nodeId: string, cls: string | null) => ({ nodeId, urn: `hrn:node:acme.com:ops:${nodeId}`, name: nodeId, class: cls });
+
+  it('keeps only what the other host exports and this host never judged', () => {
+    const judgedHere = [{ nodeId: 'both' }, { nodeId: 'here-disabled' }];
+    const other = [o('both', 'never-exported'), o('here-disabled', 'never-exported'), o('solo', 'never-exported'), o('off', 'disabled')];
+    expect(otherHostOnly(judgedHere, other)).toEqual([{ name: 'solo', urn: 'hrn:node:acme.com:ops:solo' }]);
+  });
+
+  it('pairs each host with the other one', () => {
+    expect(otherBundleHost('claudeSkill')).toBe('codexSkill');
+    expect(otherBundleHost('codexSkill')).toBe('claudeSkill');
   });
 });

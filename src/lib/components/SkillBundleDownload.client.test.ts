@@ -10,12 +10,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { exportSaves } from '$lib/skill-export-saves.svelte';
 import SkillBundleDownload from './SkillBundleDownload.svelte';
 
-type Props = {
-  orgId: string;
-  checked: Array<{ name: string; urn: string; hosts: string[] }>;
-  truncated?: boolean;
-  shown?: number;
-};
+type Props = { orgId: string; checkedCount: number; truncated?: boolean; shown?: number };
 
 const mounted: Array<Mounted<Props>> = [];
 afterEach(() => {
@@ -36,8 +31,8 @@ function panel(props: Props) {
   return m;
 }
 
-const both = { name: 'Both hosts', urn: 'hrn:node:acme.com:ops:tasks:both', hosts: ['claudeSkill', 'codexSkill'] };
-const claudeOnly = { name: 'Solo task', urn: 'hrn:node:acme.com:ops:tasks:solo', hosts: ['claudeSkill'] };
+const SOLO = 'hrn:node:acme.com:ops:tasks:solo';
+const BROKEN = 'hrn:node:acme.com:ops:tasks:broken';
 
 function stubEndpoint(body: Record<string, unknown>) {
   const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status: 200 }));
@@ -45,14 +40,27 @@ function stubEndpoint(body: Record<string, unknown>) {
   return fetchMock;
 }
 
-const buttons = (t: HTMLElement) => [...t.querySelectorAll<HTMLButtonElement>('button')];
+const codexResponse = (over: Record<string, unknown> = {}) => ({
+  host: 'codexSkill',
+  filename: 'acme-skills-codex.zip',
+  zipBase64: btoa('PK'),
+  included: [{ name: 'both', urn: 'hrn:node:acme.com:ops:tasks:both' }],
+  skipped: [{ name: 'broken', urn: BROKEN, reasons: ['needs a description'] }],
+  otherHost: 'claudeSkill',
+  notForHost: [{ name: 'solo-task', urn: SOLO }],
+  notForHostUnknown: null,
+  ...over,
+});
+
+const downloadButtons = (t: HTMLElement) =>
+  [...t.querySelectorAll<HTMLButtonElement>('button')].filter((b) => /Download/.test(b.textContent ?? ''));
 
 /**
  * Wait for the REPORT, not for a number of ticks. The stubbed fetch → json()
  * chain takes a different number of microtasks on a slower runner, and a fixed
  * count passed locally while CI still read "Preparing…" (#890). Waiting on the
- * report also keeps the NEGATIVE assertion below honest: without it, "not
- * listed" passes on a report that never rendered.
+ * report also keeps a NEGATIVE assertion honest: without it, "not listed"
+ * passes on a report that never rendered.
  */
 async function reportRendered(target: HTMLElement) {
   await vi.waitFor(() => {
@@ -60,68 +68,90 @@ async function reportRendered(target: HTMLElement) {
   });
 }
 
-describe('SkillBundleDownload — a checked task the host never judges (@codex on #890)', () => {
-  it('names a Claude-only task in the Codex report instead of dropping it', async () => {
-    stubEndpoint({
-      host: 'codexSkill',
-      filename: 'acme-skills-codex.zip',
-      zipBase64: btoa('PK'),
-      included: [{ name: 'both', urn: both.urn }],
-      skipped: [],
-    });
-    const { target } = panel({ orgId: 'org-1', checked: [both, claudeOnly] });
-    buttons(target).find((b) => b.textContent?.includes('Codex'))!.click();
+async function search(target: HTMLElement, text: string) {
+  const box = target.querySelector<HTMLInputElement>('input[aria-label="Search the tasks left out of the download"]')!;
+  box.value = text;
+  box.dispatchEvent(new Event('input', { bubbles: true }));
+  await tick(2);
+}
+
+const tableRows = (t: HTMLElement) => [...t.querySelectorAll('[role="status"] tbody tr')];
+
+describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
+  it('lists the server-refused task AND the other-host-only task, each with its reason, in one grid', async () => {
+    stubEndpoint(codexResponse());
+    const { target } = panel({ orgId: 'org-1', checkedCount: 3 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
     await reportRendered(target);
-    const text = target.textContent ?? '';
-    expect(text).toContain('Checked, but not exported for Codex (1)');
-    expect(text).toContain('Solo task');
-    expect(text).toContain('Exported for Claude only.');
-    // The Urn chip renders the full URN as its title (the text is the bare part).
-    expect(target.querySelector(`[title="${claudeOnly.urn}"]`)).not.toBeNull();
+
+    expect(target.textContent).toContain('Left out of the download (2)');
+    const rows = tableRows(target).map((r) => r.textContent ?? '');
+    expect(rows).toHaveLength(2);
+    expect(rows.find((r) => r.includes('broken'))).toContain('needs a description');
+    expect(rows.find((r) => r.includes('solo-task'))).toContain('Exported for Claude only.');
+    // It is a grid, not a bespoke list.
+    expect(target.querySelector('[role="status"] ul')).toBeNull();
   });
 
-  it('does not list it for the host it IS declared for', async () => {
-    stubEndpoint({
-      host: 'claudeSkill',
-      filename: 'acme-skills.zip',
-      zipBase64: btoa('PK'),
-      included: [{ name: 'both', urn: both.urn }, { name: 'solo', urn: claudeOnly.urn }],
-      skipped: [],
-    });
-    const { target } = panel({ orgId: 'org-1', checked: [both, claudeOnly] });
-    buttons(target).find((b) => b.textContent?.includes('Claude'))!.click();
+  it('finds a row by its URN — rendered as a chip, not the accessor — and nothing by text no row renders', async () => {
+    stubEndpoint(codexResponse());
+    const { target } = panel({ orgId: 'org-1', checkedCount: 3 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
     await reportRendered(target);
-    // Reached the matcher: the report IS there, and it names the included skills.
-    expect(target.textContent).toContain('Skills in it: 2');
-    expect(target.textContent).not.toContain('not exported for');
+
+    await search(target, 'tasks:solo');
+    expect(tableRows(target).map((r) => r.textContent)).toEqual([expect.stringContaining('solo-task')]);
+    await search(target, 'not rendered anywhere');
+    expect(tableRows(target).some((r) => r.textContent?.includes('solo-task'))).toBe(false);
+  });
+
+  it('with nothing left out, renders no grid — and it did reach the report', async () => {
+    stubEndpoint(codexResponse({ skipped: [], notForHost: [] }));
+    const { target } = panel({ orgId: 'org-1', checkedCount: 1 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
+    await reportRendered(target);
+    expect(target.textContent).toContain('Skills in it: 1');
+    expect(target.textContent).not.toContain('Left out of the download');
+    expect(target.querySelector('[role="status"] table')).toBeNull();
+  });
+
+  it('says so when the other host could not be checked, instead of implying the list is complete', async () => {
+    stubEndpoint(codexResponse({ notForHost: [], notForHostUnknown: 'host "claudeSkill" unavailable' }));
+    const { target } = panel({ orgId: 'org-1', checkedCount: 2 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
+    await reportRendered(target);
+    expect(target.textContent).toContain('could not be checked');
+    expect(target.textContent).toContain('host "claudeSkill" unavailable');
+    // The download itself still happened — an export runs to the end.
+    expect(target.textContent).toContain('Prepared acme-skills-codex.zip');
   });
 });
 
 describe('SkillBundleDownload — when the buttons are offered', () => {
   it('nothing checked and the list complete: disabled, and says why', async () => {
-    const { target } = panel({ orgId: 'org-1', checked: [] });
+    const { target } = panel({ orgId: 'org-1', checkedCount: 0 });
     await tick();
-    expect(buttons(target).every((b) => b.disabled)).toBe(true);
+    expect(downloadButtons(target).every((b) => b.disabled)).toBe(true);
     expect(target.textContent).toContain('Nothing is checked yet');
   });
 
   it('nothing checked among a TRUNCATED list: still enabled — the org may hold more (@codex on #890)', async () => {
-    const { target } = panel({ orgId: 'org-1', checked: [], truncated: true, shown: 500 });
+    const { target } = panel({ orgId: 'org-1', checkedCount: 0, truncated: true, shown: 500 });
     await tick();
-    expect(buttons(target).every((b) => !b.disabled)).toBe(true);
+    expect(downloadButtons(target).every((b) => !b.disabled)).toBe(true);
     expect(target.textContent).toContain('Checked among the 500 tasks shown: 0');
   });
 
   it('waits while a row is still saving, then offers them again (@copilot on #890)', async () => {
-    const { target } = panel({ orgId: 'org-1', checked: [both] });
+    const { target } = panel({ orgId: 'org-1', checkedCount: 1 });
     await tick();
-    expect(buttons(target).every((b) => !b.disabled)).toBe(true);
+    expect(downloadButtons(target).every((b) => !b.disabled)).toBe(true);
     exportSaves.pending = 1;
     await tick();
-    expect(buttons(target).every((b) => b.disabled)).toBe(true);
+    expect(downloadButtons(target).every((b) => b.disabled)).toBe(true);
     expect(target.textContent).toContain('Saving a change');
     exportSaves.pending = 0;
     await tick();
-    expect(buttons(target).every((b) => !b.disabled)).toBe(true);
+    expect(downloadButtons(target).every((b) => !b.disabled)).toBe(true);
   });
 });

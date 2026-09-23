@@ -167,3 +167,28 @@ export function planBundle(
   const filename = host === 'claudeSkill' ? `${plugin}.zip` : `${plugin}-codex.zip`;
   return { files, filename, included, skipped };
 }
+
+/** The other host of the two — the one a download for `host` does not judge. */
+export function otherBundleHost(host: SkillBundleHost): SkillBundleHost {
+  return host === 'claudeSkill' ? 'codexSkill' : 'claudeSkill';
+}
+
+/**
+ * #879 (@codex on #890) — tasks exported for the OTHER host but not judged for
+ * this one: a single-host declaration. The EXPORT plan for `host` scans such a
+ * node and leaves it out of `entries` entirely, so without this a checked
+ * Claude-only task simply vanishes from a Codex download.
+ *
+ * `disabled` on the other host is excluded: switched off everywhere it is
+ * declared, it was never going to export. A node the plan for `host` DID judge
+ * (in any class) is excluded too — its own entry already says what happened.
+ */
+export function otherHostOnly(
+  judged: Array<Pick<PlanEntry, 'nodeId'>>,
+  other: Array<Pick<PlanEntry, 'nodeId' | 'urn' | 'name' | 'class'>>,
+): Array<{ name: string; urn: string }> {
+  const seen = new Set(judged.map((e) => e.nodeId));
+  return other
+    .filter((e) => e.class !== 'disabled' && !seen.has(e.nodeId))
+    .map((e) => ({ name: e.name, urn: e.urn }));
+}

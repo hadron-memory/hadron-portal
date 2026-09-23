@@ -41,9 +41,7 @@
     })),
   );
 
-  const checked = $derived(
-    rows.flatMap((r) => (r.export.kind === 'on' ? [{ name: r.name, urn: r.urn, hosts: r.export.hosts }] : [])),
-  );
+  const checkedCount = $derived(rows.filter((r) => r.export.kind === 'on').length);
 
   // Checked rows first when sorted ascending; the rest in a stable order.
   const EXPORT_RANK: Record<TaskExport['kind'], number> = { on: 0, divergent: 1, off: 2, none: 3 };
@@ -113,7 +111,7 @@
       </p>
     {/if}
 
-    <SkillBundleDownload orgId={org?.id ?? ''} {checked} truncated={data.truncated} shown={rows.length} />
+    <SkillBundleDownload orgId={org?.id ?? ''} {checkedCount} truncated={data.truncated} shown={rows.length} />
 
     <DataTable
       {table}

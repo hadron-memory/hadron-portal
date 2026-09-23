@@ -3,8 +3,8 @@ import JSZip from 'jszip';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
-import { ORG_SKILL_BUNDLE_QUERY, SKILL_PLAN_EXPORT_QUERY } from '$lib/server/queries';
-import { isBundleHost, planBundle, type PlanEntry } from '$lib/skill-bundle';
+import { ORG_SKILL_BUNDLE_QUERY, SKILL_PLAN_EXPORT_QUERY, SKILL_PLAN_STATUS_QUERY } from '$lib/server/queries';
+import { isBundleHost, otherBundleHost, otherHostOnly, planBundle, type PlanEntry } from '$lib/skill-bundle';
 import type { RequestHandler } from './$types';
 
 /**
@@ -41,16 +41,35 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // memories would download the caller's skills from every other org.
   if (memories.length === 0) return json({ code: 'no-memories' }, { status: 409 });
 
-  let entries: PlanEntry[];
-  try {
-    const data = await gqlClient(locals.token).request<{ skillPlan: { entries: PlanEntry[] } }>(
-      SKILL_PLAN_EXPORT_QUERY,
-      { host, memories },
+  // The EXPORT plan for the chosen host, and a body-less STATUS plan for the
+  // other one — the only uncapped way to name a task declared for the other
+  // host alone, which this host's plan scans but never lists (@codex on #890).
+  const client = gqlClient(locals.token);
+  const otherHost = otherBundleHost(host);
+  const [exportPlan, otherPlan] = await Promise.allSettled([
+    client.request<{ skillPlan: { entries: PlanEntry[] } }>(SKILL_PLAN_EXPORT_QUERY, { host, memories }),
+    client.request<{ skillPlan: { entries: PlanEntry[] } }>(SKILL_PLAN_STATUS_QUERY, { host: otherHost, memories }),
+  ]);
+  if (exportPlan.status === 'rejected') {
+    console.error('[org tasks] skillPlan EXPORT failed:', exportPlan.reason);
+    return json(
+      { code: 'plan-failed', detail: extractGqlError(exportPlan.reason, 'The export plan failed') },
+      { status: 502 },
     );
-    entries = data.skillPlan.entries;
-  } catch (e: unknown) {
-    console.error('[org tasks] skillPlan EXPORT failed:', e);
-    return json({ code: 'plan-failed', detail: extractGqlError(e, 'The export plan failed') }, { status: 502 });
+  }
+  const entries = exportPlan.value.skillPlan.entries;
+
+  // An export RUNS TO THE END and names every failure in its report
+  // (hrn:node:hadronmemory.com:specs:cor:agt:030:00, D-2026-09-23-D): the
+  // other-host read failing costs the report one section, said so, and does
+  // not cost the user the download.
+  let notForHost: Array<{ name: string; urn: string }> = [];
+  let notForHostUnknown: string | null = null;
+  if (otherPlan.status === 'fulfilled') {
+    notForHost = otherHostOnly(entries, otherPlan.value.skillPlan.entries);
+  } else {
+    console.error('[org tasks] skillPlan STATUS (other host) failed:', otherPlan.reason);
+    notForHostUnknown = extractGqlError(otherPlan.reason, 'The other host could not be checked');
   }
 
   const bundle = planBundle(entries, host, org?.name ?? '');
@@ -67,5 +86,8 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     zipBase64,
     included: bundle.included,
     skipped: bundle.skipped,
+    otherHost,
+    notForHost,
+    notForHostUnknown,
   });
 };

@@ -6,7 +6,7 @@
   // reason, instead of simply being absent from a zip the user then installs.
   // Holger's design (#879): target selection happens at the export action, and
   // the per-host enable flags stay behind one checkbox per row.
-  import Urn from '$lib/components/Urn.svelte';
+  import SkillExportLeftOutTable, { type LeftOutRow } from '$lib/components/SkillExportLeftOutTable.svelte';
   import { t } from '$lib/i18n/t';
   import { BUNDLE_HOSTS, type SkillBundleHost, type SkippedSkill } from '$lib/skill-bundle';
   import { hostLabel } from '$lib/skill-export';
@@ -14,10 +14,10 @@
 
   interface Props {
     orgId: string;
-    /** The rows whose checkbox is on, with the hosts each is declared for. */
-    checked: Array<{ name: string; urn: string; hosts: string[] }>;
+    /** Rows whose checkbox is on — shown so the user knows what "all" means. */
+    checkedCount: number;
     /**
-     * The list stopped at the loader's cap. `checked` then covers only the
+     * The list stopped at the loader's cap. `checkedCount` then covers only the
      * rows shown, while the download plans the WHOLE org — so the count is a
      * lower bound and must not disable the buttons (@codex on #890).
      */
@@ -26,23 +26,43 @@
     shown?: number;
   }
 
-  let { orgId, checked, truncated = false, shown = 0 }: Props = $props();
+  let { orgId, checkedCount, truncated = false, shown = 0 }: Props = $props();
 
-  const checkedCount = $derived(checked.length);
   const saving = $derived(exportSaves.pending > 0);
 
   interface Report {
     host: SkillBundleHost;
     filename: string;
     included: Array<{ name: string; urn: string }>;
-    skipped: SkippedSkill[];
-    /**
-     * Checked rows NOT declared for this host (a single-host export). The
-     * server scans such a node but does not judge it for this host, so it is in
-     * neither `included` nor `skipped` — only the page knows it was checked
-     * (@codex on #890).
-     */
-    notForHost: Array<{ name: string; urn: string; hosts: string[] }>;
+    /** Every checked task left out, whichever the cause — one grid. */
+    leftOut: LeftOutRow[];
+    /** The other-host check failed; the report says so rather than claim completeness. */
+    notForHostUnknown: string | null;
+  }
+
+  /**
+   * One row per left-out task. Two causes, both from the SERVER, uncapped:
+   * the plan withheld the skill (its reasons), or the task is declared for the
+   * other host only — which the chosen host's plan scans and never lists
+   * (@codex on #890).
+   */
+  function leftOutRows(
+    skipped: SkippedSkill[],
+    notForHost: Array<{ name: string; urn: string }>,
+    otherHost: string,
+  ): LeftOutRow[] {
+    return [
+      ...skipped.map((s) => ({ name: s.name, urn: s.urn, reason: s.reasons.join(' ') })),
+      ...notForHost.map((n) => ({
+        name: n.name,
+        urn: n.urn,
+        reason: t(
+          'tasks.bundle.not-for-host-reason',
+          'Exported for {host} only. Uncheck and check it again to export it everywhere.',
+          { host: hostLabel(otherHost) },
+        ),
+      })),
+    ];
   }
 
   let pendingHost = $state<SkillBundleHost | null>(null);
@@ -93,8 +113,8 @@
         host,
         filename: body.filename,
         included: body.included,
-        skipped: body.skipped,
-        notForHost: checked.filter((c) => !c.hosts.includes(host)),
+        leftOut: leftOutRows(body.skipped ?? [], body.notForHost ?? [], body.otherHost ?? ''),
+        notForHostUnknown: body.notForHostUnknown ?? null,
       };
     } catch {
       failure = failureText(undefined, undefined);
@@ -172,42 +192,20 @@
           {/if}
         </p>
       {/if}
-      {#if report.notForHost.length > 0}
-        <div>
-          <p class="font-medium text-amber-700 dark:text-amber-400">
-            {t('tasks.bundle.not-for-host', 'Checked, but not exported for {host} ({count}):', {
-              host: hostLabel(report.host),
-              count: report.notForHost.length,
-            })}
-          </p>
-          <ul class="mt-1 space-y-1">
-            {#each report.notForHost as c (c.urn)}
-              <li class="text-xs text-zinc-600 dark:text-zinc-400">
-                <span class="font-medium text-zinc-800 dark:text-zinc-200">{c.name}</span>
-                <Urn value={c.urn} type="node" size={8} />
-                — {t('tasks.bundle.not-for-host-reason', 'Exported for {hosts} only. Uncheck and check it again to export it everywhere.', {
-                  hosts: c.hosts.map(hostLabel).join(', '),
-                })}
-              </li>
-            {/each}
-          </ul>
-        </div>
+      {#if report.notForHostUnknown}
+        <p class="text-xs text-amber-700 dark:text-amber-400">
+          {t(
+            'tasks.bundle.other-host-unknown',
+            'Tasks exported only for another host could not be checked, so some may be missing from this list: {detail}',
+            { detail: report.notForHostUnknown },
+          )}
+        </p>
       {/if}
-      {#if report.skipped.length > 0}
-        <div>
-          <p class="font-medium text-amber-700 dark:text-amber-400">
-            {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.skipped.length })}
-          </p>
-          <ul class="mt-1 space-y-1">
-            {#each report.skipped as s (s.urn)}
-              <li class="text-xs text-zinc-600 dark:text-zinc-400">
-                <span class="font-medium text-zinc-800 dark:text-zinc-200">{s.name}</span>
-                <Urn value={s.urn} type="node" size={8} />
-                — {s.reasons.join(' ')}
-              </li>
-            {/each}
-          </ul>
-        </div>
+      {#if report.leftOut.length > 0}
+        <p class="font-medium text-amber-700 dark:text-amber-400">
+          {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.leftOut.length })}
+        </p>
+        <SkillExportLeftOutTable rows={report.leftOut} />
       {/if}
     </div>
   {/if}

@@ -3509,6 +3509,26 @@ export const RUNNABLE_NODES_QUERY = /* GraphQL */ `
 `;
 
 /**
+ * #879 (@codex on #890) — which nodes the OTHER host judges, with no bodies.
+ * A node declared only for the other host is scanned but not judged by the
+ * EXPORT plan, so it is in neither its included nor its skipped set; this is
+ * how the download names it anyway, from the server and uncapped. STATUS never
+ * renders a body. Same non-empty `memories` rule as the EXPORT plan.
+ */
+export const SKILL_PLAN_STATUS_QUERY = /* GraphQL */ `
+  query SkillPlanStatus($host: String!, $memories: [String!]!) {
+    skillPlan(input: { intent: STATUS, host: $host, memories: $memories }) {
+      entries {
+        nodeId
+        urn
+        name
+        class
+      }
+    }
+  }
+`;
+
+/**
  * #879 — the server-rendered skill files for one host, for the Task Nodes
  * download. EXPORT with no `files` classifies every enabled declaration as
  * never-exported, so each entry the server judged writable carries its whole
