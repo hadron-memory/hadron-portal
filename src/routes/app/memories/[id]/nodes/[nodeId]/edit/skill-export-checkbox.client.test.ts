@@ -547,7 +547,7 @@ describe('a node of a STRICT collection (@copilot on #887)', () => {
       const box = exportBox(m.target)!;
       expect(box.disabled).toBe(true);
       expect(box.getAttribute('aria-describedby')).toBe('skill-export-strict');
-      expect(m.target.querySelector('#skill-export-strict')?.textContent).toContain('competitor, is strict');
+      expect(m.target.querySelector('#skill-export-strict')?.textContent).toContain('competitor, doesn’t allow an exports object');
       setChecked(box, true);
       expect(submitted(m.target)).toBeNull();
     } finally {
@@ -565,13 +565,18 @@ describe('a node of a STRICT collection (@copilot on #887)', () => {
     }
   });
 
-  it('is unaffected by a strict collection that DECLARES exports', async () => {
+  it.each([
+    ['a strict collection', true],
+    ['a NON-strict collection', false],
+  ])('is ALSO blocked when %s declares an exports field (@codex on #887)', async (_what, strict) => {
+    // No schema field type accepts an object, so a declared `exports` field
+    // type-checks the export and rejects it — strict or not.
     const m = await mountPage({
       objectType: 'competitor',
-      schema: schema(true, { stage: { type: 'text' }, exports: { type: 'text' } }),
+      schema: schema(strict, { stage: { type: 'text' }, exports: { type: 'text' } }),
     });
     try {
-      expect(exportBox(m.target)!.disabled).toBe(false);
+      expect(exportBox(m.target)!.disabled).toBe(true);
     } finally {
       m.unmount();
     }

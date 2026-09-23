@@ -61,10 +61,10 @@
      */
     runnableBlockedBy?: string | null;
     /**
-     * The node's collection when it is STRICT and does not declare `exports`,
-     * or null. The server rejects any undeclared key on a strict collection
-     * (`validateNodeAgainstSchema`), so an export here can only fail to save
-     * (@copilot on #887).
+     * The node's collection when its schema cannot hold an `exports` object —
+     * it is strict, or it declares `exports` as a (scalar) field — or null.
+     * Either way the server's `validateNodeAgainstSchema` rejects the save
+     * (@copilot, @codex on #887).
      */
     strictCollection?: string | null;
     /** What a freshly checked export starts with — derived from the node's own fields. */
@@ -164,14 +164,14 @@
     </label>
 
     {#if strictCollection}
-      <!-- A strict collection rejects every property key it does not declare,
-           `exports` included, so the save would refuse the export. Shown in
-           both states: it is why the box cannot be switched on, and why an
-           export already present will not save (@copilot on #887). -->
+      <!-- The collection's schema cannot hold an `exports` object, so the save
+           would refuse the export. Shown in both states: it is why the box
+           cannot be switched on, and why an export already present will not
+           save (@copilot, @codex on #887). -->
       <p id="skill-export-strict" class="text-xs text-zinc-600 dark:text-zinc-400">
         {t(
           'skill-export.strict-collection',
-          'This node’s object type, {collection}, is strict and doesn’t declare exports, so it can’t carry a skill export.',
+          'This node’s object type, {collection}, doesn’t allow an exports object in its properties, so it can’t carry a skill export.',
           { collection: strictCollection },
         )}
       </p>

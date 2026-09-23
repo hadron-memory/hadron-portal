@@ -197,11 +197,15 @@
     $formData.isRunnable || skillExport !== null || exportDivergent,
   );
 
-  // @copilot on #887: a STRICT collection rejects every undeclared property
-  // key on the server, `exports` included, unless it declares one. Derived from
-  // the live object type, so switching the type above updates it.
+  // A declared collection that cannot hold an `exports` OBJECT, measured
+  // against hadron-server's `validateNodeAgainstSchema`:
+  //   - a STRICT collection rejects every undeclared key (@copilot on #887);
+  //   - a collection that DECLARES `exports` type-checks it, and no field type
+  //     (text/number/datetime/boolean/enum) accepts an object — strict or not
+  //     (@codex on #887; the non-strict half found checking that claim).
+  // Derived from the live object type, so switching the type above updates it.
   const strictCollection = $derived(
-    declaredCollection?.strict && !Object.hasOwn(declaredCollection.fields, 'exports')
+    declaredCollection && (declaredCollection.strict || Object.hasOwn(declaredCollection.fields, 'exports'))
       ? $formData.objectType
       : null,
   );
