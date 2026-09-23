@@ -291,13 +291,21 @@ function slugify(source: string): string {
  *
  * The loc's LAST segment first, because that is what a node is already called
  * in its tree (a loc whose last segment is drive-pr-home gives
- * `drive-pr-home`) and is usually kebab-case already; then the node name. Either is reduced to the server's
- * grammar, so the default is a name the server accepts — a default the user
- * then has to fix is not a default.
+ * `drive-pr-home`) and is usually kebab-case already; then the node name.
+ * Either is reduced to the server's grammar, so the default is a name the
+ * server accepts — a default the user then has to fix is not a default.
+ *
+ * When neither has an ASCII letter or digit (a loc and name of only emoji or
+ * non-Latin script slugify to nothing), the node's id is the last resort:
+ * `skill-<id>`, which is always in the grammar and unique to the node
+ * (@copilot on #887). Only an id with nothing usable yields ''.
  */
-export function defaultSkillName(loc: string, nodeName: string): string {
+export function defaultSkillName(loc: string, nodeName: string, nodeId = ''): string {
   const last = loc.split(':').pop() ?? '';
-  return slugify(last) || slugify(nodeName);
+  const fromNode = slugify(last) || slugify(nodeName);
+  if (fromNode) return fromNode;
+  const id = slugify(nodeId);
+  return id ? slugify(`skill-${id}`) : '';
 }
 
 /** The skill export the edit page owns: ONE declaration, written to `hosts`. */

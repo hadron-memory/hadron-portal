@@ -398,6 +398,20 @@ describe('defaultSkillName', () => {
     expect(defaultSkillName(loc, name)).toBe(expected);
   });
 
+  it('falls back to the node id when loc and name have nothing usable (@copilot on #887)', () => {
+    const got = defaultSkillName('tasks:🙂', '🙂', '01a0cb8c1d4b73bf');
+    expect(got).toBe('skill-01a0cb8c1d4b73bf');
+    expect(validSkillName(got)).toBe(true);
+    // A usable loc still wins over the id.
+    expect(defaultSkillName('tasks:real-name', 'x', '01a0')).toBe('real-name');
+  });
+
+  it('keeps the id fallback inside the name cap', () => {
+    const got = defaultSkillName('日本', '日本', 'a'.repeat(80));
+    expect(got.length).toBeLessThanOrEqual(NAME_MAX);
+    expect(validSkillName(got)).toBe(true);
+  });
+
   it('is always a name the server accepts, when it is anything at all', () => {
     for (const [loc, name] of [
       ['a:' + 'word-'.repeat(30), 'x'],

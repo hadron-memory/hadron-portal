@@ -200,7 +200,7 @@
   // #878: what a freshly checked export starts with, from the node's own loc,
   // name and description (edited on the node page's Settings tab).
   const exportDefaults = $derived({
-    name: defaultSkillName(node.loc ?? '', node.name ?? ''),
+    name: defaultSkillName(node.loc ?? '', node.name ?? '', node.id),
     description: (node.description ?? '').trim(),
   });
 
