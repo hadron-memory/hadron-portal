@@ -39,7 +39,22 @@ export interface DraftSource {
  */
 function seedText(value: unknown, emptyText: string): string | null {
   if (value == null) return emptyText;
+  return displayJson(value);
+}
+
+/**
+ * A STORED value as display text, or null when it cannot be serialized at all
+ * — the one serializer for every place the node page shows a value it did not
+ * validate (the Rendered views, the typed-properties table, and the Source
+ * seed). Pretty when affordable, compact when indentation would pass the cap,
+ * null when even compact JSON overflows the stack. A bare
+ * `JSON.stringify(value, null, 2)` on a pathologically nested stored value
+ * threw while RENDERING the tab, before the user could reach the Source
+ * view's "unavailable" state (@copilot on #896).
+ */
+export function displayJson(value: unknown, opts: { compact?: boolean } = {}): string | null {
   try {
+    if (opts.compact) return JSON.stringify(value) ?? null;
     // Measured in UTF-8 BYTES, as the validators measure (@codex on #893):
     // counted in characters, multibyte text let a pretty draft fit the cap
     // here and fail it there — the editor opened on text its own validator

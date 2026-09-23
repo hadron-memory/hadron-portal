@@ -11,7 +11,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { JsonDraft, submitJsonDraft, type DraftSource } from './json-draft.svelte';
+import { displayJson, JsonDraft, submitJsonDraft, type DraftSource } from './json-draft.svelte';
 import { parsePropertiesSource, PROPERTIES_MAX, propertiesFingerprint, utf8Length } from './properties-source';
 import Harness from './test/JsonDraftHarness.svelte';
 
@@ -224,5 +224,31 @@ describe('submitJsonDraft — one save, bound to where it started (@codex on #89
     expect(out).toEqual({ ok: false, code: 'changed', detail: null });
     expect(calls[0].body.get('data')).toBe('[1]');
     expect(calls[0].body.get('properties')).toBeNull();
+  });
+});
+
+describe('displayJson — the one serializer for STORED values (@copilot on #896)', () => {
+  const deep = (n: number) => {
+    let v: unknown = 1;
+    for (let k = 0; k < n; k++) v = { a: v };
+    return v;
+  };
+
+  it('pretty-prints an ordinary value, and compacts on request', () => {
+    expect(displayJson({ a: [1, 2] })).toBe('{\n  "a": [\n    1,\n    2\n  ]\n}');
+    expect(displayJson({ a: [1, 2] }, { compact: true })).toBe('{"a":[1,2]}');
+    expect(displayJson('text')).toBe('"text"');
+  });
+
+  it('falls back to compact when indentation would pass the cap', () => {
+    const text = displayJson(deep(500))!;
+    expect(text).not.toContain('\n');
+    expect(utf8Length(text)).toBeLessThanOrEqual(PROPERTIES_MAX);
+  });
+
+  it('returns null — never throws — for a value too deep even for compact JSON, so a RENDER survives it', () => {
+    expect(() => displayJson(deep(20_000))).not.toThrow();
+    expect(displayJson(deep(20_000))).toBeNull();
+    expect(displayJson(deep(20_000), { compact: true })).toBeNull();
   });
 });

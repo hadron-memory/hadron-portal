@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
-  import { JsonDraft, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
+  import { displayJson, JsonDraft, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -306,8 +306,12 @@
   const dataDirty = $derived(
     dataParse.ok ? canonicalJson(dataParse.value) !== canonicalJson(node.data ?? null) : !dataEmpty,
   );
-  // Pretty-printed saved value — what Rendered shows and Copy copies there.
-  const dataString = $derived(node.data != null ? JSON.stringify(node.data, null, 2) : '');
+  // The saved value as text — what Rendered shows and Copy copies there. Via
+  // the safe serializer: null when a pathologically nested stored value cannot
+  // be serialized at all, which must not throw while RENDERING the tab
+  // (@copilot on #896).
+  const dataString = $derived(node.data != null ? displayJson(node.data) : '');
+  const dataUnavailable = $derived(node.data != null && dataString === null);
 
   function dataSourceErrorText(code: string, detail?: string | null): string {
     switch (code) {
@@ -315,14 +319,23 @@
         return t('node.data.source.empty', 'Enter a JSON value to save.');
       case 'top-level-null':
         return t('node.data.source.top-level-null', 'Top-level null is not allowed — enter an object, array, or value.');
+      case 'failed':
+      case 'rejected':
+      case 'no-door':
+      case 'no-baseline':
+        // The save itself failed: the server's words when it gave some, and a
+        // fallback that names the RIGHT field — delegating these reported "the
+        // properties could not be saved" on the Data tab (@codex, @copilot on
+        // #896).
+        return detail ?? t('node.data.source.failed', 'The data could not be saved.');
       case 'changed':
         return t(
           'node.data.source.changed',
           'This data was changed since you opened the editor. Copy your edit, reload, and apply it again — saving now would undo that change.',
         );
       default:
-        // Every other check is shared with the Properties editor, and so are
-        // its words.
+        // The validation checks are shared with the Properties editor, and so
+        // are their words — none of them names the field.
         return propertiesSourceErrorText(code, detail);
     }
   }
@@ -332,7 +345,7 @@
   // Rendered mid-add doesn't make the typed JSON look lost. Returns null when
   // there's nothing to show (→ the empty-state CTA).
   const renderedJson = $derived.by(() => {
-    if (node.data != null) return dataString;
+    if (node.data != null) return dataString; // null when unavailable
     if (!dataParse.ok) return null;
     try {
       return JSON.stringify(dataParse.value, null, 2);
@@ -989,8 +1002,11 @@
   // whole bag as JSON; the edit page's Structured storage section keeps the
   // typed-field editor, the object type and the skill-export checkbox.
   const hasProperties = $derived(node.properties != null);
-  const propertiesString = $derived(hasProperties ? JSON.stringify(node.properties, null, 2) : '');
-  const highlightedProperties = $derived(hasProperties ? highlightJson(propertiesString) : []);
+  // Via the safe serializer (@copilot on #896): null when a pathologically
+  // nested stored bag cannot be serialized, instead of a render-time throw.
+  const propertiesString = $derived(hasProperties ? displayJson(node.properties) : '');
+  const propertiesUnavailable = $derived(hasProperties && propertiesString === null);
+  const highlightedProperties = $derived(propertiesString ? highlightJson(propertiesString) : []);
   // #588: when the node's objectType names a declared collection, render a
   // typed field table (declared fields first, then any extra keys).
   const nodeDeclaredCollection = $derived(
@@ -2374,6 +2390,10 @@
           {/if}
         </div>
         {/if}
+      {:else if dataUnavailable}
+        <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+          {t('node.data.unavailable', 'This node’s data is nested too deeply to show here.')}
+        </p>
       {:else if renderedJson != null}
         <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedData as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
       {:else}
@@ -2505,7 +2525,7 @@
                       {#if !row.present}
                         <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{row.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—')}</span>
                       {:else if typeof row.value === 'object'}
-                        {JSON.stringify(row.value)}
+                        {displayJson(row.value, { compact: true }) ?? t('node.properties.value-unavailable', '(too deeply nested to show)')}
                       {:else}
                         {String(row.value)}
                       {/if}
@@ -2516,7 +2536,11 @@
             </table>
           </div>
         {/if}
-        {#if hasProperties}
+        {#if propertiesUnavailable}
+          <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+            {t('node.properties.unavailable', 'This node’s properties are nested too deeply to show here.')}
+          </p>
+        {:else if hasProperties}
           <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedProperties as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
         {:else}
           <!-- Gated on the FACT (no properties), not on the typed table being
