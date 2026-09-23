@@ -83,6 +83,10 @@ export function inexactNumber(raw: string): string | null {
   return null;
 }
 
+export type PropertiesParse =
+  | { ok: true; value: Record<string, unknown> }
+  | { ok: false; code: PropertiesSourceError; detail?: string };
+
 /**
  * Parse the Source text. `properties` is a JSON OBJECT on the server — an
  * array, a scalar or a bare `null` is refused here rather than handed to the
