@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { PropertiesDraft, submitPropertiesDraft, type DraftNode } from './properties-draft.svelte';
-import { PROPERTIES_MAX, propertiesFingerprint } from './properties-source';
+import { parsePropertiesSource, PROPERTIES_MAX, propertiesFingerprint, utf8Length } from './properties-source';
 import Harness from './test/PropertiesDraftHarness.svelte';
 
 type Props = { draft: PropertiesDraft; node: DraftNode };
@@ -151,6 +151,24 @@ describe('seeding is LAZY and never throws (@codex on #893)', () => {
     draft.text = '{"edited": true}';
     draft.sync({ id: 'deep', properties: deep(500) });
     expect(draft.text).toBe('{"edited": true}');
+  });
+
+  it('chooses compact vs pretty by UTF-8 BYTES — a multibyte bag must not open on text its own validator refuses', async () => {
+    // Built to fall between the two measures: compact ~119 KB, pretty ~299 KB
+    // in bytes but only ~227K characters. Counted in characters, the pretty
+    // form "fit" and the editor opened too large to save.
+    let bag: unknown = { items: Array.from({ length: 3600 }, () => '語'.repeat(10)) };
+    for (let k = 0; k < 23; k++) bag = { a: bag };
+    const pretty = JSON.stringify(bag, null, 2);
+    expect(utf8Length(JSON.stringify(bag))).toBeLessThanOrEqual(PROPERTIES_MAX / 2);
+    expect(pretty.length).toBeLessThan(PROPERTIES_MAX);
+    expect(utf8Length(pretty)).toBeGreaterThan(PROPERTIES_MAX);
+
+    const draft = mountPlain({ id: 'mb', properties: bag as Record<string, unknown> });
+    await tick();
+    draft.ensureSeeded();
+    expect(utf8Length(draft.text)).toBeLessThanOrEqual(PROPERTIES_MAX);
+    expect(parsePropertiesSource(draft.text).ok).toBe(true);
   });
 
   it('a bag too deep even for compact JSON is UNAVAILABLE, not a crash', async () => {

@@ -20,7 +20,7 @@
  */
 import { untrack } from 'svelte';
 import { deserialize } from '$app/forms';
-import { canonicalJson, PROPERTIES_MAX, propertiesFingerprint } from './properties-source';
+import { canonicalJson, PROPERTIES_MAX, propertiesFingerprint, utf8Length } from './properties-source';
 
 export interface DraftNode {
   id: string;
@@ -37,12 +37,16 @@ export interface DraftNode {
 function seedText(properties: unknown): string | null {
   if (properties == null) return '{}';
   try {
+    // Measured in UTF-8 BYTES, as `parsePropertiesSource` measures (@codex on
+    // #893): counted in characters, multibyte text let a pretty draft fit the
+    // cap here and fail it there — the editor opened on text its own
+    // validator called too large, with Save disabled.
     const compact = JSON.stringify(properties);
     // Indenting a bag this size or smaller is cheap; a bag whose compact form is
     // already near the cap is left compact rather than multiplied.
-    if (compact.length > PROPERTIES_MAX / 2) return compact;
+    if (utf8Length(compact) > PROPERTIES_MAX / 2) return compact;
     const pretty = JSON.stringify(properties, null, 2);
-    return pretty.length > PROPERTIES_MAX ? compact : pretty;
+    return utf8Length(pretty) > PROPERTIES_MAX ? compact : pretty;
   } catch {
     return null;
   }
