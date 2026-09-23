@@ -5,6 +5,7 @@
   import PropertiesEditor from '$lib/components/PropertiesEditor.svelte';
   import SkillExportEditor from '$lib/components/SkillExportEditor.svelte';
   import {
+    declarationProblems,
     defaultSkillName,
     readSkillExport,
     withoutSkillExport,
@@ -192,6 +193,19 @@
   $effect(() => {
     if (propertiesInvalid || propertiesError) storageOpen = true;
   });
+  // The same rule for Skill export: an existing declaration with an invalid
+  // name, a missing or over-long description, or a node no longer runnable
+  // renders a diagnostic INSIDE the section, and so do disagreeing host
+  // entries — none of which a closed section shows (@codex on #887).
+  const skillNeedsAttention = $derived(
+    exportDivergent ||
+      (skillExport !== null &&
+        declarationProblems(skillExport.declaration, { runnable: $formData.isRunnable }).length > 0),
+  );
+  let skillOpen = $state(false);
+  $effect(() => {
+    if (skillNeedsAttention) skillOpen = true;
+  });
 
 </script>
 
@@ -265,7 +279,7 @@
          properties.exports.{claudeSkill,codex} and was hand-typed JSON until
          #864. One checkbox since #878. -->
     {#if showSkillExport}
-      <details class="space-y-4">
+      <details bind:open={skillOpen} class="space-y-4">
         <summary class="cursor-pointer border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300"><h2 class="inline">{t('node-edit.section.skill-export', 'Skill export')}</h2></summary>
         <SkillExportEditor
           bind:value={skillExport}

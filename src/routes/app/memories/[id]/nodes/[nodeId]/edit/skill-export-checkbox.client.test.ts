@@ -285,3 +285,44 @@ describe('#878 — the edit page carries only what has no tab of its own', () =>
     }
   });
 });
+
+describe('the Skill export section opens itself when it holds a problem (@codex on #887)', () => {
+  const skillSection = (target: HTMLElement) =>
+    Array.from(target.querySelectorAll('form > details')).find((d) =>
+      d.querySelector('summary')?.textContent?.includes('Skill export'),
+    ) as HTMLDetailsElement;
+  const on = (over: Record<string, unknown>) => ({
+    exports: { claudeSkill: { name: 'good-name', description: 'd', enable: true, ...over } },
+  });
+
+  it.each([
+    ['an invalid name', on({ name: 'Not Valid' })],
+    ['a missing description', on({ description: '' })],
+    ['host entries that disagree', { exports: { claudeSkill: { name: 'a' }, codex: { name: 'b' } } }],
+  ])('opens for %s', async (_what, properties) => {
+    const m = await mountPage({ properties });
+    try {
+      expect(skillSection(m.target).open).toBe(true);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('stays closed for a valid declaration', async () => {
+    const m = await mountPage({ properties: on({}) });
+    try {
+      expect(skillSection(m.target).open).toBe(false);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('opens for an enabled export on a node that is not runnable', async () => {
+    const m = await mountPage({ isRunnable: false, properties: on({}) });
+    try {
+      expect(skillSection(m.target).open).toBe(true);
+    } finally {
+      m.unmount();
+    }
+  });
+});
