@@ -14,12 +14,22 @@
 import { describe, expect, it } from 'vitest';
 import {
   CLAUDE_SKILL_HOST,
+  CODEX_HOST,
   DESCRIPTION_MAX,
+  NAME_MAX,
+  SKILL_HOSTS,
+  codePoints,
   declarationProblems,
   declarationState,
+  defaultSkillName,
+  enableSkillExport,
   readDeclaration,
   readExports,
+  readSkillExport,
+  validSkillName,
+  withoutSkillExport,
   writeDeclaration,
+  writeSkillExport,
 } from './skill-export';
 
 const decl = (over: Partial<{ name: string; description: string; enable: boolean }> = {}) => ({
@@ -253,5 +263,192 @@ describe('a declaration this form cannot represent is left alone', () => {
     // is the whole job.
     expect(readDeclaration({ exports: { claudeSkill: { name: 'x' } } }))
       .toEqual({ name: 'x', description: '', enable: false });
+  });
+});
+
+/**
+ * #878 — one checkbox, two hosts.
+ *
+ * A declaration is per-host (D12), so "export this skill" writes `claudeSkill`
+ * AND `codex`. The hazards are the two directions of that: a save that widens a
+ * Claude-only declaration nobody touched, and a write that flattens two host
+ * entries that disagree into one the user was never shown.
+ */
+describe('the host keys', () => {
+  it('declares both hosts, Claude first', () => {
+    expect(CODEX_HOST).toBe('codex');
+    expect(SKILL_HOSTS).toEqual(['claudeSkill', 'codex']);
+  });
+});
+
+const both = (d: { name: string; description: string; enable: boolean }) => ({
+  exports: { claudeSkill: { ...d }, codex: { ...d } },
+});
+
+describe('readSkillExport', () => {
+  it('reads nothing as absent, not divergent', () => {
+    expect(readSkillExport({ other: 1 })).toEqual({ value: null, divergent: false });
+  });
+
+  it('reads a pre-#878 Claude-only declaration with ONE host', () => {
+    // The host list is what stops a save from silently adding Codex.
+    const r = readSkillExport(REAL);
+    expect(r.divergent).toBe(false);
+    expect(r.value?.hosts).toEqual(['claudeSkill']);
+    expect(r.value?.declaration.name).toBe('hadron-cast-worker');
+  });
+
+  it('reads two agreeing hosts as one declaration on both', () => {
+    const r = readSkillExport(both(decl()));
+    expect(r.value).toEqual({ declaration: decl(), hosts: ['claudeSkill', 'codex'] });
+  });
+
+  it.each([
+    ['names differ', { exports: { claudeSkill: decl(), codex: decl({ name: 'other' }) } }],
+    ['descriptions differ', { exports: { claudeSkill: decl(), codex: decl({ description: 'x' }) } }],
+    ['one is off', { exports: { claudeSkill: decl(), codex: decl({ enable: false }) } }],
+    ['codex is malformed', { exports: { claudeSkill: decl(), codex: 'yes' } }],
+    ['codex has a wrongly-typed field', { exports: { claudeSkill: decl(), codex: { name: 42 } } }],
+  ])('reports DIVERGENT when %s', (_what, props) => {
+    expect(readSkillExport(props)).toEqual({ value: null, divergent: true });
+  });
+
+  it('ignores hosts it does not own', () => {
+    const r = readSkillExport({ exports: { claudeSkill: decl(), somethingElse: { name: 'z' } } });
+    expect(r.value?.hosts).toEqual(['claudeSkill']);
+  });
+});
+
+describe('withoutSkillExport / writeSkillExport', () => {
+  it('removes both owned hosts and keeps a host it does not own', () => {
+    const props = { k: 1, exports: { ...both(decl()).exports, other: { name: 'o' } } };
+    expect(withoutSkillExport(props)).toEqual({ k: 1, exports: { other: { name: 'o' } } });
+  });
+
+  it('leaves a DIVERGENT bag whole — the raw editor owns it', () => {
+    const props = { exports: { claudeSkill: decl(), codex: decl({ name: 'other' }) } };
+    expect(withoutSkillExport(props)).toEqual(props);
+  });
+
+  it('round-trips an untouched Claude-only declaration without adding codex', () => {
+    const { value } = readSkillExport(REAL);
+    expect(writeSkillExport(withoutSkillExport(REAL), value)).toEqual(REAL);
+  });
+
+  it('writes the one declaration to every listed host', () => {
+    const out = writeSkillExport({ k: 1 }, { declaration: decl(), hosts: [...SKILL_HOSTS] });
+    expect(out).toEqual({ k: 1, ...both(decl()) });
+  });
+
+  it('writes nothing for a null export', () => {
+    expect(writeSkillExport({ k: 1 }, null)).toEqual({ k: 1 });
+  });
+});
+
+describe('enableSkillExport — what checking the box does', () => {
+  const defaults = { name: 'from-loc', description: 'From the node. Use when X.' };
+
+  it('starts an absent export ON, for every host, with the defaults', () => {
+    expect(enableSkillExport(null, defaults)).toEqual({
+      declaration: { name: 'from-loc', description: 'From the node. Use when X.', enable: true },
+      hosts: ['claudeSkill', 'codex'],
+    });
+  });
+
+  it('keeps fields the user already wrote', () => {
+    // Re-checking after an uncheck must not replace their name with a default.
+    const off = { declaration: decl({ name: 'mine', description: 'my words', enable: false }), hosts: ['claudeSkill'] };
+    expect(enableSkillExport(off, defaults).declaration).toEqual({
+      name: 'mine',
+      description: 'my words',
+      enable: true,
+    });
+  });
+
+  it('fills a BLANK field with its default', () => {
+    const off = { declaration: decl({ name: '  ', description: '', enable: false }), hosts: ['claudeSkill'] };
+    expect(enableSkillExport(off, defaults).declaration).toMatchObject({
+      name: 'from-loc',
+      description: 'From the node. Use when X.',
+    });
+  });
+
+  it('widens a Claude-only declaration to every host — checking is the explicit act', () => {
+    const off = { declaration: decl({ enable: false }), hosts: ['claudeSkill'] };
+    expect(enableSkillExport(off, defaults).hosts).toEqual(['claudeSkill', 'codex']);
+  });
+});
+
+describe('defaultSkillName', () => {
+  it.each([
+    ['tasks:drive-pr-home', 'Drive PR home', 'drive-pr-home'],
+    ['tasks:Start_Worker Session', 'x', 'start-worker-session'],
+    ['review', 'Review', 'review'],
+    ['tasks:café-crème', 'x', 'cafe-creme'],
+    ['tasks:---', 'Fallback Name', 'fallback-name'],
+    ['', 'Only a Name!', 'only-a-name'],
+    ['tasks:🙂', '🙂', ''],
+  ])('%s / %s → %s', (loc, name, expected) => {
+    expect(defaultSkillName(loc, name)).toBe(expected);
+  });
+
+  it('is always a name the server accepts, when it is anything at all', () => {
+    for (const [loc, name] of [
+      ['a:' + 'word-'.repeat(30), 'x'],
+      ['a:' + 'x'.repeat(100), 'x'],
+      ['a:Über Straße 12', 'x'],
+    ]) {
+      const got = defaultSkillName(loc, name);
+      expect(got.length).toBeGreaterThan(0);
+      expect(validSkillName(got)).toBe(true);
+    }
+  });
+
+  it('cuts an over-long loc at a hyphen, not mid-word', () => {
+    const got = defaultSkillName('a:' + 'abcde-'.repeat(20), 'x');
+    expect(got.length).toBeLessThanOrEqual(NAME_MAX);
+    expect(got.endsWith('abcde')).toBe(true);
+  });
+});
+
+describe('validSkillName — the server grammar', () => {
+  it.each(['a', 'drive-pr-home', 'x1-2y', 'a'.repeat(NAME_MAX)])('accepts %s', (n) => {
+    expect(validSkillName(n)).toBe(true);
+  });
+  it.each(['', 'A', 'a_b', 'a--b', '-a', 'a-', 'a b', 'a'.repeat(NAME_MAX + 1)])('refuses %j', (n) => {
+    expect(validSkillName(n)).toBe(false);
+  });
+});
+
+describe('declarationProblems — #878 additions', () => {
+  it('reports an invalid name, even while off', () => {
+    const p = declarationProblems(decl({ name: 'Not Valid', enable: false }));
+    expect(p).toHaveLength(1);
+    expect(p[0]).toContain('lowercase');
+  });
+
+  it('reports an enabled export with no description', () => {
+    expect(declarationProblems(decl({ description: ' ' }))).toHaveLength(1);
+  });
+
+  it('does not nag about a blank description while off', () => {
+    expect(declarationProblems(decl({ description: '', enable: false }))).toEqual([]);
+  });
+
+  it('reports an enabled export on a node that is not runnable', () => {
+    expect(declarationProblems(decl(), { runnable: false })).toHaveLength(1);
+    expect(declarationProblems(decl(), { runnable: true })).toEqual([]);
+    // Unknown is not "not runnable".
+    expect(declarationProblems(decl())).toEqual([]);
+  });
+
+  it('counts the description in CODE POINTS, as the server does', () => {
+    // An emoji is two UTF-16 units and one code point. At the cap in code points
+    // it is legal, though `.length` would call it over.
+    const atCap = '🙂'.repeat(DESCRIPTION_MAX);
+    expect(atCap.length).toBe(DESCRIPTION_MAX * 2);
+    expect(codePoints(atCap)).toBe(DESCRIPTION_MAX);
+    expect(declarationProblems(decl({ description: atCap }))).toEqual([]);
+    expect(declarationProblems(decl({ description: atCap + 'x' }))).toHaveLength(1);
   });
 });

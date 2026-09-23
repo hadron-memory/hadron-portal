@@ -1,172 +1,217 @@
 <script lang="ts">
-  // portal#864 Part A — a real affordance for `properties.exports.claudeSkill`.
+  // portal#878 — skill export as ONE checkbox.
   //
-  // Until now a user declared a node for export by hand-typing JSON into a raw
-  // <textarea>, which is what @Holger objected to: "The `properties` JSON is
-  // something the user cannot be asked to build by hand." `enable` defaulting
-  // to OFF sharpens it — mistype one key and you get a declaration that
-  // silently never publishes, with no error and no file.
+  // #864 Part A exposed the declaration model faithfully and asked the user to
+  // understand it: declare, then enable, then name, then describe. @Holger:
+  // "The export part should have been a single checkbox. The user checks it,
+  // all defaults are set to enable the export. Then a link that the user can
+  // click to change the defaults, but that's optional."
   //
-  // ## This component owns the `exports` key and nothing else
+  // So checking the box does everything: it switches the export on for every
+  // host (`claudeSkill` and `codex` — a declaration is per-host, D12), fills an
+  // empty name and description with defaults, and marks the node Runnable,
+  // which the server requires of any skill. The fields are behind a link.
   //
-  // The page splits the properties bag: this editor gets `exports`, the
-  // PropertiesEditor gets the rest, and the page recombines before submit. Two
-  // editors bound to one serialized string would clobber each other —
-  // PropertiesEditor seeds its field state once and re-seeds only on remount,
-  // so whichever wrote last would win and the other's edit would vanish.
+  // ## This component owns the skill hosts under `exports`, nothing else
   //
-  // The write path is read-modify-write of the WHOLE bag, inherited from the
-  // edit form rather than re-implemented: see `skill-export.ts` and
-  // hadron-server#1227 for why a patch-shaped write loses sibling hosts.
+  // The page splits the properties bag: this editor gets the `claudeSkill` and
+  // `codex` entries (as one `SkillExport`), the PropertiesEditor gets the rest,
+  // and the page recombines before submit. Two editors bound to one serialized
+  // string would clobber each other. The write path is read-modify-write of the
+  // WHOLE bag — see `skill-export.ts` and hadron-server#1227.
   import { t } from '$lib/i18n/t';
   import {
+    CLAUDE_SKILL_HOST,
+    CODEX_HOST,
     DESCRIPTION_MAX,
+    SKILL_HOSTS,
+    codePoints,
     declarationProblems,
-    type SkillDeclaration,
+    enableSkillExport,
+    type SkillExport,
   } from '$lib/skill-export';
 
   let {
-    declaration = $bindable(null),
-  }: { declaration: SkillDeclaration | null } = $props();
+    value = $bindable(null),
+    runnable = $bindable(false),
+    divergent = false,
+    rawPropertiesEditable = true,
+    defaults,
+  }: {
+    value: SkillExport | null;
+    runnable: boolean;
+    /** The stored host entries disagree; the raw properties editor owns them. */
+    divergent?: boolean;
+    /**
+     * Whether the page offers a raw JSON editor for the rest of the bag. A node
+     * of a DECLARED collection gets typed fields instead, where `exports` is
+     * shown read-only — so pointing there would send the user to a dead end.
+     */
+    rawPropertiesEditable?: boolean;
+    /** What a freshly checked export starts with — derived from the node's own fields. */
+    defaults: { name: string; description: string };
+  } = $props();
 
-  const EMPTY: SkillDeclaration = { name: '', description: '', enable: false };
+  const HOST_LABELS: Record<string, string> = {
+    [CLAUDE_SKILL_HOST]: 'Claude',
+    [CODEX_HOST]: 'Codex',
+  };
 
-  function declare() {
-    declaration = { ...EMPTY };
-  }
-  function undeclare() {
-    declaration = null;
-  }
+  let detailsOpen = $state(false);
 
-  const problems = $derived(declaration ? declarationProblems(declaration) : []);
-  const used = $derived(declaration?.description.length ?? 0);
+  const enabled = $derived(value?.declaration.enable ?? false);
+  const missingHosts = $derived(
+    value ? SKILL_HOSTS.filter((h) => !value!.hosts.includes(h)) : [],
+  );
+  const problems = $derived(
+    value ? declarationProblems(value.declaration, { runnable }) : [],
+  );
+  const used = $derived(value ? codePoints(value.declaration.description) : 0);
   const over = $derived(used > DESCRIPTION_MAX);
+
+  function toggle(checked: boolean) {
+    if (checked) {
+      value = enableSkillExport(value, defaults);
+      // The server refuses a skill on a node that is not runnable
+      // (`skill-not-runnable`), so the intent "export this" includes it.
+      runnable = true;
+    } else if (value) {
+      // Unchecking keeps the name and description, so re-checking restores them.
+      value = { ...value, declaration: { ...value.declaration, enable: false } };
+    }
+  }
+
+  function addMissingHosts() {
+    if (value) value = { ...value, hosts: [...SKILL_HOSTS] };
+  }
+
+  function clear() {
+    value = null;
+    detailsOpen = false;
+  }
+
+  const hostList = (hosts: readonly string[]) =>
+    hosts.map((h) => HOST_LABELS[h] ?? h).join(' and ');
 </script>
 
 <div class="space-y-3">
-  {#if declaration === null}
-    <!-- ABSENT. Distinct from declared-and-off, which is a state below. -->
+  {#if divergent}
+    <!--
+      The stored Claude and Codex entries cannot be shown as ONE declaration.
+      Writing one back would overwrite the other with values the user never
+      saw, so the raw properties editor keeps them, verbatim.
+    -->
     <p class="text-sm text-zinc-600 dark:text-zinc-400">
       {t(
-        'skill-export.absent',
-        'This node is not declared for export. Declaring it records a skill name and description on the node; it does not create any file.',
+        'skill-export.divergent',
+        'This node’s Claude and Codex export settings differ, so they can’t be edited as one here.',
       )}
-    </p>
-    <button
-      type="button"
-      onclick={declare}
-      class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
-    >
-      {t('skill-export.declare', 'Declare for export')}
-    </button>
-  {:else}
-    <!--
-      DECLARED. `enable` is rendered as a state with a label, not as a bare
-      checkbox, because "declared but switched off" is a thing the platform
-      keeps on purpose: listDeclaredIDs deliberately does not filter on
-      `enable`, so lint can judge a not-enabled declaration BEFORE someone
-      turns it on. A UI that rendered off and absent identically would throw
-      that distinction away (#864).
-    -->
-    <div
-      class="rounded-lg border px-3 py-2 text-xs {declaration.enable
-        ? 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200'
-        : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200'}"
-    >
-      {#if declaration.enable}
-        {t('skill-export.state-on', 'Declared and switched on — this node will export.')}
-      {:else}
-        {t(
-          'skill-export.state-off',
-          'Declared but switched OFF — this node will not export until you switch it on. That is different from not being declared at all.',
-        )}
+      {#if rawPropertiesEditable}
+        {t('skill-export.divergent-where', 'Change them under Structured storage → Properties.')}
       {/if}
-    </div>
-
+    </p>
+  {:else}
     <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-200">
       <input
         type="checkbox"
-        bind:checked={declaration.enable}
+        checked={enabled}
+        onchange={(e) => toggle(e.currentTarget.checked)}
         class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900"
       />
-      {t('skill-export.enable', 'Export this node as a Claude skill')}
+      {t('skill-export.enable', 'Export this node as a skill')}
     </label>
 
-    <div>
-      <label
-        for="skill-export-name"
-        class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400"
-      >
-        {t('skill-export.name', 'Skill name')}
-      </label>
-      <input
-        id="skill-export-name"
-        type="text"
-        bind:value={declaration.name}
-        spellcheck="false"
-        class="w-full rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
-      />
-      <p class="mt-1 text-xs text-zinc-500">
-        {t(
-          'skill-export.name-hint',
-          'Stored exactly as typed — there is no prefix and nothing is derived from it.',
-        )}
+    {#if value}
+      <p class="text-xs text-zinc-500">
+        {#if enabled}
+          {t('skill-export.summary-on', 'Exported as')}
+          <code class="font-mono text-zinc-700 dark:text-zinc-300">{value.declaration.name || '—'}</code>
+          · {t('skill-export.summary-hosts', 'for {hosts}.', { hosts: hostList(value.hosts) })}
+        {:else}
+          {t('skill-export.summary-off', 'Export is off. The name and description are kept for when you turn it back on.')}
+        {/if}
       </p>
-    </div>
 
-    <div>
-      <label
-        for="skill-export-description"
-        class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400"
-      >
-        {t('skill-export.description', 'Description')}
-      </label>
-      <textarea
-        id="skill-export-description"
-        rows="4"
-        bind:value={declaration.description}
-        spellcheck="false"
-        style="resize: vertical;"
-        class="w-full rounded-lg border px-3 py-2 font-mono text-xs {over
-          ? 'border-red-400 dark:border-red-700'
-          : 'border-zinc-300 dark:border-zinc-700'} dark:bg-zinc-900 dark:text-white"
-      ></textarea>
-      <!--
-        Counted against the LIVE value rather than validated on save: six of the
-        twenty declarations in the corpus already exceed the cap, and a user has
-        no way to find that out today until an export fails (#864).
-      -->
-      <p class="mt-1 text-xs {over ? 'text-red-600 dark:text-red-400' : 'text-zinc-500'}">
-        {used} / {DESCRIPTION_MAX}
-      </p>
-    </div>
+      {#if enabled && missingHosts.length > 0}
+        <!--
+          A declaration written before #878 names Claude only. Saving the node
+          must not silently widen it, so adding the missing host is an explicit
+          click rather than a side effect of opening the page.
+        -->
+        <button
+          type="button"
+          onclick={addMissingHosts}
+          class="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+        >
+          {t('skill-export.add-hosts', 'Also export for {hosts}', { hosts: hostList(missingHosts) })}
+        </button>
+      {/if}
 
-    {#if problems.length > 0}
-      <ul class="space-y-1">
-        {#each problems as problem (problem)}
-          <li class="text-xs text-red-600 dark:text-red-400">{problem}</li>
-        {/each}
-      </ul>
+      {#if problems.length > 0}
+        <ul class="space-y-1">
+          {#each problems as problem (problem)}
+            <li class="text-xs text-red-600 dark:text-red-400">{problem}</li>
+          {/each}
+        </ul>
+      {/if}
+
+      <details bind:open={detailsOpen}>
+        <summary class="cursor-pointer text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+          {t('skill-export.change-defaults', 'Change the skill’s name and description')}
+        </summary>
+        <div class="mt-3 space-y-3">
+          <div>
+            <label for="skill-export-name" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">
+              {t('skill-export.name', 'Skill name')}
+            </label>
+            <input
+              id="skill-export-name"
+              type="text"
+              bind:value={value.declaration.name}
+              spellcheck="false"
+              class="w-full rounded-lg border border-zinc-300 px-3 py-2 font-mono text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+            />
+          </div>
+
+          <div>
+            <label for="skill-export-description" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">
+              {t('skill-export.description', 'Description')}
+            </label>
+            <textarea
+              id="skill-export-description"
+              rows="4"
+              bind:value={value.declaration.description}
+              spellcheck="false"
+              style="resize: vertical;"
+              class="w-full rounded-lg border px-3 py-2 text-sm {over
+                ? 'border-red-400 dark:border-red-700'
+                : 'border-zinc-300 dark:border-zinc-700'} dark:bg-zinc-900 dark:text-white"
+            ></textarea>
+            <p class="mt-1 text-xs {over ? 'text-red-600 dark:text-red-400' : 'text-zinc-500'}">
+              {used} / {DESCRIPTION_MAX}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onclick={clear}
+            class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            {t('skill-export.clear', 'Clear skill export')}
+          </button>
+        </div>
+      </details>
     {/if}
-
-    <button
-      type="button"
-      onclick={undeclare}
-      class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-    >
-      {t('skill-export.undeclare', 'Remove this declaration')}
-    </button>
   {/if}
 
   <!--
-    #864 explicitly: say what the portal will NOT do. Writing SKILL.md into a
-    checkout is a local-filesystem act and a browser has no business there.
-    Leaving a user to discover that is the reason it is in the scope.
+    #878 item 6: the old footnote named `hadron skill export`, and few users
+    will ever install the CLI. Say only what is true on this page.
   -->
   <p class="border-t border-zinc-200 pt-2 text-xs text-zinc-500 dark:border-zinc-800">
     {t(
-      'skill-export.no-export-here',
-      'The portal cannot write the file. Mark it here, and the skill appears when someone runs `hadron skill export`.',
+      'skill-export.saves-settings-only',
+      'This saves the export settings on the node. It does not create a skill file.',
     )}
   </p>
 </div>
