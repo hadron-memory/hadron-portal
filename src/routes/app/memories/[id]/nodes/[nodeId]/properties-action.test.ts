@@ -5,6 +5,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NODE_PROPERTIES_READ_QUERY, UPDATE_NODE_MUTATION, UPDATE_TASK_NODE_MUTATION } from '$lib/server/queries';
+import { PROPERTIES_MAX, propertiesFingerprint, utf8Length } from '$lib/properties-source';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -51,7 +52,8 @@ async function save(fields: Record<string, string>, token: string | null = 'tok'
   } as never);
 }
 
-const baseline = JSON.stringify(stored);
+// What the page posts: the FINGERPRINT of the bag it opened on (@codex on #893).
+const baseline = await propertiesFingerprint(stored);
 
 describe('updateProperties — the write', () => {
   it('replaces the bag with exactly the submitted JSON, sending ONLY memoryId, loc and properties', async () => {
@@ -92,22 +94,40 @@ describe('updateProperties — the stale-page check', () => {
 
   it('a baseline that differs only in key order is NOT a change', async () => {
     const writes = route();
-    const reorderedBaseline = JSON.stringify({ exports: stored.exports, url: stored.url });
+    const reorderedBaseline = await propertiesFingerprint({ exports: stored.exports, url: stored.url });
     await save({ properties: '{"a":1}', baseline: reorderedBaseline });
     expect(writes).toHaveLength(1);
   });
 
   it('an empty stored bag matches a `null` baseline', async () => {
     const writes = route({ node: node({ properties: null }) });
-    await save({ properties: '{"a":1}', baseline: 'null' });
+    await save({ properties: '{"a":1}', baseline: await propertiesFingerprint(null) });
     expect(writes).toHaveLength(1);
   });
 
-  it('refuses a save with no readable baseline rather than guessing', async () => {
+  it('refuses a save with no readable baseline rather than guessing — missing, or a whole bag instead of a fingerprint', async () => {
     const writes = route();
-    const out = await save({ properties: '{"a":1}' });
-    expect(out).toMatchObject({ status: 400, data: { propertiesFailed: { code: 'no-baseline' } } });
+    for (const bad of [undefined, JSON.stringify(stored), 'abc']) {
+      const out = await save(bad === undefined ? { properties: '{"a":1}' } : { properties: '{"a":1}', baseline: bad });
+      expect(out).toMatchObject({ status: 400, data: { propertiesFailed: { code: 'no-baseline' } } });
+    }
     expect(writes).toHaveLength(0);
+  });
+
+  it('a bag AT the size cap still fits the 512 KB body limit — the baseline is a hash, not a second copy (@codex on #893)', async () => {
+    // The largest Source text the editor accepts, then the request the page
+    // actually sends, measured as the multipart bytes adapter-node counts.
+    const filler = 'x'.repeat(PROPERTIES_MAX - 20);
+    const atCap = `{"k": "${filler}"}`;
+    expect(utf8Length(atCap)).toBeLessThanOrEqual(PROPERTIES_MAX);
+    const fd = new FormData();
+    fd.set('properties', atCap);
+    fd.set('baseline', baseline);
+    const bytes = (await new Response(fd).arrayBuffer()).byteLength;
+    expect(bytes).toBeLessThan(512 * 1024);
+    // …which two full copies would not have.
+    fd.set('baseline', atCap);
+    expect((await new Response(fd).arrayBuffer()).byteLength).toBeGreaterThan(512 * 1024);
   });
 });
 
@@ -117,6 +137,7 @@ describe('updateProperties — refusals', () => {
     ['invalid JSON', '{"a": }', 'invalid-json'],
     ['an array', '[1]', 'not-object'],
     ['a bare null', 'null', 'not-object'],
+    ['a number JSON cannot carry back', '{"huge": 1e400}', 'unsafe-number'],
   ])('%s is refused before any API call', async (_what, properties, code) => {
     route();
     const out = await save({ properties, baseline });

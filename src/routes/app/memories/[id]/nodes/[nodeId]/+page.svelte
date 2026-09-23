@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invalidateAll, goto } from '$app/navigation';
   import { deserialize } from '$app/forms';
-  import { parsePropertiesSource, sameProperties, PROPERTIES_MAX } from '$lib/properties-source';
+  import { parsePropertiesSource, propertiesFingerprint, sameProperties, PROPERTIES_MAX } from '$lib/properties-source';
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -1001,9 +1001,10 @@
   // among them): the edit page's typed editor can only delete one.
   let showPropertiesSource = $state(false);
   let editProperties = $state('');
-  // The bag this editor was opened on, as JSON — posted with the save so the
-  // action can refuse to overwrite a change made since (see updateProperties).
-  let propertiesBaseline = $state('null');
+  // The bag this editor was opened on. Its FINGERPRINT is posted with the
+  // save so the action can refuse to overwrite a change made since (see
+  // updateProperties) — a hash, not a second copy of the bag.
+  let propertiesBaseline = $state<unknown>(null);
   let savingProperties = $state(false);
   let propertiesSaveError = $state<string | null>(null);
 
@@ -1013,7 +1014,7 @@
   $effect(() => {
     const props = node.properties;
     editProperties = props != null ? JSON.stringify(props, null, 2) : '{}';
-    propertiesBaseline = JSON.stringify(props ?? null);
+    propertiesBaseline = props ?? null;
     propertiesSaveError = null;
   });
 
@@ -1028,6 +1029,12 @@
         return t('node.properties.source.empty', 'Enter a JSON object — {} removes every property.');
       case 'too-large':
         return t('node.properties.source.too-large', 'Too large to save here ({kb} KB max).', { kb: PROPERTIES_MAX / 1024 });
+      case 'unsafe-number':
+        return t(
+          'node.properties.source.unsafe-number',
+          'The number at {path} cannot be stored exactly — it is too large (or infinite). Quote it as a string.',
+          { path: detail ?? '' },
+        );
       case 'not-object':
         return t('node.properties.source.not-object', 'Properties must be a JSON object: {"key": "value"}.');
       case 'invalid-json':
@@ -1055,7 +1062,7 @@
     try {
       const fd = new FormData();
       fd.set('properties', editProperties);
-      fd.set('baseline', propertiesBaseline);
+      fd.set('baseline', await propertiesFingerprint(propertiesBaseline));
       // The action-result protocol, so a refusal comes back as data the page
       // can show — a bare `res.ok` check reports every refusal as nothing.
       const res = await fetch('?/updateProperties', {
@@ -1535,6 +1542,10 @@
       showSource = false;
       showAbstractSource = false;
       showDataSource = false;
+      // #886 (@copilot on #893): the Properties Source view is one of these
+      // and was missed — left open, node B opened straight into its editor.
+      showPropertiesSource = false;
+      propertiesSaveError = null;
       confirmDelete = false;
       editingEdges = false;
       isEditing = false;
@@ -2408,13 +2419,18 @@
         {/if}
         {#if hasProperties}
           <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedProperties as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
-        {:else if typedPropertyRows.length === 0}
+        {:else}
+          <!-- Gated on the FACT (no properties), not on the typed table being
+               empty: an empty TYPED node still renders the schema's rows, and
+               gating on those hid the way in (@copilot on #893). -->
           <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-            <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.properties.empty', 'No properties. Node.properties holds structured key-value metadata (often server-set, e.g. source URL or title).')}</p>
+            {#if typedPropertyRows.length === 0}
+              <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.properties.empty', 'No properties. Node.properties holds structured key-value metadata (often server-set, e.g. source URL or title).')}</p>
+            {/if}
             <button
               type="button"
               onclick={() => (showPropertiesSource = true)}
-              class="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+              class="{typedPropertyRows.length === 0 ? 'mt-3 ' : ''}rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
             >{t('node.properties.empty-cta', 'Add properties')}</button>
           </div>
         {/if}

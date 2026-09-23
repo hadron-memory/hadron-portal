@@ -12,7 +12,7 @@ import { NODE_BY_ID_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_M
 // mutation documents are deliberately NOT imported here — naming one directly
 // is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
-import { parsePropertiesSource, sameProperties } from '$lib/properties-source';
+import { isFingerprint, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
@@ -731,8 +731,8 @@ export const actions: Actions = {
    * Replaces the bag whole — `updateTaskNode`/`updateNode` are the only doors a
    * runnable node has, and #1227's atomic merge is refused on it
    * (hrn:node:hadronmemory.com:hadron-portal:findings:atomic-exports-merge-refused-on-task-nodes).
-   * So the form also posts the bag it was OPENED with (`baseline`), and a save
-   * is refused when the stored bag no longer matches: a Source view left open
+   * So the form also posts a fingerprint of the bag it was OPENED with
+   * (`baseline`), and a save is refused when the stored bag no longer matches: a Source view left open
    * while someone ticked a skill-export box, or ran the CLI, must not silently
    * put back what they changed. It narrows the race to the read-to-write
    * window; closing that is server#1291.
@@ -748,10 +748,10 @@ export const actions: Actions = {
     const parsed = parsePropertiesSource(String(fd.get('properties') ?? ''));
     if (!parsed.ok) return fail(400, { propertiesFailed: { code: parsed.code, detail: parsed.detail ?? null } });
 
-    let baseline: unknown;
-    try {
-      baseline = JSON.parse(String(fd.get('baseline') ?? ''));
-    } catch {
+    // The FINGERPRINT of the bag the editor opened on, not a second copy of it:
+    // two copies of a bag at the cap overran the body limit (@codex on #893).
+    const baseline = fd.get('baseline');
+    if (!isFingerprint(baseline)) {
       // Without it the stale check cannot run, and a save that cannot tell
       // whether it overwrites someone is refused rather than guessed.
       return fail(400, { propertiesFailed: { code: 'no-baseline', detail: null } });
@@ -766,7 +766,7 @@ export const actions: Actions = {
     }
     if (!node) return fail(404, { propertiesFailed: { code: 'not-found', detail: null } });
 
-    if (!sameProperties(node.properties, baseline)) {
+    if ((await propertiesFingerprint(node.properties)) !== baseline) {
       return fail(409, { propertiesFailed: { code: 'changed', detail: null } });
     }
     if (sameProperties(node.properties, parsed.value)) return { propertiesSaved: true };
