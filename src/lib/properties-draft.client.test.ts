@@ -11,7 +11,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { PropertiesDraft, type DraftNode } from './properties-draft.svelte';
+import { PropertiesDraft, submitPropertiesDraft, type DraftNode } from './properties-draft.svelte';
+import { propertiesFingerprint } from './properties-source';
 import Harness from './test/PropertiesDraftHarness.svelte';
 
 type Props = { draft: PropertiesDraft; node: DraftNode };
@@ -121,5 +122,40 @@ describe('a deeply nested STORED bag (@codex on #893)', () => {
     draft.text = '{"edited": true}';
     draft.sync({ id: 'deep', properties: deep(3000) });
     expect(draft.text).toBe('{"edited": true}');
+  });
+});
+
+describe('submitPropertiesDraft — one save, bound to where it started (@codex on #893)', () => {
+  function recorder(result: unknown) {
+    const calls: Array<{ url: string; body: FormData }> = [];
+    const fetchImpl = (async (url: string, init: RequestInit) => {
+      calls.push({ url, body: init.body as FormData });
+      return new Response(JSON.stringify(result));
+    }) as unknown as typeof fetch;
+    return { calls, fetchImpl };
+  }
+
+  it('posts to the URL it was GIVEN — the originating node — with the captured text and a fingerprint', async () => {
+    const { calls, fetchImpl } = recorder({ type: 'success', status: 200 });
+    const url = '/app/memories/m/nodes/node-a?/updateProperties';
+    const out = await submitPropertiesDraft({ url, text: '{"a":1}', baseline: { x: 1 }, fetchImpl });
+    expect(out).toEqual({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe(url);
+    expect(calls[0].body.get('properties')).toBe('{"a":1}');
+    expect(calls[0].body.get('baseline')).toBe(await propertiesFingerprint({ x: 1 }));
+  });
+
+  it('returns a refusal as data — code and the server\'s detail — not as an exception', async () => {
+    const { fetchImpl } = recorder({
+      type: 'failure',
+      status: 400,
+      data: { propertiesFailed: { code: 'rejected', detail: 'strict collection' } },
+    });
+    expect(await submitPropertiesDraft({ url: '/x?/updateProperties', text: '{}', baseline: null, fetchImpl })).toEqual({
+      ok: false,
+      code: 'rejected',
+      detail: 'strict collection',
+    });
   });
 });

@@ -18,7 +18,8 @@
  * draft must survive switching tabs — that is the scenario that loses it.
  */
 import { untrack } from 'svelte';
-import { canonicalJson } from './properties-source';
+import { deserialize } from '$app/forms';
+import { canonicalJson, propertiesFingerprint } from './properties-source';
 
 export interface DraftNode {
   id: string;
@@ -84,4 +85,43 @@ export function syncDraftWith(draft: PropertiesDraft, getNode: () => DraftNode):
     const snapshot = { id: node.id, properties: node.properties };
     untrack(() => draft.sync(snapshot));
   });
+}
+
+export type SubmitResult = { ok: true } | { ok: false; code: string; detail: string | null };
+
+/**
+ * POST one Source save to `url` — the ORIGINATING node's absolute action URL,
+ * fixed by the caller before anything is awaited (@codex on #893). A relative
+ * `?/updateProperties` resolves against wherever the page is when the request
+ * finally goes out: navigate to another node mid-save and node A's draft is
+ * written to node B, which passes the stale check whenever the two share a
+ * baseline (`{}` commonly does).
+ *
+ * `text` and `baseline` are values, captured by the caller at the click, for
+ * the same reason. Uses the action-result protocol so a refusal comes back as
+ * data the page can show — a bare `res.ok` check reports every refusal as
+ * nothing.
+ */
+export async function submitPropertiesDraft(opts: {
+  url: string;
+  text: string;
+  baseline: unknown;
+  fetchImpl?: typeof fetch;
+}): Promise<SubmitResult> {
+  const fd = new FormData();
+  fd.set('properties', opts.text);
+  fd.set('baseline', await propertiesFingerprint(opts.baseline));
+  const res = await (opts.fetchImpl ?? fetch)(opts.url, {
+    method: 'POST',
+    body: fd,
+    headers: { 'x-sveltekit-action': 'true' },
+  });
+  const result = deserialize(await res.text());
+  if (result.type === 'success') return { ok: true };
+  if (result.type === 'failure') {
+    const f = (result.data as { propertiesFailed?: { code: string; detail: string | null } } | undefined)
+      ?.propertiesFailed;
+    return { ok: false, code: f?.code ?? 'failed', detail: f?.detail ?? null };
+  }
+  return { ok: false, code: 'failed', detail: null };
 }

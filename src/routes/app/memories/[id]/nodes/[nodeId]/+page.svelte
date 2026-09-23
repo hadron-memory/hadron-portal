@@ -1,8 +1,7 @@
 <script lang="ts">
   import { invalidateAll, goto } from '$app/navigation';
-  import { deserialize } from '$app/forms';
-  import { parsePropertiesSource, propertiesFingerprint, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
-  import { PropertiesDraft, syncDraftWith } from '$lib/properties-draft.svelte';
+  import { parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
+  import { PropertiesDraft, submitPropertiesDraft, syncDraftWith } from '$lib/properties-draft.svelte';
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -1056,40 +1055,44 @@
     }
   }
 
+  // Each save is tagged; the per-node reset (#251 block) bumps the counter, so
+  // a save still in flight when the page moves to another node — or when a
+  // newer save starts — cannot touch the editor it no longer belongs to.
+  let propertiesSaveSeq = 0;
+
   async function saveProperties() {
     if (!propertiesParse.ok || !propertiesDirty || savingProperties) return;
+    // Everything the save depends on is captured HERE, before the first await
+    // (@codex on #893): the node, its ABSOLUTE action URL, the text and the
+    // baseline. A relative URL resolved after navigation would write node A's
+    // draft to node B.
+    const originId = node.id;
+    const seq = ++propertiesSaveSeq;
+    const url = `${basePath}/nodes/${originId}?/updateProperties`;
+    const text = propertiesDraft.text;
+    const baseline = propertiesDraft.baseline;
+    const stillOurs = () => seq === propertiesSaveSeq && node.id === originId;
+
     savingProperties = true;
     propertiesSaveError = null;
     try {
-      const fd = new FormData();
-      fd.set('properties', propertiesDraft.text);
-      fd.set('baseline', await propertiesFingerprint(propertiesDraft.baseline));
-      // The action-result protocol, so a refusal comes back as data the page
-      // can show — a bare `res.ok` check reports every refusal as nothing.
-      const res = await fetch('?/updateProperties', {
-        method: 'POST',
-        body: fd,
-        headers: { 'x-sveltekit-action': 'true' },
-      });
-      const result = deserialize(await res.text());
-      if (result.type === 'success') {
+      const result = await submitPropertiesDraft({ url, text, baseline });
+      if (!stillOurs()) return;
+      if (result.ok) {
         await invalidateAll();
+        if (!stillOurs()) return;
         // Our own save: start over from what is stored now. The draft's sync
         // would KEEP a dirty buffer over a changed bag — right for someone
         // else's change, wrong for this one.
         propertiesDraft.reseed(node);
         showPropertiesSource = false;
-      } else if (result.type === 'failure') {
-        const f = (result.data as { propertiesFailed?: { code: string; detail: string | null } } | undefined)
-          ?.propertiesFailed;
-        propertiesSaveError = propertiesSourceErrorText(f?.code ?? 'failed', f?.detail);
       } else {
-        propertiesSaveError = propertiesSourceErrorText('failed');
+        propertiesSaveError = propertiesSourceErrorText(result.code, result.detail);
       }
     } catch {
-      propertiesSaveError = propertiesSourceErrorText('failed');
+      if (stillOurs()) propertiesSaveError = propertiesSourceErrorText('failed');
     } finally {
-      savingProperties = false;
+      if (seq === propertiesSaveSeq) savingProperties = false;
     }
   }
 
@@ -1555,6 +1558,10 @@
       // and was missed — left open, node B opened straight into its editor.
       showPropertiesSource = false;
       propertiesSaveError = null;
+      // A save still in flight for the previous node no longer owns this
+      // editor: invalidate it, and do not leave the new node's editor locked.
+      propertiesSaveSeq++;
+      savingProperties = false;
       confirmDelete = false;
       editingEdges = false;
       isEditing = false;
