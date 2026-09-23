@@ -72,18 +72,9 @@ async function dataFor(n: ReturnType<typeof node>) {
     graph: { id: 'mem-1', schema: null, urn: 'hrn:mem:x:m', name: 'M' },
     form: await superValidate(
       {
-        name: n.name,
-        loc: n.loc,
-        description: '',
-        alias: '',
-        abstract: '',
-        content: '',
-        seq: null,
-        tags: '',
         isRunnable: true,
         objectType: '',
         propertiesJson: n.properties != null ? JSON.stringify(n.properties, null, 2) : '',
-        edges: '[]',
       },
       zod4(editNodeSchema),
       { errors: false },

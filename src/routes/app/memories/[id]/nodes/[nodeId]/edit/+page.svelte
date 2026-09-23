@@ -4,7 +4,15 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import PropertiesEditor from '$lib/components/PropertiesEditor.svelte';
   import SkillExportEditor from '$lib/components/SkillExportEditor.svelte';
-  import { readDeclaration, writeDeclaration, type SkillDeclaration } from '$lib/skill-export';
+  import {
+    declarationProblems,
+    defaultSkillName,
+    readSkillExport,
+    withoutSkillExport,
+    writeSkillExport,
+    type SkillExport,
+  } from '$lib/skill-export';
+  import { t } from '$lib/i18n/t';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { PageData, ActionData } from './$types';
@@ -13,10 +21,6 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const node = $derived(data.node);
-  // #656: an outgoing edge into a memory the caller can't read has target ===
-  // null and no id to resubmit; the edges field REPLACES the set, so editing is
-  // disabled here (the action refuses edge changes on the server side too).
-  const hasUnreadableOutgoing = $derived((node.outgoingEdges ?? []).some((e) => !e.target));
   const basePath = $derived(`/app/memories/${data.graph.id}`);
   const initialForm = untrack(() => form?.form ?? data.form);
   const {
@@ -34,8 +38,6 @@
     clearOnSubmit: 'none',
   });
 
-  const nameError = $derived($errors.name?.[0] ?? null);
-  const locError = $derived($errors.loc?.[0] ?? null);
   const actionError = $derived($message?.type === 'error' ? $message.text : null);
 
   // #588 (server #725): structured storage. With a memory schema, objectType
@@ -51,14 +53,16 @@
   const propertiesError = $derived($errors.propertiesJson?.[0] ?? null);
   let propertiesInvalid = $state(false);
 
-  // portal#864 Part A — the skill-export declaration.
+  // portal#864 Part A / #878 — the skill export.
   //
   // THE SPLIT. `propertiesJson` is one serialized string for the whole bag, and
   // two editors bound to it would clobber each other: PropertiesEditor seeds its
   // field state once and re-seeds only on remount, so whichever wrote last would
   // win and the other's edit would silently vanish. So this page owns the split
-  // — SkillExportEditor gets `exports`, PropertiesEditor gets everything else,
-  // and the two are recombined into the submitted string below.
+  // — SkillExportEditor gets the skill hosts under `exports` (`claudeSkill` and
+  // `codex`), PropertiesEditor gets everything else, and the two are recombined
+  // into the submitted string below. When the stored hosts disagree the split
+  // gives SkillExportEditor nothing and leaves them in the raw editor.
   //
   // Recombining the WHOLE bag is also what makes hadron-server#1227 unreachable
   // here: the form already round-trips every property key and writes them back
@@ -75,14 +79,18 @@
    * chance to fix it (@copilot on #867). The raw editor reports the problem and
    * sets `invalid`, which is its job, not this one's.
    */
-  function splitProperties(serialized: string): { declaration: SkillDeclaration | null; rest: string } {
+  function splitProperties(serialized: string): {
+    skillExport: SkillExport | null;
+    divergent: boolean;
+    rest: string;
+  } {
     const raw = (serialized ?? '').trim();
-    if (!raw) return { declaration: null, rest: '' };
+    if (!raw) return { skillExport: null, divergent: false, rest: '' };
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
     } catch {
-      return { declaration: null, rest: raw };
+      return { skillExport: null, divergent: false, rest: raw };
     }
     // `JSON.parse` succeeds for an array, a scalar and null, none of which is a
     // properties object. Treating one as a bag turned it into `{}` and the
@@ -90,17 +98,20 @@
     // server may well accept (@copilot on #867). Same answer as a parse
     // failure: keep the raw text and let the raw editor own it.
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      return { declaration: null, rest: raw };
+      return { skillExport: null, divergent: false, rest: raw };
     }
-    const rest = writeDeclaration(parsed, null);
+    const rest = withoutSkillExport(parsed);
+    const { value, divergent } = readSkillExport(parsed);
     return {
-      declaration: readDeclaration(parsed),
+      skillExport: value,
+      divergent,
       rest: Object.keys(rest).length > 0 ? JSON.stringify(rest, null, 2) : '',
     };
   }
 
   const initialSplit = untrack(() => splitProperties($formData.propertiesJson));
-  let declaration = $state<SkillDeclaration | null>(initialSplit.declaration);
+  let skillExport = $state<SkillExport | null>(initialSplit.skillExport);
+  let exportDivergent = $state(initialSplit.divergent);
   let restJson = $state(initialSplit.rest);
 
   /**
@@ -126,8 +137,29 @@
     const next = splitProperties(
       node.properties != null ? JSON.stringify(node.properties, null, 2) : '',
     );
-    declaration = next.declaration;
+    skillExport = next.skillExport;
+    exportDivergent = next.divergent;
     restJson = next.rest;
+    // Node B starts collapsed like any node; the attention effects below
+    // re-open a section for B's OWN errors (@copilot on #887).
+    storageOpen = false;
+    skillOpen = false;
+    // The superForm store is seeded ONCE from node A's loader data too, and
+    // its other two fields ride the same POST: A's `objectType` would render
+    // on B and be saved onto it, and A's `isRunnable: true` would post through
+    // the hidden input and silently make B runnable (@codex on #887). Reseeded
+    // here explicitly, as the detail page's metadata form does, rather than
+    // relying on superForm to resync on a navigation — the harness cannot
+    // show that it does, and this write costs nothing if it does.
+    // `propertiesJson` is rebuilt by the recombination effect below.
+    formData.update(
+      (current) => ({
+        ...current,
+        objectType: node.objectType ?? '',
+        isRunnable: node.isRunnable ?? false,
+      }),
+      { taint: false },
+    );
     seededFor = id;
   });
 
@@ -153,7 +185,7 @@
       if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return;
       rest = parsed as Record<string, unknown>;
     }
-    const merged = writeDeclaration(rest, declaration);
+    const merged = writeSkillExport(rest, skillExport);
     $formData.propertiesJson = Object.keys(merged).length > 0 ? JSON.stringify(merged, null, 2) : '';
   });
 
@@ -161,51 +193,66 @@
   // declaration on a node whose Runnable flag was later cleared must stay
   // reachable, or it becomes unreachable except through the raw JSON this
   // section exists to replace.
-  const showSkillExport = $derived($formData.isRunnable || declaration !== null);
-
-  const ABSTRACT_MAX = 2000;
-
-  function parseEdges(value: string): Array<{ targetId: string; name: string }> {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed)
-        ? parsed.filter((edge): edge is { targetId: string; name: string } => (
-            edge &&
-            typeof edge === 'object' &&
-            typeof edge.targetId === 'string' &&
-            typeof edge.name === 'string'
-          ))
-        : [];
-    } catch {
-      return [];
-    }
-  }
-
-  // Edge management
-  let edges: Array<{ targetId: string; name: string }> = $state(
-    untrack(() => parseEdges(initialForm.data.edges)),
+  const showSkillExport = $derived(
+    $formData.isRunnable || skillExport !== null || exportDivergent,
   );
-  let newTargetLoc = $state('');
-  let newLabel = $state('');
 
-  $effect(() => {
-    formData.update((current) => ({
-      ...current,
-      edges: JSON.stringify(edges),
-    }), { taint: false });
+  // A declared collection that cannot hold an `exports` OBJECT, measured
+  // against hadron-server's `validateNodeAgainstSchema`:
+  //   - a STRICT collection rejects every undeclared key (@copilot on #887);
+  //   - a collection that DECLARES `exports` type-checks it, and no field type
+  //     (text/number/datetime/boolean/enum) accepts an object — strict or not
+  //     (@codex on #887; the non-strict half found checking that claim).
+  // Derived from the live object type, so switching the type above updates it.
+  const strictCollection = $derived(
+    declaredCollection && (declaredCollection.strict || Object.hasOwn(declaredCollection.fields, 'exports'))
+      ? $formData.objectType
+      : null,
+  );
+
+  // #878: what a freshly checked export starts with, from the node's own loc,
+  // name and description (edited on the node page's Settings tab).
+  const exportDefaults = $derived({
+    name: defaultSkillName(node.loc ?? '', node.name ?? '', node.id),
+    description: (node.description ?? '').trim(),
   });
 
-  function addEdge() {
-    if (newTargetLoc.trim()) {
-      edges = [...edges, { targetId: newTargetLoc.trim(), name: newLabel.trim() }];
-      newTargetLoc = '';
-      newLabel = '';
-    }
-  }
+  // #878 item 1: "The page is massively overloaded … At the very least, it
+  // needs to show sections that are collapsed when the page is opened." EVERY
+  // section starts closed (@Holger: the reader sees what is offered and drills
+  // into what they want). A section holding an error opens itself, since a
+  // problem inside a closed <details> is a problem nobody sees.
+  //
+  // Each effect also READS `node.id`. Reseeding closes both sections on a
+  // navigation; if node A and node B both have an error, the attention value
+  // does not change, so without that read the effect would not re-run and B's
+  // error would sit in a closed section.
+  let storageOpen = $state(false);
+  $effect(() => {
+    void node.id;
+    if (propertiesInvalid || propertiesError) storageOpen = true;
+  });
+  // The same rule for Skill export: an existing declaration with an invalid
+  // name, a missing or over-long description, or a node no longer runnable
+  // renders a diagnostic INSIDE the section, and so do disagreeing host
+  // entries — none of which a closed section shows (@codex on #887).
+  //
+  // Also opens for an export stored on a collection that cannot hold it — the
+  // only action there is Clear, and it is inside this section (@copilot on
+  // #887). A node with NO export on such a collection stays collapsed: the note
+  // explains a disabled box, which is information, not an error to fix.
+  const skillNeedsAttention = $derived(
+    exportDivergent ||
+      (skillExport !== null && strictCollection !== null) ||
+      (skillExport !== null &&
+        declarationProblems(skillExport.declaration, { runnable: $formData.isRunnable }).length > 0),
+  );
+  let skillOpen = $state(false);
+  $effect(() => {
+    void node.id;
+    if (skillNeedsAttention) skillOpen = true;
+  });
 
-  function removeEdge(index: number) {
-    edges = edges.filter((_, i) => i !== index);
-  }
 </script>
 
 <svelte:head><title>Edit &middot; {node.loc} &middot; Hadron</title></svelte:head>
@@ -216,85 +263,29 @@
     <h1 class="font-mono text-lg font-bold text-zinc-900 dark:text-white">{node.loc}</h1>
   </div>
 
+  {#if data.noWriteDoor}
+    <!-- The node has no single write path, so no Save here can succeed. Said
+         up front, and Save is disabled, rather than letting the user edit and
+         then be refused (@copilot on #887). -->
+    <p id="no-write-door" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+      {data.noWriteDoor}
+    </p>
+  {/if}
+
   {#if actionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
   {/if}
 
   <form method="POST" use:enhance class="space-y-6" novalidate>
-    <!-- Metadata -->
-    <section class="space-y-4">
-      <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Metadata</h2>
-
-      <div>
-        <label for="name" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Name</label>
-        <input
-          id="name"
-          name="name"
-          type="text"
-          bind:value={$formData.name}
-          aria-invalid={!!nameError}
-          aria-describedby={nameError ? 'nameError' : undefined}
-          {...$constraints.name}
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none {nameError ? 'border-red-500 focus:border-red-500' : ''}"
-        />
-        {#if nameError}
-          <p id="nameError" class="mt-1 text-xs text-red-600 dark:text-red-400">{nameError}</p>
-        {/if}
-      </div>
-
-      <div>
-        <label for="loc" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Loc <span class="text-zinc-500">(colon-delimited path — changing this moves the node)</span></label>
-        <input
-          id="loc"
-          name="loc"
-          type="text"
-          bind:value={$formData.loc}
-          aria-invalid={!!locError}
-          aria-describedby={locError ? 'locError' : undefined}
-          {...$constraints.loc}
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white focus:border-indigo-500 focus:outline-none {locError ? 'border-red-500 focus:border-red-500' : ''}"
-        />
-        {#if locError}
-          <p id="locError" class="mt-1 text-xs text-red-600 dark:text-red-400">{locError}</p>
-        {/if}
-      </div>
-
-      <div>
-        <label for="description" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Description</label>
-        <textarea id="description" name="description" rows="3" bind:value={$formData.description}
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none"></textarea>
-      </div>
-
-      <div>
-        <label for="alias" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Alias</label>
-        <input id="alias" name="alias" type="text" bind:value={$formData.alias} placeholder="Optional"
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
-      </div>
-
-      <div>
-        <label for="seq" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Seq <span class="text-zinc-500">(sort order among siblings)</span></label>
-        <input id="seq" name="seq" type="number" bind:value={$formData.seq} placeholder="Optional"
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
-      </div>
-
-      <div>
-        <label for="tags" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">Tags <span class="text-zinc-500">(comma-separated)</span></label>
-        <input id="tags" name="tags" type="text" bind:value={$formData.tags}
-          class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none" />
-      </div>
-
-      <div>
-        <label class="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-          <input name="isRunnable" type="checkbox" value="true" bind:checked={$formData.isRunnable}
-            class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900" />
-          Is Runnable <span class="text-zinc-500">(can be run as a task by hadron_run_task)</span>
-        </label>
-      </div>
-    </section>
+    <!-- #878: only what the node page has no tab for. Name, loc, description,
+         alias, seq, tags and Runnable are on its Settings tab; content,
+         abstract and edges on their own tabs. Both sections start closed so
+         the reader sees what is offered and opens what they want. -->
+    <input type="hidden" name="isRunnable" value={String($formData.isRunnable)} />
 
     <!-- #588 (server #725): collection discriminator + typed properties. -->
-    <section class="space-y-4">
-      <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Structured storage</h2>
+    <details bind:open={storageOpen} class="space-y-4">
+      <summary class="cursor-pointer border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300"><h2 class="inline">{t('node-edit.section.storage', 'Structured storage')}</h2></summary>
 
       <div>
         <label for="objectType" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">{createNodeStrings.fieldObjectType()}</label>
@@ -324,7 +315,7 @@
         <!-- Re-mount on objectType change so typed field state re-seeds — and
              on NODE change too. Keyed on objectType alone, two nodes sharing an
              object type kept node A's typed values through a navigation, which
-             is the same reuse trap as the export section above (@copilot on
+             is the same reuse trap as the export section below (@copilot on
              #867). -->
         {#key `${node.id}:${$formData.objectType}`}
           <PropertiesEditor
@@ -337,79 +328,38 @@
           <p class="mt-1 text-xs text-red-600 dark:text-red-400">{propertiesError}</p>
         {/if}
       </div>
-    </section>
+    </details>
 
-    <!-- portal#864 Part A: the skill-export declaration, which lives at
-         properties.exports.claudeSkill and was hand-typed JSON until now. -->
+    <!-- portal#864 Part A / #878: the skill export, which lives at
+         properties.exports.{claudeSkill,codex} and was hand-typed JSON until
+         #864. One checkbox since #878. -->
     {#if showSkillExport}
-      <section class="space-y-4">
-        <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">
-          Skill export
-        </h2>
-        <SkillExportEditor bind:declaration />
-      </section>
+      <details bind:open={skillOpen} class="space-y-4">
+        <summary class="cursor-pointer border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300"><h2 class="inline">{t('node-edit.section.skill-export', 'Skill export')}</h2></summary>
+        <!-- Keyed on the node so the editor's OWN state (its "Change the
+             skill's name and description" panel) starts fresh on a
+             node-to-node navigation, like the sections around it (@copilot
+             on #887). -->
+        {#key node.id}
+        <SkillExportEditor
+          bind:value={skillExport}
+          bind:runnable={$formData.isRunnable}
+          divergent={exportDivergent}
+          rawPropertiesEditable={!declaredCollection}
+          runnableBlockedBy={data.runnableBlockedBy ?? null}
+          {strictCollection}
+          defaults={exportDefaults}
+        />
+        {/key}
+      </details>
     {/if}
-
-    <!-- Edges (was “References” — #490) -->
-    <section class="space-y-3">
-      <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Edges</h2>
-      <input type="hidden" name="edges" value={$formData.edges} />
-      {#if hasUnreadableOutgoing}
-        <!-- #656: an edge points into a memory this user can't read, so it has no
-             id to resubmit. Saving edges REPLACES the set and would delete it —
-             the controls are disabled and the server refuses edge changes too. -->
-        <p class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-          This node has an edge into a memory you can’t access. Saving edges would remove it, so edge editing is disabled here. Everything else on this page still saves.
-        </p>
-      {/if}
-      {#if edges.length > 0}
-        <div class="space-y-1">
-          {#each edges as edge, i}
-            <div class="flex items-center gap-3 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm">
-              <span class="font-mono text-indigo-400">{edge.targetId}</span>
-              <span class="text-zinc-500">{edge.name}</span>
-              {#if !hasUnreadableOutgoing}
-                <button type="button" class="ml-auto text-red-400 hover:text-red-300" onclick={() => removeEdge(i)}>&times;</button>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      {/if}
-      {#if !hasUnreadableOutgoing}
-        <div class="flex gap-2">
-          <input type="text" placeholder="target ID" bind:value={newTargetLoc}
-            class="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
-          <input type="text" placeholder="label" bind:value={newLabel}
-            class="flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none" />
-          <button type="button" onclick={addEdge}
-            class="rounded-lg border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700">Add</button>
-        </div>
-      {/if}
-    </section>
-
-    <!-- Abstract -->
-    <section class="space-y-3">
-      <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Abstract</h2>
-      <textarea name="abstract" bind:value={$formData.abstract} maxlength={ABSTRACT_MAX}
-        placeholder="Paragraph-length summary — the default source for vector search."
-        class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:border-indigo-500 focus:outline-none"
-        style="min-height: 120px; resize: vertical;"></textarea>
-      <div class="text-right text-xs {$formData.abstract.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-500'}">{$formData.abstract.length} / {ABSTRACT_MAX}</div>
-    </section>
-
-    <!-- Content -->
-    <section class="space-y-3">
-      <h2 class="border-b border-zinc-200 pb-2 text-sm font-semibold uppercase tracking-wide text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">Content</h2>
-      <textarea name="content" bind:value={$formData.content}
-        class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-sm text-white focus:border-indigo-500 focus:outline-none"
-        style="min-height: 400px; resize: vertical;"></textarea>
-    </section>
 
     <!-- Actions -->
     <div class="flex items-center gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
       <button
         type="submit"
-        disabled={$submitting || propertiesInvalid || !!propertiesError}
+        disabled={$submitting || propertiesInvalid || !!propertiesError || !!data.noWriteDoor}
+        aria-describedby={data.noWriteDoor ? 'no-write-door' : undefined}
         class="rounded-lg bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {$submitting ? 'Saving...' : 'Save'}

@@ -36,6 +36,7 @@
     rowsToSpec,
     type ExtractionRow,
   } from '$lib/flow/extraction';
+  import { fillViewport } from '$lib/fill-viewport';
   import type { NodeEdge, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import {
@@ -136,6 +137,10 @@
   // Content tab is now always shown for the same reason — issue #256.)
   const ABSTRACT_MAX = 2000;
   let showAbstractSource = $state(false);
+  // #878: the rows under the Source editors, measured so each editor can fill
+  // the viewport without pushing its Save button off-screen.
+  let contentSaveRow = $state<HTMLElement | null>(null);
+  let abstractSaveRow = $state<HTMLElement | null>(null);
   let copiedAbstract = $state(false);
   let editAbstract = $state('');
   let savingAbstract = $state(false);
@@ -2040,18 +2045,19 @@
       </div>
       {#if showSource}
         <div class="mt-3">
-          <!-- #247: fill the available viewport height rather than a fixed
-               300px, so the source editor is comfortable for long content.
-               h- is viewport-relative (minus the nav/breadcrumb/header/tabs
-               chrome above and the Save row below); min-h-[300px] floors it
-               so it stays usable on short/landscape-mobile viewports where
-               100vh is small. The textarea scrolls internally. -->
+          <!-- #247 / #878: fill the viewport height left below the editor,
+               keeping the Save row visible. MEASURED by `fillViewport`, not a
+               calc() guess: the chrome above varies per node, so #247's
+               `100vh - 18rem` pushed Save below the fold. The textarea scrolls
+               internally; `resize-none` because a manual drag would be undone
+               by the next measurement. -->
           <textarea
-            class="w-full h-[calc(100vh-18rem)] min-h-[300px] rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
+            use:fillViewport={contentSaveRow}
+            class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
             bind:value={editContent}
           ></textarea>
-          <div class="mt-2 flex justify-end">
+          <div bind:this={contentSaveRow} class="mt-2 flex justify-end">
             <button
               onclick={saveContent}
               disabled={saving || editContent === (node.content ?? '')}
@@ -2103,13 +2109,16 @@
       </div>
       {#if showAbstractSource}
         <div class="mt-3">
+          <!-- #878: same measured fill as the Content editor above; it was a
+               bare 120px minimum. -->
           <textarea
-            class="w-full min-h-[120px] rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
+            use:fillViewport={abstractSaveRow}
+            class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             maxlength={ABSTRACT_MAX}
             placeholder="A paragraph-length summary of this node. This is the default source for vector search."
             bind:value={editAbstract}
           ></textarea>
-          <div class="mt-2 flex items-center justify-between">
+          <div bind:this={abstractSaveRow} class="mt-2 flex items-center justify-between">
             <span class="text-xs {editAbstract.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-400'}">{editAbstract.length} / {ABSTRACT_MAX}</span>
             <button
               onclick={saveAbstract}
@@ -2257,9 +2266,15 @@
           <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.properties.empty', 'No properties. Node.properties holds structured key-value metadata (often server-set, e.g. source URL or title).')}</p>
         </div>
       {/if}
-      <!-- #588: authoring lives on the edit page's Structured storage section. -->
+      <!-- #588: authoring lives on the edit page (object type, properties and
+           skill export). #878: a button labelled "Edit" rather than a link.
+           It stays an <a> because it navigates; the label names the action
+           and the tab it sits on names the object. -->
       <div class="mt-3">
-        <a href="{basePath}/nodes/{node.id}/edit" class="text-sm text-indigo-500 hover:underline dark:text-indigo-400">{t('node.properties.edit-link', 'Edit object type & properties')}</a>
+        <a
+          href="{basePath}/nodes/{node.id}/edit"
+          class="inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >{t('node.properties.edit', 'Edit')}</a>
       </div>
     {/if}
 

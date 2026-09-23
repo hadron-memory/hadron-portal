@@ -1,48 +1,32 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
-afterEach(() => {
-  vi.doUnmock('$lib/urn/clean-loc-input');
-  vi.resetModules();
-});
+import { describe, expect, it } from 'vitest';
+import { editNodeSchema } from './schema';
 
 describe('editNodeSchema', () => {
-  it('normalizes loc input before submit data reaches the action', async () => {
-    const { editNodeSchema } = await import('./schema');
-
-    const result = editNodeSchema.safeParse({
-      name: 'Node',
-      loc: 'parent/child',
-    });
-
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data.loc).toBe('parent:child');
-    }
+  it('carries ONLY the fields the edit page edits (#878)', () => {
+    // Name, loc, description, content, abstract, tags, seq and edges moved to
+    // the node page's own tabs. A field left in this schema but dropped from
+    // the page would post empty and the action would CLEAR the stored value —
+    // so the schema's key set is pinned, not merely its behaviour.
+    expect(Object.keys(editNodeSchema.shape).sort()).toEqual([
+      'isRunnable',
+      'objectType',
+      'propertiesJson',
+    ]);
   });
 
-  it('converts cleanLocInput throws into a loc field error', async () => {
-    vi.doMock('$lib/urn/clean-loc-input', () => ({
-      cleanLocInput: vi.fn(() => {
-        throw new Error('parser failed');
-      }),
-    }));
-    const { editNodeSchema } = await import('./schema');
-
-    const result = editNodeSchema.safeParse({
-      name: 'Node',
-      loc: 'anything',
-    });
-
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.flatten().fieldErrors.loc?.[0]).toBe('Invalid loc.');
-    }
+  it.each([
+    ['true', true],
+    ['false', false],
+    [undefined, false],
+  ])('reads the hidden isRunnable value %j as %j', (raw, expected) => {
+    const result = editNodeSchema.safeParse(raw === undefined ? {} : { isRunnable: raw });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.isRunnable).toBe(expected);
   });
 
   // #588: structured storage fields.
-  it('defaults objectType and propertiesJson to empty', async () => {
-    const { editNodeSchema } = await import('./schema');
-    const result = editNodeSchema.safeParse({ name: 'Node', loc: 'node' });
+  it('defaults objectType and propertiesJson to empty', () => {
+    const result = editNodeSchema.safeParse({});
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.objectType).toBe('');
@@ -50,26 +34,16 @@ describe('editNodeSchema', () => {
     }
   });
 
-  it('converts a propertiesJson parse failure into a field error', async () => {
-    const { editNodeSchema } = await import('./schema');
-    const result = editNodeSchema.safeParse({
-      name: 'Node',
-      loc: 'node',
-      propertiesJson: '{ not json',
-    });
+  it('converts a propertiesJson parse failure into a field error', () => {
+    const result = editNodeSchema.safeParse({ propertiesJson: '{ not json' });
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.flatten().fieldErrors.propertiesJson?.[0]).toBe('Not valid JSON.');
     }
   });
 
-  it('rejects a non-object propertiesJson payload', async () => {
-    const { editNodeSchema } = await import('./schema');
-    const result = editNodeSchema.safeParse({
-      name: 'Node',
-      loc: 'node',
-      propertiesJson: '"scalar"',
-    });
+  it('rejects a non-object propertiesJson payload', () => {
+    const result = editNodeSchema.safeParse({ propertiesJson: '"scalar"' });
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.flatten().fieldErrors.propertiesJson?.[0]).toMatch(/JSON object/);

@@ -1,45 +1,26 @@
 import { z } from 'zod';
 import { checkboxBoolean } from '$lib/forms/checkbox-boolean';
 import { jsonObjectField } from '$lib/forms/zod-validators';
-import { cleanLocInput } from '$lib/urn/clean-loc-input';
 
-function normalizedLoc(value: string, ctx: z.RefinementCtx): string {
-  if (!value) return '';
-  try {
-    return cleanLocInput(value);
-  } catch {
-    ctx.addIssue({
-      code: 'custom',
-      message: 'Invalid loc.',
-    });
-    // z.NEVER is Zod's transform sentinel after addIssue; the cast keeps the
-    // output type narrow while preventing the bad value from propagating.
-    return z.NEVER as never;
-  }
-}
-
-const seqField = z.preprocess((value) => {
-  const raw = String(value ?? '').trim();
-  if (!raw) return null;
-  const parsed = parseInt(raw, 10);
-  return Number.isNaN(parsed) ? null : parsed;
-}, z.number().int().nullable()).default(null);
-
+/**
+ * #878 — the edit page edits ONLY what the node detail page has no tab for:
+ * the object type, the properties bag, and the skill export inside it.
+ *
+ * Name, loc, description, alias, seq, tags and Runnable live on the Settings
+ * tab; content, abstract and edges on their own tabs. They are deliberately
+ * NOT fields here: this form used to carry all of them and wrote every one on
+ * Save, so a field dropped from the page but left in the schema would post
+ * empty and CLEAR the stored value.
+ */
 export const editNodeSchema = z.object({
-  name: z.string().trim().min(1, 'Name is required.').prefault(''),
-  loc: z.string().trim().default('').transform(normalizedLoc),
-  description: z.string().trim().default(''),
-  alias: z.string().trim().default(''),
-  abstract: z.string().trim().default(''),
-  content: z.string().trim().default(''),
-  seq: seqField,
-  tags: z.string().trim().default(''),
+  // Only ever turns Runnable ON — the skill-export checkbox sets it, because
+  // the server refuses a skill on a node that is not runnable. The action
+  // sends `true` or omits the field; it never un-sets it (see +page.server.ts).
   isRunnable: checkboxBoolean.default(false),
   // #588 (server #725): collection discriminator ('' → null clears it) and the
   // typed properties record as one serialized JSON string ('' → null clears).
   objectType: z.string().trim().default(''),
   propertiesJson: jsonObjectField('Properties'),
-  edges: z.string().default(''),
 });
 
 export type EditNodeSchema = typeof editNodeSchema;

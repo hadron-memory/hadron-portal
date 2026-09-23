@@ -5,11 +5,10 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
-import { NODE_BY_ID_QUERY, MOVE_NODE_MUTATION } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY } from '$lib/server/queries';
 // #868: the write goes through the door chooser; naming a mutation document
 // here directly is what `scripts/check-node-write-doors.mjs` fails.
-import { assertNodeUpdateDoor, nodeUpdateDocument } from '$lib/server/nodeKindDoor';
-import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { editNodeSchema } from './schema';
@@ -20,31 +19,10 @@ const editNodeFormAdapter = zod4(editNodeSchema);
 
 function formDefaults(node: MemoryNode): EditNodeForm {
   return {
-    name: node.name,
-    loc: node.loc,
-    description: node.description ?? '',
-    alias: node.alias ?? '',
-    abstract: node.abstract ?? '',
-    content: node.content ?? '',
-    seq: node.seq ?? null,
-    tags: (node.tags ?? []).join(', '),
     isRunnable: node.isRunnable ?? false,
     objectType: node.objectType ?? '',
     propertiesJson: node.properties != null ? JSON.stringify(node.properties, null, 2) : '',
-    // #656: skip edges whose target is null (a memory the caller can't read) —
-    // they have no targetId to seed. The action omits `edges` entirely in that
-    // case, so this incomplete list is never sent back as a replacement.
-    edges: JSON.stringify(
-      (node.outgoingEdges ?? [])
-        .filter((e) => e.target != null)
-        .map((e) => ({ targetId: e.target!.id, name: e.name ?? '' })),
-    ),
   };
-}
-
-function parseEdgesPayload(value: string): { targetId: string; name: string }[] | undefined {
-  if (!value) return undefined;
-  return JSON.parse(value) as { targetId: string; name: string }[];
 }
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
@@ -72,8 +50,52 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     editNodeFormAdapter,
     { errors: false },
   );
-  return { node: data.node, form };
+  return {
+    node: data.node,
+    form,
+    runnableBlockedBy: runnableBlockedBy(data.node),
+    noWriteDoor: noWriteDoor(data.node),
+  };
 };
+
+/**
+ * @copilot on #887: a node that ALREADY carries two governed kinds (a runnable
+ * `review` or `spec`) has no single write door, so EVERY save from this page is
+ * refused — whatever the user changes. Asked of the same chooser the action
+ * uses, with an input that changes neither signal, and returned as the
+ * chooser's own message so the page can say why before offering a Save that
+ * can only fail.
+ */
+function noWriteDoor(node: MemoryNode): string | null {
+  try {
+    nodeUpdateDocument(node, {});
+    return null;
+  } catch (e) {
+    if (!(e instanceof NoNodeDoorError)) throw e;
+    return e.message;
+  }
+}
+
+/**
+ * #878 / @copilot on #887: can this page make the node runnable?
+ *
+ * The skill-export checkbox, and its "Mark this node runnable" action, submit
+ * `isRunnable: true`. On a node that already carries another governed kind (a
+ * `review` or `spec` role) the result matches two kinds, and the door chooser
+ * refuses it: there is no single write path. Asked of the SAME chooser the
+ * action uses, so the page cannot offer a fix the save would then reject.
+ *
+ * Returns the other kind(s) blocking it, or null when making it runnable works.
+ */
+function runnableBlockedBy(node: MemoryNode): string | null {
+  try {
+    nodeUpdateDocument(node, { isRunnable: true });
+    return null;
+  } catch (e) {
+    if (!(e instanceof NoNodeDoorError)) throw e;
+    return e.kinds.filter((k) => k !== 'task').join(' and ') || null;
+  }
+}
 
 export const actions: Actions = {
   default: async ({ request, params, locals }) => {
@@ -91,133 +113,32 @@ export const actions: Actions = {
     );
     if (!currentNode) return message(form, { type: 'error', text: 'Node not found' }, { status: 404 });
 
-    const description = form.data.description || null;
-    const alias = form.data.alias || null;
-    // Empty/whitespace-only → null so the server clears the abstract rather
-    // than storing an empty string (it normalizes the same way, but being
-    // explicit keeps the mutation payload honest). Cap is enforced server-side.
-    const abstract = form.data.abstract || null;
-    const content = form.data.content || null;
-    const tags = form.data.tags ? form.data.tags.split(',').map((t) => t.trim()).filter(Boolean) : [];
-    // #588: '' → null clears (updateNode: omit = preserve, null = clear; the
-    // resolver maps a null properties through jsonOrDbNull). The zod schema
-    // already proved propertiesJson parses to an object; re-parse only to
-    // produce the typed payload. The server validates objectType/properties
-    // against the memory schema (BAD_USER_INPUT on a violation).
     const objectType = form.data.objectType || null;
     const propertiesTrimmed = form.data.propertiesJson.trim();
     const properties = propertiesTrimmed
       ? (JSON.parse(propertiesTrimmed) as Record<string, unknown>)
       : null;
 
-    let edges: { targetId: string; name: string }[] | undefined;
-    try {
-      edges = parseEdgesPayload(form.data.edges);
-    } catch {
-      return message(form, { type: 'error', text: 'Edges payload was corrupt. Please refresh and try again.' }, { status: 400 });
-    }
-
-    // #656 (server #783): an outgoing edge into a memory the caller can't read
-    // comes back with target === null, so it has NO targetId and can't be
-    // round-tripped through this form. `edges` REPLACES the whole outgoing set,
-    // so sending our (necessarily incomplete) list would silently delete it.
+    // #878: ONLY the fields this page edits. `UpdateNodeInput` treats an
+    // omitted field as "preserve", so name, description, content, abstract,
+    // tags, seq and edges — each edited on its own tab of the node page — are
+    // left exactly as stored.
     //
-    // Checked against the FRESH node (not the page's snapshot), so it also covers
-    // a crafted POST and the race where an edge becomes unreadable while the
-    // editor is open. If the user actually CHANGED edges we refuse loudly rather
-    // than dropping their edits silently; if they didn't, we just omit the field
-    // (updateNode preserves omitted fields) so the rest of the edit still saves.
-    const hasUnreadableOutgoing = (currentNode.outgoingEdges ?? []).some((e) => !e.target);
-    if (hasUnreadableOutgoing) {
-      const readable = (currentNode.outgoingEdges ?? [])
-        .filter((e) => e.target != null)
-        .map((e) => ({ targetId: e.target!.id, name: e.name ?? '' }));
-      const submitted = edges ?? [];
-      const same =
-        submitted.length === readable.length &&
-        submitted.every((s, i) => s.targetId === readable[i].targetId && (s.name ?? '') === readable[i].name);
-      if (!same) {
-        return message(
-          form,
-          {
-            type: 'error',
-            text: 'This node has an edge into a memory you can’t access. Saving would remove it, so edge changes can’t be applied here.',
-          },
-          { status: 400 },
-        );
-      }
-      edges = undefined;
-    }
-
-    // #237: route every mutation through the node's actual memoryId, not
-    // the URL's gid. Form actions run BEFORE `load`, so the URL guard
-    // above doesn't run on POST — a stale URL would otherwise commit
-    // the user's edit into the wrong memory.
-    // #564 (#501): moveNode takes sourceRef (the PK) + targetUrn composed
-    // from the node's OWN memory urn — a stale URL can't redirect the move.
-    // An occupied destination fails loudly with NODE_ALREADY_EXISTS.
-    // Empty loc means "keep the current loc"; the page seeds loc in load, so
-    // empty only appears on malformed/manual POSTs and should not move a node.
-    const loc = form.data.loc && form.data.loc !== currentNode.loc ? form.data.loc : currentNode.loc;
-
-    // Route through the kind's door. The generic surface refuses a governed
-    // node outright (server #1201/#1203), so before #867 the portal could not
-    // save a task node at all — the Runnable checkbox never persisted and
-    // editing an existing task node failed with a refusal surfaced as a
-    // properties error.
-    //
-    // #868 replaced `form.data.isRunnable ? TASK : GENERIC` with the shared
-    // chooser, and that is a FIX, not a refactor. The server gates on BEFORE ∪
-    // AFTER, so un-ticking Runnable on a task node is still a task-door write;
-    // routing on the submitted value alone sent it through the generic door and
-    // the server refused it — "This write would REMOVE the marker…". Converting
-    // a node TO a task worked; converting one BACK did not. It also picks up
-    // the role-governed kinds, which the submitted value cannot see at all.
-    //
-    // Chosen BEFORE the move below, not after (@copilot on PR #869). The
-    // chooser can refuse — a node matching two governed kinds has no door — and
-    // a refusal raised after `moveNode` has committed leaves the node relocated
-    // with none of the edit applied, reported as a 500. The door depends on the
-    // node's kind and not on its loc, so asking first costs nothing.
+    // `isRunnable` is sent only as `true`. The page can turn it ON (the skill
+    // export requires a runnable node) but has no control that turns it off;
+    // sending the loaded `false` back would let a stale page, or a POST that
+    // simply omits the checkbox, un-set Runnable on a task node.
     const input = {
       memoryId: currentNode.memoryId,
-      loc,
-      name: form.data.name,
-      description,
-      alias,
-      abstract,
-      content,
-      seq: form.data.seq,
-      tags,
-      isRunnable: form.data.isRunnable,
+      loc: currentNode.loc,
+      ...(form.data.isRunnable ? { isRunnable: true } : {}),
       objectType,
       properties,
-      edges,
     };
     try {
       assertNodeUpdateDoor(currentNode, input);
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
-    }
-
-    if (loc !== currentNode.loc) {
-      if (!currentNode.memory?.urn) {
-        return message(form, { type: 'error', text: 'Node has no memory URN to move by.' }, { status: 500 });
-      }
-      try {
-        await client.request(MOVE_NODE_MUTATION, {
-          sourceRef: currentNode.id,
-          targetUrn: composeNodeUrn(currentNode.memory.urn, loc),
-        });
-      } catch (e: unknown) {
-        // Occupied destination → 409 Conflict, matching the detail page +
-        // the /api/nodes/move endpoint.
-        const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
-        const error = extractGqlError(e, 'Failed to move node');
-        return status === 409
-          ? setError(form, 'loc', error, { status })
-          : message(form, { type: 'error', text: error }, { status });
-      }
     }
 
     try {

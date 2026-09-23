@@ -78,14 +78,50 @@ describe('edit-node load — #237 PK-mismatch guard', () => {
     // void half is the redirect path. Happy path here returns data.
     expect(result).toBeDefined();
     expect((result as { node: { id: string } }).node.id).toBe('leaf-pk');
-    expect((result as { form: { data: Record<string, unknown>; errors: Record<string, string[]> } }).form.data).toMatchObject({
-      name: 'foo',
-      loc: 'foo',
-      seq: null,
-      tags: '',
+    expect((result as { form: { data: Record<string, unknown>; errors: Record<string, string[]> } }).form.data).toEqual({
       isRunnable: false,
+      objectType: '',
+      propertiesJson: '',
     });
     expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
+    expect((result as { runnableBlockedBy: unknown }).runnableBlockedBy).toBeNull();
+  });
+
+  it.each([
+    ['review', 'review'],
+    ['spec', 'spec'],
+  ])('reports that a %s node cannot be made runnable here (@copilot on #887)', async (role, expected) => {
+    // Asked of the same door chooser the save uses: a runnable review/spec
+    // matches two governed kinds and has no single write door.
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo', role,
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    const load = await importLoad();
+    const result = await load(loadEvent({ gid: 'mem-A', nodeId: 'leaf-pk' }));
+    expect((result as { runnableBlockedBy: unknown }).runnableBlockedBy).toBe(expected);
+    // Not yet runnable, so it can still be written — just not made runnable.
+    expect((result as { noWriteDoor: unknown }).noWriteDoor).toBeNull();
+  });
+
+  it('reports NO write door for a review node that is ALREADY runnable (@copilot on #887)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo', role: 'review',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: true, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    const load = await importLoad();
+    const result = await load(loadEvent({ gid: 'mem-A', nodeId: 'leaf-pk' }));
+    expect((result as { noWriteDoor: unknown }).noWriteDoor).toMatch(/no single write path/);
   });
 });
 
@@ -130,34 +166,6 @@ function fieldError(result: unknown, field: string): string | undefined {
 }
 
 describe('edit-node default action — derives memoryId from fetched node (#237)', () => {
-  it('rejects an empty name before loading the node', async () => {
-    const actions = await importActions();
-
-    const result = await actions.default(actionEvent({
-      gid: 'mem-A',
-      nodeId: 'pk',
-      form: { name: '', loc: 'node' },
-    }));
-
-    expect(result).toMatchObject({ status: 400 });
-    expect(fieldError(result, 'name')).toBe('Name is required.');
-    expect(mockRequest).not.toHaveBeenCalled();
-  });
-
-  it('rejects an omitted name before loading the node', async () => {
-    const actions = await importActions();
-
-    const result = await actions.default(actionEvent({
-      gid: 'mem-A',
-      nodeId: 'pk',
-      form: { loc: 'node' },
-    }));
-
-    expect(result).toMatchObject({ status: 400 });
-    expect(fieldError(result, 'name')).toBe('Name is required.');
-    expect(mockRequest).not.toHaveBeenCalled();
-  });
-
   it("update input.memoryId is the node's actual memoryId, not params.gid", async () => {
     // Stale URL says mem-A; the node lives in mem-B. The update must
     // commit into mem-B so the user's edit lands on the right row.
@@ -175,87 +183,33 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     const actions = await importActions();
     let thrown: unknown;
     try {
-      await actions.default(actionEvent({
-        gid: 'mem-A',
-        nodeId: 'pk',
-        form: { name: 'new', content: 'new', abstract: 'a summary' },
-      }));
+      await actions.default(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { objectType: '' } }));
     } catch (e) {
       thrown = e;
     }
-    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string; abstract: unknown } }];
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string; loc: string } }];
     expect(vars.input.memoryId).toBe('mem-B');
-    // #257: the edit form persists the abstract through the same update.
-    expect(vars.input.abstract).toBe('a summary');
+    // The selector is the node's CURRENT loc — this page never moves a node.
+    expect(vars.input.loc).toBe('a');
     // Post-action redirect URL should point at mem-B too.
     expect((thrown as { status: number }).status).toBe(303);
     expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes/pk');
   });
 
-  it('MOVE_NODE_MUTATION targets the node via sourceRef + targetUrn from its OWN memory (#564)', async () => {
-    // When the user edits the loc, the move runs first. #564 reshaped the
-    // args: sourceRef is the node's PK and targetUrn is composed from the
-    // node's own memory urn — the URL's gid never enters the picture.
+  /**
+   * #878 — the page lost its Metadata, Edges, Abstract and Content sections
+   * (each has its own tab on the node page). `UpdateNodeInput` preserves an
+   * omitted field, so the action must OMIT every one of them. Sending them —
+   * even a hand-built POST that includes them — would clear or overwrite a
+   * value the page no longer shows.
+   */
+  it('sends ONLY objectType and properties — never a field edited on another tab', async () => {
     mockRequest.mockResolvedValueOnce({
       node: {
-        id: 'pk', memoryId: 'mem-B', loc: 'old-loc', name: 'a',
-        memory: { id: 'mem-B', urn: 'acme.com::brain', name: 'Brain' },
-        nodeType: 'info', alias: null, description: null, content: null,
-        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
-    });
-    mockRequest.mockResolvedValueOnce({ moveNode: { id: 'pk' } });
-    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
-
-    const actions = await importActions();
-    try {
-      await actions.default(actionEvent({
-        gid: 'mem-A',
-        nodeId: 'pk',
-        form: { name: 'a', loc: 'new-loc' },
-      }));
-    } catch { /* redirect at end */ }
-
-    const [, moveVars] = mockRequest.mock.calls[1]! as [unknown, { sourceRef: string; targetUrn: string }];
-    expect(moveVars.sourceRef).toBe('pk');
-    expect(moveVars.targetUrn).toBe('hrn:node:acme.com:brain:new-loc');
-  });
-
-  it('an occupied destination fails as 409, not 500 (#501 fail-loud)', async () => {
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'pk', memoryId: 'mem-B', loc: 'old-loc', name: 'a',
-        memory: { id: 'mem-B', urn: 'acme.com::brain', name: 'Brain' },
-        nodeType: 'info', alias: null, description: null, content: null,
-        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
-    });
-    mockRequest.mockRejectedValueOnce({
-      response: {
-        errors: [{ message: 'A live node already occupies loc "new-loc" in the destination memory.', extensions: { code: 'NODE_ALREADY_EXISTS' } }],
-      },
-    });
-
-    const actions = await importActions();
-    const result = (await actions.default(actionEvent({
-      gid: 'mem-A', nodeId: 'pk', form: { name: 'a', loc: 'new-loc' },
-    }))) as { status: number };
-    expect(result.status).toBe(409);
-    expect(fieldError(result, 'loc')).toMatch(/already occupies/);
-  });
-
-  it('keeps the current loc without moving when a manual POST omits loc', async () => {
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'pk', memoryId: 'mem-B', loc: 'current-loc', name: 'a',
-        memory: { id: 'mem-B', urn: 'acme.com::brain', name: 'Brain' },
-        nodeType: 'info', alias: null, description: null, content: 'old',
-        tokens: null, tags: ['x'], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
+        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'Stored name',
+        nodeType: 'info', alias: 'al', description: 'stored', content: 'stored body',
+        abstract: 'stored abstract', tokens: null, tags: ['x'], seq: 4, data: null,
+        ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '',
         outgoingEdges: [], incomingEdges: [],
       },
     });
@@ -264,129 +218,46 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     const actions = await importActions();
     try {
       await actions.default(actionEvent({
-        gid: 'mem-A',
+        gid: 'mem-B',
         nodeId: 'pk',
-        form: { name: 'new' },
+        // A stale or hand-built POST carrying the retired fields.
+        form: {
+          name: '', loc: 'moved', description: '', content: '', abstract: '',
+          tags: '', seq: '9', edges: '[]', objectType: 'thing', propertiesJson: '{"k":1}',
+        },
       }));
     } catch { /* redirect at end */ }
 
-    expect(mockRequest).toHaveBeenCalledTimes(2);
-    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { loc: string } }];
-    expect(vars.input.loc).toBe('current-loc');
-  });
-
-  // #656 (server #783): an outgoing edge into an unreadable memory has target
-  // === null, so it carries no targetId. `edges` REPLACES the whole outgoing
-  // set, so the action must OMIT the field rather than send an incomplete list
-  // that would silently delete that edge.
-  it('omits edges (saving the rest) when edges are UNCHANGED and one target is unreadable', async () => {
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
-        nodeType: 'info', alias: null, description: null, content: 'old',
-        tokens: null, tags: ['x'], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [
-          { id: 'e1', name: 'ref', loc: 'a:ref', target: { id: 'n2', loc: 'b', name: 'B' } },
-          { id: 'e2', name: 'x', loc: 'a:x', target: null },
-        ],
-        incomingEdges: [],
-      },
-    });
-    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
-
-    const actions = await importActions();
-    try {
-      await actions.default(actionEvent({
-        gid: 'mem-A',
-        nodeId: 'pk',
-        form: { name: 'new', loc: 'a', edges: JSON.stringify([{ targetId: 'n2', name: 'ref' }]) },
-      }));
-    } catch { /* redirect at end */ }
-
+    expect(mockRequest).toHaveBeenCalledTimes(2); // refetch + update: no move
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
-    expect(vars.input.edges).toBeUndefined();
+    expect(Object.keys(vars.input).sort()).toEqual(['loc', 'memoryId', 'objectType', 'properties']);
+    expect(vars.input).toEqual({ memoryId: 'mem-B', loc: 'a', objectType: 'thing', properties: { k: 1 } });
   });
 
-  it('refuses loudly when edges were CHANGED and an outgoing target is unreadable', async () => {
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
-        nodeType: 'info', alias: null, description: null, content: 'old',
-        tokens: null, tags: ['x'], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [
-          { id: 'e1', name: 'ref', loc: 'a:ref', target: { id: 'n2', loc: 'b', name: 'B' } },
-          { id: 'e2', name: 'x', loc: 'a:x', target: null },
-        ],
-        incomingEdges: [],
-      },
-    });
+  it('sends isRunnable only as TRUE, never false', async () => {
+    // The skill-export checkbox turns Runnable ON; nothing on this page turns
+    // it off. Sending the loaded `false` back would let a stale page un-set it.
+    async function inputFor(form: Record<string, string>) {
+      mockRequest.mockReset();
+      mockRequest.mockResolvedValueOnce({
+        node: {
+          id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a', nodeType: 'info',
+          alias: null, description: null, content: null, tokens: null, tags: [],
+          seq: null, data: null, ownerRepo: null, isRunnable: true,
+          createdAt: '', updatedAt: '', outgoingEdges: [], incomingEdges: [],
+        },
+      });
+      mockRequest.mockResolvedValueOnce({ updateTaskNode: { id: 'pk' } });
+      const actions = await importActions();
+      try {
+        await actions.default(actionEvent({ gid: 'mem-B', nodeId: 'pk', form }));
+      } catch { /* redirect */ }
+      return (mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }])[1].input;
+    }
 
-    const actions = await importActions();
-    const result = await actions.default(actionEvent({
-      gid: 'mem-A',
-      nodeId: 'pk',
-      // The user removed the readable edge — a real change, so don't drop it silently.
-      form: { name: 'new', loc: 'a', edges: '[]' },
-    }));
-
-    expect(result).toMatchObject({ status: 400 });
-    expect(superFormFrom(result)?.message).toMatchObject({ type: 'error' });
-    // Refused before the update mutation — only the refetch ran.
-    expect(mockRequest).toHaveBeenCalledTimes(1);
-  });
-
-  it('returns a typed message instead of silently dropping corrupt edges JSON', async () => {
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
-        nodeType: 'info', alias: null, description: null, content: 'old',
-        tokens: null, tags: ['x'], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
-    });
-
-    const actions = await importActions();
-    const result = await actions.default(actionEvent({
-      gid: 'mem-A',
-      nodeId: 'pk',
-      form: { name: 'new', loc: 'a', edges: '{not json' },
-    }));
-
-    expect(result).toMatchObject({ status: 400 });
-    expect(superFormFrom(result)?.message).toEqual({
-      type: 'error',
-      text: 'Edges payload was corrupt. Please refresh and try again.',
-    });
-    expect(mockRequest).toHaveBeenCalledTimes(1);
-  });
-
-  it('normalizes invalid numeric seq to null, preserving the legacy action behavior', async () => {
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'pk', memoryId: 'mem-B', loc: 'a', name: 'a',
-        nodeType: 'info', alias: null, description: null, content: 'old',
-        tokens: null, tags: ['x'], seq: 3, data: null, ownerRepo: null,
-        isRunnable: true, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
-    });
-    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
-
-    const actions = await importActions();
-    try {
-      await actions.default(actionEvent({
-        gid: 'mem-A',
-        nodeId: 'pk',
-        form: { name: 'new', loc: 'a', seq: 'not-a-number' },
-      }));
-    } catch { /* redirect at end */ }
-
-    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { seq: unknown; isRunnable: unknown } }];
-    expect(vars.input.seq).toBeNull();
-    expect(vars.input.isRunnable).toBe(false);
+    expect((await inputFor({ isRunnable: 'true' })).isRunnable).toBe(true);
+    expect('isRunnable' in (await inputFor({ isRunnable: 'false' }))).toBe(false);
+    expect('isRunnable' in (await inputFor({}))).toBe(false);
   });
 
   it('returns update failures as typed Superforms messages', async () => {
@@ -402,11 +273,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     mockRequest.mockRejectedValueOnce(new Error('save exploded'));
 
     const actions = await importActions();
-    const result = await actions.default(actionEvent({
-      gid: 'mem-A',
-      nodeId: 'pk',
-      form: { name: 'new', loc: 'a' },
-    }));
+    const result = await actions.default(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: {} }));
 
     expect(result).toMatchObject({ status: 500 });
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'save exploded' });
@@ -432,7 +299,6 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
         gid: 'mem-B',
         nodeId: 'pk',
         form: {
-          name: 'a', loc: 'a',
           objectType: 'competitor',
           propertiesJson: '{"name": "Acme", "fundingUsd": 5}',
         },
@@ -463,7 +329,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
       await actions.default(actionEvent({
         gid: 'mem-B',
         nodeId: 'pk',
-        form: { name: 'a', loc: 'a', objectType: '', propertiesJson: '' },
+        form: { objectType: '', propertiesJson: '' },
       }));
     } catch { /* redirect at end */ }
 
@@ -498,7 +364,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     const result = await actions.default(actionEvent({
       gid: 'mem-B',
       nodeId: 'pk',
-      form: { name: 'a', loc: 'a', objectType: 'competitor', propertiesJson: '{"fundingUsd": 5}' },
+      form: { objectType: 'competitor', propertiesJson: '{"fundingUsd": 5}' },
     }));
 
     expect(result).toMatchObject({ status: 400 });
@@ -560,7 +426,7 @@ describe('edit-node action — the task kind door (#864, server #1201)', () => {
   }
 
   it('routes a RUNNABLE write through updateTaskNode', async () => {
-    const doc = await runSave({ name: 'n', isRunnable: 'true' });
+    const doc = await runSave({ isRunnable: 'true' });
     expect(doc).toContain('updateTaskNode');
     expect(doc).not.toContain('updateNode(');
   });
@@ -568,36 +434,25 @@ describe('edit-node action — the task kind door (#864, server #1201)', () => {
   it('routes a NON-runnable write through the generic updateNode', async () => {
     // The door is not a free upgrade: sending a task write for ordinary prose
     // would claim a governed kind the node does not have.
-    const doc = await runSave({ name: 'n' });
+    const doc = await runSave({});
     expect(doc).toContain('updateNode(');
     expect(doc).not.toContain('updateTaskNode');
   });
 
   /**
-   * FLIPPED on #868. This case previously read "chooses by the SUBMITTED value,
-   * not the stored one" and asserted the generic door — and it was WRONG about
-   * the server, not merely about a preference.
-   *
-   * The reasoning behind it was "the write claims a kind it is giving up", which
-   * sounds right and is not what the gate does. `assertGovernedWrite` takes the
-   * union of the kinds the node HAD and the kinds it WILL have, because a
-   * result-only gate would let the generic surface UN-GOVERN a node in one call
-   * — `updateNode(isRunnable: false)` would simply delete the capability marker.
-   * So the removal needs the task door too, and the refusal even changes voice
-   * to say so: "This write would REMOVE the marker that makes this a RUNNABLE
-   * node — un-governing it."
-   *
-   * Converting a node TO a task worked after #867; converting one BACK did not,
-   * and this test asserted the broken direction was correct. Left as its own
-   * case with this note rather than quietly re-worded, because a ratchet
-   * pointing backwards is worth more as a labelled correction than as a clean
-   * diff — see
-   * hrn:node:hadronmemory.com:hadron-server:review:convention-ratchets-must-be-flipped
+   * #868 established that the door is chosen from the node's kind BEFORE the
+   * write unioned with its kind AFTER — so an existing task node is written
+   * through updateTaskNode even when the edit touches neither signal. Since
+   * #878 this page cannot remove the marker at all (it sends isRunnable only as
+   * `true`), so the case that matters here is the untouched one: saving
+   * properties on an existing task node must still take the task door.
    */
-  it('routes the REMOVAL of the runnable marker through updateTaskNode too', async () => {
-    const doc = await runSave({ name: 'n' }, nodeRow({ isRunnable: true }));
+  it('routes a save of an EXISTING task node through updateTaskNode, without touching isRunnable', async () => {
+    const doc = await runSave({}, nodeRow({ isRunnable: true }));
     expect(doc).toContain('updateTaskNode');
     expect(doc).not.toContain('updateNode(');
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
+    expect('isRunnable' in vars.input).toBe(false);
   });
 
   it('carries the SAME input through either door', async () => {
@@ -609,7 +464,7 @@ describe('edit-node action — the task kind door (#864, server #1201)', () => {
     try {
       await actions.default(actionEvent({
         gid: 'mem-A', nodeId: 'pk',
-        form: { name: 'n', isRunnable: 'true', propertiesJson: '{"exports":{"claudeSkill":{"name":"x","description":"d","enable":true}}}' },
+        form: { isRunnable: 'true', propertiesJson: '{"exports":{"claudeSkill":{"name":"x","description":"d","enable":true}}}' },
       }));
     } catch { /* redirect */ }
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
