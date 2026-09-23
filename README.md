@@ -157,7 +157,7 @@ every operation against it on each PR.
 
 ```bash
 pnpm run gql:validate   # validate operations + call sites against the snapshot
-pnpm run gql:schema     # refresh the snapshot from ../hadron-server
+pnpm run gql:schema     # refresh the snapshot from hadron-server's origin/main
 ```
 
 `gql:validate` checks four things:
@@ -173,7 +173,17 @@ pnpm run gql:schema     # refresh the snapshot from ../hadron-server
    route-local query.
 
 When it fails because the server changed on purpose, run `pnpm run gql:schema`
-(needs a sibling `../hadron-server` checkout, or set `HADRON_SERVER_DIR`) and
-reconcile whatever was renamed. The `schema-drift` workflow runs the same check
+and reconcile whatever was renamed.
+
+`gql:schema` exports a **git revision**, never a working tree (#891): by default
+`origin/main` of a hadron-server clone (`../hadron-server`, or
+`--server <dir>` / `HADRON_SERVER_DIR`), or any commit via `--rev <sha|ref>`.
+The two exporter files are read from git objects and run with the portal's own
+`graphql`, so the clone's branch, uncommitted edits and `node_modules` never
+matter and nothing is written into it — a shared checkout on someone else's
+branch is safe to point at. A default `origin/main` that lags the real remote is
+refused (checked read-only with `git ls-remote`) with the command that updates
+it; `--allow-stale` overrides. The snapshot's first line records the commit it
+came from. The `schema-drift` workflow runs the same check
 nightly against the live server SDL, which is what catches the snapshot itself
 going stale.

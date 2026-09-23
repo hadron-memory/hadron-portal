@@ -13,3 +13,6 @@ public
 # Scratch SDL written by `gql:validate --schema` / the schema-drift workflow.
 # The committed snapshot is schema/schema.graphql; this is the live comparison.
 .server-schema.graphql
+
+# pnpm gql:schema work directory (#891), removed after every run
+.gql-schema-export/

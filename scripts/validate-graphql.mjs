@@ -558,7 +558,7 @@ function main(argv) {
     schema = buildSchema(readFileSync(schemaPath, 'utf8'));
   } catch (err) {
     console.error(`✗ could not read the SDL at ${relative(ROOT, schemaPath)}: ${err.message}`);
-    console.error("  Refresh it with 'pnpm gql:schema' (needs a ../hadron-server checkout).");
+    console.error("  Refresh it with 'pnpm gql:schema' (reads a hadron-server git clone; see --help).");
     return 1;
   }
 
