@@ -1009,6 +1009,11 @@
   // (@codex on #893).
   const propertiesDraft = new PropertiesDraft();
   syncDraftWith(propertiesDraft, () => node);
+  // Seed (pretty-print + canonicalize) only when Source is actually opened —
+  // never on page load (@codex on #893).
+  $effect(() => {
+    if (showPropertiesSource) untrack(() => propertiesDraft.ensureSeeded());
+  });
 
   const propertiesParse = $derived(parsePropertiesSource(propertiesDraft.text));
   const propertiesDirty = $derived(
@@ -2366,6 +2371,14 @@
       {#if showPropertiesSource}
         <!-- #886: the whole bag as JSON — typed fields, undeclared keys and the
              skill export alike. Saving replaces the bag with exactly this. -->
+        {#if propertiesDraft.unavailable}
+          <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+            {t(
+              'node.properties.source.unavailable',
+              'This node’s properties are nested too deeply to show or edit as text here.',
+            )}
+          </p>
+        {:else}
         <div class="mt-3">
           <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
             {t(
@@ -2409,6 +2422,7 @@
             <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{propertiesSaveError}</p>
           {/if}
         </div>
+        {/if}
       {:else}
         <!-- #588: typed view when the node's objectType names a declared
              collection — declared fields (with type + required markers) first,

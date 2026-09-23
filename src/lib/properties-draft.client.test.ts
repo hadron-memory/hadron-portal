@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { PropertiesDraft, submitPropertiesDraft, type DraftNode } from './properties-draft.svelte';
-import { propertiesFingerprint } from './properties-source';
+import { PROPERTIES_MAX, propertiesFingerprint } from './properties-source';
 import Harness from './test/PropertiesDraftHarness.svelte';
 
 type Props = { draft: PropertiesDraft; node: DraftNode };
@@ -21,11 +21,13 @@ afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
 });
 
+/** Mount through the page's own effect, then OPEN Source — the page seeds on open. */
 async function setup(node: DraftNode) {
   const props = reactiveProps<Props>({ draft: new PropertiesDraft(), node });
   const m = mountComponent(Harness, props);
   mounted.push(m);
   await tick();
+  props.draft.ensureSeeded();
   return { props, draft: props.draft, m };
 }
 
@@ -80,8 +82,10 @@ describe('PropertiesDraft through the page effect', () => {
     draft.text = '{"for": "node a"}';
     props.node = { id: 'b', properties: { other: true } };
     await tick();
-    expect(JSON.parse(draft.text)).toEqual({ other: true });
+    // The page closes Source on a node change; reopening it seeds node b.
     expect(draft.dirty).toBe(false);
+    draft.ensureSeeded();
+    expect(JSON.parse(draft.text)).toEqual({ other: true });
   });
 
   it('reseed() after our own save starts over, even though the draft was dirty', async () => {
@@ -101,27 +105,60 @@ describe('PropertiesDraft through the page effect', () => {
   });
 });
 
-describe('a deeply nested STORED bag (@codex on #893)', () => {
+describe('seeding is LAZY and never throws (@codex on #893)', () => {
   // Plain props here, NOT reactiveProps: a $state proxy adds stack frames per
-  // level, and a real page's `node.properties` is a plain object. Built twice
-  // rather than structuredClone'd, which itself overflows at this depth.
+  // level, and a real page's `node.properties` is a plain object. Built fresh
+  // rather than structuredClone'd, which itself overflows at these depths.
   const deep = (n: number) => {
     let v: unknown = 1;
     for (let k = 0; k < n; k++) v = { a: v };
     return v as Record<string, unknown>;
   };
-
-  it('mounts and syncs a 3,000-level bag without a stack overflow — the depth limit only guards what is TYPED', async () => {
+  function mountPlain(node: DraftNode) {
     const draft = new PropertiesDraft();
-    const m = mountComponent(Harness, { draft, node: { id: 'deep', properties: deep(3000) } });
-    mounted.push(m as Mounted<Props>);
+    const m = mountComponent(Harness, { draft, node });
+    mounted.push(m as unknown as Mounted<Props>);
+    return draft;
+  }
+
+  it('mounting a node page serializes NOTHING — the text is built only when Source opens', async () => {
+    const draft = mountPlain({ id: 'a', properties: bag });
     await tick();
+    expect(draft.text).toBe('');
     expect(draft.dirty).toBe(false);
-    expect(draft.text.length).toBeGreaterThan(3000);
-    // The same bag rebuilt — an unrelated reload — is recognised as the same.
+    expect(draft.baseline).toEqual(bag);
+    draft.ensureSeeded();
+    expect(JSON.parse(draft.text)).toEqual(bag);
+    draft.ensureSeeded(); // idempotent: does not overwrite typing
+    expect(JSON.parse(draft.text)).toEqual(bag);
+  });
+
+  // Depths are chosen to hold on ANY V8 stack: a vitest worker's is smaller
+  // than the main thread's, and where exactly JSON.stringify overflows is a
+  // property of the runtime, not of this code. What is pinned is the
+  // behaviour on each side of the line — compact below it, unavailable past it.
+  it('a deep stored bag mounts without cost, and opens COMPACT when indenting would blow past the cap', async () => {
+    // 500 levels: small compact, but indentation grows with depth — ~500 KB.
+    expect(JSON.stringify(deep(500), null, 2).length).toBeGreaterThan(PROPERTIES_MAX);
+    const draft = mountPlain({ id: 'deep', properties: deep(500) });
+    await tick();
+    expect(draft.text).toBe('');
+    draft.ensureSeeded();
+    expect(draft.unavailable).toBe(false);
+    expect(draft.text).not.toContain('\n');
+    expect(draft.text.length).toBeLessThan(PROPERTIES_MAX);
+    // …and the same bag rebuilt — an unrelated reload — keeps an edit.
     draft.text = '{"edited": true}';
-    draft.sync({ id: 'deep', properties: deep(3000) });
+    draft.sync({ id: 'deep', properties: deep(500) });
     expect(draft.text).toBe('{"edited": true}');
+  });
+
+  it('a bag too deep even for compact JSON is UNAVAILABLE, not a crash', async () => {
+    const draft = mountPlain({ id: 'deeper', properties: deep(20_000) });
+    await tick();
+    expect(() => draft.ensureSeeded()).not.toThrow();
+    expect(draft.unavailable).toBe(true);
+    expect(draft.dirty).toBe(false);
   });
 });
 
