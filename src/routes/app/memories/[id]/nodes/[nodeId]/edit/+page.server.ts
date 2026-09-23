@@ -50,8 +50,31 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     editNodeFormAdapter,
     { errors: false },
   );
-  return { node: data.node, form, runnableBlockedBy: runnableBlockedBy(data.node) };
+  return {
+    node: data.node,
+    form,
+    runnableBlockedBy: runnableBlockedBy(data.node),
+    noWriteDoor: noWriteDoor(data.node),
+  };
 };
+
+/**
+ * @copilot on #887: a node that ALREADY carries two governed kinds (a runnable
+ * `review` or `spec`) has no single write door, so EVERY save from this page is
+ * refused — whatever the user changes. Asked of the same chooser the action
+ * uses, with an input that changes neither signal, and returned as the
+ * chooser's own message so the page can say why before offering a Save that
+ * can only fail.
+ */
+function noWriteDoor(node: MemoryNode): string | null {
+  try {
+    nodeUpdateDocument(node, {});
+    return null;
+  } catch (e) {
+    if (!(e instanceof NoNodeDoorError)) throw e;
+    return e.message;
+  }
+}
 
 /**
  * #878 / @copilot on #887: can this page make the node runnable?

@@ -105,6 +105,23 @@ describe('edit-node load — #237 PK-mismatch guard', () => {
     const load = await importLoad();
     const result = await load(loadEvent({ gid: 'mem-A', nodeId: 'leaf-pk' }));
     expect((result as { runnableBlockedBy: unknown }).runnableBlockedBy).toBe(expected);
+    // Not yet runnable, so it can still be written — just not made runnable.
+    expect((result as { noWriteDoor: unknown }).noWriteDoor).toBeNull();
+  });
+
+  it('reports NO write door for a review node that is ALREADY runnable (@copilot on #887)', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo', role: 'review',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: true, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    const load = await importLoad();
+    const result = await load(loadEvent({ gid: 'mem-A', nodeId: 'leaf-pk' }));
+    expect((result as { noWriteDoor: unknown }).noWriteDoor).toMatch(/no single write path/);
   });
 });
 

@@ -29,6 +29,7 @@ interface Seed {
   schema?: Record<string, unknown> | null;
   id?: string;
   runnableBlockedBy?: string | null;
+  noWriteDoor?: string | null;
 }
 
 async function dataFor(seed: Seed) {
@@ -71,6 +72,7 @@ async function dataFor(seed: Seed) {
     graph: { id: 'mem-1', schema: seed.schema ?? null, urn: 'hrn:mem:x:m', name: 'M' },
     form,
     runnableBlockedBy: seed.runnableBlockedBy ?? null,
+    noWriteDoor: seed.noWriteDoor ?? null,
   };
 }
 
@@ -499,6 +501,33 @@ describe('the superForm fields on a node-to-node navigation (@codex on #887)', (
 
       expect(objectType()).toBe('');
       expect(submittedRunnable(m.target)).toBe('false');
+    } finally {
+      m.unmount();
+    }
+  });
+});
+
+describe('a node with no write path at all (@copilot on #887)', () => {
+  const saveButton = (target: HTMLElement) =>
+    target.querySelector('button[type=submit]') as HTMLButtonElement;
+
+  it('says why and disables Save', async () => {
+    const reason = 'This node is both task and review, and the platform has no single write path for that combination.';
+    const m = await mountPage({ noWriteDoor: reason });
+    try {
+      expect(m.target.querySelector('#no-write-door')?.textContent).toContain('no single write path');
+      expect(saveButton(m.target).disabled).toBe(true);
+      expect(saveButton(m.target).getAttribute('aria-describedby')).toBe('no-write-door');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('leaves Save enabled on an ordinary node', async () => {
+    const m = await mountPage({});
+    try {
+      expect(m.target.querySelector('#no-write-door')).toBeNull();
+      expect(saveButton(m.target).disabled).toBe(false);
     } finally {
       m.unmount();
     }

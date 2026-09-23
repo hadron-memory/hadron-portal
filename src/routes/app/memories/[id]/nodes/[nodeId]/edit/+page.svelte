@@ -244,6 +244,15 @@
     <h1 class="font-mono text-lg font-bold text-zinc-900 dark:text-white">{node.loc}</h1>
   </div>
 
+  {#if data.noWriteDoor}
+    <!-- The node has no single write path, so no Save here can succeed. Said
+         up front, and Save is disabled, rather than letting the user edit and
+         then be refused (@copilot on #887). -->
+    <p id="no-write-door" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+      {data.noWriteDoor}
+    </p>
+  {/if}
+
   {#if actionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
   {/if}
@@ -329,7 +338,8 @@
     <div class="flex items-center gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
       <button
         type="submit"
-        disabled={$submitting || propertiesInvalid || !!propertiesError}
+        disabled={$submitting || propertiesInvalid || !!propertiesError || !!data.noWriteDoor}
+        aria-describedby={data.noWriteDoor ? 'no-write-door' : undefined}
         class="rounded-lg bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {$submitting ? 'Saving...' : 'Save'}
