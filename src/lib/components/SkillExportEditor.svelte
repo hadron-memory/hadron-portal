@@ -36,6 +36,7 @@
     runnable = $bindable(false),
     divergent = false,
     rawPropertiesEditable = true,
+    runnableBlockedBy = null,
     defaults,
   }: {
     value: SkillExport | null;
@@ -48,6 +49,12 @@
      * shown read-only — so pointing there would send the user to a dead end.
      */
     rawPropertiesEditable?: boolean;
+    /**
+     * The governed kind(s) that stop this node becoming runnable here (a
+     * `review` or `spec` role), or null. Decided by the server-side door
+     * chooser the save uses, so no action is offered that the save rejects.
+     */
+    runnableBlockedBy?: string | null;
     /** What a freshly checked export starts with — derived from the node's own fields. */
     defaults: { name: string; description: string };
   } = $props();
@@ -73,8 +80,9 @@
     if (checked) {
       value = enableSkillExport(value, defaults);
       // The server refuses a skill on a node that is not runnable
-      // (`skill-not-runnable`), so the intent "export this" includes it.
-      runnable = true;
+      // (`skill-not-runnable`), so the intent "export this" includes it —
+      // unless the save could not carry it (see `runnableBlockedBy`).
+      if (!runnableBlockedBy) runnable = true;
     } else if (value) {
       // Unchecking keeps the name and description, so re-checking restores them.
       value = { ...value, declaration: { ...value.declaration, enable: false } };
@@ -155,7 +163,15 @@
         </ul>
       {/if}
 
-      {#if enabled && !runnable}
+      {#if enabled && !runnable && runnableBlockedBy}
+        <p class="text-xs text-zinc-600 dark:text-zinc-400">
+          {t(
+            'skill-export.runnable-blocked',
+            'The portal can’t make a {kind} node runnable, so it can’t export this one as a skill.',
+            { kind: runnableBlockedBy },
+          )}
+        </p>
+      {:else if enabled && !runnable}
         <!--
           The Runnable control is on the node's Settings tab, not this page, so
           the fix is offered here rather than described (@copilot on #887).

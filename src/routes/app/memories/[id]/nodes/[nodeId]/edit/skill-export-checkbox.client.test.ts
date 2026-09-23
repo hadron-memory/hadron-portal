@@ -27,14 +27,16 @@ interface Seed {
   properties?: Record<string, unknown> | null;
   objectType?: string;
   schema?: Record<string, unknown> | null;
+  id?: string;
+  runnableBlockedBy?: string | null;
 }
 
-async function mountPage(seed: Seed) {
+async function dataFor(seed: Seed) {
   const loc = seed.loc ?? 'tasks:drive-pr-home';
   const isRunnable = seed.isRunnable ?? true;
   const properties = seed.properties ?? null;
   const node = {
-    id: 'n1',
+    id: seed.id ?? 'n1',
     memoryId: 'mem-1',
     loc,
     name: 'Drive PR home',
@@ -64,9 +66,16 @@ async function mountPage(seed: Seed) {
     zod4(editNodeSchema),
     { errors: false },
   );
-  const props = reactiveProps({
-    data: { node, graph: { id: 'mem-1', schema: seed.schema ?? null, urn: 'hrn:mem:x:m', name: 'M' }, form },
-  });
+  return {
+    node,
+    graph: { id: 'mem-1', schema: seed.schema ?? null, urn: 'hrn:mem:x:m', name: 'M' },
+    form,
+    runnableBlockedBy: seed.runnableBlockedBy ?? null,
+  };
+}
+
+async function mountPage(seed: Seed) {
+  const props = reactiveProps({ data: await dataFor(seed) });
   return mountComponent(Page as never, props as never);
 }
 
@@ -350,6 +359,71 @@ describe('an enabled export on a node that is not runnable (@copilot on #887)', 
     const m = await mountPage({ isRunnable: true, properties: on });
     try {
       expect(buttonNamed(m.target, 'Mark this node runnable')).toBeNull();
+    } finally {
+      m.unmount();
+    }
+  });
+});
+
+describe('a node the portal cannot make runnable (@copilot on #887)', () => {
+  // A `review` or `spec` node that became runnable would match two governed
+  // kinds, and the save has no single write door for that. The page must not
+  // offer a fix the save rejects.
+  const on = { exports: { claudeSkill: { name: 'ok-name', description: 'd', enable: true } } };
+
+  it('explains instead of offering "Mark this node runnable"', async () => {
+    const m = await mountPage({ isRunnable: false, properties: on, runnableBlockedBy: 'review' });
+    try {
+      expect(buttonNamed(m.target, 'Mark this node runnable')).toBeNull();
+      expect(m.target.textContent).toContain('can’t make a review node runnable');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('checking the box does not set Runnable', async () => {
+    const m = await mountPage({
+      isRunnable: false,
+      properties: { exports: { claudeSkill: { name: 'ok-name', description: 'd', enable: false } } },
+      runnableBlockedBy: 'spec',
+    });
+    try {
+      setChecked(exportBox(m.target)!, true);
+      expect(submittedRunnable(m.target)).toBe('false');
+    } finally {
+      m.unmount();
+    }
+  });
+});
+
+describe('section state on a node-to-node navigation (@copilot on #887)', () => {
+  const skillSection = (target: HTMLElement) =>
+    Array.from(target.querySelectorAll('form > details')).find((d) =>
+      d.querySelector('summary')?.textContent?.includes('Skill export'),
+    ) as HTMLDetailsElement;
+  const broken = { exports: { claudeSkill: { name: 'Not Valid', description: 'd', enable: true } } };
+  const valid = { exports: { claudeSkill: { name: 'fine', description: 'd', enable: true } } };
+
+  it('node B starts collapsed even though node A had its section open', async () => {
+    const m = await mountPage({ id: 'a', properties: broken });
+    try {
+      expect(skillSection(m.target).open).toBe(true);
+      (m.props as { data: unknown }).data = await dataFor({ id: 'b', properties: valid });
+      flushSync();
+      expect(skillSection(m.target).open).toBe(false);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('node B re-opens for its OWN error when A had one too', async () => {
+    // The attention value is true on both sides, so an effect that did not
+    // also depend on the node would not re-run after the reset.
+    const m = await mountPage({ id: 'a', properties: broken });
+    try {
+      (m.props as { data: unknown }).data = await dataFor({ id: 'b', properties: broken });
+      flushSync();
+      expect(skillSection(m.target).open).toBe(true);
     } finally {
       m.unmount();
     }

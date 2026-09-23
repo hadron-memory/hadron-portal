@@ -140,6 +140,10 @@
     skillExport = next.skillExport;
     exportDivergent = next.divergent;
     restJson = next.rest;
+    // Node B starts collapsed like any node; the attention effects below
+    // re-open a section for B's OWN errors (@copilot on #887).
+    storageOpen = false;
+    skillOpen = false;
     seededFor = id;
   });
 
@@ -189,8 +193,14 @@
   // section starts closed (@Holger: the reader sees what is offered and drills
   // into what they want). A section holding an error opens itself, since a
   // problem inside a closed <details> is a problem nobody sees.
+  //
+  // Each effect also READS `node.id`. Reseeding closes both sections on a
+  // navigation; if node A and node B both have an error, the attention value
+  // does not change, so without that read the effect would not re-run and B's
+  // error would sit in a closed section.
   let storageOpen = $state(false);
   $effect(() => {
+    void node.id;
     if (propertiesInvalid || propertiesError) storageOpen = true;
   });
   // The same rule for Skill export: an existing declaration with an invalid
@@ -204,6 +214,7 @@
   );
   let skillOpen = $state(false);
   $effect(() => {
+    void node.id;
     if (skillNeedsAttention) skillOpen = true;
   });
 
@@ -286,6 +297,7 @@
           bind:runnable={$formData.isRunnable}
           divergent={exportDivergent}
           rawPropertiesEditable={!declaredCollection}
+          runnableBlockedBy={data.runnableBlockedBy ?? null}
           defaults={exportDefaults}
         />
       </details>

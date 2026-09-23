@@ -8,7 +8,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
 // #868: the write goes through the door chooser; naming a mutation document
 // here directly is what `scripts/check-node-write-doors.mjs` fails.
-import { assertNodeUpdateDoor, nodeUpdateDocument } from '$lib/server/nodeKindDoor';
+import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { editNodeSchema } from './schema';
@@ -50,8 +50,29 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     editNodeFormAdapter,
     { errors: false },
   );
-  return { node: data.node, form };
+  return { node: data.node, form, runnableBlockedBy: runnableBlockedBy(data.node) };
 };
+
+/**
+ * #878 / @copilot on #887: can this page make the node runnable?
+ *
+ * The skill-export checkbox, and its "Mark this node runnable" action, submit
+ * `isRunnable: true`. On a node that already carries another governed kind (a
+ * `review` or `spec` role) the result matches two kinds, and the door chooser
+ * refuses it: there is no single write path. Asked of the SAME chooser the
+ * action uses, so the page cannot offer a fix the save would then reject.
+ *
+ * Returns the other kind(s) blocking it, or null when making it runnable works.
+ */
+function runnableBlockedBy(node: MemoryNode): string | null {
+  try {
+    nodeUpdateDocument(node, { isRunnable: true });
+    return null;
+  } catch (e) {
+    if (!(e instanceof NoNodeDoorError)) throw e;
+    return e.kinds.filter((k) => k !== 'task').join(' and ') || null;
+  }
+}
 
 export const actions: Actions = {
   default: async ({ request, params, locals }) => {

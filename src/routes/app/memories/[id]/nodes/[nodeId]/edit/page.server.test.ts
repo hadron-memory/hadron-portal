@@ -84,6 +84,27 @@ describe('edit-node load — #237 PK-mismatch guard', () => {
       propertiesJson: '',
     });
     expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
+    expect((result as { runnableBlockedBy: unknown }).runnableBlockedBy).toBeNull();
+  });
+
+  it.each([
+    ['review', 'review'],
+    ['spec', 'spec'],
+  ])('reports that a %s node cannot be made runnable here (@copilot on #887)', async (role, expected) => {
+    // Asked of the same door chooser the save uses: a runnable review/spec
+    // matches two governed kinds and has no single write door.
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo', role,
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    const load = await importLoad();
+    const result = await load(loadEvent({ gid: 'mem-A', nodeId: 'leaf-pk' }));
+    expect((result as { runnableBlockedBy: unknown }).runnableBlockedBy).toBe(expected);
   });
 });
 

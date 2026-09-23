@@ -28,6 +28,8 @@
  * a precaution here; it is the only shape that cannot lose a sibling.
  */
 
+import { t } from '$lib/i18n/t';
+
 /** The host D12 shipped, and the only one the server judges today. */
 export const CLAUDE_SKILL_HOST = 'claudeSkill';
 
@@ -207,24 +209,43 @@ export function declarationProblems(
   const out: string[] = [];
   const name = decl.name.trim();
   if (decl.enable && !name) {
-    out.push('An enabled export needs a name — without one there is nothing to write.');
+    out.push(
+      t('skill-export.problem.name-missing', 'An enabled export needs a name — without one there is nothing to write.'),
+    );
   } else if (name && !validSkillName(decl.name)) {
     out.push(
-      `A skill name uses lowercase letters, digits and single hyphens, up to ${NAME_MAX} characters.`,
+      t(
+        'skill-export.problem.name-invalid',
+        'A skill name uses lowercase letters, digits and single hyphens, up to {max} characters.',
+        { max: NAME_MAX },
+      ),
     );
   }
   if (decl.enable && !decl.description.trim()) {
-    out.push('An enabled export needs a description — it tells the agent when to use the skill.');
+    out.push(
+      t(
+        'skill-export.problem.description-missing',
+        'An enabled export needs a description — it tells the agent when to use the skill.',
+      ),
+    );
   }
   const used = codePoints(decl.description);
   if (used > DESCRIPTION_MAX) {
-    out.push(`The description is ${used} characters; the limit is ${DESCRIPTION_MAX}.`);
+    out.push(
+      t(
+        'skill-export.problem.description-too-long',
+        'The description is {used} characters; the limit is {max}.',
+        { used, max: DESCRIPTION_MAX },
+      ),
+    );
   }
   if (decl.enable && opts.runnable === false) {
     // Names no control: the edit page has none since #878 (Runnable is on the
     // Settings tab), and the editor renders its own "Mark it runnable" action
     // beside this message (@copilot on #887).
-    out.push('Only a runnable node is exported, and this one is not runnable.');
+    out.push(
+      t('skill-export.problem.not-runnable', 'Only a runnable node is exported, and this one is not runnable.'),
+    );
   }
   return out;
 }
