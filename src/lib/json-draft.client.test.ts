@@ -11,19 +11,19 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { PropertiesDraft, submitPropertiesDraft, type DraftNode } from './properties-draft.svelte';
+import { JsonDraft, submitJsonDraft, type DraftSource } from './json-draft.svelte';
 import { parsePropertiesSource, PROPERTIES_MAX, propertiesFingerprint, utf8Length } from './properties-source';
-import Harness from './test/PropertiesDraftHarness.svelte';
+import Harness from './test/JsonDraftHarness.svelte';
 
-type Props = { draft: PropertiesDraft; node: DraftNode };
+type Props = { draft: JsonDraft; node: DraftSource };
 const mounted: Array<Mounted<Props>> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
 });
 
 /** Mount through the page's own effect, then OPEN Source — the page seeds on open. */
-async function setup(node: DraftNode) {
-  const props = reactiveProps<Props>({ draft: new PropertiesDraft(), node });
+async function setup(node: DraftSource) {
+  const props = reactiveProps<Props>({ draft: new JsonDraft('{}'), node });
   const m = mountComponent(Harness, props);
   mounted.push(m);
   await tick();
@@ -33,54 +33,54 @@ async function setup(node: DraftNode) {
 
 const bag = { url: 'https://x', exports: { claudeSkill: { enable: true } } };
 
-describe('PropertiesDraft through the page effect', () => {
+describe('JsonDraft through the page effect', () => {
   it('seeds from the node, and an empty bag opens on {}', async () => {
-    const { draft } = await setup({ id: 'a', properties: bag });
+    const { draft } = await setup({ id: 'a', value: bag });
     expect(JSON.parse(draft.text)).toEqual(bag);
     expect(draft.dirty).toBe(false);
-    const empty = await setup({ id: 'b', properties: null });
+    const empty = await setup({ id: 'b', value: null });
     expect(empty.draft.text).toBe('{}');
   });
 
   it('KEEPS an unsaved edit across an unrelated reload — a new node object, the same bag', async () => {
-    const { props, draft } = await setup({ id: 'a', properties: bag });
+    const { props, draft } = await setup({ id: 'a', value: bag });
     draft.text = '{"url": "edited"}';
     // What invalidateAll() does after a Content save: a fresh object, same data.
-    props.node = { id: 'a', properties: structuredClone(bag) };
+    props.node = { id: 'a', value: structuredClone(bag) };
     await tick();
     expect(draft.text).toBe('{"url": "edited"}');
     expect(draft.dirty).toBe(true);
   });
 
   it('a key-order-only difference is still the same bag', async () => {
-    const { props, draft } = await setup({ id: 'a', properties: bag });
+    const { props, draft } = await setup({ id: 'a', value: bag });
     draft.text = '{"edited": true}';
-    props.node = { id: 'a', properties: { exports: bag.exports, url: bag.url } };
+    props.node = { id: 'a', value: { exports: bag.exports, url: bag.url } };
     await tick();
     expect(draft.text).toBe('{"edited": true}');
   });
 
   it('a CHANGED bag under a dirty draft keeps the draft AND its baseline — the save\'s stale check then refuses it', async () => {
-    const { props, draft } = await setup({ id: 'a', properties: bag });
+    const { props, draft } = await setup({ id: 'a', value: bag });
     draft.text = '{"mine": 1}';
-    props.node = { id: 'a', properties: { ...bag, theirs: 2 } };
+    props.node = { id: 'a', value: { ...bag, theirs: 2 } };
     await tick();
     expect(draft.text).toBe('{"mine": 1}');
     expect(draft.baseline).toEqual(bag);
   });
 
   it('a changed bag under a CLEAN draft shows the new bag', async () => {
-    const { props, draft } = await setup({ id: 'a', properties: bag });
-    props.node = { id: 'a', properties: { ...bag, theirs: 2 } };
+    const { props, draft } = await setup({ id: 'a', value: bag });
+    props.node = { id: 'a', value: { ...bag, theirs: 2 } };
     await tick();
     expect(JSON.parse(draft.text)).toEqual({ ...bag, theirs: 2 });
     expect(draft.baseline).toEqual({ ...bag, theirs: 2 });
   });
 
   it('a different NODE always re-seeds, dirty or not (#251: the page is reused across nodes)', async () => {
-    const { props, draft } = await setup({ id: 'a', properties: bag });
+    const { props, draft } = await setup({ id: 'a', value: bag });
     draft.text = '{"for": "node a"}';
-    props.node = { id: 'b', properties: { other: true } };
+    props.node = { id: 'b', value: { other: true } };
     await tick();
     // The page closes Source on a node change; reopening it seeds node b.
     expect(draft.dirty).toBe(false);
@@ -89,17 +89,17 @@ describe('PropertiesDraft through the page effect', () => {
   });
 
   it('reseed() after our own save starts over, even though the draft was dirty', async () => {
-    const { draft } = await setup({ id: 'a', properties: bag });
+    const { draft } = await setup({ id: 'a', value: bag });
     draft.text = '{"saved": 1}';
-    draft.reseed({ id: 'a', properties: { saved: 1 } });
+    draft.reseed({ id: 'a', value: { saved: 1 } });
     expect(draft.dirty).toBe(false);
     expect(draft.baseline).toEqual({ saved: 1 });
   });
 
   it('stops syncing once unmounted', async () => {
-    const { props, draft, m } = await setup({ id: 'a', properties: bag });
+    const { props, draft, m } = await setup({ id: 'a', value: bag });
     m.unmount();
-    props.node = { id: 'b', properties: { other: true } };
+    props.node = { id: 'b', value: { other: true } };
     await tick();
     expect(JSON.parse(draft.text)).toEqual(bag);
   });
@@ -114,15 +114,15 @@ describe('seeding is LAZY and never throws (@codex on #893)', () => {
     for (let k = 0; k < n; k++) v = { a: v };
     return v as Record<string, unknown>;
   };
-  function mountPlain(node: DraftNode) {
-    const draft = new PropertiesDraft();
+  function mountPlain(node: DraftSource) {
+    const draft = new JsonDraft('{}');
     const m = mountComponent(Harness, { draft, node });
     mounted.push(m as unknown as Mounted<Props>);
     return draft;
   }
 
   it('mounting a node page serializes NOTHING — the text is built only when Source opens', async () => {
-    const draft = mountPlain({ id: 'a', properties: bag });
+    const draft = mountPlain({ id: 'a', value: bag });
     await tick();
     expect(draft.text).toBe('');
     expect(draft.dirty).toBe(false);
@@ -140,7 +140,7 @@ describe('seeding is LAZY and never throws (@codex on #893)', () => {
   it('a deep stored bag mounts without cost, and opens COMPACT when indenting would blow past the cap', async () => {
     // 500 levels: small compact, but indentation grows with depth — ~500 KB.
     expect(JSON.stringify(deep(500), null, 2).length).toBeGreaterThan(PROPERTIES_MAX);
-    const draft = mountPlain({ id: 'deep', properties: deep(500) });
+    const draft = mountPlain({ id: 'deep', value: deep(500) });
     await tick();
     expect(draft.text).toBe('');
     draft.ensureSeeded();
@@ -149,7 +149,7 @@ describe('seeding is LAZY and never throws (@codex on #893)', () => {
     expect(draft.text.length).toBeLessThan(PROPERTIES_MAX);
     // …and the same bag rebuilt — an unrelated reload — keeps an edit.
     draft.text = '{"edited": true}';
-    draft.sync({ id: 'deep', properties: deep(500) });
+    draft.sync({ id: 'deep', value: deep(500) });
     expect(draft.text).toBe('{"edited": true}');
   });
 
@@ -164,7 +164,7 @@ describe('seeding is LAZY and never throws (@codex on #893)', () => {
     expect(pretty.length).toBeLessThan(PROPERTIES_MAX);
     expect(utf8Length(pretty)).toBeGreaterThan(PROPERTIES_MAX);
 
-    const draft = mountPlain({ id: 'mb', properties: bag as Record<string, unknown> });
+    const draft = mountPlain({ id: 'mb', value: bag as Record<string, unknown> });
     await tick();
     draft.ensureSeeded();
     expect(utf8Length(draft.text)).toBeLessThanOrEqual(PROPERTIES_MAX);
@@ -172,7 +172,7 @@ describe('seeding is LAZY and never throws (@codex on #893)', () => {
   });
 
   it('a bag too deep even for compact JSON is UNAVAILABLE, not a crash', async () => {
-    const draft = mountPlain({ id: 'deeper', properties: deep(20_000) });
+    const draft = mountPlain({ id: 'deeper', value: deep(20_000) });
     await tick();
     expect(() => draft.ensureSeeded()).not.toThrow();
     expect(draft.unavailable).toBe(true);
@@ -180,7 +180,7 @@ describe('seeding is LAZY and never throws (@codex on #893)', () => {
   });
 });
 
-describe('submitPropertiesDraft — one save, bound to where it started (@codex on #893)', () => {
+describe('submitJsonDraft — one save, bound to where it started (@codex on #893)', () => {
   function recorder(result: unknown) {
     const calls: Array<{ url: string; body: FormData }> = [];
     const fetchImpl = (async (url: string, init: RequestInit) => {
@@ -193,7 +193,7 @@ describe('submitPropertiesDraft — one save, bound to where it started (@codex 
   it('posts to the URL it was GIVEN — the originating node — with the captured text and a fingerprint', async () => {
     const { calls, fetchImpl } = recorder({ type: 'success', status: 200 });
     const url = '/app/memories/m/nodes/node-a?/updateProperties';
-    const out = await submitPropertiesDraft({ url, text: '{"a":1}', baseline: { x: 1 }, fetchImpl });
+    const out = await submitJsonDraft({ url, field: 'properties', text: '{"a":1}', baseline: { x: 1 }, fetchImpl });
     expect(out).toEqual({ ok: true });
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe(url);
@@ -207,10 +207,22 @@ describe('submitPropertiesDraft — one save, bound to where it started (@codex 
       status: 400,
       data: { propertiesFailed: { code: 'rejected', detail: 'strict collection' } },
     });
-    expect(await submitPropertiesDraft({ url: '/x?/updateProperties', text: '{}', baseline: null, fetchImpl })).toEqual({
+    expect(await submitJsonDraft({ url: '/x?/updateProperties', field: 'properties', text: '{}', baseline: null, fetchImpl })).toEqual({
       ok: false,
       code: 'rejected',
       detail: 'strict collection',
     });
+  });
+
+  it('reads the failure under the FIELD\'s key — dataFailed for the Data tab (#894)', async () => {
+    const { calls, fetchImpl } = recorder({
+      type: 'failure',
+      status: 409,
+      data: { dataFailed: { code: 'changed', detail: null } },
+    });
+    const out = await submitJsonDraft({ url: '/m/nodes/a?/updateData', field: 'data', text: '[1]', baseline: null, fetchImpl });
+    expect(out).toEqual({ ok: false, code: 'changed', detail: null });
+    expect(calls[0].body.get('data')).toBe('[1]');
+    expect(calls[0].body.get('properties')).toBeNull();
   });
 });

@@ -22,7 +22,8 @@ export type PropertiesSourceError =
   | 'not-object'
   | 'unsafe-number'
   | 'too-deep'
-  | 'duplicate-key';
+  | 'duplicate-key'
+  | 'top-level-null';
 
 /**
  * Deepest nesting the Source view accepts. Far past any real properties bag
@@ -141,14 +142,18 @@ export type PropertiesParse =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; code: PropertiesSourceError; detail?: string };
 
+export type DataParse =
+  | { ok: true; value: unknown }
+  | { ok: false; code: PropertiesSourceError; detail?: string };
+
 /**
- * Parse the Source text. `properties` is a JSON OBJECT on the server — an
- * array, a scalar or a bare `null` is refused here rather than handed to the
- * API. Empty text is refused too: `{}` is how a user says "no properties", and
- * making that explicit keeps an accidental select-all-delete from wiping every
- * key on Save.
+ * The checks every raw-JSON editor on the node page shares (#886, #894):
+ * size in UTF-8 bytes, nesting depth, syntax, numbers JSON cannot carry back
+ * exactly, and duplicate keys — each a way for "valid JSON" to save something
+ * other than what was typed, or to crash on the way. What differs per field is
+ * the SHAPE it accepts, which the two wrappers below add.
  */
-export function parsePropertiesSource(raw: string): PropertiesParse {
+function parseJsonSource(raw: string): DataParse {
   const text = raw.trim();
   if (text === '') return { ok: false, code: 'empty' };
   if (utf8Length(raw) > PROPERTIES_MAX) return { ok: false, code: 'too-large' };
@@ -162,12 +167,38 @@ export function parsePropertiesSource(raw: string): PropertiesParse {
   } catch (e) {
     return { ok: false, code: 'invalid-json', detail: e instanceof Error ? e.message : undefined };
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return { ok: false, code: 'not-object' };
-  }
   if (scan.inexact) return { ok: false, code: 'unsafe-number', detail: scan.inexact };
   if (scan.duplicate !== null) return { ok: false, code: 'duplicate-key', detail: scan.duplicate };
-  return { ok: true, value: parsed as Record<string, unknown> };
+  return { ok: true, value: parsed };
+}
+
+/**
+ * Parse the Properties Source text. `properties` is a JSON OBJECT on the
+ * server — an array, a scalar or a bare `null` is refused here rather than
+ * handed to the API. Empty text is refused too: `{}` is how a user says "no
+ * properties", and making that explicit keeps an accidental select-all-delete
+ * from wiping every key on Save.
+ */
+export function parsePropertiesSource(raw: string): PropertiesParse {
+  const r = parseJsonSource(raw);
+  if (!r.ok) return r;
+  if (typeof r.value !== 'object' || r.value === null || Array.isArray(r.value)) {
+    return { ok: false, code: 'not-object' };
+  }
+  return { ok: true, value: r.value as Record<string, unknown> };
+}
+
+/**
+ * Parse the Data tab's Source text (#894). `Node.data` is any JSON value — an
+ * object, an array or a scalar — EXCEPT a top-level `null`: the column is a
+ * Prisma `Json?` that this surface cannot write a bare null into, so clearing
+ * is not offered here.
+ */
+export function parseDataSource(raw: string): DataParse {
+  const r = parseJsonSource(raw);
+  if (!r.ok) return r;
+  if (r.value === null) return { ok: false, code: 'top-level-null' };
+  return r;
 }
 
 /**
@@ -242,7 +273,7 @@ export function sameProperties(a: unknown, b: unknown): boolean {
  * portal is served over HTTPS, and localhost counts) and Node ≥ 19 provide as
  * `globalThis.crypto`, so the page and the action run the SAME code.
  */
-export async function propertiesFingerprint(value: unknown): Promise<string> {
+export async function jsonFingerprint(value: unknown): Promise<string> {
   const canonical = canonicalJson(value == null ? {} : value);
   const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -252,3 +283,6 @@ export async function propertiesFingerprint(value: unknown): Promise<string> {
 export function isFingerprint(v: unknown): v is string {
   return typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
 }
+
+/** The Properties editor's name for `jsonFingerprint` — one function, both fields. */
+export const propertiesFingerprint = jsonFingerprint;
