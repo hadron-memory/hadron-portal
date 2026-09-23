@@ -2,7 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
-import { NODE_EXPORT_READ_QUERY, RUNNABLE_NODES_QUERY, ORG_TASK_MEMORY_IDS_QUERY } from '$lib/server/queries';
+import { NODE_PROPERTIES_READ_QUERY, RUNNABLE_NODES_QUERY, ORG_TASK_MEMORY_IDS_QUERY } from '$lib/server/queries';
 // #868: the write goes through the door chooser; naming a mutation document
 // here directly is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
@@ -122,7 +122,7 @@ export const actions: Actions = {
 
     let node: MemoryNode | null;
     try {
-      ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_EXPORT_READ_QUERY, { ref: nodeId }));
+      ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_PROPERTIES_READ_QUERY, { ref: nodeId }));
     } catch (e: unknown) {
       return exportFail(500, nodeId, 'failed', extractGqlError(e, 'Failed to read the node'));
     }

@@ -60,7 +60,7 @@
   // field state once and re-seeds only on remount, so whichever wrote last would
   // win and the other's edit would silently vanish. So this page owns the split
   // — SkillExportEditor gets the skill hosts under `exports` (`claudeSkill` and
-  // `codex`), PropertiesEditor gets everything else, and the two are recombined
+  // `codexSkill`), PropertiesEditor gets everything else, and the two are recombined
   // into the submitted string below. When the stored hosts disagree the split
   // gives SkillExportEditor nothing and leaves them in the raw editor.
   //
@@ -331,7 +331,7 @@
     </details>
 
     <!-- portal#864 Part A / #878: the skill export, which lives at
-         properties.exports.{claudeSkill,codex} and was hand-typed JSON until
+         properties.exports.{claudeSkill,codexSkill} and was hand-typed JSON until
          #864. One checkbox since #878. -->
     {#if showSkillExport}
       <details bind:open={skillOpen} class="space-y-4">
