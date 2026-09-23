@@ -67,6 +67,11 @@
   let detailsOpen = $state(false);
 
   const enabled = $derived(value?.declaration.enable ?? false);
+  // Switching the export ON needs a runnable node, and on a node the save can
+  // not make runnable (a `review` or `spec` role) that would persist an
+  // enabled declaration the exporter rejects as `skill-not-runnable`
+  // (@codex on #887). Switching it OFF stays possible.
+  const cannotEnable = $derived(!enabled && !runnable && !!runnableBlockedBy);
   const missingHosts = $derived(
     value ? SKILL_HOSTS.filter((h) => !value!.hosts.includes(h)) : [],
   );
@@ -78,6 +83,7 @@
 
   function toggle(checked: boolean) {
     if (checked) {
+      if (cannotEnable) return;
       value = enableSkillExport(value, defaults);
       // The server refuses a skill on a node that is not runnable
       // (`skill-not-runnable`), so the intent "export this" includes it —
@@ -123,11 +129,25 @@
       <input
         type="checkbox"
         checked={enabled}
+        disabled={cannotEnable}
+        aria-describedby={runnableBlockedBy && !runnable ? 'skill-export-runnable-blocked' : undefined}
         onchange={(e) => toggle(e.currentTarget.checked)}
         class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900"
       />
       {t('skill-export.enable', 'Export this node as a skill')}
     </label>
+
+    {#if runnableBlockedBy && !runnable}
+      <!-- Shown whether the export is on or off: it is the reason the box
+           cannot be switched on, and the reason an enabled one will not export. -->
+      <p id="skill-export-runnable-blocked" class="text-xs text-zinc-600 dark:text-zinc-400">
+        {t(
+          'skill-export.runnable-blocked',
+          'The portal can’t make a {kind} node runnable, so it can’t export this one as a skill.',
+          { kind: runnableBlockedBy },
+        )}
+      </p>
+    {/if}
 
     {#if value}
       <p class="text-xs text-zinc-500">
@@ -163,15 +183,7 @@
         </ul>
       {/if}
 
-      {#if enabled && !runnable && runnableBlockedBy}
-        <p class="text-xs text-zinc-600 dark:text-zinc-400">
-          {t(
-            'skill-export.runnable-blocked',
-            'The portal can’t make a {kind} node runnable, so it can’t export this one as a skill.',
-            { kind: runnableBlockedBy },
-          )}
-        </p>
-      {:else if enabled && !runnable}
+      {#if enabled && !runnable && !runnableBlockedBy}
         <!--
           The Runnable control is on the node's Settings tab, not this page, so
           the fix is offered here rather than described (@copilot on #887).

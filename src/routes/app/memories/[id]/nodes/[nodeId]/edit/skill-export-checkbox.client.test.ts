@@ -381,15 +381,31 @@ describe('a node the portal cannot make runnable (@copilot on #887)', () => {
     }
   });
 
-  it('checking the box does not set Runnable', async () => {
-    const m = await mountPage({
-      isRunnable: false,
-      properties: { exports: { claudeSkill: { name: 'ok-name', description: 'd', enable: false } } },
-      runnableBlockedBy: 'spec',
-    });
+  it('cannot switch an OFF export on — that would save one the exporter rejects (@codex on #887)', async () => {
+    const off = { exports: { claudeSkill: { name: 'ok-name', description: 'd', enable: false } } };
+    const m = await mountPage({ isRunnable: false, properties: off, runnableBlockedBy: 'spec' });
     try {
-      setChecked(exportBox(m.target)!, true);
+      const box = exportBox(m.target)!;
+      expect(box.disabled).toBe(true);
+      expect(box.getAttribute('aria-describedby')).toBe('skill-export-runnable-blocked');
+      expect(m.target.querySelector('#skill-export-runnable-blocked')?.textContent).toContain('spec node');
+      // Even if a change event arrives anyway, nothing is enabled or made runnable.
+      setChecked(box, true);
+      expect(submitted(m.target)).toEqual(off);
       expect(submittedRunnable(m.target)).toBe('false');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('can still switch an enabled export OFF', async () => {
+    const m = await mountPage({ isRunnable: false, properties: on, runnableBlockedBy: 'review' });
+    try {
+      const box = exportBox(m.target)!;
+      expect(box.disabled).toBe(false);
+      setChecked(box, false);
+      const off = { name: 'ok-name', description: 'd', enable: false };
+      expect(submitted(m.target)).toEqual({ exports: { claudeSkill: off } });
     } finally {
       m.unmount();
     }
