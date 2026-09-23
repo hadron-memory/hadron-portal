@@ -533,3 +533,47 @@ describe('a node with no write path at all (@copilot on #887)', () => {
     }
   });
 });
+
+describe('a node of a STRICT collection (@copilot on #887)', () => {
+  // The server rejects any property key a strict collection does not declare
+  // (validateNodeAgainstSchema), so `exports` there can only fail to save.
+  const schema = (strict: boolean, fields: Record<string, unknown> = { stage: { type: 'text' } }) => ({
+    objectTypes: { competitor: { strict, fields } },
+  });
+
+  it('cannot switch the export on, and says why', async () => {
+    const m = await mountPage({ objectType: 'competitor', schema: schema(true) });
+    try {
+      const box = exportBox(m.target)!;
+      expect(box.disabled).toBe(true);
+      expect(box.getAttribute('aria-describedby')).toBe('skill-export-strict');
+      expect(m.target.querySelector('#skill-export-strict')?.textContent).toContain('competitor, is strict');
+      setChecked(box, true);
+      expect(submitted(m.target)).toBeNull();
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('is unaffected by a NON-strict collection', async () => {
+    const m = await mountPage({ objectType: 'competitor', schema: schema(false) });
+    try {
+      expect(exportBox(m.target)!.disabled).toBe(false);
+      expect(m.target.querySelector('#skill-export-strict')).toBeNull();
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('is unaffected by a strict collection that DECLARES exports', async () => {
+    const m = await mountPage({
+      objectType: 'competitor',
+      schema: schema(true, { stage: { type: 'text' }, exports: { type: 'text' } }),
+    });
+    try {
+      expect(exportBox(m.target)!.disabled).toBe(false);
+    } finally {
+      m.unmount();
+    }
+  });
+});

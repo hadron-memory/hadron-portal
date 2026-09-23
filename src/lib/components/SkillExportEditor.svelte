@@ -37,6 +37,7 @@
     divergent = false,
     rawPropertiesEditable = true,
     runnableBlockedBy = null,
+    strictCollection = null,
     defaults,
   }: {
     value: SkillExport | null;
@@ -59,6 +60,13 @@
      * chooser the save uses, so no action is offered that the save rejects.
      */
     runnableBlockedBy?: string | null;
+    /**
+     * The node's collection when it is STRICT and does not declare `exports`,
+     * or null. The server rejects any undeclared key on a strict collection
+     * (`validateNodeAgainstSchema`), so an export here can only fail to save
+     * (@copilot on #887).
+     */
+    strictCollection?: string | null;
     /** What a freshly checked export starts with — derived from the node's own fields. */
     defaults: { name: string; description: string };
   } = $props();
@@ -75,7 +83,9 @@
   // not make runnable (a `review` or `spec` role) that would persist an
   // enabled declaration the exporter rejects as `skill-not-runnable`
   // (@codex on #887). Switching it OFF stays possible.
-  const cannotEnable = $derived(!enabled && !runnable && !!runnableBlockedBy);
+  const cannotEnable = $derived(
+    !enabled && ((!runnable && !!runnableBlockedBy) || !!strictCollection),
+  );
   const missingHosts = $derived(
     value ? SKILL_HOSTS.filter((h) => !value!.hosts.includes(h)) : [],
   );
@@ -142,14 +152,30 @@
         type="checkbox"
         checked={enabled}
         disabled={cannotEnable}
-        aria-describedby={runnableBlockedBy && !runnable ? 'skill-export-runnable-blocked' : undefined}
+        aria-describedby={strictCollection
+          ? 'skill-export-strict'
+          : runnableBlockedBy && !runnable
+            ? 'skill-export-runnable-blocked'
+            : undefined}
         onchange={(e) => toggle(e.currentTarget.checked)}
         class="h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900"
       />
       {t('skill-export.enable', 'Export this node as a skill')}
     </label>
 
-    {#if runnableBlockedBy && !runnable}
+    {#if strictCollection}
+      <!-- A strict collection rejects every property key it does not declare,
+           `exports` included, so the save would refuse the export. Shown in
+           both states: it is why the box cannot be switched on, and why an
+           export already present will not save (@copilot on #887). -->
+      <p id="skill-export-strict" class="text-xs text-zinc-600 dark:text-zinc-400">
+        {t(
+          'skill-export.strict-collection',
+          'This node’s object type, {collection}, is strict and doesn’t declare exports, so it can’t carry a skill export.',
+          { collection: strictCollection },
+        )}
+      </p>
+    {:else if runnableBlockedBy && !runnable}
       <!-- Shown whether the export is on or off: it is the reason the box
            cannot be switched on, and the reason an enabled one will not export. -->
       <p id="skill-export-runnable-blocked" class="text-xs text-zinc-600 dark:text-zinc-400">

@@ -197,6 +197,15 @@
     $formData.isRunnable || skillExport !== null || exportDivergent,
   );
 
+  // @copilot on #887: a STRICT collection rejects every undeclared property
+  // key on the server, `exports` included, unless it declares one. Derived from
+  // the live object type, so switching the type above updates it.
+  const strictCollection = $derived(
+    declaredCollection?.strict && !Object.hasOwn(declaredCollection.fields, 'exports')
+      ? $formData.objectType
+      : null,
+  );
+
   // #878: what a freshly checked export starts with, from the node's own loc,
   // name and description (edited on the node page's Settings tab).
   const exportDefaults = $derived({
@@ -328,6 +337,7 @@
           divergent={exportDivergent}
           rawPropertiesEditable={!declaredCollection}
           runnableBlockedBy={data.runnableBlockedBy ?? null}
+          {strictCollection}
           defaults={exportDefaults}
         />
         {/key}
