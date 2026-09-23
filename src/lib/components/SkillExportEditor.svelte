@@ -83,8 +83,12 @@
   // not make runnable (a `review` or `spec` role) that would persist an
   // enabled declaration the exporter rejects as `skill-not-runnable`
   // (@codex on #887). Switching it OFF stays possible.
+  // On a collection that cannot hold `exports`, the box is disabled in BOTH
+  // directions: switching off only sets `enable: false`, and the key itself is
+  // what the server rejects — so only removing it saves (@copilot on #887).
+  // That removal is the Clear button rendered beside the reason.
   const cannotEnable = $derived(
-    !enabled && ((!runnable && !!runnableBlockedBy) || !!strictCollection),
+    !!strictCollection || (!enabled && !runnable && !!runnableBlockedBy),
   );
   const missingHosts = $derived(
     value ? SKILL_HOSTS.filter((h) => !value!.hosts.includes(h)) : [],
@@ -175,6 +179,15 @@
           { collection: strictCollection },
         )}
       </p>
+      {#if value}
+        <button
+          type="button"
+          onclick={clear}
+          class="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          {t('skill-export.clear', 'Clear skill export')}
+        </button>
+      {/if}
     {:else if runnableBlockedBy && !runnable}
       <!-- Shown whether the export is on or off: it is the reason the box
            cannot be switched on, and the reason an enabled one will not export. -->
@@ -187,7 +200,7 @@
       </p>
     {/if}
 
-    {#if value}
+    {#if value && !strictCollection}
       <p class="text-xs text-zinc-500">
         {#if enabled}
           {t('skill-export.summary-on', 'Exported as')}

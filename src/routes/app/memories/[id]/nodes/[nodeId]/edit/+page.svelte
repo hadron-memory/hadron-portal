@@ -236,8 +236,14 @@
   // name, a missing or over-long description, or a node no longer runnable
   // renders a diagnostic INSIDE the section, and so do disagreeing host
   // entries — none of which a closed section shows (@codex on #887).
+  //
+  // Also opens for an export stored on a collection that cannot hold it — the
+  // only action there is Clear, and it is inside this section (@copilot on
+  // #887). A node with NO export on such a collection stays collapsed: the note
+  // explains a disabled box, which is information, not an error to fix.
   const skillNeedsAttention = $derived(
     exportDivergent ||
+      (skillExport !== null && strictCollection !== null) ||
       (skillExport !== null &&
         declarationProblems(skillExport.declaration, { runnable: $formData.isRunnable }).length > 0),
   );

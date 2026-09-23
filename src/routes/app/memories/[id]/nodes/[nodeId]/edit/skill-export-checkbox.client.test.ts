@@ -582,3 +582,35 @@ describe('a node of a STRICT collection (@copilot on #887)', () => {
     }
   });
 });
+
+describe('an export already stored on a collection that cannot hold it (@copilot on #887)', () => {
+  const strict = { objectTypes: { competitor: { strict: true, fields: { stage: { type: 'text' } } } } };
+  const stored = { exports: { claudeSkill: { name: 'n', description: 'd', enable: true } } };
+  const section = (target: HTMLElement) =>
+    Array.from(target.querySelectorAll('form > details')).find((d) =>
+      d.querySelector('summary')?.textContent?.includes('Skill export'),
+    ) as HTMLDetailsElement;
+
+  it('opens the section, disables the box both ways, and offers Clear — which removes the key', async () => {
+    const m = await mountPage({ objectType: 'competitor', schema: strict, properties: stored });
+    try {
+      expect(section(m.target).open).toBe(true);
+      // Switching OFF would still submit `exports`, which the collection rejects.
+      expect(exportBox(m.target)!.disabled).toBe(true);
+      buttonNamed(m.target, 'Clear skill export')!.click();
+      flushSync();
+      expect(submitted(m.target)).toBeNull();
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('stays collapsed when there is no export to act on', async () => {
+    const m = await mountPage({ objectType: 'competitor', schema: strict });
+    try {
+      expect(section(m.target).open).toBe(false);
+    } finally {
+      m.unmount();
+    }
+  });
+});
