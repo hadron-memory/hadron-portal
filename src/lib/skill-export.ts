@@ -519,10 +519,12 @@ export function taskExport(properties: unknown): TaskExport {
  * The export keys a host reads, as a sentence fragment ("claudeSkill and
  * codexSkill"). Derived from `SKILL_HOSTS`, the list the unknown-key check
  * uses, so the explanation cannot name a different set than the check
- * (@copilot on #903).
+ * (@copilot on #903). The list grammar goes through `t()`, folded pairwise
+ * with SkillExportEditor's own template, so a translation localises the
+ * "and" too rather than leaving an English fragment (@codex on #903).
  */
 export function exportKeyList(hosts: readonly string[] = SKILL_HOSTS): string {
-  return new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format([...hosts]);
+  return hosts.reduce((acc, key) => t('skill-export.host-list.and', '{first} and {second}', { first: acc, second: key }));
 }
 
 /**

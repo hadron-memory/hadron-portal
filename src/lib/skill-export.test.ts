@@ -630,7 +630,8 @@ describe('exportKeyList — the hosts named in an explanation (@copilot on #903)
 
   it('is DERIVED from the list, not a fixed sentence: a third host changes it', () => {
     // With today's two hosts a hard-coded string reads the same, so only a
-    // different list can tell derivation from a literal.
-    expect(exportKeyList(['claudeSkill', 'codexSkill', 'geminiSkill'])).toBe('claudeSkill, codexSkill, and geminiSkill');
+    // different list can tell derivation from a literal. Folded pairwise
+    // through t(), as SkillExportEditor's host list is.
+    expect(exportKeyList(['claudeSkill', 'codexSkill', 'geminiSkill'])).toBe('claudeSkill and codexSkill and geminiSkill');
   });
 });
