@@ -225,56 +225,6 @@
         {/if}
       </p>
 
-      {#if checkGroups.length > 0}
-        <!-- #882: the server's verdict on what is STORED. It judges only saved
-             nodes, so every line says "as saved", and unsaved changes are
-             called out rather than implied to be checked. -->
-        <div class="space-y-1 text-xs" data-testid="skill-server-check">
-          {#each checkGroups as g (g.hosts.join())}
-            {@const hosts = hostList(g.hosts)}
-            {#if g.check.status === 'unavailable'}
-              <p class="text-amber-700 dark:text-amber-400">
-                {t('skill-export.check.unavailable', 'Couldn’t get the server’s check for {hosts}: {detail}', { hosts, detail: g.check.detail })}
-              </p>
-            {:else if g.check.status === 'not-judged'}
-              <p class="text-amber-700 dark:text-amber-400">
-                {t('skill-export.check.not-judged', 'As saved, the server did not judge this export for {hosts}.', { hosts })}
-              </p>
-            {:else}
-              {#if g.check.errors.length > 0}
-                <p class="font-medium text-red-600 dark:text-red-400">
-                  {g.check.off
-                    ? t('skill-export.check.errors-off', 'As saved, the server would not export this for {hosts} once it is switched on:', { hosts })
-                    : t('skill-export.check.errors', 'As saved, the server won’t export this for {hosts}:', { hosts })}
-                </p>
-                <ul class="list-disc space-y-0.5 pl-4 text-red-600 dark:text-red-400">
-                  {#each g.check.errors as message (message)}<li>{message}</li>{/each}
-                </ul>
-              {:else if !g.check.off}
-                <p class="text-emerald-700 dark:text-emerald-400">
-                  {t('skill-export.check.passes', 'As saved, the server’s checks pass for {hosts}.', { hosts })}
-                </p>
-              {/if}
-              {#if g.check.warnings.length > 0}
-                <!-- Labelled, not told apart by colour alone: under the "won't
-                     export" heading an unlabelled list reads as more reasons for
-                     the refusal (measured against the real server on #882). -->
-                <p class="text-amber-700 dark:text-amber-400">
-                  {t('skill-export.check.warnings', 'Worth fixing, though it doesn’t stop the export ({hosts}):', { hosts })}
-                </p>
-                <ul class="list-disc space-y-0.5 pl-4 text-amber-700 dark:text-amber-400">
-                  {#each g.check.warnings as message (message)}<li>{message}</li>{/each}
-                </ul>
-              {/if}
-            {/if}
-          {/each}
-          {#if unsaved}
-            <p class="text-zinc-500">
-              {t('skill-export.check.unsaved', 'You have unsaved changes. The server checks the export when you save.')}
-            </p>
-          {/if}
-        </div>
-      {/if}
 
       {#if enabled && missingHosts.length > 0}
         <!--
@@ -360,6 +310,60 @@
         </div>
       </details>
     {/if}
+  {/if}
+
+  {#if checkGroups.length > 0}
+    <!-- #882: the server's verdict on what is STORED. It judges only saved
+         nodes, so every line says "as saved", and unsaved changes are
+         called out rather than implied to be checked. At the top level, not
+         inside the checkbox branch: a divergent or strict-collection export,
+         or one just cleared in the form, is still what the server judged
+         (@codex, @copilot on #905). -->
+    <div class="space-y-1 text-xs" data-testid="skill-server-check">
+      {#each checkGroups as g (g.hosts.join())}
+        {@const hosts = hostList(g.hosts)}
+        {#if g.check.status === 'unavailable'}
+          <p class="text-amber-700 dark:text-amber-400">
+            {t('skill-export.check.unavailable', 'Couldn’t get the server’s check for {hosts}: {detail}', { hosts, detail: g.check.detail })}
+          </p>
+        {:else if g.check.status === 'not-judged'}
+          <p class="text-amber-700 dark:text-amber-400">
+            {t('skill-export.check.not-judged', 'As saved, the server did not judge this export for {hosts}.', { hosts })}
+          </p>
+        {:else}
+          {#if g.check.errors.length > 0}
+            <p class="font-medium text-red-600 dark:text-red-400">
+              {g.check.off
+                ? t('skill-export.check.errors-off', 'As saved, the server would not export this for {hosts} once it is switched on:', { hosts })
+                : t('skill-export.check.errors', 'As saved, the server won’t export this for {hosts}:', { hosts })}
+            </p>
+            <ul class="list-disc space-y-0.5 pl-4 text-red-600 dark:text-red-400">
+              {#each g.check.errors as message (message)}<li>{message}</li>{/each}
+            </ul>
+          {:else if !g.check.off}
+            <p class="text-emerald-700 dark:text-emerald-400">
+              {t('skill-export.check.passes', 'As saved, the server’s checks pass for {hosts}.', { hosts })}
+            </p>
+          {/if}
+          {#if g.check.warnings.length > 0}
+            <!-- Labelled, not told apart by colour alone: under the "won't
+                 export" heading an unlabelled list reads as more reasons for
+                 the refusal (measured against the real server on #882). -->
+            <p class="text-amber-700 dark:text-amber-400">
+              {t('skill-export.check.warnings', 'Worth fixing, though it doesn’t stop the export ({hosts}):', { hosts })}
+            </p>
+            <ul class="list-disc space-y-0.5 pl-4 text-amber-700 dark:text-amber-400">
+              {#each g.check.warnings as message (message)}<li>{message}</li>{/each}
+            </ul>
+          {/if}
+        {/if}
+      {/each}
+      {#if unsaved}
+        <p class="text-zinc-500">
+          {t('skill-export.check.unsaved', 'You have unsaved changes. The server checks the export when you save.')}
+        </p>
+      {/if}
+    </div>
   {/if}
 
   <!--

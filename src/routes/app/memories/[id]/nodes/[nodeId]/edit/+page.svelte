@@ -7,11 +7,13 @@
   import {
     declarationProblems,
     defaultSkillName,
+    readExports,
     readSkillExport,
     withoutSkillExport,
     writeSkillExport,
     type SkillExport,
   } from '$lib/skill-export';
+  import { sameProperties } from '$lib/properties-source';
   import { t } from '$lib/i18n/t';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
@@ -111,12 +113,28 @@
 
   const initialSplit = untrack(() => splitProperties($formData.propertiesJson));
   // #882: the server's verdict (data.skillCheck) is on the STORED node, so the
-  // editor must know when the form differs from it. Derived from the loader's
-  // node, which follows a node-to-node navigation and stays the stored value
-  // after a failed POST — exactly "what the verdict describes".
-  const storedExport = $derived(
-    splitProperties(node.properties != null ? JSON.stringify(node.properties, null, 2) : '').skillExport,
-  );
+  // editor must know when the form differs from it. Compared on the WHOLE
+  // `exports` object of the bag the form will actually submit — the checkbox
+  // editor's value, a divergent entry edited as raw JSON, or a cleared export
+  // all land there (@copilot on #905) — canonically, since JSONB does not keep
+  // key order. Against the loader's node, which follows a node-to-node
+  // navigation and stays the stored value after a failed POST.
+  function exportsOf(json: string): unknown {
+    if (!json.trim()) return {};
+    try {
+      return readExports(JSON.parse(json));
+    } catch {
+      return undefined; // unparseable: certainly not what the server judged
+    }
+  }
+  const exportUnsaved = $derived.by(() => {
+    const current = exportsOf($formData.propertiesJson);
+    return (
+      current === undefined ||
+      !sameProperties(current, readExports(node.properties)) ||
+      $formData.isRunnable !== (node.isRunnable ?? false)
+    );
+  });
   let skillExport = $state<SkillExport | null>(initialSplit.skillExport);
   let exportDivergent = $state(initialSplit.divergent);
   let restJson = $state(initialSplit.rest);
@@ -201,7 +219,9 @@
   // reachable, or it becomes unreachable except through the raw JSON this
   // section exists to replace.
   const showSkillExport = $derived(
-    $formData.isRunnable || skillExport !== null || exportDivergent,
+    // #905: a stored export the server judged keeps the section, and so its
+    // verdict, on screen after Clear — even on a node that is not runnable.
+    $formData.isRunnable || skillExport !== null || exportDivergent || data.skillCheck?.kind === 'checked',
   );
 
   // A declared collection that cannot hold an `exports` OBJECT, measured
@@ -357,8 +377,7 @@
           {strictCollection}
           defaults={exportDefaults}
           serverCheck={data.skillCheck}
-          unsaved={JSON.stringify(skillExport) !== JSON.stringify(storedExport) ||
-            $formData.isRunnable !== (node.isRunnable ?? false)}
+          unsaved={exportUnsaved}
         />
         {/key}
       </details>

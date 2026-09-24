@@ -709,3 +709,74 @@ describe('#882 — the Skill export section shows the SERVER\'s verdict on the s
     }
   });
 });
+
+describe('#905 review — the verdict is not tied to the checkbox\'s current value', () => {
+  const on = { name: 'drive-pr-home', description: 'Take a PR home.', enable: true };
+  const divergent = { exports: { claudeSkill: { ...on, name: 'a' }, codexSkill: { ...on, name: 'b', enable: false } } };
+  const errorsFor = (msg: string): SkillCheck => ({
+    kind: 'checked',
+    hosts: [
+      { host: 'claudeSkill', status: 'judged', off: false, errors: [msg], warnings: [] },
+      { host: 'codexSkill', status: 'judged', off: true, errors: [], warnings: [] },
+    ],
+  });
+  const pass: SkillCheck = {
+    kind: 'checked',
+    hosts: [{ host: 'claudeSkill', status: 'judged', off: false, errors: [], warnings: [] }],
+  };
+  const verdict = (t: HTMLElement) => t.querySelector('[data-testid="skill-server-check"]')?.textContent ?? null;
+
+  it('a DIVERGENT stored export still shows the server\'s verdict (@codex on #905)', async () => {
+    const m = await mountPage({ properties: divergent, skillCheck: errorsFor('name "a" is too short for Claude') });
+    try {
+      expect(exportBox(m.target)).toBeNull(); // still the divergent branch
+      expect(verdict(m.target)).toContain('As saved, the server won’t export this for Claude:');
+      expect(verdict(m.target)).toContain('name "a" is too short for Claude');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('after Clear, the verdict stays — flagged as describing the saved node — even on a node that is not runnable (@copilot on #905)', async () => {
+    const m = await mountPage({ isRunnable: false, properties: { exports: { claudeSkill: on } }, skillCheck: pass });
+    try {
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+      const clear = buttonNamed(m.target, 'Clear skill export')!;
+      clear.click();
+      flushSync();
+      expect(submitted(m.target)).toBeNull(); // the export really is cleared in the form
+      const v = verdict(m.target);
+      expect(v).toContain('As saved, the server’s checks pass for Claude.');
+      expect(v).toContain('You have unsaved changes. The server checks the export when you save.');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('a RAW edit to a divergent export counts as unsaved (@copilot on #905)', async () => {
+    const m = await mountPage({ properties: divergent, skillCheck: errorsFor('x') });
+    try {
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+      const raw = m.target.querySelector('textarea#properties') as HTMLTextAreaElement;
+      const bag = JSON.parse(raw.value);
+      bag.exports.codexSkill.name = 'renamed';
+      raw.value = JSON.stringify(bag, null, 2);
+      raw.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      expect(verdict(m.target)).toContain('You have unsaved changes.');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('re-ordering stored keys is NOT an unsaved change — the comparison is canonical', async () => {
+    // Stored codexSkill-first; the form re-serialises claudeSkill-first.
+    const m = await mountPage({ properties: { exports: { codexSkill: on, claudeSkill: on } }, skillCheck: pass });
+    try {
+      expect(verdict(m.target)).toContain('checks pass');
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+    } finally {
+      m.unmount();
+    }
+  });
+});
