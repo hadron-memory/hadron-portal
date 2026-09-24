@@ -5,11 +5,13 @@ import {
   authorInitialOf,
   authorKindOf,
   authorLabelOf,
+  authorUrnOf,
   avatarColorOf,
   bodyOverflows,
   dayKeyOf,
   indexBySeq,
   replyPreviewOf,
+  unknownWorkerIds,
 } from './team-chat-thread';
 import type { TeamChatMessage } from '$lib/types';
 
@@ -344,5 +346,40 @@ describe('authorHrefOf', () => {
     expect(
       authorHrefOf({ authorWorkerId: 'a/b?c', authorUserId: null, authorName: 'x' }),
     ).toBe('/app/workers/a%2Fb%3Fc');
+  });
+});
+
+describe('authorUrnOf — #855', () => {
+  const W = 'hrn:worker:acme.com:team:dara';
+  const urns = new Map([['w1', W]]);
+  const msg = (over: Partial<TeamChatMessage>) =>
+    ({ authorWorkerId: null, authorUserId: null, authorName: null, ...over }) as TeamChatMessage;
+
+  it('gives a worker author its roster URN', () => {
+    expect(authorUrnOf(msg({ authorWorkerId: 'w1', authorName: 'Dara' }), urns)).toBe(W);
+  });
+
+  it('is absent, never empty, when there is nothing to show', () => {
+    // Not in the roster (or its URN was null, so it was left out of the map).
+    expect(authorUrnOf(msg({ authorWorkerId: 'w9' }), urns)).toBeNull();
+    // The roster failed to load.
+    expect(authorUrnOf(msg({ authorWorkerId: 'w1' }), null)).toBeNull();
+    // A human: no user URN in this payload, even if an id happened to match.
+    expect(authorUrnOf(msg({ authorUserId: 'w1' }), urns)).toBeNull();
+    // legacy / unknown carry no id at all.
+    expect(authorUrnOf(msg({ authorName: 'Old persona' }), urns)).toBeNull();
+    expect(authorUrnOf(msg({}), urns)).toBeNull();
+  });
+});
+
+describe('unknownWorkerIds — @codex on #908', () => {
+  const m = (authorWorkerId: string | null) => ({ authorWorkerId });
+  it('names only worker ids the roster has never seen, once each, in first-seen order', () => {
+    const known = new Set(['w1', 'w2']);
+    expect(unknownWorkerIds([m('w1'), m('w3'), m(null), m('w3'), m('w4'), m('w2')], known)).toEqual(['w3', 'w4']);
+  });
+  it('treats a KNOWN worker with a null URN as known — asking again would not give it one', () => {
+    // The page puts every rostered id in the set, URN or not.
+    expect(unknownWorkerIds([m('w-null-urn')], new Set(['w-null-urn']))).toEqual([]);
   });
 });

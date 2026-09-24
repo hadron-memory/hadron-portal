@@ -10,6 +10,7 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
+  import { createRosterRefreshers, fetchRosterFrom, type RosterEntry } from '$lib/team-chat-roster';
 
   // #754/#785: read the transcript from its OWN endpoint, not by invalidating
   // this page's load. The load is a six-query parallel fetch whose failure
@@ -26,7 +27,9 @@
   const refreshTeamChat = async () => {
     const res = await fetch(`/app/apps/${app.id}/team-chat`);
     if (!res.ok) return null; // treated as a degraded tick, not an empty thread
-    return (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
+    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
+    void refreshRosterFor(body.items);
+    return body;
   };
   // #793: the page BEFORE a seq. Same endpoint, same degraded-read contract —
   // null means "the fetch failed, retry on the next scroll", which the thread
@@ -36,6 +39,7 @@
     if (!res.ok) return null;
     const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
     if (body.loadFailed) return null;
+    void refreshRosterFor(body.items);
     return { items: body.items, total: body.total };
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
@@ -107,6 +111,42 @@
   // null = the fetch failed, which is NOT the same as "no staff" — the empty
   // state must not claim an App has no workers when we simply couldn't ask.
   const staff = $derived(data.staff);
+  // #855: worker id → URN for the team chat's author chip. Null when the roster
+  // failed to load, so the chat renders no chip rather than an empty one;
+  // workers whose URN is null (pre-v2 App URN) are simply absent.
+  //
+  // @codex on #908: a worker cast AFTER this page loaded posts, and its message
+  // arrives through the transcript poll, so the page-load roster has never seen
+  // it. `refreshRosterFor` re-reads the roster (team-chat/authors) only then. The
+  // refreshed roster is kept with the `data.staff` it superseded and used only
+  // while that is still the page's roster, so a later page load wins.
+  let rosterRefresh = $state<{ basedOn: Worker[] | null; workers: RosterEntry[] } | null>(null);
+  const roster = $derived<RosterEntry[] | null>(
+    rosterRefresh && rosterRefresh.basedOn === staff
+      ? rosterRefresh.workers
+      : (staff?.map((w) => ({ id: w.id, urn: w.urn ?? null })) ?? null),
+  );
+  const workerUrns = $derived(
+    roster ? new Map(roster.filter((w) => !!w.urn).map((w) => [w.id, w.urn as string])) : null,
+  );
+  const knownWorkerIds = $derived(new Set((roster ?? []).map((w) => w.id)));
+  // The ask/retry/ordering rules live in $lib/team-chat-roster, where they are
+  // tested. One refresher per App AND per roster generation (the `staff` object
+  // it would update): a result fetched for an older generation is dropped
+  // below, and the new generation starts with nothing asked, so it re-asks
+  // (@codex on #908).
+  const rosterRefreshersByApp = new Map<string, ReturnType<typeof createRosterRefreshers>>();
+  async function refreshRosterFor(items: TeamChatMessage[]) {
+    const appId = app.id;
+    let forApp = rosterRefreshersByApp.get(appId);
+    if (!forApp) {
+      forApp = createRosterRefreshers(fetchRosterFrom(`/app/apps/${appId}/team-chat/authors`));
+      rosterRefreshersByApp.set(appId, forApp);
+    }
+    const basedOn = staff;
+    const workers = await forApp(basedOn).refreshFor(items, knownWorkerIds);
+    if (workers && app.id === appId && staff === basedOn) rosterRefresh = { basedOn, workers };
+  }
   const staffError = $derived(data.staffError);
   // Active first, then retired (a retired worker still holds its name forever,
   // so it belongs in the list — just not at the top).
@@ -1545,6 +1585,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           action={teamChatAction}
           onRefresh={refreshTeamChat}
           onLoadOlder={loadOlderTeamChat}
+          {workerUrns}
         />
       </div>
     </div>
