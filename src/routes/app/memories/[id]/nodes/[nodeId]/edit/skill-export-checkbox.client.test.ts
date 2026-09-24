@@ -17,6 +17,7 @@ import { mountComponent } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import type { SkillCheck } from '$lib/skill-check';
 import { editNodeSchema } from './schema';
 import Page from './+page.svelte';
 
@@ -30,6 +31,7 @@ interface Seed {
   id?: string;
   runnableBlockedBy?: string | null;
   noWriteDoor?: string | null;
+  skillCheck?: SkillCheck | null;
 }
 
 async function dataFor(seed: Seed) {
@@ -73,6 +75,7 @@ async function dataFor(seed: Seed) {
     form,
     runnableBlockedBy: seed.runnableBlockedBy ?? null,
     noWriteDoor: seed.noWriteDoor ?? null,
+    skillCheck: seed.skillCheck ?? null,
   };
 }
 
@@ -609,6 +612,254 @@ describe('an export already stored on a collection that cannot hold it (@copilot
     const m = await mountPage({ objectType: 'competitor', schema: strict });
     try {
       expect(section(m.target).open).toBe(false);
+    } finally {
+      m.unmount();
+    }
+  });
+});
+
+// ── #882: the server's verdict, not the portal's prediction ────────────────
+
+describe('#882 — the Skill export section shows the SERVER\'s verdict on the saved node', () => {
+  const on = { name: 'drive-pr-home', description: 'Take a PR home.', enable: true };
+  const stored = { exports: { claudeSkill: on, codexSkill: on } };
+  const both = (check: Record<string, unknown>): SkillCheck => ({
+    kind: 'checked',
+    hosts: [
+      { host: 'claudeSkill', ...check } as never,
+      { host: 'codexSkill', ...check } as never,
+    ],
+  });
+  const verdict = (t: HTMLElement) => t.querySelector('[data-testid="skill-server-check"]')?.textContent ?? null;
+
+  it('an export that is ON but fails the server\'s lint says the server WON\'T export it, in the server\'s words', async () => {
+    const m = await mountPage({
+      properties: stored,
+      skillCheck: both({ status: 'judged', off: false, errors: ['skill name "Create Release Tag!" is invalid'], warnings: [] }),
+    });
+    try {
+      const v = verdict(m.target)!;
+      expect(v).toContain('As saved, the server won’t export this for Claude and Codex:');
+      expect(v).toContain('skill name "Create Release Tag!" is invalid');
+      // The defect: an outcome claimed beside the refusal. Neither may appear.
+      expect(v).not.toContain('checks pass');
+      expect(m.target.textContent).not.toContain('Exported as');
+      expect(m.target.textContent).toContain('Set to export as');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('labels warnings as NOT blocking, so they do not read as reasons for the refusal', async () => {
+    const m = await mountPage({
+      properties: stored,
+      skillCheck: both({ status: 'judged', off: false, errors: ['name is invalid'], warnings: ['description never says "Use when"'] }),
+    });
+    try {
+      const v = verdict(m.target)!;
+      const refusal = v.indexOf('won’t export this');
+      const label = v.indexOf('Worth fixing, though it doesn’t stop the export (Claude and Codex):');
+      const warning = v.indexOf('description never says "Use when"');
+      expect(refusal).toBeGreaterThanOrEqual(0);
+      // The warning sits under its own label, after the refusal's reasons.
+      expect(label).toBeGreaterThan(refusal);
+      expect(warning).toBeGreaterThan(label);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('says the checks pass only when the server found no error', async () => {
+    const m = await mountPage({ properties: stored, skillCheck: both({ status: 'judged', off: false, errors: [], warnings: [] }) });
+    try {
+      expect(verdict(m.target)).toContain('As saved, the server’s checks pass for Claude and Codex.');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('names a check that could not run, instead of implying it passed', async () => {
+    const m = await mountPage({
+      properties: stored,
+      skillCheck: both({ status: 'unavailable', detail: 'plan exploded' }),
+    });
+    try {
+      const v = verdict(m.target)!;
+      expect(v).toContain('Couldn’t get the server’s check for Claude and Codex: plan exploded');
+      expect(v).not.toContain('checks pass');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('says so once the form differs from what the server judged — and not before', async () => {
+    const m = await mountPage({ properties: stored, skillCheck: both({ status: 'judged', off: false, errors: [], warnings: [] }) });
+    try {
+      // Positive control: the verdict renders, and says nothing about unsaved changes.
+      expect(verdict(m.target)).toContain('checks pass');
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+      // Any edit to the export makes the form differ from the node the server judged.
+      const name = m.target.querySelector<HTMLInputElement>('#skill-export-name')!;
+      name.value = 'renamed-skill';
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      expect(verdict(m.target)).toContain('You have unsaved changes. The server checks the export when you save.');
+    } finally {
+      m.unmount();
+    }
+  });
+});
+
+describe('#905 review — the verdict is not tied to the checkbox\'s current value', () => {
+  const on = { name: 'drive-pr-home', description: 'Take a PR home.', enable: true };
+  const divergent = { exports: { claudeSkill: { ...on, name: 'a' }, codexSkill: { ...on, name: 'b', enable: false } } };
+  const errorsFor = (msg: string): SkillCheck => ({
+    kind: 'checked',
+    hosts: [
+      { host: 'claudeSkill', status: 'judged', off: false, errors: [msg], warnings: [] },
+      { host: 'codexSkill', status: 'judged', off: true, errors: [], warnings: [] },
+    ],
+  });
+  const pass: SkillCheck = {
+    kind: 'checked',
+    hosts: [{ host: 'claudeSkill', status: 'judged', off: false, errors: [], warnings: [] }],
+  };
+  const verdict = (t: HTMLElement) => t.querySelector('[data-testid="skill-server-check"]')?.textContent ?? null;
+
+  it('a DIVERGENT stored export still shows the server\'s verdict (@codex on #905)', async () => {
+    const m = await mountPage({ properties: divergent, skillCheck: errorsFor('name "a" is too short for Claude') });
+    try {
+      expect(exportBox(m.target)).toBeNull(); // still the divergent branch
+      expect(verdict(m.target)).toContain('As saved, the server won’t export this for Claude:');
+      expect(verdict(m.target)).toContain('name "a" is too short for Claude');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('after Clear, the verdict stays — flagged as describing the saved node — even on a node that is not runnable (@copilot on #905)', async () => {
+    const m = await mountPage({ isRunnable: false, properties: { exports: { claudeSkill: on } }, skillCheck: pass });
+    try {
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+      const clear = buttonNamed(m.target, 'Clear skill export')!;
+      clear.click();
+      flushSync();
+      expect(submitted(m.target)).toBeNull(); // the export really is cleared in the form
+      const v = verdict(m.target);
+      expect(v).toContain('As saved, the server’s checks pass for Claude.');
+      expect(v).toContain('You have unsaved changes. The server checks the export when you save.');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('a RAW edit to a divergent export counts as unsaved (@copilot on #905)', async () => {
+    const m = await mountPage({ properties: divergent, skillCheck: errorsFor('x') });
+    try {
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+      const raw = m.target.querySelector('textarea#properties') as HTMLTextAreaElement;
+      const bag = JSON.parse(raw.value);
+      bag.exports.codexSkill.name = 'renamed';
+      raw.value = JSON.stringify(bag, null, 2);
+      raw.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      expect(verdict(m.target)).toContain('You have unsaved changes.');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('re-ordering stored keys is NOT an unsaved change — the comparison is canonical', async () => {
+    // Stored codexSkill-first; the form re-serialises claudeSkill-first.
+    const m = await mountPage({ properties: { exports: { codexSkill: on, claudeSkill: on } }, skillCheck: pass });
+    try {
+      expect(verdict(m.target)).toContain('checks pass');
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+    } finally {
+      m.unmount();
+    }
+  });
+});
+
+describe('#905 review — the section opens for a refusal only the server can see (@codex)', () => {
+  // A declaration the client's own checks pass: valid name, a "Use when"
+  // description, a runnable node. Only the server knows it collides.
+  const valid = { name: 'drive-pr-home', description: 'Take a PR home. Use when asked to merge.', enable: true };
+  const skillSection = (t: HTMLElement) =>
+    Array.from(t.querySelectorAll('details')).find((d) => d.querySelector('summary')?.textContent?.includes('Skill export'))!;
+
+  it('opens when the server refuses an export the client thinks is fine', async () => {
+    const m = await mountPage({
+      properties: { exports: { claudeSkill: valid } },
+      skillCheck: {
+        kind: 'checked',
+        hosts: [{ host: 'claudeSkill', status: 'judged', off: false, errors: ['skill name "drive-pr-home" is also declared by another node'], warnings: [] }],
+      },
+    });
+    try {
+      flushSync();
+      expect(skillSection(m.target).open).toBe(true);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('stays closed when the server passes it — the positive control', async () => {
+    const m = await mountPage({
+      properties: { exports: { claudeSkill: valid } },
+      skillCheck: { kind: 'checked', hosts: [{ host: 'claudeSkill', status: 'judged', off: false, errors: [], warnings: [] }] },
+    });
+    try {
+      flushSync();
+      expect(skillSection(m.target).open).toBe(false);
+    } finally {
+      m.unmount();
+    }
+  });
+});
+
+describe('#905 review — a retired top-level declaration goes to the raw editor (@codex)', () => {
+  const legacy = { name: 'drive-pr-home', description: 'Take a PR home. Use when asked.', enable: true };
+  const pass: SkillCheck = {
+    kind: 'checked',
+    hosts: [{ host: 'claudeSkill', status: 'judged', off: false, errors: [], warnings: [] }],
+  };
+  const verdict = (t: HTMLElement) => t.querySelector('[data-testid="skill-server-check"]')?.textContent ?? null;
+
+  it('offers NO checkbox for a legacy-only export on a non-runnable node, says why, and shows its verdict', async () => {
+    const m = await mountPage({ isRunnable: false, properties: { skill: legacy }, skillCheck: pass });
+    try {
+      expect(exportBox(m.target)).toBeNull();
+      expect(m.target.textContent).toContain('older top-level “skill” or “claudeSkill” setting');
+      expect(verdict(m.target)).toContain('As saved, the server’s checks pass for Claude.');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('round-trips a bag with BOTH a legacy key and modern hosts, dropping nothing', async () => {
+    const stored = { claudeSkill: legacy, exports: { codexSkill: legacy }, url: 'kept' };
+    const m = await mountPage({ properties: stored, skillCheck: pass });
+    try {
+      expect(exportBox(m.target)).toBeNull();
+      expect(submitted(m.target)).toEqual(stored);
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('a raw edit to the legacy key counts as unsaved', async () => {
+    const m = await mountPage({ properties: { skill: legacy }, skillCheck: pass });
+    try {
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+      const raw = m.target.querySelector('textarea#properties') as HTMLTextAreaElement;
+      const bag = JSON.parse(raw.value);
+      bag.skill.enable = false;
+      raw.value = JSON.stringify(bag, null, 2);
+      raw.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      expect(verdict(m.target)).toContain('You have unsaved changes.');
     } finally {
       m.unmount();
     }

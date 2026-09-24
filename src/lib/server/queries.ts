@@ -3537,6 +3537,31 @@ export const RUNNABLE_NODES_QUERY = /* GraphQL */ `
  * how the download names it anyway, from the server and uncapped. STATUS never
  * renders a body. Same non-empty `memories` rule as the EXPORT plan.
  */
+/**
+ * #882 — the server's lint verdict on stored declarations, for one host. LINT
+ * touches no files and returns no bodies: findings only, per declared node. An
+ * error finding is what makes the server withhold a node's body on export, so
+ * the node edit page shows these rather than composing its own opinion.
+ *
+ * memories MUST be non-empty: the server reads an omitted or empty list as
+ * every memory the caller can read.
+ */
+export const SKILL_PLAN_LINT_QUERY = /* GraphQL */ `
+  query SkillPlanLint($host: String!, $memories: [String!]!) {
+    skillPlan(input: { intent: LINT, host: $host, memories: $memories }) {
+      entries {
+        nodeId
+        class
+        findings {
+          rule
+          severity
+          message
+        }
+      }
+    }
+  }
+`;
+
 export const SKILL_PLAN_STATUS_QUERY = /* GraphQL */ `
   query SkillPlanStatus($host: String!, $memories: [String!]!) {
     skillPlan(input: { intent: STATUS, host: $host, memories: $memories }) {

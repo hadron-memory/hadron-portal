@@ -23,7 +23,9 @@ import {
   declarationState,
   defaultSkillName,
   enableSkillExport,
+  exportDeclarations,
   exportKeyList,
+  hasLegacyExport,
   readDeclaration,
   readExports,
   readSkillExport,
@@ -633,5 +635,22 @@ describe('exportKeyList — the hosts named in an explanation (@copilot on #903)
     // different list can tell derivation from a literal. Folded pairwise
     // through t(), as SkillExportEditor's host list is.
     expect(exportKeyList(['claudeSkill', 'codexSkill', 'geminiSkill'])).toBe('claudeSkill and codexSkill and geminiSkill');
+  });
+});
+
+describe('retired top-level declarations (@codex on #905)', () => {
+  it('hasLegacyExport sees `skill` and top-level `claudeSkill`, and nothing under `exports`', () => {
+    expect(hasLegacyExport({ skill: decl() })).toBe(true);
+    expect(hasLegacyExport({ claudeSkill: decl() })).toBe(true);
+    expect(hasLegacyExport({ exports: { claudeSkill: decl() } })).toBe(false);
+    expect(hasLegacyExport(null)).toBe(false);
+  });
+
+  it('exportDeclarations carries every declaring part, and only those', () => {
+    expect(exportDeclarations({ skill: decl(), url: 'x', exports: { codexSkill: decl() } })).toEqual({
+      exports: { codexSkill: decl() },
+      skill: decl(),
+      claudeSkill: undefined,
+    });
   });
 });

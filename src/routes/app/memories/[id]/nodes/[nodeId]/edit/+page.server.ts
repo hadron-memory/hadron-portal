@@ -6,6 +6,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
+import { loadSkillCheck } from '$lib/server/skill-check';
 // #868: the write goes through the door chooser; naming a mutation document
 // here directly is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
@@ -27,7 +28,8 @@ function formDefaults(node: MemoryNode): EditNodeForm {
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
   await requireNonConsumer(parent);
-  const data = await gqlClient(locals.token).request<{ node: MemoryNode | null }>(
+  const client = gqlClient(locals.token);
+  const data = await client.request<{ node: MemoryNode | null }>(
     NODE_BY_ID_QUERY, { ref: params.nodeId },
   );
   // #790: the same bare-throw-as-500 the detail page had, one route over. Found
@@ -55,6 +57,9 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     form,
     runnableBlockedBy: runnableBlockedBy(data.node),
     noWriteDoor: noWriteDoor(data.node),
+    // #882: the server's lint verdict on the STORED export, per declared host.
+    // Never throws — a check that could not run is reported, not hidden.
+    skillCheck: await loadSkillCheck(client, data.node),
   };
 };
 

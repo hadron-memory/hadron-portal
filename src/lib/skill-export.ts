@@ -84,6 +84,31 @@ function isObject(v: unknown): v is Record<string, unknown> {
  * down. A non-object is treated as absent — and `writeDeclaration` will then
  * replace it, which is the only honest option once it cannot be parsed.
  */
+/**
+ * The retired top-level keys the server still reads as a `claudeSkill`
+ * declaration (`SkillPlanInput.host`: "the retired top-level skill/claudeSkill
+ * keys alias to claudeSkill only"). The portal never WRITES them; it has to
+ * recognise them so it neither hides their verdict nor offers a checkbox that
+ * edits something else (@codex on #905).
+ */
+export const LEGACY_CLAUDE_KEYS = ['skill', 'claudeSkill'] as const;
+
+/** Whether the bag carries a retired top-level declaration. */
+export function hasLegacyExport(properties: unknown): boolean {
+  if (!isObject(properties)) return false;
+  return LEGACY_CLAUDE_KEYS.some((k) => properties[k] !== undefined);
+}
+
+/**
+ * Every part of the bag that declares an export — `exports` plus the retired
+ * top-level keys — for comparing a form against what the server judged.
+ * Undefined members drop out, as JSON.stringify drops them.
+ */
+export function exportDeclarations(properties: unknown): Record<string, unknown> {
+  const bag = isObject(properties) ? properties : {};
+  return { exports: readExports(properties), skill: bag.skill, claudeSkill: bag.claudeSkill };
+}
+
 export function readExports(properties: unknown): Record<string, unknown> {
   if (!isObject(properties)) return {};
   const ex = properties.exports;

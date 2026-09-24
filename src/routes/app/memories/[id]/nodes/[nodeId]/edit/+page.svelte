@@ -7,11 +7,15 @@
   import {
     declarationProblems,
     defaultSkillName,
+    exportDeclarations,
+    hasLegacyExport,
     readSkillExport,
     withoutSkillExport,
     writeSkillExport,
     type SkillExport,
   } from '$lib/skill-export';
+  import { sameProperties } from '$lib/properties-source';
+  import { serverRefuses } from '$lib/skill-check';
   import { t } from '$lib/i18n/t';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
@@ -82,6 +86,7 @@
   function splitProperties(serialized: string): {
     skillExport: SkillExport | null;
     divergent: boolean;
+    legacy?: boolean;
     rest: string;
   } {
     const raw = (serialized ?? '').trim();
@@ -100,6 +105,14 @@
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       return { skillExport: null, divergent: false, rest: raw };
     }
+    // A retired top-level `skill` / `claudeSkill` declaration: the server reads
+    // it as Claude's, and the checkbox edits only `exports`, so offering the
+    // checkbox would show "off" beside an export that is on and edit a
+    // different key (@codex on #905). The raw editor keeps the WHOLE bag —
+    // modern hosts included — so the recombination writes every key back.
+    if (hasLegacyExport(parsed)) {
+      return { skillExport: null, divergent: true, legacy: true, rest: raw };
+    }
     const rest = withoutSkillExport(parsed);
     const { value, divergent } = readSkillExport(parsed);
     return {
@@ -110,8 +123,32 @@
   }
 
   const initialSplit = untrack(() => splitProperties($formData.propertiesJson));
+  // #882: the server's verdict (data.skillCheck) is on the STORED node, so the
+  // editor must know when the form differs from it. Compared on the WHOLE
+  // `exports` object of the bag the form will actually submit — the checkbox
+  // editor's value, a divergent entry edited as raw JSON, or a cleared export
+  // all land there (@copilot on #905) — canonically, since JSONB does not keep
+  // key order. Against the loader's node, which follows a node-to-node
+  // navigation and stays the stored value after a failed POST.
+  function exportsOf(json: string): unknown {
+    if (!json.trim()) return {};
+    try {
+      return exportDeclarations(JSON.parse(json));
+    } catch {
+      return undefined; // unparseable: certainly not what the server judged
+    }
+  }
+  const exportUnsaved = $derived.by(() => {
+    const current = exportsOf($formData.propertiesJson);
+    return (
+      current === undefined ||
+      !sameProperties(current, exportDeclarations(node.properties)) ||
+      $formData.isRunnable !== (node.isRunnable ?? false)
+    );
+  });
   let skillExport = $state<SkillExport | null>(initialSplit.skillExport);
   let exportDivergent = $state(initialSplit.divergent);
+  let exportLegacy = $state(initialSplit.legacy ?? false);
   let restJson = $state(initialSplit.rest);
 
   /**
@@ -139,6 +176,7 @@
     );
     skillExport = next.skillExport;
     exportDivergent = next.divergent;
+    exportLegacy = next.legacy ?? false;
     restJson = next.rest;
     // Node B starts collapsed like any node; the attention effects below
     // re-open a section for B's OWN errors (@copilot on #887).
@@ -194,7 +232,9 @@
   // reachable, or it becomes unreachable except through the raw JSON this
   // section exists to replace.
   const showSkillExport = $derived(
-    $formData.isRunnable || skillExport !== null || exportDivergent,
+    // #905: a stored export the server judged keeps the section, and so its
+    // verdict, on screen after Clear — even on a node that is not runnable.
+    $formData.isRunnable || skillExport !== null || exportDivergent || data.skillCheck?.kind === 'checked',
   );
 
   // A declared collection that cannot hold an `exports` OBJECT, measured
@@ -242,6 +282,7 @@
   // #887). A node with NO export on such a collection stays collapsed: the note
   // explains a disabled box, which is information, not an error to fix.
   const skillNeedsAttention = $derived(
+    serverRefuses(data.skillCheck) ||
     exportDivergent ||
       (skillExport !== null && strictCollection !== null) ||
       (skillExport !== null &&
@@ -345,10 +386,13 @@
           bind:value={skillExport}
           bind:runnable={$formData.isRunnable}
           divergent={exportDivergent}
+          legacy={exportLegacy}
           rawPropertiesEditable={!declaredCollection}
           runnableBlockedBy={data.runnableBlockedBy ?? null}
           {strictCollection}
           defaults={exportDefaults}
+          serverCheck={data.skillCheck}
+          unsaved={exportUnsaved}
         />
         {/key}
       </details>
