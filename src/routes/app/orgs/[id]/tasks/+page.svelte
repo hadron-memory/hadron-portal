@@ -10,7 +10,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import TaskExportToggle from '$lib/components/TaskExportToggle.svelte';
   import SkillBundleDownload from '$lib/components/SkillBundleDownload.svelte';
-  import { taskExportNote, type TaskExport } from '$lib/skill-export';
+  import { taskExportSearchText, type TaskExport } from '$lib/skill-export';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
@@ -50,13 +50,13 @@
 
   const columns: PortalColumnDef<TaskRow>[] = [
     {
-      // #879. The accessor is the NOTE the cell renders ("Differs per host",
-      // "Claude only") — the only text in that cell, so it is exactly what the
-      // search box can find
+      // #879. The accessor is the NOTES the cell renders ("Differs per host",
+      // "Claude only", and server#1296's "Unused key: codex") — the only text in
+      // that cell, so it is exactly what the search box can find
       // (`hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable`). A bare checkbox renders no text and matches nothing.
       // Sorting is by state, not by that text.
       id: 'export',
-      accessorFn: (row) => taskExportNote(row.export),
+      accessorFn: (row) => taskExportSearchText(row.export),
       header: t('tasks.column.export', 'Export'),
       size: 110,
       sortFn: (a, b) => EXPORT_RANK[a.original.export.kind] - EXPORT_RANK[b.original.export.kind],

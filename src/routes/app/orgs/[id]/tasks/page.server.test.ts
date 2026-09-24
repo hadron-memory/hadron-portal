@@ -127,6 +127,17 @@ describe('org tasks load() — #879 export state', () => {
     expect(JSON.stringify(result.tasks)).not.toContain('not for the page');
     expect(result.tasks[0]).not.toHaveProperty('properties');
   });
+
+  it('server#1296: a task declared only under a key no host reads carries that fact, bounded', async () => {
+    const typo = {
+      ...node('n1', 'tasks:one'),
+      properties: { exports: { codex: { name: 'one', description: 'd', enable: true } } },
+    };
+    route({ memories: [{ id: 'mem-1' }], nodes: [typo] });
+    const load = await importLoad();
+    const result = (await load(ev())) as { tasks: Array<Record<string, unknown>> };
+    expect(result.tasks[0].export).toEqual({ kind: 'none', unknown: { count: 1, sample: ['codex'] } });
+  });
 });
 
 async function importActions() {

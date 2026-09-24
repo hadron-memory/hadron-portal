@@ -460,13 +460,72 @@ export function toggleSkillExport(
  * #879 — what the Task Nodes page receives about a row's export. Reduced from
  * the properties bag on the SERVER, so the page never gets the bag itself.
  */
-export type TaskExport =
+export type TaskExport = (
   | { kind: 'none' | 'off' | 'divergent' }
-  | { kind: 'on'; hosts: string[] };
+  | { kind: 'on'; hosts: string[] }
+) & {
+  /** server#1296: keys under `exports` that name no host. Absent when there are none. */
+  unknown?: UnknownExportKeys;
+};
+
+/**
+ * Keys under `properties.exports` that name no host — `codex` for `codexSkill`,
+ * say. Nothing reads them: not as an alias, not as a fallback (server#1296,
+ * `hrn:node:hadronmemory.com:specs:cor:agt:030:06`). A task declared ONLY under such a key is `none` to the
+ * list, an unchecked box, and when nothing else in the org is checked the
+ * download report that would name it cannot be reached. So the row says so.
+ *
+ * The keys are writer-controlled, so what reaches the page is bounded: the
+ * true `count`, and a short `sample` of shortened keys.
+ */
+export interface UnknownExportKeys {
+  count: number;
+  sample: string[];
+}
+
+const UNKNOWN_KEY_SAMPLE = 3;
+const UNKNOWN_KEY_CHARS = 40;
+
+export function unknownExportKeys(properties: unknown): UnknownExportKeys | null {
+  const keys = Object.keys(readExports(properties))
+    .filter((k) => !SKILL_HOSTS.includes(k))
+    .sort();
+  if (keys.length === 0) return null;
+  return {
+    count: keys.length,
+    sample: keys
+      .slice(0, UNKNOWN_KEY_SAMPLE)
+      .map((k) => (k.length > UNKNOWN_KEY_CHARS ? `${k.slice(0, UNKNOWN_KEY_CHARS - 1)}…` : k)),
+  };
+}
 
 export function taskExport(properties: unknown): TaskExport {
   const s = rowExportState(properties);
-  return s.kind === 'on' ? { kind: 'on', hosts: s.hosts } : { kind: s.kind };
+  const base: TaskExport = s.kind === 'on' ? { kind: 'on', hosts: s.hosts } : { kind: s.kind };
+  const unknown = unknownExportKeys(properties);
+  return unknown ? { ...base, unknown } : base;
+}
+
+/**
+ * The row's note about keys no host reads, or '' when there are none. `t()` has
+ * no plural rules, so one key and several are separate strings.
+ */
+export function taskExportUnknownNote(s: TaskExport): string {
+  const u = s.unknown;
+  if (!u) return '';
+  const keys = u.sample.join(', ') + (u.count > u.sample.length ? ', …' : '');
+  return u.count === 1
+    ? t('tasks.export.unknown.one', 'Unused key: {keys}', { keys })
+    : t('tasks.export.unknown.many', '{count} unused keys: {keys}', { count: u.count, keys });
+}
+
+/**
+ * Everything the export cell renders as text, for the grid's search — the
+ * host note and the unused-key note together, so a row is found by either
+ * (`hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable`).
+ */
+export function taskExportSearchText(s: TaskExport): string {
+  return [taskExportNote(s), taskExportUnknownNote(s)].filter(Boolean).join(' ');
 }
 
 const HOST_LABELS: Record<string, string> = { [CLAUDE_SKILL_HOST]: 'Claude', [CODEX_HOST]: 'Codex' };

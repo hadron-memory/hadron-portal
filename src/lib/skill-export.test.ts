@@ -27,7 +27,11 @@ import {
   readExports,
   readSkillExport,
   rowExportState,
+  taskExport,
+  taskExportSearchText,
+  taskExportUnknownNote,
   toggleSkillExport,
+  unknownExportKeys,
   validSkillName,
   withoutSkillExport,
   writeDeclaration,
@@ -556,5 +560,51 @@ describe('toggleSkillExport — the #879 checkbox', () => {
     expect(toggleSkillExport(split, false, defaults)).toEqual({ kind: 'divergent' });
     // An unreadable host entry is divergent too — it is not the list's to overwrite.
     expect(toggleSkillExport({ exports: { codexSkill: 'oops' } }, true, defaults)).toEqual({ kind: 'divergent' });
+  });
+});
+
+describe('unknown export keys on a Task Nodes row (server#1296)', () => {
+  const defaults = { name: 'drive-pr-home', description: 'Take a PR home.' };
+
+  it('finds nothing when every key names a host, or there is no exports object', () => {
+    expect(unknownExportKeys({})).toBeNull();
+    expect(unknownExportKeys({ exports: 'scalar' })).toBeNull();
+    expect(unknownExportKeys({ exports: { claudeSkill: decl(), codexSkill: decl() } })).toBeNull();
+  });
+
+  it('counts every key no host reads, and ships only a short, sorted, shortened sample', () => {
+    const long = 'x'.repeat(60);
+    const u = unknownExportKeys({ exports: { codexSkill: decl(), zeta: 1, codex: decl(), [long]: 1, alpha: 1, beta: 1 } });
+    expect(u).toEqual({ count: 5, sample: ['alpha', 'beta', 'codex'] });
+    const one = unknownExportKeys({ exports: { [long]: 1 } })!;
+    expect(one.sample[0]).toHaveLength(40);
+    expect(one.sample[0].endsWith('…')).toBe(true);
+  });
+
+  it('a task declared ONLY under an unknown key is still `none`, and now says why', () => {
+    const only = { exports: { codex: decl() } };
+    const s = taskExport(only);
+    expect(s).toEqual({ kind: 'none', unknown: { count: 1, sample: ['codex'] } });
+    expect(taskExportUnknownNote(s)).toBe('Unused key: codex');
+    expect(taskExportSearchText(s)).toBe('Unused key: codex');
+  });
+
+  it('a row with no unknown key is exactly what it was — no `unknown` field at all', () => {
+    expect(taskExport({ exports: { claudeSkill: decl() } })).toEqual({ kind: 'on', hosts: ['claudeSkill'] });
+    expect(taskExportUnknownNote({ kind: 'none' })).toBe('');
+  });
+
+  it('says how many there are, and that the sample is not all of them', () => {
+    const s = taskExport({ exports: { claudeSkill: decl(), a: 1, b: 1, c: 1, d: 1 } });
+    expect(taskExportUnknownNote(s)).toBe('4 unused keys: a, b, c, …');
+    expect(taskExportUnknownNote(taskExport({ exports: { a: 1, b: 1 } }))).toBe('2 unused keys: a, b');
+    // Both notes are searchable: the host note and the unused-key note.
+    expect(taskExportSearchText(s)).toBe('Claude only 4 unused keys: a, b, c, …');
+  });
+
+  it('checking the box leaves the unknown key where it is — the note says to fix it on the node', () => {
+    const r = toggleSkillExport({ exports: { codex: decl() } }, true, defaults);
+    expect(r.kind).toBe('write');
+    if (r.kind === 'write') expect(Object.keys(r.properties.exports as object).sort()).toEqual(['claudeSkill', 'codex', 'codexSkill']);
   });
 });

@@ -10,7 +10,7 @@
   // The action re-reads the node and computes the write from the STORED
   // properties; this component never sends a properties bag.
   import { enhance } from '$app/forms';
-  import { SKILL_HOSTS, hostLabel, taskExportNote, type TaskExport } from '$lib/skill-export';
+  import { SKILL_HOSTS, hostLabel, taskExportNote, taskExportUnknownNote, type TaskExport } from '$lib/skill-export';
   import { t } from '$lib/i18n/t';
   import { saveSettled, saveStarted } from '$lib/skill-export-saves.svelte';
 
@@ -38,6 +38,10 @@
   // The same string the grid searches (`taskExportNote`), so what the row
   // shows is exactly what the search box finds it by.
   const note = $derived(taskExportNote(exportState));
+  // server#1296: shown in EVERY state, the unchecked one above all — a task
+  // declared only under a key no host reads is `none`, and this note is the
+  // one place on the list that says why it is not exported.
+  const unknownNote = $derived(taskExportUnknownNote(exportState));
 
   function failureText(f: { code: string; detail: string | null }): string {
     switch (f.code) {
@@ -122,4 +126,14 @@
   {#if failure}
     <p id="export-error-{nodeId}" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{failureText(failure)}</p>
   {/if}
+{/if}
+{#if unknownNote}
+  <a
+    href={editHref}
+    class="mt-1 block text-xs text-amber-700 hover:underline dark:text-amber-400"
+    title={t(
+      'tasks.export.unknown-title',
+      'Only claudeSkill and codexSkill are export keys; nothing reads any other key under exports. Rename or remove it on the node.',
+    )}
+  >{unknownNote}</a>
 {/if}
