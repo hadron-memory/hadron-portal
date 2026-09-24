@@ -114,7 +114,7 @@
       disabled={running}
     />
     <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-      {t('agent-tester.probe.persona-note', 'On single-message runs this is a label only — the bot uses its default routing. For real persona-driven testing, use the Scripted persona section below.')}
+      {t('agent-tester.probe.persona-note', 'On single-message runs this is a label only — the bot uses its default routing. To test a whole conversation, use the Scripted persona section below; its persona name is a label too.')}
     </p>
   </div>
 
