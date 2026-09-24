@@ -31,6 +31,12 @@ describe('loadSkillCheck', () => {
     });
   });
 
+  it('asks for a node that still carries a retired top-level declaration, as claudeSkill (@codex on #905)', async () => {
+    request.mockResolvedValue({ skillPlan: { entries: [{ nodeId: 'n1', class: null, findings: [] }] } });
+    await loadSkillCheck(client, { id: 'n1', memoryId: 'm1', properties: { skill: decl } });
+    expect(request).toHaveBeenCalledWith(SKILL_PLAN_LINT_QUERY, { host: 'claudeSkill', memories: ['m1'] });
+  });
+
   it('a failed check is reported per host with the server\'s words — it neither throws nor passes', async () => {
     request.mockImplementation(async (_q: string, vars: { host: string }) => {
       if (vars.host === 'codexSkill') throw new Error('plan exploded');

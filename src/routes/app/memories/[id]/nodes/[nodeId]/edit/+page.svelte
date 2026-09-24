@@ -14,6 +14,7 @@
     type SkillExport,
   } from '$lib/skill-export';
   import { sameProperties } from '$lib/properties-source';
+  import { serverRefuses } from '$lib/skill-check';
   import { t } from '$lib/i18n/t';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
@@ -269,6 +270,7 @@
   // #887). A node with NO export on such a collection stays collapsed: the note
   // explains a disabled box, which is information, not an error to fix.
   const skillNeedsAttention = $derived(
+    serverRefuses(data.skillCheck) ||
     exportDivergent ||
       (skillExport !== null && strictCollection !== null) ||
       (skillExport !== null &&

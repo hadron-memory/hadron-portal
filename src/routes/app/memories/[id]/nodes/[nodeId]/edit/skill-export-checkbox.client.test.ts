@@ -780,3 +780,40 @@ describe('#905 review — the verdict is not tied to the checkbox\'s current val
     }
   });
 });
+
+describe('#905 review — the section opens for a refusal only the server can see (@codex)', () => {
+  // A declaration the client's own checks pass: valid name, a "Use when"
+  // description, a runnable node. Only the server knows it collides.
+  const valid = { name: 'drive-pr-home', description: 'Take a PR home. Use when asked to merge.', enable: true };
+  const skillSection = (t: HTMLElement) =>
+    Array.from(t.querySelectorAll('details')).find((d) => d.querySelector('summary')?.textContent?.includes('Skill export'))!;
+
+  it('opens when the server refuses an export the client thinks is fine', async () => {
+    const m = await mountPage({
+      properties: { exports: { claudeSkill: valid } },
+      skillCheck: {
+        kind: 'checked',
+        hosts: [{ host: 'claudeSkill', status: 'judged', off: false, errors: ['skill name "drive-pr-home" is also declared by another node'], warnings: [] }],
+      },
+    });
+    try {
+      flushSync();
+      expect(skillSection(m.target).open).toBe(true);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('stays closed when the server passes it — the positive control', async () => {
+    const m = await mountPage({
+      properties: { exports: { claudeSkill: valid } },
+      skillCheck: { kind: 'checked', hosts: [{ host: 'claudeSkill', status: 'judged', off: false, errors: [], warnings: [] }] },
+    });
+    try {
+      flushSync();
+      expect(skillSection(m.target).open).toBe(false);
+    } finally {
+      m.unmount();
+    }
+  });
+});

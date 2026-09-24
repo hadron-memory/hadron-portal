@@ -13,7 +13,7 @@
  * unsaved draft. So the verdict is labelled "as saved", and the editor says so
  * when the form holds unsaved changes rather than implying they were checked.
  */
-import { SKILL_HOSTS, readExports } from '$lib/skill-export';
+import { CLAUDE_SKILL_HOST, SKILL_HOSTS, readExports } from '$lib/skill-export';
 
 /** One finding as SKILL_PLAN_LINT_QUERY selects it. */
 export interface LintFinding {
@@ -46,10 +46,37 @@ export type HostCheck =
 
 export type SkillCheck = { kind: 'none' } | { kind: 'checked'; hosts: HostCheck[] };
 
+/**
+ * The retired top-level keys the server still reads as a `claudeSkill`
+ * declaration (`SkillPlanInput.host`: "the retired top-level skill/claudeSkill
+ * keys alias to claudeSkill only"). The portal's editor never writes them, but
+ * a node that still carries one IS judged, so its verdict is asked for too
+ * (@codex on #905).
+ */
+const LEGACY_CLAUDE_KEYS = ['skill', 'claudeSkill'] as const;
+
 /** The hosts the STORED properties declare — the only ones the plan judges. */
 export function declaredHosts(properties: unknown): string[] {
   const exports = readExports(properties);
-  return SKILL_HOSTS.filter((h) => exports[h] !== undefined);
+  const bag = properties !== null && typeof properties === 'object' && !Array.isArray(properties)
+    ? (properties as Record<string, unknown>)
+    : {};
+  const legacyClaude = LEGACY_CLAUDE_KEYS.some((k) => bag[k] !== undefined);
+  return SKILL_HOSTS.filter((h) => exports[h] !== undefined || (h === CLAUDE_SKILL_HOST && legacyClaude));
+}
+
+/**
+ * Whether the server refuses an export that is switched ON as saved — the
+ * condition under which the edit page opens its Skill export section. A
+ * server-only rule (a memory-wide name collision, say) is exactly what the
+ * client's own checks cannot see, so it must not stay folded away
+ * (@codex on #905).
+ */
+export function serverRefuses(check: SkillCheck | null | undefined): boolean {
+  return (
+    check?.kind === 'checked' &&
+    check.hosts.some((h) => h.status === 'judged' && !h.off && h.errors.length > 0)
+  );
 }
 
 /** This node's verdict for one host, out of a whole memory's LINT plan. */

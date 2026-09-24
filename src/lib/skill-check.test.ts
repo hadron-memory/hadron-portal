@@ -2,7 +2,7 @@
  * #882 — the server's verdict on a stored skill export, reduced for the edit page.
  */
 import { describe, expect, it } from 'vitest';
-import { declaredHosts, groupHostChecks, hostCheck, type HostCheck, type LintEntry } from './skill-check';
+import { declaredHosts, groupHostChecks, hostCheck, serverRefuses, type HostCheck, type LintEntry } from './skill-check';
 
 const decl = { name: 'x', description: 'd', enable: true };
 const entry = (over: Partial<LintEntry> = {}): LintEntry => ({ nodeId: 'n1', class: null, findings: [], ...over });
@@ -14,6 +14,28 @@ describe('declaredHosts', () => {
     expect(declaredHosts({ exports: { claudeSkill: decl, codexSkill: decl } })).toEqual(['claudeSkill', 'codexSkill']);
     // A key no host reads is not a host to ask about (server#1296's report covers it).
     expect(declaredHosts({ exports: { codex: decl } })).toEqual([]);
+  });
+
+  it('counts the retired top-level keys as claudeSkill, as the server does (@codex on #905)', () => {
+    expect(declaredHosts({ skill: decl })).toEqual(['claudeSkill']);
+    expect(declaredHosts({ claudeSkill: decl })).toEqual(['claudeSkill']);
+    expect(declaredHosts({ skill: decl, exports: { codexSkill: decl } })).toEqual(['claudeSkill', 'codexSkill']);
+    // Never Codex: the aliases are Claude-only.
+    expect(declaredHosts({ skill: decl })).not.toContain('codexSkill');
+  });
+});
+
+describe('serverRefuses — when the edit page opens its section (@codex on #905)', () => {
+  const judged = (over: Partial<Extract<HostCheck, { status: 'judged' }>>): HostCheck => ({
+    host: 'claudeSkill', status: 'judged', off: false, errors: [], warnings: [], ...over,
+  });
+  it('is true only for an export that is ON and has an error', () => {
+    expect(serverRefuses({ kind: 'checked', hosts: [judged({ errors: ['collision'] })] })).toBe(true);
+    expect(serverRefuses({ kind: 'checked', hosts: [judged({ errors: ['collision'], off: true })] })).toBe(false);
+    expect(serverRefuses({ kind: 'checked', hosts: [judged({ warnings: ['w'] })] })).toBe(false);
+    expect(serverRefuses({ kind: 'checked', hosts: [{ host: 'claudeSkill', status: 'unavailable', detail: 'x' }] })).toBe(false);
+    expect(serverRefuses({ kind: 'none' })).toBe(false);
+    expect(serverRefuses(null)).toBe(false);
   });
 });
 
