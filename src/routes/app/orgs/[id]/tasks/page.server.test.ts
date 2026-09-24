@@ -195,6 +195,15 @@ describe('setExport action — #879', () => {
     }
   });
 
+  it('#907: a stray legacy key beside a modern exports.claudeSkill does NOT block the toggle (@codex)', async () => {
+    const d = { name: 'drive-pr-home', description: 'd', enable: true };
+    const writes = routeAction({ node: storedTask({ properties: { skill: d, exports: { claudeSkill: d, codexSkill: d } } }) });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'false' }));
+    expect(out).toEqual({ exportSaved: { nodeId: 'n1' } });
+    expect(writes).toHaveLength(1);
+  });
+
   it('refuses an anonymous POST before any API call (@copilot on #890)', async () => {
     routeAction({ node: storedTask() });
     const actions = await importActions();

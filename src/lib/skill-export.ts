@@ -100,6 +100,19 @@ export function hasLegacyExport(properties: unknown): boolean {
 }
 
 /**
+ * #906 / @codex on #907: whether a retired top-level key is the declaration the
+ * server actually USES for Claude. `exports.claudeSkill` wins over it
+ * (hadron-server's "exports wins over legacy skill"), so beside a modern Claude
+ * declaration the legacy key is a stray alias with no effect — the row is its
+ * modern self. Only when no `exports.claudeSkill` exists does the legacy key
+ * supply Claude's export, and only then would the list's checkbox, which
+ * writes `exports.claudeSkill`, silently override it.
+ */
+export function legacySuppliesClaude(properties: unknown): boolean {
+  return hasLegacyExport(properties) && readExports(properties)[CLAUDE_SKILL_HOST] === undefined;
+}
+
+/**
  * Every part of the bag that declares an export — `exports` plus the retired
  * top-level keys — for comparing a form against what the server judged.
  * Undefined members drop out, as JSON.stringify drops them.
@@ -487,11 +500,10 @@ export function toggleSkillExport(
  */
 export type TaskExport = (
   /**
-   * `legacy` (#906): a retired top-level `skill` / `claudeSkill` declaration.
-   * The server reads it as Claude's, but only as an alias, and an
-   * `exports.claudeSkill` WINS over it — so the list's checkbox, which writes
-   * `exports`, would silently override it. Shown with no checkbox, like
-   * `divergent`.
+   * `legacy` (#906): Claude's export is supplied by a retired top-level
+   * `skill` / `claudeSkill` key (`legacySuppliesClaude`). The list's checkbox
+   * writes `exports.claudeSkill`, which would WIN over it and silently
+   * override it — so it is shown with no checkbox, like `divergent`.
    */
   | { kind: 'none' | 'off' | 'divergent' | 'legacy' }
   | { kind: 'on'; hosts: string[] }
@@ -542,7 +554,7 @@ export function unknownExportKeys(properties: unknown): UnknownExportKeys | null
 
 export function taskExport(properties: unknown): TaskExport {
   const s = rowExportState(properties);
-  const base: TaskExport = hasLegacyExport(properties)
+  const base: TaskExport = legacySuppliesClaude(properties)
     ? { kind: 'legacy' }
     : s.kind === 'on'
       ? { kind: 'on', hosts: s.hosts }
