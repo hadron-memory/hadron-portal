@@ -6,7 +6,16 @@
  * test. The name guards are pinned because a skill name becomes a PATH here.
  */
 import { describe, expect, it } from 'vitest';
-import { isBundleHost, otherBundleHost, otherHostOnly, planBundle, pluginName, type PlanEntry } from './skill-bundle';
+import {
+  isBundleHost,
+  otherBundleHost,
+  otherHostOnly,
+  planBundle,
+  pluginName,
+  unrecognizedReport,
+  type PlanEntry,
+  type PlanUnrecognized,
+} from './skill-bundle';
 
 const entry = (over: Partial<PlanEntry> = {}): PlanEntry => ({
   nodeId: 'n1',
@@ -158,5 +167,37 @@ describe('otherHostOnly — declared for the other host alone (@codex on #890)',
   it('pairs each host with the other one', () => {
     expect(otherBundleHost('claudeSkill')).toBe('codexSkill');
     expect(otherBundleHost('codexSkill')).toBe('claudeSkill');
+  });
+});
+
+describe('unrecognizedReport — export keys no host reads (server#1296)', () => {
+  const u = (over: Partial<PlanUnrecognized> = {}): PlanUnrecognized => ({
+    nodeId: 'typo',
+    urn: 'hrn:node:acme.com:ops:tasks:typo',
+    name: 'Typo task',
+    keyCount: 1,
+    keys: ['codex'],
+    findings: [{ rule: 'skill-host-unknown', severity: 'warning', message: 'key "codex" names no skill host' }],
+    ...over,
+  });
+
+  it('planBundle names what it included by node id', () => {
+    const b = planBundle([entry(), entry({ nodeId: 'n2', name: 'broken', renderedBody: null })], 'claudeSkill', 'Acme');
+    expect(b.includedNodeIds).toEqual(['n1']);
+  });
+
+  it('marks a node in the download by node id, never by URN', () => {
+    const rows = unrecognizedReport(
+      [u({ nodeId: 'n1', urn: 'hrn:node:acme.com:ops:tasks:other-spelling' }), u({ nodeId: 'n9', urn: entry().urn })],
+      ['n1'],
+    );
+    expect(rows.map((r) => r.inDownload)).toEqual([true, false]);
+  });
+
+  it('reports each node once, with the true key count and the server\'s messages verbatim', () => {
+    const rows = unrecognizedReport([u({ keyCount: 12 }), u({ keyCount: 12 })], []);
+    expect(rows).toEqual([
+      { name: 'Typo task', urn: 'hrn:node:acme.com:ops:tasks:typo', inDownload: false, keyCount: 12, messages: ['key "codex" names no skill host'] },
+    ]);
   });
 });

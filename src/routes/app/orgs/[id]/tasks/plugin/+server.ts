@@ -4,7 +4,15 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
 import { ORG_SKILL_BUNDLE_QUERY, SKILL_PLAN_EXPORT_QUERY, SKILL_PLAN_STATUS_QUERY } from '$lib/server/queries';
-import { isBundleHost, otherBundleHost, otherHostOnly, planBundle, type PlanEntry } from '$lib/skill-bundle';
+import {
+  isBundleHost,
+  otherBundleHost,
+  otherHostOnly,
+  planBundle,
+  unrecognizedReport,
+  type PlanEntry,
+  type PlanUnrecognized,
+} from '$lib/skill-bundle';
 import type { RequestHandler } from './$types';
 
 /**
@@ -47,7 +55,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const client = gqlClient(locals.token);
   const otherHost = otherBundleHost(host);
   const [exportPlan, otherPlan] = await Promise.allSettled([
-    client.request<{ skillPlan: { entries: PlanEntry[] } }>(SKILL_PLAN_EXPORT_QUERY, { host, memories }),
+    client.request<{ skillPlan: { entries: PlanEntry[]; unrecognized: PlanUnrecognized[] } }>(SKILL_PLAN_EXPORT_QUERY, {
+      host,
+      memories,
+    }),
     client.request<{ skillPlan: { entries: PlanEntry[] } }>(SKILL_PLAN_STATUS_QUERY, { host: otherHost, memories }),
   ]);
   if (exportPlan.status === 'rejected') {
@@ -58,6 +69,8 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     );
   }
   const entries = exportPlan.value.skillPlan.entries;
+  // server#1296: host-identical, so this plan's copy is the whole list.
+  const unrecognizedFromPlan = exportPlan.value.skillPlan.unrecognized;
 
   // An export RUNS TO THE END and names every failure in its report
   // (hrn:node:hadronmemory.com:specs:cor:agt:030:00, D-2026-09-23-D): the
@@ -89,5 +102,6 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     otherHost,
     notForHost,
     notForHostUnknown,
+    unrecognized: unrecognizedReport(unrecognizedFromPlan, bundle.includedNodeIds),
   });
 };
