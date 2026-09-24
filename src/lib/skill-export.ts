@@ -460,13 +460,97 @@ export function toggleSkillExport(
  * #879 — what the Task Nodes page receives about a row's export. Reduced from
  * the properties bag on the SERVER, so the page never gets the bag itself.
  */
-export type TaskExport =
+export type TaskExport = (
   | { kind: 'none' | 'off' | 'divergent' }
-  | { kind: 'on'; hosts: string[] };
+  | { kind: 'on'; hosts: string[] }
+) & {
+  /** server#1296: keys under `exports` that name no host. Absent when there are none. */
+  unknown?: UnknownExportKeys;
+};
+
+/**
+ * Keys under `properties.exports` that name no host — `codex` for `codexSkill`,
+ * say. Nothing reads them: not as an alias, not as a fallback (server#1296,
+ * `hrn:node:hadronmemory.com:specs:cor:agt:030:06`). A task declared ONLY under such a key is `none` to the
+ * list, an unchecked box, and when nothing else in the org is checked the
+ * download report that would name it cannot be reached. So the row says so.
+ *
+ * The keys are writer-controlled, so what reaches the page is bounded: the
+ * true `count`, and a short `sample` of shortened keys.
+ */
+export interface UnknownExportKeys {
+  count: number;
+  sample: string[];
+}
+
+const UNKNOWN_KEY_SAMPLE = 3;
+const UNKNOWN_KEY_CHARS = 40;
+
+export function unknownExportKeys(properties: unknown): UnknownExportKeys | null {
+  const keys = Object.keys(readExports(properties))
+    .filter((k) => !SKILL_HOSTS.includes(k))
+    .sort();
+  if (keys.length === 0) return null;
+  return {
+    count: keys.length,
+    sample: keys
+      .slice(0, UNKNOWN_KEY_SAMPLE)
+      // By code point, as `codePoints` counts: a UTF-16 slice can cut an
+      // emoji in half and render a replacement character.
+      .map((k) => {
+        const cps = Array.from(k);
+        const shown = cps.length > UNKNOWN_KEY_CHARS ? `${cps.slice(0, UNKNOWN_KEY_CHARS - 1).join('')}…` : k;
+        // Quoted and escaped, as the server's own warnings quote the key:
+        // an empty key would otherwise render as nothing at all, and a comma
+        // or line break inside one would read as two keys (@codex on #903).
+        return JSON.stringify(shown);
+      }),
+  };
+}
 
 export function taskExport(properties: unknown): TaskExport {
   const s = rowExportState(properties);
-  return s.kind === 'on' ? { kind: 'on', hosts: s.hosts } : { kind: s.kind };
+  const base: TaskExport = s.kind === 'on' ? { kind: 'on', hosts: s.hosts } : { kind: s.kind };
+  const unknown = unknownExportKeys(properties);
+  return unknown ? { ...base, unknown } : base;
+}
+
+/**
+ * The export keys a host reads, as a sentence fragment ("claudeSkill and
+ * codexSkill"). Derived from `SKILL_HOSTS`, the list the unknown-key check
+ * uses, so the explanation cannot name a different set than the check
+ * (@copilot on #903). The list grammar goes through `t()`, folded pairwise
+ * with SkillExportEditor's own template, so a translation localises the
+ * "and" too rather than leaving an English fragment (@codex on #903).
+ */
+export function exportKeyList(hosts: readonly string[] = SKILL_HOSTS): string {
+  return hosts.reduce((acc, key) => t('skill-export.host-list.and', '{first} and {second}', { first: acc, second: key }));
+}
+
+/**
+ * The row's note about keys no host reads, or '' when there are none. `t()` has
+ * no plural rules, so one key and several are separate strings.
+ */
+export function taskExportUnknownNote(s: TaskExport): string {
+  const u = s.unknown;
+  if (!u) return '';
+  // The separators and the omission mark are templates too, folded pairwise
+  // as exportKeyList folds its "and" — a translator owns the list grammar
+  // (@codex on #903).
+  const list = u.sample.reduce((acc, k) => t('tasks.export.unknown.list', '{first}, {second}', { first: acc, second: k }));
+  const keys = u.count > u.sample.length ? t('tasks.export.unknown.list-more', '{keys}, …', { keys: list }) : list;
+  return u.count === 1
+    ? t('tasks.export.unknown.one', 'Unused key: {keys}', { keys })
+    : t('tasks.export.unknown.many', '{count} unused keys: {keys}', { count: u.count, keys });
+}
+
+/**
+ * Everything the export cell renders as text, for the grid's search — the
+ * host note and the unused-key note together, so a row is found by either
+ * (`hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable`).
+ */
+export function taskExportSearchText(s: TaskExport): string {
+  return [taskExportNote(s), taskExportUnknownNote(s)].filter(Boolean).join(' ');
 }
 
 const HOST_LABELS: Record<string, string> = { [CLAUDE_SKILL_HOST]: 'Claude', [CODEX_HOST]: 'Codex' };

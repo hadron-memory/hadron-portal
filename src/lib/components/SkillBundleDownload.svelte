@@ -9,7 +9,7 @@
   import SkillExportLeftOutTable, { type LeftOutRow } from '$lib/components/SkillExportLeftOutTable.svelte';
   import { t } from '$lib/i18n/t';
   import { BUNDLE_HOSTS, type SkillBundleHost, type SkippedSkill, type UnrecognizedNode } from '$lib/skill-bundle';
-  import { hostLabel } from '$lib/skill-export';
+  import { exportKeyList, hostLabel } from '$lib/skill-export';
   import { exportSaves } from '$lib/skill-export-saves.svelte';
 
   interface Props {
@@ -249,7 +249,8 @@
         <p class="text-xs text-zinc-500">
           {t(
             'tasks.bundle.unrecognized.help',
-            'Only claudeSkill and codexSkill are export keys. Any other key under exports is ignored, never read as either one: rename it or remove it in the task’s Properties.',
+            'Only {keys} are export keys. Any other key under exports is ignored, never read as one of them: rename it or remove it in the task’s Properties.',
+            { keys: exportKeyList() },
           )}
         </p>
         <SkillExportLeftOutTable
