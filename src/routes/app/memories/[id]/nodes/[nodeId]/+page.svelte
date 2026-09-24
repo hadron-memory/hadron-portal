@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invalidateAll, goto } from '$app/navigation';
-  import { parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
-  import { PropertiesDraft, submitPropertiesDraft, syncDraftWith } from '$lib/properties-draft.svelte';
+  import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
+  import { displayJson, JsonDraft, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -275,86 +275,125 @@
   // ── Data (structured JSON) ──────────────────────────────────────────
   // Node.data is a free-form JSON object/value. The Data tab mirrors the
   // Content / Abstract tabs: a Rendered view (pretty-printed JSON) and a
-  // Source view that edits the raw JSON with a live syntax check.
+  // Source view that edits the raw JSON with a live syntax check. The 256 KB
+  // soft cap (PROPERTIES_MAX, in UTF-8 bytes) is shared with the Properties
+  // editor and mirrored server-side in updateData.
   //
-  // Soft size cap so a pathological paste fails with a clear message rather
-  // than the adapter-node default 512KB body limit's opaque error. 256KB is
-  // ~290x the largest realistic data blob, so it only ever catches abuse,
-  // never legitimate (system-written) data. Mirrored server-side in
-  // updateData. (ABSTRACT_MAX is the same idea at a much smaller scale.)
-  const DATA_MAX = 262144; // 256 KB
+  // #894: the Data Source view now uses the same draft, validator and
+  // node-bound save as the Properties Source view (#886) — the size cap in
+  // UTF-8 bytes, exact numbers, duplicate keys, a draft that survives
+  // unrelated reloads, a stale-page guard, and every refusal SHOWN, where the
+  // old save sent each one to console.error and looked like nothing happened.
   let showDataSource = $state(false);
   let copiedData = $state(false);
-  let editData = $state('');
   let savingData = $state(false);
+  let dataSaveError = $state<string | null>(null);
+  let dataSaveSeq = 0;
 
-  // Re-seed the editor from the node whenever node.data changes (initial
-  // load, navigation between nodes, and after a save's invalidateAll).
-  // Pretty-printed so the Source view is readable and diffable.
+  // An absent value opens on nothing: `Node.data` may be any JSON value, so
+  // there is no neutral default to offer the way `{}` is for properties.
+  // Absent data and `{}` are DIFFERENT states (@codex on #896).
+  const dataDraft = new JsonDraft('', { nullIsEmpty: false });
+  syncDraftWith(dataDraft, () => ({ id: node.id, value: node.data }));
   $effect(() => {
-    editData = node.data != null ? JSON.stringify(node.data, null, 2) : '';
+    if (showDataSource) untrack(() => dataDraft.ensureSeeded());
   });
 
-  // Live JSON syntax check. Returns an error string (shown in red) or null
-  // (well-formed). A top-level `null` is rejected because Node.data maps to
-  // a Prisma `Json?` column that can't be written a bare null through this
-  // surface — see the updateData action. Empty is handled separately.
-  const dataError = $derived.by(() => {
-    const trimmed = editData.trim();
-    if (trimmed === '') return null;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch (e) {
-      return e instanceof Error ? e.message : 'Invalid JSON';
+  const dataParse = $derived(parseDataSource(dataDraft.text));
+  const dataEmpty = $derived(dataDraft.text.trim() === '');
+  // Compared by VALUE (key order aside), not by text — and without the
+  // null ≡ {} leniency of the stale check: saving `{}` over no data is a real
+  // change, not a no-op.
+  const dataDirty = $derived(
+    dataParse.ok ? canonicalJson(dataParse.value) !== canonicalJson(node.data ?? null) : !dataEmpty,
+  );
+  // The saved value as text — what Rendered shows and Copy copies there. Via
+  // the safe serializer: null when a pathologically nested stored value cannot
+  // be serialized at all, which must not throw while RENDERING the tab
+  // (@copilot on #896).
+  const dataString = $derived(node.data != null ? displayJson(node.data) : '');
+  const dataUnavailable = $derived(node.data != null && dataString === null);
+
+  function dataSourceErrorText(code: string, detail?: string | null): string {
+    switch (code) {
+      case 'empty':
+        return t('node.data.source.empty', 'Enter a JSON value to save.');
+      case 'top-level-null':
+        return t('node.data.source.top-level-null', 'Top-level null is not allowed — enter an object, array, or value.');
+      case 'failed':
+      case 'rejected':
+      case 'no-door':
+      case 'no-baseline':
+        // The save itself failed: the server's words when it gave some, and a
+        // fallback that names the RIGHT field — delegating these reported "the
+        // properties could not be saved" on the Data tab (@codex, @copilot on
+        // #896).
+        return detail ?? t('node.data.source.failed', 'The data could not be saved.');
+      case 'changed':
+        return t(
+          'node.data.source.changed',
+          'This data was changed since you opened the editor. Copy your edit, reload, and apply it again — saving now would undo that change.',
+        );
+      default:
+        // The validation checks are shared with the Properties editor, and so
+        // are their words — none of them names the field.
+        return propertiesSourceErrorText(code, detail);
     }
-    if (parsed === null) return 'Top-level null is not allowed — enter an object, array, or value.';
-    return null;
-  });
-  const dataEmpty = $derived(editData.trim() === '');
-  const dataValid = $derived(dataError === null);
-  const dataTooLarge = $derived(editData.length > DATA_MAX);
-  // Pretty-printed saved value — the dirty-check baseline (so the initial
-  // seeded text doesn't count as a change).
-  const dataString = $derived(node.data != null ? JSON.stringify(node.data, null, 2) : '');
-  const dataDirty = $derived(editData !== dataString);
+  }
 
   // The JSON the Rendered view shows: the saved data, or — when the node has
   // no saved data yet — a live preview of a valid, dirty edit, so toggling to
   // Rendered mid-add doesn't make the typed JSON look lost. Returns null when
   // there's nothing to show (→ the empty-state CTA).
   const renderedJson = $derived.by(() => {
-    if (node.data != null) return dataString;
-    const trimmed = editData.trim();
-    if (trimmed === '' || dataError || dataTooLarge) return null;
+    if (node.data != null) return dataString; // null when unavailable
+    if (!dataParse.ok) return null;
     try {
-      return JSON.stringify(JSON.parse(trimmed), null, 2);
+      return JSON.stringify(dataParse.value, null, 2);
     } catch {
       return null;
     }
   });
 
   async function saveData() {
-    if (!dataValid || dataEmpty || !dataDirty || dataTooLarge) return;
+    if (!dataParse.ok || !dataDirty || savingData) return;
+    // Everything the save depends on is captured HERE, before the first await
+    // (#894, as #893): the node, its ABSOLUTE action URL, the text and the
+    // baseline. A relative URL resolved after navigation would write node A's
+    // data to node B.
+    const originId = node.id;
+    const seq = ++dataSaveSeq;
+    const url = `${basePath}/nodes/${originId}?/updateData`;
+    const text = dataDraft.text;
+    const baseline = dataDraft.baseline;
+    const stillOurs = () => seq === dataSaveSeq && node.id === originId;
+
     savingData = true;
+    dataSaveError = null;
     try {
-      const fd = new FormData();
-      fd.set('data', editData);
-      const res = await fetch('?/updateData', { method: 'POST', body: fd });
-      if (!res.ok) throw new Error('Save failed');
-      await invalidateAll();
-      showDataSource = false;
-    } catch (err) {
-      console.error('Save failed:', err);
+      const result = await submitJsonDraft({ url, field: 'data', text, baseline });
+      if (!stillOurs()) return;
+      if (result.ok) {
+        await invalidateAll();
+        if (!stillOurs()) return;
+        dataDraft.reseed({ id: node.id, value: node.data });
+        showDataSource = false;
+      } else {
+        dataSaveError = dataSourceErrorText(result.code, result.detail);
+      }
+    } catch {
+      if (stillOurs()) dataSaveError = dataSourceErrorText('failed');
     } finally {
-      savingData = false;
+      if (seq === dataSaveSeq) savingData = false;
     }
   }
 
+  // Copies WHAT IS SHOWN: the draft in Source, the saved value in Rendered.
   async function copyData() {
-    if (node.data == null) return;
+    const text = showDataSource ? dataDraft.text : dataString;
+    if (!text) return;
     try {
-      await navigator.clipboard.writeText(JSON.stringify(node.data, null, 2));
+      await navigator.clipboard.writeText(text);
       copiedData = true;
       setTimeout(() => (copiedData = false), 2000);
     } catch { /* no-op */ }
@@ -964,8 +1003,11 @@
   // whole bag as JSON; the edit page's Structured storage section keeps the
   // typed-field editor, the object type and the skill-export checkbox.
   const hasProperties = $derived(node.properties != null);
-  const propertiesString = $derived(hasProperties ? JSON.stringify(node.properties, null, 2) : '');
-  const highlightedProperties = $derived(hasProperties ? highlightJson(propertiesString) : []);
+  // Via the safe serializer (@copilot on #896): null when a pathologically
+  // nested stored bag cannot be serialized, instead of a render-time throw.
+  const propertiesString = $derived(hasProperties ? displayJson(node.properties) : '');
+  const propertiesUnavailable = $derived(hasProperties && propertiesString === null);
+  const highlightedProperties = $derived(propertiesString ? highlightJson(propertiesString) : []);
   // #588: when the node's objectType names a declared collection, render a
   // typed field table (declared fields first, then any extra keys).
   const nodeDeclaredCollection = $derived(
@@ -1003,12 +1045,12 @@
   let savingProperties = $state(false);
   let propertiesSaveError = $state<string | null>(null);
 
-  // The draft and WHEN it re-seeds (see properties-draft.svelte.ts): a new
+  // The draft and WHEN it re-seeds (see json-draft.svelte.ts): a new
   // node always, an unrelated reload never — saving Content/Abstract/Data
   // calls invalidateAll(), and that must not discard an unsaved Source edit
   // (@codex on #893).
-  const propertiesDraft = new PropertiesDraft();
-  syncDraftWith(propertiesDraft, () => node);
+  const propertiesDraft = new JsonDraft('{}');
+  syncDraftWith(propertiesDraft, () => ({ id: node.id, value: node.properties }));
   // Seed (pretty-print + canonicalize) only when Source is actually opened —
   // never on page load (@codex on #893).
   $effect(() => {
@@ -1081,7 +1123,7 @@
     savingProperties = true;
     propertiesSaveError = null;
     try {
-      const result = await submitPropertiesDraft({ url, text, baseline });
+      const result = await submitJsonDraft({ url, field: 'properties', text, baseline });
       if (!stillOurs()) return;
       if (result.ok) {
         await invalidateAll();
@@ -1089,7 +1131,7 @@
         // Our own save: start over from what is stored now. The draft's sync
         // would KEEP a dirty buffer over a changed bag — right for someone
         // else's change, wrong for this one.
-        propertiesDraft.reseed(node);
+        propertiesDraft.reseed({ id: node.id, value: node.properties });
         showPropertiesSource = false;
       } else {
         propertiesSaveError = propertiesSourceErrorText(result.code, result.detail);
@@ -1559,6 +1601,11 @@
       showSource = false;
       showAbstractSource = false;
       showDataSource = false;
+      dataSaveError = null;
+      // #894: a Data save in flight for the previous node no longer owns this
+      // editor.
+      dataSaveSeq++;
+      savingData = false;
       // #886 (@copilot on #893): the Properties Source view is one of these
       // and was missed — left open, node B opened straight into its editor.
       showPropertiesSource = false;
@@ -2264,18 +2311,31 @@
     <!-- ═══ DATA TAB ═══ -->
     {#if activeTab === 'data'}
       <div class="flex items-center justify-between">
-        <div class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+        <div
+          role="group"
+          aria-label={t('node.data.view-toggle', 'Data view')}
+          class="flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
+        >
           <button
+            type="button"
+            aria-pressed={!showDataSource}
             class="px-2 py-1 text-xs {!showDataSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
-            onclick={() => showDataSource = false}
-          >Rendered</button>
+            onclick={() => (showDataSource = false)}
+          >{t('node.data.rendered', 'Rendered')}</button>
           <button
+            type="button"
+            aria-pressed={showDataSource}
             class="px-2 py-1 text-xs {showDataSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
-            onclick={() => showDataSource = true}
-          >Source</button>
+            onclick={() => (showDataSource = true)}
+          >{t('node.data.source', 'Source')}</button>
         </div>
-        {#if hasData}
-          <button onclick={copyData} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy data">
+        {#if hasData || showDataSource}
+          <button
+            onclick={copyData}
+            class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            title={showDataSource ? t('node.data.copy-draft', 'Copy this JSON') : t('node.data.copy', 'Copy data')}
+            aria-label={showDataSource ? t('node.data.copy-draft', 'Copy this JSON') : t('node.data.copy', 'Copy data')}
+          >
             {#if copiedData}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
             {:else}
@@ -2285,40 +2345,56 @@
         {/if}
       </div>
       {#if showDataSource}
+        {#if dataDraft.unavailable}
+          <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+            {t('node.data.source.unavailable', 'This node’s data is nested too deeply to show or edit as text here.')}
+          </p>
+        {:else}
         <div class="mt-3">
           <!-- Source editor: monospace, auto-growing to fit its content
                (min-h floor, max-h cap then scrolls). The border turns red
-               while the JSON is malformed; the status row below shows a green
-               check when it parses. -->
+               while the JSON is not saveable; the status row below says why.
+               Read-only while a save is in flight: the save re-seeds from what
+               was stored, so text typed after the click would be discarded. -->
           <textarea
-            use:autosize={editData}
-            class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {dataValid ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
+            use:autosize={dataDraft.text}
+            aria-label={t('node.data.source.aria', 'Data as JSON')}
+            aria-invalid={!dataParse.ok && !dataEmpty}
+            aria-describedby="data-source-status"
+            class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {dataParse.ok || dataEmpty ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             placeholder={'{\n  "key": "value"\n}'}
             spellcheck="false"
-            bind:value={editData}
+            readonly={savingData}
+            aria-busy={savingData}
+            bind:value={dataDraft.text}
           ></textarea>
           <div class="mt-2 flex items-center justify-between gap-3">
-            <div class="text-xs">
-              {#if dataTooLarge}
-                <span class="text-red-500">Too large to save here ({Math.round(editData.length / 1024)} KB / {DATA_MAX / 1024} KB max).</span>
-              {:else if dataEmpty}
-                <span class="text-zinc-400">Enter a JSON value to save.</span>
-              {:else if dataValid}
+            <div id="data-source-status" class="text-xs">
+              {#if dataParse.ok}
                 <span class="inline-flex items-center gap-1 text-green-600 dark:text-green-400">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                  Valid JSON
+                  {t('node.data.source.valid', 'Valid JSON')}
                 </span>
               {:else}
-                <span class="text-red-500">{dataError}</span>
+                <span class={dataEmpty ? 'text-zinc-400' : 'text-red-500'}>{dataSourceErrorText(dataParse.code, dataParse.detail)}</span>
               {/if}
             </div>
             <button
+              type="button"
               onclick={saveData}
-              disabled={savingData || !dataValid || dataEmpty || !dataDirty || dataTooLarge}
+              disabled={savingData || !dataParse.ok || !dataDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >{savingData ? 'Saving...' : 'Save'}</button>
+            >{savingData ? t('node.data.source.saving', 'Saving…') : t('node.data.source.save', 'Save')}</button>
           </div>
+          {#if dataSaveError}
+            <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{dataSaveError}</p>
+          {/if}
         </div>
+        {/if}
+      {:else if dataUnavailable}
+        <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+          {t('node.data.unavailable', 'This node’s data is nested too deeply to show here.')}
+        </p>
       {:else if renderedJson != null}
         <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedData as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
       {:else}
@@ -2450,7 +2526,7 @@
                       {#if !row.present}
                         <span class="italic text-zinc-400 dark:text-zinc-500 {row.required ? 'text-amber-600 dark:text-amber-400' : ''}">{row.required ? t('node.properties.missing-required', 'missing (required)') : t('node.properties.unset', '—')}</span>
                       {:else if typeof row.value === 'object'}
-                        {JSON.stringify(row.value)}
+                        {displayJson(row.value, { compact: true }) ?? t('node.properties.value-unavailable', '(too deeply nested to show)')}
                       {:else}
                         {String(row.value)}
                       {/if}
@@ -2461,7 +2537,11 @@
             </table>
           </div>
         {/if}
-        {#if hasProperties}
+        {#if propertiesUnavailable}
+          <p role="status" class="mt-3 text-sm text-amber-700 dark:text-amber-400">
+            {t('node.properties.unavailable', 'This node’s properties are nested too deeply to show here.')}
+          </p>
+        {:else if hasProperties}
           <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedProperties as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
         {:else}
           <!-- Gated on the FACT (no properties), not on the typed table being

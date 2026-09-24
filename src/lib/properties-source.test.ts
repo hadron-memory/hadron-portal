@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 import {
   canonicalJson,
   isFingerprint,
+  jsonFingerprint,
+  parseDataSource,
   parsePropertiesSource,
   propertiesFingerprint,
   PROPERTIES_MAX,
@@ -196,5 +198,31 @@ describe('duplicate keys (@codex on #893)', () => {
     ['objects inside an array', '{"xs": [{"k": 1}, {"k": 2}]}'],
   ])('accepts %s', (_what, raw) => {
     expect(parsePropertiesSource(raw).ok).toBe(true);
+  });
+});
+
+describe('parseDataSource — the Data tab (#894)', () => {
+  it('accepts any JSON value but a top-level null', () => {
+    expect(parseDataSource('[1, "a"]')).toEqual({ ok: true, value: [1, 'a'] });
+    expect(parseDataSource('"text"')).toEqual({ ok: true, value: 'text' });
+    expect(parseDataSource('0')).toEqual({ ok: true, value: 0 });
+    expect(parseDataSource('null')).toEqual({ ok: false, code: 'top-level-null' });
+  });
+
+  it('shares every check with the Properties editor — bytes, depth, exact numbers, duplicate keys', () => {
+    expect(parseDataSource('   ')).toEqual({ ok: false, code: 'empty' });
+    expect(parseDataSource(`"${'語'.repeat(100_000)}"`)).toEqual({ ok: false, code: 'too-large' });
+    expect(parseDataSource('['.repeat(PROPERTIES_MAX_DEPTH + 1) + ']'.repeat(PROPERTIES_MAX_DEPTH + 1))).toEqual({ ok: false, code: 'too-deep' });
+    expect(parseDataSource('[1.234567890123456789]')).toEqual({ ok: false, code: 'unsafe-number', detail: '1.234567890123456789' });
+    expect(parseDataSource('{"k": 1, "k": 2}')).toEqual({ ok: false, code: 'duplicate-key', detail: 'k' });
+  });
+});
+
+describe('jsonFingerprint — the null rule per field (@codex on #896)', () => {
+  it('collapses null and {} by default (properties), keeps them apart when strict (data)', async () => {
+    expect(await jsonFingerprint(null)).toBe(await jsonFingerprint({}));
+    expect(await jsonFingerprint(null, { nullIsEmpty: false })).not.toBe(await jsonFingerprint({}, { nullIsEmpty: false }));
+    // Any non-null value fingerprints the same in both modes.
+    expect(await jsonFingerprint([1], { nullIsEmpty: false })).toBe(await jsonFingerprint([1]));
   });
 });

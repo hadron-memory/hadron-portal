@@ -7,12 +7,12 @@ import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { NODE_BY_ID_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 // #868: every node write on this page goes through the door chooser. The
 // mutation documents are deliberately NOT imported here — naming one directly
 // is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
-import { isFingerprint, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
+import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
@@ -74,7 +74,6 @@ function parseValidatedFlowPayload(value: string): Record<string, unknown> | und
 // realistic data blob. NOTE: a body that already exceeds the framework limit
 // is rejected before this action runs — this guards the sub-limit range and
 // non-browser callers that skip the client-side check.
-const DATA_MAX = 262144; // 256 KB
 
 export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // parent() and the node read are independent — fetch in parallel.
@@ -676,51 +675,64 @@ export const actions: Actions = {
     }
   },
 
-  // Node.data is a free-form JSON object/value surfaced on the Data tab.
-  // The client posts the raw editor text; we parse it here so a malformed
-  // body fails fast with a readable message instead of an opaque
-  // GraphQL/Prisma error. The updateNode resolver feeds `data` straight
-  // into a Prisma `Json?` column, which rejects a bare JS `null` (it wants
-  // Prisma.DbNull / JsonNull) — so clearing the field isn't supported here:
-  // both an empty body and a top-level JSON `null` are rejected, and we
-  // never send `null` downstream. The client gates Save on the same rules;
-  // these are the server-side backstop.
+  /**
+   * #894 — the Data tab's Source view saves the WHOLE `data` value (any JSON
+   * except a top-level `null`: the column is a Prisma `Json?` this surface
+   * cannot write a bare null into, so clearing is not offered here).
+   *
+   * The same contract as updateProperties (#886), for the same reasons:
+   * - validated by the shared checker (UTF-8 byte cap, depth, exact numbers,
+   *   duplicate keys) BEFORE any GraphQL call;
+   * - the form posts a fingerprint of the value it was OPENED with, and a save
+   *   is refused when the stored value no longer matches — a Source view left
+   *   open must not undo a Flow-tab edit (`updateFlow` merges into `data`) or
+   *   a CLI write made since;
+   * - failures are CODES the page localizes, plus the server's own words; the
+   *   old version returned prose the page then dropped into console.error.
+   */
   updateData: async ({ request, params, locals }) => {
+    // Actions do not run the /app layout's sign-in redirect.
+    if (!locals.token) return fail(401, { dataFailed: { code: 'unauthenticated', detail: null } });
     const fd = await request.formData();
-    const raw = String(fd.get('data') ?? '').trim();
-    if (raw === '') return fail(400, { error: 'No JSON provided' });
-    if (raw.length > DATA_MAX) {
-      return fail(400, { error: `JSON too large (max ${DATA_MAX / 1024} KB)` });
+    const parsed = parseDataSource(String(fd.get('data') ?? ''));
+    if (!parsed.ok) return fail(400, { dataFailed: { code: parsed.code, detail: parsed.detail ?? null } });
+    const baseline = fd.get('baseline');
+    if (!isFingerprint(baseline)) {
+      return fail(400, { dataFailed: { code: 'no-baseline', detail: null } });
     }
-
-    let data: unknown;
-    try {
-      data = JSON.parse(raw);
-    } catch (e) {
-      return fail(400, { error: e instanceof Error ? `Invalid JSON: ${e.message}` : 'Invalid JSON' });
-    }
-    if (data === null) return fail(400, { error: 'Top-level JSON null is not allowed' });
 
     const client = gqlClient(locals.token);
+    let node: MemoryNode | null;
     try {
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
-      if (!node) return fail(404, { error: 'Node not found' });
+      ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_DATA_READ_QUERY, { ref: params.nodeId }));
+    } catch (e: unknown) {
+      return fail(500, { dataFailed: { code: 'failed', detail: extractGqlError(e, 'Failed to read the node') } });
+    }
+    if (!node) return fail(404, { dataFailed: { code: 'not-found', detail: null } });
 
-      // #868: neither governance signal is touched — the door follows the
-      // node's current kind. See updateContent.
-      const input = {
-        // #237: memoryId from the node, not the URL.
-        memoryId: node.memoryId,
-        loc: node.loc,
-        // #235: explicit tags pass-through — no longer load-bearing
-        // under updateNode, kept deliberately. See updateContent.
-        tags: node.tags ?? [],
-        data,
-      };
+    // Strict about null (@codex on #896): `{}` written over absent data by
+    // another editor must read as a change here, as it does in the no-op check.
+    if ((await jsonFingerprint(node.data, { nullIsEmpty: false })) !== baseline) {
+      return fail(409, { dataFailed: { code: 'changed', detail: null } });
+    }
+    // A no-op writes nothing. Compared by value, key order aside, and WITHOUT
+    // the null ≡ {} leniency of the stale check: `{}` over no data is a change.
+    if (canonicalJson(node.data ?? null) === canonicalJson(parsed.value)) return { dataSaved: true };
+
+    // #868: neither governance signal is touched — the door follows the
+    // node's current kind. #237: memoryId from the node, not the URL. #235:
+    // explicit tags pass-through, kept deliberately.
+    const input = { memoryId: node.memoryId, loc: node.loc, tags: node.tags ?? [], data: parsed.value };
+    try {
+      assertNodeUpdateDoor(node, input);
       await client.request(nodeUpdateDocument(node, input), { input });
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
+      if (e instanceof NoNodeDoorError) return fail(409, { dataFailed: { code: 'no-door', detail: e.message } });
+      const detail = extractGqlError(e, 'Failed to save');
+      if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { dataFailed: { code: 'rejected', detail } });
+      return fail(500, { dataFailed: { code: 'failed', detail } });
     }
+    return { dataSaved: true };
   },
 
   /**

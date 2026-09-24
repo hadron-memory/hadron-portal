@@ -23,8 +23,10 @@
  * which is exactly the one nobody notices.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { jsonFingerprint } from '$lib/properties-source';
 import {
   NODE_BY_ID_QUERY,
+  NODE_DATA_READ_QUERY,
   NODE_QUERY,
   UPDATE_NODE_MUTATION,
   UPDATE_REVIEW_NODE_MUTATION,
@@ -73,7 +75,7 @@ const KINDS = [
 function stubNode(signals: { role: string | null; isRunnable: boolean | null }) {
   const node = { ...base, ...signals };
   mockRequest.mockImplementation(async (query: unknown) => {
-    if (query === NODE_BY_ID_QUERY || query === NODE_QUERY) return { node };
+    if (query === NODE_BY_ID_QUERY || query === NODE_QUERY || query === NODE_DATA_READ_QUERY) return { node };
     return { updateNode: { id: 'pk' } };
   });
   return node;
@@ -83,7 +85,7 @@ function stubNode(signals: { role: string | null; isRunnable: boolean | null }) 
 function doorsUsed() {
   return mockRequest.mock.calls
     .map(([q]) => q)
-    .filter((q) => q !== NODE_BY_ID_QUERY && q !== NODE_QUERY);
+    .filter((q) => q !== NODE_BY_ID_QUERY && q !== NODE_QUERY && q !== NODE_DATA_READ_QUERY);
 }
 
 async function run(action: string, form: Record<string, string> = {}) {
@@ -101,7 +103,9 @@ async function run(action: string, form: Record<string, string> = {}) {
 const ACTIONS: Array<[string, Record<string, string>]> = [
   ['updateContent', { content: '# body' }],
   ['updateAbstract', { abstract: 'a summary' }],
-  ['updateData', { data: '{"k":1}' }],
+  // #894: updateData refuses a save without the fingerprint of the value it
+  // was opened on — the stub node's `data` is {}.
+  ['updateData', { data: '{"k":1}', baseline: await jsonFingerprint({}) }],
   ['updateFlow', { extractionRows: '[]', outputWriteTo: '', outputMode: 'replace' }],
   ['updateEdges', { edges: '[]' }],
   ['reorder', { updates: '[{"loc":"classify","seq":2}]' }],

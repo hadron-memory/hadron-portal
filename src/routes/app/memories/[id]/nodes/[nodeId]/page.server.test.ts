@@ -10,6 +10,7 @@
  * `graphNodes` instead of issuing a memory-blind GraphQL lookup.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { jsonFingerprint } from '$lib/properties-source';
 import { MOVE_NODE_MUTATION, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -1107,111 +1108,153 @@ describe('node-detail action — updateAbstract (#257)', () => {
 });
 
 /**
- * Data tab — updateData inline save. Node.data is a free-form JSON
- * object/value. The action parses the posted editor text and sends the
- * parsed value through updateNode while preserving tags (#235) and deriving
- * memoryId from the fetched node (#237). Malformed, empty, and top-level
- * `null` bodies are rejected with a 400 BEFORE any GraphQL call — Node.data
- * maps to a Prisma `Json?` column that can't be written a bare JS null
- * through this surface, so clearing isn't supported here.
+ * Data tab — updateData (#894). Node.data is any JSON value except a top-level
+ * `null` (Prisma `Json?` cannot be written a bare null through this surface).
+ * The action validates with the checker shared with the Properties editor,
+ * refuses a save whose baseline FINGERPRINT no longer matches the stored
+ * value, writes through the node's kind door preserving tags (#235) with
+ * memoryId from the fetched node (#237), and returns failures as CODES under
+ * `dataFailed` — the old version returned prose the page dropped into
+ * console.error, so every refusal looked like nothing happened.
  */
 describe('node-detail action — updateData', () => {
-  it('parses the JSON and sends the value through updateNode (tags + node.memoryId preserved)', async () => {
+  const dataNode = (over: Record<string, unknown> = {}) => ({
+    node: {
+      id: 'pk', memoryId: 'mem-B', loc: 'cor:api:020:03', tags: ['kept'],
+      data: null, isRunnable: null, role: null, ...over,
+    },
+  });
+  // Data's fingerprint is STRICT about null (@codex on #896): absent data and
+  // `{}` are different states, so the page posts, and the action checks,
+  // with nullIsEmpty: false.
+  const dataFp = (v: unknown) => jsonFingerprint(v, { nullIsEmpty: false });
+  const failed = (r: unknown) => (r as { status: number; data: { dataFailed: { code: string; detail: string | null } } });
+
+  it('sends the parsed value through the door (tags + node.memoryId preserved)', async () => {
     // Stale URL says mem-A; the node lives in mem-B and carries tags.
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'pk', memoryId: 'mem-B', loc: 'cor:api:020:03', name: '03',
-        nodeType: 'info', alias: null, description: null, abstract: null,
-        content: null, tokens: null, tags: ['kept'], seq: null, data: null,
-        ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
-    });
+    mockRequest.mockResolvedValueOnce(dataNode());
     mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
-
     const actions = await importActions();
-    await actions.updateData(actionEvent({
-      gid: 'mem-A',
-      nodeId: 'pk',
-      form: { data: '{"version":"0.0.1"}' },
+    const out = await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'pk',
+      form: { data: '{"version":"0.0.1"}', baseline: await dataFp(null) },
     }));
-
-    const [, vars] = mockRequest.mock.calls[1]! as [
-      unknown,
-      { input: { data: unknown; tags: unknown; memoryId: string } },
-    ];
-    // The parsed object is sent (not the raw string).
-    expect(vars.input.data).toEqual({ version: '0.0.1' });
-    expect(vars.input.tags).toEqual(['kept']);
-    expect(vars.input.memoryId).toBe('mem-B');
+    expect(out).toEqual({ dataSaved: true });
+    const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
+    expect(vars.input).toEqual({ memoryId: 'mem-B', loc: 'cor:api:020:03', tags: ['kept'], data: { version: '0.0.1' } });
   });
 
-  it('rejects malformed JSON with a 400 and never calls updateNode', async () => {
+  it('accepts any JSON value but a top-level null — an array, a scalar', async () => {
+    for (const data of ['[1, 2]', '"text"', '42', 'true']) {
+      mockRequest.mockReset();
+      mockRequest.mockResolvedValueOnce(dataNode());
+      mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
+      const actions = await importActions();
+      const out = await actions.updateData(actionEvent({
+        gid: 'mem-A', nodeId: 'pk', form: { data, baseline: await dataFp(null) },
+      }));
+      expect(out).toEqual({ dataSaved: true });
+    }
+  });
+
+  it.each([
+    ['malformed JSON', '{ not json ]', 'invalid-json'],
+    ['an empty body (clearing is unsupported here)', '   ', 'empty'],
+    ['a top-level null', 'null', 'top-level-null'],
+    ['a number JSON cannot carry back', '{"n": 1e400}', 'unsafe-number'],
+    ['a duplicate key', '{"a": 1, "a": 2}', 'duplicate-key'],
+  ])('refuses %s with a code, before any GraphQL call', async (_what, data, code) => {
     const actions = await importActions();
-    const result = await actions.updateData(actionEvent({
-      gid: 'mem-A',
-      nodeId: 'pk',
-      form: { data: '{ not json ]' },
-    }));
-    expect((result as { status: number }).status).toBe(400);
-    // Parse failure short-circuits before the NODE_BY_ID_QUERY load.
+    const out = await actions.updateData(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data, baseline: await dataFp(null) } }));
+    expect(failed(out).status).toBe(400);
+    expect(failed(out).data.dataFailed.code).toBe(code);
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('rejects an empty body with a 400 (clearing is unsupported through this surface)', async () => {
+  it('caps the size in UTF-8 BYTES — multibyte text under the cap in characters is still refused', async () => {
+    const big = JSON.stringify({ blob: '語'.repeat(100_000) }); // ~100K chars, ~300 KB
+    expect(big.length).toBeLessThan(262144);
     const actions = await importActions();
-    const result = await actions.updateData(actionEvent({
-      gid: 'mem-A', nodeId: 'pk', form: { data: '   ' },
-    }));
-    expect((result as { status: number }).status).toBe(400);
+    const out = await actions.updateData(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data: big, baseline: await dataFp(null) } }));
+    expect(failed(out).data.dataFailed.code).toBe('too-large');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('rejects a top-level JSON null with a 400 (Prisma Json? rejects a bare null here)', async () => {
+  it('refuses a save with no fingerprint baseline rather than guessing', async () => {
     const actions = await importActions();
-    const result = await actions.updateData(actionEvent({
-      gid: 'mem-A', nodeId: 'pk', form: { data: 'null' },
-    }));
-    expect((result as { status: number }).status).toBe(400);
+    const out = await actions.updateData(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":1}' } }));
+    expect(failed(out).data.dataFailed.code).toBe('no-baseline');
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('rejects an oversized payload with a 400 before any GraphQL call', async () => {
-    // Well past the 256KB cap — should short-circuit on the size check.
-    const big = JSON.stringify({ blob: 'x'.repeat(300_000) });
+  it('refuses when the stored value changed since the editor opened — e.g. a Flow-tab edit — and writes NOTHING', async () => {
+    mockRequest.mockResolvedValueOnce(dataNode({ data: { extractionSpec: { fields: [] } } }));
     const actions = await importActions();
-    const result = await actions.updateData(actionEvent({
-      gid: 'mem-A', nodeId: 'pk', form: { data: big },
+    const out = await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":1}', baseline: await dataFp(null) },
     }));
-    expect((result as { status: number }).status).toBe(400);
-    expect(mockRequest).not.toHaveBeenCalled();
+    expect(failed(out).status).toBe(409);
+    expect(failed(out).data.dataFailed.code).toBe('changed');
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes nothing for a no-op, but `{}` over no data IS a change', async () => {
+    mockRequest.mockResolvedValueOnce(dataNode({ data: { b: 1, a: 2 } }));
+    const actions = await importActions();
+    expect(await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":2,"b":1}', baseline: await dataFp({ b: 1, a: 2 }) },
+    }))).toEqual({ dataSaved: true });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+
+    mockRequest.mockReset();
+    mockRequest.mockResolvedValueOnce(dataNode({ data: null }));
+    mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
+    await actions.updateData(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data: '{}', baseline: await dataFp(null) } }));
+    expect(mockRequest).toHaveBeenCalledTimes(2);
   });
 
   it('returns 404 when the node is not found', async () => {
     mockRequest.mockResolvedValueOnce({ node: null });
     const actions = await importActions();
-    const result = await actions.updateData(actionEvent({
-      gid: 'mem-A', nodeId: 'missing', form: { data: '{"a":1}' },
+    const out = await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'missing', form: { data: '{"a":1}', baseline: await dataFp(null) },
     }));
-    expect((result as { status: number }).status).toBe(404);
+    expect(failed(out).status).toBe(404);
+    expect(failed(out).data.dataFailed.code).toBe('not-found');
   });
 
-  it('returns 500 when the update mutation throws', async () => {
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'pk', memoryId: 'mem-A', loc: 'a', name: 'a',
-        nodeType: 'info', alias: null, description: null, content: null,
-        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
-    });
-    mockRequest.mockRejectedValueOnce(new Error('boom'));
-    const actions = await importActions();
-    const result = await actions.updateData(actionEvent({
-      gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":1}' },
+  it('a mutation failure is 500 with the server\'s words, not a stack of request JSON', async () => {
+    mockRequest.mockResolvedValueOnce(dataNode());
+    mockRequest.mockRejectedValueOnce(Object.assign(new Error('x'), {
+      response: { errors: [{ message: 'Memory is locked', extensions: { code: 'SESSION_EXPIRED' } }] },
     }));
-    expect((result as { status: number }).status).toBe(500);
+    const actions = await importActions();
+    const out = await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'pk', form: { data: '{"a":1}', baseline: await dataFp(null) },
+    }));
+    expect(failed(out).status).toBe(500);
+    expect(failed(out).data.dataFailed).toEqual({ code: 'failed', detail: 'Memory is locked' });
+  });
+
+  it('an anonymous POST is refused before any API call', async () => {
+    const actions = await importActions();
+    const ev = actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { data: '{}', baseline: await dataFp(null) } });
+    (ev as unknown as { locals: { token: string | null } }).locals.token = null;
+    const out = await actions.updateData(ev);
+    expect(failed(out).status).toBe(401);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('refuses a stale save after another editor wrote `{}` over ABSENT data — null and {} are not one state here', async () => {
+    // Both editors opened on no data; the other one saved {} first.
+    mockRequest.mockResolvedValueOnce(dataNode({ data: {} }));
+    const actions = await importActions();
+    const out = await actions.updateData(actionEvent({
+      gid: 'mem-A', nodeId: 'pk', form: { data: '[1]', baseline: await dataFp(null) },
+    }));
+    expect(failed(out).status).toBe(409);
+    expect(failed(out).data.dataFailed.code).toBe('changed');
+    expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 });
 
