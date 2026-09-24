@@ -18,15 +18,28 @@ const MAX_TOTAL_MESSAGE_BYTES = 100_000;
 /**
  * POST /api/agent-chat/test-persona
  *
- * "Live test" mode: runs a test persona through the chatbot using the
- * agent's configured LLM. Executes all turns automatically and returns
- * a test report with route history, extracted data, and pass/fail.
+ * Backs the Tester's "Scripted persona (multi-turn)" section. Runs a
+ * scripted conversation against the agent's chatbot with the agent's
+ * configured LLM: a welcome turn, then one turn per scripted message,
+ * until the script runs out or the bot ends the chat on a scripted
+ * turn. A welcome turn that ends the chat does NOT stop the script:
+ * only the replies to scripted messages are checked for `chatEnded`.
+ *
+ * The report is built from startChat's result and what each turn
+ * returns: the turns themselves, the stage transitions and conversation
+ * handoffs they reported, the conversations visited (the conversation
+ * startChat opened in, then each handoff), and pass/fail against
+ * `expectedConversations`. It does not read the chat's stored route
+ * history (nothing does) and does not return extracted data.
+ * `personaName` is a label echoed into the report; it does not change
+ * how the bot behaves.
  *
  * Body: { agentId, personaName, openingMessage, followUpMessages[],
  *         conversationName?, expectedConversations[] }
  *
- * This is the "costs money" version. For free dry-run testing, use
- * hadron_chat_run_persona in Claude Code.
+ * Every turn is a real, billed LLM call. There is no free dry-run path:
+ * the MCP persona tools went with the rest of `hadron_chatbot_*` in
+ * hadron-server#1143 (#897).
  */
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
