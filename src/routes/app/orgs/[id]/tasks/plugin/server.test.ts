@@ -38,6 +38,7 @@ function route(opts: {
   planThrows?: boolean;
   otherEntries?: unknown[];
   otherThrows?: boolean;
+  unrecognized?: unknown[];
 }) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === SKILL_PLAN_STATUS_QUERY) {
@@ -49,7 +50,9 @@ function route(opts: {
     }
     if (query === SKILL_PLAN_EXPORT_QUERY) {
       if (opts.planThrows) throw new Error('boom');
-      return { skillPlan: { scanned: 1, judged: 1, entries: opts.entries ?? [] } };
+      // `unrecognized` is non-null in the schema (server#1296), so every legal
+      // response carries it — an empty list when nothing is unrecognised.
+      return { skillPlan: { scanned: 1, judged: 1, entries: opts.entries ?? [], unrecognized: opts.unrecognized ?? [] } };
     }
     throw new Error(`Unexpected query: ${String(query).slice(0, 40)}`);
   });
@@ -163,5 +166,63 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
     expect(r.body.included).toHaveLength(1);
     expect(r.body.notForHost).toEqual([]);
     expect(r.body.notForHostUnknown).toEqual(expect.any(String));
+  });
+
+  // server#1296 — a key under `exports` that names no host.
+  const unknown = (over: Record<string, unknown> = {}) => ({
+    nodeId: 'typo',
+    urn: 'hrn:node:acme.com:ops:tasks:typo',
+    name: 'Typo task',
+    keyCount: 1,
+    keys: ['codex'],
+    findings: [{ rule: 'skill-host-unknown', severity: 'warning', message: 'properties.exports key "codex" names no skill host' }],
+    ...over,
+  });
+
+  it('reports a task declared ONLY under an unknown key, which is in neither the entries nor the other-host list', async () => {
+    route({ entries: [entry()], unrecognized: [unknown()] });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.status).toBe(200);
+    // The case that used to vanish: no entry, no other-host row, no skip.
+    expect(r.body.skipped).toEqual([]);
+    expect(r.body.notForHost).toEqual([]);
+    expect(r.body.unrecognized).toEqual([
+      {
+        name: 'Typo task',
+        urn: 'hrn:node:acme.com:ops:tasks:typo',
+        inDownload: false,
+        keyCount: 1,
+        messages: ['properties.exports key "codex" names no skill host'],
+      },
+    ]);
+  });
+
+  it('says a task with an unknown key IS in the download when a host key exports it — joined on node id', async () => {
+    route({
+      entries: [entry()],
+      // Same node as the exported entry, under a DIFFERENT URN spelling: the
+      // join is on node id, so a lossy emitted URN cannot flip the answer.
+      unrecognized: [unknown({ nodeId: 'n1', urn: 'hrn:node:acme.com:ops:tasks:other-spelling' })],
+    });
+    const r = await post({ host: 'codexSkill' });
+    expect(r.body.included).toHaveLength(1);
+    expect(r.body.unrecognized).toHaveLength(1);
+    expect(r.body.unrecognized[0].inDownload).toBe(true);
+  });
+
+  it('carries the TRUE key count, not the length of the capped key list', async () => {
+    route({ entries: [], unrecognized: [unknown({ keyCount: 14, keys: Array.from({ length: 10 }, (_, i) => `k${i}`) })] });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.body.unrecognized[0].keyCount).toBe(14);
+  });
+
+  it('selects `unrecognized` in the EXPORT plan it sends', async () => {
+    route({ entries: [entry()] });
+    await post({ host: 'claudeSkill' });
+    const call = mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_EXPORT_QUERY);
+    const doc = String(call?.[0]);
+    // Structure, not a substring of the whole document: the field must sit
+    // inside skillPlan's selection with keyCount beneath it.
+    expect(doc).toMatch(/skillPlan\([^)]*\)\s*\{[^]*?\bunrecognized\s*\{[^}]*\bkeyCount\b/);
   });
 });

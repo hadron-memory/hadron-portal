@@ -49,6 +49,7 @@ const codexResponse = (over: Record<string, unknown> = {}) => ({
   otherHost: 'claudeSkill',
   notForHost: [{ name: 'solo-task', urn: SOLO }],
   notForHostUnknown: null,
+  unrecognized: [],
   ...over,
 });
 
@@ -124,6 +125,53 @@ describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
     expect(target.textContent).toContain('host "claudeSkill" unavailable');
     // The download itself still happened — an export runs to the end.
     expect(target.textContent).toContain('Prepared acme-skills-codex.zip');
+  });
+});
+
+describe('SkillBundleDownload — export keys no host reads (server#1296)', () => {
+  const TYPO = 'hrn:node:acme.com:ops:tasks:typo';
+  const BOTH = 'hrn:node:acme.com:ops:tasks:both';
+  const withUnrecognized = () =>
+    codexResponse({
+      unrecognized: [
+        { name: 'both', urn: BOTH, inDownload: true, keyCount: 1, messages: ['key "codex" names no skill host'] },
+        { name: 'Typo task', urn: TYPO, inDownload: false, keyCount: 14, messages: ['key "k0" names no skill host', '4 more unrecognised key(s)'] },
+      ],
+    });
+
+  const unrecognizedGrid = (t: HTMLElement) =>
+    t.querySelector<HTMLInputElement>('input[aria-label="Search the tasks whose export keys no host reads"]');
+
+  it('lists them in their own grid, saying which are in the download, with the TRUE key count and the server\'s words', async () => {
+    stubEndpoint(withUnrecognized());
+    const { target } = panel({ orgId: 'org-1', checkedCount: 3 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
+    await reportRendered(target);
+
+    expect(target.textContent).toContain('Export keys no host reads (2)');
+    expect(unrecognizedGrid(target)).not.toBeNull();
+    expect(target.textContent).toContain('What happened');
+    const rows = tableRows(target).map((r) => r.textContent ?? '');
+    const typo = rows.find((r) => r.includes('Typo task'))!;
+    expect(typo).toContain('Not in this download. It has 14 export keys that no host reads.');
+    expect(typo).toContain('4 more unrecognised key(s)');
+    // keyCount 1 takes the singular string, not "1 export keys".
+    expect(rows.find((r) => r.includes(BOTH.split(':').pop()!))).toContain(
+      'In this download. It also has an export key that no host reads, which is ignored.',
+    );
+    // The left-out grid is untouched: still its own two rows and heading.
+    expect(target.textContent).toContain('Left out of the download (2)');
+    expect(rows).toHaveLength(4);
+  });
+
+  it('renders no such grid when nothing is unrecognised — and it did reach the report', async () => {
+    stubEndpoint(codexResponse());
+    const { target } = panel({ orgId: 'org-1', checkedCount: 3 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
+    await reportRendered(target);
+    expect(target.textContent).toContain('Left out of the download (2)');
+    expect(target.textContent).not.toContain('Export keys no host reads');
+    expect(unrecognizedGrid(target)).toBeNull();
   });
 });
 

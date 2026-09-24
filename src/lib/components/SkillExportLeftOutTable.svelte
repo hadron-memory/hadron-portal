@@ -38,20 +38,35 @@
     rows,
     /** Unique per list: two lists on one key share a saved arrangement. */
     listKey = 'orgs:tasks:export-left-out',
-  }: { rows: LeftOutRow[]; listKey?: string } = $props();
+    // server#1296 reuses this grid for tasks that are not all left out, so the
+    // wording that assumes they are is the caller's to replace.
+    reasonHeader = t('tasks.bundle.column.reason', 'Why it was left out'),
+    searchPlaceholder = t('tasks.bundle.search', 'Search left-out tasks…'),
+    searchAriaLabel = t('tasks.bundle.search.aria', 'Search the tasks left out of the download'),
+  }: {
+    rows: LeftOutRow[];
+    listKey?: string;
+    reasonHeader?: string;
+    searchPlaceholder?: string;
+    searchAriaLabel?: string;
+  } = $props();
 
   let globalFilter = $state('');
 
-  const columns: PortalColumnDef<LeftOutRow>[] = [
+  // Derived, and handed to the table as a getter, so the header follows the
+  // `reasonHeader` prop rather than capturing its first value.
+  const columns: PortalColumnDef<LeftOutRow>[] = $derived([
     { accessorKey: 'name', header: t('tasks.bundle.column.task', 'Task'), enableHiding: false, size: 300 },
-    { accessorKey: 'reason', header: t('tasks.bundle.column.reason', 'Why it was left out'), size: 480 },
-  ];
+    { accessorKey: 'reason', header: reasonHeader, size: 480 },
+  ]);
 
   const table = createSvelteTable<LeftOutRow>({
     get data() {
       return rows;
     },
-    columns,
+    get columns() {
+      return columns;
+    },
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -73,8 +88,8 @@
   {listKey}
   bind:globalFilter
   maxHeight="max(160px, 40vh)"
-  searchPlaceholder={t('tasks.bundle.search', 'Search left-out tasks…')}
-  searchAriaLabel={t('tasks.bundle.search.aria', 'Search the tasks left out of the download')}
+  {searchPlaceholder}
+  {searchAriaLabel}
 >
   {#snippet cell(c, row)}
     {#if c.column.id === 'name'}

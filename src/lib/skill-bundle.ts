@@ -68,6 +68,12 @@ export interface SkillBundle {
   /** Suggested download filename. */
   filename: string;
   included: Array<{ name: string; urn: string }>;
+  /**
+   * The same skills as `included`, by node id — identity for joining other
+   * plan lists, which a URN is not reliably (an emitted URN is lossy:
+   * `hrn:node:hadronmemory.com:dev:findings:emitted-node-urn-is-lossy-compare-identity`).
+   */
+  includedNodeIds: string[];
   skipped: SkippedSkill[];
 }
 
@@ -114,6 +120,7 @@ export function planBundle(
   const plugin = pluginName(orgName);
   const files: Record<string, string> = {};
   const included: SkillBundle['included'] = [];
+  const includedNodeIds: string[] = [];
   const skipped: SkippedSkill[] = [];
 
   const wanted = entries.filter((e) => e.class !== 'disabled');
@@ -150,6 +157,7 @@ export function planBundle(
     const path = host === 'claudeSkill' ? `skills/${e.name}/SKILL.md` : `${e.name}/SKILL.md`;
     files[path] = e.renderedBody;
     included.push({ name: e.name, urn: e.urn });
+    includedNodeIds.push(e.nodeId);
   }
 
   if (host === 'claudeSkill') {
@@ -165,7 +173,65 @@ export function planBundle(
   }
 
   const filename = host === 'claudeSkill' ? `${plugin}.zip` : `${plugin}-codex.zip`;
-  return { files, filename, included, skipped };
+  return { files, filename, included, includedNodeIds, skipped };
+}
+
+/** One item of `SkillPlan.unrecognized` (server#1296), as SKILL_PLAN_EXPORT_QUERY selects it. */
+export interface PlanUnrecognized {
+  nodeId: string;
+  urn: string;
+  /** The node's display name — an unrecognised key declares no skill name. */
+  name: string;
+  /** The TRUE number of unrecognised keys. `keys` is capped, so never count those. */
+  keyCount: number;
+  keys: string[];
+  /** Warnings, attributed to no host: one per listed key, one for any unlisted. */
+  findings: Array<{ rule: string; severity: string; message: string }>;
+}
+
+/** A node carrying export keys that name no host, as the download report shows it. */
+export interface UnrecognizedNode {
+  name: string;
+  urn: string;
+  /** Whether the node's skill is in THIS download (via a key a host does read). */
+  inDownload: boolean;
+  keyCount: number;
+  /** The server's own warnings, verbatim. */
+  messages: string[];
+}
+
+/**
+ * server#1296 — the nodes whose `properties.exports` carries a key no host
+ * reads (`codex` for `codexSkill`, say). Without this a node declaring ONLY
+ * such keys is in neither the plan's entries nor the other-host list, so it
+ * vanished from the report with nothing saying why — the failure #879 is
+ * written against.
+ *
+ * The list is host-identical (the key belongs to no host), so one plan's copy
+ * is the whole answer; it is still deduplicated by node id, per the contract.
+ * `inDownload` joins on node id, never on URN. A node listed here may well be
+ * in the zip through a key a host does read: the report says so rather than
+ * calling it left out.
+ */
+export function unrecognizedReport(
+  unrecognized: PlanUnrecognized[],
+  includedNodeIds: readonly string[],
+): UnrecognizedNode[] {
+  const included = new Set(includedNodeIds);
+  const seen = new Set<string>();
+  const out: UnrecognizedNode[] = [];
+  for (const u of unrecognized) {
+    if (seen.has(u.nodeId)) continue;
+    seen.add(u.nodeId);
+    out.push({
+      name: u.name,
+      urn: u.urn,
+      inDownload: included.has(u.nodeId),
+      keyCount: u.keyCount,
+      messages: u.findings.map((f) => f.message),
+    });
+  }
+  return out;
 }
 
 /** The other host of the two — the one a download for `host` does not judge. */

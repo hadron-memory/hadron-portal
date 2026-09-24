@@ -3565,6 +3565,18 @@ export const SKILL_PLAN_EXPORT_QUERY = /* GraphQL */ `
     skillPlan(input: { intent: EXPORT, host: $host, memories: $memories }) {
       scanned
       judged
+      unrecognized {
+        nodeId
+        urn
+        name
+        keyCount
+        keys
+        findings {
+          rule
+          severity
+          message
+        }
+      }
       entries {
         nodeId
         urn

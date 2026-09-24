@@ -8,7 +8,7 @@
   // the per-host enable flags stay behind one checkbox per row.
   import SkillExportLeftOutTable, { type LeftOutRow } from '$lib/components/SkillExportLeftOutTable.svelte';
   import { t } from '$lib/i18n/t';
-  import { BUNDLE_HOSTS, type SkillBundleHost, type SkippedSkill } from '$lib/skill-bundle';
+  import { BUNDLE_HOSTS, type SkillBundleHost, type SkippedSkill, type UnrecognizedNode } from '$lib/skill-bundle';
   import { hostLabel } from '$lib/skill-export';
   import { exportSaves } from '$lib/skill-export-saves.svelte';
 
@@ -38,6 +38,8 @@
     leftOut: LeftOutRow[];
     /** The other-host check failed; the report says so rather than claim completeness. */
     notForHostUnknown: string | null;
+    /** server#1296: tasks with export keys no host reads — in the download or not. */
+    unrecognized: LeftOutRow[];
   }
 
   /**
@@ -63,6 +65,38 @@
         ),
       })),
     ];
+  }
+
+  /**
+   * server#1296 — one row per task whose export setting carries a key no host
+   * reads. Its own grid, not "Left out": most such tasks ARE in the download
+   * through a key a host does read, and only the rest are missing because of
+   * it. The portal says which, and counts the keys with the server's TRUE
+   * total (`keyCount`); the server's own warnings follow verbatim.
+   */
+  // t() has no plural rules, so singular and plural are separate strings
+  // (@copilot on #902: "key(s) on it" read as broken English).
+  function unrecognizedSummary(n: UnrecognizedNode): string {
+    const one = n.keyCount === 1;
+    if (n.inDownload) {
+      return one
+        ? t('tasks.bundle.unrecognized.in-download.one', 'In this download. It also has an export key that no host reads, which is ignored.')
+        : t('tasks.bundle.unrecognized.in-download.many', 'In this download. It also has {count} export keys that no host reads, which are ignored.', { count: n.keyCount });
+    }
+    return one
+      ? t('tasks.bundle.unrecognized.not-in-download.one', 'Not in this download. It has an export key that no host reads.')
+      : t('tasks.bundle.unrecognized.not-in-download.many', 'Not in this download. It has {count} export keys that no host reads.', { count: n.keyCount });
+  }
+
+  function unrecognizedRows(nodes: UnrecognizedNode[]): LeftOutRow[] {
+    return nodes.map((n) => ({
+      name: n.name,
+      urn: n.urn,
+      reason: [
+        unrecognizedSummary(n),
+        ...n.messages,
+      ].join(' '),
+    }));
   }
 
   let pendingHost = $state<SkillBundleHost | null>(null);
@@ -115,6 +149,7 @@
         included: body.included,
         leftOut: leftOutRows(body.skipped ?? [], body.notForHost ?? [], body.otherHost ?? ''),
         notForHostUnknown: body.notForHostUnknown ?? null,
+        unrecognized: unrecognizedRows(body.unrecognized ?? []),
       };
     } catch {
       failure = failureText(undefined, undefined);
@@ -206,6 +241,24 @@
           {t('tasks.bundle.skipped', 'Left out of the download ({count}):', { count: report.leftOut.length })}
         </p>
         <SkillExportLeftOutTable rows={report.leftOut} />
+      {/if}
+      {#if report.unrecognized.length > 0}
+        <p class="font-medium text-amber-700 dark:text-amber-400">
+          {t('tasks.bundle.unrecognized.heading', 'Export keys no host reads ({count}):', { count: report.unrecognized.length })}
+        </p>
+        <p class="text-xs text-zinc-500">
+          {t(
+            'tasks.bundle.unrecognized.help',
+            'Only claudeSkill and codexSkill are export keys. Any other key under exports is ignored, never read as either one: rename it or remove it in the task’s Properties.',
+          )}
+        </p>
+        <SkillExportLeftOutTable
+          rows={report.unrecognized}
+          listKey="orgs:tasks:export-unrecognized"
+          reasonHeader={t('tasks.bundle.unrecognized.column', 'What happened')}
+          searchPlaceholder={t('tasks.bundle.unrecognized.search', 'Search tasks with unused export keys…')}
+          searchAriaLabel={t('tasks.bundle.unrecognized.search.aria', 'Search the tasks whose export keys no host reads')}
+        />
       {/if}
     </div>
   {/if}
