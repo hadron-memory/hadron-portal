@@ -175,6 +175,27 @@ describe('SkillBundleDownload — export keys no host reads (server#1296)', () =
   });
 });
 
+describe('SkillBundleDownload — the Claude plugin version (#909, @copilot on #910)', () => {
+  const versionLine = (t: HTMLElement) => t.querySelector('[data-testid="skill-bundle-version"]');
+
+  it('shows the version the endpoint returned for a Claude download', async () => {
+    stubEndpoint(codexResponse({ host: 'claudeSkill', filename: 'acme-skills.zip', otherHost: 'codexSkill', version: '0.0.0-h28fcaec74a1d' }));
+    const { target } = panel({ orgId: 'org-1', checkedCount: 1 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Claude'))!.click();
+    await reportRendered(target);
+    expect(versionLine(target)?.textContent).toContain('Plugin version 0.0.0-h28fcaec74a1d.');
+  });
+
+  it('shows no version line when the endpoint returns none, as for Codex — and it did reach the report', async () => {
+    stubEndpoint(codexResponse({ version: null }));
+    const { target } = panel({ orgId: 'org-1', checkedCount: 1 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
+    await reportRendered(target);
+    expect(target.textContent).toContain('Prepared acme-skills-codex.zip');
+    expect(versionLine(target)).toBeNull();
+  });
+});
+
 describe('SkillBundleDownload — when the buttons are offered', () => {
   it('nothing checked and the list complete: disabled, and says why', async () => {
     const { target } = panel({ orgId: 'org-1', checkedCount: 0 });
