@@ -136,7 +136,7 @@ describe('org tasks load() — #879 export state', () => {
     route({ memories: [{ id: 'mem-1' }], nodes: [typo] });
     const load = await importLoad();
     const result = (await load(ev())) as { tasks: Array<Record<string, unknown>> };
-    expect(result.tasks[0].export).toEqual({ kind: 'none', unknown: { count: 1, sample: ['codex'] } });
+    expect(result.tasks[0].export).toEqual({ kind: 'none', unknown: { count: 1, sample: ['"codex"'] } });
   });
 });
 

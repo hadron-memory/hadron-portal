@@ -97,7 +97,7 @@ describe('TaskExportToggle — states the checkbox must not flatten', () => {
 });
 
 describe('TaskExportToggle — export keys no host reads (server#1296)', () => {
-  const typo: TaskExport = { kind: 'none', unknown: { count: 1, sample: ['codex'] } };
+  const typo: TaskExport = { kind: 'none', unknown: { count: 1, sample: ['"codex"'] } };
   const noteLink = (t: HTMLElement) => [...t.querySelectorAll('a')].find((a) => a.textContent?.includes('Unused key'));
 
   it('an unchecked row declared only under an unknown key says so, and links to where it is fixed', async () => {
@@ -106,18 +106,18 @@ describe('TaskExportToggle — export keys no host reads (server#1296)', () => {
     // Still checkable: checking it writes the real host keys.
     expect(submitted(target)).toEqual({ nodeId: 'n1', enable: 'true' });
     const link = noteLink(target)!;
-    expect(link.textContent).toBe('Unused key: codex');
+    expect(link.textContent).toBe('Unused key: "codex"');
     expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1/edit');
     // The explanation names the same host list the check uses (@copilot on #903).
     expect(link.getAttribute('title')).toContain(`Only ${exportKeyList()} are export keys`);
   });
 
   it('shows beside a divergent row too, which has no checkbox', async () => {
-    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'divergent', unknown: { count: 2, sample: ['a', 'b'] } } });
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'divergent', unknown: { count: 2, sample: ['"a"', '"b"'] } } });
     await tick();
     expect(target.querySelector('form')).toBeNull();
     expect(target.textContent).toContain('Differs per host');
-    expect(target.textContent).toContain('2 unused keys: a, b');
+    expect(target.textContent).toContain('2 unused keys: "a", "b"');
   });
 
   it('a row with no unknown key renders no such note', async () => {

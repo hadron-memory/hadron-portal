@@ -51,7 +51,7 @@
   const columns: PortalColumnDef<TaskRow>[] = [
     {
       // #879. The accessor is the NOTES the cell renders ("Differs per host",
-      // "Claude only", and server#1296's "Unused key: codex") — the only text in
+      // "Claude only", and server#1296's `Unused key: "codex"`) — the only text in
       // that cell, so it is exactly what the search box can find
       // (`hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable`). A bare checkbox renders no text and matches nothing.
       // Sorting is by state, not by that text.

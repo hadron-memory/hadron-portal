@@ -34,7 +34,7 @@ function mountPage() {
     data: {
       org: { id: 'org-1', name: 'Acme' },
       tasks: [
-        task('typo', 'Typo task', { kind: 'none', unknown: { count: 1, sample: ['codex'] } }),
+        task('typo', 'Typo task', { kind: 'none', unknown: { count: 1, sample: ['"codex"'] } }),
         task('plain', 'Plain task', { kind: 'none' }),
       ],
       failed: false,
@@ -61,7 +61,7 @@ describe('Task Nodes — searching the unused-key note (server#1296)', () => {
     await tick(2);
     // Positive control: both rows render, and the note is on screen.
     expect(names(target)).toEqual(expect.arrayContaining(['Typo task', 'Plain task']));
-    expect(target.textContent).toContain('Unused key: codex');
+    expect(target.textContent).toContain('Unused key: "codex"');
 
     await search(target, 'unused key');
     expect(names(target)).toEqual(['Typo task']);

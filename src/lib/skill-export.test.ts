@@ -576,23 +576,30 @@ describe('unknown export keys on a Task Nodes row (server#1296)', () => {
   it('counts every key no host reads, and ships only a short, sorted, shortened sample', () => {
     const long = 'x'.repeat(60);
     const u = unknownExportKeys({ exports: { codexSkill: decl(), zeta: 1, codex: decl(), [long]: 1, alpha: 1, beta: 1 } });
-    expect(u).toEqual({ count: 5, sample: ['alpha', 'beta', 'codex'] });
+    expect(u).toEqual({ count: 5, sample: ['"alpha"', '"beta"', '"codex"'] });
     const one = unknownExportKeys({ exports: { [long]: 1 } })!;
-    expect(one.sample[0]).toHaveLength(40);
-    expect(one.sample[0].endsWith('…')).toBe(true);
+    // 40 code points of key, plus the two quotes.
+    expect(one.sample[0]).toHaveLength(42);
+    expect(one.sample[0].endsWith('…"')).toBe(true);
     // Shortened by code point: an emoji straddling the cut stays whole, with
     // no lone surrogate (it would render as a replacement character).
     const astral = unknownExportKeys({ exports: { ['a'.repeat(38) + '🔥🔥🔥'] : 1 } })!.sample[0];
-    expect(astral).toBe('a'.repeat(38) + '🔥…');
+    expect(astral).toBe(`"${'a'.repeat(38)}🔥…"`);
     expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(astral)).toBe(false);
   });
 
   it('a task declared ONLY under an unknown key is still `none`, and now says why', () => {
     const only = { exports: { codex: decl() } };
     const s = taskExport(only);
-    expect(s).toEqual({ kind: 'none', unknown: { count: 1, sample: ['codex'] } });
-    expect(taskExportUnknownNote(s)).toBe('Unused key: codex');
-    expect(taskExportSearchText(s)).toBe('Unused key: codex');
+    expect(s).toEqual({ kind: 'none', unknown: { count: 1, sample: ['"codex"'] } });
+    expect(taskExportUnknownNote(s)).toBe('Unused key: "codex"');
+    expect(taskExportSearchText(s)).toBe('Unused key: "codex"');
+  });
+
+  it('quotes and escapes each key, so an empty key or a comma or line break inside one stays recognisable (@codex on #903)', () => {
+    expect(taskExportUnknownNote(taskExport({ exports: { '': {} } }))).toBe('Unused key: ""');
+    expect(taskExportUnknownNote(taskExport({ exports: { 'a, b': 1 } }))).toBe('Unused key: "a, b"');
+    expect(taskExportUnknownNote(taskExport({ exports: { 'x\ny': 1 } }))).toBe('Unused key: "x\\ny"');
   });
 
   it('a row with no unknown key is exactly what it was — no `unknown` field at all', () => {
@@ -602,10 +609,10 @@ describe('unknown export keys on a Task Nodes row (server#1296)', () => {
 
   it('says how many there are, and that the sample is not all of them', () => {
     const s = taskExport({ exports: { claudeSkill: decl(), a: 1, b: 1, c: 1, d: 1 } });
-    expect(taskExportUnknownNote(s)).toBe('4 unused keys: a, b, c, …');
-    expect(taskExportUnknownNote(taskExport({ exports: { a: 1, b: 1 } }))).toBe('2 unused keys: a, b');
+    expect(taskExportUnknownNote(s)).toBe('4 unused keys: "a", "b", "c", …');
+    expect(taskExportUnknownNote(taskExport({ exports: { a: 1, b: 1 } }))).toBe('2 unused keys: "a", "b"');
     // Both notes are searchable: the host note and the unused-key note.
-    expect(taskExportSearchText(s)).toBe('Claude only 4 unused keys: a, b, c, …');
+    expect(taskExportSearchText(s)).toBe('Claude only 4 unused keys: "a", "b", "c", …');
   });
 
   it('checking the box leaves the unknown key where it is — the note says to fix it on the node', () => {

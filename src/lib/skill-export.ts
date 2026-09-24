@@ -499,7 +499,11 @@ export function unknownExportKeys(properties: unknown): UnknownExportKeys | null
       // emoji in half and render a replacement character.
       .map((k) => {
         const cps = Array.from(k);
-        return cps.length > UNKNOWN_KEY_CHARS ? `${cps.slice(0, UNKNOWN_KEY_CHARS - 1).join('')}…` : k;
+        const shown = cps.length > UNKNOWN_KEY_CHARS ? `${cps.slice(0, UNKNOWN_KEY_CHARS - 1).join('')}…` : k;
+        // Quoted and escaped, as the server's own warnings quote the key:
+        // an empty key would otherwise render as nothing at all, and a comma
+        // or line break inside one would read as two keys (@codex on #903).
+        return JSON.stringify(shown);
       }),
   };
 }
