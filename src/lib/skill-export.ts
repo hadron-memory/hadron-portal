@@ -486,7 +486,14 @@ export function toggleSkillExport(
  * the properties bag on the SERVER, so the page never gets the bag itself.
  */
 export type TaskExport = (
-  | { kind: 'none' | 'off' | 'divergent' }
+  /**
+   * `legacy` (#906): a retired top-level `skill` / `claudeSkill` declaration.
+   * The server reads it as Claude's, but only as an alias, and an
+   * `exports.claudeSkill` WINS over it — so the list's checkbox, which writes
+   * `exports`, would silently override it. Shown with no checkbox, like
+   * `divergent`.
+   */
+  | { kind: 'none' | 'off' | 'divergent' | 'legacy' }
   | { kind: 'on'; hosts: string[] }
 ) & {
   /** server#1296: keys under `exports` that name no host. Absent when there are none. */
@@ -535,7 +542,11 @@ export function unknownExportKeys(properties: unknown): UnknownExportKeys | null
 
 export function taskExport(properties: unknown): TaskExport {
   const s = rowExportState(properties);
-  const base: TaskExport = s.kind === 'on' ? { kind: 'on', hosts: s.hosts } : { kind: s.kind };
+  const base: TaskExport = hasLegacyExport(properties)
+    ? { kind: 'legacy' }
+    : s.kind === 'on'
+      ? { kind: 'on', hosts: s.hosts }
+      : { kind: s.kind };
   const unknown = unknownExportKeys(properties);
   return unknown ? { ...base, unknown } : base;
 }
@@ -594,6 +605,7 @@ export function hostLabel(host: string): string {
  */
 export function taskExportNote(s: TaskExport): string {
   if (s.kind === 'divergent') return t('tasks.export.divergent', 'Differs per host');
+  if (s.kind === 'legacy') return t('tasks.export.legacy', 'Older export setting');
   if (s.kind === 'on' && SKILL_HOSTS.some((h) => !s.hosts.includes(h))) {
     return t('tasks.export.only', '{hosts} only', { hosts: s.hosts.map(hostLabel).join(', ') });
   }

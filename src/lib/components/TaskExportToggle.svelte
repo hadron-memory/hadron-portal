@@ -49,6 +49,8 @@
         return t('tasks.export.error.divergent', 'Its hosts are set differently — change them on the node.');
       case 'not-runnable':
         return t('tasks.export.error.not-runnable', 'It is no longer runnable, so it cannot be exported.');
+      case 'legacy':
+        return t('tasks.export.error.legacy', 'It uses the older export setting — change it on the node.');
       case 'unauthenticated':
         return t('tasks.export.error.unauthenticated', 'Your session has ended — sign in again.');
       case 'not-found':
@@ -68,6 +70,18 @@
     href={editHref}
     class="text-xs text-amber-700 hover:underline dark:text-amber-400"
     title={t('tasks.export.divergent-title', 'Claude and Codex are set differently for this task. Change them on the node.')}
+  >{note}</a>
+{:else if exportState.kind === 'legacy'}
+  <!-- #906: no checkbox. The server reads the retired top-level key as
+       Claude's, and an `exports.claudeSkill` written by this box would win
+       over it — a silent override. The server's own advice is to move it. -->
+  <a
+    href={editHref}
+    class="text-xs text-amber-700 hover:underline dark:text-amber-400"
+    title={t(
+      'tasks.export.legacy-title',
+      'Declared with the older top-level “skill” or “claudeSkill” setting. The server still reads it as Claude’s; move it to the current export setting on the node.',
+    )}
   >{note}</a>
 {:else}
   <form

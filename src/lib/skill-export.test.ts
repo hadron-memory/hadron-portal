@@ -31,6 +31,7 @@ import {
   readSkillExport,
   rowExportState,
   taskExport,
+  taskExportNote,
   taskExportSearchText,
   taskExportUnknownNote,
   toggleSkillExport,
@@ -652,5 +653,22 @@ describe('retired top-level declarations (@codex on #905)', () => {
       skill: decl(),
       claudeSkill: undefined,
     });
+  });
+});
+
+describe('#906 — a Task Nodes row declared by a retired top-level key', () => {
+  it('is `legacy` for either key, and also beside modern `exports` — as the edit page routes it', () => {
+    expect(taskExport({ skill: decl() })).toEqual({ kind: 'legacy' });
+    expect(taskExport({ claudeSkill: decl() })).toEqual({ kind: 'legacy' });
+    expect(taskExport({ skill: decl(), exports: { claudeSkill: decl(), codexSkill: decl() } })).toEqual({ kind: 'legacy' });
+    // A row with no legacy key is exactly what it was.
+    expect(taskExport({ exports: { claudeSkill: decl() } })).toEqual({ kind: 'on', hosts: ['claudeSkill'] });
+  });
+
+  it('says so, and is found by that text; an unused-key note still comes along', () => {
+    const s = taskExport({ skill: decl(), exports: { codex: 1 } });
+    expect(s).toEqual({ kind: 'legacy', unknown: { count: 1, sample: ['"codex"'] } });
+    expect(taskExportNote(s)).toBe('Older export setting');
+    expect(taskExportSearchText(s)).toBe('Older export setting Unused key: "codex"');
   });
 });

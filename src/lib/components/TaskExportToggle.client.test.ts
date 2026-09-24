@@ -127,3 +127,16 @@ describe('TaskExportToggle — export keys no host reads (server#1296)', () => {
     expect(noteLink(target)).toBeUndefined();
   });
 });
+
+describe('TaskExportToggle — a retired top-level declaration (#906)', () => {
+  it('offers NO checkbox and no form — only the way to the node, with a note saying why', async () => {
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'legacy' } });
+    await tick();
+    expect(target.querySelector('form')).toBeNull();
+    expect(target.querySelector('input[type="checkbox"]')).toBeNull();
+    const link = target.querySelector('a')!;
+    expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1/edit');
+    expect(link.textContent).toBe('Older export setting');
+    expect(link.getAttribute('title')).toContain('older top-level “skill” or “claudeSkill” setting');
+  });
+});

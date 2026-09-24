@@ -6,7 +6,7 @@ import { NODE_PROPERTIES_READ_QUERY, RUNNABLE_NODES_QUERY, ORG_TASK_MEMORY_IDS_Q
 // #868: the write goes through the door chooser; naming a mutation document
 // here directly is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
-import { defaultSkillName, taskExport, toggleSkillExport } from '$lib/skill-export';
+import { defaultSkillName, hasLegacyExport, taskExport, toggleSkillExport } from '$lib/skill-export';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -83,7 +83,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
  * not localize, so the page maps each code through `t()`. `detail` carries the
  * server's own words where it gave some.
  */
-export type ExportFailure = 'unauthenticated' | 'invalid' | 'not-found' | 'not-runnable' | 'divergent' | 'no-door' | 'rejected' | 'failed';
+export type ExportFailure = 'unauthenticated' | 'invalid' | 'not-found' | 'not-runnable' | 'divergent' | 'legacy' | 'no-door' | 'rejected' | 'failed';
 
 function exportFail(status: number, nodeId: string, code: ExportFailure, detail?: string) {
   return fail(status, { exportFailed: { nodeId, code, detail: detail ?? null } });
@@ -135,6 +135,11 @@ export const actions: Actions = {
     // (`skill-not-runnable`). A node un-marked since the list loaded is refused
     // here rather than given a declaration that can never export.
     if (!node.isRunnable) return exportFail(409, nodeId, 'not-runnable');
+    // #906: a retired top-level declaration. `exports.claudeSkill` wins over it
+    // on the server, so writing the checkbox's `exports` here would silently
+    // override what the node declares. The row offers no checkbox; this
+    // refuses a stale page's POST too.
+    if (hasLegacyExport(node.properties)) return exportFail(409, nodeId, 'legacy');
 
     const result = toggleSkillExport(node.properties, enable, {
       name: defaultSkillName(node.loc ?? '', node.name ?? '', node.id),
