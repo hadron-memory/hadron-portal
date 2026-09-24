@@ -110,6 +110,13 @@
   }
 
   const initialSplit = untrack(() => splitProperties($formData.propertiesJson));
+  // #882: the server's verdict (data.skillCheck) is on the STORED node, so the
+  // editor must know when the form differs from it. Derived from the loader's
+  // node, which follows a node-to-node navigation and stays the stored value
+  // after a failed POST — exactly "what the verdict describes".
+  const storedExport = $derived(
+    splitProperties(node.properties != null ? JSON.stringify(node.properties, null, 2) : '').skillExport,
+  );
   let skillExport = $state<SkillExport | null>(initialSplit.skillExport);
   let exportDivergent = $state(initialSplit.divergent);
   let restJson = $state(initialSplit.rest);
@@ -349,6 +356,9 @@
           runnableBlockedBy={data.runnableBlockedBy ?? null}
           {strictCollection}
           defaults={exportDefaults}
+          serverCheck={data.skillCheck}
+          unsaved={JSON.stringify(skillExport) !== JSON.stringify(storedExport) ||
+            $formData.isRunnable !== (node.isRunnable ?? false)}
         />
         {/key}
       </details>

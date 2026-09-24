@@ -17,6 +17,7 @@ import { mountComponent } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import type { SkillCheck } from '$lib/skill-check';
 import { editNodeSchema } from './schema';
 import Page from './+page.svelte';
 
@@ -30,6 +31,7 @@ interface Seed {
   id?: string;
   runnableBlockedBy?: string | null;
   noWriteDoor?: string | null;
+  skillCheck?: SkillCheck | null;
 }
 
 async function dataFor(seed: Seed) {
@@ -73,6 +75,7 @@ async function dataFor(seed: Seed) {
     form,
     runnableBlockedBy: seed.runnableBlockedBy ?? null,
     noWriteDoor: seed.noWriteDoor ?? null,
+    skillCheck: seed.skillCheck ?? null,
   };
 }
 
@@ -609,6 +612,98 @@ describe('an export already stored on a collection that cannot hold it (@copilot
     const m = await mountPage({ objectType: 'competitor', schema: strict });
     try {
       expect(section(m.target).open).toBe(false);
+    } finally {
+      m.unmount();
+    }
+  });
+});
+
+// ── #882: the server's verdict, not the portal's prediction ────────────────
+
+describe('#882 — the Skill export section shows the SERVER\'s verdict on the saved node', () => {
+  const on = { name: 'drive-pr-home', description: 'Take a PR home.', enable: true };
+  const stored = { exports: { claudeSkill: on, codexSkill: on } };
+  const both = (check: Record<string, unknown>): SkillCheck => ({
+    kind: 'checked',
+    hosts: [
+      { host: 'claudeSkill', ...check } as never,
+      { host: 'codexSkill', ...check } as never,
+    ],
+  });
+  const verdict = (t: HTMLElement) => t.querySelector('[data-testid="skill-server-check"]')?.textContent ?? null;
+
+  it('an export that is ON but fails the server\'s lint says the server WON\'T export it, in the server\'s words', async () => {
+    const m = await mountPage({
+      properties: stored,
+      skillCheck: both({ status: 'judged', off: false, errors: ['skill name "Create Release Tag!" is invalid'], warnings: [] }),
+    });
+    try {
+      const v = verdict(m.target)!;
+      expect(v).toContain('As saved, the server won’t export this for Claude and Codex:');
+      expect(v).toContain('skill name "Create Release Tag!" is invalid');
+      // The defect: an outcome claimed beside the refusal. Neither may appear.
+      expect(v).not.toContain('checks pass');
+      expect(m.target.textContent).not.toContain('Exported as');
+      expect(m.target.textContent).toContain('Set to export as');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('labels warnings as NOT blocking, so they do not read as reasons for the refusal', async () => {
+    const m = await mountPage({
+      properties: stored,
+      skillCheck: both({ status: 'judged', off: false, errors: ['name is invalid'], warnings: ['description never says "Use when"'] }),
+    });
+    try {
+      const v = verdict(m.target)!;
+      const refusal = v.indexOf('won’t export this');
+      const label = v.indexOf('Worth fixing, though it doesn’t stop the export (Claude and Codex):');
+      const warning = v.indexOf('description never says "Use when"');
+      expect(refusal).toBeGreaterThanOrEqual(0);
+      // The warning sits under its own label, after the refusal's reasons.
+      expect(label).toBeGreaterThan(refusal);
+      expect(warning).toBeGreaterThan(label);
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('says the checks pass only when the server found no error', async () => {
+    const m = await mountPage({ properties: stored, skillCheck: both({ status: 'judged', off: false, errors: [], warnings: [] }) });
+    try {
+      expect(verdict(m.target)).toContain('As saved, the server’s checks pass for Claude and Codex.');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('names a check that could not run, instead of implying it passed', async () => {
+    const m = await mountPage({
+      properties: stored,
+      skillCheck: both({ status: 'unavailable', detail: 'plan exploded' }),
+    });
+    try {
+      const v = verdict(m.target)!;
+      expect(v).toContain('Couldn’t get the server’s check for Claude and Codex: plan exploded');
+      expect(v).not.toContain('checks pass');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('says so once the form differs from what the server judged — and not before', async () => {
+    const m = await mountPage({ properties: stored, skillCheck: both({ status: 'judged', off: false, errors: [], warnings: [] }) });
+    try {
+      // Positive control: the verdict renders, and says nothing about unsaved changes.
+      expect(verdict(m.target)).toContain('checks pass');
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+      // Any edit to the export makes the form differ from the node the server judged.
+      const name = m.target.querySelector<HTMLInputElement>('#skill-export-name')!;
+      name.value = 'renamed-skill';
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      expect(verdict(m.target)).toContain('You have unsaved changes. The server checks the export when you save.');
     } finally {
       m.unmount();
     }
