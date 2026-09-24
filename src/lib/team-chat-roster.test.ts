@@ -44,6 +44,31 @@ describe('createRosterRefresher', () => {
     expect(await r.refreshFor([m('new')], new Set())).toEqual(ROSTER);
   });
 
+  it('a slow EARLIER read never replaces a newer roster (@codex on #908)', async () => {
+    const releases: Array<(v: RosterEntry[]) => void> = [];
+    const fetchRoster = vi.fn(() => new Promise<RosterEntry[]>((res) => releases.push(res)));
+    const r = createRosterRefresher(fetchRoster);
+    const older = r.refreshFor([m('a')], new Set()); // read #1, for worker a
+    const newer = r.refreshFor([m('b')], new Set()); // read #2, for worker b, while #1 is in flight
+    const both: RosterEntry[] = [{ id: 'a', urn: 'hrn:worker:acme.com:team:a' }, { id: 'b', urn: 'hrn:worker:acme.com:team:b' }];
+    releases[1](both); // #2 lands first
+    expect(await newer).toEqual(both);
+    releases[0]([{ id: 'a', urn: 'hrn:worker:acme.com:team:a' }]); // #1 lands late, without b
+    expect(await older).toBeNull(); // dropped, not applied over the newer roster
+  });
+
+  it('an older success still applies when the NEWER read failed', async () => {
+    const settles: Array<(v: RosterEntry[] | null) => void> = [];
+    const fetchRoster = vi.fn(() => new Promise<RosterEntry[] | null>((res) => settles.push(res)));
+    const r = createRosterRefresher(fetchRoster);
+    const older = r.refreshFor([m('a')], new Set());
+    const newer = r.refreshFor([m('b')], new Set());
+    settles[1](null); // #2 failed
+    expect(await newer).toBeNull();
+    settles[0](ROSTER); // #1 succeeds late — nothing newer was applied, so it counts
+    expect(await older).toEqual(ROSTER);
+  });
+
   it('two overlapping polls cost ONE read', async () => {
     let release!: (v: RosterEntry[]) => void;
     const fetchRoster = vi.fn(() => new Promise<RosterEntry[]>((res) => (release = res)));

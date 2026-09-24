@@ -11,7 +11,11 @@
  * - an id whose read SUCCEEDED is never asked again, even if the roster still
  *   lacks it (a worker of another App, say) — one read, not one per poll;
  * - an id whose read FAILED is released, so the next poll retries (@codex on
- *   #908: a transient failure must not leave a worker chip-less until reload).
+ *   #908: a transient failure must not leave a worker chip-less until reload);
+ * - reads that overlap are applied IN ORDER: a result older than one already
+ *   applied is dropped (resolves null), so a slow early read can never
+ *   replace a newer roster that holds a worker the early one predates (@codex
+ *   on #908). Its ids stay asked — the newer roster already covers them.
  */
 import { unknownWorkerIds } from '$lib/components/team-chat-thread';
 import type { TeamChatMessage } from '$lib/types';
@@ -27,6 +31,8 @@ export type FetchRoster = () => Promise<RosterEntry[] | null>;
 
 export function createRosterRefresher(fetchRoster: FetchRoster) {
   const asked = new Set<string>();
+  let issued = 0;
+  let applied = 0;
   return {
     /**
      * Re-read the roster if `items` carry a worker id `knownIds` lacks and that
@@ -40,13 +46,20 @@ export function createRosterRefresher(fetchRoster: FetchRoster) {
       const unknown = unknownWorkerIds(items, knownIds).filter((id) => !asked.has(id));
       if (unknown.length === 0) return null;
       for (const id of unknown) asked.add(id);
+      const mine = ++issued;
       let roster: RosterEntry[] | null = null;
       try {
         roster = await fetchRoster();
       } catch {
         roster = null;
       }
-      if (!roster) for (const id of unknown) asked.delete(id);
+      if (!roster) {
+        for (const id of unknown) asked.delete(id);
+        return null;
+      }
+      // A newer read already landed: this one is stale, so it is not applied.
+      if (mine < applied) return null;
+      applied = mine;
       return roster;
     },
   };
