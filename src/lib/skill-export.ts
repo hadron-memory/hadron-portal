@@ -534,7 +534,11 @@ export function exportKeyList(hosts: readonly string[] = SKILL_HOSTS): string {
 export function taskExportUnknownNote(s: TaskExport): string {
   const u = s.unknown;
   if (!u) return '';
-  const keys = u.sample.join(', ') + (u.count > u.sample.length ? ', …' : '');
+  // The separators and the omission mark are templates too, folded pairwise
+  // as exportKeyList folds its "and" — a translator owns the list grammar
+  // (@codex on #903).
+  const list = u.sample.reduce((acc, k) => t('tasks.export.unknown.list', '{first}, {second}', { first: acc, second: k }));
+  const keys = u.count > u.sample.length ? t('tasks.export.unknown.list-more', '{keys}, …', { keys: list }) : list;
   return u.count === 1
     ? t('tasks.export.unknown.one', 'Unused key: {keys}', { keys })
     : t('tasks.export.unknown.many', '{count} unused keys: {keys}', { count: u.count, keys });
