@@ -74,5 +74,9 @@ jobs:
       # adapter-node, and every `$env` import is `$env/dynamic/*` (resolved at
       # runtime), so the build needs no environment variables. Verified with
       # `.env` moved aside.
+      # #895: the build needs ~2 GB of main-thread heap, which is Node's default
+      # limit here, so it failed whenever the runner was busy. The `build`
+      # script grants 4 GB and reports its peak (scripts/build-heap-peak.mjs)
+      # into this job's summary, with a warning past 75% of the limit.
       - name: Build
         run: pnpm build
