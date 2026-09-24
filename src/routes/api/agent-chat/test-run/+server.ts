@@ -125,15 +125,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     const finalStage =
       turn.newStageName ?? welcomeTurn.newStageName ?? stageName ?? null;
 
-    // NOTE: `personaName` is **metadata-only** in US1 single-message
-    // mode. The chat-platform's `runChatTurn` does not accept a
-    // per-turn persona override — personas are driven by
-    // `hadron_chat_run_persona` (the scripted-persona path, US4) and by
-    // server-side state machinery, not by a single-turn HTTP call.
-    // We surface the user's input here so the UI can show what they
-    // asked for, but the bot's actual routing is its default. To
-    // probe persona-specific behaviour, use the Scripted persona
-    // section (US4) which delegates to /api/agent-chat/test-persona.
+    // NOTE: `personaName` is **metadata-only**. `runChatTurn` takes no
+    // persona override, and nothing else in the platform applies one
+    // (#897: the MCP persona runner this comment used to recommend was
+    // removed in hadron-server#1143). We surface the user's input so
+    // the UI can show what they asked for, but the bot's routing is its
+    // default. The Tester's Scripted persona (multi-turn) section,
+    // backed by /api/agent-chat/test-persona, runs a whole scripted
+    // conversation; its persona name is a label too.
     // `routeCandidates` is intentionally empty in US1; the chat
     // platform does not yet expose rejected-route metadata on a
     // single-turn request.
