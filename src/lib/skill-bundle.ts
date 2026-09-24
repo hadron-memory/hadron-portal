@@ -75,7 +75,19 @@ export interface SkillBundle {
    */
   includedNodeIds: string[];
   skipped: SkippedSkill[];
+  /**
+   * The Claude plugin's content-derived version (#909), `null` for Codex,
+   * whose download is bare skill folders with no manifest to carry one.
+   */
+  version: string | null;
 }
+
+/**
+ * Derives a plugin version from what the manifest stands for (#909). The
+ * portal's is `pluginVersion` in `$lib/server/plugin-version`, passed in so
+ * this module stays free of node:crypto and importable in the browser.
+ */
+export type PluginVersioner = (name: string, description: string, skills: Record<string, string>) => string;
 
 const MAX_PLUGIN_NAME = 64;
 
@@ -116,9 +128,12 @@ export function planBundle(
   entries: PlanEntry[],
   host: SkillBundleHost,
   orgName: string,
+  versionOf: PluginVersioner,
 ): SkillBundle {
   const plugin = pluginName(orgName);
   const files: Record<string, string> = {};
+  /** Skill name → body: exactly what the version is derived from. */
+  const skills: Record<string, string> = {};
   const included: SkillBundle['included'] = [];
   const includedNodeIds: string[] = [];
   const skipped: SkippedSkill[] = [];
@@ -156,24 +171,23 @@ export function planBundle(
     }
     const path = host === 'claudeSkill' ? `skills/${e.name}/SKILL.md` : `${e.name}/SKILL.md`;
     files[path] = e.renderedBody;
+    skills[e.name] = e.renderedBody;
     included.push({ name: e.name, urn: e.urn });
     includedNodeIds.push(e.nodeId);
   }
 
+  let version: string | null = null;
   if (host === 'claudeSkill') {
-    files['.claude-plugin/plugin.json'] =
-      JSON.stringify(
-        {
-          name: plugin,
-          description: `Skills exported from ${orgName || 'Hadron'} on Hadron.`,
-        },
-        null,
-        2,
-      ) + '\n';
+    // #909: the name stays `<org>-skills` — an installed plugin's identity is
+    // its name, and renaming it would strand every existing install. Only the
+    // version is new, so Claude sees an update exactly when the content moved.
+    const description = `Skills exported from ${orgName || 'Hadron'} on Hadron.`;
+    version = versionOf(plugin, description, skills);
+    files['.claude-plugin/plugin.json'] = JSON.stringify({ name: plugin, version, description }, null, 2) + '\n';
   }
 
   const filename = host === 'claudeSkill' ? `${plugin}.zip` : `${plugin}-codex.zip`;
-  return { files, filename, included, includedNodeIds, skipped };
+  return { files, filename, included, includedNodeIds, skipped, version };
 }
 
 /** One item of `SkillPlan.unrecognized` (server#1296), as SKILL_PLAN_EXPORT_QUERY selects it. */

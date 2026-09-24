@@ -10,12 +10,21 @@ import {
   isBundleHost,
   otherBundleHost,
   otherHostOnly,
-  planBundle,
+  planBundle as planBundleWith,
   pluginName,
   unrecognizedReport,
   type PlanEntry,
   type PlanUnrecognized,
+  type PluginVersioner,
 } from './skill-bundle';
+import { pluginVersion } from './server/plugin-version';
+
+/**
+ * Most tests here are about layout and refusals, not the version, so they run
+ * with a fixed stand-in; the version tests below pass the real recipe.
+ */
+const FIXED: PluginVersioner = () => '0.0.0-htest';
+const planBundle = (e: PlanEntry[], host: 'claudeSkill' | 'codexSkill', org: string) => planBundleWith(e, host, org, FIXED);
 
 const entry = (over: Partial<PlanEntry> = {}): PlanEntry => ({
   nodeId: 'n1',
@@ -33,6 +42,7 @@ describe('planBundle — the Claude plugin layout', () => {
     expect(Object.keys(b.files).sort()).toEqual(['.claude-plugin/plugin.json', 'skills/drive-pr-home/SKILL.md']);
     expect(JSON.parse(b.files['.claude-plugin/plugin.json'])).toEqual({
       name: 'acme-corp-skills',
+      version: '0.0.0-htest',
       description: 'Skills exported from Acme Corp on Hadron.',
     });
     expect(b.filename).toBe('acme-corp-skills.zip');
@@ -41,6 +51,57 @@ describe('planBundle — the Claude plugin layout', () => {
   it('writes the server-rendered body verbatim', () => {
     const b = planBundle([entry()], 'claudeSkill', 'Acme');
     expect(b.files['skills/drive-pr-home/SKILL.md']).toBe(entry().renderedBody);
+  });
+});
+
+describe('planBundle — the Claude plugin version (#909)', () => {
+  it('writes the content-derived version into the manifest and returns it', () => {
+    const b = planBundleWith([entry()], 'claudeSkill', 'Acme Corp', pluginVersion);
+    const expected = pluginVersion('acme-corp-skills', 'Skills exported from Acme Corp on Hadron.', {
+      'drive-pr-home': entry().renderedBody!,
+    });
+    expect(b.version).toBe(expected);
+    expect(JSON.parse(b.files['.claude-plugin/plugin.json']).version).toBe(expected);
+  });
+
+  it('keeps the existing plugin name: an installed plugin is identified by it', () => {
+    const b = planBundleWith([entry()], 'claudeSkill', 'Acme Corp', pluginVersion);
+    expect(JSON.parse(b.files['.claude-plugin/plugin.json']).name).toBe('acme-corp-skills');
+    expect(b.filename).toBe('acme-corp-skills.zip');
+  });
+
+  it('hashes exactly the skills in the zip — a left-out skill does not move the version', () => {
+    const seen: Array<Record<string, string>> = [];
+    const spy: PluginVersioner = (_n, _d, skills) => (seen.push(skills), 'v');
+    planBundleWith(
+      [
+        entry(),
+        entry({ nodeId: 'n2', name: 'broken', renderedBody: null }),
+        entry({ nodeId: 'n3', name: 'off', class: 'disabled' }),
+        // A body the server rendered but did not plan to WRITE is not shipped,
+        // so it must not move the version either.
+        entry({ nodeId: 'n4', name: 'held', renderedBody: 'x', exportPlan: { action: 'SKIP', reasons: [] } }),
+      ],
+      'claudeSkill',
+      'Acme',
+      spy,
+    );
+    expect(seen).toEqual([{ 'drive-pr-home': entry().renderedBody }]);
+  });
+
+  it('is stable across two downloads of the same content, and moves when a body does', () => {
+    const one = planBundleWith([entry()], 'claudeSkill', 'Acme', pluginVersion);
+    const two = planBundleWith([entry()], 'claudeSkill', 'Acme', pluginVersion);
+    const edited = planBundleWith([entry({ renderedBody: entry().renderedBody + 'more\n' })], 'claudeSkill', 'Acme', pluginVersion);
+    expect(two.files['.claude-plugin/plugin.json']).toBe(one.files['.claude-plugin/plugin.json']);
+    expect(edited.version).not.toBe(one.version);
+  });
+
+  it('has no version for Codex, whose download has no manifest', () => {
+    let called = false;
+    const b = planBundleWith([entry()], 'codexSkill', 'Acme', () => ((called = true), 'v'));
+    expect(b.version).toBeNull();
+    expect(called).toBe(false);
   });
 });
 
