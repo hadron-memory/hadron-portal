@@ -8,12 +8,14 @@
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
+  import Urn from '$lib/components/Urn.svelte';
   import {
     annotateDays,
     authorHrefOf,
     authorInitialOf,
     authorKindOf,
     authorLabelOf,
+    authorUrnOf,
     avatarColorOf,
     indexBySeq,
     replyPreviewOf,
@@ -57,6 +59,7 @@
     heightClass = 'flex-1 min-h-0',
     onRefresh,
     pollMs = TEAM_CHAT_POLL_MS,
+    workerUrns = null,
     onLoadOlder,
   }: {
     messages?: TeamChatMessage[];
@@ -77,6 +80,12 @@
     onRefresh?: () => Promise<{ items: TeamChatMessage[]; total: number; loadFailed: boolean } | null>;
     /** Poll period in ms; 0 or less disables the timer. */
     pollMs?: number;
+    /**
+     * #855: worker id → URN, from the App's staff roster (retired included).
+     * Null when the roster failed to load: then no author chip renders, rather
+     * than an empty one. Only non-null URNs belong in it.
+     */
+    workerUrns?: ReadonlyMap<string, string> | null;
     /** #793: fetch the page BEFORE a seq. Same division of labour as
      *  `onRefresh` — the route owns HOW to read, this component owns WHEN (the
      *  scroll threshold) and the anchoring. Null on failure, so a transient
@@ -587,6 +596,7 @@
         {@const label = authorLabelOf(msg)}
         {@const kind = authorKindOf(msg)}
         {@const authorHref = authorHrefOf(msg)}
+        {@const authorUrn = authorUrnOf(msg, workerUrns)}
         {@const reply = replyPreviewOf(msg, bySeq)}
         <!-- Day separators, so each row carries only a time. -->
         {#if row.day}
@@ -596,7 +606,7 @@
             <span aria-hidden="true" class="h-px flex-1 bg-zinc-200 dark:bg-zinc-700"></span>
           </div>
         {/if}
-        <div class="flex gap-3">
+        <div class="group flex gap-3">
           <div
             class="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full {avatarColorOf(label)}"
           >
@@ -669,13 +679,30 @@
                 {row.time}
               </time>
 
-              <button
-                type="button"
-                onclick={() => startReply(msg.seq)}
-                class="ml-auto rounded px-1.5 py-0.5 text-xs text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
-              >
-                {t('app.team-chat.reply', 'Reply')}
-              </button>
+              <span class="ml-auto flex items-center gap-2">
+                {#if authorUrn}
+                  <!-- #855: the URN slot. Hover-revealed like ChatThread's
+                       message chip, and revealed by keyboard focus too
+                       (group-focus-within): the chip's link and copy buttons
+                       stay in the tab order, and without that a keyboard user
+                       lands on invisible controls. Holds the author's URN now;
+                       the message's own URN joins it when hadron-server#1209
+                       adds TeamChatMessage.urn. -->
+                  <span
+                    data-testid="team-chat-urns"
+                    class="pointer-events-none flex items-center gap-1 opacity-0 transition-opacity duration-200 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+                  >
+                    <Urn value={authorUrn} type="worker" size={8} linked />
+                  </span>
+                {/if}
+                <button
+                  type="button"
+                  onclick={() => startReply(msg.seq)}
+                  class="rounded px-1.5 py-0.5 text-xs text-zinc-500 hover:bg-zinc-200 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 dark:hover:text-zinc-100"
+                >
+                  {t('app.team-chat.reply', 'Reply')}
+                </button>
+              </span>
             </div>
 
             {#if reply}

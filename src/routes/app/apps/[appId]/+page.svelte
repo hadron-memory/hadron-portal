@@ -107,6 +107,12 @@
   // null = the fetch failed, which is NOT the same as "no staff" — the empty
   // state must not claim an App has no workers when we simply couldn't ask.
   const staff = $derived(data.staff);
+  // #855: worker id → URN for the team chat's author chip. Null when the roster
+  // failed to load, so the chat renders no chip rather than an empty one;
+  // workers whose URN is null (pre-v2 App URN) are simply absent.
+  const workerUrns = $derived(
+    staff ? new Map(staff.filter((w) => !!w.urn).map((w) => [w.id, w.urn as string])) : null,
+  );
   const staffError = $derived(data.staffError);
   // Active first, then retired (a retired worker still holds its name forever,
   // so it belongs in the list — just not at the top).
@@ -1545,6 +1551,7 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
           action={teamChatAction}
           onRefresh={refreshTeamChat}
           onLoadOlder={loadOlderTeamChat}
+          {workerUrns}
         />
       </div>
     </div>

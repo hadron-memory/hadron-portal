@@ -5,6 +5,7 @@ import {
   authorInitialOf,
   authorKindOf,
   authorLabelOf,
+  authorUrnOf,
   avatarColorOf,
   bodyOverflows,
   dayKeyOf,
@@ -344,5 +345,28 @@ describe('authorHrefOf', () => {
     expect(
       authorHrefOf({ authorWorkerId: 'a/b?c', authorUserId: null, authorName: 'x' }),
     ).toBe('/app/workers/a%2Fb%3Fc');
+  });
+});
+
+describe('authorUrnOf — #855', () => {
+  const W = 'hrn:worker:acme.com:team:dara';
+  const urns = new Map([['w1', W]]);
+  const msg = (over: Partial<TeamChatMessage>) =>
+    ({ authorWorkerId: null, authorUserId: null, authorName: null, ...over }) as TeamChatMessage;
+
+  it('gives a worker author its roster URN', () => {
+    expect(authorUrnOf(msg({ authorWorkerId: 'w1', authorName: 'Dara' }), urns)).toBe(W);
+  });
+
+  it('is absent, never empty, when there is nothing to show', () => {
+    // Not in the roster (or its URN was null, so it was left out of the map).
+    expect(authorUrnOf(msg({ authorWorkerId: 'w9' }), urns)).toBeNull();
+    // The roster failed to load.
+    expect(authorUrnOf(msg({ authorWorkerId: 'w1' }), null)).toBeNull();
+    // A human: no user URN in this payload, even if an id happened to match.
+    expect(authorUrnOf(msg({ authorUserId: 'w1' }), urns)).toBeNull();
+    // legacy / unknown carry no id at all.
+    expect(authorUrnOf(msg({ authorName: 'Old persona' }), urns)).toBeNull();
+    expect(authorUrnOf(msg({}), urns)).toBeNull();
   });
 });

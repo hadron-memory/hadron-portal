@@ -99,6 +99,30 @@ export function authorHrefOf(
   }
 }
 
+/**
+ * #855 — the author's canonical address, or null when there is none to show.
+ *
+ * Only a `worker` author has one here: the envelope carries its id, and the
+ * App page already loads the staff roster (`WorkerFields.urn`), retired workers
+ * included, so the join needs no new fetch. Null when:
+ * - the author is not a worker: a human's URN is not in this payload, and a
+ *   `legacy` / `unknown` author has no id at all (see `authorHrefOf`);
+ * - the roster failed to load (the caller passes null);
+ * - the worker's URN is null, which `Worker.urn` is by contract when the App's
+ *   URN predates the flat grammar-v2 arity.
+ * Absent, never an empty chip (AGENTS.md: a referenced object shows its URN).
+ *
+ * The MESSAGE's own URN needs hadron-server#1209 (`TeamChatMessage.urn`); the
+ * slot this fills is built to hold that chip beside this one.
+ */
+export function authorUrnOf(
+  msg: Pick<TeamChatMessage, 'authorWorkerId' | 'authorUserId' | 'authorName'>,
+  workerUrns: ReadonlyMap<string, string> | null | undefined,
+): string | null {
+  if (authorKindOf(msg) !== 'worker' || !workerUrns) return null;
+  return workerUrns.get(msg.authorWorkerId as string) || null;
+}
+
 /** The single letter in the avatar disc. */
 export function authorInitialOf(label: string): string {
   const ch = label.trim().charAt(0);
