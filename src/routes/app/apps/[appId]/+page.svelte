@@ -10,7 +10,7 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
-  import { createRosterRefresher, fetchRosterFrom, type RosterEntry } from '$lib/team-chat-roster';
+  import { createRosterRefreshers, fetchRosterFrom, type RosterEntry } from '$lib/team-chat-roster';
 
   // #754/#785: read the transcript from its OWN endpoint, not by invalidating
   // this page's load. The load is a six-query parallel fetch whose failure
@@ -130,20 +130,22 @@
     roster ? new Map(roster.filter((w) => !!w.urn).map((w) => [w.id, w.urn as string])) : null,
   );
   const knownWorkerIds = $derived(new Set((roster ?? []).map((w) => w.id)));
-  // The ask/retry rules live in $lib/team-chat-roster, where they are tested:
-  // one read per never-seen id, none while one is in flight, a retry after a
-  // FAILED read (@codex on #908). One refresher per App.
-  const rosterRefreshers = new Map<string, ReturnType<typeof createRosterRefresher>>();
+  // The ask/retry/ordering rules live in $lib/team-chat-roster, where they are
+  // tested. One refresher per App AND per roster generation (the `staff` object
+  // it would update): a result fetched for an older generation is dropped
+  // below, and the new generation starts with nothing asked, so it re-asks
+  // (@codex on #908).
+  const rosterRefreshersByApp = new Map<string, ReturnType<typeof createRosterRefreshers>>();
   async function refreshRosterFor(items: TeamChatMessage[]) {
     const appId = app.id;
-    let refresher = rosterRefreshers.get(appId);
-    if (!refresher) {
-      refresher = createRosterRefresher(fetchRosterFrom(`/app/apps/${appId}/team-chat/authors`));
-      rosterRefreshers.set(appId, refresher);
+    let forApp = rosterRefreshersByApp.get(appId);
+    if (!forApp) {
+      forApp = createRosterRefreshers(fetchRosterFrom(`/app/apps/${appId}/team-chat/authors`));
+      rosterRefreshersByApp.set(appId, forApp);
     }
     const basedOn = staff;
-    const workers = await refresher.refreshFor(items, knownWorkerIds);
-    if (workers && app.id === appId) rosterRefresh = { basedOn, workers };
+    const workers = await forApp(basedOn).refreshFor(items, knownWorkerIds);
+    if (workers && app.id === appId && staff === basedOn) rosterRefresh = { basedOn, workers };
   }
   const staffError = $derived(data.staffError);
   // Active first, then retired (a retired worker still holds its name forever,

@@ -65,6 +65,32 @@ export function createRosterRefresher(fetchRoster: FetchRoster) {
   };
 }
 
+/**
+ * One refresher per ROSTER GENERATION — the page-load roster object it would
+ * update (@codex on #908). When the page data reloads (a post of your own
+ * invalidates it, say), a read still in flight answers for the OLD roster and
+ * the page drops it; had the ids stayed "asked" in a shared refresher, the new
+ * roster would never ask again and the chip could not recover. A fresh
+ * generation starts with nothing asked, so the next poll re-asks.
+ *
+ * `generation` is the roster object itself (compared by identity, held
+ * weakly), or null when the page-load roster failed — one shared refresher for
+ * "no roster", since null === null keeps a result from being dropped.
+ */
+export function createRosterRefreshers(fetchRoster: FetchRoster) {
+  const byGeneration = new WeakMap<object, ReturnType<typeof createRosterRefresher>>();
+  let forNull: ReturnType<typeof createRosterRefresher> | null = null;
+  return (generation: object | null) => {
+    if (generation === null) return (forNull ??= createRosterRefresher(fetchRoster));
+    let r = byGeneration.get(generation);
+    if (!r) {
+      r = createRosterRefresher(fetchRoster);
+      byGeneration.set(generation, r);
+    }
+    return r;
+  };
+}
+
 /** The page's fetch of `team-chat/authors`, reduced to roster-or-null. */
 export function fetchRosterFrom(url: string, fetchFn: typeof fetch = fetch): FetchRoster {
   return async () => {

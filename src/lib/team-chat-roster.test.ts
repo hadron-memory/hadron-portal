@@ -3,7 +3,7 @@
  * does not, and that a failure is retried rather than remembered.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { createRosterRefresher, fetchRosterFrom, type RosterEntry } from './team-chat-roster';
+import { createRosterRefresher, createRosterRefreshers, fetchRosterFrom, type RosterEntry } from './team-chat-roster';
 
 const m = (authorWorkerId: string | null) => ({ authorWorkerId });
 const ROSTER: RosterEntry[] = [{ id: 'new', urn: 'hrn:worker:acme.com:team:new' }];
@@ -98,5 +98,33 @@ describe('fetchRosterFrom', () => {
     expect(await fetchRosterFrom('/x', bad)()).toBeNull();
     const down = vi.fn(async () => { throw new Error('offline'); }) as unknown as typeof fetch;
     expect(await fetchRosterFrom('/x', down)()).toBeNull();
+  });
+});
+
+describe('createRosterRefreshers — one refresher per roster generation (@codex on #908)', () => {
+  it('a NEW generation re-asks an id an old generation already asked', async () => {
+    const fetchRoster = vi.fn(async () => ROSTER);
+    const forGen = createRosterRefreshers(fetchRoster);
+    const gen1 = [{ id: 'old' }];
+    const gen2 = [{ id: 'old' }]; // a reloaded roster: a different object
+    await forGen(gen1).refreshFor([m('new')], new Set());
+    // The page dropped gen1's result (its roster was replaced mid-flight);
+    // gen2 has asked nothing, so the same id is asked again.
+    await forGen(gen2).refreshFor([m('new')], new Set());
+    expect(fetchRoster).toHaveBeenCalledTimes(2);
+  });
+
+  it('the SAME generation keeps its memory — no re-ask', async () => {
+    const fetchRoster = vi.fn(async () => ROSTER);
+    const forGen = createRosterRefreshers(fetchRoster);
+    const gen = [{ id: 'old' }];
+    await forGen(gen).refreshFor([m('new')], new Set());
+    await forGen(gen).refreshFor([m('new')], new Set());
+    expect(fetchRoster).toHaveBeenCalledTimes(1);
+  });
+
+  it('"no roster" (null) is one generation, shared', async () => {
+    const forGen = createRosterRefreshers(async () => ROSTER);
+    expect(forGen(null)).toBe(forGen(null));
   });
 });
