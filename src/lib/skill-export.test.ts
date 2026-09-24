@@ -579,6 +579,11 @@ describe('unknown export keys on a Task Nodes row (server#1296)', () => {
     const one = unknownExportKeys({ exports: { [long]: 1 } })!;
     expect(one.sample[0]).toHaveLength(40);
     expect(one.sample[0].endsWith('…')).toBe(true);
+    // Shortened by code point: an emoji straddling the cut stays whole, with
+    // no lone surrogate (it would render as a replacement character).
+    const astral = unknownExportKeys({ exports: { ['a'.repeat(38) + '🔥🔥🔥'] : 1 } })!.sample[0];
+    expect(astral).toBe('a'.repeat(38) + '🔥…');
+    expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(astral)).toBe(false);
   });
 
   it('a task declared ONLY under an unknown key is still `none`, and now says why', () => {

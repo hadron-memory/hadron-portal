@@ -495,7 +495,12 @@ export function unknownExportKeys(properties: unknown): UnknownExportKeys | null
     count: keys.length,
     sample: keys
       .slice(0, UNKNOWN_KEY_SAMPLE)
-      .map((k) => (k.length > UNKNOWN_KEY_CHARS ? `${k.slice(0, UNKNOWN_KEY_CHARS - 1)}…` : k)),
+      // By code point, as `codePoints` counts: a UTF-16 slice can cut an
+      // emoji in half and render a replacement character.
+      .map((k) => {
+        const cps = Array.from(k);
+        return cps.length > UNKNOWN_KEY_CHARS ? `${cps.slice(0, UNKNOWN_KEY_CHARS - 1).join('')}…` : k;
+      }),
   };
 }
 
