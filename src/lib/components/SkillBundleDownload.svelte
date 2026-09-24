@@ -74,14 +74,26 @@
    * it. The portal says which, and counts the keys with the server's TRUE
    * total (`keyCount`); the server's own warnings follow verbatim.
    */
+  // t() has no plural rules, so singular and plural are separate strings
+  // (@copilot on #902: "key(s) on it" read as broken English).
+  function unrecognizedSummary(n: UnrecognizedNode): string {
+    const one = n.keyCount === 1;
+    if (n.inDownload) {
+      return one
+        ? t('tasks.bundle.unrecognized.in-download.one', 'In this download. It also has an export key that no host reads, which is ignored.')
+        : t('tasks.bundle.unrecognized.in-download.many', 'In this download. It also has {count} export keys that no host reads, which are ignored.', { count: n.keyCount });
+    }
+    return one
+      ? t('tasks.bundle.unrecognized.not-in-download.one', 'Not in this download. It has an export key that no host reads.')
+      : t('tasks.bundle.unrecognized.not-in-download.many', 'Not in this download. It has {count} export keys that no host reads.', { count: n.keyCount });
+  }
+
   function unrecognizedRows(nodes: UnrecognizedNode[]): LeftOutRow[] {
     return nodes.map((n) => ({
       name: n.name,
       urn: n.urn,
       reason: [
-        n.inDownload
-          ? t('tasks.bundle.unrecognized.in-download', 'In this download. {count} export key(s) on it name no host and are ignored.', { count: n.keyCount })
-          : t('tasks.bundle.unrecognized.not-in-download', 'Not in this download. {count} export key(s) on it name no host.', { count: n.keyCount }),
+        unrecognizedSummary(n),
         ...n.messages,
       ].join(' '),
     }));

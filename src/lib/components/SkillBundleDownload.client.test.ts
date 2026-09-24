@@ -153,9 +153,12 @@ describe('SkillBundleDownload — export keys no host reads (server#1296)', () =
     expect(target.textContent).toContain('What happened');
     const rows = tableRows(target).map((r) => r.textContent ?? '');
     const typo = rows.find((r) => r.includes('Typo task'))!;
-    expect(typo).toContain('Not in this download. 14 export key(s)');
+    expect(typo).toContain('Not in this download. It has 14 export keys that no host reads.');
     expect(typo).toContain('4 more unrecognised key(s)');
-    expect(rows.find((r) => r.includes(BOTH.split(':').pop()!) && r.includes('In this download.'))).toBeDefined();
+    // keyCount 1 takes the singular string, not "1 export keys".
+    expect(rows.find((r) => r.includes(BOTH.split(':').pop()!))).toContain(
+      'In this download. It also has an export key that no host reads, which is ignored.',
+    );
     // The left-out grid is untouched: still its own two rows and heading.
     expect(target.textContent).toContain('Left out of the download (2)');
     expect(rows).toHaveLength(4);
