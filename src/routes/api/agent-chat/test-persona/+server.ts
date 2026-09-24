@@ -94,7 +94,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       onTrack?: boolean;
     }> = [];
 
-    // 1. Start the chat
+    // 1. Start the chat. #898: this is a Tester path like test-run, so it
+    // passes the same two flags. isTestRun=true skips the server's
+    // AgentSubscription auto-provision (spec 019); without it, running a
+    // scripted persona granted the tester a subscription to the agent.
+    // scope is pinned rather than left to the server default so a test run
+    // can never be shared to every AppMember.
     const startResult = await client.request<{
       startChat: {
         chatId: string;
@@ -106,6 +111,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }>(START_CHAT_MUTATION, {
       agentId: body.agentId,
       conversationName: body.conversationName ?? null,
+      scope: 'private',
+      isTestRun: true,
     });
 
     const { chatId } = startResult.startChat;
