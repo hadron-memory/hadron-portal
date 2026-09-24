@@ -44,7 +44,7 @@
   const checkedCount = $derived(rows.filter((r) => r.export.kind === 'on').length);
 
   // Checked rows first when sorted ascending; the rest in a stable order.
-  const EXPORT_RANK: Record<TaskExport['kind'], number> = { on: 0, divergent: 1, off: 2, none: 3 };
+  const EXPORT_RANK: Record<TaskExport['kind'], number> = { on: 0, divergent: 1, legacy: 2, off: 3, none: 4 };
 
   let globalFilter = $state('');
 

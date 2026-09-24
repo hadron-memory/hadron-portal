@@ -31,6 +31,7 @@ import {
   readSkillExport,
   rowExportState,
   taskExport,
+  taskExportNote,
   taskExportSearchText,
   taskExportUnknownNote,
   toggleSkillExport,
@@ -652,5 +653,31 @@ describe('retired top-level declarations (@codex on #905)', () => {
       skill: decl(),
       claudeSkill: undefined,
     });
+  });
+});
+
+describe('#906 — a Task Nodes row declared by a retired top-level key', () => {
+  it('is `legacy` when a retired key SUPPLIES Claude\'s export — alone, or beside a Codex-only `exports`', () => {
+    expect(taskExport({ skill: decl() })).toEqual({ kind: 'legacy' });
+    expect(taskExport({ claudeSkill: decl() })).toEqual({ kind: 'legacy' });
+    // No exports.claudeSkill: the legacy key is still Claude's declaration.
+    expect(taskExport({ skill: decl(), exports: { codexSkill: decl() } })).toEqual({ kind: 'legacy' });
+  });
+
+  it('beside a modern exports.claudeSkill the legacy key is a stray alias, and the row is its modern self (@codex on #907)', () => {
+    // exports.claudeSkill wins on the server, so the effective state is the modern one.
+    expect(taskExport({ skill: decl(), exports: { claudeSkill: decl(), codexSkill: decl() } })).toEqual({
+      kind: 'on',
+      hosts: ['claudeSkill', 'codexSkill'],
+    });
+    // A row with no legacy key is exactly what it was.
+    expect(taskExport({ exports: { claudeSkill: decl() } })).toEqual({ kind: 'on', hosts: ['claudeSkill'] });
+  });
+
+  it('says so, and is found by that text; an unused-key note still comes along', () => {
+    const s = taskExport({ skill: decl(), exports: { codex: 1 } });
+    expect(s).toEqual({ kind: 'legacy', unknown: { count: 1, sample: ['"codex"'] } });
+    expect(taskExportNote(s)).toBe('Older export setting');
+    expect(taskExportSearchText(s)).toBe('Older export setting Unused key: "codex"');
   });
 });

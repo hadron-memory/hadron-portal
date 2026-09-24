@@ -182,6 +182,28 @@ function routeAction(opts: { node?: unknown; memories?: Array<{ id: string }>; w
 }
 
 describe('setExport action — #879', () => {
+  it('#906: refuses a node declared by a retired top-level key, and writes NOTHING', async () => {
+    // exports.claudeSkill wins over a legacy key on the server, so writing it
+    // here would silently override what the node declares.
+    for (const key of ['skill', 'claudeSkill']) {
+      mockRequest.mockReset();
+      const writes = routeAction({ node: storedTask({ properties: { [key]: { name: 'x', description: 'd', enable: true } } }) });
+      const actions = await importActions();
+      const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
+      expect(out).toMatchObject({ status: 409, data: { exportFailed: { nodeId: 'n1', code: 'legacy' } } });
+      expect(writes).toEqual([]);
+    }
+  });
+
+  it('#907: a stray legacy key beside a modern exports.claudeSkill does NOT block the toggle (@codex)', async () => {
+    const d = { name: 'drive-pr-home', description: 'd', enable: true };
+    const writes = routeAction({ node: storedTask({ properties: { skill: d, exports: { claudeSkill: d, codexSkill: d } } }) });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'false' }));
+    expect(out).toEqual({ exportSaved: { nodeId: 'n1' } });
+    expect(writes).toHaveLength(1);
+  });
+
   it('refuses an anonymous POST before any API call (@copilot on #890)', async () => {
     routeAction({ node: storedTask() });
     const actions = await importActions();
