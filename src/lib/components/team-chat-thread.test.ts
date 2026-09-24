@@ -11,6 +11,7 @@ import {
   dayKeyOf,
   indexBySeq,
   replyPreviewOf,
+  unknownWorkerIds,
 } from './team-chat-thread';
 import type { TeamChatMessage } from '$lib/types';
 
@@ -368,5 +369,17 @@ describe('authorUrnOf — #855', () => {
     // legacy / unknown carry no id at all.
     expect(authorUrnOf(msg({ authorName: 'Old persona' }), urns)).toBeNull();
     expect(authorUrnOf(msg({}), urns)).toBeNull();
+  });
+});
+
+describe('unknownWorkerIds — @codex on #908', () => {
+  const m = (authorWorkerId: string | null) => ({ authorWorkerId });
+  it('names only worker ids the roster has never seen, once each, in first-seen order', () => {
+    const known = new Set(['w1', 'w2']);
+    expect(unknownWorkerIds([m('w1'), m('w3'), m(null), m('w3'), m('w4'), m('w2')], known)).toEqual(['w3', 'w4']);
+  });
+  it('treats a KNOWN worker with a null URN as known — asking again would not give it one', () => {
+    // The page puts every rostered id in the set, URN or not.
+    expect(unknownWorkerIds([m('w-null-urn')], new Set(['w-null-urn']))).toEqual([]);
   });
 });

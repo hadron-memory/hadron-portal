@@ -123,6 +123,24 @@ export function authorUrnOf(
   return workerUrns.get(msg.authorWorkerId as string) || null;
 }
 
+/**
+ * #855 (@codex on #908): worker ids in `items` that the roster has never seen —
+ * a worker cast after the page loaded. Only these warrant re-reading the
+ * roster; a KNOWN worker whose URN is null would not gain one by asking again.
+ * Deduplicated, in first-seen order.
+ */
+export function unknownWorkerIds(
+  items: Array<Pick<TeamChatMessage, 'authorWorkerId'>>,
+  knownIds: ReadonlySet<string>,
+): string[] {
+  const out: string[] = [];
+  for (const m of items) {
+    const id = m.authorWorkerId;
+    if (id && !knownIds.has(id) && !out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
 /** The single letter in the avatar disc. */
 export function authorInitialOf(label: string): string {
   const ch = label.trim().charAt(0);

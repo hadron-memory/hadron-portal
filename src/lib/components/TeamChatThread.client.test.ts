@@ -82,9 +82,18 @@ describe('TeamChatThread — the URN slot (#855)', () => {
     expect(slot.className).toContain('opacity-0');
     expect(slot.className).toContain('group-hover:opacity-100');
     expect(slot.className).toContain('group-focus-within:opacity-100');
+    // On a device that cannot hover, it is simply shown (@codex on #908).
+    expect(slot.className).toContain('[@media(hover:none)]:opacity-100');
+    expect(slot.className).toContain('[@media(hover:none)]:pointer-events-auto');
+    // And it may SHRINK: on a narrow screen, where it is always shown, the chip
+    // must wrap and truncate rather than widen the header past the thread
+    // (measured at 375px before this: 383px of content in a 199px header).
+    expect(slot.className).toContain('min-w-0');
+    expect((slot.parentElement as HTMLElement).className).toMatch(/\bmin-w-0\b.*\bmax-w-full\b|\bmax-w-full\b.*\bmin-w-0\b/);
     // …and the reveal is scoped to THIS message's row.
     expect(rowOf(target, 1).classList.contains('group')).toBe(true);
-    // The chip itself is a real link into the worker, reachable by Tab.
-    expect(slot.querySelector('a[href]')).not.toBeNull();
+    // The chip itself is a real link, reachable by Tab, to the URN resolver —
+    // which redirects to the worker's profile.
+    expect(slot.querySelector('a')!.getAttribute('href')).toBe(`/app/u/${DARA}`);
   });
 });

@@ -10,6 +10,7 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
+  import { unknownWorkerIds } from '$lib/components/team-chat-thread';
 
   // #754/#785: read the transcript from its OWN endpoint, not by invalidating
   // this page's load. The load is a six-query parallel fetch whose failure
@@ -26,7 +27,9 @@
   const refreshTeamChat = async () => {
     const res = await fetch(`/app/apps/${app.id}/team-chat`);
     if (!res.ok) return null; // treated as a degraded tick, not an empty thread
-    return (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
+    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
+    void refreshRosterFor(body.items);
+    return body;
   };
   // #793: the page BEFORE a seq. Same endpoint, same degraded-read contract —
   // null means "the fetch failed, retry on the next scroll", which the thread
@@ -36,6 +39,7 @@
     if (!res.ok) return null;
     const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
     if (body.loadFailed) return null;
+    void refreshRosterFor(body.items);
     return { items: body.items, total: body.total };
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
@@ -110,9 +114,37 @@
   // #855: worker id → URN for the team chat's author chip. Null when the roster
   // failed to load, so the chat renders no chip rather than an empty one;
   // workers whose URN is null (pre-v2 App URN) are simply absent.
-  const workerUrns = $derived(
-    staff ? new Map(staff.filter((w) => !!w.urn).map((w) => [w.id, w.urn as string])) : null,
+  //
+  // @codex on #908: a worker cast AFTER this page loaded posts, and its message
+  // arrives through the transcript poll, so the page-load roster has never seen
+  // it. `refreshRosterFor` re-reads the roster (team-chat/authors) only then. The
+  // refreshed roster is kept with the `data.staff` it superseded and used only
+  // while that is still the page's roster, so a later page load wins.
+  type RosterEntry = { id: string; urn: string | null };
+  let rosterRefresh = $state<{ basedOn: Worker[] | null; workers: RosterEntry[] } | null>(null);
+  const roster = $derived<RosterEntry[] | null>(
+    rosterRefresh && rosterRefresh.basedOn === staff
+      ? rosterRefresh.workers
+      : (staff?.map((w) => ({ id: w.id, urn: w.urn ?? null })) ?? null),
   );
+  const workerUrns = $derived(
+    roster ? new Map(roster.filter((w) => !!w.urn).map((w) => [w.id, w.urn as string])) : null,
+  );
+  const knownWorkerIds = $derived(new Set((roster ?? []).map((w) => w.id)));
+  // Ids already asked about, per App, so an id the roster really lacks (a
+  // worker of another App, say) costs one read, not one per poll.
+  const rosterAskedFor = new Set<string>();
+  async function refreshRosterFor(items: TeamChatMessage[]) {
+    const unknown = unknownWorkerIds(items, knownWorkerIds).filter((id) => !rosterAskedFor.has(`${app.id}:${id}`));
+    if (unknown.length === 0) return;
+    for (const id of unknown) rosterAskedFor.add(`${app.id}:${id}`);
+    const basedOn = staff;
+    const res = await fetch(`/app/apps/${app.id}/team-chat/authors`).catch(() => null);
+    if (!res?.ok) return;
+    const body = (await res.json().catch(() => null)) as { workers: RosterEntry[]; loadFailed: boolean } | null;
+    if (!body || body.loadFailed) return;
+    rosterRefresh = { basedOn, workers: body.workers };
+  }
   const staffError = $derived(data.staffError);
   // Active first, then retired (a retired worker still holds its name forever,
   // so it belongs in the list — just not at the top).
