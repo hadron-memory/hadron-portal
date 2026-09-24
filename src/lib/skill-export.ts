@@ -512,6 +512,16 @@ export function taskExport(properties: unknown): TaskExport {
 }
 
 /**
+ * The export keys a host reads, as a sentence fragment ("claudeSkill and
+ * codexSkill"). Derived from `SKILL_HOSTS`, the list the unknown-key check
+ * uses, so the explanation cannot name a different set than the check
+ * (@copilot on #903).
+ */
+export function exportKeyList(hosts: readonly string[] = SKILL_HOSTS): string {
+  return new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format([...hosts]);
+}
+
+/**
  * The row's note about keys no host reads, or '' when there are none. `t()` has
  * no plural rules, so one key and several are separate strings.
  */

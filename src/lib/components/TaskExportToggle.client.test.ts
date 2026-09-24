@@ -11,7 +11,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import type { TaskExport } from '$lib/skill-export';
+import { exportKeyList, type TaskExport } from '$lib/skill-export';
 import TaskExportToggle from './TaskExportToggle.svelte';
 
 type Props = { nodeId: string; memoryId: string; name: string; exportState: TaskExport };
@@ -108,6 +108,8 @@ describe('TaskExportToggle — export keys no host reads (server#1296)', () => {
     const link = noteLink(target)!;
     expect(link.textContent).toBe('Unused key: codex');
     expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1/edit');
+    // The explanation names the same host list the check uses (@copilot on #903).
+    expect(link.getAttribute('title')).toContain(`Only ${exportKeyList()} are export keys`);
   });
 
   it('shows beside a divergent row too, which has no checkbox', async () => {

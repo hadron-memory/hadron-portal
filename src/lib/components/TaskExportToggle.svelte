@@ -10,7 +10,7 @@
   // The action re-reads the node and computes the write from the STORED
   // properties; this component never sends a properties bag.
   import { enhance } from '$app/forms';
-  import { SKILL_HOSTS, hostLabel, taskExportNote, taskExportUnknownNote, type TaskExport } from '$lib/skill-export';
+  import { SKILL_HOSTS, exportKeyList, hostLabel, taskExportNote, taskExportUnknownNote, type TaskExport } from '$lib/skill-export';
   import { t } from '$lib/i18n/t';
   import { saveSettled, saveStarted } from '$lib/skill-export-saves.svelte';
 
@@ -133,7 +133,8 @@
     class="mt-1 block text-xs text-amber-700 hover:underline dark:text-amber-400"
     title={t(
       'tasks.export.unknown-title',
-      'Only claudeSkill and codexSkill are export keys; nothing reads any other key under exports. Rename or remove it on the node.',
+      'Only {keys} are export keys; nothing reads any other key under exports. Rename or remove it on the node.',
+      { keys: exportKeyList() },
     )}
   >{unknownNote}</a>
 {/if}

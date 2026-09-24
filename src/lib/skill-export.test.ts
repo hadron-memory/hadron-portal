@@ -23,6 +23,7 @@ import {
   declarationState,
   defaultSkillName,
   enableSkillExport,
+  exportKeyList,
   readDeclaration,
   readExports,
   readSkillExport,
@@ -611,5 +612,18 @@ describe('unknown export keys on a Task Nodes row (server#1296)', () => {
     const r = toggleSkillExport({ exports: { codex: decl() } }, true, defaults);
     expect(r.kind).toBe('write');
     if (r.kind === 'write') expect(Object.keys(r.properties.exports as object).sort()).toEqual(['claudeSkill', 'codex', 'codexSkill']);
+  });
+});
+
+describe('exportKeyList — the hosts named in an explanation (@copilot on #903)', () => {
+  it('names exactly SKILL_HOSTS, as a sentence', () => {
+    expect(exportKeyList()).toBe('claudeSkill and codexSkill');
+    for (const h of SKILL_HOSTS) expect(exportKeyList()).toContain(h);
+  });
+
+  it('is DERIVED from the list, not a fixed sentence: a third host changes it', () => {
+    // With today's two hosts a hard-coded string reads the same, so only a
+    // different list can tell derivation from a literal.
+    expect(exportKeyList(['claudeSkill', 'codexSkill', 'geminiSkill'])).toBe('claudeSkill, codexSkill, and geminiSkill');
   });
 });
