@@ -817,3 +817,51 @@ describe('#905 review — the section opens for a refusal only the server can se
     }
   });
 });
+
+describe('#905 review — a retired top-level declaration goes to the raw editor (@codex)', () => {
+  const legacy = { name: 'drive-pr-home', description: 'Take a PR home. Use when asked.', enable: true };
+  const pass: SkillCheck = {
+    kind: 'checked',
+    hosts: [{ host: 'claudeSkill', status: 'judged', off: false, errors: [], warnings: [] }],
+  };
+  const verdict = (t: HTMLElement) => t.querySelector('[data-testid="skill-server-check"]')?.textContent ?? null;
+
+  it('offers NO checkbox for a legacy-only export on a non-runnable node, says why, and shows its verdict', async () => {
+    const m = await mountPage({ isRunnable: false, properties: { skill: legacy }, skillCheck: pass });
+    try {
+      expect(exportBox(m.target)).toBeNull();
+      expect(m.target.textContent).toContain('older top-level “skill” or “claudeSkill” setting');
+      expect(verdict(m.target)).toContain('As saved, the server’s checks pass for Claude.');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('round-trips a bag with BOTH a legacy key and modern hosts, dropping nothing', async () => {
+    const stored = { claudeSkill: legacy, exports: { codexSkill: legacy }, url: 'kept' };
+    const m = await mountPage({ properties: stored, skillCheck: pass });
+    try {
+      expect(exportBox(m.target)).toBeNull();
+      expect(submitted(m.target)).toEqual(stored);
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+    } finally {
+      m.unmount();
+    }
+  });
+
+  it('a raw edit to the legacy key counts as unsaved', async () => {
+    const m = await mountPage({ properties: { skill: legacy }, skillCheck: pass });
+    try {
+      expect(verdict(m.target)).not.toContain('unsaved changes');
+      const raw = m.target.querySelector('textarea#properties') as HTMLTextAreaElement;
+      const bag = JSON.parse(raw.value);
+      bag.skill.enable = false;
+      raw.value = JSON.stringify(bag, null, 2);
+      raw.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      expect(verdict(m.target)).toContain('You have unsaved changes.');
+    } finally {
+      m.unmount();
+    }
+  });
+});

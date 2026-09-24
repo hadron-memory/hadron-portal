@@ -39,6 +39,7 @@
     rawPropertiesEditable = true,
     runnableBlockedBy = null,
     strictCollection = null,
+    legacy = false,
     defaults,
     serverCheck = null,
     unsaved = false,
@@ -70,6 +71,12 @@
      * (@copilot, @codex on #887).
      */
     strictCollection?: string | null;
+    /**
+     * The node declares its export with a retired top-level `skill` /
+     * `claudeSkill` key, which the checkbox does not edit. Shown as `divergent`
+     * with its own explanation (@codex on #905).
+     */
+    legacy?: boolean;
     /** What a freshly checked export starts with — derived from the node's own fields. */
     defaults: { name: string; description: string };
     /**
@@ -154,10 +161,17 @@
       properties editor keeps them, verbatim.
     -->
     <p class="text-sm text-zinc-600 dark:text-zinc-400">
-      {t(
-        'skill-export.divergent',
-        'This node’s export settings can’t be edited with the checkbox here: the Claude and Codex entries differ, or carry fields this form doesn’t edit.',
-      )}
+      {#if legacy}
+        {t(
+          'skill-export.legacy',
+          'This node declares its export with the older top-level “skill” or “claudeSkill” setting, which the checkbox here doesn’t edit.',
+        )}
+      {:else}
+        {t(
+          'skill-export.divergent',
+          'This node’s export settings can’t be edited with the checkbox here: the Claude and Codex entries differ, or carry fields this form doesn’t edit.',
+        )}
+      {/if}
       {#if rawPropertiesEditable}
         {t('skill-export.divergent-where', 'Change them under Structured storage → Properties.')}
       {/if}

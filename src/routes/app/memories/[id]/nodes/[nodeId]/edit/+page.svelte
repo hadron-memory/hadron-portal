@@ -7,7 +7,8 @@
   import {
     declarationProblems,
     defaultSkillName,
-    readExports,
+    exportDeclarations,
+    hasLegacyExport,
     readSkillExport,
     withoutSkillExport,
     writeSkillExport,
@@ -85,6 +86,7 @@
   function splitProperties(serialized: string): {
     skillExport: SkillExport | null;
     divergent: boolean;
+    legacy?: boolean;
     rest: string;
   } {
     const raw = (serialized ?? '').trim();
@@ -102,6 +104,14 @@
     // failure: keep the raw text and let the raw editor own it.
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
       return { skillExport: null, divergent: false, rest: raw };
+    }
+    // A retired top-level `skill` / `claudeSkill` declaration: the server reads
+    // it as Claude's, and the checkbox edits only `exports`, so offering the
+    // checkbox would show "off" beside an export that is on and edit a
+    // different key (@codex on #905). The raw editor keeps the WHOLE bag —
+    // modern hosts included — so the recombination writes every key back.
+    if (hasLegacyExport(parsed)) {
+      return { skillExport: null, divergent: true, legacy: true, rest: raw };
     }
     const rest = withoutSkillExport(parsed);
     const { value, divergent } = readSkillExport(parsed);
@@ -123,7 +133,7 @@
   function exportsOf(json: string): unknown {
     if (!json.trim()) return {};
     try {
-      return readExports(JSON.parse(json));
+      return exportDeclarations(JSON.parse(json));
     } catch {
       return undefined; // unparseable: certainly not what the server judged
     }
@@ -132,12 +142,13 @@
     const current = exportsOf($formData.propertiesJson);
     return (
       current === undefined ||
-      !sameProperties(current, readExports(node.properties)) ||
+      !sameProperties(current, exportDeclarations(node.properties)) ||
       $formData.isRunnable !== (node.isRunnable ?? false)
     );
   });
   let skillExport = $state<SkillExport | null>(initialSplit.skillExport);
   let exportDivergent = $state(initialSplit.divergent);
+  let exportLegacy = $state(initialSplit.legacy ?? false);
   let restJson = $state(initialSplit.rest);
 
   /**
@@ -165,6 +176,7 @@
     );
     skillExport = next.skillExport;
     exportDivergent = next.divergent;
+    exportLegacy = next.legacy ?? false;
     restJson = next.rest;
     // Node B starts collapsed like any node; the attention effects below
     // re-open a section for B's OWN errors (@copilot on #887).
@@ -374,6 +386,7 @@
           bind:value={skillExport}
           bind:runnable={$formData.isRunnable}
           divergent={exportDivergent}
+          legacy={exportLegacy}
           rawPropertiesEditable={!declaredCollection}
           runnableBlockedBy={data.runnableBlockedBy ?? null}
           {strictCollection}

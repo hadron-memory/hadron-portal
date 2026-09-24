@@ -13,7 +13,7 @@
  * unsaved draft. So the verdict is labelled "as saved", and the editor says so
  * when the form holds unsaved changes rather than implying they were checked.
  */
-import { CLAUDE_SKILL_HOST, SKILL_HOSTS, readExports } from '$lib/skill-export';
+import { CLAUDE_SKILL_HOST, SKILL_HOSTS, hasLegacyExport, readExports } from '$lib/skill-export';
 
 /** One finding as SKILL_PLAN_LINT_QUERY selects it. */
 export interface LintFinding {
@@ -47,21 +47,13 @@ export type HostCheck =
 export type SkillCheck = { kind: 'none' } | { kind: 'checked'; hosts: HostCheck[] };
 
 /**
- * The retired top-level keys the server still reads as a `claudeSkill`
- * declaration (`SkillPlanInput.host`: "the retired top-level skill/claudeSkill
- * keys alias to claudeSkill only"). The portal's editor never writes them, but
- * a node that still carries one IS judged, so its verdict is asked for too
- * (@codex on #905).
+ * The hosts the STORED properties declare — the only ones the plan judges. A
+ * retired top-level declaration counts as `claudeSkill`, as the server reads it
+ * (`hasLegacyExport`, @codex on #905).
  */
-const LEGACY_CLAUDE_KEYS = ['skill', 'claudeSkill'] as const;
-
-/** The hosts the STORED properties declare — the only ones the plan judges. */
 export function declaredHosts(properties: unknown): string[] {
   const exports = readExports(properties);
-  const bag = properties !== null && typeof properties === 'object' && !Array.isArray(properties)
-    ? (properties as Record<string, unknown>)
-    : {};
-  const legacyClaude = LEGACY_CLAUDE_KEYS.some((k) => bag[k] !== undefined);
+  const legacyClaude = hasLegacyExport(properties);
   return SKILL_HOSTS.filter((h) => exports[h] !== undefined || (h === CLAUDE_SKILL_HOST && legacyClaude));
 }
 
