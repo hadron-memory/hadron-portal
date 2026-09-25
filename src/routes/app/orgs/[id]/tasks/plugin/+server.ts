@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
+import { pluginVersion } from '$lib/server/plugin-version';
 import { ORG_SKILL_BUNDLE_QUERY, SKILL_PLAN_EXPORT_QUERY, SKILL_PLAN_STATUS_QUERY } from '$lib/server/queries';
 import {
   isBundleHost,
@@ -85,7 +86,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     notForHostUnknown = extractGqlError(otherPlan.reason, 'The other host could not be checked');
   }
 
-  const bundle = planBundle(entries, host, org?.name ?? '');
+  const bundle = planBundle(entries, host, org?.name ?? '', pluginVersion);
   let zipBase64: string | null = null;
   if (bundle.included.length > 0) {
     const zip = new JSZip();
@@ -96,6 +97,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   return json({
     host,
     filename: bundle.filename,
+    version: bundle.version,
     zipBase64,
     included: bundle.included,
     skipped: bundle.skipped,

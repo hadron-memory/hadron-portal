@@ -121,6 +121,25 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
     const paths = Object.keys(zip.files).filter((p) => !zip.files[p].dir).sort();
     expect(paths).toEqual(['.claude-plugin/plugin.json', 'skills/drive-pr-home/SKILL.md']);
     expect(await zip.file('skills/drive-pr-home/SKILL.md')!.async('string')).toBe(BODY);
+
+    // #909: the manifest in the zip carries the content version the report names.
+    const manifest = JSON.parse(await zip.file('.claude-plugin/plugin.json')!.async('string'));
+    expect(manifest.name).toBe('acme-skills');
+    expect(manifest.version).toMatch(/^0\.0\.0-h[0-9a-f]{12}$/);
+    expect(r.body.version).toBe(manifest.version);
+  });
+
+  it('#909: the same content downloads with the same version, and the Codex download has none', async () => {
+    route({ entries: [entry()] });
+    const first = await post({ host: 'claudeSkill' });
+    route({ entries: [entry()] });
+    const again = await post({ host: 'claudeSkill' });
+    expect(again.body.version).toBe(first.body.version);
+    route({ entries: [entry({ renderedBody: BODY + 'edited\n' })] });
+    const edited = await post({ host: 'claudeSkill' });
+    expect(edited.body.version).not.toBe(first.body.version);
+    route({ entries: [entry()] });
+    expect((await post({ host: 'codexSkill' })).body.version).toBeNull();
   });
 
   it('sends no archive when nothing could be exported, but still says why', async () => {

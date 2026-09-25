@@ -33,6 +33,8 @@
   interface Report {
     host: SkillBundleHost;
     filename: string;
+    /** #909: the Claude plugin's content-derived version; null for Codex. */
+    version: string | null;
     included: Array<{ name: string; urn: string }>;
     /** Every checked task left out, whichever the cause — one grid. */
     leftOut: LeftOutRow[];
@@ -146,6 +148,7 @@
       report = {
         host,
         filename: body.filename,
+        version: body.version ?? null,
         included: body.included,
         leftOut: leftOutRows(body.skipped ?? [], body.notForHost ?? [], body.otherHost ?? ''),
         notForHostUnknown: body.notForHostUnknown ?? null,
@@ -226,6 +229,13 @@
             {t('tasks.bundle.install-codex', 'To install it in Codex, unzip it into ~/.agents/skills — or a project’s .agents/skills folder.')}
           {/if}
         </p>
+        {#if report.version}
+          <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="skill-bundle-version">
+            {t('tasks.bundle.version', 'Plugin version {version}. A later download gets a new version only if the plugin’s contents changed.', {
+              version: report.version,
+            })}
+          </p>
+        {/if}
       {/if}
       {#if report.notForHostUnknown}
         <p class="text-xs text-amber-700 dark:text-amber-400">
