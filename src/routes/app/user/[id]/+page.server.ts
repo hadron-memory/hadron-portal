@@ -47,7 +47,8 @@ type HeldWorkersResult =
  * #919 — the Workers tab. Selected by the resolved user's id, never the URL
  * ref. A failed read is REPORTED on the tab (`ok: false`), not folded into an
  * empty roster that would claim the user holds nothing
- * (review:no-silent-loader-catch); the profile itself still renders.
+ * (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch); the
+ * profile itself still renders.
  */
 async function loadHeldWorkers(token: string | null | undefined, userId: string): Promise<HeldWorkersResult> {
   try {

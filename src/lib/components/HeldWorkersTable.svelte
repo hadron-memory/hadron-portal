@@ -58,9 +58,19 @@
     }
   }
 
-  /** Text the cells render that the accessors do not carry. */
+  /** The role cell's text: the role, or the "No role" it renders instead. */
+  export function heldWorkerRoleLabel(w: HeldWorker): string {
+    return w.role || tt('user.workers.no-role', 'No role');
+  }
+
+  /**
+   * Text the cells render that the accessors do not carry, so the search box
+   * finds a row by what is on screen (@codex on #930: "No role" was shown and
+   * unsearchable).
+   */
   export const heldWorkerSearchExtras: ColumnSearchExtras<HeldWorker> = {
     state: (w) => heldWorkerStateLabel(w),
+    role: (w) => heldWorkerRoleLabel(w),
     heldAt: (w) => w.heldAt,
   };
 </script>
@@ -79,7 +89,7 @@
     maxHeight = 'max(200px, calc(100vh - 26rem))',
   }: { workers: HeldWorker[]; listKey?: string; maxHeight?: string } = $props();
 
-  /** Epoch millis, so date columns sort by INSTANT (review:date-column-sorts-by-instant). */
+  /** Epoch millis, so date columns sort by INSTANT (hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant). */
   function dateMs(value: string | null | undefined): number | null {
     if (!value) return null;
     const ms = new Date(value).getTime();
@@ -169,15 +179,17 @@
         <span class="text-zinc-500">{t('user.workers.no-role', 'No role')}</span>
       {/if}
     {:else if c.column.id === 'app'}
-      <!-- review:render-urn. Nullable by contract: absent, never an empty chip. -->
+      <!-- hrn:node:hadronmemory.com:hadron-portal:review:render-urn. Nullable by contract: absent, never an empty chip. -->
       {#if w.appUrn}
-        <Urn value={w.appUrn} type="app" size={8} linked />
+        <!-- Labelled, like every row carrying two chips: four buttons all
+             named "Copy URN"/"Copy URL" cannot be told apart (@codex on #930). -->
+        <Urn value={w.appUrn} type="app" size={8} linked label={t('user.workers.urn.app', 'App')} />
       {:else}
         <span class="text-zinc-400">—</span>
       {/if}
     {:else if c.column.id === 'urn'}
       {#if w.urn}
-        <Urn value={w.urn} type="worker" size={8} linked />
+        <Urn value={w.urn} type="worker" size={8} linked label={t('user.workers.urn.worker', 'worker')} />
       {:else}
         <span class="text-zinc-400">—</span>
       {/if}

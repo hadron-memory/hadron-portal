@@ -9,7 +9,7 @@ vi.mock('$app/stores', () => ({
 }));
 vi.mock('$app/navigation', () => ({ goto: () => {}, invalidate: () => {} }));
 
-import HeldWorkersTable, { heldWorkerSearchExtras, heldWorkerState, heldWorkerStateLabel, type HeldWorker } from './HeldWorkersTable.svelte';
+import HeldWorkersTable, { heldWorkerRoleLabel, heldWorkerSearchExtras, heldWorkerState, heldWorkerStateLabel, type HeldWorker } from './HeldWorkersTable.svelte';
 import { makeGlobalFilterFn } from '$lib/table/global-filter';
 
 const w = (over: Partial<HeldWorker> = {}): HeldWorker => ({
@@ -63,6 +63,12 @@ describe('HeldWorkersTable — rendered', () => {
     expect(body).toContain('/app/u/hrn:worker:acme.com:team:dara');
     expect(body).toContain('No role');
   });
+
+  it('names each chip\'s copy buttons for what they copy (@codex on #930)', () => {
+    expect(body).toContain('aria-label="Copy App URN"');
+    expect(body).toContain('aria-label="Copy worker URN"');
+    expect(body).not.toContain('aria-label="Copy URN"');
+  });
 });
 
 describe('HeldWorkersTable — search finds what the cells show', () => {
@@ -76,5 +82,16 @@ describe('HeldWorkersTable — search finds what the cells show', () => {
 
   it('does not find an idle worker by "Active now"', () => {
     expect(filter(row(w({ hasLiveSession: false }), 'state'), 'state', 'active now')).toBe(false);
+  });
+});
+
+describe('HeldWorkersTable — the "No role" it renders is searchable (@codex on #930)', () => {
+  const filter = makeGlobalFilterFn<HeldWorker>({ state: () => '', heldAt: () => '' }, heldWorkerSearchExtras);
+  const row = (worker: HeldWorker) => ({ original: worker, getValue: () => '', getAllCells: () => [] }) as never;
+
+  it('finds a role-less worker by "No role", and not one with a role', () => {
+    expect(heldWorkerRoleLabel(w({ role: null }))).toBe('No role');
+    expect(filter(row(w({ role: null })), 'role', 'no role')).toBe(true);
+    expect(filter(row(w()), 'role', 'no role')).toBe(false);
   });
 });
