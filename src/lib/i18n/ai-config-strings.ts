@@ -66,11 +66,18 @@ export const aiConfigStrings = {
   testNeedsKey: (): string =>
     t('ai-config.test-needs-key', 'Enter a key to test this configuration.'),
 
-  /** Hint shown on the AGENT surface — the Chat tab resolves the `default` config. */
+  /**
+   * Hint shown on the AGENT surface (#924). The agent page has no Chat tab any
+   * more; the agent chats in an App's Chats → Agent chat and in its Tester.
+   * Both resolve a config by NAME, walking App → Agent → Org → Host with
+   * `default` as the fallback name (spec 036, `resolveAIConfig`), so an
+   * agent's config applies only where the App has none of that name. The copy
+   * must not claim every App uses the agent's `default`.
+   */
   agentDefaultHint: (): string =>
     t(
       'ai-config.agent-default-hint',
-      'The agent Chat tab uses the configuration named “default”.',
+      'Used when this agent chats — in an App’s Agent chat or in the Tester — unless the App has its own configuration with the same name. “default” is used when no other name is chosen.',
     ),
   /** Warning when renaming a well-known config name that consumers reference. */
   renameWellKnownWarning: (name: string): string =>
