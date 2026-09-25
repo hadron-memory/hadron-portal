@@ -701,10 +701,10 @@
                     class="pointer-events-none flex min-w-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
                   >
                     {#if msg.urn}
-                      <span data-testid="team-chat-message-urn" class="flex min-w-0"><Urn value={msg.urn} type="node" size={8} linked /></span>
+                      <span data-testid="team-chat-message-urn" class="flex min-w-0"><Urn value={msg.urn} type="node" size={8} linked label={t('app.team-chat.urn.message', 'message')} /></span>
                     {/if}
                     {#if authorUrn}
-                      <span data-testid="team-chat-author-urn" class="flex min-w-0"><Urn value={authorUrn} type="worker" size={8} linked /></span>
+                      <span data-testid="team-chat-author-urn" class="flex min-w-0"><Urn value={authorUrn} type="worker" size={8} linked label={t('app.team-chat.urn.author', 'author')} /></span>
                     {/if}
                   </span>
                 {/if}

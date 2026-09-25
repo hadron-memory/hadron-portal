@@ -120,6 +120,12 @@ describe('TeamChatThread — the message\'s own URN (#855, server#1209)', () => 
     expect(chip(row, 'author')!.querySelector('a')!.getAttribute('href')).toBe(`/app/u/${DARA}`);
   });
 
+  it('names each chip\'s copy buttons for what they copy — two identical "Copy URN" buttons are indistinguishable (@codex on #917)', async () => {
+    const { target } = await mountThread(new Map([['w1', DARA]]), withUrns());
+    const names = [...rowOf(target, 1).querySelectorAll('[data-testid="team-chat-urns"] button')].map((b) => b.getAttribute('aria-label'));
+    expect(names).toEqual(['Copy message URN', 'Copy message URL', 'Copy author URN', 'Copy author URL']);
+  });
+
   it('gives a HUMAN\'s message its own chip too — the slot no longer needs a worker author', async () => {
     const { target } = await mountThread(new Map([['w1', DARA]]), withUrns());
     const row = rowOf(target, 2);
