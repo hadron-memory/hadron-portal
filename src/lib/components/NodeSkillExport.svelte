@@ -9,6 +9,7 @@
   failure #879 was written against.
 -->
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { isBundleHost, type SkillBundleHost } from '$lib/skill-bundle';
   import { hostLabel } from '$lib/skill-export';
@@ -48,7 +49,20 @@
   let pendingHost = $state<SkillBundleHost | null>(null);
   let report = $state<Report | null>(null);
 
+  /**
+   * The request in flight. The panel is a popover: closing it, or the page
+   * moving to another node, unmounts this while a POST may still be pending
+   * — and a continuation that ran on would save the OLD node's zip with no
+   * panel left to say so (@codex on #912). Teardown aborts it, and every
+   * step after an await checks, so nothing is saved or reported after it.
+   */
+  let inFlight: AbortController | null = null;
+  onDestroy(() => inFlight?.abort());
+
   async function download(host: SkillBundleHost) {
+    inFlight?.abort();
+    const request = new AbortController();
+    inFlight = request;
     pendingHost = host;
     report = null;
     try {
@@ -56,8 +70,10 @@
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ host }),
+        signal: request.signal,
       });
       const body = await res.json().catch(() => null);
+      if (request.signal.aborted) return;
       if (!res.ok || !body) {
         report = {
           kind: 'failed',
@@ -75,9 +91,13 @@
         report = { kind: 'refused', host, reasons: Array.isArray(body.reasons) ? body.reasons : [] };
       }
     } catch {
+      if (request.signal.aborted) return;
       report = { kind: 'failed', message: t('node.skill-export.error', 'The skill could not be prepared. Try again shortly.') };
     } finally {
-      pendingHost = null;
+      if (inFlight === request) {
+        inFlight = null;
+        pendingHost = null;
+      }
     }
   }
 </script>

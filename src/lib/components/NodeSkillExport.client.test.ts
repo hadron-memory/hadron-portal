@@ -124,3 +124,41 @@ describe('NodeSkillExport — the report', () => {
     expect(target.textContent).toContain('memory is locked');
   });
 });
+
+describe('NodeSkillExport — teardown (@codex on #912)', () => {
+  it('closing the panel while the request is pending aborts it, and saves NOTHING when the answer arrives', async () => {
+    let answer!: (r: Response) => void;
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init: RequestInit) => {
+        signal = init.signal ?? undefined;
+        // Ignores the signal on purpose: the guard must hold even when the
+        // answer lands anyway, as a real response already in flight can.
+        return new Promise<Response>((resolve) => (answer = resolve));
+      }),
+    );
+    const m = panel({ endpoint: '/e', hosts: ['claudeSkill'] });
+    buttons(m.target)[0].click();
+    await vi.waitFor(() => expect(signal).toBeDefined());
+
+    mounted.splice(mounted.indexOf(m), 1);
+    m.unmount();
+    expect(signal!.aborted).toBe(true);
+
+    answer(new Response(JSON.stringify({ host: 'claudeSkill', filename: 'old-node.zip', zipBase64: 'UEs=', reasons: [] })));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(saved).not.toHaveBeenCalled();
+  });
+
+  it('the same answer while still mounted DOES save — the guard is teardown, not a blanket block', async () => {
+    let answer!: (r: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((resolve) => (answer = resolve))));
+    const { target } = panel({ endpoint: '/e', hosts: ['claudeSkill'] });
+    buttons(target)[0].click();
+    await vi.waitFor(() => expect(answer).toBeDefined());
+    answer(new Response(JSON.stringify({ host: 'claudeSkill', filename: 'this-node.zip', zipBase64: 'UEs=', reasons: [] })));
+    await reportRendered(target);
+    expect(saved).toHaveBeenCalledWith('this-node.zip', 'UEs=');
+  });
+});
