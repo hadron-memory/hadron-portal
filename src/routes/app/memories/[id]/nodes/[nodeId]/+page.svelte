@@ -2,6 +2,7 @@
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
+  import { submitTextDraft, syncTextDraftWith, TextDraft } from '$lib/text-draft.svelte';
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -113,28 +114,103 @@
   let copied = $state(false);
   let isEditing = $state(false);
 
-  // Inline editing
-  let editContent = $state('');
-  let saving = $state(false);
-
+  // Inline editing. #927: each text editor is a draft based on the revision it
+  // opened on, and its save is refused when the node changed since. The drafts
+  // outlive a reload (another tab's save calls invalidateAll()), so an unsaved
+  // edit is never silently replaced — see text-draft.svelte.ts.
+  const contentDraft = new TextDraft();
+  syncTextDraftWith(contentDraft, () => ({ id: node.id, value: node.content, revision: node.revision }));
   $effect(() => {
-    editContent = node.content ?? '';
+    if (showSource) untrack(() => contentDraft.ensureSeeded());
   });
+  let saving = $state(false);
+  let contentSaveError = $state<string | null>(null);
+  // A save refused as a conflict: the draft stays, with ways out (#927).
+  let contentConflict = $state(false);
+  let contentSaveSeq = 0;
+
+  /**
+   * The words for a refused Content or Abstract save. `changed` is the #927
+   * conflict, split by whether THIS field is what changed: a conflict over
+   * another field (tags, data, the other text) reloads to a draft that can
+   * simply be saved again.
+   */
+  function textSaveErrorText(code: string, detail: string | null, fieldChanged: boolean): string {
+    switch (code) {
+      case 'changed':
+        return fieldChanged
+          ? t(
+              'node.text.save.changed',
+              'This text changed since you opened the editor, so your edit was not saved. It is still here: copy it, then load the newer version and apply your edit again.',
+            )
+          : t(
+              'node.text.save.changed-elsewhere',
+              'This node changed since you opened the editor, but not this text. Your edit is still here: save again to apply it.',
+            );
+      case 'no-baseline':
+        return t('node.text.save.no-baseline', 'This editor lost track of the version it opened. Copy your edit and reload the page.');
+      case 'not-found':
+        return t('node.text.save.not-found', 'This node no longer exists.');
+      default:
+        return detail ?? t('node.text.save.failed', 'Your edit could not be saved.');
+    }
+  }
 
   async function saveContent() {
+    if (saving || !contentDraft.dirty) return;
+    // Captured before the first await, as saveProperties does: the node, its
+    // ABSOLUTE action URL, the text and the revision it is based on.
+    const originId = node.id;
+    const seq = ++contentSaveSeq;
+    const url = `${basePath}/nodes/${originId}?/updateContent`;
+    const text = contentDraft.text;
+    const expectedRevision = contentDraft.baseRevision;
+    const stillOurs = () => seq === contentSaveSeq && node.id === originId;
+
     saving = true;
+    contentSaveError = null;
+    contentConflict = false;
     try {
-      const fd = new FormData();
-      fd.set('content', editContent);
-      const res = await fetch('?/updateContent', { method: 'POST', body: fd });
-      if (!res.ok) throw new Error('Save failed');
-      await invalidateAll();
-      showSource = false;
-    } catch (err) {
-      console.error('Save failed:', err);
+      const result = await submitTextDraft({ url, field: 'content', text, expectedRevision });
+      if (!stillOurs()) return;
+      if (result.ok) {
+        await invalidateAll();
+        if (!stillOurs()) return;
+        contentDraft.reseed({ id: node.id, value: node.content, revision: node.revision });
+        showSource = false;
+      } else if (result.code === 'changed') {
+        // Load the newer version under the kept draft: Rendered now shows it,
+        // and the draft learns whether it was THIS field that moved.
+        await invalidateAll();
+        if (!stillOurs()) return;
+        const fieldChanged = contentDraft.isBehind(node.content);
+        contentConflict = fieldChanged;
+        contentSaveError = textSaveErrorText('changed', null, fieldChanged);
+      } else {
+        contentSaveError = textSaveErrorText(result.code, result.detail, true);
+      }
+    } catch {
+      if (stillOurs()) contentSaveError = textSaveErrorText('failed', null, true);
     } finally {
-      saving = false;
+      if (seq === contentSaveSeq) saving = false;
     }
+  }
+
+  let copiedDraft = $state<'content' | 'abstract' | null>(null);
+  async function copyDraft(which: 'content' | 'abstract') {
+    await navigator.clipboard.writeText(which === 'content' ? contentDraft.text : abstractDraft.text);
+    copiedDraft = which;
+    setTimeout(() => {
+      if (copiedDraft === which) copiedDraft = null;
+    }, 2000);
+  }
+
+  /** The one way a conflicted draft is thrown away: the user asks for it. */
+  function discardContentDraft() {
+    contentDraft.reseed({ id: node.id, value: node.content, revision: node.revision });
+    contentDraft.ensureSeeded();
+    contentConflict = false;
+    contentSaveError = null;
   }
 
   // Abstract — paragraph-length summary, the default vector-index source
@@ -149,27 +225,58 @@
   let contentSaveRow = $state<HTMLElement | null>(null);
   let abstractSaveRow = $state<HTMLElement | null>(null);
   let copiedAbstract = $state(false);
-  let editAbstract = $state('');
-  let savingAbstract = $state(false);
-
+  const abstractDraft = new TextDraft();
+  syncTextDraftWith(abstractDraft, () => ({ id: node.id, value: node.abstract, revision: node.revision }));
   $effect(() => {
-    editAbstract = node.abstract ?? '';
+    if (showAbstractSource) untrack(() => abstractDraft.ensureSeeded());
   });
+  let savingAbstract = $state(false);
+  let abstractSaveError = $state<string | null>(null);
+  let abstractConflict = $state(false);
+  let abstractSaveSeq = 0;
 
+  // The same save as saveContent, for the abstract (#927).
   async function saveAbstract() {
+    if (savingAbstract || !abstractDraft.dirty) return;
+    const originId = node.id;
+    const seq = ++abstractSaveSeq;
+    const url = `${basePath}/nodes/${originId}?/updateAbstract`;
+    const text = abstractDraft.text;
+    const expectedRevision = abstractDraft.baseRevision;
+    const stillOurs = () => seq === abstractSaveSeq && node.id === originId;
+
     savingAbstract = true;
+    abstractSaveError = null;
+    abstractConflict = false;
     try {
-      const fd = new FormData();
-      fd.set('abstract', editAbstract);
-      const res = await fetch('?/updateAbstract', { method: 'POST', body: fd });
-      if (!res.ok) throw new Error('Save failed');
-      await invalidateAll();
-      showAbstractSource = false;
-    } catch (err) {
-      console.error('Save failed:', err);
+      const result = await submitTextDraft({ url, field: 'abstract', text, expectedRevision });
+      if (!stillOurs()) return;
+      if (result.ok) {
+        await invalidateAll();
+        if (!stillOurs()) return;
+        abstractDraft.reseed({ id: node.id, value: node.abstract, revision: node.revision });
+        showAbstractSource = false;
+      } else if (result.code === 'changed') {
+        await invalidateAll();
+        if (!stillOurs()) return;
+        const fieldChanged = abstractDraft.isBehind(node.abstract);
+        abstractConflict = fieldChanged;
+        abstractSaveError = textSaveErrorText('changed', null, fieldChanged);
+      } else {
+        abstractSaveError = textSaveErrorText(result.code, result.detail, true);
+      }
+    } catch {
+      if (stillOurs()) abstractSaveError = textSaveErrorText('failed', null, true);
     } finally {
-      savingAbstract = false;
+      if (seq === abstractSaveSeq) savingAbstract = false;
     }
+  }
+
+  function discardAbstractDraft() {
+    abstractDraft.reseed({ id: node.id, value: node.abstract, revision: node.revision });
+    abstractDraft.ensureSeeded();
+    abstractConflict = false;
+    abstractSaveError = null;
   }
 
   // Markdown rendering
@@ -1609,6 +1716,16 @@
       activeTab = defaultTab();
       showSource = false;
       showAbstractSource = false;
+      // #927: a Content/Abstract save in flight for the previous node no
+      // longer owns these editors. The drafts re-seed themselves on a new node.
+      contentSaveSeq++;
+      saving = false;
+      contentSaveError = null;
+      contentConflict = false;
+      abstractSaveSeq++;
+      savingAbstract = false;
+      abstractSaveError = null;
+      abstractConflict = false;
       showDataSource = false;
       dataSaveError = null;
       // #894: a Data save in flight for the previous node no longer owns this
@@ -2252,15 +2369,31 @@
             use:fillViewport={contentSaveRow}
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
-            bind:value={editContent}
+            bind:value={contentDraft.text}
           ></textarea>
-          <div bind:this={contentSaveRow} class="mt-2 flex justify-end">
+          <div bind:this={contentSaveRow} class="mt-2 flex flex-wrap items-center justify-end gap-2">
+            {#if contentConflict}
+              <!-- #927: a refused save keeps the draft; these are the ways out. -->
+              <button
+                type="button"
+                onclick={() => copyDraft('content')}
+                class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >{copiedDraft === 'content' ? t('node.text.conflict.copied', 'Copied') : t('node.text.conflict.copy', 'Copy my edit')}</button>
+              <button
+                type="button"
+                onclick={discardContentDraft}
+                class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >{t('node.text.conflict.load-newer', 'Discard my edit and load the newer version')}</button>
+            {/if}
             <button
               onclick={saveContent}
-              disabled={saving || editContent === (node.content ?? '')}
+              disabled={saving || !contentDraft.dirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{saving ? 'Saving...' : 'Save'}</button>
           </div>
+          {#if contentSaveError}
+            <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{contentSaveError}</p>
+          {/if}
         </div>
       {:else if hasContent}
         {#if contentFrontmatter}
@@ -2313,16 +2446,33 @@
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             maxlength={ABSTRACT_MAX}
             placeholder="A paragraph-length summary of this node. This is the default source for vector search."
-            bind:value={editAbstract}
+            bind:value={abstractDraft.text}
           ></textarea>
-          <div bind:this={abstractSaveRow} class="mt-2 flex items-center justify-between">
-            <span class="text-xs {editAbstract.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-400'}">{editAbstract.length} / {ABSTRACT_MAX}</span>
-            <button
-              onclick={saveAbstract}
-              disabled={savingAbstract || editAbstract === (node.abstract ?? '')}
-              class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >{savingAbstract ? 'Saving...' : 'Save'}</button>
+          <div bind:this={abstractSaveRow} class="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs {abstractDraft.text.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-400'}">{abstractDraft.text.length} / {ABSTRACT_MAX}</span>
+            <div class="flex flex-wrap items-center gap-2">
+              {#if abstractConflict}
+                <button
+                  type="button"
+                  onclick={() => copyDraft('abstract')}
+                  class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >{copiedDraft === 'abstract' ? t('node.text.conflict.copied', 'Copied') : t('node.text.conflict.copy', 'Copy my edit')}</button>
+                <button
+                  type="button"
+                  onclick={discardAbstractDraft}
+                  class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >{t('node.text.conflict.load-newer', 'Discard my edit and load the newer version')}</button>
+              {/if}
+              <button
+                onclick={saveAbstract}
+                disabled={savingAbstract || !abstractDraft.dirty}
+                class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              >{savingAbstract ? 'Saving...' : 'Save'}</button>
+            </div>
           </div>
+          {#if abstractSaveError}
+            <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{abstractSaveError}</p>
+          {/if}
         </div>
       {:else if hasAbstract}
         <div class="prose prose-sm prose-zinc mt-3 max-w-none dark:prose-invert">{@html renderedAbstractHtml}</div>

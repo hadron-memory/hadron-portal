@@ -616,6 +616,10 @@ export interface MemoryNode {
   // Optional: only the node-detail read (NODE_BY_ID_QUERY) selects it — it's
   // kept off the shared NodeFields fragment so search/list payloads stay lean.
   properties?: Record<string, unknown> | null;
+  // #927 (server #1323): the node's live revision, the precondition an inline
+  // editor saves against. Optional: only the detail read (NODE_BY_ID_QUERY)
+  // selects it.
+  revision?: number;
   ownerRepo: string | null;
   isRunnable: boolean | null;
   // #868 (server #1201): what this node is FOR — an OPEN string whose GOVERNED

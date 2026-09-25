@@ -194,9 +194,23 @@ export async function submitJsonDraft(opts: {
   // The field's null rule, matching the action's: properties treat absent and
   // `{}` as one state, data does not (@codex on #896).
   fd.set('baseline', await jsonFingerprint(opts.baseline, { nullIsEmpty: opts.field === 'properties' }));
+  return postSourceSave({ url: opts.url, body: fd, field: opts.field, fetchImpl: opts.fetchImpl });
+}
+
+/**
+ * POST a Source save through the action-result protocol and read its refusal
+ * from `<field>Failed`. Shared by the JSON drafts and the Content/Abstract text
+ * drafts (#927), whose actions report failures the same way.
+ */
+export async function postSourceSave(opts: {
+  url: string;
+  body: FormData;
+  field: string;
+  fetchImpl?: typeof fetch;
+}): Promise<SubmitResult> {
   const res = await (opts.fetchImpl ?? fetch)(opts.url, {
     method: 'POST',
-    body: fd,
+    body: opts.body,
     headers: { 'x-sveltekit-action': 'true' },
   });
   const result = deserialize(await res.text());

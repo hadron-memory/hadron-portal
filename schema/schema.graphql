@@ -1,4 +1,4 @@
-# Exported from hadron-server c951571f963dcd343e30cbefda6e4874efe75d71 (origin/main, 2026-09-25T09:48:02-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 039762765fa27a79bffff13811ad7eb436684c16 (039762765f, 2026-09-25T10:27:49-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -9060,6 +9060,16 @@ input UpdateNodeInput {
   Replace all outgoing edges when provided (omit to leave edges unchanged)
   """
   edges: [NodeEdgeInput!]
+
+  """
+  Optional optimistic-concurrency precondition (#937). When supplied, the
+  update is applied only while the node's current live revision still equals
+  this positive integer. A mismatch refuses atomically with
+  NODE_WRITE_CONFLICT; omitting it or passing null preserves last-write-wins
+  compatibility.
+  Read the baseline from Node.revision.
+  """
+  expectedRevision: Int
 
   """
   The node to change: PK (CUID / 32-char hex) or fully-qualified node URN (hrn:node:<root>:<memory>:<loc>). XOR with memoryId+loc.
