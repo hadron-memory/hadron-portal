@@ -28,6 +28,7 @@ import {
   NODE_BY_ID_QUERY,
   NODE_DATA_READ_QUERY,
   NODE_QUERY,
+  MOVE_NODE_MUTATION,
   UPDATE_NODE_MUTATION,
   UPDATE_REVIEW_NODE_MUTATION,
   UPDATE_SPEC_NODE_MUTATION,
@@ -285,15 +286,35 @@ describe('updateMeta — the move happens AFTER the door is settled', () => {
     expect(mockRequest.mock.calls.every(([q]) => q === NODE_BY_ID_QUERY || q === NODE_QUERY)).toBe(true);
   });
 
-  it('still moves when the write DOES have a door', async () => {
+  it('still moves when the write DOES have a door, AFTER the update (@codex on #929)', async () => {
     stubNode({ role: null, isRunnable: null });
     await run('updateMeta', {
       name: 'Classify', nodeType: 'info', description: '', alias: '',
       seq: '1', tags: 'keep', loc: 'somewhere:else',
     });
-    // The move is a non-read call ahead of the update, so both are present.
-    expect(doorsUsed()).toHaveLength(2);
-    expect(doorsUsed()[1]).toBe(UPDATE_NODE_MUTATION);
+    // The update first, selected by id; then the move.
+    expect(doorsUsed()).toEqual([UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION]);
+    const input = mockRequest.mock.calls.find(([q]) => q === UPDATE_NODE_MUTATION)![1].input;
+    expect(input).toMatchObject({ id: base.id });
+    expect(input).not.toHaveProperty('loc');
+  });
+
+  it('does NOT move a node whose update the SERVER refused (a governed role transition)', async () => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === NODE_BY_ID_QUERY || query === NODE_QUERY || query === NODE_DATA_READ_QUERY) return { node: { ...base, role: 'spec', isRunnable: null } };
+      if (query === UPDATE_SPEC_NODE_MUTATION) {
+        throw Object.assign(new Error('refused'), { response: { errors: [{ message: 'refused by the spec gate', extensions: { code: 'ROLE_GOVERNED' } }] } });
+      }
+      return {};
+    });
+    const result = (await run('updateMeta', {
+      name: 'Classify', nodeType: 'info', description: '', alias: '',
+      seq: '1', tags: 'keep', loc: 'somewhere:else',
+      role: 'spec.feature', roleSeed: 'spec',
+    })) as { status?: number };
+    expect(result.status).toBe(500);
+    // The refused update was attempted; the move never was.
+    expect(doorsUsed()).toEqual([UPDATE_SPEC_NODE_MUTATION]);
   });
 });
 

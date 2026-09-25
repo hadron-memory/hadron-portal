@@ -828,6 +828,11 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
+    // @codex on #929: the metadata update runs FIRST (by id), the move after.
+    mockRequest.mockImplementationOnce(async (query: string) => {
+      expect(query).not.toBe(MOVE_NODE_MUTATION);
+      return { updateNode: { id: 'pk-r5' } };
+    });
     mockRequest.mockImplementationOnce(async (query: string) => {
       expect(query).toBe(MOVE_NODE_MUTATION);
       throw {
@@ -850,8 +855,9 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     }))) as { status: number };
 
     expect(result.status).toBe(409);
-    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe('Target loc is already occupied');
-    expect(mockRequest).toHaveBeenCalledTimes(2);
+    // The other edits are already saved by then, and the error says so.
+    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe('Saved, but the node was not moved: Target loc is already occupied');
+    expect(mockRequest).toHaveBeenCalledTimes(3);
   });
 });
 
