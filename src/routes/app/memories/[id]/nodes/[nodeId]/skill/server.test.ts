@@ -18,14 +18,14 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
-async function post(body: unknown, token: string | null = 'tok', nodeRef = 'node-1') {
+async function post(body: unknown, token: string | null = 'tok', nodeRef = 'node-1', memoryParam = 'mem-1') {
   const { POST } = await import('./+server');
   const res = await POST({
-    request: new Request(`http://x/app/memories/url-mem/nodes/${nodeRef}/skill`, {
+    request: new Request(`http://x/app/memories/${memoryParam}/nodes/${nodeRef}/skill`, {
       method: 'POST',
       body: typeof body === 'string' ? body : JSON.stringify(body),
     }),
-    params: { id: 'url-mem', nodeId: nodeRef },
+    params: { id: memoryParam, nodeId: nodeRef },
     locals: { token },
   } as never);
   return { status: res.status, body: await res.json() };
@@ -73,6 +73,14 @@ describe('POST …/nodes/[nodeId]/skill — refusals before any plan', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
+  it('refuses a node reached through ANOTHER memory\'s URL, and plans nothing (@copilot on #912)', async () => {
+    route({ entries: [entry()] });
+    const r = await post({ host: 'claudeSkill' }, 'tok', 'node-1', 'other-mem');
+    expect(r.status).toBe(404);
+    expect(r.body.code).toBe('wrong-memory');
+    expect(planCalls()).toHaveLength(0);
+  });
+
   it('404s a node the caller cannot see, and plans nothing', async () => {
     route({ node: null });
     const r = await post({ host: 'claudeSkill' });
@@ -88,7 +96,6 @@ describe('POST …/nodes/[nodeId]/skill — the plan and the file', () => {
     expect(mockRequest.mock.calls.find(([q]) => q === NODE_MEMORY_REF_QUERY)?.[1]).toEqual({
       ref: 'hrn:node:acme.com:ops:tasks:drive-pr-home',
     });
-    // mem-1 from the node, not url-mem from the path (#237).
     expect(planCalls().map(([, v]) => v)).toEqual([{ host: 'codexSkill', memories: ['mem-1'] }]);
   });
 

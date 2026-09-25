@@ -17,8 +17,7 @@ import type { RequestHandler } from './$types';
  *
  * `skillPlan` has no node filter, so this plans the node's OWN memory and keeps
  * the entry whose id matches (#911, option a — no server change). The memory
- * comes from the fetched node, never from the URL (#237): a stale URL must not
- * plan a different memory.
+ * planned is the fetched node's, and the URL's memory must be that one.
  */
 export const POST: RequestHandler = async ({ request, params, locals }) => {
   // A +server.ts does not run the /app layout's sign-in redirect.
@@ -38,6 +37,11 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     return json({ code: 'node-failed', detail: extractGqlError(e, 'The task could not be read') }, { status: 502 });
   }
   if (!node) return json({ code: 'not-found' }, { status: 404 });
+  // The page loader REDIRECTS a node reached through another memory's URL
+  // (#237); a POST cannot follow a redirect usefully, so it is refused, and a
+  // download is never labelled with a memory the task is not in (@copilot on
+  // #912). Access is not the concern: the plan runs under the caller's token.
+  if (node.memoryId !== params.id) return json({ code: 'wrong-memory' }, { status: 404 });
 
   let entries: PlanEntry[];
   try {
