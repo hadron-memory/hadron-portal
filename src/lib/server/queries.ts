@@ -2653,6 +2653,21 @@ export const NODE_PROPERTIES_READ_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * #911 — just enough of a node to plan its memory: its id and its memoryId.
+ * The single-skill endpoint needs nothing else, so it does not reuse the node
+ * page's full read (properties, asset, content) and invoke resolvers it would
+ * never render.
+ */
+export const NODE_MEMORY_REF_QUERY = /* GraphQL */ `
+  query NodeMemoryRef($ref: ID!) {
+    node(ref: $ref) {
+      id
+      memoryId
+    }
+  }
+`;
+
 export const NODE_BY_ID_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   ${ASSET_FIELDS}

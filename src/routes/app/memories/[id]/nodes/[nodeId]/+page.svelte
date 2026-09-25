@@ -19,6 +19,8 @@
   import { isOwnershipChainUrn, moveHintGrammar } from '$lib/urn/move-hint-grammar';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
+  import NodeSkillExport from '$lib/components/NodeSkillExport.svelte';
+  import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
   import { canUploadToMemory } from '$lib/assets/can-upload';
   import AttachAssetDialog from '$lib/components/assets/AttachAssetDialog.svelte';
@@ -790,6 +792,10 @@
     return { messages: body.messages, hasOlder: body.hasOlder ?? false };
   }
 
+  // #911: the hosts a single-skill download can be asked for; empty means the
+  // menu has no "Export as skill" entry at all.
+  const skillExportHosts = $derived(skillExportMenuHosts(node));
+
   const menuActions = $derived<NodeMenuAction[]>([
     // #726: first, because on a message it is the action a reader actually
     // came for — a single bubble is the one node whose surrounding thread is
@@ -798,6 +804,7 @@
     ...(openChat ? [{ id: 'open-chat', label: t('node-actions.open-chat', 'Open chat') }] : []),
     { id: 'edit', label: t('node-actions.edit', 'Edit') },
     { id: 'download', label: t('node-actions.download', 'Download') },
+    ...(skillExportHosts.length > 0 ? [{ id: 'export-skill', label: t('node-actions.export-skill', 'Export as skill') }] : []),
     { id: 'add-child', label: t('node-actions.add-child', 'Add child') },
     ...(canAttachAsset ? [{ id: 'attach-asset', label: t('node-actions.attach-asset', 'Attach file') }] : []),
     { id: 'move', label: t('node-actions.move', 'Move') },
@@ -814,7 +821,7 @@
   function onMenuSelect(id: string) {
     // Close any sibling panel so only one opens at a time.
     testFlowOpen = false; downloadOpen = false; moveOpen = false; deleteOpen = false;
-    attachOpen = false;
+    attachOpen = false; skillExportOpen = false;
     switch (id) {
       case 'attach-asset': attachOpen = true; break;
       case 'edit':
@@ -839,6 +846,7 @@
       case 'open-chat': if (openChat) goto(`${basePath}/nodes/${openChat.nodeId}`); break;
       case 'add-child': goto(addChildHref); break;
       case 'download': downloadOpen = true; break;
+      case 'export-skill': skillExportOpen = true; break;
       case 'delete': $deleteFormData.hard = false; deleteOpen = true; break;
     }
   }
@@ -850,6 +858,7 @@
   // renders a chosen set of presentation sections. We never re-implement the
   // codec here: POST to /api/nodes/export and serve the returned bytes as a file.
   let downloadOpen = $state(false);
+  let skillExportOpen = $state(false);
   let dlFormat = $state<'MD' | 'JSON' | 'PDF'>('MD');
   let dlFull = $state(true); // canonical full file vs. custom section pick
   // Format/scope/section choices are export *preferences* (not per-node state),
@@ -1620,6 +1629,7 @@
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
+      skillExportOpen = false;
       testFlowOpen = false;
       $testFlowFormData.appId = '';
       $testFlowFormData.orgId = data.org?.id ?? '';
@@ -1648,7 +1658,7 @@
   // onMenuSelect closes siblings). PR-504 review (Copilot: Move/Delete a11y).
   if (e.key !== 'Escape') return;
   downloadOpen = false; testFlowOpen = false; moveOpen = false; deleteOpen = false;
-  attachOpen = false;
+  attachOpen = false; skillExportOpen = false;
   historyMenuFor = null; // #529: close the History row menu on Escape too
 }} />
 
@@ -1918,6 +1928,20 @@
             >
               {dlBusy ? 'Exporting…' : `Download .${dlFormat.toLowerCase()}`}
             </button>
+          </div>
+        {/if}
+
+        <!-- #911: one task as one skill. Menu-triggered, offered only for a
+             task whose export is on (skillExportHosts). -->
+        {#if skillExportOpen}
+          <button
+            type="button"
+            class="fixed inset-0 z-30 cursor-default"
+            aria-label={t('node.skill-export.close', 'Close export as skill')}
+            onclick={() => (skillExportOpen = false)}
+          ></button>
+          <div class="absolute right-0 z-40 mt-2 w-80 rounded-lg border border-zinc-200 bg-white p-3 text-left shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+            <NodeSkillExport endpoint={`${basePath}/nodes/${node.id}/skill`} hosts={skillExportHosts} />
           </div>
         {/if}
 

@@ -13,6 +13,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  activeExportHosts,
+  skillExportMenuHosts,
   CLAUDE_SKILL_HOST,
   CODEX_HOST,
   DESCRIPTION_MAX,
@@ -679,5 +681,46 @@ describe('#906 — a Task Nodes row declared by a retired top-level key', () => 
     expect(s).toEqual({ kind: 'legacy', unknown: { count: 1, sample: ['"codex"'] } });
     expect(taskExportNote(s)).toBe('Older export setting');
     expect(taskExportSearchText(s)).toBe('Older export setting Unused key: "codex"');
+  });
+});
+
+describe('#911 — which hosts the node menu\'s "Export as skill" offers', () => {
+  const on = { name: 'x', description: 'd', enable: true };
+  const off = { ...on, enable: false };
+
+  it('offers the hosts whose export is switched ON, in host order', () => {
+    expect(activeExportHosts({ exports: { codexSkill: on, claudeSkill: on } })).toEqual(['claudeSkill', 'codexSkill']);
+    expect(activeExportHosts({ exports: { claudeSkill: on, codexSkill: off } })).toEqual(['claudeSkill']);
+    expect(activeExportHosts({ exports: { claudeSkill: off, codexSkill: on } })).toEqual(['codexSkill']);
+  });
+
+  it('offers nothing when no export is on, or there is none', () => {
+    expect(activeExportHosts({ exports: { claudeSkill: off, codexSkill: off } })).toEqual([]);
+    expect(activeExportHosts({})).toEqual([]);
+    expect(activeExportHosts(null)).toEqual([]);
+    expect(activeExportHosts({ exports: 'nope' })).toEqual([]);
+  });
+
+  it('uses the server\'s test — enable === true — not what the form can edit', () => {
+    // An extra key makes the form's readDeclaration give up; the server
+    // still exports it, so the menu must still offer it.
+    expect(activeExportHosts({ exports: { claudeSkill: { ...on, extra: 1 } } })).toEqual(['claudeSkill']);
+    // A truthy non-boolean is not "on" to the server.
+    expect(activeExportHosts({ exports: { claudeSkill: { ...on, enable: 'true' } } })).toEqual([]);
+    // Absent enable reads as off.
+    expect(activeExportHosts({ exports: { claudeSkill: { name: 'x' } } })).toEqual([]);
+  });
+
+  it('ignores keys no host reads, and the retired top-level keys', () => {
+    expect(activeExportHosts({ exports: { codex: on } })).toEqual([]);
+    expect(activeExportHosts({ skill: on, claudeSkill: on })).toEqual([]);
+  });
+
+  it('offers the entry only on a TASK node with an active export', () => {
+    const props = { exports: { claudeSkill: on } };
+    expect(skillExportMenuHosts({ isRunnable: true, properties: props })).toEqual(['claudeSkill']);
+    expect(skillExportMenuHosts({ isRunnable: false, properties: props })).toEqual([]);
+    expect(skillExportMenuHosts({ isRunnable: null, properties: props })).toEqual([]);
+    expect(skillExportMenuHosts({ isRunnable: true, properties: { exports: { claudeSkill: off } } })).toEqual([]);
   });
 });

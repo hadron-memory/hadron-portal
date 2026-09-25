@@ -181,6 +181,34 @@ function isReadableDeclaration(decl: Record<string, unknown>): boolean {
 
 const DECLARATION_KEYS = new Set(['name', 'description', 'enable']);
 
+/**
+ * #911 — the hosts this node's export is switched ON for, in `SKILL_HOSTS`
+ * order: the hosts a single-skill download can be asked for.
+ *
+ * The server's own test, `declaration.enable === true` (hadron-server
+ * `classifySkill`), and deliberately NOT `readDeclaration`: that one returns
+ * null for any declaration its form cannot edit faithfully — an extra key, a
+ * wrong-typed name — which the server still exports. A retired top-level
+ * `skill`/`claudeSkill` key is not counted: it is not under `exports`, and
+ * production holds none (#907).
+ */
+export function activeExportHosts(properties: unknown): string[] {
+  const ex = readExports(properties);
+  return SKILL_HOSTS.filter((h) => {
+    const decl = ex[h];
+    return isObject(decl) && decl.enable === true;
+  });
+}
+
+/**
+ * #911 — the hosts the node page's "Export as skill" entry offers. Holger's
+ * rule: the entry exists ONLY on a task node whose export is switched on, so
+ * an empty list means no menu entry at all.
+ */
+export function skillExportMenuHosts(node: { isRunnable?: boolean | null; properties?: unknown }): string[] {
+  return node.isRunnable ? activeExportHosts(node.properties) : [];
+}
+
 /** Absent / declared-but-off / declared-and-on — the distinction the UI must show. */
 export function declarationState(
   properties: unknown,

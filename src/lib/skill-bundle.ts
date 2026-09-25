@@ -27,7 +27,7 @@
  */
 
 import { t } from '$lib/i18n/t';
-import { validSkillName } from '$lib/skill-export';
+import { hostLabel, validSkillName } from '$lib/skill-export';
 
 export type SkillBundleHost = 'claudeSkill' | 'codexSkill';
 
@@ -112,6 +112,41 @@ export function pluginName(orgName: string): string {
 }
 
 /**
+ * One plan entry's verdict: the body to ship, or why not. Shared by the org
+ * download and the single-skill download (#911), so the two cannot disagree
+ * about what is exportable.
+ *
+ * The server's own words come first — error findings, then the export plan's
+ * reasons, deduplicated, since a finding can also be the plan's reason. The
+ * portal adds two refusals of its own, both because a skill name becomes a
+ * PATH: a name outside the skill grammar, and (`duplicate`) a name another
+ * entry in the same archive also claims.
+ */
+function judgeEntry(e: PlanEntry, duplicate: boolean): { ok: true; body: string } | { ok: false; reasons: string[] } {
+  const errors = [
+    ...new Set([
+      ...e.findings.filter((f) => f.severity === 'error').map((f) => f.message),
+      ...(e.exportPlan?.action && e.exportPlan.action !== 'WRITE' ? e.exportPlan.reasons.map((r) => r.message) : []),
+    ]),
+  ];
+  if (!validSkillName(e.name)) {
+    return { ok: false, reasons: [...errors, t('skill-bundle.skip.invalid-name', '"{name}" is not a valid skill name.', { name: e.name })] };
+  }
+  if (duplicate) {
+    return { ok: false, reasons: [...errors, t('skill-bundle.skip.duplicate-name', 'Another task is also named "{name}".', { name: e.name })] };
+  }
+  // A body is written only when the server both rendered one AND planned a
+  // WRITE; a body beside any other planned action is not ours to ship.
+  if (!e.renderedBody || (e.exportPlan && e.exportPlan.action !== 'WRITE')) {
+    return {
+      ok: false,
+      reasons: errors.length > 0 ? errors : [t('skill-bundle.skip.not-exportable', 'Not exportable ({class}).', { class: e.class ?? 'unreadable' })],
+    };
+  }
+  return { ok: true, body: e.renderedBody };
+}
+
+/**
  * Split the plan into what goes in the archive and what does not.
  *
  * The server withholds a body from anything it judged broken, so "no body" is
@@ -143,35 +178,14 @@ export function planBundle(
   for (const e of wanted) nameCount.set(e.name, (nameCount.get(e.name) ?? 0) + 1);
 
   for (const e of wanted) {
-    // The server's own words first: error findings, then the export plan's
-    // reasons (deduplicated — a finding can also be the plan's reason).
-    const errors = [
-      ...new Set([
-        ...e.findings.filter((f) => f.severity === 'error').map((f) => f.message),
-        ...(e.exportPlan?.action && e.exportPlan.action !== 'WRITE' ? e.exportPlan.reasons.map((r) => r.message) : []),
-      ]),
-    ];
-    if (!validSkillName(e.name)) {
-      skipped.push({ name: e.name, urn: e.urn, reasons: [...errors, t('skill-bundle.skip.invalid-name', '"{name}" is not a valid skill name.', { name: e.name })] });
-      continue;
-    }
-    if ((nameCount.get(e.name) ?? 0) > 1) {
-      skipped.push({ name: e.name, urn: e.urn, reasons: [...errors, t('skill-bundle.skip.duplicate-name', 'Another task is also named "{name}".', { name: e.name })] });
-      continue;
-    }
-    // A body is written only when the server both rendered one AND planned a
-    // WRITE; a body beside any other planned action is not ours to ship.
-    if (!e.renderedBody || (e.exportPlan && e.exportPlan.action !== 'WRITE')) {
-      skipped.push({
-        name: e.name,
-        urn: e.urn,
-        reasons: errors.length > 0 ? errors : [t('skill-bundle.skip.not-exportable', 'Not exportable ({class}).', { class: e.class ?? 'unreadable' })],
-      });
+    const v = judgeEntry(e, (nameCount.get(e.name) ?? 0) > 1);
+    if (!v.ok) {
+      skipped.push({ name: e.name, urn: e.urn, reasons: v.reasons });
       continue;
     }
     const path = host === 'claudeSkill' ? `skills/${e.name}/SKILL.md` : `${e.name}/SKILL.md`;
-    files[path] = e.renderedBody;
-    skills[e.name] = e.renderedBody;
+    files[path] = v.body;
+    skills[e.name] = v.body;
     included.push({ name: e.name, urn: e.urn });
     includedNodeIds.push(e.nodeId);
   }
@@ -188,6 +202,45 @@ export function planBundle(
 
   const filename = host === 'claudeSkill' ? `${plugin}.zip` : `${plugin}-codex.zip`;
   return { files, filename, included, includedNodeIds, skipped, version };
+}
+
+/** #911 — one task as one skill, for either host. */
+export interface SkillDownload {
+  /** Archive path → file contents; empty when nothing can be shipped. */
+  files: Record<string, string>;
+  /** `<name>.zip`, or null when nothing can be shipped. */
+  filename: string | null;
+  /** Why nothing was shipped — the server's words where it gave any. Empty on success. */
+  reasons: string[];
+}
+
+/**
+ * #911 — the file for ONE task's single-skill download: `<name>.zip` holding
+ * the skill FOLDER, `<name>/SKILL.md`.
+ *
+ * The same artifact serves both hosts — measured against their docs, not
+ * assumed (`hrn:node:hadronmemory.com:hadron-portal:findings:skill-download-artifact-shape-per-host`):
+ * claude.ai's single-skill upload (Customize → Skills) wants the folder at the
+ * zip root, and Codex discovers skill folders under `~/.agents/skills`. One
+ * skill needs no plugin wrapper, so there is no manifest and no version.
+ *
+ * `entry` is this node's entry in its memory's EXPORT plan, or undefined when
+ * the plan has none — the export was switched off after the page loaded, say.
+ * The duplicate-name refusal does not apply: one entry cannot collide with
+ * itself, and a collision with another node is the server's `collision` class.
+ */
+export function planSkillDownload(entry: PlanEntry | undefined, host: SkillBundleHost): SkillDownload {
+  const none = (reasons: string[]): SkillDownload => ({ files: {}, filename: null, reasons });
+  const hostName = hostLabel(host);
+  if (!entry) {
+    return none([t('skill-bundle.single.not-in-plan', 'The export plan has no {host} entry for this task. Its export may have been switched off since this page loaded; reload the page to see its current state.', { host: hostName })]);
+  }
+  if (entry.class === 'disabled') {
+    return none([t('skill-bundle.single.disabled', 'This task’s {host} export is switched off.', { host: hostName })]);
+  }
+  const v = judgeEntry(entry, false);
+  if (!v.ok) return none(v.reasons);
+  return { files: { [`${entry.name}/SKILL.md`]: v.body }, filename: `${entry.name}.zip`, reasons: [] };
 }
 
 /** One item of `SkillPlan.unrecognized` (server#1296), as SKILL_PLAN_EXPORT_QUERY selects it. */

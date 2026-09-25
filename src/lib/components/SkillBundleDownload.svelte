@@ -11,6 +11,7 @@
   import { BUNDLE_HOSTS, type SkillBundleHost, type SkippedSkill, type UnrecognizedNode } from '$lib/skill-bundle';
   import { exportKeyList, hostLabel } from '$lib/skill-export';
   import { exportSaves } from '$lib/skill-export-saves.svelte';
+  import { saveBase64Download } from '$lib/save-download';
 
   interface Props {
     orgId: string;
@@ -115,20 +116,6 @@
     return detail ?? t('tasks.bundle.error.failed', 'The download could not be prepared. Try again shortly.');
   }
 
-  function save(filename: string, base64: string) {
-    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.append(a);
-    a.click();
-    a.remove();
-    // Revoked on the next task: some browsers start the download
-    // asynchronously, and revoking synchronously cancels it.
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-
   async function download(host: SkillBundleHost) {
     pendingHost = host;
     failure = null;
@@ -144,7 +131,7 @@
         failure = failureText(body?.code, body?.detail ?? body?.message);
         return;
       }
-      if (body.zipBase64) save(body.filename, body.zipBase64);
+      if (body.zipBase64) saveBase64Download(body.filename, body.zipBase64);
       report = {
         host,
         filename: body.filename,
