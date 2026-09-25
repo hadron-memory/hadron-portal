@@ -858,6 +858,8 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     // The other edits are already saved by then, and the error says so.
     expect(superFormFrom(result)?.errors?.loc?.[0]).toBe('Saved, but the node was not moved: Target loc is already occupied');
     expect(mockRequest).toHaveBeenCalledTimes(3);
+    // …and it flags the partial save, so the page reloads the node (@codex on #929).
+    expect((result as unknown as { data: { metaSaved?: boolean } }).data.metaSaved).toBe(true);
   });
 });
 

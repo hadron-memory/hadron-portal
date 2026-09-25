@@ -524,8 +524,13 @@ export const actions: Actions = {
     // so a failed move says so rather than implying nothing happened.
     const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
     if (loc !== currentNode.loc) {
+      // `metaSaved` on every failure below: the edits ARE saved, and a failed
+      // action does not rerun the page load, so the client reloads the node
+      // itself on this flag rather than keep showing the pre-save metadata
+      // (@codex on #929).
       if (!currentNode.memory?.urn) {
-        return message(form, { type: 'error', text: t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail: 'it has no memory URN to move by.' }) }, { status: 500 });
+        message(form, { type: 'error', text: t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail: 'it has no memory URN to move by.' }) });
+        return fail(500, { form, metaSaved: true });
       }
       try {
         await client.request(MOVE_NODE_MUTATION, {
@@ -537,9 +542,10 @@ export const actions: Actions = {
         // /api/nodes/move endpoint and keeps it out of error monitoring.
         const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
         const detail = extractGqlError(e, 'Failed to move node');
-        return status === 409
-          ? setError(form, 'loc', t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail }), { status })
-          : message(form, { type: 'error', text: t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail }) }, { status });
+        const text = t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail });
+        if (status === 409) setError(form, 'loc', text);
+        else message(form, { type: 'error', text });
+        return fail(status, { form, metaSaved: true });
       }
     }
 

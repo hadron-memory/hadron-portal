@@ -22,7 +22,7 @@
   import NodeSkillExport from '$lib/components/NodeSkillExport.svelte';
   import NodeRoleValue from '$lib/components/NodeRoleValue.svelte';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
-  import { nodeMetaSeed, nodeMetaSeedKey } from '$lib/node-meta-seed';
+  import { metaSavedDespiteFailure, nodeMetaSeed, nodeMetaSeedKey } from '$lib/node-meta-seed';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
   import { canUploadToMemory } from '$lib/assets/can-upload';
@@ -571,6 +571,9 @@
     clearOnSubmit: 'none',
     onResult: ({ result }) => {
       if (result.type !== 'failure') isEditing = false;
+      // Saved, but the move failed: keep the editor open to fix the location,
+      // and reload the node so the page shows what was actually saved.
+      else if (metaSavedDespiteFailure(result)) void invalidateAll();
     },
   });
 

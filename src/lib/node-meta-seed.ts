@@ -45,3 +45,18 @@ export function nodeMetaSeed(node: NodeMetaSeedSource) {
 export function nodeMetaSeedKey(node: { id: string; role?: string | null }): string {
   return `${node.id}\u0000${node.role ?? ''}`;
 }
+
+/**
+ * A failed metadata action whose edits were nevertheless SAVED: the update
+ * succeeded and only the follow-up move failed. SvelteKit does not rerun the
+ * page load for a failed action, so the page must reload the node itself, or
+ * the header and Settings keep showing the pre-save metadata (@codex on #929).
+ */
+export function metaSavedDespiteFailure(result: { type: string; data?: unknown }): boolean {
+  return (
+    result.type === 'failure' &&
+    typeof result.data === 'object' &&
+    result.data !== null &&
+    (result.data as { metaSaved?: unknown }).metaSaved === true
+  );
+}

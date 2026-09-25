@@ -1,6 +1,6 @@
 /** #921 / @codex on #929 — the metadata form's single seed list. */
 import { describe, expect, it } from 'vitest';
-import { nodeMetaSeed, nodeMetaSeedKey } from './node-meta-seed';
+import { metaSavedDespiteFailure, nodeMetaSeed, nodeMetaSeedKey } from './node-meta-seed';
 import { nodeUpdateMetaSchema } from '../routes/app/memories/[id]/nodes/[nodeId]/schema';
 
 const node = {
@@ -35,5 +35,15 @@ describe('nodeMetaSeedKey — when the page reseeds', () => {
 
   it('cannot confuse an id/role pair with another by concatenation', () => {
     expect(nodeMetaSeedKey({ id: 'a', role: 'bc' })).not.toBe(nodeMetaSeedKey({ id: 'ab', role: 'c' }));
+  });
+});
+
+describe('metaSavedDespiteFailure (@codex on #929)', () => {
+  it('is true only for a failure that says its edits were saved', () => {
+    expect(metaSavedDespiteFailure({ type: 'failure', data: { metaSaved: true } })).toBe(true);
+    expect(metaSavedDespiteFailure({ type: 'failure', data: { form: {} } })).toBe(false);
+    expect(metaSavedDespiteFailure({ type: 'failure', data: { metaSaved: 'yes' } })).toBe(false);
+    expect(metaSavedDespiteFailure({ type: 'success', data: { metaSaved: true } })).toBe(false);
+    expect(metaSavedDespiteFailure({ type: 'failure' })).toBe(false);
   });
 });
