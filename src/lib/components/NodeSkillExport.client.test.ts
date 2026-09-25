@@ -91,6 +91,16 @@ describe('NodeSkillExport — the report', () => {
     ]);
   });
 
+  it('says to sign in when the session expired, instead of "try again" (@codex on #912)', async () => {
+    stubEndpoint({ code: 'UNAUTHENTICATED', message: 'sign in required' }, 401);
+    const { target } = panel({ endpoint: '/e', hosts: ['claudeSkill'] });
+    buttons(target)[0].click();
+    await reportRendered(target);
+    expect(saved).not.toHaveBeenCalled();
+    expect(target.querySelector('[role="status"]')?.textContent).toContain('sign in required');
+    expect(target.textContent).not.toContain('Try again shortly');
+  });
+
   it('shows the server\'s words on a failure, and saves nothing', async () => {
     stubEndpoint({ code: 'plan-failed', detail: 'memory is locked' }, 502);
     const { target } = panel({ endpoint: '/e', hosts: ['claudeSkill'] });

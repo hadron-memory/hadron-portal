@@ -46,7 +46,10 @@
       if (!res.ok || !body) {
         report = {
           kind: 'failed',
-          message: body?.detail ?? t('node.skill-export.error', 'The skill could not be prepared. Try again shortly.'),
+          // The endpoint's own words: `detail` for a failed plan or read,
+          // `message` for an expired sign-in (401), where "try again" would
+          // fail every time (@codex / @copilot on #912).
+          message: body?.detail ?? body?.message ?? t('node.skill-export.error', 'The skill could not be prepared. Try again shortly.'),
         };
         return;
       }
