@@ -12,6 +12,8 @@ import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NOD
 // mutation documents are deliberately NOT imported here — naming one directly
 // is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
+import { roleUpdate } from '$lib/node-role';
+import { nodeMetaSeed } from '$lib/node-meta-seed';
 import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
@@ -361,16 +363,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     ),
     superValidate<NodeDeleteForm>({ hard: false }, nodeDeleteFormAdapter, { errors: false }),
     superValidate<NodeCreateParentForm>({ loc: '', name: '' }, nodeCreateParentFormAdapter, { errors: false }),
-    superValidate<NodeUpdateMetaForm>({
-      name: node.name ?? '',
-      nodeType: node.nodeType ?? '',
-      description: node.description ?? '',
-      alias: node.alias ?? '',
-      seq: node.seq ?? null,
-      tags: (node.tags ?? []).join(', '),
-      isRunnable: node.isRunnable ?? false,
-      loc: node.loc,
-    }, nodeUpdateMetaFormAdapter, { errors: false }),
+    superValidate<NodeUpdateMetaForm>(nodeMetaSeed(node), nodeUpdateMetaFormAdapter, { errors: false }),
     superValidate<NodeDuplicateForm>({}, nodeDuplicateFormAdapter, { errors: false }),
     superValidate<NodeConvertToTaskForm>({}, nodeConvertToTaskFormAdapter, { errors: false }),
     superValidate<NodeUpdateFlowForm>({
@@ -487,35 +480,57 @@ export const actions: Actions = {
     const isRunnable = form.data.isRunnable;
     const newLoc = form.data.loc;
 
-    // Move if loc changed. #237: route the move through the node's OWN
-    // identity — #564 reshaped moveNode to sourceRef (the PK) + targetUrn
-    // (the full destination node URN, composed from the node's own memory
-    // urn), so a stale URL can't redirect the move anyway. An occupied
-    // destination fails loudly with NODE_ALREADY_EXISTS (#501).
-    const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
-
     // #868: updateMeta is the ONE action here that can change a governance
     // signal, so its resulting kind is the SUBMITTED `isRunnable` merged over
     // the node. Un-ticking Runnable on a task node is still a TASK-door write
     // (before ∪ after), a direction #867's submitted-value-only routing got
     // wrong.
     //
-    // Chosen BEFORE the move, not after (@copilot on PR #869). The chooser can
-    // refuse — a node matching two governed kinds has no door — and a refusal
-    // raised after `moveNode` has committed leaves the node relocated with none
-    // of the edit applied, reported as a 500. Nothing below needs the move to
-    // have happened first, so the refusal costs nothing when it comes first and
-    // costs a half-applied edit when it comes second.
-    const input = { memoryId: currentNode.memoryId, loc, name, nodeType, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable };
+    // #921: role rides along only when the user changed it (`roleUpdate`):
+    // omitted, the server preserves it; emptied, it is cleared. The door below
+    // is chosen on BEFORE ∪ AFTER with it included, so a role edit on a
+    // governed node goes through that kind's door, and the server's own gate
+    // decides whether the transition is allowed.
+    //
+    // ORDER (@copilot on #869, @codex on #929): the fallible metadata update
+    // runs FIRST, selected by the node's id, and the move only after it
+    // succeeded. The chooser can refuse (a doorless combination) and so can
+    // the server (a governed role transition it does not allow); either one
+    // after a committed move left the node relocated with none of the edit
+    // applied. Now a refusal leaves the node exactly where and as it was.
+    const role = roleUpdate(form.data.role, form.data.roleSeed);
+    const input = {
+      id: currentNode.id, name, nodeType, description, alias,
+      seq: Number.isNaN(seq) ? null : seq, tags, isRunnable,
+      ...(role !== undefined ? { role } : {}),
+    };
     try {
       assertNodeUpdateDoor(currentNode, input);
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
     }
 
+    try {
+      await client.request(nodeUpdateDocument(currentNode, input), { input });
+    } catch (e: unknown) {
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
+    }
+
+    // Move if loc changed. #237: route the move through the node's OWN
+    // identity (#564: sourceRef = the PK, targetUrn = the full destination
+    // node URN composed from the node's own memory urn), so a stale URL can't
+    // redirect it. An occupied destination fails loudly with
+    // NODE_ALREADY_EXISTS (#501). The other edits are already SAVED by then,
+    // so a failed move says so rather than implying nothing happened.
+    const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
     if (loc !== currentNode.loc) {
+      // `metaSaved` on every failure below: the edits ARE saved, and a failed
+      // action does not rerun the page load, so the client reloads the node
+      // itself on this flag rather than keep showing the pre-save metadata
+      // (@codex on #929).
       if (!currentNode.memory?.urn) {
-        return message(form, { type: 'error', text: 'Node has no memory URN to move by.' }, { status: 500 });
+        message(form, { type: 'error', text: t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail: 'it has no memory URN to move by.' }) });
+        return fail(500, { form, metaSaved: true });
       }
       try {
         await client.request(MOVE_NODE_MUTATION, {
@@ -526,18 +541,15 @@ export const actions: Actions = {
         // An occupied destination is a 409 Conflict, not a 500 — matches the
         // /api/nodes/move endpoint and keeps it out of error monitoring.
         const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
-        return status === 409
-          ? setError(form, 'loc', extractGqlError(e, 'Failed to move node'), { status })
-          : message(form, { type: 'error', text: extractGqlError(e, 'Failed to move node') }, { status });
+        const detail = extractGqlError(e, 'Failed to move node');
+        const text = t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail });
+        if (status === 409) setError(form, 'loc', text);
+        else message(form, { type: 'error', text });
+        return fail(status, { form, metaSaved: true });
       }
     }
 
-    try {
-      await client.request(nodeUpdateDocument(currentNode, input), { input });
-      return message(form, { type: 'success', text: t('node.meta.saved', 'Node settings saved.') });
-    } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
-    }
+    return message(form, { type: 'success', text: t('node.meta.saved', 'Node settings saved.') });
   },
 
   delete: async ({ request, params, locals }) => {

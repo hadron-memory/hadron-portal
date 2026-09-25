@@ -20,6 +20,9 @@
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import NodeSkillExport from '$lib/components/NodeSkillExport.svelte';
+  import NodeRoleValue from '$lib/components/NodeRoleValue.svelte';
+  import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
+  import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeedKey } from '$lib/node-meta-seed';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
   import { canUploadToMemory } from '$lib/assets/can-upload';
@@ -568,24 +571,21 @@
     clearOnSubmit: 'none',
     onResult: ({ result }) => {
       if (result.type !== 'failure') isEditing = false;
+      // Saved, but the move failed: keep the editor open to fix the location,
+      // and reload the node so the page shows what was actually saved.
+      else if (metaSavedDespiteFailure(result)) void invalidateAll();
     },
   });
 
-  let updateMetaNodeId = $state(untrack(() => node.id));
+  // Reseed on a different node (everything) or a changed stored role on the
+  // same node (role and its seed only): `nodeMetaReseed` decides, and the
+  // field list is the loader's own (@codex on #929).
+  let updateMetaSeededFrom = $state(untrack(() => ({ id: node.id, role: node.role ?? null })));
   $effect(() => {
-    if (updateMetaNodeId === node.id) return;
-    updateMetaNodeId = node.id;
-    updateMetaFormData.update((current) => ({
-      ...current,
-      name: node.name ?? '',
-      nodeType: node.nodeType ?? '',
-      description: node.description ?? '',
-      alias: node.alias ?? '',
-      seq: node.seq ?? null,
-      tags: (node.tags ?? []).join(', '),
-      isRunnable: node.isRunnable ?? false,
-      loc: node.loc,
-    }), { taint: false });
+    if (nodeMetaSeedKey(updateMetaSeededFrom) === nodeMetaSeedKey(node)) return;
+    const patch = nodeMetaReseed(updateMetaSeededFrom, node);
+    updateMetaSeededFrom = { id: node.id, role: node.role ?? null };
+    if (patch) updateMetaFormData.update((current) => ({ ...current, ...patch }), { taint: false });
   });
 
   const initialDuplicateForm = untrack(() => submittedForm<NodeDuplicateForm>(form, 'duplicateNode') as NodeDuplicateSuperform | null ?? data.duplicateForm);
@@ -1722,6 +1722,11 @@
           </svg>
         {/if}
         <span><span class="text-zinc-400 font-normal">{node.isRunnable ? createNodeStrings.taskNodeCaption() : isChat ? createNodeStrings.chatNodeCaption() : isChatMessage ? createNodeStrings.chatMessageNodeCaption() : createNodeStrings.nodeCaption()}</span> {node.name}</span>
+        <!-- #921: the node's role, verbatim (dotted sub-roles included), so a
+             spec reviewer sees it without opening Settings. -->
+        {#if node.role}
+          <span data-testid="node-role-badge" class="rounded-full bg-amber-100 px-2 py-0.5 font-mono text-xs font-normal text-amber-800 dark:bg-amber-950 dark:text-amber-300" title={t('node.role.badge-title', 'Role')}>{node.role}</span>
+        {/if}
         <!-- #588 (server #725): collection discriminator badge. -->
         {#if node.objectType}
           <span class="rounded-full bg-indigo-100 px-2 py-0.5 font-mono text-xs font-normal text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300" title={t('node.object-type.badge-title', 'Object type (collection)')}>{node.objectType}</span>
@@ -3120,6 +3125,8 @@
                   {/each}
                 </select>
               </div>
+              <!-- #921: Node.role, an open string, distinct from the Type above. -->
+              <NodeRoleInput bind:value={$updateMetaFormData.role} seed={$updateMetaFormData.roleSeed} {inputClass} />
               <div>
                 <label for="editLoc" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN <span class="text-zinc-500">(changing this moves the node)</span></label>
                 <div class="flex items-stretch">
@@ -3168,6 +3175,19 @@
                 <span class="text-sm text-zinc-500">Type</span>
                 <span class="text-sm font-medium text-zinc-900 dark:text-white">{node.nodeType}</span>
               </div>
+              <!-- #921: Role and Object type are separate facts from Type, and
+                   each is labelled as itself. Role always shows, "Not set"
+                   included, so its absence is visible rather than assumed. -->
+              <div class="flex items-center justify-between gap-4 px-5 py-3">
+                <span class="shrink-0 text-sm text-zinc-500">{t('node.role.label', 'Role')}</span>
+                <NodeRoleValue role={node.role} />
+              </div>
+              {#if node.objectType}
+                <div class="flex items-center justify-between gap-4 px-5 py-3">
+                  <span class="shrink-0 text-sm text-zinc-500">{t('node.object-type.label', 'Object type')}</span>
+                  <span class="break-all font-mono text-sm text-zinc-900 dark:text-white">{node.objectType}</span>
+                </div>
+              {/if}
               {#if node.description}
                 <div class="px-5 py-3">
                   <span class="text-sm text-zinc-500">Description</span>

@@ -156,6 +156,12 @@ export const nodeUpdateMetaSchema = z.object({
   tags: z.string().trim().default(''),
   isRunnable: checkboxBoolean.default(false),
   loc: z.string().trim().default('').transform(normalizedLoc),
+  // #921: Node.role, an open string. NOT trimmed here: `roleUpdate` compares
+  // the raw value with the seed first, so an untouched field is omitted even
+  // when the stored role carries whitespace the form must not "fix".
+  role: z.string().default(''),
+  // The role the form opened with; see $lib/node-role `roleUpdate`.
+  roleSeed: z.string().default(''),
 });
 
 // Defaulted _kind accepts omitted hidden inputs while still rejecting a
