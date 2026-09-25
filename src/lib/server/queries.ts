@@ -2356,6 +2356,11 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
         sessionId
         replyToSeq
         mentions
+        # #855 / server#1209: the message node's canonical URN, composed
+        # server-side since a message loc carries a random component. Null
+        # when it cannot be emitted in grammar v2; the thread then shows no
+        # message chip.
+        urn
       }
       total
     }
