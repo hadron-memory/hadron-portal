@@ -64,6 +64,9 @@ const entry = (over: Record<string, unknown> = {}) => ({
   name: 'drive-pr-home',
   class: 'never-exported',
   renderedBody: BODY,
+  // Every EXPORT entry carries an exportPlan (schema: "Present only for
+  // EXPORT"), so a legal fixture does too.
+  exportPlan: { action: 'WRITE', reasons: [] },
   findings: [],
   ...over,
 });

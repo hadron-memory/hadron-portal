@@ -11,6 +11,7 @@ import {
   otherBundleHost,
   otherHostOnly,
   planBundle as planBundleWith,
+  planSkillDownload,
   pluginName,
   unrecognizedReport,
   type PlanEntry,
@@ -32,6 +33,9 @@ const entry = (over: Partial<PlanEntry> = {}): PlanEntry => ({
   name: 'drive-pr-home',
   class: 'never-exported',
   renderedBody: '---\nname: drive-pr-home\ndescription: x\n---\n\nbody\n',
+  // Every EXPORT entry carries an exportPlan (schema: "Present only for
+  // EXPORT"), so a legal fixture does too.
+  exportPlan: { action: 'WRITE', reasons: [] },
   findings: [],
   ...over,
 });
@@ -260,5 +264,71 @@ describe('unrecognizedReport — export keys no host reads (server#1296)', () =>
     expect(rows).toEqual([
       { name: 'Typo task', urn: 'hrn:node:acme.com:ops:tasks:typo', inDownload: false, keyCount: 12, messages: ['key "codex" names no skill host'] },
     ]);
+  });
+});
+
+describe('planSkillDownload — one task as one skill (#911)', () => {
+  it('is <name>.zip holding the skill FOLDER, the server body verbatim — the same for both hosts', () => {
+    for (const host of ['claudeSkill', 'codexSkill'] as const) {
+      const d = planSkillDownload(entry(), host);
+      expect(d.filename).toBe('drive-pr-home.zip');
+      expect(d.files).toEqual({ 'drive-pr-home/SKILL.md': entry().renderedBody });
+      expect(d.reasons).toEqual([]);
+    }
+  });
+
+  it('ships nothing, and says so, when the plan has no entry for the task', () => {
+    const d = planSkillDownload(undefined, 'codexSkill');
+    expect(d).toEqual({ files: {}, filename: null, reasons: [expect.stringContaining('no Codex entry')] });
+  });
+
+  it('ships nothing for a switched-off export, even with a body', () => {
+    const d = planSkillDownload(entry({ class: 'disabled' }), 'claudeSkill');
+    expect(d.filename).toBeNull();
+    expect(d.reasons).toEqual([expect.stringContaining('Claude export is switched off')]);
+  });
+
+  it('prefers the server\'s own words for a switched-off export, when it gave any (@copilot on #912)', () => {
+    const d = planSkillDownload(
+      entry({ class: 'disabled', exportPlan: { action: 'SKIP', reasons: [{ code: 'disabled', message: 'Export is disabled for claudeSkill.' }] } }),
+      'claudeSkill',
+    );
+    expect(d).toEqual({ files: {}, filename: null, reasons: ['Export is disabled for claudeSkill.'] });
+  });
+
+  it('gives the server\'s own reasons when it withheld the body', () => {
+    const d = planSkillDownload(
+      entry({ renderedBody: null, findings: [
+        { rule: 'skill-description-missing', severity: 'error', message: 'needs a description' },
+        { rule: 'w', severity: 'warning', message: 'just a warning' },
+      ] }),
+      'claudeSkill',
+    );
+    expect(d).toEqual({ files: {}, filename: null, reasons: ['needs a description'] });
+  });
+
+  it('does not ship a body the server did not plan to WRITE', () => {
+    const d = planSkillDownload(
+      entry({ exportPlan: { action: 'SKIP', reasons: [{ code: 'collision', message: 'Another node claims this name.' }] } }),
+      'claudeSkill',
+    );
+    expect(d).toEqual({ files: {}, filename: null, reasons: ['Another node claims this name.'] });
+  });
+
+  it('ships nothing when the entry has NO planned action — a broken response is not permission (@copilot on #912)', () => {
+    const d = planSkillDownload(entry({ exportPlan: null }), 'claudeSkill');
+    expect(d.filename).toBeNull();
+    expect(d.reasons).toEqual([expect.stringContaining('Not exportable')]);
+    // The org download applies the same rule: it is one shared verdict.
+    const b = planBundle([entry({ exportPlan: undefined })], 'codexSkill', 'Acme');
+    expect(b.files).toEqual({});
+    expect(b.skipped).toHaveLength(1);
+  });
+
+  it('never turns a name outside the grammar into a path', () => {
+    const d = planSkillDownload(entry({ name: '../../etc', renderedBody: 'x' }), 'codexSkill');
+    expect(d.files).toEqual({});
+    expect(d.filename).toBeNull();
+    expect(d.reasons).toEqual([expect.stringContaining('not a valid skill name')]);
   });
 });
