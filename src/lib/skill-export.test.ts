@@ -738,6 +738,8 @@ describe('taskExportNote — a checked row names its skill (Holger, 2026-09-25)'
 
   it('falls back to the host note when the declaration has no name, and says nothing for an unchecked row', () => {
     expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ name: '' }) } }))).toBe('Claude only');
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ name: '  ' }) } }))).toBe('Claude only');
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ name: ' x ' }) } }))).toBe('x');
     expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ name: '' }), codexSkill: decl({ name: '' }) } }))).toBe('');
     expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ enable: false }), codexSkill: decl({ enable: false }) } }))).toBe('');
   });

@@ -659,7 +659,10 @@ export function taskExportNote(s: TaskExport): string {
   if (s.kind === 'on') {
     // A checked row names the skill it exports (Holger, 2026-09-25). A
     // one-host export keeps saying so, in the link's title, not in the text.
-    if (s.skillName) return s.skillName;
+    // Trimmed, as declarationProblems judges a name: a whitespace-only name is
+    // no name, and would otherwise render as a blank note (@copilot on #920).
+    const name = s.skillName.trim();
+    if (name) return name;
     if (SKILL_HOSTS.some((h) => !s.hosts.includes(h))) {
       return t('tasks.export.only', '{hosts} only', { hosts: s.hosts.map(hostLabel).join(', ') });
     }
