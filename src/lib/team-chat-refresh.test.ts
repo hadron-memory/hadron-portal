@@ -83,6 +83,7 @@ function msg(seq: number, over: Partial<TeamChatMessage> = {}): TeamChatMessage 
     sessionId: null,
     replyToSeq: null,
     mentions: [],
+    urn: null,
     ...over,
   };
 }

@@ -11,13 +11,14 @@
     type UrnType,
     type V2UrnType,
   } from '$lib/urn/parse-urn';
+  import { t } from '$lib/i18n/t';
 
   type UrnTypeHint = UrnType | V2UrnType;
 
   const V2_TYPE_HINTS = new Set<string>([...V2_URN_TYPES, 'memory']);
   const DISPLAY_TYPE_HINTS = new Set<string>(DISPLAY_URN_TYPES);
 
-  let { value, type, size = 12, compact = false, linked = false, copyUrl: showCopyUrl = true }: {
+  let { value, type, size = 12, compact = false, linked = false, copyUrl: showCopyUrl = true, label }: {
     value: string;
     type?: UrnTypeHint;
     size?: number;
@@ -50,7 +51,18 @@
      * on an error page rather than the file (PR #705 review, codex P2).
      */
     copyUrl?: boolean;
+    /**
+     * What this URN IS, for the copy buttons' accessible names ("Copy message
+     * URN" rather than "Copy URN"). Pass it wherever two chips share a row:
+     * otherwise a screen-reader user hears two identical buttons and cannot
+     * tell which address each copies (@codex on #917). Already localised by
+     * the caller. Omitted, the names stay "Copy URN" / "Copy URL".
+     */
+    label?: string;
   } = $props();
+
+  const copyUrnName = $derived(label ? t('urn.copy-labelled', 'Copy {label} URN', { label }) : 'Copy URN');
+  const copyUrlName = $derived(label ? t('urn.copy-url-labelled', 'Copy {label} URL', { label }) : 'Copy URL');
 
   let copied = $state(false);
   let urlCopied = $state(false);
@@ -162,7 +174,7 @@
       <span class="min-w-0 truncate bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200" title={displayFullUrn}>{bareValue}</span>
     {/if}
   </svelte:element>
-  <button onclick={copy} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URN" aria-label="Copy URN">
+  <button onclick={copy} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={copyUrnName} aria-label={copyUrnName}>
     {#if copied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
@@ -170,7 +182,7 @@
     {/if}
   </button>
   {#if showCopyUrl}
-  <button onclick={copyUrl} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy URL" aria-label="Copy URL">
+  <button onclick={copyUrl} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={copyUrlName} aria-label={copyUrlName}>
     {#if urlCopied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}

@@ -202,6 +202,14 @@ export interface TeamChatMessage {
   replyToSeq: number | null;
   /** Extracted server-side at write time. The portal never parses bodies. */
   mentions: string[];
+  /**
+   * The message node's canonical URN, `hrn:node:<memory>:<loc>`
+   * (server#1209), composed server-side: a message loc carries a random
+   * component, so the portal can never rebuild it from the chat and the seq.
+   * NULL by contract when the address would not resolve back to this message;
+   * the thread then shows nothing, never a guessed address.
+   */
+  urn: string | null;
 }
 
 /**

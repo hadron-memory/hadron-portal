@@ -27,6 +27,7 @@ function msg(over: Partial<TeamChatMessage> = {}): TeamChatMessage {
     sessionId: null,
     replyToSeq: null,
     mentions: [],
+    urn: null,
     ...over,
   };
 }

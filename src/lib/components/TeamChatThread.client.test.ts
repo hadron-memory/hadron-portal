@@ -30,18 +30,22 @@ const message = (seq: number, over: Partial<TeamChatMessage>): TeamChatMessage =
   sessionId: null,
   replyToSeq: null,
   mentions: [],
+  urn: null,
   ...over,
 });
 
-async function mountThread(workerUrns: ReadonlyMap<string, string> | null) {
+async function mountThread(
+  workerUrns: ReadonlyMap<string, string> | null,
+  messages: TeamChatMessage[] = [
+    message(1, { authorWorkerId: 'w1', authorName: 'Dara' }),
+    message(2, { authorUserId: 'u1', authorName: 'holger' }),
+  ],
+) {
   setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
   const postForm = await superValidate(zod4(postTeamChatMessageSchema), { errors: false });
   const m = mountComponent(TeamChatThread as never, {
-    messages: [
-      message(1, { authorWorkerId: 'w1', authorName: 'Dara' }),
-      message(2, { authorUserId: 'u1', authorName: 'holger' }),
-    ],
-    total: 2,
+    messages,
+    total: messages.length,
     postForm,
     workerUrns,
   } as never) as Mounted<Record<string, unknown>>;
@@ -95,5 +99,53 @@ describe('TeamChatThread — the URN slot (#855)', () => {
     // The chip itself is a real link, reachable by Tab, to the URN resolver —
     // which redirects to the worker's profile.
     expect(slot.querySelector('a')!.getAttribute('href')).toBe(`/app/u/${DARA}`);
+  });
+});
+
+describe('TeamChatThread — the message\'s own URN (#855, server#1209)', () => {
+  const MSG1 = 'hrn:node:acme.com:team-shared:chats:team:messages:0001-k3x9';
+  const MSG2 = 'hrn:node:acme.com:team-shared:chats:team:messages:0002-p7qa';
+  const withUrns = () => [
+    message(1, { authorWorkerId: 'w1', authorName: 'Dara', urn: MSG1 }),
+    message(2, { authorUserId: 'u1', authorName: 'holger', urn: MSG2 }),
+    message(3, { authorWorkerId: 'w1', authorName: 'Dara', urn: null }),
+  ];
+  const chip = (row: HTMLElement, which: 'message' | 'author') =>
+    row.querySelector(`[data-testid="team-chat-urns"] [data-testid="team-chat-${which}-urn"]`);
+
+  it('shows the message chip beside the worker author\'s, each a link to the URN resolver', async () => {
+    const { target } = await mountThread(new Map([['w1', DARA]]), withUrns());
+    const row = rowOf(target, 1);
+    expect(chip(row, 'message')!.querySelector('a')!.getAttribute('href')).toBe(`/app/u/${MSG1}`);
+    expect(chip(row, 'author')!.querySelector('a')!.getAttribute('href')).toBe(`/app/u/${DARA}`);
+  });
+
+  it('names each chip\'s copy buttons for what they copy — two identical "Copy URN" buttons are indistinguishable (@codex on #917)', async () => {
+    const { target } = await mountThread(new Map([['w1', DARA]]), withUrns());
+    const names = [...rowOf(target, 1).querySelectorAll('[data-testid="team-chat-urns"] button')].map((b) => b.getAttribute('aria-label'));
+    expect(names).toEqual(['Copy message URN', 'Copy message URL', 'Copy author URN', 'Copy author URL']);
+  });
+
+  it('gives a HUMAN\'s message its own chip too — the slot no longer needs a worker author', async () => {
+    const { target } = await mountThread(new Map([['w1', DARA]]), withUrns());
+    const row = rowOf(target, 2);
+    expect(chip(row, 'message')!.textContent).toContain('0002-p7qa');
+    expect(chip(row, 'author')).toBeNull();
+  });
+
+  it('renders no message chip for a null URN — absent, never empty or guessed', async () => {
+    const { target } = await mountThread(new Map([['w1', DARA]]), withUrns());
+    const row = rowOf(target, 3);
+    // Positive control: the slot rendered, for the author.
+    expect(chip(row, 'author')).not.toBeNull();
+    expect(chip(row, 'message')).toBeNull();
+  });
+
+  it('still shows the message chip when the roster failed to load', async () => {
+    const { target } = await mountThread(null, withUrns());
+    expect(chip(rowOf(target, 1), 'message')).not.toBeNull();
+    expect(chip(rowOf(target, 1), 'author')).toBeNull();
+    // No URN of either kind: no slot at all.
+    expect(rowOf(target, 3).querySelector('[data-testid="team-chat-urns"]')).toBeNull();
   });
 });

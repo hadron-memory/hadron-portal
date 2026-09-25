@@ -153,3 +153,15 @@ describe('Urn.svelte — linked chip (#826)', () => {
     expect(body).toContain(`href="/app/u/${WORKER}"`);
   });
 });
+
+describe('Urn — a labelled chip names its copy buttons (@codex on #917)', () => {
+  it('says WHAT it copies when given a label, and keeps the plain names without one', () => {
+    const labelled = render(Urn, { props: { value: 'hrn:node:acme.com:ops:x', label: 'message' } }).body;
+    expect(labelled).toContain('aria-label="Copy message URN"');
+    expect(labelled).toContain('aria-label="Copy message URL"');
+    expect(labelled).not.toContain('aria-label="Copy URN"');
+    const plain = render(Urn, { props: { value: 'hrn:node:acme.com:ops:x' } }).body;
+    expect(plain).toContain('aria-label="Copy URN"');
+    expect(plain).toContain('aria-label="Copy URL"');
+  });
+});

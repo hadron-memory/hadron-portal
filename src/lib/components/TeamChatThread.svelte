@@ -685,7 +685,7 @@
                    and scrolling it sideways (measured at 375px: 383px of
                    content in a 199px header). -->
               <span class="ml-auto flex min-w-0 max-w-full items-center gap-2">
-                {#if authorUrn}
+                {#if msg.urn || authorUrn}
                   <!-- #855: the URN slot. Hover-revealed like ChatThread's
                        message chip, and revealed by keyboard focus too
                        (group-focus-within): the chip's link and copy buttons
@@ -693,13 +693,19 @@
                        lands on invisible controls. On a device that cannot
                        hover (touch), it is simply shown: a tap cannot target a
                        transparent, pointer-events-none control (@codex on #908).
-                       Holds the author's URN now; the message's own URN joins
-                       it when hadron-server#1209 adds TeamChatMessage.urn. -->
+                       It holds the message's own URN (server#1209) and, for a
+                       worker author, the author's. Either may be absent, never
+                       an empty chip; with neither, there is no slot. -->
                   <span
                     data-testid="team-chat-urns"
                     class="pointer-events-none flex min-w-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
                   >
-                    <Urn value={authorUrn} type="worker" size={8} linked />
+                    {#if msg.urn}
+                      <span data-testid="team-chat-message-urn" class="flex min-w-0"><Urn value={msg.urn} type="node" size={8} linked label={t('app.team-chat.urn.message', 'message')} /></span>
+                    {/if}
+                    {#if authorUrn}
+                      <span data-testid="team-chat-author-urn" class="flex min-w-0"><Urn value={authorUrn} type="worker" size={8} linked label={t('app.team-chat.urn.author', 'author')} /></span>
+                    {/if}
                   </span>
                 {/if}
                 <button

@@ -1,4 +1,4 @@
-# Exported from hadron-server 563de5eab3f95ea6000f41ac87c6253ab8adcd02 (origin/main, 2026-09-24T08:47:36-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 2d08dd42e6edb3a221cf27a6d10cbfa327ca3d13 (origin/main, 2026-09-24T19:21:19-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -6868,6 +6868,9 @@ type Query {
 
   """
   Fetch a single Memory (org member, shared-read gate, or platform ADMIN).
+  Missing and unreadable refs both return null without an error, so a caller
+  cannot use this field to test whether a private memory exists. Malformed
+  refs still fail as caller errors, and operational faults still propagate.
   
   'ref' accepts the entity's ID or URN.
   """
@@ -8813,6 +8816,18 @@ type TeamChatMessage {
 
   """The session driving the worker author, when posted via sessionRef."""
   sessionId: ID
+
+  """
+  The message node's canonical URN, hrn:node:<memory>:<loc> (#1209), so a
+  client can cite a message in a CLI call, an MCP tool or a reply. Composed
+  server-side: a message loc carries a random component, so the chat root and
+  the seq do not reconstruct it. Null when the address would not resolve back
+  to this message: the host memory's stored URN or the loc cannot be emitted
+  in the flat grammar-v2 shape, or the memory URN is a pre-v2 compound one
+  (e.g. a legacy team space). A client shows nothing then, never a guessed
+  address (the Worker.urn / Channel.urn contract).
+  """
+  urn: String
 }
 
 type TeamChatMessagesPage {
