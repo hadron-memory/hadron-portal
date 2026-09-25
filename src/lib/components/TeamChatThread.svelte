@@ -608,14 +608,19 @@
         {/if}
         <div class="group flex gap-3">
           <!-- The avatar links to the same profile as the author's name, when
-               there is one. The name link is the accessible one; this is a
-               pointer convenience, so it is out of the tab order and hidden from
-               assistive tech rather than announced as a second, identical link. -->
+               there is one. It is a larger pointer target, so it stays out of
+               the TAB order (the name link is the keyboard stop), but it is NOT
+               aria-hidden: a clicked link can take focus even at tabindex=-1,
+               and focus on an aria-hidden element leaves assistive tech with
+               nothing to announce (@codex on #918). So it carries its own
+               accessible name instead. -->
           {#if authorHref}
             <a
               href={authorHref}
               tabindex="-1"
-              aria-hidden="true"
+              aria-label={kind === 'worker'
+                ? t('app.team-chat.avatar.worker.link', 'Open {name}’s worker profile', { name: label })
+                : t('app.team-chat.avatar.human.link', 'Open {name}’s profile', { name: label })}
               data-testid="team-chat-avatar-link"
               class="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full hover:opacity-80 {avatarColorOf(label)}"
             >

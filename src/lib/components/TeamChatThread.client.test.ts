@@ -186,11 +186,14 @@ describe('TeamChatThread — the avatar links to the author\'s profile (Holger o
     }
   });
 
-  it('is not a second stop for keyboard or screen-reader users: the name link is the accessible one', async () => {
+  it('is out of the tab order, but never aria-hidden: a clicked link can take focus (@codex on #918)', async () => {
     const { target } = await mountThread(new Map([['w1', DARA]]));
-    const a = avatar(rowOf(target, 1))!;
-    expect(a.getAttribute('tabindex')).toBe('-1');
-    expect(a.getAttribute('aria-hidden')).toBe('true');
+    const worker = avatar(rowOf(target, 1))!;
+    expect(worker.getAttribute('tabindex')).toBe('-1');
+    expect(worker.hasAttribute('aria-hidden')).toBe(false);
+    // So it carries its own accessible name, saying whose profile it opens.
+    expect(worker.getAttribute('aria-label')).toBe('Open Dara’s worker profile');
+    expect(avatar(rowOf(target, 2))!.getAttribute('aria-label')).toBe('Open holger’s profile');
   });
 
   it('is plain, not a link, for an author with no id to link with', async () => {
