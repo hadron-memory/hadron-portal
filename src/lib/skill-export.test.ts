@@ -14,6 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   activeExportHosts,
+  capCodePoints,
   skillExportMenuHosts,
   CLAUDE_SKILL_HOST,
   CODEX_HOST,
@@ -34,6 +35,7 @@ import {
   rowExportState,
   taskExport,
   taskExportNote,
+  taskExportPartialNote,
   taskExportSearchText,
   taskExportUnknownNote,
   toggleSkillExport,
@@ -608,7 +610,7 @@ describe('unknown export keys on a Task Nodes row (server#1296)', () => {
   });
 
   it('a row with no unknown key is exactly what it was — no `unknown` field at all', () => {
-    expect(taskExport({ exports: { claudeSkill: decl() } })).toEqual({ kind: 'on', hosts: ['claudeSkill'] });
+    expect(taskExport({ exports: { claudeSkill: decl() } })).toEqual({ kind: 'on', hosts: ['claudeSkill'], skillName: 'hadron-x' });
     expect(taskExportUnknownNote({ kind: 'none' })).toBe('');
   });
 
@@ -616,8 +618,8 @@ describe('unknown export keys on a Task Nodes row (server#1296)', () => {
     const s = taskExport({ exports: { claudeSkill: decl(), a: 1, b: 1, c: 1, d: 1 } });
     expect(taskExportUnknownNote(s)).toBe('4 unused keys: "a", "b", "c", …');
     expect(taskExportUnknownNote(taskExport({ exports: { a: 1, b: 1 } }))).toBe('2 unused keys: "a", "b"');
-    // Both notes are searchable: the host note and the unused-key note.
-    expect(taskExportSearchText(s)).toBe('Claude only 4 unused keys: "a", "b", "c", …');
+    // Every note is searchable: the skill name, the missing host, and the unused keys.
+    expect(taskExportSearchText(s)).toBe('hadron-x Not exported for Codex. Change it on the node. 4 unused keys: "a", "b", "c", …');
   });
 
   it('checking the box leaves the unknown key where it is — the note says to fix it on the node', () => {
@@ -671,9 +673,10 @@ describe('#906 — a Task Nodes row declared by a retired top-level key', () => 
     expect(taskExport({ skill: decl(), exports: { claudeSkill: decl(), codexSkill: decl() } })).toEqual({
       kind: 'on',
       hosts: ['claudeSkill', 'codexSkill'],
+      skillName: 'hadron-x',
     });
     // A row with no legacy key is exactly what it was.
-    expect(taskExport({ exports: { claudeSkill: decl() } })).toEqual({ kind: 'on', hosts: ['claudeSkill'] });
+    expect(taskExport({ exports: { claudeSkill: decl() } })).toEqual({ kind: 'on', hosts: ['claudeSkill'], skillName: 'hadron-x' });
   });
 
   it('says so, and is found by that text; an unused-key note still comes along', () => {
@@ -722,5 +725,76 @@ describe('#911 — which hosts the node menu\'s "Export as skill" offers', () =>
     expect(skillExportMenuHosts({ isRunnable: false, properties: props })).toEqual([]);
     expect(skillExportMenuHosts({ isRunnable: null, properties: props })).toEqual([]);
     expect(skillExportMenuHosts({ isRunnable: true, properties: { exports: { claudeSkill: off } } })).toEqual([]);
+  });
+});
+
+describe('taskExportNote — a checked row names its skill (Holger, 2026-09-25)', () => {
+  it('is the declared skill name, for every host coverage', () => {
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl(), codexSkill: decl() } }))).toBe('hadron-x');
+    expect(taskExportNote(taskExport({ exports: { codexSkill: decl() } }))).toBe('hadron-x');
+  });
+
+  it('is searchable by that name, and by the host a one-host export leaves out (@codex on #920)', () => {
+    expect(taskExportSearchText(taskExport({ exports: { claudeSkill: decl({ name: 'drive-pr-home' }) } }))).toBe(
+      'drive-pr-home Not exported for Codex. Change it on the node.',
+    );
+    // Both hosts: nothing left out, so only the name.
+    expect(
+      taskExportSearchText(taskExport({ exports: { claudeSkill: decl({ name: 'drive-pr-home' }), codexSkill: decl({ name: 'drive-pr-home' }) } })),
+    ).toBe('drive-pr-home');
+    expect(taskExportPartialNote({ kind: 'off' })).toBe('');
+  });
+
+  it('falls back to the host note when the declaration has no name, and says nothing for an unchecked row', () => {
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ name: '' }) } }))).toBe('Claude only');
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ name: '  ' }) } }))).toBe('Claude only');
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ name: ' x ' }) } }))).toBe('x');
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ name: '' }), codexSkill: decl({ name: '' }) } }))).toBe('');
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ enable: false }), codexSkill: decl({ enable: false }) } }))).toBe('');
+  });
+});
+
+describe('taskExport — the skill name is bounded before it reaches the page (@codex on #920)', () => {
+  const nameOf = (name: string) => {
+    const s = taskExport({ exports: { claudeSkill: decl({ name }) } });
+    return s.kind === 'on' ? s.skillName : null;
+  };
+
+  it('passes a name within the grammar limit through unchanged', () => {
+    const at = 'a'.repeat(NAME_MAX);
+    expect(nameOf(at)).toBe(at);
+  });
+
+  it('caps an over-long hand-written name at NAME_MAX code points, ending in an ellipsis', () => {
+    const got = nameOf('x'.repeat(100_000))!;
+    expect(Array.from(got)).toHaveLength(NAME_MAX);
+    expect(got.endsWith('…')).toBe(true);
+  });
+
+  it('never cuts an emoji in half', () => {
+    const got = nameOf('😀'.repeat(NAME_MAX + 5))!;
+    expect(Array.from(got)).toHaveLength(NAME_MAX);
+    expect(got).not.toContain('\uFFFD');
+    expect(got.slice(0, -1)).toBe('😀'.repeat(NAME_MAX - 1));
+  });
+});
+
+describe('capCodePoints — bounded without materialising the input (@codex on #920)', () => {
+  it('keeps a string at the limit, and cuts one past it to max - 1 plus an ellipsis', () => {
+    expect(capCodePoints('abcd', 4)).toBe('abcd');
+    expect(capCodePoints('abcde', 4)).toBe('abc…');
+    expect(capCodePoints('', 4)).toBe('');
+  });
+
+  it('counts code points, so a surrogate pair is one and never split', () => {
+    expect(capCodePoints('😀😀😀😀', 4)).toBe('😀😀😀😀');
+    expect(capCodePoints('😀😀😀😀😀', 4)).toBe('😀😀😀…');
+  });
+
+  it('returns the capped value for a very large input', () => {
+    // The bound on WORK is by construction (the loop returns one code point
+    // past the limit), which a unit test cannot observe on a real string;
+    // this pins the result on an input where materialising it would hurt.
+    expect(Array.from(capCodePoints('y'.repeat(5_000_000), 64))).toHaveLength(64);
   });
 });

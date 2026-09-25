@@ -10,7 +10,7 @@
   // The action re-reads the node and computes the write from the STORED
   // properties; this component never sends a properties bag.
   import { enhance } from '$app/forms';
-  import { SKILL_HOSTS, exportKeyList, hostLabel, taskExportNote, taskExportUnknownNote, type TaskExport } from '$lib/skill-export';
+  import { SKILL_HOSTS, exportKeyList, hostLabel, taskExportNote, taskExportPartialNote, taskExportUnknownNote, type TaskExport } from '$lib/skill-export';
   import { t } from '$lib/i18n/t';
   import { saveSettled, saveStarted } from '$lib/skill-export-saves.svelte';
 
@@ -38,6 +38,8 @@
   // The same string the grid searches (`taskExportNote`), so what the row
   // shows is exactly what the search box finds it by.
   const note = $derived(taskExportNote(exportState));
+  // Derived by the same helper the grid searches (@codex on #920).
+  const partialText = $derived(taskExportPartialNote(exportState));
   // server#1296: shown in EVERY state, the unchecked one above all — a task
   // declared only under a key no host reads is `none`, and this note is the
   // one place on the list that says why it is not exported.
@@ -87,7 +89,7 @@
   <form
     method="POST"
     action="?/setExport"
-    class="flex items-center gap-2"
+    class="flex min-w-0 max-w-full items-center gap-2"
     use:enhance={({ formElement }) => {
       pending = true;
       failure = null;
@@ -128,13 +130,22 @@
       onchange={(e) => e.currentTarget.form?.requestSubmit()}
     />
     {#if on && missingHosts.length > 0}
+      <!-- Exported for some hosts only: the note (the skill name, when there
+           is one) links to the node. Which host is left out is in the title
+           for a pointer, and in visually hidden text for assistive tech,
+           since a title alone is unreliable there and unreachable on touch
+           (@codex on #920). Truncated to the column; the full name is in the
+           title (a long name otherwise paints over the next column). -->
       <a
         href={editHref}
-        class="text-xs text-zinc-500 hover:underline"
-        title={t('tasks.export.partial-title', 'Not exported for {hosts}. Change it on the node.', {
-          hosts: missingHosts.map(hostLabel).join(', '),
-        })}
-      >{note}</a>
+        data-testid="task-export-note"
+        class="min-w-0 truncate text-xs text-zinc-500 hover:underline"
+        title="{note} — {partialText}"
+      >{note}<span class="sr-only">{` — ${partialText}`}</span></a>
+    {:else if on && note}
+      <span data-testid="task-export-note" class="min-w-0 truncate font-mono text-xs text-zinc-500 dark:text-zinc-400" title={note}
+        >{note}</span
+      >
     {/if}
   </form>
   {#if failure}

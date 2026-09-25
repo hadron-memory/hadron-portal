@@ -122,7 +122,7 @@ describe('org tasks load() — #879 export state', () => {
     route({ memories: [{ id: 'mem-1' }], nodes: [withExport, node('n2', 'tasks:two')] });
     const load = await importLoad();
     const result = (await load(ev())) as { tasks: Array<Record<string, unknown>> };
-    expect(result.tasks[0].export).toEqual({ kind: 'on', hosts: ['claudeSkill'] });
+    expect(result.tasks[0].export).toEqual({ kind: 'on', hosts: ['claudeSkill'], skillName: 'one' });
     expect(result.tasks[1].export).toEqual({ kind: 'none' });
     expect(JSON.stringify(result.tasks)).not.toContain('not for the page');
     expect(result.tasks[0]).not.toHaveProperty('properties');

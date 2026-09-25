@@ -534,7 +534,17 @@ export type TaskExport = (
    * override it — so it is shown with no checkbox, like `divergent`.
    */
   | { kind: 'none' | 'off' | 'divergent' | 'legacy' }
-  | { kind: 'on'; hosts: string[] }
+  | {
+      kind: 'on';
+      hosts: string[];
+      /**
+       * The declared skill name, what the row shows beside a checked box
+       * (Holger, 2026-09-25): the one name the hosts share, since a row whose
+       * hosts disagree is `divergent`. May be '' for a hand-written
+       * declaration that never set one; the row then falls back to its note.
+       */
+      skillName: string;
+    }
 ) & {
   /** server#1296: keys under `exports` that name no host. Absent when there are none. */
   unknown?: UnknownExportKeys;
@@ -570,8 +580,7 @@ export function unknownExportKeys(properties: unknown): UnknownExportKeys | null
       // By code point, as `codePoints` counts: a UTF-16 slice can cut an
       // emoji in half and render a replacement character.
       .map((k) => {
-        const cps = Array.from(k);
-        const shown = cps.length > UNKNOWN_KEY_CHARS ? `${cps.slice(0, UNKNOWN_KEY_CHARS - 1).join('')}…` : k;
+        const shown = capCodePoints(k, UNKNOWN_KEY_CHARS);
         // Quoted and escaped, as the server's own warnings quote the key:
         // an empty key would otherwise render as nothing at all, and a comma
         // or line break inside one would read as two keys (@codex on #903).
@@ -580,12 +589,39 @@ export function unknownExportKeys(properties: unknown): UnknownExportKeys | null
   };
 }
 
+/**
+ * The declared name as it may reach the page (@codex on #920): the name is
+ * writer-controlled and a hand-written one can be any length, while the
+ * Task Nodes payload carries up to 500 rows. Capped at the skill-name
+ * grammar's own limit (NAME_MAX), by code point as `codePoints` counts, so an
+ * emoji is never cut in half; a cut name ends in "…", which also says the
+ * stored name is over the limit.
+ */
+function boundedSkillName(name: string): string {
+  return capCodePoints(name, NAME_MAX);
+}
+
+/**
+ * `s` if it has at most `max` code points, else its first `max - 1` and "…".
+ * Iterates, and stops one code point past the limit: the input is
+ * writer-controlled, and `Array.from` on it would materialise every code
+ * point of an arbitrarily large string just to keep a few (@codex on #920).
+ */
+export function capCodePoints(s: string, max: number): string {
+  const kept: string[] = [];
+  for (const cp of s) {
+    if (kept.length === max) return `${kept.slice(0, max - 1).join('')}…`;
+    kept.push(cp);
+  }
+  return s;
+}
+
 export function taskExport(properties: unknown): TaskExport {
   const s = rowExportState(properties);
   const base: TaskExport = legacySuppliesClaude(properties)
     ? { kind: 'legacy' }
     : s.kind === 'on'
-      ? { kind: 'on', hosts: s.hosts }
+      ? { kind: 'on', hosts: s.hosts, skillName: boundedSkillName(s.declaration.name) }
       : { kind: s.kind };
   const unknown = unknownExportKeys(properties);
   return unknown ? { ...base, unknown } : base;
@@ -625,8 +661,23 @@ export function taskExportUnknownNote(s: TaskExport): string {
  * host note and the unused-key note together, so a row is found by either
  * (`hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable`).
  */
+/**
+ * A checked export that leaves a host out, said in words: the Task Nodes
+ * cell renders it as the link's title and as visually hidden text (@codex on
+ * #920), so it is derived HERE, once, for the cell and the grid's search
+ * alike. Empty for every other state.
+ */
+export function taskExportPartialNote(s: TaskExport): string {
+  if (s.kind !== 'on') return '';
+  const missing = SKILL_HOSTS.filter((h) => !s.hosts.includes(h));
+  if (missing.length === 0) return '';
+  return t('tasks.export.partial-title', 'Not exported for {hosts}. Change it on the node.', {
+    hosts: missing.map(hostLabel).join(', '),
+  });
+}
+
 export function taskExportSearchText(s: TaskExport): string {
-  return [taskExportNote(s), taskExportUnknownNote(s)].filter(Boolean).join(' ');
+  return [taskExportNote(s), taskExportPartialNote(s), taskExportUnknownNote(s)].filter(Boolean).join(' ');
 }
 
 const HOST_LABELS: Record<string, string> = { [CLAUDE_SKILL_HOST]: 'Claude', [CODEX_HOST]: 'Codex' };
@@ -646,8 +697,16 @@ export function hostLabel(host: string): string {
 export function taskExportNote(s: TaskExport): string {
   if (s.kind === 'divergent') return t('tasks.export.divergent', 'Differs per host');
   if (s.kind === 'legacy') return t('tasks.export.legacy', 'Older export setting');
-  if (s.kind === 'on' && SKILL_HOSTS.some((h) => !s.hosts.includes(h))) {
-    return t('tasks.export.only', '{hosts} only', { hosts: s.hosts.map(hostLabel).join(', ') });
+  if (s.kind === 'on') {
+    // A checked row names the skill it exports (Holger, 2026-09-25). A
+    // one-host export keeps saying so, in the link's title, not in the text.
+    // Trimmed, as declarationProblems judges a name: a whitespace-only name is
+    // no name, and would otherwise render as a blank note (@copilot on #920).
+    const name = s.skillName.trim();
+    if (name) return name;
+    if (SKILL_HOSTS.some((h) => !s.hosts.includes(h))) {
+      return t('tasks.export.only', '{hosts} only', { hosts: s.hosts.map(hostLabel).join(', ') });
+    }
   }
   return '';
 }

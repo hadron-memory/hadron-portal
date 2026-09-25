@@ -44,7 +44,7 @@ describe('TaskExportToggle — what the row submits', () => {
   });
 
   it('a checked row asks to turn it OFF', async () => {
-    const { target } = row({ ...base, nodeId: 'n2', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'] } });
+    const { target } = row({ ...base, nodeId: 'n2', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'], skillName: 'drive-pr-home' } });
     await tick();
     expect(submitted(target)).toEqual({ nodeId: 'n2', enable: 'false' });
     expect(target.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
@@ -52,7 +52,7 @@ describe('TaskExportToggle — what the row submits', () => {
 
   it('many rows are many forms — each carries only its own node', async () => {
     const a = row({ ...base, nodeId: 'a', exportState: { kind: 'off' } });
-    const b = row({ ...base, nodeId: 'b', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'] } });
+    const b = row({ ...base, nodeId: 'b', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'], skillName: 'drive-pr-home' } });
     await tick();
     expect(submitted(a.target)).toEqual({ nodeId: 'a', enable: 'true' });
     expect(submitted(b.target)).toEqual({ nodeId: 'b', enable: 'false' });
@@ -65,7 +65,7 @@ describe('TaskExportToggle — what the row submits', () => {
     const { target } = row(props);
     await tick();
     expect(submitted(target).enable).toBe('true');
-    props.exportState = { kind: 'on', hosts: ['claudeSkill', 'codexSkill'] };
+    props.exportState = { kind: 'on', hosts: ['claudeSkill', 'codexSkill'], skillName: 'drive-pr-home' };
     await tick();
     expect(submitted(target).enable).toBe('false');
   });
@@ -82,17 +82,65 @@ describe('TaskExportToggle — states the checkbox must not flatten', () => {
     expect(link.textContent).toBe('Differs per host');
   });
 
-  it('a single-host export stays checkable, and says which host it covers', async () => {
-    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill'] } });
+  const note = (t: HTMLElement) => t.querySelector('[data-testid="task-export-note"]');
+  /** What a sighted reader sees: the note without its visually hidden text. */
+  const visible = (el: Element) => [...el.childNodes].filter((n) => !(n instanceof Element && n.classList.contains('sr-only'))).map((n) => n.textContent).join('');
+
+  it('a checked row shows the SKILL NAME, not the hosts (Holger, 2026-09-25)', async () => {
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'], skillName: 'drive-pr-home' } });
     await tick();
-    expect(submitted(target)).toEqual({ nodeId: 'n1', enable: 'false' });
-    expect(target.textContent).toContain('Claude only');
+    expect(note(target)!.textContent).toBe('drive-pr-home');
+    expect(target.textContent).not.toContain('only');
   });
 
-  it('a two-host export renders no note, so its search text is empty too', async () => {
-    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'] } });
+  it('treats a whitespace-only name as no name (@copilot on #920)', async () => {
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill'], skillName: '   ' } });
     await tick();
-    expect(target.textContent?.trim()).toBe('');
+    expect(note(target)!.textContent).toContain('Claude only');
+  });
+
+  it('a single-host export stays checkable, names its skill, and keeps the missing host in the link title', async () => {
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill'], skillName: 'drive-pr-home' } });
+    await tick();
+    expect(submitted(target)).toEqual({ nodeId: 'n1', enable: 'false' });
+    const link = note(target)!;
+    expect(link.tagName).toBe('A');
+    expect(visible(link)).toBe('drive-pr-home');
+    expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1/edit');
+    // The restriction: in the title for a pointer, and in visually hidden
+    // text for assistive tech (@codex on #920).
+    expect(link.getAttribute('title')).toBe('drive-pr-home — Not exported for Codex. Change it on the node.');
+    expect(link.querySelector('.sr-only')!.textContent).toBe(' — Not exported for Codex. Change it on the node.');
+    expect(target.textContent).not.toContain('Claude only');
+  });
+
+  it('keeps a long name inside the column: truncated, with the full name in the title (@codex on #920)', async () => {
+    const long = 'a'.repeat(64);
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'], skillName: long } });
+    await tick();
+    const n = note(target)!;
+    expect(n.className).toContain('truncate');
+    expect(n.className).toContain('min-w-0');
+    expect(n.getAttribute('title')).toBe(long);
+    // …and the row's form can shrink, or truncation never engages.
+    expect(n.closest('form')!.className).toMatch(/\bmin-w-0\b/);
+  });
+
+  it('a declaration with no name falls back to the host note', async () => {
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill'], skillName: '' } });
+    await tick();
+    expect(visible(note(target)!)).toBe('Claude only');
+    const both = row({ ...base, nodeId: 'n2', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'], skillName: '' } });
+    await tick();
+    // Nothing to name and nothing to qualify: no note at all, never an empty one.
+    expect(note(both.target)).toBeNull();
+  });
+
+  it('an unchecked row shows no name', async () => {
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'off' } });
+    await tick();
+    expect(submitted(target)).toEqual({ nodeId: 'n1', enable: 'true' });
+    expect(note(target)).toBeNull();
   });
 });
 
