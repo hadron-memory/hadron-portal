@@ -10,7 +10,7 @@
   // The action re-reads the node and computes the write from the STORED
   // properties; this component never sends a properties bag.
   import { enhance } from '$app/forms';
-  import { SKILL_HOSTS, exportKeyList, hostLabel, taskExportNote, taskExportUnknownNote, type TaskExport } from '$lib/skill-export';
+  import { SKILL_HOSTS, exportKeyList, hostLabel, taskExportNote, taskExportPartialNote, taskExportUnknownNote, type TaskExport } from '$lib/skill-export';
   import { t } from '$lib/i18n/t';
   import { saveSettled, saveStarted } from '$lib/skill-export-saves.svelte';
 
@@ -38,11 +38,8 @@
   // The same string the grid searches (`taskExportNote`), so what the row
   // shows is exactly what the search box finds it by.
   const note = $derived(taskExportNote(exportState));
-  const partialText = $derived(
-    t('tasks.export.partial-title', 'Not exported for {hosts}. Change it on the node.', {
-      hosts: missingHosts.map(hostLabel).join(', '),
-    }),
-  );
+  // Derived by the same helper the grid searches (@codex on #920).
+  const partialText = $derived(taskExportPartialNote(exportState));
   // server#1296: shown in EVERY state, the unchecked one above all — a task
   // declared only under a key no host reads is `none`, and this note is the
   // one place on the list that says why it is not exported.

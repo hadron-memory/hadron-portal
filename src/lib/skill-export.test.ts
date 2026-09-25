@@ -34,6 +34,7 @@ import {
   rowExportState,
   taskExport,
   taskExportNote,
+  taskExportPartialNote,
   taskExportSearchText,
   taskExportUnknownNote,
   toggleSkillExport,
@@ -616,8 +617,8 @@ describe('unknown export keys on a Task Nodes row (server#1296)', () => {
     const s = taskExport({ exports: { claudeSkill: decl(), a: 1, b: 1, c: 1, d: 1 } });
     expect(taskExportUnknownNote(s)).toBe('4 unused keys: "a", "b", "c", …');
     expect(taskExportUnknownNote(taskExport({ exports: { a: 1, b: 1 } }))).toBe('2 unused keys: "a", "b"');
-    // Both notes are searchable: the skill name and the unused-key note.
-    expect(taskExportSearchText(s)).toBe('hadron-x 4 unused keys: "a", "b", "c", …');
+    // Every note is searchable: the skill name, the missing host, and the unused keys.
+    expect(taskExportSearchText(s)).toBe('hadron-x Not exported for Codex. Change it on the node. 4 unused keys: "a", "b", "c", …');
   });
 
   it('checking the box leaves the unknown key where it is — the note says to fix it on the node', () => {
@@ -732,8 +733,15 @@ describe('taskExportNote — a checked row names its skill (Holger, 2026-09-25)'
     expect(taskExportNote(taskExport({ exports: { codexSkill: decl() } }))).toBe('hadron-x');
   });
 
-  it('is searchable by that name', () => {
-    expect(taskExportSearchText(taskExport({ exports: { claudeSkill: decl({ name: 'drive-pr-home' }) } }))).toBe('drive-pr-home');
+  it('is searchable by that name, and by the host a one-host export leaves out (@codex on #920)', () => {
+    expect(taskExportSearchText(taskExport({ exports: { claudeSkill: decl({ name: 'drive-pr-home' }) } }))).toBe(
+      'drive-pr-home Not exported for Codex. Change it on the node.',
+    );
+    // Both hosts: nothing left out, so only the name.
+    expect(
+      taskExportSearchText(taskExport({ exports: { claudeSkill: decl({ name: 'drive-pr-home' }), codexSkill: decl({ name: 'drive-pr-home' }) } })),
+    ).toBe('drive-pr-home');
+    expect(taskExportPartialNote({ kind: 'off' })).toBe('');
   });
 
   it('falls back to the host note when the declaration has no name, and says nothing for an unchecked row', () => {

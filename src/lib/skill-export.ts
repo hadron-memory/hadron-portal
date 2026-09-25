@@ -635,8 +635,23 @@ export function taskExportUnknownNote(s: TaskExport): string {
  * host note and the unused-key note together, so a row is found by either
  * (`hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable`).
  */
+/**
+ * A checked export that leaves a host out, said in words: the Task Nodes
+ * cell renders it as the link's title and as visually hidden text (@codex on
+ * #920), so it is derived HERE, once, for the cell and the grid's search
+ * alike. Empty for every other state.
+ */
+export function taskExportPartialNote(s: TaskExport): string {
+  if (s.kind !== 'on') return '';
+  const missing = SKILL_HOSTS.filter((h) => !s.hosts.includes(h));
+  if (missing.length === 0) return '';
+  return t('tasks.export.partial-title', 'Not exported for {hosts}. Change it on the node.', {
+    hosts: missing.map(hostLabel).join(', '),
+  });
+}
+
 export function taskExportSearchText(s: TaskExport): string {
-  return [taskExportNote(s), taskExportUnknownNote(s)].filter(Boolean).join(' ');
+  return [taskExportNote(s), taskExportPartialNote(s), taskExportUnknownNote(s)].filter(Boolean).join(' ');
 }
 
 const HOST_LABELS: Record<string, string> = { [CLAUDE_SKILL_HOST]: 'Claude', [CODEX_HOST]: 'Codex' };
